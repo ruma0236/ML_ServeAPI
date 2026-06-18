@@ -1,0 +1,162 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: evm-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mlflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mlflow}
+      POSTGRES_DB: ${POSTGRES_DB:-mlflow}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mlops-local
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: evm-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - mlops-local
+
+  minio-create-buckets:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    container_name: evm-minio-init
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MLFLOW_BUCKET: ${MLFLOW_BUCKET:-mlflow-artifacts}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; do
+        echo 'Waiting for MinIO...';
+        sleep 2;
+      done;
+      mc mb -p local/$${MLFLOW_BUCKET};
+      mc anonymous set none local/$${MLFLOW_BUCKET};
+      exit 0;
+      "
+    networks:
+      - mlops-local
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: infra/docker/mlflow/Dockerfile
+    container_name: evm-mlflow
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      MLFLOW_BUCKET: ${MLFLOW_BUCKET:-mlflow-artifacts}
+    command:
+      - mlflow
+      - server
+      - --backend-store-uri
+      - postgresql+psycopg2://${POSTGRES_USER:-mlflow}:${POSTGRES_PASSWORD:-mlflow}@postgres:5432/${POSTGRES_DB:-mlflow}
+      - --serve-artifacts
+      - --artifacts-destination
+      - s3://${MLFLOW_BUCKET:-mlflow-artifacts}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-create-buckets:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    networks:
+      - mlops-local
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: evm-api
+    environment:
+      APP_NAME: enterprise-vision-mlops-api
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: vision-baseline
+      MODEL_STAGE: Production
+    ports:
+      - "8000:8000"
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mlops-local
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: evm-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - mlops-local
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: evm-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - mlops-local
+
+networks:
+  mlops-local:
+    name: evm-local
+
+volumes:
+  postgres-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:

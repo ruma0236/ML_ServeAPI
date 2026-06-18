@@ -1,0 +1,25 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local data and runtime artifacts
+data/raw/*
+data/processed/*
+data/validated/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/validated/.gitkeep
+mlruns/
+artifacts/
+*.log
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

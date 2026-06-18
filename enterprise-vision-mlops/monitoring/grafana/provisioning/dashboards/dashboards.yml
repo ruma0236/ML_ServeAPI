@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Local MLOps MVP
+    orgId: 1
+    folder: Enterprise Vision MLOps
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

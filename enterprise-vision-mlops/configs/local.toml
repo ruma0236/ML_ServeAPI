@@ -1,0 +1,58 @@
+[project]
+name = "enterprise-vision-mlops"
+environment = "local"
+
+[paths]
+data_root = "data"
+raw_zone = "data/raw"
+processed_zone = "data/processed"
+validated_zone = "data/validated"
+artifacts_root = "artifacts"
+reports_root = "artifacts/reports"
+models_root = "artifacts/models"
+registry_root = "artifacts/registry"
+
+[object_store]
+endpoint_url = "http://localhost:9000"
+artifact_bucket = "mlflow-artifacts"
+raw_bucket = "raw"
+processed_bucket = "processed"
+validated_bucket = "validated"
+
+[mlflow]
+tracking_uri = "http://localhost:5000"
+experiment_name = "enterprise-vision-local-mvp"
+
+[serving]
+api_url = "http://localhost:8000"
+model_name = "vision-baseline"
+model_stage = "Production"
+
+[monitoring]
+prometheus_url = "http://localhost:9090"
+grafana_url = "http://localhost:3000"
+
+[pipelines.data_ingestion]
+sample_records = 8
+manifest_name = "raw_manifest.jsonl"
+
+[pipelines.data_validation]
+input_manifest = "data/raw/raw_manifest.jsonl"
+output_manifest = "data/validated/validated_manifest.jsonl"
+report_name = "validation_report.json"
+allowed_extensions = [".jpg", ".jpeg", ".png"]
+
+[pipelines.training]
+input_manifest = "data/validated/validated_manifest.jsonl"
+model_name = "vision-baseline"
+metric_name = "baseline_accuracy"
+
+[pipelines.model_registry]
+model_name = "vision-baseline"
+source_model_path = "artifacts/models/vision-baseline/model.json"
+
+[pipelines.deployment]
+sample_image_uri = "s3://raw/sample_0001.jpg"
+
+[pipelines.monitoring]
+prometheus_targets_endpoint = "/api/v1/targets"

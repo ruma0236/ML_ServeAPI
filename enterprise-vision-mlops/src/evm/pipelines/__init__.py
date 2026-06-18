@@ -1,0 +1,1 @@
+"""Role-oriented pipeline modules."""

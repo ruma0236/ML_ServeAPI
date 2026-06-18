@@ -1,0 +1,14 @@
+[project]
+name = "enterprise-vision-mlops"
+version = "0.1.0"
+description = "Portfolio-grade modular MLOps platform for enterprise vision AI workloads."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
