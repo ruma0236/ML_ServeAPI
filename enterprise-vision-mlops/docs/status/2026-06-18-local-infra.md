@@ -24,6 +24,7 @@
   - Python 3.11.15 installed
   - GitHub branch cloned
   - `compileall`, `data-ingest`, and `data-validate` executed successfully
+  - key-based SSH access configured through `~/.ssh/evm_macmini_ed25519`
 
 ## Verification Snapshot
 
@@ -38,7 +39,7 @@
 | Deployment | `/health`, `/ready`, `/predict` passed |
 | Monitoring | Prometheus targets healthy: `2/2` |
 | mac-mini network | Tailscale reachable, SSH port open |
-| mac-mini execution | Python 3.11 remote pipeline smoke checks passed |
+| mac-mini execution | SSH key probe and Python 3.11 remote pipeline smoke checks passed |
 | Static check | `python -m compileall src scripts` passed |
 | Compose config | `docker compose config --quiet` passed |
 

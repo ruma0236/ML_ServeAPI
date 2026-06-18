@@ -28,7 +28,8 @@ The mac-mini should be used as a heterogeneous worker, not as a replacement for 
 - Project Python: 3.11.15 installed through `uv`
 - Docker/Homebrew/Colima: not installed at initial probe time
 - Remote repo path: `~/mlops-lab/ML_ServeAPI/enterprise-vision-mlops`
-- Password-based SSH was used only for the initial bootstrap. Persistent automation should use SSH key or Tailscale SSH.
+- Password-based SSH was used only for the initial public-key bootstrap.
+- Persistent automation now uses `~/.ssh/evm_macmini_ed25519` from the Windows control-plane.
 
 ## Worker Bootstrap Performed
 
@@ -49,6 +50,7 @@ cd ML_ServeAPI/enterprise-vision-mlops
 ```powershell
 tailscale ping ruma-macmini
 Test-NetConnection 100.104.142.2 -Port 22
+ssh -i $HOME\.ssh\evm_macmini_ed25519 -o BatchMode=yes ruma@ruma-macmini.tail35433c.ts.net 'whoami; hostname; uname -m'
 python scripts/run_pipeline.py remote-inventory --config configs/local.toml
 ```
 

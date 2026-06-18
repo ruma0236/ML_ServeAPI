@@ -37,7 +37,7 @@ python scripts/run_pipeline.py remote-inventory --config configs/local.toml
 
 - `ruma-macmini` is online over Tailscale and port `22` is open.
 - mac-mini remote execution was validated on 2026-06-18 using Python 3.11 installed through `uv`.
-- Automated non-interactive execution should move to SSH key or Tailscale SSH rather than stored passwords.
+- Automated non-interactive execution now uses the generated key `~/.ssh/evm_macmini_ed25519`.
 - `ruma-ubuntu` is online over Tailscale but refused SSH during the initial probe.
 
 ## Extension Plan
@@ -51,3 +51,4 @@ python scripts/run_pipeline.py remote-inventory --config configs/local.toml
 
 - 2026-06-18: Added remote worker inventory pipeline and mac-mini worker candidate.
 - 2026-06-18: Validated mac-mini remote Python 3.11 runtime, clone, compile, data ingest, and data validation.
+- 2026-06-18: Added key-based remote execution probe for mac-mini.

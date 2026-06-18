@@ -41,6 +41,47 @@ def _tcp_probe(host: str, port: int, timeout: float = 3.0) -> bool:
         return False
 
 
+def _resolve_home_path(value: str) -> Path | None:
+    if not value:
+        return None
+    return Path(value).expanduser()
+
+
+def _ssh_probe(
+    user: str,
+    host: str,
+    key_path: Path | None,
+    command: str,
+    timeout: int = 10,
+) -> tuple[bool, str]:
+    if not user or key_path is None or not key_path.exists():
+        return False, ""
+
+    target = f"{user}@{host}"
+    result = subprocess.run(
+        [
+            "ssh",
+            "-i",
+            str(key_path),
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            f"ConnectTimeout={timeout}",
+            target,
+            command,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout + 5,
+    )
+    output = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part)
+    return result.returncode == 0, output
+
+
 def _peer_index(status: dict[str, Any]) -> dict[str, dict[str, Any]]:
     index: dict[str, dict[str, Any]] = {}
     nodes = []
@@ -74,6 +115,9 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         host = str(worker.get("host", worker_id))
         dns_name = str(worker.get("dns_name", "")).rstrip(".")
         port = int(worker.get("ssh_port", 22))
+        ssh_user = str(worker.get("ssh_user", ""))
+        ssh_key_path = _resolve_home_path(str(worker.get("ssh_key_path", "")))
+        remote_exec_probe = str(worker.get("remote_exec_probe", "whoami; hostname; uname -m"))
 
         peer = (
             peers.get(host.lower())
@@ -83,6 +127,12 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         )
         online = bool(peer.get("Online", False))
         ssh_port_open = _tcp_probe(tailscale_ip or dns_name or host, port)
+        remote_exec_ready, remote_exec_output = _ssh_probe(
+            ssh_user,
+            dns_name or tailscale_ip or host,
+            ssh_key_path,
+            remote_exec_probe,
+        )
 
         inventory.append(
             {
@@ -95,7 +145,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
                 "online": online,
                 "ssh_port": port,
                 "ssh_port_open": ssh_port_open,
-                "remote_exec_ready": False,
+                "remote_exec_ready": remote_exec_ready,
+                "remote_exec_output": remote_exec_output,
                 "roles": worker.get("roles", []),
                 "notes": worker.get("notes", ""),
                 "last_seen": peer.get("LastSeen", ""),
