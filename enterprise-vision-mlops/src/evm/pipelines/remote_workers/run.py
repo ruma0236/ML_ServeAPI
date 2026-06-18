@@ -43,7 +43,12 @@ def _tcp_probe(host: str, port: int, timeout: float = 3.0) -> bool:
 
 def _peer_index(status: dict[str, Any]) -> dict[str, dict[str, Any]]:
     index: dict[str, dict[str, Any]] = {}
-    for peer in status.get("Peer", {}).values():
+    nodes = []
+    if status.get("Self"):
+        nodes.append(status["Self"])
+    nodes.extend(status.get("Peer", {}).values())
+
+    for peer in nodes:
         keys = [
             peer.get("HostName", ""),
             peer.get("DNSName", "").rstrip("."),
