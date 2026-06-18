@@ -56,3 +56,7 @@ sample_image_uri = "s3://raw/sample_0001.jpg"
 
 [pipelines.monitoring]
 prometheus_targets_endpoint = "/api/v1/targets"
+
+[pipelines.remote_workers]
+workers_config = "configs/workers.toml"
+report_name = "remote_workers.md"

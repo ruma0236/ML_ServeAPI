@@ -1,0 +1,44 @@
+[workers.ruma_macmini]
+display_name = "ruma-macmini"
+host = "ruma-macmini"
+dns_name = "ruma-macmini.tail35433c.ts.net"
+tailscale_ip = "100.104.142.2"
+os = "macOS"
+ssh_port = 22
+ssh_required = true
+roles = [
+  "arm64-build-validation",
+  "edge-inference-smoke-test",
+  "mps-or-coreml-experiment",
+  "remote-ci-runner-candidate"
+]
+notes = "Online over Tailscale on 2026-06-18. SSH port is open and password-based remote execution was manually validated. Credential-less automated execution still needs SSH key or Tailscale SSH setup."
+
+[workers.ruma_ubuntu]
+display_name = "ruma-ubuntu"
+host = "ruma-ubuntu"
+dns_name = "ruma-ubuntu.tail35433c.ts.net"
+tailscale_ip = "100.74.142.80"
+os = "linux"
+ssh_port = 22
+ssh_required = true
+roles = [
+  "linux-worker-candidate",
+  "docker-runtime-candidate",
+  "future-k3s-or-gpu-node-candidate"
+]
+notes = "Online over Tailscale on 2026-06-18, but SSH port refused during initial probe."
+
+[workers.k3s_master]
+display_name = "k3s-master"
+host = "k3s-master"
+dns_name = "k3s-master.tail35433c.ts.net"
+tailscale_ip = "100.84.133.66"
+os = "linux"
+ssh_port = 22
+ssh_required = true
+roles = [
+  "kubernetes-control-plane-candidate",
+  "future-k3s-control-plane"
+]
+notes = "Known tailnet node, offline on 2026-06-18. Keep as future Kubernetes control-plane candidate."

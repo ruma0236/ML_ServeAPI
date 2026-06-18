@@ -1,4 +1,4 @@
-.PHONY: stack-up stack-down stack-logs stack-ps stack-config api-logs mlflow-logs clean-volumes data-ingest data-validate train register-model deploy-check monitor-check local-mvp
+.PHONY: stack-up stack-down stack-logs stack-ps stack-config api-logs mlflow-logs clean-volumes data-ingest data-validate train register-model deploy-check monitor-check remote-inventory local-mvp
 
 stack-up:
 	docker compose up -d --build
@@ -42,4 +42,7 @@ deploy-check:
 monitor-check:
 	python scripts/run_pipeline.py monitor-check --config configs/local.toml
 
-local-mvp: data-ingest data-validate train register-model deploy-check monitor-check
+remote-inventory:
+	python scripts/run_pipeline.py remote-inventory --config configs/local.toml
+
+local-mvp: data-ingest data-validate train register-model deploy-check monitor-check remote-inventory

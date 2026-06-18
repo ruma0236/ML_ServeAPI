@@ -15,6 +15,15 @@
   - `register-model`
   - `deploy-check`
   - `monitor-check`
+- Tailscale remote worker candidates were identified:
+  - `ruma-macmini`: online, low-latency Tailscale path, SSH port open
+  - `ruma-ubuntu`: online over Tailscale, SSH refused during initial probe
+  - `k3s-master`: known tailnet node, currently offline
+- mac-mini remote development bootstrap completed:
+  - `uv` installed under user home
+  - Python 3.11.15 installed
+  - GitHub branch cloned
+  - `compileall`, `data-ingest`, and `data-validate` executed successfully
 
 ## Verification Snapshot
 
@@ -28,6 +37,8 @@
 | Registry | Local model version record generated |
 | Deployment | `/health`, `/ready`, `/predict` passed |
 | Monitoring | Prometheus targets healthy: `2/2` |
+| mac-mini network | Tailscale reachable, SSH port open |
+| mac-mini execution | Python 3.11 remote pipeline smoke checks passed |
 | Static check | `python -m compileall src scripts` passed |
 | Compose config | `docker compose config --quiet` passed |
 
@@ -42,3 +53,4 @@ This is still a local MVP. The serving API uses placeholder inference until the 
 3. Add baseline image model training.
 4. Promote the MLflow model registry as the source of truth.
 5. Add Kafka/Redpanda and Spark/Parquet data pipeline.
+6. Enable Docker/Colima on mac-mini and add ARM64 image build validation.

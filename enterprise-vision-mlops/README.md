@@ -72,6 +72,7 @@ python scripts/run_pipeline.py train --config configs/local.toml
 python scripts/run_pipeline.py register-model --config configs/local.toml
 python scripts/run_pipeline.py deploy-check --config configs/local.toml
 python scripts/run_pipeline.py monitor-check --config configs/local.toml
+python scripts/run_pipeline.py remote-inventory --config configs/local.toml
 ```
 
 If `make` is available:
@@ -91,6 +92,7 @@ flowchart LR
     T --> R["model_registry"]
     R --> D["deployment"]
     D --> O["monitoring"]
+    O --> W["remote_workers"]
 
     D --> A["FastAPI Inference API"]
     A --> P["Prometheus /metrics"]
@@ -98,6 +100,7 @@ flowchart LR
     T --> M["MLflow Tracking URI"]
     M --> DB["PostgreSQL Backend Store"]
     M --> S["MinIO Artifact Store"]
+    W --> MAC["ruma-macmini ARM64 Worker"]
 ```
 
 ## Next Steps
@@ -107,3 +110,4 @@ flowchart LR
 3. Register a baseline model in MLflow Model Registry.
 4. Replace placeholder inference with registry-based model loading.
 5. Add Kafka/Redpanda and Spark/Parquet data pipeline.
+6. Attach Tailscale-connected remote workers for heterogeneous execution.

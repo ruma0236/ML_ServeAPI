@@ -13,6 +13,7 @@ flowchart LR
     C --> D["model_registry"]
     D --> E["deployment"]
     E --> F["monitoring"]
+    F --> G["remote_workers"]
 ```
 
 ## Code Ownership
@@ -25,6 +26,7 @@ flowchart LR
 | Model registry | `src/evm/pipelines/model_registry` | `docs/pipelines/04_model_registry.md` |
 | Deployment | `src/evm/pipelines/deployment` | `docs/pipelines/05_deployment.md` |
 | Monitoring | `src/evm/pipelines/monitoring` | `docs/pipelines/06_monitoring.md` |
+| Remote workers | `src/evm/pipelines/remote_workers` | `docs/pipelines/07_remote_workers.md` |
 
 ## Shared Modules
 
@@ -37,3 +39,4 @@ flowchart LR
 
 - 2026-06-18: Added modular pipeline layout and shared core package.
 - 2026-06-18: Verified full local MVP sequence from ingestion through monitoring.
+- 2026-06-18: Added remote worker inventory layer for Tailscale-connected machines.

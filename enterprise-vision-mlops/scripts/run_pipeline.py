@@ -14,6 +14,7 @@ PIPELINE_MODULES = {
     "register-model": "evm.pipelines.model_registry.run",
     "deploy-check": "evm.pipelines.deployment.run",
     "monitor-check": "evm.pipelines.monitoring.run",
+    "remote-inventory": "evm.pipelines.remote_workers.run",
 }
 
 
