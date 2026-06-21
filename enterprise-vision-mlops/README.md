@@ -85,6 +85,9 @@ Pipeline reports are generated under `artifacts/reports`, while stable design do
 
 ## Architecture
 
+Detailed connection maps and data contracts are maintained in
+`docs/architecture-connectivity.md`.
+
 ```mermaid
 flowchart LR
     I["data_ingestion"] --> V["data_validation"]

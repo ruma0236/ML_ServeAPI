@@ -17,23 +17,32 @@ def _load_workers(path: Path) -> dict[str, dict[str, Any]]:
     return payload.get("workers", {})
 
 
-def _tailscale_status() -> dict[str, Any]:
+def _tailscale_status() -> tuple[dict[str, Any], str]:
     try:
         result = subprocess.run(
             ["tailscale", "status", "--json"],
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=15,
+            timeout=6,
         )
-        return json.loads(result.stdout)
-    except (subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
-        return {}
+        if result.returncode != 0:
+            error = result.stderr.strip() or result.stdout.strip() or f"exit_code={result.returncode}"
+            return {}, f"tailscale_status_failed: {error}"
+        return json.loads(result.stdout), ""
+    except FileNotFoundError:
+        return {}, "tailscale_cli_not_found"
+    except json.JSONDecodeError as exc:
+        return {}, f"tailscale_status_json_decode_failed: {exc}"
+    except subprocess.TimeoutExpired:
+        return {}, "tailscale_status_timeout"
+    except subprocess.SubprocessError as exc:
+        return {}, f"tailscale_status_failed: {exc}"
 
 
-def _tcp_probe(host: str, port: int, timeout: float = 3.0) -> bool:
+def _tcp_probe(host: str, port: int, timeout: float = 1.5) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
@@ -101,12 +110,26 @@ def _peer_index(status: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return index
 
 
+def _connectivity_status(
+    tailnet_online: bool,
+    ssh_port_open: bool,
+    remote_exec_ready: bool,
+) -> str:
+    if remote_exec_ready:
+        return "remote_exec_ready"
+    if ssh_port_open:
+        return "ssh_port_open"
+    if tailnet_online:
+        return "tailnet_online"
+    return "unreachable"
+
+
 def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     ctx = build_context("remote_workers", config_path)
     cfg = ctx.pipeline_config()
     workers_config = ctx.path(str(cfg.get("workers_config", "configs/workers.toml")))
     workers = _load_workers(workers_config)
-    status = _tailscale_status()
+    status, tailnet_status_error = _tailscale_status()
     peers = _peer_index(status)
 
     inventory: list[dict[str, Any]] = []
@@ -125,13 +148,18 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             or peers.get(tailscale_ip.lower())
             or {}
         )
-        online = bool(peer.get("Online", False))
+        tailnet_online = bool(peer.get("Online", False))
         ssh_port_open = _tcp_probe(tailscale_ip or dns_name or host, port)
         remote_exec_ready, remote_exec_output = _ssh_probe(
             ssh_user,
             dns_name or tailscale_ip or host,
             ssh_key_path,
             remote_exec_probe,
+        )
+        connectivity_status = _connectivity_status(
+            tailnet_online,
+            ssh_port_open,
+            remote_exec_ready,
         )
 
         inventory.append(
@@ -142,11 +170,13 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
                 "dns_name": dns_name,
                 "tailscale_ip": tailscale_ip,
                 "os": worker.get("os", "unknown"),
-                "online": online,
+                "tailnet_online": tailnet_online,
+                "online": tailnet_online,
                 "ssh_port": port,
                 "ssh_port_open": ssh_port_open,
                 "remote_exec_ready": remote_exec_ready,
                 "remote_exec_output": remote_exec_output,
+                "connectivity_status": connectivity_status,
                 "roles": worker.get("roles", []),
                 "notes": worker.get("notes", ""),
                 "last_seen": peer.get("LastSeen", ""),
@@ -154,26 +184,44 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             }
         )
 
-    online_workers = sum(1 for item in inventory if item["online"])
+    online_workers = sum(1 for item in inventory if item["tailnet_online"])
     ssh_open_workers = sum(1 for item in inventory if item["ssh_port_open"])
+    remote_exec_ready_workers = sum(1 for item in inventory if item["remote_exec_ready"])
+    reachable_workers = sum(1 for item in inventory if item["connectivity_status"] != "unreachable")
     summary = {
         "workers_config": str(workers_config.relative_to(ctx.project_root)),
         "workers": len(inventory),
+        "tailnet_status_available": not tailnet_status_error,
+        "tailnet_status_error": tailnet_status_error,
         "online_workers": online_workers,
         "ssh_open_workers": ssh_open_workers,
+        "remote_exec_ready_workers": remote_exec_ready_workers,
+        "reachable_workers": reachable_workers,
         "inventory": inventory,
     }
 
     write_json(ctx.run_dir / "summary.json", summary)
 
     lines = ["", "## Worker Inventory", ""]
-    lines.append("| Worker | OS | Online | SSH Port | Remote Roles |")
-    lines.append("|---|---|---:|---:|---|")
+    lines.append("| Worker | OS | Tailnet Online | SSH Port | Remote Exec | Connectivity | Remote Roles |")
+    lines.append("|---|---|---:|---:|---:|---|---|")
     for item in inventory:
         roles = ", ".join(item.get("roles", []))
         lines.append(
-            f"| `{item['display_name']}` | `{item['os']}` | `{item['online']}` | "
-            f"`{item['ssh_port_open']}` | {roles} |"
+            f"| `{item['display_name']}` | `{item['os']}` | `{item['tailnet_online']}` | "
+            f"`{item['ssh_port_open']}` | `{item['remote_exec_ready']}` | "
+            f"`{item['connectivity_status']}` | {roles} |"
+        )
+
+    if tailnet_status_error:
+        lines.extend(
+            [
+                "",
+                "## Tailnet Status Note",
+                "",
+                f"- Tailscale status source unavailable: `{tailnet_status_error}`.",
+                "- Use SSH/TCP probe fields for current control-plane reachability.",
+            ]
         )
 
     write_markdown_report(
@@ -181,8 +229,11 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "Remote Workers Pipeline",
         {
             "workers": len(inventory),
+            "tailnet_status_available": not tailnet_status_error,
             "online_workers": online_workers,
             "ssh_open_workers": ssh_open_workers,
+            "remote_exec_ready_workers": remote_exec_ready_workers,
+            "reachable_workers": reachable_workers,
             "workers_config": str(workers_config.relative_to(ctx.project_root)),
         },
         lines,

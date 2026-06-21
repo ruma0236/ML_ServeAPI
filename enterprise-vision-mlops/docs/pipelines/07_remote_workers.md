@@ -27,6 +27,14 @@ The current Docker Compose stack is a local control-plane MVP, not a complete en
 - `artifacts/reports/remote_workers.md`
 - `artifacts/runs/remote_workers/*/summary.json`
 
+Key status fields:
+
+- `tailnet_status_available`: whether the current shell can read Tailscale local status.
+- `tailnet_online`: peer online flag from Tailscale status, when available.
+- `ssh_port_open`: TCP reachability of the worker SSH port.
+- `remote_exec_ready`: non-interactive SSH command execution succeeded.
+- `connectivity_status`: effective worker reachability state.
+
 ## Command
 
 ```bash
@@ -35,9 +43,10 @@ python scripts/run_pipeline.py remote-inventory --config configs/local.toml
 
 ## Current Status
 
-- `ruma-macmini` is online over Tailscale and port `22` is open.
+- `ruma-macmini` is reachable over Tailscale SSH and port `22` is open.
 - mac-mini remote execution was validated on 2026-06-18 using Python 3.11 installed through `uv`.
 - Automated non-interactive execution now uses the generated key `~/.ssh/evm_macmini_ed25519`.
+- The current Windows shell cannot read the Tailscale local status pipe without elevated access, so `tailnet_online` may be false while `remote_exec_ready` is true.
 - `ruma-ubuntu` is online over Tailscale but refused SSH during the initial probe.
 
 ## Extension Plan
@@ -53,3 +62,4 @@ python scripts/run_pipeline.py remote-inventory --config configs/local.toml
 - 2026-06-18: Validated mac-mini remote Python 3.11 runtime, clone, compile, data ingest, and data validation.
 - 2026-06-18: Added key-based remote execution probe for mac-mini.
 - 2026-06-21: Split mac-mini worker automation onto `codex/mac-mini-worker`.
+- 2026-06-21: Added separated tailnet, TCP, SSH, and effective connectivity status fields.
