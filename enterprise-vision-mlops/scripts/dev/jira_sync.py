@@ -295,7 +295,7 @@ def issue_description(item: JiraItem) -> dict[str, Any]:
 def load_config(args: argparse.Namespace) -> JiraConfig:
     missing = []
     env = {
-        "JIRA_BASE_URL": os.getenv("JIRA_BASE_URL", "").rstrip("/"),
+        "JIRA_BASE_URL": normalize_base_url(os.getenv("JIRA_BASE_URL", "")),
         "JIRA_EMAIL": os.getenv("JIRA_EMAIL", ""),
         "JIRA_API_TOKEN": os.getenv("JIRA_API_TOKEN", ""),
         "JIRA_PROJECT_KEY": args.project_key or os.getenv("JIRA_PROJECT_KEY", ""),
@@ -316,6 +316,14 @@ def load_config(args: argparse.Namespace) -> JiraConfig:
         board_id=int(os.getenv("JIRA_BOARD_ID")) if os.getenv("JIRA_BOARD_ID") else None,
         sprint_prefix=os.getenv("JIRA_SPRINT_PREFIX", "EVM"),
     )
+
+
+def normalize_base_url(value: str) -> str:
+    stripped = value.strip().rstrip("/")
+    parsed = urllib.parse.urlparse(stripped)
+    if parsed.scheme and parsed.netloc and parsed.netloc.endswith(".atlassian.net"):
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return stripped
 
 
 def auth_header(config: JiraConfig) -> str:

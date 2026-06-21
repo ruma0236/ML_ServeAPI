@@ -10,6 +10,9 @@ Jira Cloud REST API를 호출하는 local script 방식으로 진행한다.
 - API token name: `mlops_key`
 - Workspace / project name: `MLOps`
 - Recommended project key: `MLOPS`
+- Observed Jira site root: `https://opop0236.atlassian.net`
+- Observed URL project key candidate: `ZWIW`
+- Organization id was provided, but it is not required for Jira issue/sprint REST sync.
 - Real API token value is not stored in Git.
 
 실제 sync 실행 전 필요한 추가 값:
@@ -52,3 +55,10 @@ Result:
 
 Actual Jira API sync is pending until Jira site URL, login email, and verified project key are
 provided.
+
+2026-06-21 read-only probe result:
+
+- `JIRA_BASE_URL` normalized to `https://opop0236.atlassian.net`.
+- `/rest/api/3/myself` returned `401 Unauthorized` with the provided email/token pair.
+- Project key could not be verified because authentication failed.
+- `JIRA_BOARD_ID` is still required for sprint/backlog automation.

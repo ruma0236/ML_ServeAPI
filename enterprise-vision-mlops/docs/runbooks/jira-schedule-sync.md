@@ -75,6 +75,16 @@ Jira Cloud project를 먼저 생성한다.
 - Jira API token
 - Jira project key, for example `EVM`
 
+`JIRA_BASE_URL`에는 원칙적으로 site root만 넣는다. 예를 들어 현재 확인된 site root는
+다음과 같다.
+
+```text
+https://opop0236.atlassian.net
+```
+
+전체 Jira 화면 URL을 넣더라도 `scripts/dev/jira_sync.py`는 `.atlassian.net` host까지만
+자동 정규화한다. 단, 운영 변수에는 site root만 저장하는 것을 권장한다.
+
 현재 계획값:
 
 | Item | Value | Note |
@@ -82,6 +92,7 @@ Jira Cloud project를 먼저 생성한다.
 | API token name | `mlops_key` | 실제 token value는 Git에 저장하지 않는다. |
 | Workspace / project name | `MLOps` | Jira 화면에 표시되는 이름 |
 | Recommended project key | `MLOPS` | Jira project settings에서 실제 key 확인 필요 |
+| Observed Product Discovery key candidate | `ZWIW` | 제공된 URL path에서 관측됨. Software board key인지 확인 필요 |
 
 PowerShell 환경 변수:
 
@@ -269,6 +280,8 @@ Due date 기준:
 - Sprint 자동 배치는 `JIRA_BOARD_ID`가 설정되어 있을 때만 수행한다.
 - Timeline은 Epic/Task, due date, parent 관계를 기반으로 구성한다.
 - parent field가 Jira project에서 거부되면 `--parent-mode none`으로 sync하고 Jira UI에서 hierarchy를 수동 조정한다.
+- Jira Product Discovery의 `ideas` project는 Jira Software Scrum backlog/sprint와 다를 수 있다.
+  Sprint 자동화를 원하면 Jira Software Scrum board의 `JIRA_BOARD_ID`가 필요하다.
 
 ## 참고 API
 
