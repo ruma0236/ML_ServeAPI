@@ -46,6 +46,9 @@ flowchart LR
     D -. "issue key in commit" .-> G
 ```
 
+For Codex-managed bug discovery and resolution, use
+`docs/governance/codex-github-issue-resolution-workflow.md`.
+
 ## Branch Rule
 
 Use:

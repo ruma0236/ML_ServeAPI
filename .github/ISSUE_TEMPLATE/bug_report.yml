@@ -1,0 +1,56 @@
+name: MLOps Bug
+description: Track a bug found during MLOps implementation or operation
+title: "[EVM-BUG-000] "
+labels:
+  - mlops
+  - bug
+body:
+  - type: input
+    id: issue_id
+    attributes:
+      label: Bug ID
+      description: Use the next EVM-BUG ID from docs/issues/issue-register.md.
+      placeholder: EVM-BUG-001
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What failed?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Commands or steps that reproduce the issue.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation Plan
+      render: bash
+    validations:
+      required: false

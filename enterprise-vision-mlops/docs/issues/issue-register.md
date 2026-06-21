@@ -141,6 +141,19 @@ Jira 연결 전까지는 비워둔다. Jira project가 생성되면 다음 형�
 | `EVM-EPIC-02` | TBD | Epic | TBD |
 | `EVM-021` | TBD | Task | TBD |
 
+## Bug Register
+
+Bug는 발견 즉시 이 섹션에 추가하거나 GitHub Issue로 먼저 생성한 뒤 역으로 기록한다.
+
+| ID | Title | Status | GitHub Issue | Root Cause |
+|---|---|---|---|---|
+| `EVM-BUG-001` | Reserved for first Codex-managed bug | Planned | TBD | TBD |
+
+Automation status:
+
+- `scripts/dev/github_issue.py` supports create, comment, and resolve/close.
+- `docs/status/2026-06-21-github-issue-automation.md` records dry-run validation.
+
 ## Status Values
 
 | Status | Meaning |
