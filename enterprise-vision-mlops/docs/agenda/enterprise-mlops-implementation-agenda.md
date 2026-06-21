@@ -331,72 +331,74 @@ data_ingest
 
 ## 7. Schedule
 
-현재 날짜 기준으로 2026년 9월 하반기 지원 컷을 1차 목표로 둔다.
-2027년 상반기 지원 컷은 확장/고도화 목표로 둔다.
+현재 날짜 기준으로 2026년 7월 31일을 enterprise pipeline MVP 최종 구현 목표로 둔다.
+기존 2026년 9월 하반기 지원 컷은 polish, 고도화, 발표 자료 정리 기간으로 전환한다.
+2027년 상반기 지원 컷은 k8s/GPU/Triton/KServe 확장 목표로 둔다.
 
-### 2026-06-21 to 2026-06-30
+세부 주간 일정은 `docs/agenda/enterprise-mlops-accelerated-weekly-schedule.md`에서
+관리한다.
 
-목표:
+| Week | Date | Goal | Required Output |
+|---|---|---|---|
+| W0 | 2026-06-22 ~ 2026-06-28 | Airflow foundation | Airflow UI, DAG skeleton, ingest/validate task |
+| W1 | 2026-06-29 ~ 2026-07-05 | Full DAG + MLflow linkage | full DAG run, retry/timeout, MLflow context tag |
+| W2 | 2026-07-06 ~ 2026-07-12 | MinIO/Parquet data platform | raw/validated buckets, parquet dataset, dataset version |
+| W3 | 2026-07-13 ~ 2026-07-19 | Registry-driven serving + remote job | API model loader, `/predict`, mac-mini job result |
+| W4 | 2026-07-20 ~ 2026-07-26 | Observability + CI/CD/CT | Grafana panels, CI workflow, CT trigger skeleton |
+| W5 | 2026-07-27 ~ 2026-07-31 | Final integration cut | clean clone verification, demo script, release note |
 
-- Phase 1 hardening
-- Phase 2 Airflow 착수
-
-작업:
+### W0. 2026-06-22 to 2026-06-28
 
 - Airflow Compose service 추가
-- DAG skeleton 작성
-- 기존 pipeline module을 Airflow task로 감싸기
-- Airflow UI에서 manual DAG run 성공
-- README/runbook 업데이트
+- DAG directory와 `enterprise_vision_mlops_daily.py` 생성
+- `data-ingest`, `data-validate` task 연결
+- Airflow setup runbook 작성
+- `docs/status/2026-06-28-airflow-foundation.md` 작성
 
-### 2026-07
+### W1. 2026-06-29 to 2026-07-05
 
-목표:
+- `train`, `register-model`, `deploy-check`, `monitor-check` task 연결
+- retry, timeout, dependency policy 추가
+- Airflow run id를 MLflow tag/param으로 기록
+- full DAG manual smoke 검증
+- `docs/status/2026-07-05-airflow-full-dag.md` 작성
 
-- Phase 2 완료
-- Phase 3 시작
+### W2. 2026-07-06 to 2026-07-12
 
-작업:
-
-- Airflow retry/timeout/backfill 정리
-- MLflow run id와 Airflow run id 연결
-- MinIO raw/processed/validated bucket 실제 사용
-- public dataset ingest
+- MinIO bucket bootstrap 고도화
+- object storage client module 추가
+- public vision dataset ingest
 - validation report 고도화
-- Parquet output 추가
+- Parquet dataset generation과 dataset version metadata 추가
+- `docs/status/2026-07-12-data-platform.md` 작성
 
-### 2026-08
+### W3. 2026-07-13 to 2026-07-19
 
-목표:
+- remote job spec 정의
+- mac-mini ARM64 evaluation job 실행
+- remote artifact collection 구현
+- registry-driven model loading module 추가
+- `/ready`, `/predict`, model version metric 고도화
+- `docs/status/2026-07-19-serving-remote-worker.md` 작성
 
-- Phase 3 완료
-- Phase 4/5 착수
+### W4. 2026-07-20 to 2026-07-26
 
-작업:
+- Grafana dashboard 고도화
+- pipeline success/failure metric 추가
+- data drift report 추가
+- SLO/alert rule 문서화
+- GitHub Actions lint/test, Docker build, CT trigger skeleton 추가
+- `docs/status/2026-07-26-observability-cicd.md` 작성
 
-- DuckDB/Polars 또는 Spark local batch 처리
-- dataset versioning
-- remote job runner MVP
-- mac-mini ARM64 evaluation job
-- registry-driven API model loading 시작
+### W5. 2026-07-27 to 2026-07-31
 
-### 2026-09
-
-목표:
-
-- 2026 하반기 지원용 portfolio cut 생성
-
-필수 포함:
-
-- Airflow DAG demo
-- MLflow experiment/registry demo
-- MinIO data pipeline demo
-- FastAPI registry-driven serving MVP
-- Prometheus/Grafana dashboard
-- mac-mini remote worker validation
-- architecture diagram
-- runbook
-- issue/failure review 문서
+- final demo script 작성
+- release note 작성
+- architecture diagram, troubleshooting runbook 정리
+- clean clone verification 수행
+- end-to-end integration smoke 수행
+- `docs/status/2026-07-31-enterprise-mlops-final-cut.md` 작성
+- `docs/releases/2026-07-enterprise-mlops-mvp.md` 작성
 
 ### 2026-Q4 to 2027-Q1
 
@@ -440,7 +442,7 @@ data_ingest
 
 ## 9. Definition of Done for Portfolio Cut
 
-2026년 9월 지원용 1차 portfolio cut의 완료 기준은 다음과 같다.
+2026년 7월 31일 enterprise pipeline MVP cut의 완료 기준은 다음과 같다.
 
 - clone 후 local infra 실행 가능
 - Airflow DAG로 full pipeline run 가능
@@ -452,9 +454,9 @@ data_ingest
 - README만 보고 demo 재현 가능
 - architecture, runbook, status, agenda 문서가 정리되어 있음
 
-## 10. Non-goals for the First Portfolio Cut
+## 10. Non-goals for the July Cut
 
-2026년 9월 1차 cut에서는 다음은 필수 목표가 아니다.
+2026년 7월 31일 1차 cut에서는 다음은 필수 목표가 아니다.
 
 - 완전한 production Kubernetes 운영
 - 대규모 CUDA multi-node training
@@ -470,7 +472,7 @@ data_ingest
 |---|---|---|
 | Airflow 도입이 늦어짐 | enterprise orchestration 근거 약화 | 6월 말까지 DAG skeleton 우선 완성 |
 | 데이터가 synthetic에 머무름 | 대용량 데이터 처리 경험 부족 | 7월에 public dataset + MinIO + Parquet 연결 |
-| serving이 placeholder에 머무름 | MLOps end-to-end 설득력 약화 | 8월에 registry-driven model loading 구현 |
+| serving이 placeholder에 머무름 | MLOps end-to-end 설득력 약화 | 7월 셋째 주에 registry-driven model loading 구현 |
 | mac-mini 역할이 과장됨 | GPU cluster 경험처럼 보이면 역효과 | ARM64/edge validation worker로 명확히 표현 |
 | 문서가 구현보다 앞섬 | 포트폴리오 신뢰도 하락 | 각 문서는 status evidence와 command output 기반으로 갱신 |
 
