@@ -544,6 +544,9 @@ def create_or_update_issue(
 
 def filter_items(items: list[JiraItem], args: argparse.Namespace) -> list[JiraItem]:
     filtered = items
+    if args.source_id:
+        selected = {item.strip().upper() for item in args.source_id.split(",") if item.strip()}
+        filtered = [item for item in filtered if item.source_id.upper() in selected]
     if not args.include_done:
         filtered = [item for item in filtered if item.status != "Done"]
     if not args.include_deferred:
@@ -564,6 +567,9 @@ def parse_extra_labels(value: str) -> list[str]:
 def dry_run(items: list[JiraItem], args: argparse.Namespace) -> int:
     extra_labels = parse_extra_labels(args.labels)
     week_ranges = parse_week_ranges(Path(args.project_root).resolve() / "docs" / "agenda" / "enterprise-mlops-accelerated-weekly-schedule.md")
+    if args.source_id and args.assign_sprints:
+        requested_weeks = {item.week for item in items if item.week}
+        week_ranges = {week: dates for week, dates in week_ranges.items() if week in requested_weeks}
     result = {
         "project_key": args.project_key or os.getenv("JIRA_PROJECT_KEY") or "TBD",
         "mode": args.mode,
@@ -607,7 +613,11 @@ def sync(items: list[JiraItem], args: argparse.Namespace) -> int:
 
     if args.sync_sprints or args.assign_sprints:
         schedule = Path(args.project_root).resolve() / "docs" / "agenda" / "enterprise-mlops-accelerated-weekly-schedule.md"
-        sprint_ids = ensure_weekly_sprints(config, parse_week_ranges(schedule))
+        week_ranges = parse_week_ranges(schedule)
+        if args.source_id and args.assign_sprints:
+            requested_weeks = {item.week for item in items if item.week}
+            week_ranges = {week: dates for week, dates in week_ranges.items() if week in requested_weeks}
+        sprint_ids = ensure_weekly_sprints(config, week_ranges)
         results.append({"action": "sprints-synced", "sprints": sprint_ids})
 
     for item in [candidate for candidate in items if candidate.kind == "Epic"]:
@@ -645,6 +655,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-key", help="Jira project key. Defaults to JIRA_PROJECT_KEY.")
     parser.add_argument("--mode", choices=["all", "epics", "tasks"], default="all")
     parser.add_argument("--labels", default="", help="Comma-separated extra Jira labels.")
+    parser.add_argument("--source-id", help="Comma-separated source ids to sync, for example EVM-021,EVM-022.")
     parser.add_argument("--dry-run", action="store_true", help="Print planned Jira payload summary.")
     parser.add_argument("--include-done", action="store_true", help="Include already completed baseline items.")
     parser.add_argument("--include-deferred", action="store_true", help="Include post-July deferred items.")

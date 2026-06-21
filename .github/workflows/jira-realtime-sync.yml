@@ -45,8 +45,8 @@ jobs:
       JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
       JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
       JIRA_BOARD_ID: ${{ secrets.JIRA_BOARD_ID }}
-      JIRA_EPIC_ISSUE_TYPE: ${{ vars.JIRA_EPIC_ISSUE_TYPE || 'Epic' }}
-      JIRA_TASK_ISSUE_TYPE: ${{ vars.JIRA_TASK_ISSUE_TYPE || 'Task' }}
+      JIRA_EPIC_ISSUE_TYPE: ${{ vars.JIRA_EPIC_ISSUE_TYPE || '에픽' }}
+      JIRA_TASK_ISSUE_TYPE: ${{ vars.JIRA_TASK_ISSUE_TYPE || '작업' }}
       JIRA_SPRINT_PREFIX: ${{ vars.JIRA_SPRINT_PREFIX || 'EVM' }}
       JIRA_STATUS_TRANSITION_MAP: ${{ vars.JIRA_STATUS_TRANSITION_MAP }}
     steps:
@@ -60,6 +60,16 @@ jobs:
           python -m py_compile enterprise-vision-mlops/scripts/dev/jira_github_issue_sync.py
       - name: Sync plan, sprints, and timeline fields
         run: |
+          missing=()
+          for name in JIRA_BASE_URL JIRA_EMAIL JIRA_API_TOKEN JIRA_PROJECT_KEY JIRA_BOARD_ID; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::notice::Skipping Jira plan sync; missing secrets: ${missing[*]}"
+            exit 0
+          fi
           args=(
             --project-root enterprise-vision-mlops
             --mode all
@@ -84,8 +94,8 @@ jobs:
       JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
       JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
       JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
-      JIRA_EPIC_ISSUE_TYPE: ${{ vars.JIRA_EPIC_ISSUE_TYPE || 'Epic' }}
-      JIRA_TASK_ISSUE_TYPE: ${{ vars.JIRA_TASK_ISSUE_TYPE || 'Task' }}
+      JIRA_EPIC_ISSUE_TYPE: ${{ vars.JIRA_EPIC_ISSUE_TYPE || '에픽' }}
+      JIRA_TASK_ISSUE_TYPE: ${{ vars.JIRA_TASK_ISSUE_TYPE || '작업' }}
       JIRA_STATUS_TRANSITION_MAP: ${{ vars.JIRA_STATUS_TRANSITION_MAP }}
     steps:
       - uses: actions/checkout@v4
@@ -94,5 +104,15 @@ jobs:
           python-version: "3.12"
       - name: Sync GitHub issue event
         run: |
+          missing=()
+          for name in JIRA_BASE_URL JIRA_EMAIL JIRA_API_TOKEN JIRA_PROJECT_KEY; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::notice::Skipping Jira issue sync; missing secrets: ${missing[*]}"
+            exit 0
+          fi
           python -m py_compile enterprise-vision-mlops/scripts/dev/jira_github_issue_sync.py
           python enterprise-vision-mlops/scripts/dev/jira_github_issue_sync.py --transition-statuses

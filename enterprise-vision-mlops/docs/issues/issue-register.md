@@ -134,12 +134,58 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 
 ## Jira Mapping
 
-Jira 연결 전까지는 비워둔다. Jira project가 생성되면 다음 형식으로 mapping한다.
+Jira live sync 기준 mapping이다.
 
 | Git Issue ID | Jira Key | Jira Type | Link |
 |---|---|---|---|
-| `EVM-EPIC-02` | TBD | Epic | TBD |
-| `EVM-021` | TBD | Task | TBD |
+| `EVM-EPIC-02` | `SCRUM-6` | Epic | https://opop0236.atlassian.net/browse/SCRUM-6 |
+| `EVM-EPIC-03` | `SCRUM-7` | Epic | https://opop0236.atlassian.net/browse/SCRUM-7 |
+| `EVM-EPIC-04` | `SCRUM-8` | Epic | https://opop0236.atlassian.net/browse/SCRUM-8 |
+| `EVM-EPIC-05` | `SCRUM-9` | Epic | https://opop0236.atlassian.net/browse/SCRUM-9 |
+| `EVM-EPIC-06` | `SCRUM-10` | Epic | https://opop0236.atlassian.net/browse/SCRUM-10 |
+| `EVM-EPIC-07` | `SCRUM-11` | Epic | https://opop0236.atlassian.net/browse/SCRUM-11 |
+| `EVM-EPIC-08` | `SCRUM-12` | Epic | https://opop0236.atlassian.net/browse/SCRUM-12 |
+| `EVM-021` | `SCRUM-5` | Task | https://opop0236.atlassian.net/browse/SCRUM-5 |
+| `EVM-022` | `SCRUM-13` | Task | https://opop0236.atlassian.net/browse/SCRUM-13 |
+| `EVM-023-A` | `SCRUM-14` | Task | https://opop0236.atlassian.net/browse/SCRUM-14 |
+| `EVM-023-B` | `SCRUM-15` | Task | https://opop0236.atlassian.net/browse/SCRUM-15 |
+| `EVM-DOC-021` | `SCRUM-16` | Task | https://opop0236.atlassian.net/browse/SCRUM-16 |
+| `EVM-023` | `SCRUM-17` | Task | https://opop0236.atlassian.net/browse/SCRUM-17 |
+| `EVM-024` | `SCRUM-18` | Task | https://opop0236.atlassian.net/browse/SCRUM-18 |
+| `EVM-025` | `SCRUM-19` | Task | https://opop0236.atlassian.net/browse/SCRUM-19 |
+| `EVM-023-C` | `SCRUM-20` | Task | https://opop0236.atlassian.net/browse/SCRUM-20 |
+| `EVM-023-D` | `SCRUM-21` | Task | https://opop0236.atlassian.net/browse/SCRUM-21 |
+| `EVM-023-E` | `SCRUM-22` | Task | https://opop0236.atlassian.net/browse/SCRUM-22 |
+| `EVM-026` | `SCRUM-23` | Task | https://opop0236.atlassian.net/browse/SCRUM-23 |
+| `EVM-027` | `SCRUM-24` | Task | https://opop0236.atlassian.net/browse/SCRUM-24 |
+| `EVM-031` | `SCRUM-25` | Task | https://opop0236.atlassian.net/browse/SCRUM-25 |
+| `EVM-032` | `SCRUM-26` | Task | https://opop0236.atlassian.net/browse/SCRUM-26 |
+| `EVM-033` | `SCRUM-27` | Task | https://opop0236.atlassian.net/browse/SCRUM-27 |
+| `EVM-034` | `SCRUM-28` | Task | https://opop0236.atlassian.net/browse/SCRUM-28 |
+| `EVM-035` | `SCRUM-29` | Task | https://opop0236.atlassian.net/browse/SCRUM-29 |
+| `EVM-036` | `SCRUM-30` | Task | https://opop0236.atlassian.net/browse/SCRUM-30 |
+| `EVM-041` | `SCRUM-31` | Task | https://opop0236.atlassian.net/browse/SCRUM-31 |
+| `EVM-042` | `SCRUM-32` | Task | https://opop0236.atlassian.net/browse/SCRUM-32 |
+| `EVM-044` | `SCRUM-33` | Task | https://opop0236.atlassian.net/browse/SCRUM-33 |
+| `EVM-045` | `SCRUM-34` | Task | https://opop0236.atlassian.net/browse/SCRUM-34 |
+| `EVM-051` | `SCRUM-35` | Task | https://opop0236.atlassian.net/browse/SCRUM-35 |
+| `EVM-052` | `SCRUM-36` | Task | https://opop0236.atlassian.net/browse/SCRUM-36 |
+| `EVM-053` | `SCRUM-37` | Task | https://opop0236.atlassian.net/browse/SCRUM-37 |
+| `EVM-054` | `SCRUM-38` | Task | https://opop0236.atlassian.net/browse/SCRUM-38 |
+| `EVM-055` | `SCRUM-39` | Task | https://opop0236.atlassian.net/browse/SCRUM-39 |
+| `EVM-061` | `SCRUM-40` | Task | https://opop0236.atlassian.net/browse/SCRUM-40 |
+| `EVM-062` | `SCRUM-41` | Task | https://opop0236.atlassian.net/browse/SCRUM-41 |
+| `EVM-063` | `SCRUM-42` | Task | https://opop0236.atlassian.net/browse/SCRUM-42 |
+| `EVM-065` | `SCRUM-43` | Task | https://opop0236.atlassian.net/browse/SCRUM-43 |
+| `EVM-071` | `SCRUM-44` | Task | https://opop0236.atlassian.net/browse/SCRUM-44 |
+| `EVM-072` | `SCRUM-45` | Task | https://opop0236.atlassian.net/browse/SCRUM-45 |
+| `EVM-073` | `SCRUM-46` | Task | https://opop0236.atlassian.net/browse/SCRUM-46 |
+| `EVM-074` | `SCRUM-47` | Task | https://opop0236.atlassian.net/browse/SCRUM-47 |
+| `EVM-075` | `SCRUM-48` | Task | https://opop0236.atlassian.net/browse/SCRUM-48 |
+| `EVM-DOC-031` | `SCRUM-49` | Task | https://opop0236.atlassian.net/browse/SCRUM-49 |
+| `EVM-DOC-032` | `SCRUM-50` | Task | https://opop0236.atlassian.net/browse/SCRUM-50 |
+| `EVM-QA-001` | `SCRUM-51` | Task | https://opop0236.atlassian.net/browse/SCRUM-51 |
+| `EVM-QA-002` | `SCRUM-52` | Task | https://opop0236.atlassian.net/browse/SCRUM-52 |
 
 ## Bug Register
 

@@ -83,6 +83,13 @@ Required GitHub secrets:
 - `JIRA_PROJECT_KEY`
 - `JIRA_BOARD_ID`
 
+Current confirmed values:
+
+- `JIRA_PROJECT_KEY=SCRUM`
+- `JIRA_BOARD_ID=1`
+- `JIRA_EPIC_ISSUE_TYPE=에픽`
+- `JIRA_TASK_ISSUE_TYPE=작업`
+
 Do not store actual token values in Git.
 
 ## Limitations

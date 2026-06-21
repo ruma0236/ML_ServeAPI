@@ -111,8 +111,8 @@ $env:JIRA_BOARD_ID="1"
 Project issue type 이름이 다르면 다음도 설정한다.
 
 ```powershell
-$env:JIRA_EPIC_ISSUE_TYPE="Epic"
-$env:JIRA_TASK_ISSUE_TYPE="Task"
+$env:JIRA_EPIC_ISSUE_TYPE="에픽"
+$env:JIRA_TASK_ISSUE_TYPE="작업"
 $env:JIRA_SPRINT_PREFIX="EVM"
 $env:JIRA_STATUS_TRANSITION_MAP='{"Next":["Selected for Development","To Do"],"In Progress":["In Progress"],"Blocked":["Blocked"],"Done":["Done"]}'
 ```
@@ -130,6 +130,10 @@ GitHub Actions secret / variable:
 | `JIRA_TASK_ISSUE_TYPE` | Variable | No | Default `Task` |
 | `JIRA_SPRINT_PREFIX` | Variable | No | Default `EVM` |
 | `JIRA_STATUS_TRANSITION_MAP` | Variable | No | Workflow-specific status mapping |
+
+Secrets가 없으면 `.github/workflows/jira-realtime-sync.yml`은 실패하지 않고 skip한다.
+GitHub repository에 secrets를 등록한 뒤 수동 `workflow_dispatch`를 실행하면 전체 계획이
+다시 Jira에 반영된다.
 
 ## Dry-run
 
@@ -176,6 +180,42 @@ python .\scripts\dev\jira_sync.py `
 ```powershell
 $env:JIRA_PROJECT_KEY="SCRUM"
 $env:JIRA_BOARD_ID="1"
+$env:JIRA_EPIC_ISSUE_TYPE="에픽"
+$env:JIRA_TASK_ISSUE_TYPE="작업"
+```
+
+처음 실제 반영할 때는 전체 sync 전에 단일 issue로 생성/업데이트 경로를 확인한다.
+
+```powershell
+python .\scripts\dev\jira_sync.py `
+  --project-root . `
+  --project-key SCRUM `
+  --source-id EVM-021
+```
+
+단일 issue가 정상 생성되면 전체 반영으로 확장한다.
+
+단일 issue의 sprint 배치까지 확인하려면 다음처럼 실행한다. `--source-id`와
+`--assign-sprints`를 함께 쓰면 해당 issue가 속한 주차 sprint만 생성/재사용한다.
+
+```powershell
+python .\scripts\dev\jira_sync.py `
+  --project-root . `
+  --project-key SCRUM `
+  --source-id EVM-021 `
+  --sync-sprints `
+  --assign-sprints
+```
+
+전체 반영:
+
+```powershell
+python .\scripts\dev\jira_sync.py `
+  --project-root . `
+  --project-key SCRUM `
+  --sync-sprints `
+  --assign-sprints `
+  --parent-mode parent-field
 ```
 
 기본 동작:

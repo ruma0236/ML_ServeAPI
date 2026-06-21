@@ -68,6 +68,51 @@ provided.
 - `SCRUM` is the valid Jira Software project key for project name `MLOps`.
 - Board id `1` exists and belongs to `MLOps (SCRUM)`.
 - Board sprint API returned existing sprint data, so sprint/backlog automation can target board `1`.
+- Issue type names are localized:
+  - Epic issue type: `에픽`
+  - Task issue type: `작업`
+- No existing `evm` label issues were found before live sync.
 
 Do not store the actual API token in Git. The token was only used as an environment variable for
 read-only verification.
+
+## Live Sync Result
+
+2026-06-21 live sync completed against Jira project `SCRUM`.
+
+Created/updated:
+
+- Jira issues with `evm` label: 48
+- Planning epics: 7
+- July cut tasks: 41
+- W0 tasks: 5
+- W1 tasks: 6
+- W2 tasks: 6
+- W3 tasks: 7
+- W4 tasks: 7
+- W5 tasks: 6
+
+Created/reused EVM sprints:
+
+| Week | Sprint ID | Name | State |
+|---|---:|---|---|
+| W0 | 3 | `EVM W0 2026-06-22~2026-06-28` | future |
+| W1 | 4 | `EVM W1 2026-06-29~2026-07-05` | future |
+| W2 | 5 | `EVM W2 2026-07-06~2026-07-12` | future |
+| W3 | 6 | `EVM W3 2026-07-13~2026-07-19` | future |
+| W4 | 7 | `EVM W4 2026-07-20~2026-07-26` | future |
+| W5 | 8 | `EVM W5 2026-07-27~2026-07-31` | future |
+
+Spot checks:
+
+- `EVM-021` mapped to `SCRUM-5`.
+- `EVM-EPIC-02` mapped to `SCRUM-6`.
+- `SCRUM-5` parent is `SCRUM-6`.
+- `SCRUM-5` is assigned to sprint `3`.
+
+GitHub automation note:
+
+- Local `gh` CLI is not installed.
+- Local `GITHUB_TOKEN` / `GH_TOKEN` was not available.
+- GitHub repository secrets still need to be added through GitHub UI or another authenticated
+  GitHub API session.
