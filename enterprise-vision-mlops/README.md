@@ -88,6 +88,9 @@ Pipeline reports are generated under `artifacts/reports`, while stable design do
 Detailed connection maps and data contracts are maintained in
 `docs/architecture-connectivity.md`.
 
+The implementation agenda and final portfolio target are maintained in
+`docs/agenda/enterprise-mlops-implementation-agenda.md`.
+
 ```mermaid
 flowchart LR
     I["data_ingestion"] --> V["data_validation"]
@@ -108,9 +111,9 @@ flowchart LR
 
 ## Next Steps
 
-1. Add data ingestion and validation pipeline.
-2. Add reproducible baseline training with MLflow logging.
-3. Register a baseline model in MLflow Model Registry.
-4. Replace placeholder inference with registry-based model loading.
-5. Add Kafka/Redpanda and Spark/Parquet data pipeline.
-6. Attach Tailscale-connected remote workers for heterogeneous execution.
+1. Add Airflow and convert the current manual pipeline runner into an operating DAG.
+2. Connect MinIO raw, processed, and validated buckets to the data pipeline.
+3. Add Parquet-based dataset generation and dataset version metadata.
+4. Replace placeholder inference with registry-driven model loading.
+5. Expand remote worker execution beyond inventory and smoke checks.
+6. Add CI/CD, release gates, drift checks, and SLO documentation.
