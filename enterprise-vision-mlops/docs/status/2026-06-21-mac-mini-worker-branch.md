@@ -54,8 +54,11 @@ truth for `online_workers` and `remote_exec_ready`.
 
 ## Runtime Review
 
-Observed mac-mini smoke runtime was about 4 seconds after the branch was warm.
-No long-running `uv` or Python process remained on mac-mini after completion.
+Initial mac-mini smoke runtime was about 4 seconds after the branch was warm.
+After separating `remote-inventory` from the default worker-local smoke path,
+the 2026-06-21 warm check completed in under 1 second from the Windows
+control-plane SSH invocation. No long-running `uv` or Python process remained on
+mac-mini after completion.
 
 Longer runtime should be expected only in these cases:
 
