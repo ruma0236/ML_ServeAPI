@@ -26,6 +26,12 @@ Creates the raw dataset manifest that downstream validation and training stages 
 python scripts/run_pipeline.py data-ingest --config configs/local.toml
 ```
 
+Airflow task command:
+
+```bash
+python scripts/run_pipeline.py data-ingest --config configs/airflow.toml
+```
+
 ## Extension Plan
 
 - Add real dataset downloader.
@@ -36,3 +42,4 @@ python scripts/run_pipeline.py data-ingest --config configs/local.toml
 
 - 2026-06-18: Added local MVP synthetic manifest generator.
 - 2026-06-18: Verified manifest generation with 8 sample records.
+- 2026-06-21: Connected as Airflow task `data_ingest` in `enterprise_vision_mlops_daily`.

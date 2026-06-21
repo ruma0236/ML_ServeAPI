@@ -73,8 +73,11 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 
 | ID | Task | Status | Due | Acceptance Criteria |
 |---|---|---|---:|---|
-| `EVM-021` | Airflow Docker Compose service 추가 | Next | 2026-06-23 | Airflow webserver/scheduler/metadata DB 실행 |
-| `EVM-022` | DAG directory와 `enterprise_vision_mlops_daily.py` 생성 | Next | 2026-06-24 | Airflow UI에서 DAG 표시 |
+| `EVM-021` | Airflow Docker Compose service 추가 | Done | 2026-06-23 | Airflow webserver/scheduler/metadata DB 실행 |
+| `EVM-022` | DAG directory와 `enterprise_vision_mlops_daily.py` 생성 | Done | 2026-06-24 | Airflow UI에서 DAG 표시 |
+| `EVM-023-A` | DAG skeleton 생성 | Done | 2026-06-28 | `enterprise_vision_mlops_daily` DAG import 성공 |
+| `EVM-023-B` | `data-ingest`, `data-validate` task 연결 | Done | 2026-06-28 | Airflow task graph에서 ingest->validate 확인 |
+| `EVM-DOC-021` | Airflow setup runbook 작성 | Done | 2026-06-28 | `docs/runbooks/airflow-local.md` 작성 |
 | `EVM-023` | 기존 pipeline command를 Airflow task로 연결 | Next | 2026-07-02 | ingest->validate->train->register->deploy->monitor task 연결 |
 | `EVM-024` | retry/timeout/log policy 설정 | Planned | 2026-07-03 | task 실패/재시도 정책 문서화 |
 | `EVM-025` | MLflow run id와 Airflow run id 연결 | Planned | 2026-07-04 | MLflow tag 또는 params에 DAG context 저장 |
@@ -186,6 +189,8 @@ Jira live sync 기준 mapping이다.
 | `EVM-DOC-032` | `SCRUM-50` | Task | https://opop0236.atlassian.net/browse/SCRUM-50 |
 | `EVM-QA-001` | `SCRUM-51` | Task | https://opop0236.atlassian.net/browse/SCRUM-51 |
 | `EVM-QA-002` | `SCRUM-52` | Task | https://opop0236.atlassian.net/browse/SCRUM-52 |
+| `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
+| `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
 
 ## Bug Register
 
@@ -194,6 +199,8 @@ Bug는 발견 즉시 이 섹션에 추가하거나 GitHub Issue로 먼저 생성
 | ID | Title | Status | GitHub Issue | Root Cause |
 |---|---|---|---|---|
 | `EVM-BUG-001` | sample edit breaks data validation dimensions | Closed | https://github.com/ruma0236/ML_ServeAPI/issues/1 | Controlled workflow test; no production code change required |
+| `EVM-BUG-002` | Airflow metadata DB conflicts with MLflow Postgres alembic revision | Closed | https://opop0236.atlassian.net/browse/SCRUM-53 | Airflow and MLflow shared the same metadata DB; split Airflow into a dedicated Postgres service |
+| `EVM-BUG-003` | Airflow manual smoke run created DagRun without task instances | Closed | https://opop0236.atlassian.net/browse/SCRUM-54 | DAG `start_date` was later than the manual smoke logical date; moved it to `2026-06-01` |
 
 Automation status:
 

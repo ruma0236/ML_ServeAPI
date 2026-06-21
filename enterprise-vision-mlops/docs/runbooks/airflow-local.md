@@ -1,0 +1,169 @@
+# Airflow Local Runbook
+
+작성일: 2026-06-21
+
+## Purpose
+
+`EVM-021`, `EVM-022`, `EVM-023-A`, `EVM-023-B`의 Airflow foundation 실행
+절차를 정의한다.
+
+## Services
+
+Airflow local control-plane은 Docker Compose에 다음 service로 구성된다.
+
+| Service | Role |
+|---|---|
+| `airflow-postgres` | Airflow dedicated metadata DB |
+| `airflow-init` | metadata DB migration and admin user bootstrap |
+| `airflow-webserver` | Airflow UI on `http://localhost:8080` |
+| `airflow-scheduler` | DAG scheduling and task execution |
+
+Metadata DB는 MLflow backend DB와 분리된 `airflow-postgres`를 사용한다. MLflow와
+Airflow는 둘 다 Alembic migration을 사용하므로 같은 database를 공유하지 않는다.
+
+## Credentials
+
+기본 local 계정:
+
+```text
+username: admin
+password: admin
+```
+
+환경 변수로 변경할 수 있다.
+
+```powershell
+$env:AIRFLOW_ADMIN_USERNAME="admin"
+$env:AIRFLOW_ADMIN_PASSWORD="<password>"
+```
+
+## Start
+
+```powershell
+docker compose up -d airflow-postgres airflow-init airflow-webserver airflow-scheduler
+```
+
+전체 local stack과 함께 실행:
+
+```powershell
+docker compose up -d --build
+```
+
+## Verify
+
+```powershell
+docker compose ps airflow-postgres airflow-webserver airflow-scheduler
+docker compose exec airflow-scheduler airflow dags list
+docker compose exec airflow-scheduler airflow tasks list enterprise_vision_mlops_daily --tree
+docker compose exec airflow-scheduler airflow dags list-import-errors
+docker compose logs airflow-webserver
+docker compose logs airflow-scheduler
+```
+
+Airflow UI:
+
+```text
+http://localhost:8080
+```
+
+Expected DAG:
+
+```text
+enterprise_vision_mlops_daily
+```
+
+Initial W0 task graph:
+
+```text
+data_ingest -> data_validate
+```
+
+## Manual DAG Trigger
+
+Airflow UI에서 `enterprise_vision_mlops_daily`를 선택한 뒤 manual run을 실행한다.
+
+CLI:
+
+```powershell
+$runId = "evm_w0_smoke_" + (Get-Date -Format "yyyyMMddTHHmmss")
+docker compose exec airflow-scheduler airflow dags trigger -r $runId enterprise_vision_mlops_daily
+docker compose exec airflow-scheduler airflow dags list-runs -d enterprise_vision_mlops_daily
+docker compose exec airflow-scheduler airflow tasks states-for-dag-run enterprise_vision_mlops_daily $runId
+```
+
+Expected task states:
+
+```text
+data_ingest    success
+data_validate  success
+```
+
+## Expected Outputs
+
+`data_ingest`:
+
+```text
+data/raw/raw_manifest.jsonl
+artifacts/reports/data_ingestion.md
+artifacts/runs/data_ingestion/<run_id>/summary.json
+```
+
+`data_validate`:
+
+```text
+data/validated/validated_manifest.jsonl
+data/validated/validation_report.json
+artifacts/reports/data_validation.md
+artifacts/runs/data_validation/<run_id>/summary.json
+```
+
+Task logs are written inside the Airflow logs volume:
+
+```powershell
+docker compose exec airflow-scheduler sh -lc "find /opt/airflow/logs -type f | sort | tail -20"
+```
+
+## Troubleshooting
+
+Airflow webserver가 뜨지 않는 경우:
+
+```powershell
+docker compose logs airflow-init
+docker compose logs airflow-postgres
+docker compose logs airflow-webserver
+```
+
+Scheduler health가 실패하는 경우:
+
+```powershell
+docker compose logs airflow-scheduler
+docker compose exec airflow-scheduler airflow dags list
+```
+
+DAG import 오류가 나는 경우:
+
+```powershell
+docker compose exec airflow-scheduler python -m py_compile /opt/airflow/dags/enterprise_vision_mlops_daily.py
+```
+
+DagRun이 `success`인데 task instance가 비어 있는 경우:
+
+```powershell
+docker compose exec airflow-scheduler airflow tasks states-for-dag-run enterprise_vision_mlops_daily <run_id>
+```
+
+원인은 보통 DAG 또는 task `start_date`가 manual run logical date보다 미래인 경우다.
+현재 W0 DAG는 local smoke 검증을 위해 `2026-06-01`부터 실행 가능하게 둔다.
+
+Airflow DB migration에서 `No such revision or branch` 오류가 나는 경우:
+
+- Airflow와 MLflow가 같은 Postgres database를 공유하지 않는지 확인한다.
+- Airflow는 dedicated `airflow-postgres` service와 `AIRFLOW_POSTGRES_DB=airflow`를 사용한다.
+
+## Extension Plan
+
+W1에서는 동일 DAG에 다음 task를 추가한다.
+
+```text
+train -> register_model -> deploy_check -> monitor_check
+```

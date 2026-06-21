@@ -35,8 +35,16 @@ flowchart LR
 - `src/evm/core/http.py`: dependency-free HTTP JSON client.
 - `src/evm/core/mlflow_client.py`: minimal MLflow REST integration.
 
+## Orchestration
+
+- Local CLI entrypoint: `scripts/run_pipeline.py`.
+- W0 Airflow DAG: `orchestration/airflow/dags/enterprise_vision_mlops_daily.py`.
+- Initial DAG path: `data_ingest -> data_validate`.
+- Airflow service config: `configs/airflow.toml`.
+
 ## Update Log
 
 - 2026-06-18: Added modular pipeline layout and shared core package.
 - 2026-06-18: Verified full local MVP sequence from ingestion through monitoring.
 - 2026-06-18: Added remote worker inventory layer for Tailscale-connected machines.
+- 2026-06-21: Added Airflow W0 orchestration foundation for ingest and validation.

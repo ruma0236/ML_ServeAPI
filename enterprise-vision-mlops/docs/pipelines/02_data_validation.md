@@ -27,6 +27,12 @@ Validates data quality before any record is allowed to reach model training.
 python scripts/run_pipeline.py data-validate --config configs/local.toml
 ```
 
+Airflow task command:
+
+```bash
+python scripts/run_pipeline.py data-validate --config configs/airflow.toml
+```
+
 ## Extension Plan
 
 - Replace manifest checks with Great Expectations.
@@ -38,3 +44,4 @@ python scripts/run_pipeline.py data-validate --config configs/local.toml
 
 - 2026-06-18: Added manifest-level validation and report generation.
 - 2026-06-18: Verified validation output with 8 valid records and 0 invalid records.
+- 2026-06-21: Connected as Airflow task `data_validate` after `data_ingest`.

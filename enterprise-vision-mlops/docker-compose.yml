@@ -18,6 +18,114 @@ services:
     networks:
       - mlops-local
 
+  airflow-postgres:
+    image: postgres:16-alpine
+    container_name: evm-airflow-postgres
+    environment:
+      POSTGRES_USER: ${AIRFLOW_POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${AIRFLOW_POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${AIRFLOW_POSTGRES_DB:-airflow}
+    volumes:
+      - airflow-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mlops-local
+
+  airflow-init:
+    image: apache/airflow:2.10.5-python3.11
+    container_name: evm-airflow-init
+    user: "0:0"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@airflow-postgres:5432/${AIRFLOW_POSTGRES_DB:-airflow}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-evm-airflow-local-secret}
+      AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL:-admin@example.com}
+      EVM_PROJECT_ROOT: /opt/airflow/evm_project
+      EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
+      PYTHONPATH: /opt/airflow/evm_project/src
+    volumes:
+      - ./orchestration/airflow/dags:/opt/airflow/dags:ro
+      - ./:/opt/airflow/evm_project
+      - airflow-logs:/opt/airflow/logs
+    command: >
+      bash -c "
+      airflow db migrate &&
+      airflow users create --username $${AIRFLOW_ADMIN_USERNAME} --password $${AIRFLOW_ADMIN_PASSWORD} --firstname Enterprise --lastname MLOps --role Admin --email $${AIRFLOW_ADMIN_EMAIL} || true
+      "
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+    networks:
+      - mlops-local
+
+  airflow-webserver:
+    image: apache/airflow:2.10.5-python3.11
+    container_name: evm-airflow-webserver
+    user: "${AIRFLOW_UID:-50000}:0"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@airflow-postgres:5432/${AIRFLOW_POSTGRES_DB:-airflow}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-evm-airflow-local-secret}
+      EVM_PROJECT_ROOT: /opt/airflow/evm_project
+      EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
+      PYTHONPATH: /opt/airflow/evm_project/src
+    command: webserver
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./orchestration/airflow/dags:/opt/airflow/dags:ro
+      - ./:/opt/airflow/evm_project
+      - airflow-logs:/opt/airflow/logs
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+    networks:
+      - mlops-local
+
+  airflow-scheduler:
+    image: apache/airflow:2.10.5-python3.11
+    container_name: evm-airflow-scheduler
+    user: "${AIRFLOW_UID:-50000}:0"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@airflow-postgres:5432/${AIRFLOW_POSTGRES_DB:-airflow}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-evm-airflow-local-secret}
+      EVM_PROJECT_ROOT: /opt/airflow/evm_project
+      EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
+      PYTHONPATH: /opt/airflow/evm_project/src
+    command: scheduler
+    volumes:
+      - ./orchestration/airflow/dags:/opt/airflow/dags:ro
+      - ./:/opt/airflow/evm_project
+      - airflow-logs:/opt/airflow/logs
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\""]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+    networks:
+      - mlops-local
+
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: evm-minio
@@ -160,3 +268,5 @@ volumes:
   minio-data:
   prometheus-data:
   grafana-data:
+  airflow-logs:
+  airflow-postgres-data:
