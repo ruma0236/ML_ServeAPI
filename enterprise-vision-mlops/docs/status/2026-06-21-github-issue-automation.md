@@ -22,6 +22,16 @@ bug/error detected
 - `docs/governance/codex-github-issue-resolution-workflow.md`
 - bug register section in `docs/issues/issue-register.md`
 
+## Label Policy
+
+Default bug labels:
+
+- `mlops`
+- `bug`
+
+Do not add `codex-managed`. Codex involvement is tracked through issue body,
+comments, commits, and status documents.
+
 ## Validation
 
 Static check:

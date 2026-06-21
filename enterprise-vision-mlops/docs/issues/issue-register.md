@@ -147,7 +147,7 @@ Bug는 발견 즉시 이 섹션에 추가하거나 GitHub Issue로 먼저 생성
 
 | ID | Title | Status | GitHub Issue | Root Cause |
 |---|---|---|---|---|
-| `EVM-BUG-001` | sample edit breaks data validation dimensions | Open | https://github.com/ruma0236/ML_ServeAPI/issues/1 | Hypothetical issue registration test; root cause TBD |
+| `EVM-BUG-001` | sample edit breaks data validation dimensions | Closed | https://github.com/ruma0236/ML_ServeAPI/issues/1 | Controlled workflow test; no production code change required |
 
 Automation status:
 

@@ -31,7 +31,9 @@ The script also creates missing default labels before creating an issue:
 
 - `mlops`
 - `bug`
-- `codex-managed`
+
+Do not add a `codex-managed` label. Codex involvement is tracked through the
+issue body, comments, commit messages, and status documents instead.
 
 ## Bug Discovery Flow
 

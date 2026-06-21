@@ -13,11 +13,10 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_LABELS = ["mlops", "bug", "codex-managed"]
+DEFAULT_LABELS = ["mlops", "bug"]
 LABEL_DEFINITIONS = {
     "mlops": {"color": "0E8A16", "description": "MLOps platform work"},
     "bug": {"color": "D73A4A", "description": "Something is not working"},
-    "codex-managed": {"color": "5319E7", "description": "Created or managed by Codex workflow"},
 }
 
 
@@ -321,7 +320,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--validation", default="")
     create.add_argument("--validation-file")
     create.add_argument("--logs-file")
-    create.add_argument("--labels", default="mlops,bug,codex-managed")
+    create.add_argument("--labels", default="mlops,bug")
     create.add_argument("--skip-label-sync", action="store_true")
     create.add_argument("--dry-run", action="store_true")
     create.set_defaults(func=create_bug)
