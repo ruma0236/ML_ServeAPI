@@ -49,13 +49,21 @@ Jira Cloud project를 먼저 생성한다.
 - Jira API token
 - Jira project key, for example `EVM`
 
+현재 계획값:
+
+| Item | Value | Note |
+|---|---|---|
+| API token name | `mlops_key` | 실제 token value는 Git에 저장하지 않는다. |
+| Workspace / project name | `MLOps` | Jira 화면에 표시되는 이름 |
+| Recommended project key | `MLOPS` | Jira project settings에서 실제 key 확인 필요 |
+
 PowerShell 환경 변수:
 
 ```powershell
 $env:JIRA_BASE_URL="https://<site>.atlassian.net"
 $env:JIRA_EMAIL="<email>"
 $env:JIRA_API_TOKEN="<api-token>"
-$env:JIRA_PROJECT_KEY="EVM"
+$env:JIRA_PROJECT_KEY="MLOPS"
 ```
 
 Project issue type 이름이 다르면 다음도 설정한다.
@@ -72,7 +80,7 @@ Jira 인증 없이도 생성 예정 항목을 확인할 수 있다.
 ```powershell
 python .\scripts\dev\jira_sync.py `
   --project-root . `
-  --project-key EVM `
+  --project-key MLOPS `
   --dry-run
 ```
 
@@ -81,7 +89,7 @@ Task만 확인:
 ```powershell
 python .\scripts\dev\jira_sync.py `
   --project-root . `
-  --project-key EVM `
+  --project-key MLOPS `
   --mode tasks `
   --dry-run
 ```
