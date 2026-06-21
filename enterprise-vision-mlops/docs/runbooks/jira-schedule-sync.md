@@ -19,6 +19,32 @@ Source of truth:
 2. `docs/agenda/enterprise-mlops-accelerated-weekly-schedule.md`
 3. Jira board
 
+실시간 반영 경로:
+
+```mermaid
+flowchart LR
+    A["Markdown plan / issue register"]
+    B["Git push"]
+    C["GitHub Actions"]
+    D["Jira Backlog"]
+    E["Jira Sprint"]
+    F["Jira Timeline"]
+    G["GitHub Issue event"]
+    H["Jira Issue status"]
+
+    A --> B --> C
+    C --> D
+    C --> E
+    C --> F
+    G --> C --> H
+```
+
+여기서 "실시간"은 다음 trigger 기준으로 정의한다.
+
+- 계획 문서 변경 후 push: Jira backlog, sprint, due date, timeline field 갱신
+- GitHub Issue open/edit/close/reopen/label 변경: Jira issue 생성/갱신/상태 전이
+- 수동 `workflow_dispatch`: 전체 계획과 sprint를 즉시 재동기화
+
 Jira에는 다음 형태로 생성한다.
 
 | Markdown | Jira |
@@ -64,6 +90,7 @@ $env:JIRA_BASE_URL="https://<site>.atlassian.net"
 $env:JIRA_EMAIL="<email>"
 $env:JIRA_API_TOKEN="<api-token>"
 $env:JIRA_PROJECT_KEY="MLOPS"
+$env:JIRA_BOARD_ID="<jira-scrum-board-id>"
 ```
 
 Project issue type 이름이 다르면 다음도 설정한다.
@@ -71,7 +98,23 @@ Project issue type 이름이 다르면 다음도 설정한다.
 ```powershell
 $env:JIRA_EPIC_ISSUE_TYPE="Epic"
 $env:JIRA_TASK_ISSUE_TYPE="Task"
+$env:JIRA_SPRINT_PREFIX="EVM"
+$env:JIRA_STATUS_TRANSITION_MAP='{"Next":["Selected for Development","To Do"],"In Progress":["In Progress"],"Blocked":["Blocked"],"Done":["Done"]}'
 ```
+
+GitHub Actions secret / variable:
+
+| Name | Type | Required | Purpose |
+|---|---|---:|---|
+| `JIRA_BASE_URL` | Secret | Yes | Jira site URL |
+| `JIRA_EMAIL` | Secret | Yes | Jira API user email |
+| `JIRA_API_TOKEN` | Secret | Yes | `mlops_key` token value |
+| `JIRA_PROJECT_KEY` | Secret | Yes | `MLOPS` or verified project key |
+| `JIRA_BOARD_ID` | Secret | Yes for sprint sync | Scrum board id |
+| `JIRA_EPIC_ISSUE_TYPE` | Variable | No | Default `Epic` |
+| `JIRA_TASK_ISSUE_TYPE` | Variable | No | Default `Task` |
+| `JIRA_SPRINT_PREFIX` | Variable | No | Default `EVM` |
+| `JIRA_STATUS_TRANSITION_MAP` | Variable | No | Workflow-specific status mapping |
 
 ## Dry-run
 
@@ -100,6 +143,17 @@ python .\scripts\dev\jira_sync.py `
 python .\scripts\dev\jira_sync.py `
   --project-root . `
   --mode all
+```
+
+Sprint와 Timeline까지 같이 반영:
+
+```powershell
+python .\scripts\dev\jira_sync.py `
+  --project-root . `
+  --mode all `
+  --sync-sprints `
+  --assign-sprints `
+  --transition-statuses
 ```
 
 기본 동작:
@@ -131,6 +185,62 @@ python .\scripts\dev\jira_sync.py `
 단, Jira project type에 따라 Epic parent field 정책이 다를 수 있으므로 최초에는
 `--parent-mode none`으로 생성한 뒤 board에서 hierarchy를 확인한다.
 
+## GitHub Actions 자동 동기화
+
+Workflow:
+
+```text
+.github/workflows/jira-realtime-sync.yml
+```
+
+Trigger:
+
+- `push` to `main` or `codex/mac-mini-worker`
+- `workflow_dispatch`
+- GitHub Issue event:
+  - opened
+  - edited
+  - reopened
+  - closed
+  - labeled
+  - unlabeled
+
+Plan sync job:
+
+```text
+Markdown agenda/register
+-> Jira Epic/Task upsert
+-> W0~W5 sprint create/reuse
+-> weekly task sprint assignment
+-> optional status transition
+```
+
+GitHub Issue sync job:
+
+```text
+GitHub Issue event
+-> source id extraction
+-> Jira issue upsert
+-> optional status transition
+```
+
+GitHub Issue source id 규칙:
+
+- 제목 또는 본문에 `[EVM-021]`, `EVM-BUG-001` 같은 id가 있으면 그 값을 사용한다.
+- 없으면 `GH-ISSUE-<number>`를 Jira source id로 사용한다.
+
+GitHub Issue 상태 매핑:
+
+| GitHub State / Label | Jira Status Intent |
+|---|---|
+| open | `Next` |
+| `in-progress` label | `In Progress` |
+| `blocked` label | `Blocked` |
+| closed | `Done` |
+
+Jira workflow마다 transition 이름이 다르므로, 필요하면
+`JIRA_STATUS_TRANSITION_MAP` variable로 실제 Jira column 이름에 맞춘다.
+
 ## 권장 Board 구성
 
 | Jira Column | Markdown Status |
@@ -156,9 +266,14 @@ Due date 기준:
 - Jira에서 일정만 바꾼 경우 `issue-register.md`에도 반드시 반영한다.
 - 완료한 작업은 Jira issue, Git commit, `docs/status` 문서가 서로 연결되어야 한다.
 - API token은 repository에 commit하지 않는다.
+- Sprint 자동 배치는 `JIRA_BOARD_ID`가 설정되어 있을 때만 수행한다.
+- Timeline은 Epic/Task, due date, parent 관계를 기반으로 구성한다.
+- parent field가 Jira project에서 거부되면 `--parent-mode none`으로 sync하고 Jira UI에서 hierarchy를 수동 조정한다.
 
 ## 참고 API
 
-- Jira Cloud REST API v3
-- Issue create/update API
-- JQL search API
+- Jira Cloud REST API v3: https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/
+- Issue create/update API: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/
+- JQL search API: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/
+- Jira Software Cloud Sprint API: https://developer.atlassian.com/cloud/jira/software/rest/api-group-sprint/
+- Jira Software Cloud Board/Backlog API: https://developer.atlassian.com/cloud/jira/software/rest/api-group-board/

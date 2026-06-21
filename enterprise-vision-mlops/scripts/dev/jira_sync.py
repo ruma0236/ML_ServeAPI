@@ -42,6 +42,8 @@ class JiraConfig:
     project_key: str
     epic_type: str
     task_type: str
+    board_id: int | None
+    sprint_prefix: str
 
 
 def split_table_row(line: str) -> list[str]:
@@ -311,6 +313,8 @@ def load_config(args: argparse.Namespace) -> JiraConfig:
         project_key=env["JIRA_PROJECT_KEY"],
         epic_type=os.getenv("JIRA_EPIC_ISSUE_TYPE", "Epic"),
         task_type=os.getenv("JIRA_TASK_ISSUE_TYPE", "Task"),
+        board_id=int(os.getenv("JIRA_BOARD_ID")) if os.getenv("JIRA_BOARD_ID") else None,
+        sprint_prefix=os.getenv("JIRA_SPRINT_PREFIX", "EVM"),
     )
 
 
@@ -343,6 +347,135 @@ def jira_request(
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Jira API failed: {exc.code} {exc.reason}\n{body}") from exc
+
+
+def require_board_id(config: JiraConfig) -> int:
+    if config.board_id is None:
+        raise RuntimeError("Set JIRA_BOARD_ID before syncing or assigning Jira sprints.")
+    return config.board_id
+
+
+def sprint_name(config: JiraConfig, week: str, start_date: str, end_date: str) -> str:
+    return f"{config.sprint_prefix} {week} {start_date}~{end_date}"
+
+
+def sprint_goal(week: str) -> str:
+    goals = {
+        "W0": "Airflow foundation",
+        "W1": "Full DAG and MLflow linkage",
+        "W2": "MinIO and Parquet data platform",
+        "W3": "Registry-driven serving and remote worker jobs",
+        "W4": "Observability, CI/CD, and CT skeleton",
+        "W5": "Final integration and enterprise MVP cut",
+    }
+    return goals.get(week, "Enterprise MLOps weekly execution")
+
+
+def jira_datetime(date_value: str, end_of_day: bool = False) -> str:
+    time_part = "23:59:59.000+09:00" if end_of_day else "00:00:00.000+09:00"
+    return f"{date_value}T{time_part}"
+
+
+def list_sprints(config: JiraConfig) -> list[dict[str, Any]]:
+    board_id = require_board_id(config)
+    sprints: list[dict[str, Any]] = []
+    start_at = 0
+    while True:
+        result = jira_request(
+            config,
+            "GET",
+            f"/rest/agile/1.0/board/{board_id}/sprint?state=active,future&startAt={start_at}&maxResults=50",
+        )
+        values = result.get("values", [])
+        sprints.extend(values)
+        if result.get("isLast", True) or not values:
+            return sprints
+        start_at += len(values)
+
+
+def ensure_weekly_sprints(
+    config: JiraConfig,
+    week_ranges: dict[str, tuple[str, str]],
+) -> dict[str, int]:
+    board_id = require_board_id(config)
+    existing = {str(sprint.get("name")): sprint for sprint in list_sprints(config)}
+    sprint_ids: dict[str, int] = {}
+
+    for week, (start_date, end_date) in week_ranges.items():
+        name = sprint_name(config, week, start_date, end_date)
+        if name in existing:
+            sprint_ids[week] = int(existing[name]["id"])
+            continue
+        created = jira_request(
+            config,
+            "POST",
+            "/rest/agile/1.0/sprint",
+            {
+                "name": name,
+                "originBoardId": board_id,
+                "startDate": jira_datetime(start_date),
+                "endDate": jira_datetime(end_date, end_of_day=True),
+                "goal": sprint_goal(week),
+            },
+        )
+        sprint_ids[week] = int(created["id"])
+    return sprint_ids
+
+
+def move_issues_to_sprint(config: JiraConfig, sprint_id: int, issue_keys: list[str]) -> None:
+    for offset in range(0, len(issue_keys), 50):
+        chunk = issue_keys[offset : offset + 50]
+        if not chunk:
+            continue
+        jira_request(
+            config,
+            "POST",
+            f"/rest/agile/1.0/sprint/{sprint_id}/issue",
+            {"issues": chunk},
+        )
+
+
+def transition_targets_for_status(status: str) -> list[str]:
+    env_map = os.getenv("JIRA_STATUS_TRANSITION_MAP", "")
+    if env_map:
+        try:
+            parsed = json.loads(env_map)
+            targets = parsed.get(status, [])
+            return [str(target).lower() for target in targets]
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("JIRA_STATUS_TRANSITION_MAP must be valid JSON.") from exc
+
+    defaults = {
+        "Next": ["selected for development", "to do"],
+        "In Progress": ["in progress"],
+        "Blocked": ["blocked"],
+        "Done": ["done"],
+    }
+    return defaults.get(status, [])
+
+
+def transition_issue_to_item_status(config: JiraConfig, issue_key: str, status: str) -> dict[str, str]:
+    targets = transition_targets_for_status(status)
+    if not targets:
+        return {"key": issue_key, "transition": "skipped", "reason": f"no target for status {status}"}
+
+    result = jira_request(
+        config,
+        "GET",
+        f"/rest/api/3/issue/{urllib.parse.quote(issue_key)}/transitions",
+    )
+    for transition in result.get("transitions", []):
+        name = str(transition.get("name", "")).lower()
+        if name in targets:
+            jira_request(
+                config,
+                "POST",
+                f"/rest/api/3/issue/{urllib.parse.quote(issue_key)}/transitions",
+                {"transition": {"id": transition["id"]}},
+            )
+            return {"key": issue_key, "transition": transition.get("name", "")}
+
+    return {"key": issue_key, "transition": "skipped", "reason": f"no matching transition for {status}"}
 
 
 def labels_for_item(item: JiraItem, extra_labels: list[str]) -> list[str]:
@@ -422,10 +555,20 @@ def parse_extra_labels(value: str) -> list[str]:
 
 def dry_run(items: list[JiraItem], args: argparse.Namespace) -> int:
     extra_labels = parse_extra_labels(args.labels)
+    week_ranges = parse_week_ranges(Path(args.project_root).resolve() / "docs" / "agenda" / "enterprise-mlops-accelerated-weekly-schedule.md")
     result = {
         "project_key": args.project_key or os.getenv("JIRA_PROJECT_KEY") or "TBD",
         "mode": args.mode,
+        "sync_sprints": args.sync_sprints,
+        "assign_sprints": args.assign_sprints,
+        "transition_statuses": args.transition_statuses,
         "total": len(items),
+        "planned_sprints": [
+            {"week": week, "start_date": dates[0], "end_date": dates[1]}
+            for week, dates in week_ranges.items()
+        ]
+        if args.sync_sprints or args.assign_sprints
+        else [],
         "items": [
             {
                 "source_id": item.source_id,
@@ -447,20 +590,42 @@ def dry_run(items: list[JiraItem], args: argparse.Namespace) -> int:
 def sync(items: list[JiraItem], args: argparse.Namespace) -> int:
     config = load_config(args)
     extra_labels = parse_extra_labels(args.labels)
-    results: list[dict[str, str]] = []
+    results: list[dict[str, Any]] = []
     epic_keys: dict[str, str] = {}
+    issue_keys_by_week: dict[str, list[str]] = {}
+    sprint_ids: dict[str, int] = {}
 
     jira_request(config, "GET", f"/rest/api/3/project/{urllib.parse.quote(config.project_key)}")
+
+    if args.sync_sprints or args.assign_sprints:
+        schedule = Path(args.project_root).resolve() / "docs" / "agenda" / "enterprise-mlops-accelerated-weekly-schedule.md"
+        sprint_ids = ensure_weekly_sprints(config, parse_week_ranges(schedule))
+        results.append({"action": "sprints-synced", "sprints": sprint_ids})
 
     for item in [candidate for candidate in items if candidate.kind == "Epic"]:
         result = create_or_update_issue(config, item, extra_labels, None)
         results.append(result)
         if result.get("key"):
             epic_keys[item.source_id] = result["key"]
+            if args.transition_statuses:
+                results.append(transition_issue_to_item_status(config, result["key"], item.status))
 
     for item in [candidate for candidate in items if candidate.kind != "Epic"]:
         parent_key = epic_keys.get(item.parent_id or "") if args.parent_mode == "parent-field" else None
-        results.append(create_or_update_issue(config, item, extra_labels, parent_key))
+        result = create_or_update_issue(config, item, extra_labels, parent_key)
+        results.append(result)
+        key = result.get("key")
+        if key and item.week:
+            issue_keys_by_week.setdefault(item.week, []).append(key)
+        if key and args.transition_statuses:
+            results.append(transition_issue_to_item_status(config, key, item.status))
+
+    if args.assign_sprints:
+        for week, issue_keys in issue_keys_by_week.items():
+            sprint_id = sprint_ids.get(week)
+            if sprint_id:
+                move_issues_to_sprint(config, sprint_id, issue_keys)
+                results.append({"action": "issues-assigned-to-sprint", "week": week, "sprint_id": sprint_id, "count": len(issue_keys)})
 
     print(json.dumps({"results": results}, ensure_ascii=False, indent=2))
     return 0
@@ -475,6 +640,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Print planned Jira payload summary.")
     parser.add_argument("--include-done", action="store_true", help="Include already completed baseline items.")
     parser.add_argument("--include-deferred", action="store_true", help="Include post-July deferred items.")
+    parser.add_argument("--sync-sprints", action="store_true", help="Create or reuse W0-W5 Jira sprints.")
+    parser.add_argument("--assign-sprints", action="store_true", help="Move weekly tasks into the matching Jira sprint.")
+    parser.add_argument("--transition-statuses", action="store_true", help="Transition Jira issues based on Markdown status when possible.")
     parser.add_argument(
         "--parent-mode",
         choices=["none", "parent-field"],

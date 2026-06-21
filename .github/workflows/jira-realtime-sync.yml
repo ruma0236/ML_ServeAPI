@@ -1,0 +1,98 @@
+name: Jira Realtime Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_done:
+        description: Include completed baseline issues
+        required: false
+        default: "false"
+      include_deferred:
+        description: Include post-July deferred issues
+        required: false
+        default: "false"
+  push:
+    branches:
+      - main
+      - codex/mac-mini-worker
+    paths:
+      - enterprise-vision-mlops/docs/agenda/**
+      - enterprise-vision-mlops/docs/issues/**
+      - enterprise-vision-mlops/scripts/dev/jira_sync.py
+      - enterprise-vision-mlops/scripts/dev/jira_github_issue_sync.py
+      - .github/workflows/jira-realtime-sync.yml
+  issues:
+    types:
+      - opened
+      - edited
+      - reopened
+      - closed
+      - labeled
+      - unlabeled
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  plan-sync:
+    name: Sync Markdown Plan To Jira
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+      JIRA_BOARD_ID: ${{ secrets.JIRA_BOARD_ID }}
+      JIRA_EPIC_ISSUE_TYPE: ${{ vars.JIRA_EPIC_ISSUE_TYPE || 'Epic' }}
+      JIRA_TASK_ISSUE_TYPE: ${{ vars.JIRA_TASK_ISSUE_TYPE || 'Task' }}
+      JIRA_SPRINT_PREFIX: ${{ vars.JIRA_SPRINT_PREFIX || 'EVM' }}
+      JIRA_STATUS_TRANSITION_MAP: ${{ vars.JIRA_STATUS_TRANSITION_MAP }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate Jira sync scripts
+        run: |
+          python -m py_compile enterprise-vision-mlops/scripts/dev/jira_sync.py
+          python -m py_compile enterprise-vision-mlops/scripts/dev/jira_github_issue_sync.py
+      - name: Sync plan, sprints, and timeline fields
+        run: |
+          args=(
+            --project-root enterprise-vision-mlops
+            --mode all
+            --sync-sprints
+            --assign-sprints
+            --transition-statuses
+          )
+          if [ "${{ github.event.inputs.include_done }}" = "true" ]; then
+            args+=(--include-done)
+          fi
+          if [ "${{ github.event.inputs.include_deferred }}" = "true" ]; then
+            args+=(--include-deferred)
+          fi
+          python enterprise-vision-mlops/scripts/dev/jira_sync.py "${args[@]}"
+
+  github-issue-sync:
+    name: Sync GitHub Issue To Jira
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    env:
+      JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+      JIRA_EPIC_ISSUE_TYPE: ${{ vars.JIRA_EPIC_ISSUE_TYPE || 'Epic' }}
+      JIRA_TASK_ISSUE_TYPE: ${{ vars.JIRA_TASK_ISSUE_TYPE || 'Task' }}
+      JIRA_STATUS_TRANSITION_MAP: ${{ vars.JIRA_STATUS_TRANSITION_MAP }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Sync GitHub issue event
+        run: |
+          python -m py_compile enterprise-vision-mlops/scripts/dev/jira_github_issue_sync.py
+          python enterprise-vision-mlops/scripts/dev/jira_github_issue_sync.py --transition-statuses
