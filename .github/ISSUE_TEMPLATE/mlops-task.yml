@@ -1,0 +1,83 @@
+name: MLOps Task
+description: Track an enterprise MLOps implementation task
+title: "[EVM-000] "
+labels:
+  - mlops
+  - task
+body:
+  - type: input
+    id: issue_id
+    attributes:
+      label: Issue ID
+      description: Use the ID from docs/issues/issue-register.md.
+      placeholder: EVM-021
+    validations:
+      required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Phase
+      options:
+        - Phase 1 - Local Control-plane MVP
+        - Phase 2 - Airflow + MLflow Orchestration
+        - Phase 3 - Object Storage Data Platform
+        - Phase 4 - Remote Training Infra
+        - Phase 5 - Registry-driven Serving
+        - Phase 6 - Observability / Drift / SLO
+        - Phase 7 - CI/CD / Governance
+        - 2027 Enterprise Extension
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What should this task prove or enable?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Files, services, pipeline modules, or infra components expected to change.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Concrete done criteria.
+      placeholder: |
+        - Airflow DAG appears in UI
+        - Manual DAG run succeeds
+        - Status document is updated
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation Commands
+      description: Commands that should pass before closing this issue.
+      placeholder: |
+        docker compose ps
+        python scripts/run_pipeline.py data-validate --config configs/local.toml
+    validations:
+      required: false
+  - type: textarea
+    id: docs
+    attributes:
+      label: Documentation Updates
+      description: Which docs/status/runbook files should be updated?
+      placeholder: |
+        docs/pipelines/00_pipeline_overview.md
+        docs/status/YYYY-MM-DD-airflow-dag.md
+    validations:
+      required: false
+  - type: input
+    id: jira
+    attributes:
+      label: Jira Mapping
+      description: Fill this after Jira is connected.
+      placeholder: TBD
+    validations:
+      required: false

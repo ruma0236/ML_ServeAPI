@@ -418,6 +418,9 @@ data_ingest
 
 다음 작업은 Phase 2로 고정한다.
 
+세부 task와 일정은 `docs/issues/issue-register.md`와
+`docs/agenda/enterprise-mlops-roadmap.md`에서 관리한다.
+
 우선순위:
 
 1. Airflow Docker Compose service 추가

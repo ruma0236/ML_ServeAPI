@@ -90,6 +90,8 @@ Detailed connection maps and data contracts are maintained in
 
 The implementation agenda and final portfolio target are maintained in
 `docs/agenda/enterprise-mlops-implementation-agenda.md`.
+Roadmap and issue tracking are maintained in `docs/agenda/enterprise-mlops-roadmap.md`
+and `docs/issues/issue-register.md`.
 
 ```mermaid
 flowchart LR
