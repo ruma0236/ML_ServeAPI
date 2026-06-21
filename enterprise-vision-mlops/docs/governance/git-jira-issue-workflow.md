@@ -8,7 +8,8 @@
 연결하기 위한 운영 규칙이다.
 
 현재는 Jira connector가 없으므로 Git repository 문서를 source of truth로 사용한다.
-나중에 Jira가 연결되면 동일한 issue id를 Jira key 또는 Jira mapping으로 연결한다.
+Jira 연결은 `scripts/dev/jira_sync.py`와
+`docs/runbooks/jira-schedule-sync.md`를 통해 REST API 방식으로 수행한다.
 
 ## Source of Truth
 
@@ -133,7 +134,29 @@ Jira project가 준비되면 다음 중 하나로 연결한다.
 - 표준적이고 유지보수 비용이 낮다.
 - branch, commit, PR 링크가 자동으로 Jira에 붙는다.
 
-### Option B. Jira Automation + Webhook
+### Option B. Jira REST API Sync Script
+
+현재 적용 방식:
+
+- `docs/issues/issue-register.md`에서 Epic/Task를 읽는다.
+- `docs/agenda/enterprise-mlops-accelerated-weekly-schedule.md`에서 W0~W5 due date를 읽는다.
+- `scripts/dev/jira_sync.py`가 Jira issue를 생성하거나 업데이트한다.
+- source id는 Jira label로 남겨 중복 생성을 방지한다.
+- `codex-managed` label은 사용하지 않는다.
+
+Dry-run:
+
+```powershell
+python .\scripts\dev\jira_sync.py --project-root . --project-key EVM --dry-run
+```
+
+실제 sync:
+
+```powershell
+python .\scripts\dev\jira_sync.py --project-root . --mode all
+```
+
+### Option C. Jira Automation + Webhook
 
 사용 조건:
 
@@ -142,9 +165,9 @@ Jira project가 준비되면 다음 중 하나로 연결한다.
 연결 방식:
 
 - GitHub webhook 또는 Actions에서 Jira REST API 호출
-- Markdown issue register를 Jira로 sync하는 script 작성
+- Jira Automation rule에서 branch, commit, PR event를 issue 상태와 연결
 
-### Option C. Manual Mapping
+### Option D. Manual Mapping
 
 초기에는 다음 table만 유지한다.
 
