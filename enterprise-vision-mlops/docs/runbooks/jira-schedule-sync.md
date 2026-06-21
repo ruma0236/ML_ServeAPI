@@ -91,8 +91,12 @@ https://opop0236.atlassian.net
 |---|---|---|
 | API token name | `mlops_key` | 실제 token value는 Git에 저장하지 않는다. |
 | Workspace / project name | `MLOps` | Jira 화면에 표시되는 이름 |
-| Recommended project key | `MLOPS` | Jira project settings에서 실제 key 확인 필요 |
-| Observed Product Discovery key candidate | `ZWIW` | 제공된 URL path에서 관측됨. Software board key인지 확인 필요 |
+| Confirmed Jira Software project key | `SCRUM` | REST API `/rest/api/3/project/SCRUM` 확인 완료 |
+| Confirmed Jira Software project id | `10000` | REST API 확인 완료 |
+| Confirmed board id | `1` | Board URL과 REST API 확인 완료 |
+| Confirmed board name | `SCRUM board` | REST API 확인 완료 |
+| Board project location | `MLOps (SCRUM)` | project name은 `MLOps`, key는 `SCRUM` |
+| Observed Product Discovery key candidate | `ZWIW` | Jira Product Discovery URL path에서 관측됨. Software board key는 아님 |
 
 PowerShell 환경 변수:
 
@@ -100,8 +104,8 @@ PowerShell 환경 변수:
 $env:JIRA_BASE_URL="https://<site>.atlassian.net"
 $env:JIRA_EMAIL="<email>"
 $env:JIRA_API_TOKEN="<api-token>"
-$env:JIRA_PROJECT_KEY="MLOPS"
-$env:JIRA_BOARD_ID="<jira-scrum-board-id>"
+$env:JIRA_PROJECT_KEY="SCRUM"
+$env:JIRA_BOARD_ID="1"
 ```
 
 Project issue type 이름이 다르면 다음도 설정한다.
@@ -134,7 +138,7 @@ Jira 인증 없이도 생성 예정 항목을 확인할 수 있다.
 ```powershell
 python .\scripts\dev\jira_sync.py `
   --project-root . `
-  --project-key MLOPS `
+  --project-key SCRUM `
   --dry-run
 ```
 
@@ -143,7 +147,7 @@ Task만 확인:
 ```powershell
 python .\scripts\dev\jira_sync.py `
   --project-root . `
-  --project-key MLOPS `
+  --project-key SCRUM `
   --mode tasks `
   --dry-run
 ```
@@ -165,6 +169,13 @@ python .\scripts\dev\jira_sync.py `
   --sync-sprints `
   --assign-sprints `
   --transition-statuses
+```
+
+현재 확인된 project/board 기준으로는 위 명령 실행 전에 다음 값이 필요하다.
+
+```powershell
+$env:JIRA_PROJECT_KEY="SCRUM"
+$env:JIRA_BOARD_ID="1"
 ```
 
 기본 동작:
@@ -282,6 +293,7 @@ Due date 기준:
 - parent field가 Jira project에서 거부되면 `--parent-mode none`으로 sync하고 Jira UI에서 hierarchy를 수동 조정한다.
 - Jira Product Discovery의 `ideas` project는 Jira Software Scrum backlog/sprint와 다를 수 있다.
   Sprint 자동화를 원하면 Jira Software Scrum board의 `JIRA_BOARD_ID`가 필요하다.
+- 현재 `MLOps`는 project name이고, REST API에서 사용하는 project key는 `SCRUM`이다.
 
 ## 참고 API
 

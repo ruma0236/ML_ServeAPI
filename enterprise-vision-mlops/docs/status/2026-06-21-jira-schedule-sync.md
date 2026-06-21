@@ -9,7 +9,10 @@ Jira Cloud REST API를 호출하는 local script 방식으로 진행한다.
 
 - API token name: `mlops_key`
 - Workspace / project name: `MLOps`
-- Recommended project key: `MLOPS`
+- Confirmed Jira Software project key: `SCRUM`
+- Confirmed Jira Software project id: `10000`
+- Confirmed Jira board id: `1`
+- Confirmed Jira board name: `SCRUM board`
 - Observed Jira site root: `https://opop0236.atlassian.net`
 - Observed URL project key candidate: `ZWIW`
 - Organization id was provided, but it is not required for Jira issue/sprint REST sync.
@@ -59,6 +62,12 @@ provided.
 2026-06-21 read-only probe result:
 
 - `JIRA_BASE_URL` normalized to `https://opop0236.atlassian.net`.
-- `/rest/api/3/myself` returned `401 Unauthorized` with the provided email/token pair.
-- Project key could not be verified because authentication failed.
-- `JIRA_BOARD_ID` is still required for sprint/backlog automation.
+- Initial token probe returned `401 Unauthorized`.
+- New token probe returned `200 OK` for `/rest/api/3/myself`.
+- `MLOps` and `MLOPS` are not valid REST project keys.
+- `SCRUM` is the valid Jira Software project key for project name `MLOps`.
+- Board id `1` exists and belongs to `MLOps (SCRUM)`.
+- Board sprint API returned existing sprint data, so sprint/backlog automation can target board `1`.
+
+Do not store the actual API token in Git. The token was only used as an environment variable for
+read-only verification.
