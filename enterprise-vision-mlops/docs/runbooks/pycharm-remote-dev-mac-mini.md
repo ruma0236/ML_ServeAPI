@@ -6,6 +6,14 @@ Use `ruma-macmini` as the remote development host for PyCharm while keeping the
 Windows machine as the control-plane for Docker Compose, GitHub pushes, and
 orchestration checks.
 
+## JetBrains Client Choice
+
+Do not use JetBrains Gateway's plain SSH flow for this mac-mini target.
+
+JetBrains Gateway's SSH backend accepts Linux remote hosts only. For a macOS
+remote host, use JetBrains Toolbox App remote development instead. Toolbox App
+2.6+ supports SSH remote hosts on Linux, macOS, and Windows.
+
 ## Connection Profile
 
 Use this SSH profile from Windows:
@@ -55,14 +63,19 @@ $HOME/.local/bin/uv run --python 3.11 python scripts/run_pipeline.py data-valida
 
 ## PyCharm Setup
 
-1. Open PyCharm Professional or JetBrains Gateway on Windows.
-2. Select `Remote Development` and choose `SSH`.
-3. Use host `ruma-macmini-mlops`.
-4. Select the project directory:
+1. Install or update JetBrains Toolbox App on Windows.
+2. Open Toolbox App and switch to the SSH or Remote Development context.
+3. Import the existing SSH config entry, or create a connection using
+   `ruma-macmini-mlops`.
+4. Use Toolbox App to install or launch PyCharm for the remote host.
+5. Select the project directory:
    `/Users/ruma/mlops-lab/ML_ServeAPI/enterprise-vision-mlops`.
-5. Let JetBrains install its remote backend under the user cache directory.
-6. Configure the project interpreter to `.venv/bin/python` if PyCharm does not
+6. Let JetBrains install its remote backend under the user cache directory.
+7. Configure the project interpreter to `.venv/bin/python` if PyCharm does not
    detect it automatically.
+
+If Gateway shows a message that only Linux remote hosts are supported, that is
+expected for Gateway. Close Gateway and use Toolbox App for this macOS host.
 
 ## Server-Side Preflight
 

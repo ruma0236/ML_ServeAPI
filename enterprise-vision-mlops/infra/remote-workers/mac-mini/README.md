@@ -55,6 +55,9 @@ RUN_REMOTE_INVENTORY=1 bash infra/remote-workers/mac-mini/run_mac_worker_smoke.s
 
 ## PyCharm Remote Development
 
+Use JetBrains Toolbox App for this macOS remote host. JetBrains Gateway's plain
+SSH flow supports Linux remote hosts only.
+
 Use `ruma-macmini-mlops` from the Windows SSH config and open:
 
 ```text

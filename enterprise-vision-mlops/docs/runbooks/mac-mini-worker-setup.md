@@ -62,8 +62,12 @@ bash infra/remote-workers/mac-mini/run_mac_worker_smoke.sh
 
 ## PyCharm Remote Development
 
-PyCharm Remote Development should use the Windows SSH profile
-`ruma-macmini-mlops` and open this remote project directory:
+PyCharm Remote Development for this macOS host should be launched through
+JetBrains Toolbox App, not JetBrains Gateway's plain SSH flow. Gateway SSH
+accepts Linux remote hosts only, while Toolbox App supports macOS remote hosts.
+
+Use the Windows SSH profile `ruma-macmini-mlops` and open this remote project
+directory:
 
 ```text
 /Users/ruma/mlops-lab/ML_ServeAPI/enterprise-vision-mlops
