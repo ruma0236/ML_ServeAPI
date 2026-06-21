@@ -42,6 +42,13 @@ The smoke check compiles pipeline code and runs:
 
 - `data-ingest`
 - `data-validate`
-- `remote-inventory`
 
 Runtime reports are written under `artifacts/reports` and `artifacts/runs`.
+
+`remote-inventory` is skipped by default because the Windows control-plane owns
+the SSH key and Tailscale context used for authoritative worker probing. To run
+it from mac-mini anyway:
+
+```bash
+RUN_REMOTE_INVENTORY=1 bash infra/remote-workers/mac-mini/run_mac_worker_smoke.sh
+```

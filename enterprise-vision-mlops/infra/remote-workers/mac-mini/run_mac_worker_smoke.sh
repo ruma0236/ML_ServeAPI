@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PYTHON_VERSION="${PYTHON_VERSION:-3.11}"
 UV_BIN="${UV_BIN:-uv}"
+RUN_REMOTE_INVENTORY="${RUN_REMOTE_INVENTORY:-0}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="${RUN_DIR:-$PROJECT_ROOT/artifacts/runs/mac_mini_worker_smoke/$RUN_ID}"
 REPORT_PATH="${REPORT_PATH:-$PROJECT_ROOT/artifacts/reports/mac_mini_worker_smoke.md}"
@@ -25,6 +26,19 @@ run_step() {
   "$@" 2>&1 | tee -a "$LOG_PATH"
 }
 
+time_step() {
+  local label="$1"
+  local start_ts
+  local end_ts
+  local elapsed
+  shift
+  start_ts="$(date +%s)"
+  run_step "$@"
+  end_ts="$(date +%s)"
+  elapsed="$((end_ts - start_ts))"
+  printf -- '- %s: passed (%ss)\n' "$label" "$elapsed" >>"$REPORT_PATH"
+}
+
 HOSTNAME_VALUE="$(hostname)"
 ARCH_VALUE="$(uname -m)"
 BRANCH_VALUE="$(git branch --show-current 2>/dev/null || printf 'unknown')"
@@ -39,21 +53,23 @@ cat >"$REPORT_PATH" <<EOF
 - Branch: \`${BRANCH_VALUE}\`
 - Commit: \`${COMMIT_VALUE}\`
 - Run directory: \`${RUN_DIR#$PROJECT_ROOT/}\`
+- Run remote inventory: \`${RUN_REMOTE_INVENTORY}\`
 
 ## Checks
 
 EOF
 
-run_step "$UV_BIN" run --python "$PYTHON_VERSION" python -m compileall src scripts
-printf -- '- compileall: passed\n' >>"$REPORT_PATH"
+time_step "compileall" "$UV_BIN" run --python "$PYTHON_VERSION" python -m compileall src scripts
+time_step "data-ingest" \
+  "$UV_BIN" run --python "$PYTHON_VERSION" python scripts/run_pipeline.py data-ingest --config configs/local.toml
+time_step "data-validate" \
+  "$UV_BIN" run --python "$PYTHON_VERSION" python scripts/run_pipeline.py data-validate --config configs/local.toml
 
-run_step "$UV_BIN" run --python "$PYTHON_VERSION" python scripts/run_pipeline.py data-ingest --config configs/local.toml
-printf -- '- data-ingest: passed\n' >>"$REPORT_PATH"
-
-run_step "$UV_BIN" run --python "$PYTHON_VERSION" python scripts/run_pipeline.py data-validate --config configs/local.toml
-printf -- '- data-validate: passed\n' >>"$REPORT_PATH"
-
-run_step "$UV_BIN" run --python "$PYTHON_VERSION" python scripts/run_pipeline.py remote-inventory --config configs/local.toml
-printf -- '- remote-inventory: passed\n' >>"$REPORT_PATH"
+if [ "$RUN_REMOTE_INVENTORY" = "1" ]; then
+  time_step "remote-inventory" \
+    "$UV_BIN" run --python "$PYTHON_VERSION" python scripts/run_pipeline.py remote-inventory --config configs/local.toml
+else
+  printf -- '- remote-inventory: skipped (run from Windows control-plane, or set RUN_REMOTE_INVENTORY=1)\n' >>"$REPORT_PATH"
+fi
 
 printf '\nSmoke checks completed. Report: %s\n' "$REPORT_PATH"
