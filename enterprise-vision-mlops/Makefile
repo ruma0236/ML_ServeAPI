@@ -1,4 +1,4 @@
-.PHONY: stack-up stack-down stack-logs stack-ps stack-config api-logs mlflow-logs clean-volumes data-ingest data-validate train register-model deploy-check monitor-check remote-inventory local-mvp
+.PHONY: stack-up stack-down stack-logs stack-ps stack-config api-logs mlflow-logs clean-volumes data-ingest data-validate train register-model deploy-check monitor-check remote-inventory mac-mini-smoke local-mvp
 
 stack-up:
 	docker compose up -d --build
@@ -44,5 +44,8 @@ monitor-check:
 
 remote-inventory:
 	python scripts/run_pipeline.py remote-inventory --config configs/local.toml
+
+mac-mini-smoke:
+	bash infra/remote-workers/mac-mini/run_mac_worker_smoke.sh
 
 local-mvp: data-ingest data-validate train register-model deploy-check monitor-check remote-inventory

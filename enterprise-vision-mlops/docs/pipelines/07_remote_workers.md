@@ -52,3 +52,4 @@ python scripts/run_pipeline.py remote-inventory --config configs/local.toml
 - 2026-06-18: Added remote worker inventory pipeline and mac-mini worker candidate.
 - 2026-06-18: Validated mac-mini remote Python 3.11 runtime, clone, compile, data ingest, and data validation.
 - 2026-06-18: Added key-based remote execution probe for mac-mini.
+- 2026-06-21: Split mac-mini worker automation onto `codex/mac-mini-worker`.

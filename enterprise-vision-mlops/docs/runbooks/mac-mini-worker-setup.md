@@ -28,6 +28,8 @@ The mac-mini should be used as a heterogeneous worker, not as a replacement for 
 - Project Python: 3.11.15 installed through `uv`
 - Docker/Homebrew/Colima: not installed at initial probe time
 - Remote repo path: `~/mlops-lab/ML_ServeAPI/enterprise-vision-mlops`
+- Base branch: `codex/local-infra-mvp`
+- mac-mini worker branch: `codex/mac-mini-worker`
 - Password-based SSH was used only for the initial public-key bootstrap.
 - Persistent automation now uses `~/.ssh/evm_macmini_ed25519` from the Windows control-plane.
 
@@ -45,6 +47,19 @@ cd ML_ServeAPI/enterprise-vision-mlops
 ~/.local/bin/uv run --python 3.11 python scripts/run_pipeline.py data-validate --config configs/local.toml
 ```
 
+## mac-mini Branch Refresh
+
+The mac-mini specific branch is separated from the base infra branch:
+
+```bash
+cd ~/mlops-lab/ML_ServeAPI
+git fetch origin codex/mac-mini-worker
+git checkout codex/mac-mini-worker
+git pull --ff-only origin codex/mac-mini-worker
+cd enterprise-vision-mlops
+bash infra/remote-workers/mac-mini/run_mac_worker_smoke.sh
+```
+
 ## Validation From Windows
 
 ```powershell
@@ -59,10 +74,8 @@ python scripts/run_pipeline.py remote-inventory --config configs/local.toml
 Once the remote-worker code is pushed and pulled on mac-mini, add a remote command runner that can execute:
 
 ```bash
-git pull
-~/.local/bin/uv run --python 3.11 python -m compileall src scripts
-~/.local/bin/uv run --python 3.11 python scripts/run_pipeline.py data-ingest --config configs/local.toml
-~/.local/bin/uv run --python 3.11 python scripts/run_pipeline.py data-validate --config configs/local.toml
+git pull --ff-only origin codex/mac-mini-worker
+bash infra/remote-workers/mac-mini/run_mac_worker_smoke.sh
 ```
 
 on mac-mini and report the result back to `artifacts/reports/remote_workers.md`.
