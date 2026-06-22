@@ -194,9 +194,10 @@ Jira live sync 기준 mapping이다.
 
 ## Bug Register
 
-Bug는 발견 즉시 이 섹션에 추가하거나 GitHub Issue로 먼저 생성한 뒤 역으로 기록한다.
+Bug는 발견 즉시 이 섹션에 추가하거나 Jira/GitHub Issue로 먼저 생성한 뒤 역으로 기록한다.
+GitHub Issue가 없는 경우에도 Jira issue, branch, commit, status 문서로 추적성을 유지한다.
 
-| ID | Title | Status | GitHub Issue | Root Cause |
+| ID | Title | Status | Tracking Link | Root Cause |
 |---|---|---|---|---|
 | `EVM-BUG-001` | sample edit breaks data validation dimensions | Closed | https://github.com/ruma0236/ML_ServeAPI/issues/1 | Controlled workflow test; no production code change required |
 | `EVM-BUG-002` | Airflow metadata DB conflicts with MLflow Postgres alembic revision | Closed | https://opop0236.atlassian.net/browse/SCRUM-53 | Airflow and MLflow shared the same metadata DB; split Airflow into a dedicated Postgres service |
