@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from evm.core.config import get_nested, load_config, resolve_path
+from evm.core.traceability import TraceContext
 
 
 def utc_now() -> str:
@@ -22,6 +23,7 @@ def run_id(prefix: str) -> str:
 class PipelineContext:
     name: str
     run_id: str
+    trace: TraceContext
     config: dict[str, Any]
     project_root: Path
     run_dir: Path
@@ -43,9 +45,15 @@ def build_context(pipeline_name: str, config_path: str | Path) -> PipelineContex
     report_dir = resolve_path(config, get_nested(config, "paths.reports_root", "artifacts/reports"))
     run_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
+    trace = TraceContext.from_environment(pipeline_name, rid)
+    (run_dir / "trace.json").write_text(
+        json.dumps(trace.to_dict(), indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     return PipelineContext(
         name=pipeline_name,
         run_id=rid,
+        trace=trace,
         config=config,
         project_root=project_root,
         run_dir=run_dir,
@@ -89,7 +97,18 @@ def write_markdown_report(
         "",
         f"- Last updated: `{utc_now()}`",
         f"- Latest run id: `{ctx.run_id}`",
+        f"- Trace id: `{ctx.trace.trace_id}`",
         f"- Pipeline: `{ctx.name}`",
+        "",
+        "## Traceability",
+        "",
+        f"- `pipeline_run_id`: `{ctx.trace.pipeline_run_id}`",
+        f"- `airflow_dag_id`: `{ctx.trace.airflow_dag_id}`",
+        f"- `airflow_dag_run_id`: `{ctx.trace.airflow_dag_run_id}`",
+        f"- `airflow_task_id`: `{ctx.trace.airflow_task_id}`",
+        f"- `airflow_try_number`: `{ctx.trace.airflow_try_number}`",
+        f"- `git_commit`: `{ctx.trace.git_commit}`",
+        f"- `git_branch`: `{ctx.trace.git_branch}`",
         "",
         "## Latest Summary",
         "",

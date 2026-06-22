@@ -97,6 +97,7 @@ Validation summary:
   used by MLflow.
 - Fix: add dedicated `airflow-postgres` service and point Airflow SQLAlchemy
   connection to the `airflow` database.
+- GitHub backfill: https://github.com/ruma0236/ML_ServeAPI/issues/2
 
 `EVM-BUG-003` / `SCRUM-54`:
 
@@ -105,6 +106,7 @@ Validation summary:
   logical date on `2026-06-21`.
 - Fix: set DAG `start_date` to `2026-06-01`, reparse scheduler, and rerun manual
   smoke validation.
+- GitHub backfill: https://github.com/ruma0236/ML_ServeAPI/issues/3
 
 ## Next Work
 

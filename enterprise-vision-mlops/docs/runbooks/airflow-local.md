@@ -39,6 +39,14 @@ $env:AIRFLOW_ADMIN_PASSWORD="<password>"
 
 ## Start
 
+W1 traceability 검증부터는 Airflow task가 생성하는 `trace.json`에 code version도
+남기기 위해 compose 실행 전에 다음 값을 설정한다.
+
+```powershell
+$env:EVM_GIT_COMMIT = git rev-parse --short HEAD
+$env:EVM_GIT_BRANCH = git branch --show-current
+```
+
 ```powershell
 docker compose up -d airflow-postgres airflow-init airflow-webserver airflow-scheduler
 ```
@@ -97,6 +105,16 @@ Expected task states:
 data_ingest    success
 data_validate  success
 ```
+
+Trace output:
+
+```text
+artifacts/runs/data_ingestion/<run_id>/trace.json
+artifacts/runs/data_validation/<run_id>/trace.json
+```
+
+Both W0 tasks in a single DAG run should share the same `trace_id` and
+`airflow_dag_run_id`.
 
 ## Expected Outputs
 

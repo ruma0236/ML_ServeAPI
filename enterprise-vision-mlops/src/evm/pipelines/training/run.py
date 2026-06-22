@@ -49,6 +49,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             if mlflow_run_id:
                 client.log_param(mlflow_run_id, "model_name", model_name)
                 client.log_param(mlflow_run_id, "model_type", "majority_class_baseline")
+                for key, value in ctx.trace.mlflow_params().items():
+                    client.log_param(mlflow_run_id, key, value)
                 client.log_metric(mlflow_run_id, metric_name, baseline_accuracy)
                 client.terminate_run(mlflow_run_id)
                 mlflow_status = "logged"

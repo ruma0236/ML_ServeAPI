@@ -200,8 +200,8 @@ GitHub Issue가 없는 경우에도 Jira issue, branch, commit, status 문서로
 | ID | Title | Status | Tracking Link | Root Cause |
 |---|---|---|---|---|
 | `EVM-BUG-001` | sample edit breaks data validation dimensions | Closed | https://github.com/ruma0236/ML_ServeAPI/issues/1 | Controlled workflow test; no production code change required |
-| `EVM-BUG-002` | Airflow metadata DB conflicts with MLflow Postgres alembic revision | Closed | https://opop0236.atlassian.net/browse/SCRUM-53 | Airflow and MLflow shared the same metadata DB; split Airflow into a dedicated Postgres service |
-| `EVM-BUG-003` | Airflow manual smoke run created DagRun without task instances | Closed | https://opop0236.atlassian.net/browse/SCRUM-54 | DAG `start_date` was later than the manual smoke logical date; moved it to `2026-06-01` |
+| `EVM-BUG-002` | Airflow metadata DB conflicts with MLflow Postgres alembic revision | Closed | Jira: https://opop0236.atlassian.net/browse/SCRUM-53<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/2 | Airflow and MLflow shared the same metadata DB; split Airflow into a dedicated Postgres service |
+| `EVM-BUG-003` | Airflow manual smoke run created DagRun without task instances | Closed | Jira: https://opop0236.atlassian.net/browse/SCRUM-54<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/3 | DAG `start_date` was later than the manual smoke logical date; moved it to `2026-06-01` |
 
 Automation status:
 

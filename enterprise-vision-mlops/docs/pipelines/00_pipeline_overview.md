@@ -42,9 +42,17 @@ flowchart LR
 - Initial DAG path: `data_ingest -> data_validate`.
 - Airflow service config: `configs/airflow.toml`.
 
+## Traceability
+
+- Per-run trace metadata: `artifacts/runs/<pipeline>/<run_id>/trace.json`.
+- Architecture note: `docs/architecture-traceability.md`.
+- W1 target: propagate `trace_id` across Airflow, MLflow, model registry,
+  serving, and monitoring metadata.
+
 ## Update Log
 
 - 2026-06-18: Added modular pipeline layout and shared core package.
 - 2026-06-18: Verified full local MVP sequence from ingestion through monitoring.
 - 2026-06-18: Added remote worker inventory layer for Tailscale-connected machines.
 - 2026-06-21: Added Airflow W0 orchestration foundation for ingest and validation.
+- 2026-06-22: Added traceability scaffolding for W1 lineage graph work.

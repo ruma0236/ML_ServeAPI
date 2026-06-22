@@ -24,6 +24,16 @@ def pipeline_command(name: str) -> str:
     )
 
 
+def airflow_trace_env() -> dict[str, str]:
+    return {
+        "EVM_TRACE_ID": "{{ dag.dag_id }}__{{ run_id }}",
+        "EVM_AIRFLOW_DAG_ID": "{{ dag.dag_id }}",
+        "EVM_AIRFLOW_DAG_RUN_ID": "{{ run_id }}",
+        "EVM_AIRFLOW_TASK_ID": "{{ task.task_id }}",
+        "EVM_AIRFLOW_TRY_NUMBER": "{{ ti.try_number }}",
+    }
+
+
 default_args = {
     "owner": "enterprise-vision-mlops",
     "depends_on_past": False,
@@ -45,11 +55,15 @@ with DAG(
     data_ingest = BashOperator(
         task_id="data_ingest",
         bash_command=pipeline_command("data-ingest"),
+        env=airflow_trace_env(),
+        append_env=True,
     )
 
     data_validate = BashOperator(
         task_id="data_validate",
         bash_command=pipeline_command("data-validate"),
+        env=airflow_trace_env(),
+        append_env=True,
     )
 
     data_ingest >> data_validate

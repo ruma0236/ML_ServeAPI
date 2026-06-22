@@ -51,11 +51,12 @@ status documents, and issue register entries.
 
 For W0:
 
-- `EVM-BUG-002` is tracked as Jira bug `SCRUM-53`.
-- `EVM-BUG-003` is tracked as Jira bug `SCRUM-54`.
+- `EVM-BUG-002` is tracked as Jira bug `SCRUM-53` and GitHub Issue `#2`.
+- `EVM-BUG-003` is tracked as Jira bug `SCRUM-54` and GitHub Issue `#3`.
 - Both bugs are documented in `docs/issues/issue-register.md`.
 - The implementation and fixes are in commit `07551b7b41aaf65453ab32ec1ec0f588691cd95c`.
 - W0 completion evidence is documented in `docs/status/2026-06-21-airflow-foundation.md`.
 
-The bugs are not branch-owned GitHub Issues. They are Jira issues linked to the
-`codex/mac-mini-worker` branch through the commit and documentation trail.
+The bugs are not branch-owned records because Git branches do not own issues.
+They are linked to the `codex/mac-mini-worker` branch through Jira/GitHub issue
+comments, commit history, and status documents.
