@@ -19,3 +19,4 @@ Each review should summarize:
 | Phase | Review |
 |---|---|
 | W0 | `w0-airflow-foundation-review.md` |
+| W1 | `w1-full-dag-traceability-review.md` |
