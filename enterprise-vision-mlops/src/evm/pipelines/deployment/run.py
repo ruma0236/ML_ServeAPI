@@ -26,6 +26,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "health_status": health_status,
         "ready_status": ready_status,
         "predict_status": predict_status,
+        "trace_id": ctx.trace.trace_id,
+        "pipeline_run_id": ctx.run_id,
         "sample_prediction": predict_payload if isinstance(predict_payload, dict) else str(predict_payload),
         "health_payload": health_payload if isinstance(health_payload, dict) else str(health_payload),
         "ready_payload": ready_payload if isinstance(ready_payload, dict) else str(ready_payload),
@@ -39,6 +41,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             "health_status": health_status,
             "ready_status": ready_status,
             "predict_status": predict_status,
+            "trace_id": ctx.trace.trace_id,
         },
         [
             "",

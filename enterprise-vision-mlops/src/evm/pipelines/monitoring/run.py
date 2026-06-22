@@ -32,6 +32,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "targets_status": targets_status,
         "active_targets": len(target_summary),
         "healthy_targets": healthy_targets,
+        "trace_id": ctx.trace.trace_id,
+        "pipeline_run_id": ctx.run_id,
         "targets": target_summary,
     }
     write_json(ctx.run_dir / "summary.json", summary)
@@ -43,6 +45,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             "targets_status": targets_status,
             "active_targets": len(target_summary),
             "healthy_targets": healthy_targets,
+            "trace_id": ctx.trace.trace_id,
         },
         [
             "",

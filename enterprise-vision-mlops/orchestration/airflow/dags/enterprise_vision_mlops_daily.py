@@ -14,10 +14,15 @@ PIPELINE_CONFIG = os.environ.get(
     str(PROJECT_ROOT / "configs" / "airflow.toml"),
 )
 PYTHON_BIN = os.environ.get("EVM_PYTHON_BIN", "python")
+DEFAULT_RETRIES = int(os.environ.get("EVM_AIRFLOW_TASK_RETRIES", "1"))
+DEFAULT_RETRY_DELAY_MINUTES = int(os.environ.get("EVM_AIRFLOW_RETRY_DELAY_MINUTES", "2"))
+DEFAULT_TASK_TIMEOUT_MINUTES = int(os.environ.get("EVM_AIRFLOW_TASK_TIMEOUT_MINUTES", "10"))
+DAG_RUN_TIMEOUT_MINUTES = int(os.environ.get("EVM_AIRFLOW_DAG_TIMEOUT_MINUTES", "45"))
 
 
 def pipeline_command(name: str) -> str:
     return (
+        "set -euo pipefail; "
         f"cd {PROJECT_ROOT} && "
         f"PYTHONPATH={PROJECT_ROOT / 'src'} "
         f"{PYTHON_BIN} scripts/run_pipeline.py {name} --config {PIPELINE_CONFIG}"
@@ -34,12 +39,24 @@ def airflow_trace_env() -> dict[str, str]:
     }
 
 
+def pipeline_task(task_id: str, pipeline_name: str) -> BashOperator:
+    return BashOperator(
+        task_id=task_id,
+        bash_command=pipeline_command(pipeline_name),
+        env=airflow_trace_env(),
+        append_env=True,
+        retries=DEFAULT_RETRIES,
+        retry_delay=timedelta(minutes=DEFAULT_RETRY_DELAY_MINUTES),
+        execution_timeout=timedelta(minutes=DEFAULT_TASK_TIMEOUT_MINUTES),
+    )
+
+
 default_args = {
     "owner": "enterprise-vision-mlops",
     "depends_on_past": False,
-    "retries": 1,
-    "retry_delay": timedelta(minutes=2),
-    "execution_timeout": timedelta(minutes=10),
+    "retries": DEFAULT_RETRIES,
+    "retry_delay": timedelta(minutes=DEFAULT_RETRY_DELAY_MINUTES),
+    "execution_timeout": timedelta(minutes=DEFAULT_TASK_TIMEOUT_MINUTES),
 }
 
 
@@ -50,20 +67,15 @@ with DAG(
     start_date=datetime(2026, 6, 1),
     schedule="@daily",
     catchup=False,
+    max_active_runs=1,
+    dagrun_timeout=timedelta(minutes=DAG_RUN_TIMEOUT_MINUTES),
     tags=["enterprise-mlops", "vision", "local-control-plane"],
 ) as dag:
-    data_ingest = BashOperator(
-        task_id="data_ingest",
-        bash_command=pipeline_command("data-ingest"),
-        env=airflow_trace_env(),
-        append_env=True,
-    )
+    data_ingest = pipeline_task("data_ingest", "data-ingest")
+    data_validate = pipeline_task("data_validate", "data-validate")
+    train = pipeline_task("train", "train")
+    register_model = pipeline_task("register_model", "register-model")
+    deploy_check = pipeline_task("deploy_check", "deploy-check")
+    monitor_check = pipeline_task("monitor_check", "monitor-check")
 
-    data_validate = BashOperator(
-        task_id="data_validate",
-        bash_command=pipeline_command("data-validate"),
-        env=airflow_trace_env(),
-        append_env=True,
-    )
-
-    data_ingest >> data_validate
+    data_ingest >> data_validate >> train >> register_model >> deploy_check >> monitor_check

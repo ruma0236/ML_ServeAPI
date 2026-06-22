@@ -33,6 +33,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "label_counts": dict(label_counts),
         "prediction": majority_label,
         "metrics": {metric_name: baseline_accuracy},
+        "trace": ctx.trace.to_dict(),
     }
     model_path = model_dir / "model.json"
     write_json(model_path, model_payload)
@@ -62,6 +63,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         metric_name: round(baseline_accuracy, 6),
         "mlflow_status": mlflow_status,
         "mlflow_run_id": mlflow_run_id or "",
+        "trace_id": ctx.trace.trace_id,
+        "pipeline_run_id": ctx.run_id,
     }
     write_json(ctx.run_dir / "summary.json", summary)
     write_markdown_report(

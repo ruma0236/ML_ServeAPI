@@ -38,8 +38,8 @@ flowchart LR
 ## Orchestration
 
 - Local CLI entrypoint: `scripts/run_pipeline.py`.
-- W0 Airflow DAG: `orchestration/airflow/dags/enterprise_vision_mlops_daily.py`.
-- Initial DAG path: `data_ingest -> data_validate`.
+- Airflow DAG: `orchestration/airflow/dags/enterprise_vision_mlops_daily.py`.
+- Current DAG path: `data_ingest -> data_validate -> train -> register_model -> deploy_check -> monitor_check`.
 - Airflow service config: `configs/airflow.toml`.
 
 ## Traceability

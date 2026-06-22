@@ -80,10 +80,10 @@ Expected DAG:
 enterprise_vision_mlops_daily
 ```
 
-Initial W0 task graph:
+Current W1 task graph:
 
 ```text
-data_ingest -> data_validate
+data_ingest -> data_validate -> train -> register_model -> deploy_check -> monitor_check
 ```
 
 ## Manual DAG Trigger
@@ -104,6 +104,10 @@ Expected task states:
 ```text
 data_ingest    success
 data_validate  success
+train          success
+register_model success
+deploy_check   success
+monitor_check  success
 ```
 
 Trace output:
@@ -115,6 +119,45 @@ artifacts/runs/data_validation/<run_id>/trace.json
 
 Both W0 tasks in a single DAG run should share the same `trace_id` and
 `airflow_dag_run_id`.
+
+For W1 full DAG runs, all six tasks should share the same `trace_id`:
+
+```text
+data_ingestion.trace_id
+data_validation.trace_id
+training.trace_id
+model_registry.trace_id
+deployment.trace_id
+monitoring.trace_id
+```
+
+## Retry, Timeout, And Log Policy
+
+W1 uses explicit task-level defaults in
+`orchestration/airflow/dags/enterprise_vision_mlops_daily.py`.
+
+| Policy | Default | Override |
+|---|---:|---|
+| task retries | `1` | `EVM_AIRFLOW_TASK_RETRIES` |
+| retry delay | `2` minutes | `EVM_AIRFLOW_RETRY_DELAY_MINUTES` |
+| task execution timeout | `10` minutes | `EVM_AIRFLOW_TASK_TIMEOUT_MINUTES` |
+| DAG run timeout | `45` minutes | `EVM_AIRFLOW_DAG_TIMEOUT_MINUTES` |
+| max active DAG runs | `1` | code-level DAG setting |
+
+Task command runs with:
+
+```bash
+set -euo pipefail
+```
+
+This makes shell failures, unset variables, and failed command pipelines fail the
+Airflow task instead of being silently ignored.
+
+Logs are available in Airflow's log volume:
+
+```powershell
+docker compose exec airflow-scheduler sh -lc "find /opt/airflow/logs -type f | sort | tail -20"
+```
 
 ## Expected Outputs
 

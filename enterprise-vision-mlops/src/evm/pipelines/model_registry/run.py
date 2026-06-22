@@ -34,6 +34,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "registered_at": utc_now(),
         "source_model_path": str(source_model_path.relative_to(ctx.project_root)),
         "source_model": source_payload,
+        "trace": ctx.trace.to_dict(),
     }
     version_path = model_registry_dir / f"v{next_version}.json"
     latest_path = model_registry_dir / "latest.json"
@@ -46,6 +47,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "stage": registry_payload["stage"],
         "registry_record": str(version_path.relative_to(ctx.project_root)),
         "latest_record": str(latest_path.relative_to(ctx.project_root)),
+        "trace_id": ctx.trace.trace_id,
+        "pipeline_run_id": ctx.run_id,
     }
     write_json(ctx.run_dir / "summary.json", summary)
     write_markdown_report(

@@ -78,11 +78,14 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-023-A` | DAG skeleton 생성 | Done | 2026-06-28 | `enterprise_vision_mlops_daily` DAG import 성공 |
 | `EVM-023-B` | `data-ingest`, `data-validate` task 연결 | Done | 2026-06-28 | Airflow task graph에서 ingest->validate 확인 |
 | `EVM-DOC-021` | Airflow setup runbook 작성 | Done | 2026-06-28 | `docs/runbooks/airflow-local.md` 작성 |
-| `EVM-023` | 기존 pipeline command를 Airflow task로 연결 | Next | 2026-07-02 | ingest->validate->train->register->deploy->monitor task 연결 |
-| `EVM-024` | retry/timeout/log policy 설정 | Planned | 2026-07-03 | task 실패/재시도 정책 문서화 |
-| `EVM-025` | MLflow run id와 Airflow run id 연결 | Planned | 2026-07-04 | MLflow tag 또는 params에 DAG context 저장 |
-| `EVM-026` | Airflow runbook/status 문서 작성 | Planned | 2026-07-05 | manual run 절차와 결과 기록 |
-| `EVM-027` | Phase 2 smoke 검증 | Planned | 2026-07-05 | full DAG run 성공 |
+| `EVM-023` | 기존 pipeline command를 Airflow task로 연결 | Done | 2026-07-02 | ingest->validate->train->register->deploy->monitor task 연결 |
+| `EVM-023-C` | `train` task 연결 | Done | 2026-07-05 | Airflow task logs and MLflow run |
+| `EVM-023-D` | `register-model` task 연결 | Done | 2026-07-05 | registry metadata output |
+| `EVM-023-E` | `deploy-check`, `monitor-check` task 연결 | Done | 2026-07-05 | deployment and monitoring reports |
+| `EVM-024` | retry/timeout/log policy 설정 | Done | 2026-07-03 | task 실패/재시도 정책 문서화 |
+| `EVM-025` | MLflow run id와 Airflow run id 연결 | Done | 2026-07-04 | MLflow tag 또는 params에 DAG context 저장 |
+| `EVM-026` | Airflow runbook/status 문서 작성 | Done | 2026-07-05 | manual run 절차와 결과 기록 |
+| `EVM-027` | Phase 2 smoke 검증 | Done | 2026-07-05 | full DAG run 성공 |
 
 ### Phase 3. Object Storage Data Platform
 
