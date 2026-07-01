@@ -194,7 +194,7 @@ Jira live sync 기준 mapping이다.
 | `EVM-QA-002` | `SCRUM-52` | Task | https://opop0236.atlassian.net/browse/SCRUM-52 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
-| `EVM-BUG-004` | Jira sync pending | Bug | GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 |
+| `EVM-BUG-004` | `SCRUM-55` | Bug | Jira: https://opop0236.atlassian.net/browse/SCRUM-55<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 |
 
 ## Bug Register
 
@@ -206,7 +206,7 @@ GitHub Issue가 없는 경우에도 Jira issue, branch, commit, status 문서로
 | `EVM-BUG-001` | sample edit breaks data validation dimensions | Closed | https://github.com/ruma0236/ML_ServeAPI/issues/1 | Controlled workflow test; no production code change required |
 | `EVM-BUG-002` | Airflow metadata DB conflicts with MLflow Postgres alembic revision | Closed | Jira: https://opop0236.atlassian.net/browse/SCRUM-53<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/2 | Airflow and MLflow shared the same metadata DB; split Airflow into a dedicated Postgres service |
 | `EVM-BUG-003` | Airflow manual smoke run created DagRun without task instances | Closed | Jira: https://opop0236.atlassian.net/browse/SCRUM-54<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/3 | DAG `start_date` was later than the manual smoke logical date; moved it to `2026-06-01` |
-| `EVM-BUG-004` | Airflow trace metadata misses Git commit when stack starts without injected env | Closed | Jira: pending API token refresh<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 | Local start path relied on manual `EVM_GIT_COMMIT`/`EVM_GIT_BRANCH`; added `scripts/dev/start_local_stack.ps1` |
+| `EVM-BUG-004` | Airflow trace metadata misses Git commit when stack starts without injected env | Closed | Jira: https://opop0236.atlassian.net/browse/SCRUM-55<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 | Local start path relied on manual `EVM_GIT_COMMIT`/`EVM_GIT_BRANCH`; added `scripts/dev/start_local_stack.ps1` |
 
 Automation status:
 

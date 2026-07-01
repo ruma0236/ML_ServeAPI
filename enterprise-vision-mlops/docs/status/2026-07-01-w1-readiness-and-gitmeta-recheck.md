@@ -30,8 +30,7 @@ lineage, this is a real reproducibility gap.
 Tracking:
 
 - GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4
-- Jira: pending, because the current Jira API token returned an authentication
-  failure on 2026-07-01.
+- Jira: https://opop0236.atlassian.net/browse/SCRUM-55
 
 ## Fix
 
@@ -111,16 +110,12 @@ git_branch
 
 ## Jira Sync Note
 
-GitHub Issue creation succeeded. Jira synchronization did not complete because
-the Jira REST API returned:
+GitHub Issue creation succeeded first. Jira synchronization initially failed
+because the previous Jira API token was no longer valid. After the token was
+refreshed, `EVM-BUG-004` was backfilled to Jira as `SCRUM-55`, linked to
+`SCRUM-6`, and transitioned to `완료`.
 
-```text
-Client must be authenticated to access this resource.
-```
-
-No Jira token value is stored in the repository. Refresh the Jira API token and
-rerun the Jira sync before treating Jira as the source of truth for
-`EVM-BUG-004`.
+No Jira token value is stored in the repository.
 
 ## W1 Status
 
