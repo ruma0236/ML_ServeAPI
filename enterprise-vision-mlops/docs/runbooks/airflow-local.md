@@ -39,6 +39,16 @@ $env:AIRFLOW_ADMIN_PASSWORD="<password>"
 
 ## Start
 
+Recommended local stack start:
+
+```powershell
+.\scripts\dev\start_local_stack.ps1
+```
+
+The script injects the current Git commit and branch into Airflow containers via
+`EVM_GIT_COMMIT` and `EVM_GIT_BRANCH`, then recreates Airflow runtime containers
+so W1 `trace.json` and MLflow params can record the executed code version.
+
 W1 traceability 검증부터는 Airflow task가 생성하는 `trace.json`에 code version도
 남기기 위해 compose 실행 전에 다음 값을 설정한다.
 
