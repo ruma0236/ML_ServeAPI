@@ -48,7 +48,7 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 |---|---|---:|---|---|
 | `EVM-EPIC-01` | Local Control-plane MVP | 2026-06 | Done | Local infra and modular MVP pipeline |
 | `EVM-EPIC-02` | Airflow + MLflow Orchestration | 2026-06 to 2026-07 | Done | Full DAG with Airflow, MLflow linkage, retry/log/schedule |
-| `EVM-EPIC-03` | Object Storage Data Platform | 2026-07 | Planned | MinIO raw/processed/validated + Parquet |
+| `EVM-EPIC-03` | Object Storage Data Platform | 2026-07 | Done | MinIO raw/processed/validated + Parquet + dataset version metadata |
 | `EVM-EPIC-04` | Remote Training Infra | 2026-07-W3 | Planned | mac-mini/Linux worker job execution |
 | `EVM-EPIC-05` | Registry-driven Serving | 2026-07-W3 | Planned | API loads promoted model version |
 | `EVM-EPIC-06` | Observability / Drift / SLO | 2026-07-W4 | Planned | dashboards, drift reports, alert rules |
@@ -91,12 +91,12 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
-| `EVM-031` | MinIO bucket bootstrap 고도화 | Planned | 2026-07-W2 | raw/processed/validated/mlflow-artifacts bucket 생성 |
-| `EVM-032` | object storage client module 추가 | Planned | 2026-07-W2 | upload/download/list API |
-| `EVM-033` | public vision dataset ingest | Planned | 2026-07-W2 | raw dataset manifest and object upload |
-| `EVM-034` | validation report 고도화 | Planned | 2026-07-W2 | schema, dimensions, label distribution report |
-| `EVM-035` | Parquet dataset generation | Planned | 2026-07-W2 | processed/validated parquet outputs |
-| `EVM-036` | dataset version metadata | Planned | 2026-07-W2 | training input version fixed by metadata |
+| `EVM-031` | MinIO bucket bootstrap 고도화 | Done | 2026-07-W2 | raw/processed/validated/mlflow-artifacts bucket 생성 |
+| `EVM-032` | object storage client module 추가 | Done | 2026-07-W2 | upload/list/object-exists API |
+| `EVM-033` | public vision dataset ingest | Done | 2026-07-W2 | raw dataset manifest and object upload |
+| `EVM-034` | validation report 고도화 | Done | 2026-07-W2 | schema, dimensions, label distribution report |
+| `EVM-035` | Parquet dataset generation | Done | 2026-07-W2 | processed/validated parquet outputs |
+| `EVM-036` | dataset version metadata | Done | 2026-07-W2 | training input version fixed by metadata |
 
 ### Phase 4. Remote Training Infra
 

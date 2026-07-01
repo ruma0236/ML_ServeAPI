@@ -20,3 +20,4 @@ Each review should summarize:
 |---|---|
 | W0 | `w0-airflow-foundation-review.md` |
 | W1 | `w1-full-dag-traceability-review.md` |
+| W2 | `w2-object-storage-data-platform-review.md` |
