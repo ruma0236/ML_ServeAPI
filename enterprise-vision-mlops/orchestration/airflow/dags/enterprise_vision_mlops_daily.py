@@ -71,6 +71,7 @@ with DAG(
     dagrun_timeout=timedelta(minutes=DAG_RUN_TIMEOUT_MINUTES),
     tags=["enterprise-mlops", "vision", "local-control-plane"],
 ) as dag:
+    object_store_bootstrap = pipeline_task("object_store_bootstrap", "object-store-bootstrap")
     data_ingest = pipeline_task("data_ingest", "data-ingest")
     data_validate = pipeline_task("data_validate", "data-validate")
     train = pipeline_task("train", "train")
@@ -78,4 +79,12 @@ with DAG(
     deploy_check = pipeline_task("deploy_check", "deploy-check")
     monitor_check = pipeline_task("monitor_check", "monitor-check")
 
-    data_ingest >> data_validate >> train >> register_model >> deploy_check >> monitor_check
+    (
+        object_store_bootstrap
+        >> data_ingest
+        >> data_validate
+        >> train
+        >> register_model
+        >> deploy_check
+        >> monitor_check
+    )

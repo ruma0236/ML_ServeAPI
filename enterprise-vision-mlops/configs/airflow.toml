@@ -14,6 +14,7 @@ registry_root = "artifacts/registry"
 
 [object_store]
 endpoint_url = "http://minio:9000"
+region_name = "us-east-1"
 artifact_bucket = "mlflow-artifacts"
 raw_bucket = "raw"
 processed_bucket = "processed"
@@ -33,17 +34,29 @@ prometheus_url = "http://prometheus:9090"
 grafana_url = "http://grafana:3000"
 
 [pipelines.data_ingestion]
+dataset_name = "public-vision-local"
+dataset_seed_version = "v1"
+object_prefix = "public-vision-local/v1"
 sample_records = 8
 manifest_name = "raw_manifest.jsonl"
+manifest_key = "public-vision-local/v1/manifests/raw_manifest.jsonl"
+
+[pipelines.object_storage_bootstrap]
+buckets = ["raw", "processed", "validated", "mlflow-artifacts"]
 
 [pipelines.data_validation]
+dataset_name = "public-vision-local"
 input_manifest = "data/raw/raw_manifest.jsonl"
 output_manifest = "data/validated/validated_manifest.jsonl"
 report_name = "validation_report.json"
 allowed_extensions = [".jpg", ".jpeg", ".png"]
+processed_parquet = "data/processed/processed_dataset.parquet"
+validated_parquet = "data/validated/validated_dataset.parquet"
+dataset_metadata = "data/validated/dataset_version.json"
 
 [pipelines.training]
 input_manifest = "data/validated/validated_manifest.jsonl"
+dataset_metadata = "data/validated/dataset_version.json"
 model_name = "vision-baseline"
 metric_name = "baseline_accuracy"
 

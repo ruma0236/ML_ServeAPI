@@ -3,7 +3,10 @@ name = "enterprise-vision-mlops"
 version = "0.1.0"
 description = "Portfolio-grade modular MLOps platform for enterprise vision AI workloads."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "boto3==1.35.76",
+    "pyarrow==18.1.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

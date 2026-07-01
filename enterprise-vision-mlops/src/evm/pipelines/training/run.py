@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import Counter
 from collections.abc import Sequence
 
@@ -12,12 +13,19 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     ctx = build_context("training", config_path)
     cfg = ctx.pipeline_config()
     input_manifest = ctx.path(str(cfg.get("input_manifest", "data/validated/validated_manifest.jsonl")))
+    dataset_metadata_path = ctx.path(
+        str(cfg.get("dataset_metadata", "data/validated/dataset_version.json"))
+    )
     model_name = str(cfg.get("model_name", "vision-baseline"))
     metric_name = str(cfg.get("metric_name", "baseline_accuracy"))
     models_root = ctx.path(get_nested(ctx.config, "paths.models_root", "artifacts/models"))
     model_dir = models_root / model_name
 
     records = read_jsonl(input_manifest)
+    dataset_metadata: dict[str, object] = {}
+    if dataset_metadata_path.exists():
+        dataset_metadata = json.loads(dataset_metadata_path.read_text(encoding="utf-8"))
+    dataset_version = str(dataset_metadata.get("dataset_version", "unversioned"))
     labels = [str(record.get("label")) for record in records if record.get("label")]
     label_counts = Counter(labels)
     majority_label, majority_count = ("unknown", 0)
@@ -30,6 +38,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "model_type": "majority_class_baseline",
         "trained_at": utc_now(),
         "training_records": len(records),
+        "dataset": dataset_metadata,
         "label_counts": dict(label_counts),
         "prediction": majority_label,
         "metrics": {metric_name: baseline_accuracy},
@@ -50,6 +59,13 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             if mlflow_run_id:
                 client.log_param(mlflow_run_id, "model_name", model_name)
                 client.log_param(mlflow_run_id, "model_type", "majority_class_baseline")
+                client.log_param(mlflow_run_id, "dataset_version", dataset_version)
+                if dataset_metadata:
+                    client.log_param(
+                        mlflow_run_id,
+                        "validated_parquet_uri",
+                        str(dataset_metadata.get("validated_parquet_uri", "")),
+                    )
                 for key, value in ctx.trace.mlflow_params().items():
                     client.log_param(mlflow_run_id, key, value)
                 client.log_metric(mlflow_run_id, metric_name, baseline_accuracy)
@@ -58,6 +74,9 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
 
     summary = {
         "records": len(records),
+        "dataset_version": dataset_version,
+        "dataset_metadata": str(dataset_metadata_path.relative_to(ctx.project_root)),
+        "validated_parquet_uri": str(dataset_metadata.get("validated_parquet_uri", "")),
         "model_name": model_name,
         "model_path": str(model_path.relative_to(ctx.project_root)),
         metric_name: round(baseline_accuracy, 6),

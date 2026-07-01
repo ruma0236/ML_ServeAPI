@@ -7,13 +7,15 @@ Produces a reproducible model artifact and logs training metadata to MLflow.
 ## Current Local MVP Scope
 
 - Reads `data/validated/validated_manifest.jsonl`.
+- Reads `data/validated/dataset_version.json`.
 - Trains a deterministic majority-class baseline.
 - Writes model metadata to `artifacts/models/vision-baseline/model.json`.
-- Logs params and metrics to MLflow through the REST API when MLflow is running.
+- Logs dataset version, trace params, and metrics to MLflow through the REST API when MLflow is running.
 
 ## Inputs
 
 - `data/validated/validated_manifest.jsonl`
+- `data/validated/dataset_version.json`
 - MLflow tracking server at `http://localhost:5000`
 
 ## Outputs
@@ -39,3 +41,4 @@ python scripts/run_pipeline.py train --config configs/local.toml
 
 - 2026-06-18: Added baseline trainer and MLflow metric logging.
 - 2026-06-18: Verified baseline artifact generation and MLflow metric logging.
+- 2026-07-01: Added dataset version metadata to model payload and MLflow params.

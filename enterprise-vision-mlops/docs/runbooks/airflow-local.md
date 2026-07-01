@@ -90,10 +90,10 @@ Expected DAG:
 enterprise_vision_mlops_daily
 ```
 
-Current W1 task graph:
+Current W2 task graph:
 
 ```text
-data_ingest -> data_validate -> train -> register_model -> deploy_check -> monitor_check
+object_store_bootstrap -> data_ingest -> data_validate -> train -> register_model -> deploy_check -> monitor_check
 ```
 
 ## Manual DAG Trigger
@@ -112,6 +112,7 @@ docker compose exec airflow-scheduler airflow tasks states-for-dag-run enterpris
 Expected task states:
 
 ```text
+object_store_bootstrap success
 data_ingest    success
 data_validate  success
 train          success
@@ -130,9 +131,10 @@ artifacts/runs/data_validation/<run_id>/trace.json
 Both W0 tasks in a single DAG run should share the same `trace_id` and
 `airflow_dag_run_id`.
 
-For W1 full DAG runs, all six tasks should share the same `trace_id`:
+For W2 full DAG runs, all seven tasks should share the same `trace_id`:
 
 ```text
+object_storage_bootstrap.trace_id
 data_ingestion.trace_id
 data_validation.trace_id
 training.trace_id
@@ -143,7 +145,7 @@ monitoring.trace_id
 
 ## Retry, Timeout, And Log Policy
 
-W1 uses explicit task-level defaults in
+The DAG uses explicit task-level defaults in
 `orchestration/airflow/dags/enterprise_vision_mlops_daily.py`.
 
 | Policy | Default | Override |

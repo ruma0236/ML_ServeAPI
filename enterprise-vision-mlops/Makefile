@@ -1,4 +1,4 @@
-.PHONY: stack-up stack-down stack-logs stack-ps stack-config api-logs mlflow-logs clean-volumes data-ingest data-validate train register-model deploy-check monitor-check remote-inventory mac-mini-smoke local-mvp
+.PHONY: stack-up stack-down stack-logs stack-ps stack-config api-logs mlflow-logs clean-volumes object-store-bootstrap data-ingest data-validate train register-model deploy-check monitor-check remote-inventory mac-mini-smoke local-mvp
 
 stack-up:
 	docker compose up -d --build
@@ -24,6 +24,9 @@ mlflow-logs:
 clean-volumes:
 	docker compose down -v
 
+object-store-bootstrap:
+	python scripts/run_pipeline.py object-store-bootstrap --config configs/local.toml
+
 data-ingest:
 	python scripts/run_pipeline.py data-ingest --config configs/local.toml
 
@@ -48,4 +51,4 @@ remote-inventory:
 mac-mini-smoke:
 	bash infra/remote-workers/mac-mini/run_mac_worker_smoke.sh
 
-local-mvp: data-ingest data-validate train register-model deploy-check monitor-check remote-inventory
+local-mvp: object-store-bootstrap data-ingest data-validate train register-model deploy-check monitor-check remote-inventory

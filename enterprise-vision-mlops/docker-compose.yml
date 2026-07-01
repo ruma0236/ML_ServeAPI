@@ -52,6 +52,9 @@ services:
       EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
       EVM_GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       EVM_GIT_BRANCH: ${EVM_GIT_BRANCH:-}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      AWS_DEFAULT_REGION: us-east-1
       PYTHONPATH: /opt/airflow/evm_project/src
     volumes:
       - ./orchestration/airflow/dags:/opt/airflow/dags:ro
@@ -82,6 +85,9 @@ services:
       EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
       EVM_GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       EVM_GIT_BRANCH: ${EVM_GIT_BRANCH:-}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      AWS_DEFAULT_REGION: us-east-1
       PYTHONPATH: /opt/airflow/evm_project/src
     command: webserver
     ports:
@@ -115,6 +121,9 @@ services:
       EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
       EVM_GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       EVM_GIT_BRANCH: ${EVM_GIT_BRANCH:-}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      AWS_DEFAULT_REGION: us-east-1
       PYTHONPATH: /opt/airflow/evm_project/src
     command: scheduler
     volumes:
@@ -156,14 +165,19 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
       MLFLOW_BUCKET: ${MLFLOW_BUCKET:-mlflow-artifacts}
+      RAW_BUCKET: ${RAW_BUCKET:-raw}
+      PROCESSED_BUCKET: ${PROCESSED_BUCKET:-processed}
+      VALIDATED_BUCKET: ${VALIDATED_BUCKET:-validated}
     entrypoint: >
       /bin/sh -c "
       until mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; do
         echo 'Waiting for MinIO...';
         sleep 2;
       done;
-      mc mb -p local/$${MLFLOW_BUCKET};
-      mc anonymous set none local/$${MLFLOW_BUCKET};
+      for bucket in $${MLFLOW_BUCKET} $${RAW_BUCKET} $${PROCESSED_BUCKET} $${VALIDATED_BUCKET}; do
+        mc mb -p local/$${bucket};
+        mc anonymous set none local/$${bucket};
+      done;
       exit 0;
       "
     networks:

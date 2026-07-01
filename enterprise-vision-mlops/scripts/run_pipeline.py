@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 PIPELINE_MODULES = {
+    "object-store-bootstrap": "evm.pipelines.object_storage_bootstrap.run",
     "data-ingest": "evm.pipelines.data_ingestion.run",
     "data-validate": "evm.pipelines.data_validation.run",
     "train": "evm.pipelines.training.run",
