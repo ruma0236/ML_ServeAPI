@@ -47,7 +47,7 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | ID | Epic | Target Window | Status | Outcome |
 |---|---|---:|---|---|
 | `EVM-EPIC-01` | Local Control-plane MVP | 2026-06 | Done | Local infra and modular MVP pipeline |
-| `EVM-EPIC-02` | Airflow + MLflow Orchestration | 2026-06 to 2026-07 | Next | Operating DAG with retry/log/schedule |
+| `EVM-EPIC-02` | Airflow + MLflow Orchestration | 2026-06 to 2026-07 | Done | Full DAG with Airflow, MLflow linkage, retry/log/schedule |
 | `EVM-EPIC-03` | Object Storage Data Platform | 2026-07 | Planned | MinIO raw/processed/validated + Parquet |
 | `EVM-EPIC-04` | Remote Training Infra | 2026-07-W3 | Planned | mac-mini/Linux worker job execution |
 | `EVM-EPIC-05` | Registry-driven Serving | 2026-07-W3 | Planned | API loads promoted model version |
@@ -194,6 +194,7 @@ Jira live sync 기준 mapping이다.
 | `EVM-QA-002` | `SCRUM-52` | Task | https://opop0236.atlassian.net/browse/SCRUM-52 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
+| `EVM-BUG-004` | Jira sync pending | Bug | GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 |
 
 ## Bug Register
 
@@ -205,6 +206,7 @@ GitHub Issue가 없는 경우에도 Jira issue, branch, commit, status 문서로
 | `EVM-BUG-001` | sample edit breaks data validation dimensions | Closed | https://github.com/ruma0236/ML_ServeAPI/issues/1 | Controlled workflow test; no production code change required |
 | `EVM-BUG-002` | Airflow metadata DB conflicts with MLflow Postgres alembic revision | Closed | Jira: https://opop0236.atlassian.net/browse/SCRUM-53<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/2 | Airflow and MLflow shared the same metadata DB; split Airflow into a dedicated Postgres service |
 | `EVM-BUG-003` | Airflow manual smoke run created DagRun without task instances | Closed | Jira: https://opop0236.atlassian.net/browse/SCRUM-54<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/3 | DAG `start_date` was later than the manual smoke logical date; moved it to `2026-06-01` |
+| `EVM-BUG-004` | Airflow trace metadata misses Git commit when stack starts without injected env | Closed | Jira: pending API token refresh<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 | Local start path relied on manual `EVM_GIT_COMMIT`/`EVM_GIT_BRANCH`; added `scripts/dev/start_local_stack.ps1` |
 
 Automation status:
 
