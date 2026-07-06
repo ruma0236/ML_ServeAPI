@@ -71,6 +71,22 @@ Then move to the remote execution track:
 - Do not describe the mac-mini as a GPU cluster substitute; keep it positioned
   as ARM64, edge, and heterogeneous worker validation.
 
+## 2026-07-05 Expanded Target Guardrail
+
+The enterprise target has expanded toward VLM and multimodal workloads, but W3
+should not jump directly into VLM implementation. W3 is the serving contract
+foundation for that future work.
+
+Required W3 outcome before VLM/multimodal execution starts:
+
+- API loads the promoted registry artifact instead of returning placeholder
+  behavior.
+- `/ready` exposes model load state, model name, version, stage, and dataset
+  version.
+- `/predict` uses the promoted artifact and returns model/dataset metadata.
+- Prometheus exposes model version and request metrics.
+- Rollback-ready registry selection is documented.
+
 ## Command
 
 ```powershell

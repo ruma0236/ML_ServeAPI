@@ -5,7 +5,14 @@ from collections.abc import Sequence
 
 from evm.core.config import get_nested
 from evm.core.object_store import ObjectStoreClient
-from evm.core.pipeline import build_context, utc_now, write_json, write_jsonl, write_markdown_report
+from evm.core.pipeline import (
+    build_context,
+    display_path,
+    utc_now,
+    write_json,
+    write_jsonl,
+    write_markdown_report,
+)
 
 
 SAMPLE_JPEG_BYTES = base64.b64decode(
@@ -66,11 +73,11 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "dataset_name": dataset_name,
         "dataset_seed_version": dataset_seed_version,
         "records": len(records),
-        "manifest": str(manifest_path.relative_to(ctx.project_root)),
+        "manifest": display_path(manifest_path, ctx.project_root),
         "raw_manifest_uri": raw_manifest_uri,
         "raw_bucket": raw_bucket,
         "uploaded_image_objects": len(uploaded_images),
-        "raw_zone": str(raw_zone.relative_to(ctx.project_root)),
+        "raw_zone": display_path(raw_zone, ctx.project_root),
         "trace_id": ctx.trace.trace_id,
         "pipeline_run_id": ctx.run_id,
     }

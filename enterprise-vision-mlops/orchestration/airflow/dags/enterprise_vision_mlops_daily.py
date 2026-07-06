@@ -71,18 +71,36 @@ with DAG(
     dagrun_timeout=timedelta(minutes=DAG_RUN_TIMEOUT_MINUTES),
     tags=["enterprise-mlops", "vision", "local-control-plane"],
 ) as dag:
+    dataset_intake_audit = pipeline_task("dataset_intake_audit", "dataset-intake-audit")
+    domain_pack_check = pipeline_task("domain_pack_check", "domain-pack-check")
     object_store_bootstrap = pipeline_task("object_store_bootstrap", "object-store-bootstrap")
     data_ingest = pipeline_task("data_ingest", "data-ingest")
     data_validate = pipeline_task("data_validate", "data-validate")
+    image_quality = pipeline_task("image_quality", "image-quality")
+    dataset_shards = pipeline_task("dataset_shards", "dataset-shards")
+    vlm_contract = pipeline_task("vlm_contract", "vlm-contract")
+    vlm_batch_eval = pipeline_task("vlm_batch_eval", "vlm-batch-eval")
+    vlm_reliability = pipeline_task("vlm_reliability", "vlm-reliability")
+    vlm_rca = pipeline_task("vlm_rca", "vlm-rca")
+    vlm_observability = pipeline_task("vlm_observability", "vlm-observability")
     train = pipeline_task("train", "train")
     register_model = pipeline_task("register_model", "register-model")
     deploy_check = pipeline_task("deploy_check", "deploy-check")
     monitor_check = pipeline_task("monitor_check", "monitor-check")
 
     (
-        object_store_bootstrap
+        dataset_intake_audit
+        >> domain_pack_check
+        >> object_store_bootstrap
         >> data_ingest
         >> data_validate
+        >> image_quality
+        >> dataset_shards
+        >> vlm_contract
+        >> vlm_batch_eval
+        >> vlm_reliability
+        >> vlm_rca
+        >> vlm_observability
         >> train
         >> register_model
         >> deploy_check

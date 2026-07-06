@@ -185,3 +185,33 @@ W3 should preserve `dataset_version` and `validated_parquet_uri` as immutable
 inputs to downstream remote training and serving work. The next architecture
 step is to make model serving registry-driven while exposing both model version
 and dataset version through readiness and monitoring surfaces.
+
+## 9. 2026-07-05 Enterprise Target Alignment
+
+W2 should now be reviewed as the data-platform foundation for a larger
+enterprise vision/multimodal MLOps system.
+
+What W2 proves:
+
+- Object storage zones exist and are exercised by the pipeline.
+- Validation produces structured reports and failure evidence.
+- Parquet datasets and dataset version metadata are produced.
+- Training and MLflow receive dataset lineage values.
+
+What W2 intentionally does not yet prove:
+
+- Real large-scale public image ingestion.
+- Partitioned or compacted lakehouse tables.
+- SQL/catalog-backed table management through Iceberg or Delta.
+- Enterprise-grade expectation suites and data docs.
+- OpenLineage or catalog-level lineage emission.
+
+Follow-up backlog mapping:
+
+| Gap | Follow-up ID |
+|---|---|
+| Query validated Parquet from object storage | `EVM-081` |
+| Batch transform over object storage | `EVM-082` |
+| Iceberg/Delta table-format decision | `EVM-083` |
+| Great Expectations data quality suite | `EVM-091` |
+| OpenLineage metadata emission | `EVM-092` |

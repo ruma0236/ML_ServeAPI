@@ -3,14 +3,15 @@ name = "enterprise-vision-mlops"
 environment = "local"
 
 [paths]
-data_root = "data"
-raw_zone = "data/raw"
-processed_zone = "data/processed"
-validated_zone = "data/validated"
-artifacts_root = "artifacts"
-reports_root = "artifacts/reports"
-models_root = "artifacts/models"
-registry_root = "artifacts/registry"
+data_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data"
+raw_zone = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw"
+processed_zone = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/processed"
+validated_zone = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated"
+artifacts_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts"
+reports_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/reports"
+models_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/models"
+registry_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/registry"
+external_storage_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops"
 
 [object_store]
 endpoint_url = "http://localhost:9000"
@@ -33,6 +34,23 @@ model_stage = "Production"
 prometheus_url = "http://localhost:9090"
 grafana_url = "http://localhost:3000"
 
+[pipelines.domain_pack_check]
+domain_pack = "domain_packs/manufacturing_visual_inspection/domain_pack.toml"
+
+[pipelines.dataset_intake_audit]
+domain_pack = "domain_packs/manufacturing_visual_inspection/domain_pack.toml"
+output_dir = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial"
+registry_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/source_registry.json"
+acquisition_plan_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/acquisition_plan.json"
+cleaning_report_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/cleaning_benchmark.json"
+manifest_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/mvi_import_manifest.jsonl"
+checkpoint_dir = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/_checkpoints"
+dataset_version = "industrial-intake-2026.07"
+allowed_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"]
+max_scan_files = 0
+max_quality_samples = 200
+license_review_required = true
+
 [pipelines.data_ingestion]
 dataset_name = "public-vision-local"
 dataset_seed_version = "v1"
@@ -46,23 +64,23 @@ buckets = ["raw", "processed", "validated", "mlflow-artifacts"]
 
 [pipelines.data_validation]
 dataset_name = "public-vision-local"
-input_manifest = "data/raw/raw_manifest.jsonl"
-output_manifest = "data/validated/validated_manifest.jsonl"
+input_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/raw_manifest.jsonl"
+output_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/validated_manifest.jsonl"
 report_name = "validation_report.json"
 allowed_extensions = [".jpg", ".jpeg", ".png"]
-processed_parquet = "data/processed/processed_dataset.parquet"
-validated_parquet = "data/validated/validated_dataset.parquet"
-dataset_metadata = "data/validated/dataset_version.json"
+processed_parquet = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/processed/processed_dataset.parquet"
+validated_parquet = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/validated_dataset.parquet"
+dataset_metadata = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/dataset_version.json"
 
 [pipelines.training]
-input_manifest = "data/validated/validated_manifest.jsonl"
-dataset_metadata = "data/validated/dataset_version.json"
+input_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/validated_manifest.jsonl"
+dataset_metadata = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/dataset_version.json"
 model_name = "vision-baseline"
 metric_name = "baseline_accuracy"
 
 [pipelines.model_registry]
 model_name = "vision-baseline"
-source_model_path = "artifacts/models/vision-baseline/model.json"
+source_model_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/models/vision-baseline/model.json"
 
 [pipelines.deployment]
 sample_image_uri = "s3://raw/sample_0001.jpg"
@@ -73,3 +91,74 @@ prometheus_targets_endpoint = "/api/v1/targets"
 [pipelines.remote_workers]
 workers_config = "configs/workers.toml"
 report_name = "remote_workers.md"
+
+[pipelines.remote_job]
+workers_config = "configs/workers.toml"
+worker_id = "ruma_macmini"
+job_name = "mac-mini-arm64-evaluation"
+remote_run_root = "artifacts/runs/remote_jobs"
+python_version = "3.11"
+uv_bin = "uv"
+timeout_seconds = 300
+
+[pipelines.image_quality]
+dataset_id = "manufacturing_visual_inspection"
+dataset_name = "public-vision-local"
+dataset_version = "2026.07-w4"
+input_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/validated_manifest.jsonl"
+dataset_metadata = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/dataset_version.json"
+output_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/mvi_quality_manifest.jsonl"
+report_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/mvi_quality_report.json"
+baseline_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/mvi_quality_baseline.json"
+raw_image_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/images"
+license_id = "manual-review-required"
+fail_on_error = true
+duplicate_hash_severity = "warn"
+dimension_mismatch_severity = "warn"
+
+[pipelines.dataset_shards]
+input_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/mvi_quality_manifest.jsonl"
+output_dir = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/shards"
+index_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/shards/shard_index.json"
+records_per_shard = 4
+split_seed = 20260706
+split_ratios = { train = 0.6, validation = 0.2, test = 0.2 }
+
+[pipelines.vlm_contract]
+domain_pack = "domain_packs/manufacturing_visual_inspection/domain_pack.toml"
+adapter_backend = "mock"
+prompt_version = "mvi-default-v1"
+model_version = "mock-vlm-2026.07"
+contract_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/contracts/vlm_contract.json"
+router_report_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/contracts/router_report.json"
+
+[pipelines.vlm_batch_eval]
+shard_index = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/shards/shard_index.json"
+output_dir = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/batch_outputs"
+summary_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/latest_batch_summary.json"
+prompt_version = "mvi-default-v1"
+model_version = "mock-vlm-2026.07"
+question = "Inspect the product image and return structured defect findings."
+max_records = 0
+
+[pipelines.vlm_reliability]
+batch_summary = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/latest_batch_summary.json"
+registry_dir = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/registry/vlm"
+gate_report_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/reliability/gate_report.json"
+schema_valid_threshold = 0.98
+p95_latency_ms_threshold = 5000
+
+[pipelines.vlm_rca]
+batch_summary = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/latest_batch_summary.json"
+gate_report_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/reliability/gate_report.json"
+audit_dir = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/audit"
+
+[pipelines.vlm_observability]
+quality_report = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/mvi_quality_report.json"
+shard_index = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/shards/shard_index.json"
+batch_summary = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/latest_batch_summary.json"
+gate_report_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/reliability/gate_report.json"
+audit_summary = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/audit/audit_summary.json"
+benchmark_report = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/observability/benchmark_report.json"
+slo_report = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/observability/slo_report.md"
+metrics_export = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/vlm/observability/vlm_metrics.prom"

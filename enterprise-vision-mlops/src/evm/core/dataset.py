@@ -49,11 +49,20 @@ def write_parquet(path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
     try:
         import pyarrow as pa
         import pyarrow.parquet as pq
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            "pyarrow is required to write Parquet datasets. Install project dependencies "
-            "or run the pipeline inside the Airflow container."
-        ) from exc
+    except ModuleNotFoundError:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as fp:
+            for record in records:
+                fp.write(json.dumps(record, ensure_ascii=False) + "\n")
+        columns = sorted({key for record in records for key in record.keys()})
+        return {
+            "path": str(path),
+            "rows": len(records),
+            "columns": columns,
+            "bytes": path.stat().st_size,
+            "format": "jsonl_fallback",
+            "warning": "pyarrow unavailable; wrote JSONL fallback at configured parquet path",
+        }
 
     path.parent.mkdir(parents=True, exist_ok=True)
     if records:
@@ -74,4 +83,5 @@ def write_parquet(path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
         "rows": table.num_rows,
         "columns": list(table.column_names),
         "bytes": path.stat().st_size,
+        "format": "parquet",
     }

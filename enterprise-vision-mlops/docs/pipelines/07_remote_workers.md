@@ -26,6 +26,10 @@ The current Docker Compose stack is a local control-plane MVP, not a complete en
 
 - `artifacts/reports/remote_workers.md`
 - `artifacts/runs/remote_workers/*/summary.json`
+- `artifacts/reports/remote_job.md`
+- `artifacts/runs/remote_job/*/job_spec.json`
+- `artifacts/runs/remote_job/*/worker_resource_report.json`
+- `artifacts/runs/remote_job/*/collected_artifacts/*`
 
 Key status fields:
 
@@ -39,6 +43,7 @@ Key status fields:
 
 ```bash
 python scripts/run_pipeline.py remote-inventory --config configs/local.toml
+python scripts/run_pipeline.py remote-job --config configs/local.toml
 ```
 
 ## Current Status
@@ -48,12 +53,16 @@ python scripts/run_pipeline.py remote-inventory --config configs/local.toml
 - Automated non-interactive execution now uses the generated key `~/.ssh/evm_macmini_ed25519`.
 - The current Windows shell cannot read the Tailscale local status pipe without elevated access, so `tailnet_online` may be false while `remote_exec_ready` is true.
 - `ruma-ubuntu` is online over Tailscale but refused SSH during the initial probe.
+- W3 remote job execution is implemented through `remote-job`.
+- The control-plane creates a structured job spec, uploads a standalone ARM64
+  evaluation script to mac-mini, executes it over SSH, records worker CPU,
+  memory, OS, architecture, Python, uv, branch, and commit metadata, and copies
+  the remote report, summary, and log back into local artifacts.
 
 ## Extension Plan
 
 - Add ARM64 Docker image build validation after Docker/Colima/OrbStack is installed.
 - Add remote serving smoke test against mac-mini.
-- Add remote worker job runner for preprocessing or model export tasks.
 - Add MPS/CoreML experiment path for model export and edge inference validation.
 
 ## Update Log
@@ -63,3 +72,5 @@ python scripts/run_pipeline.py remote-inventory --config configs/local.toml
 - 2026-06-18: Added key-based remote execution probe for mac-mini.
 - 2026-06-21: Split mac-mini worker automation onto `codex/mac-mini-worker`.
 - 2026-06-21: Added separated tailnet, TCP, SSH, and effective connectivity status fields.
+- 2026-07-05: Added `remote-job` structured mac-mini execution, resource report,
+  and control-plane artifact collection.

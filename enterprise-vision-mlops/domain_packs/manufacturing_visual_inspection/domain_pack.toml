@@ -1,0 +1,213 @@
+[domain_pack]
+id = "manufacturing_visual_inspection"
+name = "Manufacturing Visual Inspection VLM"
+version = "2026.07-p0"
+status = "reference"
+owner = "Enterprise Vision MLOps"
+description = "Reference domain pack for operating a VLM-based manufacturing visual inspection workload."
+reference_workload = "industrial_anomaly_inspection"
+
+[domain_pack.portability]
+core_platform = "Airflow + MLflow + MinIO + FastAPI + Prometheus/Grafana"
+policy_boundary = [
+  "dataset_policy",
+  "manifest_schema",
+  "validation_rules",
+  "model_adapter",
+  "evaluation_policy",
+  "promotion_policy",
+  "failure_scenarios",
+]
+
+[hardware_roles.windows_rtx]
+node = "Windows 11 desktop"
+accelerator = "RTX 4080 SUPER"
+memory = "64GB RAM"
+responsibility = "primary VLM inference, serving, benchmark, batch inference, failure simulation, GPU pressure"
+
+[hardware_roles.mac_mini]
+node = "Mac mini M4 Pro"
+memory = "24GB RAM"
+responsibility = "control-plane candidate, metadata/audit, manifest/indexing, evaluator, monitoring, orchestration"
+
+[hardware_roles.macbook_air]
+node = "MacBook Air M4"
+memory = "16GB RAM"
+responsibility = "development client, API/load-test client, demo operator, smoke-test client"
+
+[[datasets]]
+id = "visa"
+name = "VisA"
+role = "primary"
+domain = "industrial_anomaly_detection"
+source_url = "https://registry.opendata.aws/visa/"
+license_id = "CC-BY-4.0"
+license_url = "https://creativecommons.org/licenses/by/4.0/"
+access_policy = "manual_or_scripted_download_after_license_review"
+license_policy = "record source URL, license terms, and allowed usage before import"
+retention_policy = "local_home_lab_f_drive_until_user_removal"
+raw_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/visa"
+object_prefix = "manufacturing-visual-inspection/visa"
+required_for_july_p0 = true
+
+[[datasets]]
+id = "mvtec_ad"
+name = "MVTec AD"
+role = "fallback_or_secondary"
+domain = "industrial_anomaly_detection"
+source_url = "https://www.mvtec.com/research-teaching/datasets/mvtec-ad"
+license_id = "CC-BY-NC-SA-4.0"
+license_url = "https://creativecommons.org/licenses/by-nc-sa/4.0/"
+access_policy = "manual_or_scripted_download_after_license_review"
+license_policy = "record source URL, license terms, and allowed usage before import"
+retention_policy = "local_home_lab_f_drive_until_user_removal"
+raw_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/mvtec_ad"
+object_prefix = "manufacturing-visual-inspection/mvtec_ad"
+required_for_july_p0 = false
+
+[manifest]
+schema_id = "mvi_manifest_v1"
+primary_key = "sample_id"
+version_field = "dataset_version"
+required_fields = [
+  "dataset_id",
+  "dataset_version",
+  "sample_id",
+  "image_uri",
+  "split",
+  "label",
+  "label_type",
+  "class_name",
+  "width",
+  "height",
+  "content_sha256",
+  "source_uri",
+  "license_id",
+]
+optional_fields = [
+  "defect_type",
+  "severity",
+  "mask_uri",
+  "capture_device",
+  "lighting_condition",
+  "plant_line",
+  "batch_id",
+  "metadata",
+]
+
+[[validation_rules]]
+id = "required_manifest_fields"
+stage = "manifest_validation"
+severity = "error"
+description = "Every record must contain the required manufacturing inspection manifest fields."
+
+[[validation_rules]]
+id = "image_readability"
+stage = "image_quality"
+severity = "error"
+description = "Image files must be readable and have positive dimensions."
+
+[[validation_rules]]
+id = "duplicate_content_hash"
+stage = "image_quality"
+severity = "warn"
+description = "Duplicate content_sha256 values are flagged for review."
+
+[[validation_rules]]
+id = "split_label_integrity"
+stage = "dataset_integrity"
+severity = "error"
+description = "Each split must preserve label and class distribution expectations."
+
+[[validation_rules]]
+id = "drift_proxy"
+stage = "dataset_integrity"
+severity = "warn"
+description = "Dimension, brightness, blur, class, and label distributions are compared against a baseline."
+
+[model_adapters.mock]
+id = "mock_vlm_adapter"
+backend = "local_mock"
+purpose = "Enable manifest, router, batch inference, schema validation, and regression gates before the real endpoint is ready."
+
+[model_adapters.real_candidate]
+id = "qwen2_5_vl_quantized"
+backend = "windows_rtx_endpoint"
+model_family = "Qwen2.5-VL"
+size_candidates = ["3B", "7B"]
+quantization = "required_for_july_mvp"
+purpose = "Primary real VLM endpoint candidate for RTX 4080 SUPER."
+
+[request_schema]
+required_fields = [
+  "request_id",
+  "trace_id",
+  "dataset_id",
+  "sample_id",
+  "batch_id",
+  "image_uri",
+  "question",
+  "request_type",
+  "prompt_version",
+  "model_version",
+  "metadata",
+]
+request_types = [
+  "visual_inspection",
+  "caption",
+  "visual_question_answering",
+  "unsupported",
+]
+
+[response_schema]
+required_fields = [
+  "request_id",
+  "trace_id",
+  "defect_detected",
+  "defect_type",
+  "severity",
+  "evidence",
+  "confidence_proxy",
+  "recommended_action",
+  "raw_model_output",
+  "schema_valid",
+  "latency_ms",
+  "error_type",
+]
+
+[[promotion_gates]]
+id = "schema_validity"
+metric = "schema_valid_rate"
+operator = ">="
+threshold = 0.98
+severity = "block"
+
+[[promotion_gates]]
+id = "bad_prompt_regression"
+metric = "bad_candidate_blocked"
+operator = "=="
+threshold = 1.0
+severity = "block"
+
+[[promotion_gates]]
+id = "latency_budget"
+metric = "p95_latency_ms"
+operator = "<="
+threshold = 5000
+severity = "warn"
+
+[[failure_scenarios]]
+id = "bad_prompt_candidate"
+description = "A prompt candidate that degrades structured defect output must fail the regression gate."
+
+[[failure_scenarios]]
+id = "corrupt_or_drifted_image"
+description = "Unreadable or distribution-shifted images must be visible in validation and RCA evidence."
+
+[[failure_scenarios]]
+id = "schema_invalid_output"
+description = "VLM output that misses required fields must be rejected or quarantined."
+
+[[failure_scenarios]]
+id = "model_endpoint_failure"
+description = "Timeout or model load failures must be captured with trace_id, batch_id, and rollback context."

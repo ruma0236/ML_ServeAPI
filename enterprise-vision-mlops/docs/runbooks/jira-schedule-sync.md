@@ -108,6 +108,26 @@ $env:JIRA_PROJECT_KEY="SCRUM"
 $env:JIRA_BOARD_ID="1"
 ```
 
+Local-only config option:
+
+For Codex desktop or local Windows runs, Jira values can be stored outside the
+repository at:
+
+```text
+C:\Users\mlops\.evm\jira.local.env
+```
+
+Load it before running sync:
+
+```powershell
+.\scripts\dev\load_jira_env.ps1 -Path "C:\Users\mlops\.evm\jira.local.env"
+python .\scripts\dev\jira_sync.py --project-root . --project-key SCRUM --source-id EVM-130,EVM-131,EVM-132,EVM-133 --include-done --transition-statuses
+```
+
+The file is intentionally outside the repo. `.gitignore` also blocks
+`*.local.env`, `jira.local.env`, `.evm/`, and `.secrets/` in case a local config
+is accidentally created under the working tree.
+
 Project issue type 이름이 다르면 다음도 설정한다.
 
 ```powershell

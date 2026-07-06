@@ -59,6 +59,7 @@ services:
     volumes:
       - ./orchestration/airflow/dags:/opt/airflow/dags:ro
       - ./:/opt/airflow/evm_project
+      - ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}:/mnt/evm-data
       - airflow-logs:/opt/airflow/logs
     command: >
       bash -c "
@@ -95,6 +96,7 @@ services:
     volumes:
       - ./orchestration/airflow/dags:/opt/airflow/dags:ro
       - ./:/opt/airflow/evm_project
+      - ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}:/mnt/evm-data
       - airflow-logs:/opt/airflow/logs
     depends_on:
       airflow-init:
@@ -129,6 +131,7 @@ services:
     volumes:
       - ./orchestration/airflow/dags:/opt/airflow/dags:ro
       - ./:/opt/airflow/evm_project
+      - ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}:/mnt/evm-data
       - airflow-logs:/opt/airflow/logs
     depends_on:
       airflow-init:
@@ -152,7 +155,7 @@ services:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio-data:/data
+      - ${EVM_HOST_MINIO_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/minio}:/data
     networks:
       - mlops-local
 
@@ -230,8 +233,12 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MODEL_NAME: vision-baseline
       MODEL_STAGE: Production
+      MODEL_REGISTRY_PATH: /app/artifacts/registry/vision-baseline/latest.json
+      VLM_OBSERVABILITY_PATH: /app/artifacts/vlm/observability/benchmark_report.json
     ports:
       - "8000:8000"
+    volumes:
+      - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}:/app/artifacts:ro
     depends_on:
       mlflow:
         condition: service_healthy

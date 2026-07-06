@@ -373,8 +373,10 @@ def sprint_goal(week: str) -> str:
         "W1": "Full DAG and MLflow linkage",
         "W2": "MinIO and Parquet data platform",
         "W3": "Registry-driven serving and remote worker jobs",
-        "W4": "Observability, CI/CD, and CT skeleton",
-        "W5": "Final integration and enterprise MVP cut",
+        "W4": "Current-week enterprise VLM MLOps completion",
+        "W5": "Model lifecycle, drift, and draft governance",
+        "W6": "Large-scale data acquisition and cleaning research",
+        "W7": "AgentOps reliability and portfolio hardening",
     }
     return goals.get(week, "Enterprise MLOps weekly execution")
 

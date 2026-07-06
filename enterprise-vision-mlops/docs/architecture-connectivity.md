@@ -51,7 +51,7 @@ flowchart LR
 | Prometheus -> API | HTTP inside `evm-local` | healthy | Prometheus target `api:8000/metrics` is `up`. |
 | Grafana -> Prometheus | HTTP inside `evm-local` | healthy | Grafana `/api/health` returns database `ok`. |
 | Windows -> mac-mini | Tailscale SSH | healthy | SSH remote exec returns `ruma`, `rumaui-Macmini.local`, `arm64`. |
-| Windows -> Tailscale local status | Local Tailscale API | degraded | CLI exists, but local pipe access is denied in the current shell. Use SSH probe fields as the operational signal. |
+| Windows -> Tailscale local status | Local Tailscale API | healthy | `remote-inventory` reads `tailscale status --json` in the current shell. |
 | mac-mini -> GitHub | HTTPS Git | healthy | mac-mini clone tracks `codex/mac-mini-worker`. |
 | Windows -> ruma-ubuntu | Tailscale SSH | unavailable | Candidate node exists but SSH port is not reachable in current probe. |
 | Windows -> k3s-master | Tailscale/Kubernetes | unavailable | Candidate control-plane is not active in current probe. |
@@ -67,6 +67,7 @@ flowchart LR
     DEPLOY["deployment"]
     MONITOR["monitoring"]
     WORKERS["remote_workers"]
+    REMOTE_JOB["remote_job"]
 
     INGEST -->|"raw_manifest.jsonl"| VALIDATE
     VALIDATE -->|"validated_manifest.jsonl\nvalidation_report.json"| TRAIN
@@ -74,6 +75,8 @@ flowchart LR
     REGISTRY -->|"latest.json\nversioned registry metadata"| DEPLOY
     DEPLOY -->|"API health/ready/predict result"| MONITOR
     WORKERS -->|"remote inventory report"| MONITOR
+    WORKERS -->|"reachable worker metadata"| REMOTE_JOB
+    REMOTE_JOB -->|"job spec, resource report,\ncollected remote artifacts"| MONITOR
 ```
 
 ## Data Exchange Contract
@@ -84,22 +87,19 @@ flowchart LR
 | `data_validation` | `training` | Local manifest/report files | `data/validated/validated_manifest.jsonl`, `data/validated/validation_report.json` | Schema, extension, label, and dimension checks. |
 | `training` | MLflow | HTTP REST | experiment, run, params, metrics | Logs baseline run when MLflow is healthy. |
 | `training` | `model_registry` | Local artifact | `artifacts/models/vision-baseline/model.json` | Majority-class baseline model metadata. |
-| `model_registry` | `deployment` | Local registry metadata | `artifacts/registry/vision-baseline/vN.json`, `latest.json` | Local file registry, not yet MLflow Model Registry source-of-truth. |
-| `deployment` | API | HTTP | `GET /health`, `GET /ready`, `POST /predict` | Smoke validates serving contract. |
-| API | Prometheus | HTTP metrics scrape | `/metrics` Prometheus exposition format | Request counters and latency histogram. |
+| `model_registry` | API / `deployment` | Local registry metadata | `artifacts/registry/vision-baseline/vN.json`, `latest.json` | API loads promoted local registry metadata at runtime. |
+| `deployment` | API | HTTP | `GET /health`, `GET /ready`, `POST /predict` | Smoke validates `model_loaded=true` and `placeholder=false`. |
+| API | Prometheus | HTTP metrics scrape | `/metrics` Prometheus exposition format | Request counters, latency histogram, loaded model/version metadata. |
 | Prometheus | Grafana | HTTP datasource | target health and metric series | Dashboard-ready metrics source. |
 | Windows control-plane | mac-mini | SSH command/result | branch sync, smoke commands, stdout/stderr, exit code | ARM64 worker validation and future edge/MPS experiments. |
+| `remote_job` | mac-mini | SSH + SCP | structured job spec, uploaded eval script, resource report, remote report/log/summary | W3 remote execution and artifact reconciliation. |
 | mac-mini | GitHub | Git HTTPS | branch checkout/pull for `codex/mac-mini-worker` | Keeps worker-specific code isolated. |
 
 ## Current Gaps
 
-- Serving API still returns placeholder inference and does not load the local
-  registry artifact yet.
 - MLflow is used for run tracking, but the local file registry is still the
-  deployment metadata source.
-- Raw/validated object-store buckets are declared in config but the current
-  manifest pipeline writes local files only.
-- `remote_workers` can prove mac-mini SSH execution, but it does not yet submit
-  structured remote jobs or collect remote artifacts back into the control-plane.
-- Tailscale local status requires elevated access in this Windows shell, so
-  `tailnet_online` may be unavailable even when SSH execution succeeds.
+  serving metadata source; MLflow Model Registry promotion remains future work.
+- Lineage is still local metadata plus MLflow params; OpenLineage/catalog
+  emission remains future work.
+- Linux and Kubernetes candidate workers are still future targets; W3 completed
+  the mac-mini remote execution path only.

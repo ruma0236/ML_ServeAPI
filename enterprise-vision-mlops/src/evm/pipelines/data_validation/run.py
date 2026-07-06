@@ -9,6 +9,7 @@ from evm.core.dataset import dimension_summary, label_distribution, stable_recor
 from evm.core.object_store import ObjectStoreClient
 from evm.core.pipeline import (
     build_context,
+    display_path,
     read_jsonl,
     utc_now,
     write_json,
@@ -115,12 +116,12 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             "required_fields": list(REQUIRED_FIELDS),
             "allowed_extensions": sorted(allowed_extensions),
         },
-        "input_manifest": str(input_manifest.relative_to(ctx.project_root)),
-        "output_manifest": str(output_manifest.relative_to(ctx.project_root)),
+        "input_manifest": display_path(input_manifest, ctx.project_root),
+        "output_manifest": display_path(output_manifest, ctx.project_root),
         "validated_manifest_uri": validated_manifest_uri,
-        "processed_parquet": str(processed_parquet.relative_to(ctx.project_root)),
+        "processed_parquet": display_path(processed_parquet, ctx.project_root),
         "processed_parquet_uri": processed_parquet_uri,
-        "validated_parquet": str(validated_parquet.relative_to(ctx.project_root)),
+        "validated_parquet": display_path(validated_parquet, ctx.project_root),
         "validated_parquet_uri": validated_parquet_uri,
     }
     report_path = ctx.path(get_nested(ctx.config, "paths.validated_zone", "data/validated")) / report_name
@@ -139,16 +140,16 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "record_count": len(valid_records),
         "label_counts": label_distribution(valid_records),
         "dimension_summary": dimension_summary(valid_records),
-        "input_manifest": str(input_manifest.relative_to(ctx.project_root)),
-        "output_manifest": str(output_manifest.relative_to(ctx.project_root)),
+        "input_manifest": display_path(input_manifest, ctx.project_root),
+        "output_manifest": display_path(output_manifest, ctx.project_root),
         "validated_manifest_uri": validated_manifest_uri,
-        "processed_parquet": str(processed_parquet.relative_to(ctx.project_root)),
+        "processed_parquet": display_path(processed_parquet, ctx.project_root),
         "processed_parquet_uri": processed_parquet_uri,
         "processed_parquet_info": processed_parquet_info,
-        "validated_parquet": str(validated_parquet.relative_to(ctx.project_root)),
+        "validated_parquet": display_path(validated_parquet, ctx.project_root),
         "validated_parquet_uri": validated_parquet_uri,
         "validated_parquet_info": validated_parquet_info,
-        "validation_report": str(report_path.relative_to(ctx.project_root)),
+        "validation_report": display_path(report_path, ctx.project_root),
         "validation_report_uri": validation_report_uri,
         "trace": ctx.trace.to_dict(),
     }
@@ -160,7 +161,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "application/json",
     )
     report["validation_report_uri"] = validation_report_uri
-    report["dataset_metadata"] = str(dataset_metadata_path.relative_to(ctx.project_root))
+    report["dataset_metadata"] = display_path(dataset_metadata_path, ctx.project_root)
     report["dataset_metadata_uri"] = dataset_metadata_uri
     write_json(ctx.run_dir / "summary.json", report)
     write_markdown_report(

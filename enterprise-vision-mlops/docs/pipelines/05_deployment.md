@@ -9,6 +9,9 @@ Verifies that the serving API is reachable, ready, and able to process a sample 
 - Calls `/health`.
 - Calls `/ready`.
 - Calls `/predict` with a sample image URI.
+- Verifies the W3 registry-driven serving contract:
+  - `/ready` returns `model_loaded=true`,
+  - `/predict` returns `placeholder=false`.
 - Writes deployment smoke-test summary.
 
 ## Inputs
@@ -38,3 +41,4 @@ python scripts/run_pipeline.py deploy-check --config configs/local.toml
 
 - 2026-06-18: Added local API smoke-test pipeline.
 - 2026-06-18: Verified `/health`, `/ready`, and `/predict` smoke checks.
+- 2026-07-05: Strengthened deployment smoke to fail when registry-driven serving is not loaded.

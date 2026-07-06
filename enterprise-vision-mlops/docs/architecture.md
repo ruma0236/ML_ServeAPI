@@ -48,3 +48,4 @@ flowchart LR
 - Model serving will later load the registered model instead of using placeholder inference.
 - Kafka, Spark, and Parquet will be added after this local MVP is stable.
 - Tailscale-connected machines can be added as remote workers for heterogeneous execution validation.
+ar

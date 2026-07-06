@@ -1,4 +1,10 @@
 .env
+.env.*
+!.env.example
+*.local.env
+jira.local.env
+.evm/
+.secrets/
 __pycache__/
 *.py[cod]
 .pytest_cache/

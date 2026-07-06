@@ -8,6 +8,7 @@ ssh_user = "ruma"
 ssh_key_path = "~/.ssh/evm_macmini_ed25519"
 ssh_port = 22
 ssh_required = true
+remote_project_path = "~/mlops-lab/ML_ServeAPI/enterprise-vision-mlops"
 remote_exec_probe = "whoami; hostname; uname -m"
 roles = [
   "arm64-build-validation",

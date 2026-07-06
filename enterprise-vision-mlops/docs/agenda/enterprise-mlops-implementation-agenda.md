@@ -61,6 +61,7 @@
   - `deploy-check`
   - `monitor-check`
   - `remote-inventory`
+  - `remote-job`
 - mac-mini worker branch: `codex/mac-mini-worker`
 - mac-mini PyCharm Remote Development preflight
 - Connectivity and runbook documentation
@@ -476,7 +477,49 @@ data_ingest
 | mac-mini 역할이 과장됨 | GPU cluster 경험처럼 보이면 역효과 | ARM64/edge validation worker로 명확히 표현 |
 | 문서가 구현보다 앞섬 | 포트폴리오 신뢰도 하락 | 각 문서는 status evidence와 command output 기반으로 갱신 |
 
-## 12. Operating Rule
+## 12. 2026-07-05 Plan Realignment After W2
+
+This agenda has been realigned after the W2 object-storage data-platform
+completion and W3 prework review.
+
+Current position:
+
+| Phase | Name | Updated status | Notes |
+|---|---|---|---|
+| Phase 1 | Local Control-plane MVP | Done | Docker Compose stack, modular pipeline, MLflow, MinIO, FastAPI, Prometheus/Grafana foundation |
+| Phase 2 | Airflow + MLflow Orchestration | Done | Full Airflow DAG is running with MLflow trace linkage and scheduled run evidence |
+| Phase 3 | Object Storage Data Platform | Done | MinIO raw/processed/validated zones, Parquet outputs, validation report, dataset version metadata |
+| Phase 4 | Remote Training Infra | Done | mac-mini structured remote job spec, ARM64 evaluation, worker resource report, and artifact collection are implemented |
+| Phase 5 | Registry-driven Serving | Done | API loads promoted local registry metadata, removes placeholder `/predict`, and exposes model/dataset metadata |
+| Phase 6 | Observability / Drift / SLO | Partial / planned | Prometheus/Grafana are live; model/pipeline/drift/SLO hardening remains W4 work |
+| Phase 7 | CI/CD / Governance | Partial / planned | Docs and issue governance exist; CI, release gates, and demo cut remain W4-W5 work |
+| Phase 8 | Enterprise Multimodal MLOps Expansion | Planned | Long-range lakehouse, lineage, multimodal embeddings, VLM evaluation/serving, enterprise governance |
+
+Strategic direction:
+
+- The July W0-W5 plan remains the local enterprise control-plane MVP.
+- W3 completed registry-driven serving first, then remote execution, before
+  multimodal expansion.
+- The long-range target is now explicitly an enterprise vision/multimodal MLOps
+  platform, progressing from image baseline to real image models, then VLM and
+  multimodal workloads.
+- Detailed target architecture and backlog extensions are tracked in
+  `docs/agenda/enterprise-multimodal-mlops-target-roadmap.md`.
+- Jira/Git remain the operational source of truth; Notion captures polished
+  review state, and Obsidian captures deep work history for future Codex
+  recovery.
+
+Immediate update required after this realignment:
+
+1. W3 serving and remote execution tasks are now complete; keep W4/W5 tasks
+   planned until implementation starts.
+2. Sync the new Phase 8 enterprise multimodal backlog to Jira when Jira API
+   credentials are available in the active shell.
+3. Add Notion review/evidence entries for this plan realignment.
+4. Add Obsidian work-log and context-pack entries so future sessions recover
+   the expanded target without relying on chat history.
+
+## 13. Operating Rule
 
 앞으로 모든 Phase 작업은 다음 구조를 따른다.
 
@@ -486,6 +529,78 @@ data_ingest
 4. `docs/status`에 날짜별 검증 기록 추가
 5. 필요 시 `docs/runbooks` 업데이트
 6. Git branch commit/push
+
+## 14. 2026-07-05 VLM-First Manufacturing Reset
+
+The shared direction document resets the July cut around a more specific
+portfolio target: Manufacturing Visual Inspection VLM-first AI Infra / MLOps /
+AIOps. W0-W3 remain the control-plane foundation. W4 and W5 should now turn
+that foundation toward a real industrial image dataset, VLM adapter contracts,
+batch evaluation, regression gates, observability, rollback, RCA, and final
+demo evidence.
+
+Updated planning rule:
+
+- Do not make LLM Agent, LangGraph, HITL, Kueue, Ray Serve, KServe, or
+  production vLLM the July P0 target.
+- Treat LLM Agent and AgentOps as P2 after August.
+- Treat VisA as the recommended primary P0 dataset candidate, with MVTec AD as
+  fallback or secondary comparison.
+- Build the mock VLM adapter first so dataset, manifest, batch inference,
+  schema validation, tracing, and regression gates can land before the real
+  endpoint is ready.
+- Target Qwen2.5-VL 3B/7B quantized on the Windows RTX 4080 SUPER node for the
+  real VLM path.
+
+Revised W4/W5 execution framing:
+
+| Window | Focus | Issue IDs |
+|---|---|---|
+| W4 | Manufacturing dataset foundation and VLM adapter skeleton | `EVM-130` to `EVM-144` |
+| W5 | VLM reliability gates, failure scenarios, benchmark, RCA, portfolio cut | `EVM-151` to `EVM-181` |
+
+The previous W4/W5 observability and CI/CD work remains important, but it should
+now be tied to VLM workload evidence: schema validity, latency, error rate,
+dataset quality, prompt/model version, rollback, and RCA events.
+
+## 15. 2026-07-06 Current-week Completion Reset And W5+ Plan
+
+The active sprint plan is compressed on 2026-07-06 KST. The newly defined
+enterprise-grade VLM-first MLOps plan is scheduled for completion during the
+current week, 2026-07-06 to 2026-07-12. This pulls the former W5 VLM reliability
+work into the same execution sprint so the system can show not only feature
+presence, but also reviewable reliability evidence.
+
+Current-week completion scope:
+
+| Date | Scope | Issue IDs |
+|---|---|---|
+| 2026-07-06 | Domain pack foundation completed and synchronized | `EVM-130` to `EVM-133` |
+| 2026-07-07 | Image quality validation and shard/split builder | `EVM-134`, `EVM-135` |
+| 2026-07-08 | VLM adapter contract and multimodal router | `EVM-141`, `EVM-142` |
+| 2026-07-09 | Manifest-based batch inference and VLM output validation | `EVM-143`, `EVM-144` |
+| 2026-07-10 | Prompt/model registry, regression gate, audit/RCA, failure suite | `EVM-151`, `EVM-152`, `EVM-161`, `EVM-162` |
+| 2026-07-11 | VLM metrics, benchmark, observability, CI, demo evidence | `EVM-171`, `EVM-181`, `EVM-061` to `EVM-075` |
+| 2026-07-12 | Integration buffer, release note, final review and handoff | `EVM-074`, `EVM-075` |
+
+Post-completion W5+ plan:
+
+| Sprint | Date | Focus | Issue IDs |
+|---|---|---|---|
+| W5 | 2026-07-13 to 2026-07-19 | Real model lifecycle, drift/special-case tracking, RCA feedback, draft governance | `EVM-191` to `EVM-195` |
+| W6 | 2026-07-20 to 2026-07-26 | Large-scale data acquisition and cleaning research | `EVM-201` to `EVM-205` |
+| W7 | 2026-07-27 to 2026-07-31 | Draft/decision governance, AgentOps reliability design, scale serving research, portfolio stabilization | `EVM-211` to `EVM-214` |
+
+Strategic interpretation:
+
+- The platform remains domain-general if dataset/model/prompt/eval policies are
+  isolated in domain packs and registries instead of hard-coded into platform
+  services.
+- Manufacturing visual inspection is the first concrete policy pack, not the
+  only future target domain.
+- After the current-week build, the next problems are operating problems:
+  lifecycle state, drift/special-case tracking, draft management, data scale,
+  and reliable AgentOps/serving expansion.
 
 문서와 코드가 같이 움직여야 이 프로젝트가 단순 toy project가 아니라 운영형
 MLOps engineering portfolio로 보인다.

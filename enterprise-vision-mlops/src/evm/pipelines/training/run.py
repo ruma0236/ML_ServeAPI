@@ -6,7 +6,14 @@ from collections.abc import Sequence
 
 from evm.core.config import get_nested
 from evm.core.mlflow_client import MlflowRestClient
-from evm.core.pipeline import build_context, read_jsonl, utc_now, write_json, write_markdown_report
+from evm.core.pipeline import (
+    build_context,
+    display_path,
+    read_jsonl,
+    utc_now,
+    write_json,
+    write_markdown_report,
+)
 
 
 def run(config_path: str = "configs/local.toml") -> dict[str, object]:
@@ -75,10 +82,10 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     summary = {
         "records": len(records),
         "dataset_version": dataset_version,
-        "dataset_metadata": str(dataset_metadata_path.relative_to(ctx.project_root)),
+        "dataset_metadata": display_path(dataset_metadata_path, ctx.project_root),
         "validated_parquet_uri": str(dataset_metadata.get("validated_parquet_uri", "")),
         "model_name": model_name,
-        "model_path": str(model_path.relative_to(ctx.project_root)),
+        "model_path": display_path(model_path, ctx.project_root),
         metric_name: round(baseline_accuracy, 6),
         "mlflow_status": mlflow_status,
         "mlflow_run_id": mlflow_run_id or "",

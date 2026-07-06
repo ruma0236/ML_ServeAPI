@@ -20,12 +20,28 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         f"{api_url}/predict",
         {"image_uri": sample_image_uri, "features": {"width": 640, "height": 480}},
     )
+    ready_model_loaded = (
+        ready_payload.get("model_loaded") if isinstance(ready_payload, dict) else None
+    )
+    predict_placeholder = (
+        predict_payload.get("placeholder") if isinstance(predict_payload, dict) else None
+    )
+    contract_ok = (
+        health_status == 200
+        and ready_status == 200
+        and predict_status == 200
+        and ready_model_loaded is True
+        and predict_placeholder is False
+    )
 
     summary = {
         "api_url": api_url,
         "health_status": health_status,
         "ready_status": ready_status,
         "predict_status": predict_status,
+        "ready_model_loaded": ready_model_loaded,
+        "predict_placeholder": predict_placeholder,
+        "contract_ok": contract_ok,
         "trace_id": ctx.trace.trace_id,
         "pipeline_run_id": ctx.run_id,
         "sample_prediction": predict_payload if isinstance(predict_payload, dict) else str(predict_payload),
@@ -41,6 +57,9 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             "health_status": health_status,
             "ready_status": ready_status,
             "predict_status": predict_status,
+            "ready_model_loaded": ready_model_loaded,
+            "predict_placeholder": predict_placeholder,
+            "contract_ok": contract_ok,
             "trace_id": ctx.trace.trace_id,
         },
         [
@@ -48,10 +67,13 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             "## Contract",
             "",
             "- Input: promoted model metadata and running serving API.",
-            "- Output: deployment smoke-test report.",
+            "- Output: deployment smoke-test report with registry-driven serving contract.",
+            "- Pass condition: `/ready` has `model_loaded=true` and `/predict` has `placeholder=false`.",
             "- Next: `monitoring` verifies metric collection.",
         ],
     )
+    if not contract_ok:
+        raise RuntimeError("deployment smoke contract failed; see deployment report")
     return summary
 
 

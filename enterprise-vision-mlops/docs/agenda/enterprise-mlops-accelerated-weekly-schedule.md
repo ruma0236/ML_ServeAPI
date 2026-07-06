@@ -1,5 +1,17 @@
 # Enterprise MLOps Accelerated Weekly Schedule
 
+## 2026-07-06 Current-week Reset
+
+The active execution plan is reset on 2026-07-06 KST. W0 to W3 are treated as
+completed foundation work. W4 is now the current-week completion sprint for the
+new enterprise VLM-first MLOps plan, scheduled for 2026-07-06 to 2026-07-12.
+
+The previously planned W5 VLM reliability work is pulled into the same
+current-week completion sprint. W5 and later now represent post-completion
+research and operating-system work: real model lifecycle management,
+drift/special-case tracking, draft/decision management, and large-scale data
+collection/cleaning research.
+
 작성일: 2026-06-21
 
 ## 1. 목표
@@ -37,6 +49,17 @@
 | W3 | 2026-07-13 ~ 2026-07-19 | Registry-driven serving + remote job | API가 registry artifact를 로드하고 mac-mini job 실행 |
 | W4 | 2026-07-20 ~ 2026-07-26 | Observability + CI/CD/CT | dashboard, CI, CT trigger skeleton 동작 |
 | W5 | 2026-07-27 ~ 2026-07-31 | Final integration and portfolio cut | 전체 demo script와 release note 완성 |
+
+Current active sprint rows below supersede the earlier W4/W5 rows in this
+summary table and are intentionally repeated so automation reads the latest
+week range for each week label.
+
+| Week | Date | Main Goal | Exit Criteria |
+|---|---|---|---|
+| W4 | 2026-07-06 ~ 2026-07-12 | Current-week enterprise VLM MLOps completion | EVM-134~181 plus VLM observability, CI, release, and demo evidence |
+| W5 | 2026-07-13 ~ 2026-07-19 | Model lifecycle, drift, and draft governance | lifecycle state machine, drift/special-case tracking, draft registry |
+| W6 | 2026-07-20 ~ 2026-07-26 | Large-scale data acquisition and cleaning research | source registry, batch planner, dedup/quality benchmark, lakehouse research |
+| W7 | 2026-07-27 ~ 2026-07-31 | AgentOps and portfolio hardening | AgentOps reliability design, serving-scale research, final stabilization |
 
 ## 4. W0: 2026-06-22 ~ 2026-06-28
 
@@ -185,7 +208,42 @@ ssh ruma-macmini-mlops 'bash ~/mlops-lab/ML_ServeAPI/enterprise-vision-mlops/inf
 - mac-mini remote job이 실행되고 결과가 회수됨
 - `docs/status/2026-07-19-serving-remote-worker.md` 작성
 
-## 8. W4: 2026-07-20 ~ 2026-07-26
+## 8. W4: 2026-07-06 ~ 2026-07-12
+
+2026-07-06 current-week override:
+
+W4 is now the current-week enterprise VLM MLOps completion sprint. It includes
+the remaining Manufacturing VLM P0 Foundation work, the VLM Reliability
+Evaluation work previously scheduled for W5, and the observability/CI/demo
+items required to make the result reviewable as an enterprise MLOps system.
+
+| ID | Task | Output |
+|---|---|---|
+| `EVM-130` | Reposition project narrative and README for manufacturing VLM infra | README and agenda positioning |
+| `EVM-131` | Home Lab deployment topology update | Windows RTX / Mac mini / MacBook role map |
+| `EVM-132` | Industrial anomaly dataset decision and import contract | VisA primary and MVTec AD fallback decision |
+| `EVM-133` | Manufacturing image manifest schema | manifest schema |
+| `EVM-134` | Image quality validation pipeline | quality report artifacts |
+| `EVM-135` | Dataset shard/split builder | repeatable shards and splits |
+| `EVM-141` | VLM adapter interface and mock adapter | adapter contract and mock backend |
+| `EVM-142` | Multimodal router request classification | request type routing |
+| `EVM-143` | Manifest-based batch inference runner | JSONL batch outputs with retry/resume |
+| `EVM-144` | VLM output schema validator | structured output validation |
+| `EVM-151` | Prompt and model version registry | prompt/model/eval config registry |
+| `EVM-152` | Regression gate with intentionally bad candidate | blocked bad candidate evidence |
+| `EVM-161` | Audit event schema and RCA join path | trace_id-based RCA join |
+| `EVM-162` | Failure scenario suite | bad prompt, corrupt/drift, schema, endpoint failures |
+| `EVM-171` | VLM metrics and benchmark reports | latency, error, schema validity, resource reports |
+| `EVM-181` | Portfolio README and final demo script | final demo evidence |
+| `EVM-061` | Grafana dashboard hardening | VLM workload dashboard panels |
+| `EVM-062` | pipeline success/failure metric | pipeline status metric |
+| `EVM-063` | data drift report | manifest/image distribution comparison |
+| `EVM-065` | SLO/alert rule documentation | SLO and alert rules |
+| `EVM-071` | GitHub Actions lint/test workflow | CI workflow |
+| `EVM-072` | Docker build check | image build validation |
+| `EVM-073` | pipeline smoke check in CI | CI smoke validation |
+| `EVM-074` | release note template | July enterprise MVP release note |
+| `EVM-075` | final portfolio demo script | repeatable demo steps |
 
 목표:
 
@@ -226,7 +284,22 @@ CI validates compile/test/smoke path
 - CT skeleton이 Airflow DAG 또는 GitHub Actions schedule로 정의됨
 - `docs/status/2026-07-26-observability-cicd.md` 작성
 
-## 9. W5: 2026-07-27 ~ 2026-07-31
+## 9. W5: 2026-07-13 ~ 2026-07-19
+
+2026-07-06 post-completion reset:
+
+W5 now starts after the current-week completion sprint. Its scope is the real
+model lifecycle and operating feedback loop: candidate state, promotion
+evidence, drift/special-case tracking, RCA feedback into eval sets, and draft
+review management.
+
+| ID | Task | Output |
+|---|---|---|
+| `EVM-191` | Model lifecycle state machine | Draft/Registered/Validated/Shadow/Promoted/Deprecated/Archived states |
+| `EVM-192` | Model/dataset/prompt lineage matrix | joined lineage across model, dataset, prompt, adapter, eval config |
+| `EVM-193` | Drift and special-case tracking schema | drift sample, anomaly cluster, owner, severity, resolution state |
+| `EVM-194` | RCA-to-regression feedback loop | failed cases promoted into curated eval/regression sets |
+| `EVM-195` | Lifecycle dashboard and review checkpoint | candidate status and blocker/promote queues |
 
 목표:
 
@@ -289,7 +362,35 @@ docs/releases/2026-07-enterprise-mlops-mvp.md
 docs/runbooks/final-demo-script.md
 ```
 
-## 10. 압축 일정 기준의 Scope Control
+## 10. W6: 2026-07-20 ~ 2026-07-26
+
+W6 focuses on large-scale data acquisition and cleaning research. The goal is
+to keep the platform domain-general by moving dataset-specific choices into
+policy/domain packs while standardizing source registration, object layout,
+collection checkpoints, cleaning benchmarks, and curation states.
+
+| ID | Task | Output |
+|---|---|---|
+| `EVM-201` | Data source registry and collection policy | source/license/retention/access/volume policy |
+| `EVM-202` | Large-scale batch acquisition planner | resumable checkpoints, shard targets, retry policy |
+| `EVM-203` | Deduplication and cleaning benchmark | exact/perceptual hash and quality benchmark |
+| `EVM-204` | Labeling and curation workflow | review queue, label states, curated eval promotion |
+| `EVM-205` | Lakehouse-scale ingestion research spike | DuckDB/Polars/Spark/Iceberg prototype recommendation |
+
+## 11. W7: 2026-07-27 ~ 2026-07-31
+
+W7 focuses on post-MVP governance and portfolio hardening. This is where draft
+management, decision traceability, AgentOps reliability design, and serving
+scale research are organized into the next implementation lanes.
+
+| ID | Task | Output |
+|---|---|---|
+| `EVM-211` | Draft and decision registry | draft/review/approved/rejected states |
+| `EVM-212` | AgentOps reliability follow-up design | LLM agent, LangGraph, HITL, tool-call audit scope |
+| `EVM-213` | Scale serving research plan | vLLM/Triton/KServe/Ray Serve/Kueue comparison |
+| `EVM-214` | July portfolio stabilization review | demo evidence, known gaps, backlog, handoff risks |
+
+## 12. 압축 일정 기준의 Scope Control
 
 7월 말까지 반드시 구현할 것:
 
@@ -312,7 +413,7 @@ docs/runbooks/final-demo-script.md
 - advanced drift detection
 - Jira full automation
 
-## 11. Weekly Review Template
+## 13. Weekly Review Template
 
 매주 금요일 또는 일요일에 아래 형식으로 상태 문서를 추가한다.
 
@@ -338,7 +439,7 @@ docs/runbooks/final-demo-script.md
 - ...
 ````
 
-## 12. 최종 판단 기준
+## 14. 최종 판단 기준
 
 7월 31일 기준으로 다음 질문에 모두 "yes"라고 답할 수 있으면 목표 달성으로 본다.
 

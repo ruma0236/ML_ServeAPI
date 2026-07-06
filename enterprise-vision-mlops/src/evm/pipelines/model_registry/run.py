@@ -4,7 +4,7 @@ import json
 from collections.abc import Sequence
 
 from evm.core.config import get_nested
-from evm.core.pipeline import build_context, utc_now, write_json, write_markdown_report
+from evm.core.pipeline import build_context, display_path, utc_now, write_json, write_markdown_report
 
 
 def run(config_path: str = "configs/local.toml") -> dict[str, object]:
@@ -32,7 +32,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "version": next_version,
         "stage": get_nested(ctx.config, "serving.model_stage", "Production"),
         "registered_at": utc_now(),
-        "source_model_path": str(source_model_path.relative_to(ctx.project_root)),
+        "source_model_path": display_path(source_model_path, ctx.project_root),
         "source_model": source_payload,
         "trace": ctx.trace.to_dict(),
     }
@@ -45,8 +45,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "model_name": model_name,
         "version": next_version,
         "stage": registry_payload["stage"],
-        "registry_record": str(version_path.relative_to(ctx.project_root)),
-        "latest_record": str(latest_path.relative_to(ctx.project_root)),
+        "registry_record": display_path(version_path, ctx.project_root),
+        "latest_record": display_path(latest_path, ctx.project_root),
         "trace_id": ctx.trace.trace_id,
         "pipeline_run_id": ctx.run_id,
     }

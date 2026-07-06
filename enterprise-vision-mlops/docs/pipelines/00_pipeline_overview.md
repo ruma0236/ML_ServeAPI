@@ -8,7 +8,8 @@ This project is organized as one modular MLOps platform. Each pipeline owns a cl
 
 ```mermaid
 flowchart LR
-    S["object_storage_bootstrap"] --> A["data_ingestion"]
+    P["domain_pack_check"] --> S["object_storage_bootstrap"]
+    S --> A["data_ingestion"]
     A --> B["data_validation"]
     B --> C["training"]
     C --> D["model_registry"]
@@ -21,6 +22,7 @@ flowchart LR
 
 | Pipeline | Code | Document |
 |---|---|---|
+| Domain pack check | `src/evm/pipelines/domain_pack_check` | `docs/pipelines/09_domain_packs.md` |
 | Object storage bootstrap | `src/evm/pipelines/object_storage_bootstrap` | `docs/pipelines/08_object_storage.md` |
 | Data ingestion | `src/evm/pipelines/data_ingestion` | `docs/pipelines/01_data_ingestion.md` |
 | Data validation | `src/evm/pipelines/data_validation` | `docs/pipelines/02_data_validation.md` |
@@ -38,12 +40,14 @@ flowchart LR
 - `src/evm/core/mlflow_client.py`: minimal MLflow REST integration.
 - `src/evm/core/object_store.py`: MinIO/S3 bucket, upload, list, and object-exists client.
 - `src/evm/core/dataset.py`: dataset digest, distribution summaries, and Parquet writing.
+- `src/evm/core/domain_pack.py`: portable domain policy validation for dataset,
+  manifest, model adapter, evaluation, promotion, and RCA contracts.
 
 ## Orchestration
 
 - Local CLI entrypoint: `scripts/run_pipeline.py`.
 - Airflow DAG: `orchestration/airflow/dags/enterprise_vision_mlops_daily.py`.
-- Current DAG path: `object_store_bootstrap -> data_ingest -> data_validate -> train -> register_model -> deploy_check -> monitor_check`.
+- Current DAG path: `domain_pack_check -> object_store_bootstrap -> data_ingest -> data_validate -> train -> register_model -> deploy_check -> monitor_check`.
 - Airflow service config: `configs/airflow.toml`.
 
 ## Traceability
@@ -61,3 +65,5 @@ flowchart LR
 - 2026-06-21: Added Airflow W0 orchestration foundation for ingest and validation.
 - 2026-06-22: Added traceability scaffolding for W1 lineage graph work.
 - 2026-07-01: Added W2 object storage bootstrap, MinIO dataset objects, Parquet outputs, and dataset version metadata.
+- 2026-07-05: Added W4 domain pack contract validation for the manufacturing
+  visual inspection VLM reference workload.
