@@ -1,4 +1,4 @@
-.PHONY: stack-up stack-down stack-logs stack-ps stack-config api-logs mlflow-logs clean-volumes domain-pack-check dataset-intake-audit object-store-bootstrap data-ingest data-validate image-quality dataset-shards vlm-contract vlm-batch-eval vlm-reliability vlm-rca vlm-observability train register-model deploy-check monitor-check remote-inventory remote-job mac-mini-smoke local-mvp w4-vlm
+.PHONY: stack-up stack-down stack-logs stack-ps stack-config api-logs mlflow-logs clean-volumes domain-pack-check dataset-intake-audit object-store-bootstrap data-ingest data-validate image-quality dataset-shards vlm-contract vlm-batch-eval vlm-reliability vlm-rca vlm-observability train register-model deploy-check monitor-check remote-inventory remote-job mac-mini-smoke local-mvp w4-vlm visa-open-data-cycle
 
 stack-up:
 	docker compose up -d --build
@@ -84,3 +84,20 @@ mac-mini-smoke:
 w4-vlm: dataset-intake-audit domain-pack-check object-store-bootstrap data-ingest data-validate image-quality dataset-shards vlm-contract vlm-batch-eval vlm-reliability vlm-rca vlm-observability
 
 local-mvp: w4-vlm train register-model deploy-check monitor-check remote-inventory remote-job
+
+visa-open-data-cycle:
+	python scripts/run_pipeline.py dataset-intake-audit --config configs/local_visa.toml
+	python scripts/run_pipeline.py domain-pack-check --config configs/local_visa.toml
+	python scripts/run_pipeline.py object-store-bootstrap --config configs/local_visa.toml
+	python scripts/run_pipeline.py data-validate --config configs/local_visa.toml
+	python scripts/run_pipeline.py image-quality --config configs/local_visa.toml
+	python scripts/run_pipeline.py dataset-shards --config configs/local_visa.toml
+	python scripts/run_pipeline.py vlm-contract --config configs/local_visa.toml
+	python scripts/run_pipeline.py vlm-batch-eval --config configs/local_visa.toml
+	python scripts/run_pipeline.py vlm-reliability --config configs/local_visa.toml
+	python scripts/run_pipeline.py vlm-rca --config configs/local_visa.toml
+	python scripts/run_pipeline.py vlm-observability --config configs/local_visa.toml
+	python scripts/run_pipeline.py train --config configs/local_visa.toml
+	python scripts/run_pipeline.py register-model --config configs/local_visa.toml
+	python scripts/run_pipeline.py deploy-check --config configs/local_visa.toml
+	python scripts/run_pipeline.py monitor-check --config configs/local_visa.toml

@@ -7,10 +7,14 @@ path. The new `dataset-intake-audit` pipeline scans F-drive raw dataset roots
 defined in the manufacturing domain pack and writes source registry,
 acquisition plan, cleaning benchmark, and import manifest artifacts.
 
+Follow-up: the VisA raw root was later populated and the full W4 cycle was
+verified with 10,821 records. See
+`docs/status/2026-07-06-visa-open-data-cycle.md`.
+
 This closes the control-plane portion of `EVM-201`, `EVM-202`, and `EVM-203`.
-It does not mean VisA or MVTec AD has been downloaded or fully validated yet.
-The current runtime state is `needs_data` because the configured raw roots are
-not populated.
+At the time of this audit, it did not mean VisA or MVTec AD had been downloaded
+or fully validated yet. The runtime state was `needs_data` because the
+configured raw roots were not populated.
 
 ## Scope
 

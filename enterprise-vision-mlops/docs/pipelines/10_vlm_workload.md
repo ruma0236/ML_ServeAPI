@@ -36,6 +36,20 @@ python scripts\run_pipeline.py vlm-rca --config configs\local.toml
 python scripts\run_pipeline.py vlm-observability --config configs\local.toml
 ```
 
+For the real VisA open dataset cycle, use `configs\local_visa.toml`. This
+configuration keeps all large raw, processed, validated, and VLM artifacts under
+`F:\EnterpriseMLOps_Data\enterprise-vision-mlops` and scopes derived outputs to
+the `visa` subdirectories.
+
+The equivalent Makefile target is:
+
+```powershell
+make visa-open-data-cycle
+```
+
+If GNU Make is not available on Windows, run the commands listed in the
+`visa-open-data-cycle` target in `Makefile`.
+
 ## Outputs
 
 - `data/raw/industrial/source_registry.json`
@@ -72,3 +86,23 @@ from the manufacturing domain pack and writes:
 When VisA or MVTec AD files are not present yet, the pipeline returns
 `needs_data` and records `root_missing` for each dataset. That is a successful
 control-plane audit state, not a claim that the real dataset has been validated.
+
+## VisA Open Data Verification
+
+On 2026-07-06, the real VisA open dataset was downloaded to the F-drive raw zone
+and the complete W4 path was verified with `configs\local_visa.toml`.
+
+- Records discovered and validated: `10821`.
+- Label counts: `normal=9621`, `anomaly=1200`.
+- Image quality: `status=pass`, `error_count=0`, `warning_count=0`.
+- Dataset shards: `23`.
+- VLM batch records: `10821`, `schema_valid_rate=1.0`.
+- Reliability gate: `promotion_decision=promote_candidate`.
+- Registry/serving: `vision-baseline` promoted to `version=5`,
+  `ready_model_loaded=true`.
+- Prometheus: `healthy_targets=2`.
+- Storage: local and MinIO processed/validated datasets are real Parquet
+  artifacts with `PAR1` magic bytes.
+
+Detailed evidence is recorded in
+`docs/status/2026-07-06-visa-open-data-cycle.md`.

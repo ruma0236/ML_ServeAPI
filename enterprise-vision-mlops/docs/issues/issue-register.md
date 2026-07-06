@@ -299,6 +299,11 @@ deduplication, and curation flows must be replaceable.
 | `EVM-204` | Labeling and curation workflow | Planned | 2026-07-W6 | sample review, label state, HITL queue, and curated eval-set promotion states are defined |
 | `EVM-205` | Lakehouse-scale ingestion research spike | Planned | 2026-07-W6 | DuckDB/Polars/Spark/Iceberg tradeoffs are documented with at least one runnable prototype path |
 
+Real VisA cycle evidence: `docs/status/2026-07-06-visa-open-data-cycle.md`
+verifies 10,821 open-dataset records through intake, validation, image quality,
+sharding, mock VLM batch evaluation, reliability gate, training, registry,
+serving, monitoring, and MinIO Parquet storage.
+
 ### Phase 17. Draft Decision And AgentOps Governance
 
 This sprint handles the research and management problems that appear after the
