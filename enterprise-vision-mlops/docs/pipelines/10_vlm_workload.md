@@ -106,3 +106,24 @@ and the complete W4 path was verified with `configs\local_visa.toml`.
 
 Detailed evidence is recorded in
 `docs/status/2026-07-06-visa-open-data-cycle.md`.
+
+## Data Quality And ETL Extension
+
+The `image-quality` stage now uses a reusable data quality policy and ETL recipe
+boundary instead of hard-coding all gate behavior inside the pipeline.
+
+- Dataset contract:
+  `domain_packs/manufacturing_visual_inspection/data_contract.toml`
+- Quality policy:
+  `domain_packs/manufacturing_visual_inspection/quality_policy.toml`
+- ETL recipe:
+  `domain_packs/manufacturing_visual_inspection/etl_recipe.toml`
+- Runtime policy loader:
+  `src/evm/data_quality/policy.py`
+- ETL recipe loader:
+  `src/evm/etl/recipe.py`
+
+This means future datasets can add new checks and transforms without turning
+`image-quality` into a single monolithic validation script. The current VisA
+cycle still reports `10821` quality records, zero errors, zero warnings, and
+`gate_decision.status=pass`.

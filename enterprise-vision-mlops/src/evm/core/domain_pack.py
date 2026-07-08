@@ -9,6 +9,7 @@ from evm.core.config import resolve_path
 
 REQUIRED_TOP_LEVEL_SECTIONS = (
     "domain_pack",
+    "quality_framework",
     "datasets",
     "manifest",
     "validation_rules",
@@ -72,7 +73,7 @@ def _ids(items: list[dict[str, Any]]) -> set[str]:
     return {str(item.get("id", "")) for item in items if item.get("id")}
 
 
-def validate_domain_pack(pack: dict[str, Any]) -> list[dict[str, str]]:
+def validate_domain_pack(pack: dict[str, Any], pack_path: Path | None = None) -> list[dict[str, str]]:
     diagnostics: list[dict[str, str]] = []
 
     for section in REQUIRED_TOP_LEVEL_SECTIONS:
@@ -93,6 +94,39 @@ def validate_domain_pack(pack: dict[str, Any]) -> list[dict[str, str]]:
                     "level": "error",
                     "code": "missing_domain_field",
                     "message": f"domain_pack.{field} is required",
+                }
+            )
+
+    quality_framework = pack.get("quality_framework", {})
+    for field in ("dataset_contract", "quality_policy", "etl_recipe"):
+        value = str(quality_framework.get(field, "") or "")
+        if not value:
+            diagnostics.append(
+                {
+                    "level": "error",
+                    "code": "missing_quality_framework_ref",
+                    "message": f"quality_framework.{field} is required",
+                }
+            )
+            continue
+        if pack_path is not None:
+            candidate = pack_path.parent / value
+            if not candidate.exists():
+                diagnostics.append(
+                    {
+                        "level": "error",
+                        "code": "missing_quality_framework_file",
+                        "message": f"Referenced quality framework file does not exist: {candidate}",
+                    }
+                )
+    for field in ("check_registry", "transform_registry"):
+        values = quality_framework.get(field, [])
+        if not isinstance(values, list) or not values:
+            diagnostics.append(
+                {
+                    "level": "error",
+                    "code": "missing_quality_registry",
+                    "message": f"quality_framework.{field} must list at least one entry",
                 }
             )
 
@@ -207,6 +241,7 @@ def summarize_domain_pack(pack_path: Path, pack: dict[str, Any], diagnostics: li
     error_count = sum(1 for item in diagnostics if item["level"] == "error")
     warning_count = sum(1 for item in diagnostics if item["level"] == "warn")
     datasets = pack.get("datasets", [])
+    quality_framework = pack.get("quality_framework", {})
     return {
         "status": "pass" if error_count == 0 else "fail",
         "domain_pack_path": str(pack_path),
@@ -219,6 +254,13 @@ def summarize_domain_pack(pack_path: Path, pack: dict[str, Any], diagnostics: li
             "",
         ),
         "manifest_required_fields": len(pack.get("manifest", {}).get("required_fields", [])),
+        "quality_framework_refs": {
+            "dataset_contract": str(quality_framework.get("dataset_contract", "")),
+            "quality_policy": str(quality_framework.get("quality_policy", "")),
+            "etl_recipe": str(quality_framework.get("etl_recipe", "")),
+            "check_registry_count": len(quality_framework.get("check_registry", [])),
+            "transform_registry_count": len(quality_framework.get("transform_registry", [])),
+        },
         "validation_rules": len(pack.get("validation_rules", [])),
         "promotion_gates": len(pack.get("promotion_gates", [])),
         "failure_scenarios": len(pack.get("failure_scenarios", [])),

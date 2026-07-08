@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from evm.core.config import get_nested
 from evm.core.image_quality import (
     byte_quality_proxies,
     read_image_dimensions,
@@ -24,6 +23,8 @@ from evm.core.pipeline import (
     write_jsonl,
     write_markdown_report,
 )
+from evm.data_quality.policy import QualityPolicy, load_quality_policy
+from evm.etl.recipe import load_etl_recipe, summarize_etl_recipe
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -32,8 +33,22 @@ def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _issue(level: str, code: str, message: str) -> dict[str, str]:
-    return {"level": level, "code": code, "message": message}
+def _issue(
+    policy: QualityPolicy,
+    default_level: str,
+    code: str,
+    message: str,
+    *,
+    sample_id: str = "",
+    check_id: str = "image_quality",
+) -> dict[str, Any]:
+    return policy.issue(
+        default_level,
+        code,
+        message,
+        sample_id=sample_id,
+        check_id=check_id,
+    ).to_dict()
 
 
 def _label_type(label: str) -> str:
@@ -51,15 +66,14 @@ def _enrich_record(
     cfg: dict[str, Any],
     dataset_version: str,
     raw_image_root: Path,
-    duplicate_severity: str,
-    dimension_mismatch_severity: str,
+    policy: QualityPolicy,
     hash_counts: dict[str, int],
-) -> tuple[dict[str, Any], list[dict[str, str]]]:
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     sample_id = str(record.get("sample_id") or record.get("id") or f"sample_{index + 1:06d}")
     image_uri = str(record.get("image_uri", "") or "")
     label = str(record.get("label", "") or "unknown")
     local_image = resolve_local_image(record, raw_image_root)
-    diagnostics: list[dict[str, str]] = []
+    diagnostics: list[dict[str, Any]] = []
     content_sha256 = str(record.get("content_sha256", "") or "")
     detected_width = 0
     detected_height = 0
@@ -68,9 +82,13 @@ def _enrich_record(
     image_readable = False
 
     if not image_uri:
-        diagnostics.append(_issue("error", "missing_image_uri", f"{sample_id} has no image_uri"))
+        diagnostics.append(
+            _issue(policy, "error", "missing_image_uri", f"{sample_id} has no image_uri", sample_id=sample_id)
+        )
     if not label or label == "unknown":
-        diagnostics.append(_issue("warn", "missing_label", f"{sample_id} has no useful label"))
+        diagnostics.append(
+            _issue(policy, "warn", "missing_label", f"{sample_id} has no useful label", sample_id=sample_id)
+        )
 
     if local_image and local_image.exists():
         content_sha256 = content_sha256 or sha256_file(local_image)
@@ -88,22 +106,34 @@ def _enrich_record(
                 image_readable = True
                 diagnostics.append(
                     _issue(
+                        policy,
                         "warn",
                         "header_dimensions_unavailable",
                         f"{sample_id} uses manifest dimensions because header dimensions were unavailable",
+                        sample_id=sample_id,
                     )
                 )
             else:
-                diagnostics.append(_issue("error", "unreadable_image", f"{sample_id} image header is unreadable"))
+                diagnostics.append(
+                    _issue(
+                        policy,
+                        "error",
+                        "unreadable_image",
+                        f"{sample_id} image header is unreadable",
+                        sample_id=sample_id,
+                    )
+                )
         proxies = byte_quality_proxies(local_image)
         brightness_proxy = proxies["brightness_proxy"]
         blur_proxy = proxies["blur_proxy"]
     else:
         diagnostics.append(
             _issue(
+                policy,
                 "warn",
                 "local_image_missing",
                 f"{sample_id} local image was not found at {local_image or raw_image_root}",
+                sample_id=sample_id,
             )
         )
 
@@ -114,27 +144,41 @@ def _enrich_record(
     if detected_width and manifest_width and detected_width != manifest_width:
         diagnostics.append(
             _issue(
-                dimension_mismatch_severity,
+                policy,
+                "warn",
                 "width_mismatch",
                 f"{sample_id} manifest width={manifest_width}, detected width={detected_width}",
+                sample_id=sample_id,
             )
         )
     if detected_height and manifest_height and detected_height != manifest_height:
         diagnostics.append(
             _issue(
-                dimension_mismatch_severity,
+                policy,
+                "warn",
                 "height_mismatch",
                 f"{sample_id} manifest height={manifest_height}, detected height={detected_height}",
+                sample_id=sample_id,
             )
         )
     if width <= 0 or height <= 0:
-        diagnostics.append(_issue("error", "invalid_dimensions", f"{sample_id} has invalid dimensions"))
+        diagnostics.append(
+            _issue(
+                policy,
+                "error",
+                "invalid_dimensions",
+                f"{sample_id} has invalid dimensions",
+                sample_id=sample_id,
+            )
+        )
     if content_sha256 and hash_counts.get(content_sha256, 0) > 1:
         diagnostics.append(
             _issue(
-                duplicate_severity,
+                policy,
+                "warn",
                 "duplicate_content_hash",
                 f"{sample_id} shares content_sha256 with another record",
+                sample_id=sample_id,
             )
         )
 
@@ -182,6 +226,20 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     duplicate_severity = str(cfg.get("duplicate_hash_severity", "warn"))
     dimension_mismatch_severity = str(cfg.get("dimension_mismatch_severity", "warn"))
     fail_on_error = bool(cfg.get("fail_on_error", True))
+    policy_ref = str(cfg.get("quality_policy", "") or "")
+    policy_path = ctx.path(policy_ref) if policy_ref else None
+    policy = load_quality_policy(
+        policy_path,
+        severity_defaults={
+            "duplicate_content_hash": duplicate_severity,
+            "width_mismatch": dimension_mismatch_severity,
+            "height_mismatch": dimension_mismatch_severity,
+        },
+    )
+    etl_recipe_summary: dict[str, Any] = {}
+    etl_recipe_ref = str(cfg.get("etl_recipe", "") or "")
+    if etl_recipe_ref:
+        etl_recipe_summary = summarize_etl_recipe(load_etl_recipe(ctx.path(etl_recipe_ref)))
 
     records = read_jsonl(input_manifest)
     dataset_metadata = _load_json(dataset_metadata_path)
@@ -199,7 +257,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     enriched_records: list[dict[str, Any]] = []
     diagnostics_by_level: dict[str, int] = defaultdict(int)
     diagnostics_by_code: dict[str, int] = defaultdict(int)
-    diagnostic_examples: list[dict[str, str]] = []
+    diagnostic_examples: list[dict[str, Any]] = []
+    all_diagnostics: list[dict[str, Any]] = []
     for index, record in enumerate(records):
         enriched, diagnostics = _enrich_record(
             record,
@@ -207,12 +266,12 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             cfg=cfg,
             dataset_version=dataset_version,
             raw_image_root=raw_image_root,
-            duplicate_severity=duplicate_severity,
-            dimension_mismatch_severity=dimension_mismatch_severity,
+            policy=policy,
             hash_counts=hash_counts,
         )
         enriched_records.append(enriched)
         for item in diagnostics:
+            all_diagnostics.append(item)
             diagnostics_by_level[item["level"]] += 1
             diagnostics_by_code[item["code"]] += 1
             if len(diagnostic_examples) < 20:
@@ -220,9 +279,13 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
 
     error_count = diagnostics_by_level.get("error", 0)
     warning_count = diagnostics_by_level.get("warn", 0)
-    quality_pass = error_count == 0
+    gate_decision = policy.evaluate(all_diagnostics)
+    quality_pass = gate_decision.status == "pass"
     report = {
         "status": "pass" if quality_pass else "fail",
+        "gate_decision": gate_decision.to_dict(),
+        "quality_policy": policy.to_report(),
+        "etl_recipe": etl_recipe_summary,
         "dataset_id": str(cfg.get("dataset_id", "manufacturing_visual_inspection")),
         "dataset_version": dataset_version,
         "input_manifest": display_path(input_manifest, ctx.project_root),
@@ -272,6 +335,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             "- Input: validated image manifest.",
             "- Output: manufacturing visual inspection quality manifest and quality report.",
             "- Checks: readability, hash duplicate, dimensions, byte-level brightness/blur proxies, label/split integrity.",
+            "- Gate: severity and fail-level decisions are loaded from the configured quality policy.",
         ],
     )
     if fail_on_error and not quality_pass:

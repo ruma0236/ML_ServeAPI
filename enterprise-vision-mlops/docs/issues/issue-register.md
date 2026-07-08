@@ -187,6 +187,7 @@ operational reliability evidence around the VLM workload third.
 | `EVM-133` | Manufacturing image manifest schema | Done | 2026-07-W4 | manifest captures dataset_id, sample_id, split, label, image_uri/path, dimensions, hash, source, license, version |
 | `EVM-134` | Image quality validation pipeline | Planned | 2026-07-W4 | corrupt image, duplicate/hash, dimension, brightness/blur, split/label, and drift proxy checks produce report artifacts |
 | `EVM-135` | Dataset shard/split builder | Planned | 2026-07-W4 | manifest can be sharded and sampled for repeatable batch VLM evaluation and resume/retry |
+| `EVM-136` | Data quality and ETL framework boundary | Done | 2026-07-W4 | image-quality gate is backed by reusable data quality policy, dataset contract, ETL recipe, and registry interfaces |
 | `EVM-141` | VLM adapter interface and mock adapter | Planned | 2026-07-W4 | adapter accepts request_id, trace_id, image, prompt, prompt_version, model_version and returns structured JSON |
 | `EVM-142` | Multimodal router request classification | Planned | 2026-07-W4 | API/router can classify visual inspection, caption/description, QA, and unsupported request types |
 | `EVM-143` | Manifest-based batch inference runner | Planned | 2026-07-W4 | runner reads manifest shards, calls VLM adapter, writes JSONL outputs, supports retry/resume |
@@ -248,6 +249,7 @@ Done; the rest is sequenced as a day-level implementation plan.
 | `EVM-133` | Manufacturing image manifest schema | Done | 2026-07-06 | manifest captures dataset_id, sample_id, split, label, image_uri/path, dimensions, hash, source, license, version |
 | `EVM-134` | Image quality validation pipeline | Done | 2026-07-07 | corrupt image, duplicate/hash, dimension, brightness/blur, split/label, and drift proxy checks produce report artifacts |
 | `EVM-135` | Dataset shard/split builder | Done | 2026-07-07 | manifest can be sharded and sampled for repeatable batch VLM evaluation and resume/retry |
+| `EVM-136` | Data quality and ETL framework boundary | Done | 2026-07-08 | image-quality gate now loads reusable quality policy and ETL recipe metadata from the manufacturing domain pack |
 | `EVM-141` | VLM adapter interface and mock adapter | Done | 2026-07-08 | adapter accepts request_id, trace_id, image, prompt, prompt_version, model_version and returns structured JSON |
 | `EVM-142` | Multimodal router request classification | Done | 2026-07-08 | API/router can classify visual inspection, caption/description, QA, and unsupported request types |
 | `EVM-143` | Manifest-based batch inference runner | Done | 2026-07-09 | runner reads manifest shards, calls VLM adapter, writes JSONL outputs, supports retry/resume |

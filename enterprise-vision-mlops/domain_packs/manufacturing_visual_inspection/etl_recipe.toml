@@ -1,0 +1,49 @@
+[recipe]
+id = "mvi_open_dataset_etl_recipe_v1"
+version = "2026.07"
+dataset_types = ["image_manifest", "image_mask_manifest", "image_vqa_manifest"]
+description = "Declarative ETL recipe for open industrial image datasets before VLM evaluation."
+
+[[transforms]]
+id = "normalize_local_paths"
+stage = "pre_quality"
+action = "metadata_enrichment"
+enabled = true
+inputs = ["image_uri", "image_path"]
+outputs = ["image_path"]
+
+[transforms.parameters]
+path_policy = "prefer_manifest_image_path_then_raw_root"
+
+[[transforms]]
+id = "compute_content_hash"
+stage = "pre_quality"
+action = "deterministic_hashing"
+enabled = true
+inputs = ["image_path"]
+outputs = ["content_sha256"]
+
+[transforms.parameters]
+algorithm = "sha256"
+
+[[transforms]]
+id = "read_image_header"
+stage = "quality"
+action = "dimension_detection"
+enabled = true
+inputs = ["image_path"]
+outputs = ["detected_width", "detected_height"]
+
+[transforms.parameters]
+supported_formats = ["jpeg", "png"]
+
+[[transforms]]
+id = "build_quality_manifest"
+stage = "post_quality"
+action = "manifest_enrichment"
+enabled = true
+inputs = ["validated_manifest", "quality_diagnostics"]
+outputs = ["mvi_quality_manifest"]
+
+[transforms.parameters]
+preserve_original_fields = true

@@ -19,6 +19,27 @@ policy_boundary = [
   "failure_scenarios",
 ]
 
+[quality_framework]
+dataset_contract = "data_contract.toml"
+quality_policy = "quality_policy.toml"
+etl_recipe = "etl_recipe.toml"
+check_registry = [
+  "file_exists",
+  "image_header",
+  "dimension_consistency",
+  "content_hash",
+  "duplicate_hash",
+  "label_split_integrity",
+  "license_policy",
+  "drift_proxy",
+]
+transform_registry = [
+  "normalize_local_paths",
+  "compute_content_hash",
+  "read_image_header",
+  "build_quality_manifest",
+]
+
 [hardware_roles.windows_rtx]
 node = "Windows 11 desktop"
 accelerator = "RTX 4080 SUPER"

@@ -1,0 +1,28 @@
+[policy]
+id = "mvi_quality_policy_v1"
+version = "2026.07"
+dataset_types = ["image_manifest", "image_mask_manifest", "image_vqa_manifest"]
+fail_levels = ["error"]
+description = "Severity and gate policy for manufacturing visual inspection dataset quality checks."
+
+[severity]
+missing_image_uri = "error"
+unreadable_image = "error"
+invalid_dimensions = "error"
+missing_label = "warn"
+local_image_missing = "warn"
+header_dimensions_unavailable = "warn"
+duplicate_content_hash = "warn"
+width_mismatch = "warn"
+height_mismatch = "warn"
+license_unknown = "error"
+mask_missing_for_anomaly = "warn"
+split_label_imbalance = "warn"
+drift_proxy_out_of_bounds = "warn"
+
+[thresholds]
+duplicate_hash_warn_ratio = 0.0
+minimum_width = 1
+minimum_height = 1
+label_imbalance_warn_ratio = 0.9
+schema_valid_rate_minimum = 0.98

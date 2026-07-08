@@ -14,7 +14,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     )
 
     resolved_path, pack = load_domain_pack(ctx.config, domain_pack_path)
-    diagnostics = validate_domain_pack(pack)
+    diagnostics = validate_domain_pack(pack, resolved_path)
     summary = summarize_domain_pack(resolved_path, pack, diagnostics)
     summary["trace_id"] = ctx.trace.trace_id
     summary["pipeline_run_id"] = ctx.run_id

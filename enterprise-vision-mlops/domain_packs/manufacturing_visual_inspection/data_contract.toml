@@ -1,0 +1,107 @@
+[contract]
+id = "mvi_image_manifest_contract_v1"
+version = "2026.07"
+dataset_types = ["image_manifest", "image_mask_manifest", "image_vqa_manifest"]
+primary_key = "sample_id"
+description = "Reusable manufacturing visual inspection dataset contract for image, mask, and multimodal records."
+
+[storage]
+raw_zone = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial"
+processed_zone = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/processed"
+validated_zone = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated"
+object_prefix_template = "manufacturing-visual-inspection/{dataset_id}/{dataset_version}"
+
+[[fields]]
+name = "dataset_id"
+type = "string"
+required = true
+description = "Dataset family identifier."
+
+[[fields]]
+name = "dataset_version"
+type = "string"
+required = true
+description = "Immutable dataset version after validation."
+
+[[fields]]
+name = "sample_id"
+type = "string"
+required = true
+description = "Stable sample identifier inside the dataset version."
+
+[[fields]]
+name = "image_uri"
+type = "uri"
+required = true
+description = "Image URI or object-store reference."
+
+[[fields]]
+name = "image_path"
+type = "path"
+required = false
+description = "Local raw image path for home-lab validation."
+
+[[fields]]
+name = "split"
+type = "enum"
+required = true
+allowed_values = ["train", "validation", "test"]
+
+[[fields]]
+name = "label"
+type = "string"
+required = true
+
+[[fields]]
+name = "label_type"
+type = "enum"
+required = true
+allowed_values = ["normal", "anomaly"]
+
+[[fields]]
+name = "class_name"
+type = "string"
+required = true
+
+[[fields]]
+name = "width"
+type = "integer"
+required = true
+
+[[fields]]
+name = "height"
+type = "integer"
+required = true
+
+[[fields]]
+name = "content_sha256"
+type = "sha256"
+required = true
+
+[[fields]]
+name = "source_uri"
+type = "uri"
+required = true
+
+[[fields]]
+name = "license_id"
+type = "string"
+required = true
+
+[[fields]]
+name = "mask_uri"
+type = "uri"
+required = false
+description = "Optional segmentation mask URI for anomaly samples."
+
+[[fields]]
+name = "question"
+type = "string"
+required = false
+description = "Optional VQA or instruction prompt for multimodal datasets."
+
+[[fields]]
+name = "answer"
+type = "string"
+required = false
+description = "Optional answer/caption target for multimodal datasets."
