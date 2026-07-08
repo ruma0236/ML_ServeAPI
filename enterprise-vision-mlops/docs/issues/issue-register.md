@@ -384,6 +384,7 @@ Jira live sync 기준 mapping이다.
 | `EVM-EPIC-17` | `SCRUM-64` | Epic | https://opop0236.atlassian.net/browse/SCRUM-64 |
 | `EVM-134` | `SCRUM-65` | Task | https://opop0236.atlassian.net/browse/SCRUM-65 |
 | `EVM-135` | `SCRUM-66` | Task | https://opop0236.atlassian.net/browse/SCRUM-66 |
+| `EVM-136` | `SCRUM-91` | Task | https://opop0236.atlassian.net/browse/SCRUM-91 |
 | `EVM-141` | `SCRUM-67` | Task | https://opop0236.atlassian.net/browse/SCRUM-67 |
 | `EVM-142` | `SCRUM-68` | Task | https://opop0236.atlassian.net/browse/SCRUM-68 |
 | `EVM-143` | `SCRUM-69` | Task | https://opop0236.atlassian.net/browse/SCRUM-69 |

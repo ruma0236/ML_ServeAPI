@@ -95,6 +95,24 @@ def due_date_from_target(target: str, week_ranges: dict[str, tuple[str, str]]) -
     return None
 
 
+def week_from_target(target: str, week_ranges: dict[str, tuple[str, str]]) -> str | None:
+    target = target.strip()
+    exact_week = re.fullmatch(r"(\d{4})-\d{2}-(W\d+)", target)
+    if exact_week and exact_week.group(2) in week_ranges:
+        return exact_week.group(2)
+
+    week_span = re.search(r"(W\d+)\s+to\s+(W\d+)", target)
+    if week_span and week_span.group(2) in week_ranges:
+        return week_span.group(2)
+
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", target):
+        for week, (start_date, end_date) in week_ranges.items():
+            if start_date <= target <= end_date:
+                return week
+
+    return None
+
+
 def infer_parent_id(phase: str | None) -> str | None:
     if not phase:
         return None
@@ -148,6 +166,7 @@ def parse_issue_register(path: Path, week_ranges: dict[str, tuple[str, str]]) ->
                 acceptance=strip_markup(row.get("Outcome", "")),
                 source_file=str(path.as_posix()),
                 due_date=due_date_from_target(strip_markup(target), week_ranges),
+                week=week_from_target(strip_markup(target), week_ranges),
                 labels=[label_for(source_id), "epic"],
             )
             items.append(item)
@@ -164,6 +183,7 @@ def parse_issue_register(path: Path, week_ranges: dict[str, tuple[str, str]]) ->
                 acceptance=strip_markup(row.get("Acceptance Criteria", row.get("Evidence", ""))),
                 source_file=str(path.as_posix()),
                 due_date=due_date_from_target(strip_markup(target), week_ranges),
+                week=week_from_target(strip_markup(target), week_ranges),
                 phase=phase,
                 parent_id=infer_parent_id(phase),
                 labels=[label_for(source_id), "task"],
