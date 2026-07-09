@@ -81,6 +81,8 @@ The Control Panel UI must consume these `CycleRun` fields:
   - `apps/api/control_panel.py` or equivalent router module
   - `src/evm/control_panel/aggregation.py`
   - `src/evm/control_panel/schemas.py`
+  - `src/evm/control_panel/validate_cycle_run.py`
+  - `tests/test_control_panel_contract.py`
   - `tests/test_control_panel_aggregation.py`
 - Input data:
   - `contracts/control-panel/control-panel.openapi.json`
@@ -94,13 +96,16 @@ The Control Panel UI must consume these `CycleRun` fields:
   - live `GET /control-panel/v1/cycles/latest` response
   - live `GET /control-panel/v1/cycles/{cycle_id}` response
   - captured JSON under `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/control_panel/<run_id>/cycle_run.json`
+  - schema validation report under `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/control_panel/<run_id>/cycle_run_schema_validation.json`
   - repo-side summary/index under `docs/status/`
 - Verification command:
   - `python -m json.tool contracts\control-panel\examples\cycle-run.json`
-  - `curl http://localhost:8000/control-panel/v1/cycles/latest`
-  - `pytest tests\test_control_panel_aggregation.py -q`
+  - `curl.exe -fsS http://localhost:8000/control-panel/v1/cycles/latest -o $env:TEMP\evm-cycle-run-latest.json`
+  - `python -m evm.control_panel.validate_cycle_run --openapi contracts\control-panel\control-panel.openapi.json --component CycleRun --input $env:TEMP\evm-cycle-run-latest.json`
+  - `python -m pytest tests\test_control_panel_contract.py tests\test_control_panel_aggregation.py -q`
 - Success criteria:
-  - response conforms to `CycleRun`;
+  - response conforms to the OpenAPI `CycleRun` component and the Pydantic
+    `CycleRun` model;
   - response uses real local artifacts, not only the example JSON;
   - missing upstream evidence is marked `unknown`, `blocked`, or `not_available`
     explicitly;
@@ -112,12 +117,20 @@ The Control Panel UI must consume these `CycleRun` fields:
 ### EVM-225 - MLOps Control Panel v0
 
 - Implementation files:
-  - `apps/control-panel/` frontend application or documented equivalent
+  - `apps/control-panel/package.json` with `lint`, `test`, `build`, and
+    `test:e2e` scripts
+  - `apps/control-panel/package-lock.json`
+  - `apps/control-panel/playwright.config.ts` with `chromium` and
+    `MobileChrome` projects
+  - `apps/control-panel/vite.config.ts`
+  - `apps/control-panel/src/main.tsx`
+  - `apps/control-panel/src/App.tsx`
   - `apps/control-panel/src/api/controlPanelClient.*`
   - `apps/control-panel/src/views/CycleOverview.*`
   - `apps/control-panel/src/views/DataModelReadiness.*`
   - `apps/control-panel/src/views/GateAndRiskPanel.*`
-  - `tests/control-panel/` UI tests
+  - `tests/control-panel/cycle-overview.spec.ts`
+  - `tests/control-panel/cycle-overview.contract.test.ts`
 - Input data:
   - live `CycleRun` from `EVM-224`
   - `RuntimeResource[]`
@@ -193,12 +206,19 @@ The Control Panel UI must consume these `CycleRun` fields:
 - Output artifact:
   - serving design decision table
   - resource placement plan
+  - `nvidia-smi` GPU probe output
+  - Torch CUDA probe JSON
+  - remote inventory and remote job summaries
   - next implementation backlog
 - Verification command:
-  - document review plus command evidence for detected local GPU where
-    available
+  - `nvidia-smi --query-gpu=name,memory.total,memory.used,memory.free,driver_version --format=csv,noheader`
+  - `python -c "import json, torch; print(json.dumps({'torch': torch.__version__, 'cuda_available': torch.cuda.is_available(), 'cuda_device': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None, 'cuda_memory_total': torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0}))"`
+  - `python scripts/run_pipeline.py remote-inventory --config configs/local.toml`
+  - `python scripts/run_pipeline.py remote-job --config configs/local.toml`
 - Success criteria:
   - clearly separates training GPU, serving runtime, and remote evaluator roles;
+  - records local GPU name, memory, driver version, Torch version, CUDA
+    availability, CUDA device name, and remote worker CPU/memory/architecture;
   - does not claim production serving until measured;
   - chooses next concrete serving experiment.
 - Failure blocker:
@@ -236,7 +256,8 @@ The Control Panel UI must consume these `CycleRun` fields:
   - `apps/control-panel/src/views/KubernetesTopology.*`
   - `apps/control-panel/src/components/ResourceNode.*`
   - `apps/control-panel/src/components/ResourceDetailDrawer.*`
-  - `tests/control-panel/kubernetes-topology.*`
+  - `tests/control-panel/kubernetes-topology.spec.ts`
+  - `tests/control-panel/kubernetes-topology.contract.test.ts`
 - Input data:
   - `GET /control-panel/v1/resources`
   - `RuntimeResource[]`
@@ -245,8 +266,9 @@ The Control Panel UI must consume these `CycleRun` fields:
   - topology screenshot/video
   - UI test report
 - Verification command:
-  - Playwright visual test across desktop/mobile sizes
-  - API response snapshot test
+  - `npm --prefix apps/control-panel run test:e2e -- --project=chromium --grep "@w7-kubernetes-topology"`
+  - `npm --prefix apps/control-panel run test:e2e -- --project=MobileChrome --grep "@w7-kubernetes-topology"`
+  - `npm --prefix apps/control-panel run test -- --run tests/control-panel/kubernetes-topology.contract.test.ts`
 - Success criteria:
   - namespace, pod/job/service/PVC/GPU/resource pressure states are visible;
   - animation reflects actual status transitions;
@@ -287,7 +309,8 @@ The Control Panel UI must consume these `CycleRun` fields:
 - Implementation files:
   - `apps/control-panel/src/views/PipelineTimeline.*`
   - `apps/control-panel/src/components/StageDetail.*`
-  - `tests/control-panel/pipeline-timeline.*`
+  - `tests/control-panel/pipeline-timeline.spec.ts`
+  - `tests/control-panel/pipeline-timeline.contract.test.ts`
 - Input data:
   - `CycleRun.stages[*]`
   - `PipelineStage.metrics`
@@ -298,8 +321,9 @@ The Control Panel UI must consume these `CycleRun` fields:
   - timeline screenshot/video
   - stage drilldown evidence capture
 - Verification command:
-  - Playwright interaction test opening each stage detail
-  - snapshot test for blocked/failed stage rendering
+  - `npm --prefix apps/control-panel run test:e2e -- --project=chromium --grep "@w7-pipeline-timeline"`
+  - `npm --prefix apps/control-panel run test:e2e -- --project=MobileChrome --grep "@w7-pipeline-timeline"`
+  - `npm --prefix apps/control-panel run test -- --run tests/control-panel/pipeline-timeline.contract.test.ts`
 - Success criteria:
   - current stage, completed stages, blocked stages, artifacts, metrics, logs,
     sample outputs, and failure reasons are readable;
