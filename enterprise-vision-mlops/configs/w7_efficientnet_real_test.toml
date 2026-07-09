@@ -1,0 +1,88 @@
+[model_matrix]
+matrix_id = "w7-efficientnet-real-test-matrix"
+framework = "torch"
+execution_mode = "parallel"
+dataset_version = "visa-open-data-f1f1c9ee9922"
+dataset_policy = "real_full_visa"
+mock_allowed = false
+smoke_allowed = false
+requires_real_dataset = true
+requires_real_training = true
+minimum_records = 10821
+
+[resources]
+primary_gpu = "windows-rtx-4080-super"
+remote_evaluator = "mac-mini-m4-pro"
+artifact_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/models/efficientnet"
+dataset_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data"
+max_b0_parallel_jobs = 2
+max_b7_parallel_jobs = 1
+allow_cpu_fallback = false
+
+[[candidates]]
+candidate_id = "effnet-b0-img224-freeze-adamw"
+architecture = "efficientnet-b0"
+backbone = "torchvision.models.efficientnet_b0"
+input_size = 224
+pretrained = true
+freeze_backbone = true
+optimizer = "adamw"
+learning_rate = 0.0003
+batch_size = 32
+mixed_precision = true
+resource_profile = "gpu-rtx4080-b0-parallel"
+max_parallel_jobs = 2
+
+[[candidates]]
+candidate_id = "effnet-b0-img224-finetune-sgd"
+architecture = "efficientnet-b0"
+backbone = "torchvision.models.efficientnet_b0"
+input_size = 224
+pretrained = true
+freeze_backbone = false
+optimizer = "sgd"
+learning_rate = 0.001
+batch_size = 32
+mixed_precision = true
+resource_profile = "gpu-rtx4080-b0-parallel"
+max_parallel_jobs = 2
+
+[[candidates]]
+candidate_id = "effnet-b7-img600-freeze-adamw"
+architecture = "efficientnet-b7"
+backbone = "torchvision.models.efficientnet_b7"
+input_size = 600
+pretrained = true
+freeze_backbone = true
+optimizer = "adamw"
+learning_rate = 0.0002
+batch_size = 8
+mixed_precision = true
+resource_profile = "gpu-rtx4080-b7-exclusive"
+max_parallel_jobs = 1
+
+[[candidates]]
+candidate_id = "effnet-b7-img600-finetune-adamw"
+architecture = "efficientnet-b7"
+backbone = "torchvision.models.efficientnet_b7"
+input_size = 600
+pretrained = true
+freeze_backbone = false
+optimizer = "adamw"
+learning_rate = 0.0001
+batch_size = 4
+mixed_precision = true
+resource_profile = "gpu-rtx4080-b7-exclusive"
+max_parallel_jobs = 1
+
+[acceptance]
+required_metrics = ["accuracy", "precision", "recall", "f1", "auroc", "latency_p95_ms", "gpu_memory_peak_mb"]
+promotion_min_accuracy = 0.8
+promotion_min_f1 = 0.75
+promotion_min_auroc = 0.8
+require_mlflow_run = true
+require_model_artifact = true
+require_model_card = true
+require_control_panel_matrix = true
+require_drift_baseline = true
+require_cdct_gate = true

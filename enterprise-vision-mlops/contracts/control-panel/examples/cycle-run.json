@@ -78,6 +78,69 @@
     "source_run_id": "w5-lifecycle",
     "dataset_version": "visa-open-data-f1f1c9ee9922"
   },
+  "model_matrix": {
+    "matrix_id": "w7-efficientnet-real-test-matrix",
+    "status": "queued",
+    "execution_mode": "parallel",
+    "framework": "torch",
+    "real_test_policy": {
+      "mock_allowed": false,
+      "smoke_allowed": false,
+      "requires_real_dataset": true,
+      "requires_real_training": true,
+      "minimum_records": 10821,
+      "dataset_version": "visa-open-data-f1f1c9ee9922",
+      "notes": "W7 real-test evidence must use real VisA records and Torch training runs; mock adapters and smoke-only runs are not accepted as completion evidence."
+    },
+    "candidates": [
+      {
+        "candidate_id": "effnet-b0-img224-freeze-adamw",
+        "framework": "torch",
+        "architecture": "efficientnet-b0",
+        "backbone": "torchvision.models.efficientnet_b0",
+        "status": "queued",
+        "dataset_version": "visa-open-data-f1f1c9ee9922",
+        "run_uri": null,
+        "artifact_uri": null,
+        "resource_profile": "gpu-rtx4080-b0-parallel",
+        "conditions": {
+          "input_size": 224,
+          "pretrained": true,
+          "freeze_backbone": true,
+          "optimizer": "adamw",
+          "learning_rate": 0.0003,
+          "batch_size": 32,
+          "mixed_precision": true,
+          "max_parallel_jobs": 2
+        },
+        "metrics": [],
+        "promotion_blockers": []
+      },
+      {
+        "candidate_id": "effnet-b7-img600-finetune-adamw",
+        "framework": "torch",
+        "architecture": "efficientnet-b7",
+        "backbone": "torchvision.models.efficientnet_b7",
+        "status": "queued",
+        "dataset_version": "visa-open-data-f1f1c9ee9922",
+        "run_uri": null,
+        "artifact_uri": null,
+        "resource_profile": "gpu-rtx4080-b7-exclusive",
+        "conditions": {
+          "input_size": 600,
+          "pretrained": true,
+          "freeze_backbone": false,
+          "optimizer": "adamw",
+          "learning_rate": 0.0001,
+          "batch_size": 4,
+          "mixed_precision": true,
+          "max_parallel_jobs": 1
+        },
+        "metrics": [],
+        "promotion_blockers": []
+      }
+    ]
+  },
   "metrics": [
     {"name": "accuracy", "value": 0.577717, "unit": null, "threshold": 0.7, "status": "blocked"},
     {"name": "auroc", "value": 0.559712, "unit": null, "threshold": 0.65, "status": "blocked"}

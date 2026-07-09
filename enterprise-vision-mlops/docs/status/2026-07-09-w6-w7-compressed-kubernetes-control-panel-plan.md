@@ -8,7 +8,7 @@ The W6 and W7 plan is compressed to finish by next Wednesday,
 | Sprint | New Window | Focus |
 |---|---|---|
 | W6 | 2026-07-10 to 2026-07-12 | data curation/lakehouse work, Kubernetes resource map, manifest scaffold, metadata API contract |
-| W7 | 2026-07-13 to 2026-07-15 | enterprise Control Panel v0, animated Kubernetes/pipeline/resource control UI, Kubernetes smoke proof, governance, serving-scale handoff, final integration review |
+| W7 | 2026-07-13 to 2026-07-15 | enterprise Control Panel v0, animated Kubernetes/pipeline/resource control UI, Kubernetes real execution proof, governance, serving-scale handoff, final integration review |
 
 ## Scope Added
 
@@ -23,7 +23,7 @@ New tasks:
 - `EVM-223` - Control Panel metadata and control API contract
 - `EVM-224` - Cycle lineage aggregation API
 - `EVM-225` - MLOps Control Panel v0
-- `EVM-226` - Kubernetes local smoke proof
+- `EVM-226` - Kubernetes local real execution proof
 - `EVM-227` - GPU/VLM serving deployment design
 - `EVM-228` - Compressed W6/W7 integration review
 - `EVM-229` - Kubernetes resource topology and animation UI
@@ -34,6 +34,8 @@ New tasks:
 - `EVM-234` - Drift detection and retraining trigger surface
 - `EVM-235` - CD/CT push verification and promotion gate
 - `EVM-236` - Enterprise data/model pipeline readiness checklist
+- `EVM-237` - Torch EfficientNet-B0/B7 real model matrix
+- `EVM-238` - W7 real-test-only evidence policy
 
 ## Jira Live Sync
 
@@ -84,6 +86,13 @@ tabs for:
 - CD verification: push/PR checks, image build, kustomize render, data quality,
   model evaluation, and drift review are represented as one deploy/promotion
   gate instead of scattered logs.
+- Real model matrix: W7 model work should use Torch/TorchVision
+  EfficientNet-B0 and EfficientNet-B7 candidate runs, with parallelizable
+  conditions, GPU resource profiles, MLflow run references, artifacts, metrics,
+  and promotion blockers surfaced through `CycleRun.model_matrix`.
+- Real-test-only evidence: mock adapters, placeholder predictions, and
+  smoke-only checks remain historical scaffolding evidence only. They must not
+  be used as W7 completion evidence for model or production-readiness claims.
 
 ## 2026-07-09 Enterprise Readiness Re-Audit
 
@@ -112,6 +121,8 @@ Audit result:
 | Drift detection | earlier W5 artifacts exist, but W7 UI contract did not require it | add `DriftState` and task `EVM-234` |
 | CD/CT push verification | CI exists, but W7 did not treat CI/CD/CT as a promotion gate | add `CDCTGate` and task `EVM-235` |
 | UI usability | timeline/resource/task views planned | add explicit drift/CDCT/readiness drilldowns and service-scope filters |
+| Real model proof | W5 uses a lifecycle proof model and W4 VLM stages use mock adapter evidence | add Torch EfficientNet-B0/B7 candidate matrix and task `EVM-237` |
+| Real-test evidence policy | W0-W6 used smoke/mock checks where appropriate for scaffolding | add no-mock/no-smoke W7 completion rule and task `EVM-238` |
 
 ## Interpretation
 
@@ -122,7 +133,10 @@ user inspect and operate a full cycle visually instead of opening each
 lifecycle, registry, dataset, metrics, Airflow, MLflow, and Kubernetes artifact
 by hand. W7 is therefore not complete unless it can show whether a cycle is
 safe to promote across environments and why a drift/CD/CT gate blocked or
-allowed the next action.
+allowed the next action. W7 model readiness is also not complete unless at
+least the model plan and Control Panel contract can represent real
+Torch/TorchVision EfficientNet-B0/B7 candidates and distinguish real execution
+evidence from historical mock/smoke evidence.
 
 ## Updated Source Files
 

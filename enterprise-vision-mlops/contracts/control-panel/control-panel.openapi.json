@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise Vision MLOps Control Panel API",
-    "version": "2026-07-09.w7.enterprise.v1",
-    "description": "Metadata and control contract for the W7 enterprise MLOps Control Panel, including organizational service scope, drift review, and CD/CT gates."
+    "version": "2026-07-09.w7.realtest.v1",
+    "description": "Metadata and control contract for the W7 enterprise MLOps Control Panel, including organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
   },
   "servers": [
     {
@@ -255,6 +255,7 @@
           "experiment_pipeline": {"$ref": "#/components/schemas/ExperimentPipelineReadiness"},
           "dataset": {"$ref": "#/components/schemas/DatasetVersion"},
           "model": {"$ref": "#/components/schemas/ModelVersion"},
+          "model_matrix": {"$ref": "#/components/schemas/ModelExperimentMatrix"},
           "metrics": {
             "type": "array",
             "items": {"$ref": "#/components/schemas/Metric"}
@@ -387,6 +388,61 @@
           "registry_uri": {"type": "string"},
           "source_run_id": {"type": "string"},
           "dataset_version": {"type": "string"}
+        }
+      },
+      "ModelExperimentMatrix": {
+        "type": "object",
+        "required": ["matrix_id", "status", "execution_mode", "real_test_policy", "candidates"],
+        "properties": {
+          "matrix_id": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "execution_mode": {"type": "string", "enum": ["parallel", "sequential", "blocked"]},
+          "framework": {"type": "string", "enum": ["torch"]},
+          "real_test_policy": {"$ref": "#/components/schemas/RealTestPolicy"},
+          "candidates": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ModelCandidate"}
+          }
+        }
+      },
+      "ModelCandidate": {
+        "type": "object",
+        "required": ["candidate_id", "framework", "architecture", "backbone", "status", "dataset_version", "resource_profile", "conditions", "metrics"],
+        "properties": {
+          "candidate_id": {"type": "string"},
+          "framework": {"type": "string", "enum": ["torch"]},
+          "architecture": {"type": "string", "enum": ["efficientnet-b0", "efficientnet-b7"]},
+          "backbone": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "dataset_version": {"type": "string"},
+          "run_uri": {"type": ["string", "null"]},
+          "artifact_uri": {"type": ["string", "null"]},
+          "resource_profile": {"type": "string"},
+          "conditions": {
+            "type": "object",
+            "additionalProperties": {"type": ["string", "number", "boolean", "null"]}
+          },
+          "metrics": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Metric"}
+          },
+          "promotion_blockers": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      },
+      "RealTestPolicy": {
+        "type": "object",
+        "required": ["mock_allowed", "smoke_allowed", "requires_real_dataset", "requires_real_training"],
+        "properties": {
+          "mock_allowed": {"type": "boolean"},
+          "smoke_allowed": {"type": "boolean"},
+          "requires_real_dataset": {"type": "boolean"},
+          "requires_real_training": {"type": "boolean"},
+          "minimum_records": {"type": ["integer", "null"], "minimum": 1},
+          "dataset_version": {"type": ["string", "null"]},
+          "notes": {"type": ["string", "null"]}
         }
       },
       "PromotionGate": {

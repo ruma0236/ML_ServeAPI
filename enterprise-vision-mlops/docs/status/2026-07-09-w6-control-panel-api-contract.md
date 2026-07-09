@@ -60,12 +60,12 @@ The contract was expanded during the W7 enterprise-readiness audit in
 
 Current W7 contract stats:
 
-- contract version: `2026-07-09.w7.enterprise.v1`
+- contract version: `2026-07-09.w7.realtest.v1`
 - API paths: `8`
-- schema count: `26`
+- schema count: `29`
 - new W7 concepts: tenant/service scope, environment/promotion state, data
-  pipeline readiness, experiment pipeline readiness, drift state, and CD/CT
-  gate state
+  pipeline readiness, experiment pipeline readiness, model experiment matrix,
+  real-test policy, drift state, and CD/CT gate state
 
 ## Handoff
 

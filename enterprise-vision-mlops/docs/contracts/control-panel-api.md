@@ -4,7 +4,8 @@ Issue: `EVM-223` / Jira `SCRUM-101`
 
 This contract defines the backend/UI boundary for the enterprise MLOps Control
 Panel. It is intentionally defined before the W7 UI implementation so the UI can
-be built against stable cycle, resource, task, drift, CD/CT, and command shapes.
+be built against stable cycle, resource, task, model matrix, drift, CD/CT, and
+command shapes.
 
 Machine-readable contract:
 
@@ -41,6 +42,7 @@ Examples:
 - experiment/training/evaluation readiness
 - dataset version and quality state
 - model version and registry state
+- model experiment matrix and candidate state
 - drift state and drift action
 - CD/CT gate state
 - metrics and thresholds
@@ -93,6 +95,23 @@ checklist. It captures:
 
 The UI should render this next to dataset/model cards so reviewers can see why a
 candidate can or cannot advance.
+
+### ModelExperimentMatrix
+
+`ModelExperimentMatrix` is the W7 real-model comparison surface. It is designed
+for parallel Torch EfficientNet candidates, starting with:
+
+- `efficientnet-b0` for fast real-data iteration and parallel condition search
+- `efficientnet-b7` for higher-capacity GPU-bound comparison
+
+Each `ModelCandidate` carries the architecture, Torch/TorchVision backbone,
+dataset version, resource profile, run/artifact URI, condition map, metrics, and
+promotion blockers. `RealTestPolicy` explicitly marks whether mock or smoke-only
+runs are allowed.
+
+For W7 real model work, `mock_allowed=false` and `smoke_allowed=false`. The
+Control Panel should show this matrix as a candidate comparison view rather than
+as a single opaque model card.
 
 ### DriftState
 
@@ -215,6 +234,7 @@ The W7 Control Panel should be able to build these views from the contract:
 
 - cycle overview
 - data/model cards
+- model candidate matrix
 - live pipeline timeline
 - Kubernetes topology
 - resource pressure/detail panel
@@ -231,6 +251,9 @@ The W7 Control Panel should be able to build these views from the contract:
 - `EVM-233` to `EVM-236` should close the W7 enterprise-readiness gap: service
   tenancy, drift/retraining trigger visibility, CD/CT gates, and data/model
   readiness checklists.
+- `EVM-237` and `EVM-238` should move W7 model proof from lifecycle/mock/smoke
+  evidence to Torch EfficientNet-B0/B7 real-test evidence with explicit
+  candidate matrices and real-execution policy.
 - Airflow task assignment must use the orchestrator contract first. In W6 local
   Kubernetes this means external Airflow REST API control; in W7+ this can move
   to in-cluster Airflow resources or an operator-backed control mode.

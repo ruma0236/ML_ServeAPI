@@ -14,6 +14,9 @@ The W7 plan was re-audited against the updated system direction:
   UI, not only through files and scripts.
 - Drift detection and DevOps/MLOps CD/CT verification must be first-class W7
   requirements before code, data, pipeline, or model updates are promoted.
+- W7 model proof should move to real Torch/TorchVision EfficientNet-B0 and
+  EfficientNet-B7 candidate runs; mock adapters and smoke-only checks must not
+  be accepted as W7 model completion evidence.
 
 ## Baseline References
 
@@ -48,6 +51,9 @@ pipeline visualization were present, but W7 did not force the UI/API to carry:
 - model experiment, evaluation, registry, and model-card readiness;
 - drift status and action recommendations;
 - CD/CT gate status before promotion or deployment.
+- real model candidate matrices for parallel Torch EfficientNet-B0/B7
+  experimentation;
+- an explicit no-mock/no-smoke evidence rule for W7 completion.
 
 After this audit, W7 is now explicit enough as a specification baseline. It is
 not yet an implementation-complete enterprise control plane. The W7
@@ -67,11 +73,13 @@ contexts.
 | Drift detection | Earlier drift work existed, but W7 did not require drift as a control-plane field | Added `DriftState` and `EVM-234` |
 | CD/CT verification for code and pipeline updates | CI existed, but CD/CT was not modeled as a promotion gate | Added `CDCTGate` and `EVM-235` |
 | Promotion safety | Promotion gate existed, but did not unify data, model, drift, and delivery checks | `CycleRun` now aggregates readiness, drift, and CD/CT gate state |
+| Real model matrix | W5 lifecycle proof was real but still a lightweight feature model; W4 VLM stages used mock adapter evidence | Added Torch EfficientNet-B0/B7 matrix contract, config, and `EVM-237` |
+| Real-test evidence policy | Smoke/mock checks were still valid historical scaffolding, but not enough for W7 production-readiness claims | Added no-mock/no-smoke W7 completion policy and `EVM-238` |
 
 ## Contract Changes
 
 The Control Panel API contract now uses version
-`2026-07-09.w7.enterprise.v1`.
+`2026-07-09.w7.realtest.v1`.
 
 New or expanded contract concepts:
 
@@ -87,12 +95,18 @@ New or expanded contract concepts:
   versions, drift score, drifting columns, report URI, and recommended action.
 - `CDCTGate`: CI, CD, CT, required/passed/failed checks, pipeline run URI,
   CT trigger, approver, and blockers.
+- `ModelExperimentMatrix`: parallel Torch candidate matrix for real
+  EfficientNet-B0/B7 model tests.
+- `RealTestPolicy`: explicit W7 evidence policy with mock and smoke completion
+  proof disabled.
 
 Affected files:
 
 - `contracts/control-panel/control-panel.openapi.json`
 - `contracts/control-panel/examples/cycle-run.json`
 - `docs/contracts/control-panel-api.md`
+- `configs/w7_efficientnet_real_test.toml`
+- `docs/models/w7-efficientnet-real-test-matrix.md`
 
 ## Issue Plan Changes
 
@@ -104,6 +118,8 @@ W7 now includes these explicit enterprise-readiness tasks:
 | `EVM-234` | Drift detection and retraining trigger surface |
 | `EVM-235` | CD/CT push verification and promotion gate |
 | `EVM-236` | Enterprise data/model pipeline readiness checklist |
+| `EVM-237` | Torch EfficientNet-B0/B7 real model matrix |
+| `EVM-238` | W7 real-test-only evidence policy |
 
 Existing W7 task acceptance was also tightened:
 
@@ -128,6 +144,8 @@ shown in the Control Panel or machine-readable API output:
   lineage record, replay/backfill window, and storage location were used;
 - which MLflow experiment/run/model version/model card/evaluation report were
   used for the cycle;
+- which real Torch EfficientNet-B0/B7 candidates were evaluated, under which
+  conditions, resource profiles, and dataset versions;
 - whether current data and prediction behavior drifted from the reference
   dataset/model behavior;
 - whether the system recommends no action, label review, retraining,
@@ -135,6 +153,8 @@ shown in the Control Panel or machine-readable API output:
 - whether CI, CD, and CT checks passed before a code, pipeline, or model update
   can be promoted;
 - why a promotion was allowed or blocked.
+- that mock adapters, placeholder predictions, and smoke-only runs were not
+  used as W7 model completion evidence.
 
 ## Verification
 
@@ -150,8 +170,8 @@ Structured contract check:
 
 ```text
 paths: 8
-schemas: 26
-version: 2026-07-09.w7.enterprise.v1
+schemas: 29
+version: 2026-07-09.w7.realtest.v1
 ```
 
 ## Handoff
@@ -165,3 +185,6 @@ W7 implementation should start by wiring the read-only aggregation layer first:
    guardrails.
 4. Treat `EVM-233` to `EVM-236` as required W7 acceptance criteria, not
    optional future polish.
+5. Treat `EVM-237` and `EVM-238` as the W7 model-evidence gate: real
+   Torch/TorchVision EfficientNet-B0/B7 candidates, no mock adapters, and no
+   smoke-only completion claims.

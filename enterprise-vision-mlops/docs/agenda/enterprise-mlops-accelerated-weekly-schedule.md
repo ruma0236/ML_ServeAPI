@@ -59,7 +59,7 @@ week range for each week label.
 | W4 | 2026-07-06 ~ 2026-07-12 | Current-week enterprise VLM MLOps completion | EVM-134~181 plus VLM observability, CI, release, and demo evidence |
 | W5 | 2026-07-13 ~ 2026-07-19 | Model lifecycle, drift, and draft governance | lifecycle state machine, drift/special-case tracking, draft registry |
 | W6 | 2026-07-10 ~ 2026-07-12 | Accelerated data platform + Kubernetes foundation | curation/lakehouse plan, Kubernetes resource map, metadata API contract |
-| W7 | 2026-07-13 ~ 2026-07-15 | Accelerated Control Panel + runtime hardening | animated Kubernetes/pipeline/resource control UI, Kubernetes smoke proof, serving-scale handoff |
+| W7 | 2026-07-13 ~ 2026-07-15 | Accelerated Control Panel + runtime hardening | animated Kubernetes/pipeline/resource control UI, Kubernetes real execution proof, serving-scale handoff |
 
 ## 4. W0: 2026-06-22 ~ 2026-06-28
 
@@ -407,13 +407,15 @@ intent, and stage-level intermediate result review.
 | `EVM-214` | July portfolio stabilization review | demo evidence, known gaps, backlog, handoff risks |
 | `EVM-224` | Cycle lineage aggregation API | endpoint returns run, dataset, model, metrics, gate, artifacts, serving state, and orchestration references |
 | `EVM-225` | MLOps Control Panel v0 | tabbed/depth UI for Kubernetes control, pipeline control, resource management, cycle detail, dataset/model cards, gate, lineage, and serving status |
-| `EVM-226` | Kubernetes local smoke proof | at least one API or pipeline job path runs under local Kubernetes/k3s/kind |
+| `EVM-226` | Kubernetes local real execution proof | at least one API or pipeline job path runs under local Kubernetes/k3s/kind with real configured inputs |
 | `EVM-227` | GPU/VLM serving deployment design | Windows RTX, KServe/Triton/vLLM/Ray Serve roles and constraints documented |
 | `EVM-228` | Compressed W6/W7 integration review | 2026-07-15 handoff evidence across Git/Jira/Notion/Obsidian |
 | `EVM-229` | Kubernetes resource topology and animation UI | animated namespace/node/pod/job/service/PVC/GPU state with allocation and readiness drilldowns |
 | `EVM-230` | Airflow and MLflow task authoring and assignment UI | draft/edit/assign/validate/queue tasks with owner, priority, resource profile, config, DAG/run, and experiment/run references |
 | `EVM-231` | Live pipeline timeline and intermediate result drilldown | animated data intake, validation, quality, training, registry, inference, serving, and monitoring stages with artifacts, metrics, logs, and sample outputs |
 | `EVM-232` | Resource control protocol and audit guardrails | dry-run/confirm/apply command intents for Kubernetes, Airflow, and MLflow actions with actor, audit, cancel, and rollback semantics |
+| `EVM-237` | Torch EfficientNet-B0/B7 real model matrix | parallel Torch/TorchVision EfficientNet candidates, GPU resource profiles, MLflow runs, and Control Panel `model_matrix` output |
+| `EVM-238` | W7 real-test-only evidence policy | mock adapters, placeholder predictions, and smoke-only runs are rejected as W7 completion evidence |
 
 ## 12. 압축 일정 기준의 Scope Control
 

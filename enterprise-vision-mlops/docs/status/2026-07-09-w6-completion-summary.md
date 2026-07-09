@@ -87,11 +87,14 @@ W7 should start from:
 - `EVM-225`, `EVM-229`, `EVM-230`, `EVM-231`: build the visible Control Panel
   UI layers.
 - `EVM-232`: enforce command intent and audit guardrails before real mutation.
-- `EVM-226`: run the local Kubernetes smoke proof after a current kube context
-  is configured.
+- `EVM-226`: run the local Kubernetes real execution proof after a current kube
+  context is configured.
 - `EVM-233` to `EVM-236`: close the enterprise-readiness gap for team and
   department service tenancy, environment scope, drift detection, CD/CT
   verification, and data/model pipeline readiness.
+- `EVM-237` and `EVM-238`: add the W7 real-model evidence boundary with
+  Torch/TorchVision EfficientNet-B0/B7 candidate matrices and a no-mock,
+  no-smoke completion policy for W7 model claims.
 
 The W7 enterprise-readiness audit is recorded in
 `docs/status/2026-07-09-w7-enterprise-mlops-readiness-audit.md`.

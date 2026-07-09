@@ -102,7 +102,8 @@ error: current-context is not set
 ```
 
 The scaffold is therefore verified as an offline rendered overlay. Actual
-cluster apply and pod readiness remain part of the next Kubernetes smoke proof
+cluster apply and pod readiness remain part of the next Kubernetes real
+execution proof
 step.
 
 ## Handoff

@@ -337,7 +337,10 @@ resource-control actions visible through real-time or near-real-time UI states.
 W7 must explicitly assume both internal platform use by teams/departments and
 external production-service operation. Data pipelines, model experiment/training
 pipelines, drift review, and CD/CT verification gates must be visible and
-actionable from the same control surface.
+actionable from the same control surface. For W7 model evidence, mock adapters
+and smoke-only checks are no longer acceptable completion proof; model work must
+use real Torch training/evaluation over real dataset records, starting with a
+parallel EfficientNet-B0/B7 candidate matrix.
 
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
@@ -346,7 +349,7 @@ actionable from the same control surface.
 | `EVM-223` | Control Panel metadata and control API contract | Done | 2026-07-W6 | API contract defines cycle run, dataset version, model version, lineage, metrics, promotion gate, artifacts, serving state, command intent, task assignment, and resource action schemas |
 | `EVM-224` | Cycle lineage aggregation API | Planned | 2026-07-W7 | backend endpoint aggregates registry, lifecycle, dataset, Airflow/MLflow references, Prometheus serving status, artifact links, tenant/environment scope, drift state, and CD/CT gate state for one cycle |
 | `EVM-225` | MLOps Control Panel v0 | Planned | 2026-07-W7 | UI provides tabbed/depth navigation for Kubernetes control, pipeline control, resource management, lineage, artifacts, cycle detail, dataset/model cards, promotion blockers, drift/CDCT gates, tenant/environment scope, and serving state |
-| `EVM-226` | Kubernetes local smoke proof | Planned | 2026-07-W7 | local Kubernetes/k3s/kind run proves at least one API or pipeline job path with documented commands and screenshots/logs |
+| `EVM-226` | Kubernetes local real execution proof | Planned | 2026-07-W7 | local Kubernetes/k3s/kind run proves at least one API or pipeline job path with real configured inputs, documented commands, screenshots/logs, and no smoke-only completion claim |
 | `EVM-227` | GPU/VLM serving deployment design | Planned | 2026-07-W7 | Windows RTX, Mac mini evaluator, KServe/Triton/vLLM/Ray Serve options, and GPU scheduling constraints are compared for next implementation |
 | `EVM-228` | Compressed W6/W7 integration review | Planned | 2026-07-W7 | Git/Jira/Notion/Obsidian evidence confirms W6/W7 scope, enterprise-readiness checklist, remaining risks, and next handoff by the 2026-07-15 target |
 | `EVM-229` | Kubernetes resource topology and animation UI | Planned | 2026-07-W7 | UI visualizes namespace/node/pod/job/service/PVC/GPU state with readable animated transitions and drilldowns for allocation, pressure, restarts, and readiness |
@@ -357,6 +360,8 @@ actionable from the same control surface.
 | `EVM-234` | Drift detection and retraining trigger surface | Planned | 2026-07-W7 | data drift, prediction drift, reference/current dataset versions, drift report URI, label-review/retrain/block actions, and UI drilldown are represented in cycle detail |
 | `EVM-235` | CD/CT push verification and promotion gate | Planned | 2026-07-W7 | push/PR checks, image build, kustomize render, data quality, model eval, drift review, CT trigger, and promotion blockers are represented as a pass/fail gate before deploy/promote |
 | `EVM-236` | Enterprise data/model pipeline readiness checklist | Planned | 2026-07-W7 | data pipeline readiness covers source policy, schema, quality, lineage, replay/backfill; model pipeline readiness covers MLflow tracking, eval reports, registry, model card, rollback, and owner approval |
+| `EVM-237` | Torch EfficientNet-B0/B7 real model matrix | Planned | 2026-07-W7 | W7 model plan defines real Torch/TorchVision EfficientNet-B0 and EfficientNet-B7 candidates, condition matrix, GPU resource profiles, MLflow tracking requirements, and Control Panel `model_matrix` output |
+| `EVM-238` | W7 real-test-only evidence policy | Planned | 2026-07-W7 | W7 acceptance explicitly rejects mock adapters, placeholder predictions, and smoke-only runs as completion evidence; real dataset, real training, real artifacts, and real evaluation are required |
 
 ## Jira Mapping
 
@@ -470,6 +475,8 @@ Jira live sync 기준 mapping이다.
 | `EVM-234` | `SCRUM-112` | Task | https://opop0236.atlassian.net/browse/SCRUM-112 |
 | `EVM-235` | `SCRUM-113` | Task | https://opop0236.atlassian.net/browse/SCRUM-113 |
 | `EVM-236` | `SCRUM-114` | Task | https://opop0236.atlassian.net/browse/SCRUM-114 |
+| `EVM-237` | `SCRUM-115` | Task | https://opop0236.atlassian.net/browse/SCRUM-115 |
+| `EVM-238` | `SCRUM-116` | Task | https://opop0236.atlassian.net/browse/SCRUM-116 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
 | `EVM-BUG-004` | `SCRUM-55` | Bug | Jira: https://opop0236.atlassian.net/browse/SCRUM-55<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 |
