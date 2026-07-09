@@ -24,7 +24,7 @@ spec:
           args:
             - domain-pack-check
             - --config
-            - configs/local_visa.toml
+            - configs/airflow.toml
           envFrom:
             - configMapRef:
                 name: evm-runtime-config
@@ -62,7 +62,7 @@ spec:
           args:
             - curation-workflow
             - --config
-            - configs/local_visa.toml
+            - configs/airflow.toml
           envFrom:
             - configMapRef:
                 name: evm-runtime-config
@@ -100,7 +100,7 @@ spec:
           args:
             - lakehouse-probe
             - --config
-            - configs/local_visa.toml
+            - configs/airflow.toml
           envFrom:
             - configMapRef:
                 name: evm-runtime-config

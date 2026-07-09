@@ -243,6 +243,7 @@ services:
       MODEL_NAME: vision-baseline
       MODEL_STAGE: Production
       MODEL_REGISTRY_PATH: /app/artifacts/registry/vision-baseline/latest.json
+      EVM_CONTROL_PANEL_CONFIG: configs/airflow.toml
       VLM_OBSERVABILITY_PATH: /app/artifacts/vlm/visa/observability/benchmark_report.json
       EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
       EVM_DATA_MOUNT_ROOT: /mnt/evm-data

@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir \
     boto3==1.35.76 \
     pyarrow==18.1.0
 
+COPY pyproject.toml docker-compose.yml /app/
 COPY src /app/src
 COPY scripts /app/scripts
 COPY configs /app/configs

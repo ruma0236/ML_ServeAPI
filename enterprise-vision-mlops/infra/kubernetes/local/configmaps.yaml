@@ -6,7 +6,8 @@ metadata:
   labels:
     app.kubernetes.io/part-of: enterprise-vision-mlops
 data:
-  EVM_PIPELINE_CONFIG: /app/configs/local_visa.toml
+  EVM_PIPELINE_CONFIG: /app/configs/airflow.toml
+  EVM_CONTROL_PANEL_CONFIG: configs/airflow.toml
   EVM_DATA_MOUNT_ROOT: /mnt/evm-data
   MLFLOW_TRACKING_URI: http://evm-mlflow.evm-platform.svc.cluster.local:5000
   MLFLOW_S3_ENDPOINT_URL: http://evm-minio.evm-platform.svc.cluster.local:9000
@@ -66,7 +67,8 @@ metadata:
   labels:
     app.kubernetes.io/part-of: enterprise-vision-mlops
 data:
-  EVM_PIPELINE_CONFIG: /app/configs/local_visa.toml
+  EVM_PIPELINE_CONFIG: /app/configs/airflow.toml
+  EVM_CONTROL_PANEL_CONFIG: configs/airflow.toml
   EVM_DATA_MOUNT_ROOT: /mnt/evm-data
   MLFLOW_TRACKING_URI: http://evm-mlflow.evm-platform.svc.cluster.local:5000
   MLFLOW_S3_ENDPOINT_URL: http://evm-minio.evm-platform.svc.cluster.local:9000
