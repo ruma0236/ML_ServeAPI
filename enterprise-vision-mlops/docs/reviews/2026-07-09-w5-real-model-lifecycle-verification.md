@@ -1,11 +1,11 @@
 # W5 Real Model Lifecycle Verification
 
-- Generated at: `2026-07-09T06:46:34Z`
-- Pipeline run id: `w5-verification-20260709T064634Z`
+- Generated at: `2026-07-09T07:03:02Z`
+- Pipeline run id: `w5-verification-20260709T070302Z`
 - Dataset version: `visa-open-data-f1f1c9ee9922`
 - Model: `vision-baseline` / `image_feature_centroid`
-- Registry version: `9` / stage `Production`
-- Lifecycle state: `Validated` / gate `passed`
+- Registry version: `10` / stage `Shadow`
+- Lifecycle state: `Shadow` / gate `blocked` / decision `shadow_only`
 
 ## Visual Evidence
 
@@ -27,6 +27,7 @@
 - Deployment contract: `contract_ok=True`, predict status `200`, feature source `request_features`.
 - Monitoring: `2` healthy Prometheus targets of `2` active targets.
 - Mac mini remote job: `success`, architecture `arm64`, CPU `12`, memory bytes `25769803776`.
+- Promotion blockers: `['accuracy<0.7', 'precision<0.5', 'recall<0.7', 'f1<0.5', 'auroc<0.65']`.
 
 ## Resource Use
 
@@ -41,12 +42,12 @@
 
 - Model artifact: `F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\models\vision-baseline\model.json`
 - Registry latest: `F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\registry\vision-baseline\latest.json`
-- Deployment summary: `F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\runs\deployment\deployment-20260709T064531Z\summary.json`
-- Monitoring summary: `F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\runs\monitoring\monitoring-20260709T064531Z\summary.json`
+- Deployment summary: `F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\runs\deployment\deployment-20260709T070301Z\summary.json`
+- Monitoring summary: `F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\runs\monitoring\monitoring-20260709T070302Z\summary.json`
 - Remote job summary: `F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\runs\remote_job\remote-job-20260709T064054Z\summary.json`
 
 ## Reviewer Notes
 
 - This closes the W4 gap where the registry-serving path could be proven only with a majority-class artifact.
 - W5 now has an actual trainable image-feature model, registry versioning, API inference, Prometheus scrape verification, and Mac mini remote execution evidence.
-- Model quality is intentionally reported as-is; the current classifier is a lifecycle proof model, not the final VLM/multimodal target model.
+- Model quality is intentionally reported as-is; the current classifier is a lifecycle proof model and remains Shadow-gated when production thresholds are not met.

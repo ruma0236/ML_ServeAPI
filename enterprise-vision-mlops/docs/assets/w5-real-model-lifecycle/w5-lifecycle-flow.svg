@@ -16,7 +16,7 @@
 <path d="M516 161 L544 161" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
 <rect x="558" y="120" width="130" height="82" rx="8" fill="#ecfdf5" stroke="#334155"/>
 <text x="574" y="152" class="value">Registry</text>
-<text x="574" y="178" class="label">v9</text>
+<text x="574" y="178" class="label">v10 Shadow</text>
 <path d="M688 161 L716 161" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
 <rect x="730" y="120" width="130" height="82" rx="8" fill="#e0f2fe" stroke="#334155"/>
 <text x="746" y="152" class="value">Serve</text>

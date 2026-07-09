@@ -81,16 +81,25 @@ metric_name = "accuracy"
 positive_label = "anomaly"
 feature_sample_bytes = 8192
 max_records = 0
-min_metric = 0.50
+min_accuracy = 0.70
+min_precision = 0.50
+min_recall = 0.70
+min_f1 = 0.50
+min_auroc = 0.65
 
 [pipelines.model_registry]
 model_name = "vision-baseline"
 source_model_path = "/mnt/evm-data/artifacts/models/vision-baseline/model.json"
+stage_on_gate_passed = "Production"
+stage_on_gate_blocked = "Shadow"
 
 [pipelines.model_lifecycle]
 output_dir = "/mnt/evm-data/artifacts/lifecycle/vision-baseline"
-min_accuracy = 0.50
-min_recall = 0.10
+min_accuracy = 0.70
+min_precision = 0.50
+min_recall = 0.70
+min_f1 = 0.50
+min_auroc = 0.65
 special_case_confidence_threshold = 0.70
 
 [pipelines.deployment]

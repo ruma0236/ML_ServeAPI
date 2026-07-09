@@ -4,6 +4,7 @@ import json
 from collections.abc import Sequence
 
 from evm.core.config import get_nested
+from evm.core.model_promotion import stage_from_promotion
 from evm.core.pipeline import build_context, display_path, utc_now, write_json, write_markdown_report
 
 
@@ -26,14 +27,23 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     source_payload = {}
     if source_model_path.exists():
         source_payload = json.loads(source_model_path.read_text(encoding="utf-8"))
+    default_stage = str(cfg.get("default_stage", get_nested(ctx.config, "serving.model_stage", "Production")))
+    stage = stage_from_promotion(
+        source_payload,
+        default_stage=default_stage,
+        stage_on_passed=str(cfg.get("stage_on_gate_passed", default_stage)),
+        stage_on_blocked=str(cfg.get("stage_on_gate_blocked", "Shadow")),
+    )
 
     registry_payload = {
         "model_name": model_name,
         "version": next_version,
-        "stage": get_nested(ctx.config, "serving.model_stage", "Production"),
+        "stage": stage,
         "registered_at": utc_now(),
         "source_model_path": display_path(source_model_path, ctx.project_root),
         "source_model": source_payload,
+        "promotion_gate": source_payload.get("lifecycle", {}).get("promotion_gate", ""),
+        "promotion_decision": source_payload.get("lifecycle", {}).get("promotion_decision", ""),
         "trace": ctx.trace.to_dict(),
     }
     version_path = model_registry_dir / f"v{next_version}.json"
@@ -45,6 +55,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "model_name": model_name,
         "version": next_version,
         "stage": registry_payload["stage"],
+        "promotion_gate": registry_payload["promotion_gate"],
+        "promotion_decision": registry_payload["promotion_decision"],
         "registry_record": display_path(version_path, ctx.project_root),
         "latest_record": display_path(latest_path, ctx.project_root),
         "trace_id": ctx.trace.trace_id,
@@ -60,7 +72,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             "## Contract",
             "",
             "- Input: selected model artifact from `training`.",
-            "- Output: versioned model registry metadata.",
+            "- Output: versioned model registry metadata with promotion-aware stage.",
             "- Next: `deployment` reads the promoted model metadata.",
         ],
     )

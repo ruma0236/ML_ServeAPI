@@ -14,6 +14,7 @@ from evm.core.image_feature_model import (
     train_centroid_classifier,
 )
 from evm.core.mlflow_client import MlflowRestClient
+from evm.core.model_promotion import evaluate_promotion, metric_thresholds
 from evm.core.pipeline import (
     build_context,
     display_path,
@@ -91,7 +92,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     positive_label = str(cfg.get("positive_label", "anomaly"))
     feature_sample_bytes = int(cfg.get("feature_sample_bytes", 8192))
     max_records = int(cfg.get("max_records", 0))
-    min_metric = float(cfg.get("min_metric", 0.0))
+    thresholds = metric_thresholds(cfg)
     models_root = ctx.path(get_nested(ctx.config, "paths.models_root", "artifacts/models"))
     model_dir = models_root / model_name
 
@@ -122,6 +123,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     selected_split = str(model_payload["evaluation"]["selected_split"])
     selected_eval = model_payload["evaluation"][selected_split]
     gate_metric = float(model_payload["metrics"].get(metric_name, 0.0))
+    promotion_policy = evaluate_promotion(model_payload["metrics"], thresholds)
     model_payload.update(
         {
             "trained_at": utc_now(),
@@ -133,13 +135,16 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             "resource_profile": resource_profile,
             "training_duration_seconds": duration_seconds,
             "lifecycle": {
-                "state": "Validated" if gate_metric >= min_metric else "Draft",
-                "promotion_gate": "passed" if gate_metric >= min_metric else "failed",
+                "state": "Validated",
+                "promotion_gate": promotion_policy["status"],
+                "promotion_decision": promotion_policy["decision"],
                 "metric_name": metric_name,
                 "metric_value": gate_metric,
-                "min_metric": min_metric,
+                "thresholds": promotion_policy["thresholds"],
+                "blockers": promotion_policy["blockers"],
                 "evidence_split": selected_split,
             },
+            "promotion_policy": promotion_policy,
             "trace": ctx.trace.to_dict(),
         }
     )
@@ -217,6 +222,9 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "label_counts": dict(label_counts),
         "model_digest": model_payload["model_digest"],
         "training_duration_seconds": duration_seconds,
+        "promotion_gate": promotion_policy["status"],
+        "promotion_decision": promotion_policy["decision"],
+        "promotion_blockers": promotion_policy["blockers"],
         "accelerator_used": resource_profile["accelerator_used"],
         "gpu_detected": resource_profile["gpu_detected"],
         "mlflow_status": mlflow_status,

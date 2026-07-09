@@ -305,6 +305,7 @@ remote Mac mini resource validation.
 | `EVM-197` | Airflow W4/W5 real-cycle alignment | DAG/config point to mounted VisA/F-drive data and include `model_lifecycle` |
 | `EVM-198` | Mac mini M4 Pro resource integration proof | SSH, resource inventory, and remote job artifact collection verified |
 | `EVM-199` | W5 visual verification evidence package | Markdown plus SVG lifecycle, metric, confusion matrix, and topology evidence |
+| `EVM-200` | Production promotion gate hardening | weak proof models remain Shadow when production thresholds are not met |
 
 목표:
 

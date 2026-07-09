@@ -143,11 +143,12 @@ def _topology_svg(path: Path, local_resource: dict[str, Any], remote_resource: d
 
 def _lifecycle_svg(path: Path, registry: dict[str, Any], deployment: dict[str, Any], monitoring: dict[str, Any]) -> None:
     version = registry.get("version", "unknown")
+    stage = registry.get("stage", "unknown")
     steps = [
         ("Data", "VisA validated"),
         ("Quality", "DQ gate"),
         ("Train", "feature model"),
-        ("Registry", f"v{version}"),
+        ("Registry", f"v{version} {stage}"),
         ("Serve", f"HTTP {deployment.get('predict_status', 'n/a')}"),
         ("Monitor", f"{monitoring.get('healthy_targets', 'n/a')} targets up"),
         ("Remote", "Mac mini eval"),
@@ -196,6 +197,16 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     monitoring_path, monitoring = _latest_summary(artifacts_root / "runs" / "monitoring")
     remote_path, remote = _latest_summary(artifacts_root / "runs" / "remote_job")
     remote_resource = remote.get("resource_report", {}) if isinstance(remote, dict) else {}
+    lifecycle_dir = ctx.path(
+        str(
+            get_nested(
+                ctx.config,
+                "pipelines.model_lifecycle.output_dir",
+                artifacts_root / "lifecycle" / model_name,
+            )
+        )
+    )
+    lifecycle_dashboard = _read_json(lifecycle_dir / "lifecycle_dashboard.json")
 
     metrics_svg = asset_dir / "w5-model-metrics.svg"
     confusion_svg = asset_dir / "w5-confusion-matrix.svg"
@@ -208,6 +219,16 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
 
     metrics = model.get("metrics", {})
     lifecycle = model.get("lifecycle", {})
+    dashboard_state = lifecycle_dashboard.get("state") or lifecycle.get("state", "")
+    promotion_gate = lifecycle_dashboard.get("promotion_policy", {}).get(
+        "status",
+        lifecycle.get("promotion_gate", ""),
+    )
+    promotion_decision = lifecycle_dashboard.get("promotion_policy", {}).get(
+        "decision",
+        lifecycle.get("promotion_decision", ""),
+    )
+    promotion_blockers = lifecycle_dashboard.get("blockers", lifecycle.get("blockers", []))
     resource_profile = model.get("resource_profile", {})
     gpu = resource_profile.get("gpu", [])
     remote_fields = remote_resource.get("fields", {}) if isinstance(remote_resource, dict) else {}
@@ -219,7 +240,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         f"- Dataset version: `{model.get('dataset', {}).get('dataset_version', '')}`",
         f"- Model: `{model.get('model_name', model_name)}` / `{model.get('model_type', '')}`",
         f"- Registry version: `{registry.get('version', '')}` / stage `{registry.get('stage', '')}`",
-        f"- Lifecycle state: `{lifecycle.get('state', '')}` / gate `{lifecycle.get('promotion_gate', '')}`",
+        f"- Lifecycle state: `{dashboard_state}` / gate `{promotion_gate}` / decision `{promotion_decision}`",
         "",
         "## Visual Evidence",
         "",
@@ -241,6 +262,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         f"- Deployment contract: `contract_ok={deployment.get('contract_ok', '')}`, predict status `{deployment.get('predict_status', '')}`, feature source `{deployment.get('predict_feature_source', '')}`.",
         f"- Monitoring: `{monitoring.get('healthy_targets', '')}` healthy Prometheus targets of `{monitoring.get('active_targets', '')}` active targets.",
         f"- Mac mini remote job: `{remote.get('status', '')}`, architecture `{remote_fields.get('architecture', '')}`, CPU `{remote_fields.get('cpu_count', '')}`, memory bytes `{remote_fields.get('memory_bytes', '')}`.",
+        f"- Promotion blockers: `{promotion_blockers}`.",
         "",
         "## Resource Use",
         "",
@@ -263,7 +285,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "",
         "- This closes the W4 gap where the registry-serving path could be proven only with a majority-class artifact.",
         "- W5 now has an actual trainable image-feature model, registry versioning, API inference, Prometheus scrape verification, and Mac mini remote execution evidence.",
-        "- Model quality is intentionally reported as-is; the current classifier is a lifecycle proof model, not the final VLM/multimodal target model.",
+        "- Model quality is intentionally reported as-is; the current classifier is a lifecycle proof model and remains Shadow-gated when production thresholds are not met.",
     ]
     output_doc.parent.mkdir(parents=True, exist_ok=True)
     output_doc.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -274,9 +296,13 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "model_path": str(model_path),
         "registry_latest": str(registry_latest),
         "registry_version": registry.get("version", ""),
+        "registry_stage": registry.get("stage", ""),
         "model_type": model.get("model_type", ""),
         "records_used": model.get("records_used", 0),
         "accuracy": round(float(metrics.get("accuracy", 0.0)), 6),
+        "promotion_gate": promotion_gate,
+        "promotion_decision": promotion_decision,
+        "promotion_blockers": promotion_blockers,
         "deployment_contract_ok": deployment.get("contract_ok", False),
         "healthy_targets": monitoring.get("healthy_targets", 0),
         "remote_job_status": remote.get("status", ""),

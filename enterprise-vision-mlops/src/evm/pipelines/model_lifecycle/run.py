@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from evm.core.config import get_nested
+from evm.core.model_promotion import evaluate_promotion, metric_thresholds
 from evm.core.pipeline import build_context, display_path, utc_now, write_json, write_markdown_report
 
 
@@ -13,17 +14,6 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _quality_state(metrics: dict[str, Any], min_accuracy: float, min_recall: float) -> tuple[str, list[str]]:
-    blockers = []
-    accuracy = float(metrics.get("accuracy", 0.0) or 0.0)
-    recall = float(metrics.get("recall", 0.0) or 0.0)
-    if accuracy < min_accuracy:
-        blockers.append(f"accuracy<{min_accuracy}")
-    if recall < min_recall:
-        blockers.append(f"recall<{min_recall}")
-    return ("Shadow" if blockers else "Promoted"), blockers
 
 
 def _selected_eval(source_model: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -88,8 +78,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     artifacts_root = ctx.path(get_nested(ctx.config, "paths.artifacts_root", "artifacts"))
     registry_latest = ctx.path(str(cfg.get("registry_latest", registry_root / model_name / "latest.json")))
     output_dir = ctx.path(str(cfg.get("output_dir", artifacts_root / "lifecycle" / model_name)))
-    min_accuracy = float(cfg.get("min_accuracy", 0.50))
-    min_recall = float(cfg.get("min_recall", 0.10))
+    thresholds = metric_thresholds(cfg, fallback_accuracy=0.50)
     confidence_threshold = float(cfg.get("special_case_confidence_threshold", 0.70))
 
     registry_payload = _read_json(registry_latest)
@@ -101,7 +90,9 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     if not isinstance(metrics, dict):
         metrics = {}
     selected_split, selected_eval = _selected_eval(source_model)
-    target_state, blockers = _quality_state(metrics, min_accuracy, min_recall)
+    promotion_policy = evaluate_promotion(metrics, thresholds)
+    target_state = "Promoted" if promotion_policy["status"] == "passed" else "Shadow"
+    blockers = promotion_policy["blockers"]
     lifecycle_record = {
         "schema_version": "evm.model_lifecycle.v1",
         "generated_at": utc_now(),
@@ -111,6 +102,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "model_type": source_model.get("model_type", ""),
         "current_state": source_model.get("lifecycle", {}).get("state", "Registered"),
         "target_state": target_state,
+        "promotion_gate": promotion_policy["status"],
+        "promotion_decision": promotion_policy["decision"],
         "blockers": blockers,
         "transitions": [
             {
@@ -128,10 +121,12 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             {
                 "from": "Validated",
                 "to": target_state,
-                "evidence": f"accuracy>={min_accuracy} and recall>={min_recall}",
+                "evidence": "all configured promotion thresholds are satisfied",
                 "status": "complete" if not blockers else "blocked",
+                "blockers": blockers,
             },
         ],
+        "promotion_policy": promotion_policy,
         "trace": ctx.trace.to_dict(),
     }
 
@@ -186,6 +181,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "registry_version": registry_payload.get("version", ""),
         "state": target_state,
         "blockers": blockers,
+        "promotion_policy": promotion_policy,
         "metrics": metrics,
         "open_special_cases": len([item for item in drift_queue if item.get("status") == "open"]),
         "watch_items": len([item for item in drift_queue if item.get("status") == "watching"]),

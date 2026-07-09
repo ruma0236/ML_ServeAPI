@@ -289,6 +289,7 @@ surfaces.
 | `EVM-197` | Airflow W4/W5 real-cycle alignment | Done | 2026-07-09 | Airflow config points to mounted VisA/F-drive data and DAG includes `model_lifecycle` after `register_model` |
 | `EVM-198` | Mac mini M4 Pro resource integration proof | Done | 2026-07-09 | `remote-inventory` and `remote-job` verify arm64 SSH execution, 12 CPU, 24GB memory, and remote artifact collection |
 | `EVM-199` | W5 visual verification evidence package | Done | 2026-07-09 | `docs/reviews/2026-07-09-w5-real-model-lifecycle-verification.md` and SVG evidence assets generated |
+| `EVM-200` | Production promotion gate hardening | Done | 2026-07-09 | weak proof models are registered as Shadow when accuracy/precision/recall/F1/AUROC thresholds are not met, while serving/deployment proof remains verifiable |
 
 ### Phase 16. Large-scale Data Acquisition And Cleaning Research
 
@@ -408,6 +409,7 @@ Jira live sync 기준 mapping이다.
 | `EVM-197` | `SCRUM-93` | Task | https://opop0236.atlassian.net/browse/SCRUM-93 |
 | `EVM-198` | `SCRUM-94` | Task | https://opop0236.atlassian.net/browse/SCRUM-94 |
 | `EVM-199` | `SCRUM-95` | Task | https://opop0236.atlassian.net/browse/SCRUM-95 |
+| `EVM-200` | `SCRUM-96` | Task | https://opop0236.atlassian.net/browse/SCRUM-96 |
 | `EVM-201` | `SCRUM-82` | Task | https://opop0236.atlassian.net/browse/SCRUM-82 |
 | `EVM-202` | `SCRUM-83` | Task | https://opop0236.atlassian.net/browse/SCRUM-83 |
 | `EVM-203` | `SCRUM-84` | Task | https://opop0236.atlassian.net/browse/SCRUM-84 |
