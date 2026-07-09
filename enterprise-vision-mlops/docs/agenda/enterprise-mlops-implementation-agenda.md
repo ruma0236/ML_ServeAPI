@@ -588,8 +588,8 @@ Post-completion W5+ plan:
 | Sprint | Date | Focus | Issue IDs |
 |---|---|---|---|
 | W5 | 2026-07-13 to 2026-07-19 | Real model lifecycle, serving contract, drift/special-case tracking, RCA feedback, Mac mini remote validation, promotion gate hardening | `EVM-191` to `EVM-200` |
-| W6 | 2026-07-20 to 2026-07-26 | Large-scale data acquisition and cleaning research | `EVM-201` to `EVM-205` |
-| W7 | 2026-07-27 to 2026-07-31 | Draft/decision governance, AgentOps reliability design, scale serving research, portfolio stabilization | `EVM-211` to `EVM-214` |
+| W6 | 2026-07-10 to 2026-07-12 | Accelerated large-scale data/curation work plus Kubernetes runtime foundation and Control Panel metadata API contract | `EVM-201` to `EVM-205`, `EVM-221` to `EVM-223` |
+| W7 | 2026-07-13 to 2026-07-15 | Accelerated enterprise Control Panel v0 with animated Kubernetes/pipeline/resource control, Kubernetes smoke proof, AgentOps governance, scale serving research, and final handoff review | `EVM-211` to `EVM-214`, `EVM-224` to `EVM-232` |
 
 Strategic interpretation:
 

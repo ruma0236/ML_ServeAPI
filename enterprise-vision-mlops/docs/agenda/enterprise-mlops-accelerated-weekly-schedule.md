@@ -58,8 +58,8 @@ week range for each week label.
 |---|---|---|---|
 | W4 | 2026-07-06 ~ 2026-07-12 | Current-week enterprise VLM MLOps completion | EVM-134~181 plus VLM observability, CI, release, and demo evidence |
 | W5 | 2026-07-13 ~ 2026-07-19 | Model lifecycle, drift, and draft governance | lifecycle state machine, drift/special-case tracking, draft registry |
-| W6 | 2026-07-20 ~ 2026-07-26 | Large-scale data acquisition and cleaning research | source registry, batch planner, dedup/quality benchmark, lakehouse research |
-| W7 | 2026-07-27 ~ 2026-07-31 | AgentOps and portfolio hardening | AgentOps reliability design, serving-scale research, final stabilization |
+| W6 | 2026-07-10 ~ 2026-07-12 | Accelerated data platform + Kubernetes foundation | curation/lakehouse plan, Kubernetes resource map, metadata API contract |
+| W7 | 2026-07-13 ~ 2026-07-15 | Accelerated Control Panel + runtime hardening | animated Kubernetes/pipeline/resource control UI, Kubernetes smoke proof, serving-scale handoff |
 
 ## 4. W0: 2026-06-22 ~ 2026-06-28
 
@@ -368,12 +368,14 @@ docs/releases/2026-07-enterprise-mlops-mvp.md
 docs/runbooks/final-demo-script.md
 ```
 
-## 10. W6: 2026-07-20 ~ 2026-07-26
+## 10. W6: 2026-07-10 ~ 2026-07-12
 
-W6 focuses on large-scale data acquisition and cleaning research. The goal is
-to keep the platform domain-general by moving dataset-specific choices into
-policy/domain packs while standardizing source registration, object layout,
-collection checkpoints, cleaning benchmarks, and curation states.
+W6 is compressed into the 2026-07-10 to 2026-07-12 window. It keeps the
+large-scale data acquisition and cleaning research scope, but now also prepares
+the runtime for Kubernetes and Control Panel work. The exit criterion is not a
+production Kubernetes migration; it is a clear resource map, local manifest
+scaffold, and metadata API contract that can expose the W5 lifecycle without
+manual artifact chasing.
 
 | ID | Task | Output |
 |---|---|---|
@@ -382,12 +384,20 @@ collection checkpoints, cleaning benchmarks, and curation states.
 | `EVM-203` | Deduplication and cleaning benchmark | exact/perceptual hash and quality benchmark |
 | `EVM-204` | Labeling and curation workflow | review queue, label states, curated eval promotion |
 | `EVM-205` | Lakehouse-scale ingestion research spike | DuckDB/Polars/Spark/Iceberg prototype recommendation |
+| `EVM-221` | Kubernetes runtime resource map | Compose services mapped to Deployment/Service/PVC/Secret/Job/CronJob |
+| `EVM-222` | Local Kubernetes manifest scaffold | k8s overlays for API, MLflow, MinIO, Prometheus/Grafana, and batch Job |
+| `EVM-223` | Control Panel metadata and control API contract | cycle-run, dataset, model, lineage, task assignment, resource action, promotion, and serving status schema |
 
-## 11. W7: 2026-07-27 ~ 2026-07-31
+## 11. W7: 2026-07-13 ~ 2026-07-15
 
-W7 focuses on post-MVP governance and portfolio hardening. This is where draft
-management, decision traceability, AgentOps reliability design, and serving
-scale research are organized into the next implementation lanes.
+W7 is compressed into the 2026-07-13 to 2026-07-15 window. It keeps the
+governance, AgentOps, and serving-scale research scope, and adds the first
+usable enterprise MLOps Control Panel v0. The Control Panel should read
+lifecycle, registry, dataset, Kubernetes, Airflow/MLflow, and Prometheus
+evidence through metadata and control APIs so the user can inspect a full cycle
+visually instead of opening each artifact file by hand. It must also define the
+first UI/control boundary for task authoring, task assignment, resource-control
+intent, and stage-level intermediate result review.
 
 | ID | Task | Output |
 |---|---|---|
@@ -395,6 +405,15 @@ scale research are organized into the next implementation lanes.
 | `EVM-212` | AgentOps reliability follow-up design | LLM agent, LangGraph, HITL, tool-call audit scope |
 | `EVM-213` | Scale serving research plan | vLLM/Triton/KServe/Ray Serve/Kueue comparison |
 | `EVM-214` | July portfolio stabilization review | demo evidence, known gaps, backlog, handoff risks |
+| `EVM-224` | Cycle lineage aggregation API | endpoint returns run, dataset, model, metrics, gate, artifacts, serving state, and orchestration references |
+| `EVM-225` | MLOps Control Panel v0 | tabbed/depth UI for Kubernetes control, pipeline control, resource management, cycle detail, dataset/model cards, gate, lineage, and serving status |
+| `EVM-226` | Kubernetes local smoke proof | at least one API or pipeline job path runs under local Kubernetes/k3s/kind |
+| `EVM-227` | GPU/VLM serving deployment design | Windows RTX, KServe/Triton/vLLM/Ray Serve roles and constraints documented |
+| `EVM-228` | Compressed W6/W7 integration review | 2026-07-15 handoff evidence across Git/Jira/Notion/Obsidian |
+| `EVM-229` | Kubernetes resource topology and animation UI | animated namespace/node/pod/job/service/PVC/GPU state with allocation and readiness drilldowns |
+| `EVM-230` | Airflow and MLflow task authoring and assignment UI | draft/edit/assign/validate/queue tasks with owner, priority, resource profile, config, DAG/run, and experiment/run references |
+| `EVM-231` | Live pipeline timeline and intermediate result drilldown | animated data intake, validation, quality, training, registry, inference, serving, and monitoring stages with artifacts, metrics, logs, and sample outputs |
+| `EVM-232` | Resource control protocol and audit guardrails | dry-run/confirm/apply command intents for Kubernetes, Airflow, and MLflow actions with actor, audit, cancel, and rollback semantics |
 
 ## 12. 압축 일정 기준의 Scope Control
 
@@ -412,7 +431,7 @@ scale research are organized into the next implementation lanes.
 
 7월 말 이후로 넘길 수 있는 것:
 
-- 완전한 Kubernetes 운영
+- production-grade multi-node Kubernetes operation
 - multi-node GPU training
 - Triton/KServe production deployment
 - full canary rollout

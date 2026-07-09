@@ -411,8 +411,8 @@ def sprint_goal(week: str) -> str:
         "W3": "Registry-driven serving and remote worker jobs",
         "W4": "Current-week enterprise VLM MLOps completion",
         "W5": "Real model lifecycle, serving, drift, and remote validation",
-        "W6": "Large-scale data acquisition and cleaning research",
-        "W7": "AgentOps reliability and portfolio hardening",
+        "W6": "Accelerated data platform and Kubernetes runtime foundation",
+        "W7": "Animated enterprise Control Panel, Kubernetes smoke proof, task/resource control, and serving-scale handoff",
     }
     return goals.get(week, "Enterprise MLOps weekly execution")
 

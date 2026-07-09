@@ -65,8 +65,9 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-EPIC-13` | Manufacturing VLM P0 Foundation | 2026-07-12 | Done | current-week completion sprint: dataset, manifest, adapter, router, batch inference |
 | `EVM-EPIC-14` | VLM Reliability Evaluation And Portfolio Cut | 2026-07-12 | Done | current-week regression gate, rollback simulation, failure scenarios, benchmark, RCA, final portfolio evidence |
 | `EVM-EPIC-15` | Model Lifecycle And Drift Operations | 2026-07-W5 | Planned | real model lifecycle state machine, candidate promotion, drift/special-case tracking, and alert review |
-| `EVM-EPIC-16` | Large-scale Data Acquisition And Cleaning Research | 2026-07-W6 | Planned | source registry, scalable acquisition, dedup/quality benchmark, and lakehouse ingestion research |
+| `EVM-EPIC-16` | Large-scale Data Acquisition And Cleaning Research | 2026-07-W6 | Planned | source registry, scalable acquisition, dedup/quality benchmark, curation, and lakehouse ingestion research |
 | `EVM-EPIC-17` | Draft Decision And AgentOps Governance | 2026-07-W7 | Planned | draft/proposal registry, decision trail, AgentOps reliability design, and final portfolio hardening |
+| `EVM-EPIC-18` | Kubernetes Runtime And MLOps Control Panel | 2026-07-W7 | Planned | Kubernetes runtime foundation, metadata/control API, animated visual cycle panel, resource control, task assignment, and serving-scale handoff |
 
 ## Backlog
 
@@ -324,6 +325,31 @@ AgentOps reliability, and production-scale serving options.
 | `EVM-213` | Scale serving research plan | Planned | 2026-07-W7 | vLLM, Triton, KServe, Ray Serve, and Kueue are compared for the next production-serving path |
 | `EVM-214` | July portfolio stabilization review | Planned | 2026-07-W7 | final demo evidence, known gaps, post-MVP backlog, and handoff risks are consolidated |
 
+### Phase 18. Kubernetes Runtime And MLOps Control Panel
+
+This compressed sprint supplements W6/W7 with the next system architecture
+upgrade: Kubernetes-ready runtime boundaries plus an enterprise MLOps Control
+Panel. The goal is to stop relying on manual artifact-file inspection for every
+cycle and prepare the Docker Compose foundation for local Kubernetes/k3s/kind
+execution. The Control Panel must make Kubernetes resource state, Airflow/MLflow
+task assignment, data intake, training, inference, intermediate artifacts, and
+resource-control actions visible through real-time or near-real-time UI states.
+
+| ID | Task | Status | Target | Acceptance Criteria |
+|---|---|---|---:|---|
+| `EVM-221` | Kubernetes runtime resource map | Planned | 2026-07-W6 | Docker Compose services are mapped to Kubernetes Deployment/Service/PVC/Secret/ConfigMap/Job/CronJob resources with CPU/GPU/storage placement notes |
+| `EVM-222` | Local Kubernetes manifest scaffold | Planned | 2026-07-W6 | initial k8s manifests or overlays exist for API, MLflow, MinIO, Prometheus/Grafana, and at least one pipeline Job |
+| `EVM-223` | Control Panel metadata and control API contract | Planned | 2026-07-W6 | API contract defines cycle run, dataset version, model version, lineage, metrics, promotion gate, artifacts, serving state, command intent, task assignment, and resource action schemas |
+| `EVM-224` | Cycle lineage aggregation API | Planned | 2026-07-W7 | backend endpoint aggregates registry, lifecycle, dataset, Airflow/MLflow references, Prometheus serving status, and artifact links for one cycle |
+| `EVM-225` | MLOps Control Panel v0 | Planned | 2026-07-W7 | UI provides tabbed/depth navigation for Kubernetes control, pipeline control, resource management, lineage, artifacts, cycle detail, dataset/model cards, promotion blockers, and serving state |
+| `EVM-226` | Kubernetes local smoke proof | Planned | 2026-07-W7 | local Kubernetes/k3s/kind run proves at least one API or pipeline job path with documented commands and screenshots/logs |
+| `EVM-227` | GPU/VLM serving deployment design | Planned | 2026-07-W7 | Windows RTX, Mac mini evaluator, KServe/Triton/vLLM/Ray Serve options, and GPU scheduling constraints are compared for next implementation |
+| `EVM-228` | Compressed W6/W7 integration review | Planned | 2026-07-W7 | Git/Jira/Notion/Obsidian evidence confirms W6/W7 scope, remaining risks, and next handoff by the 2026-07-15 target |
+| `EVM-229` | Kubernetes resource topology and animation UI | Planned | 2026-07-W7 | UI visualizes namespace/node/pod/job/service/PVC/GPU state with readable animated transitions and drilldowns for allocation, pressure, restarts, and readiness |
+| `EVM-230` | Airflow and MLflow task authoring and assignment UI | Planned | 2026-07-W7 | UI can draft, edit, assign, validate, and queue pipeline tasks with owner, priority, resource profile, config payload, Airflow DAG/run reference, and MLflow experiment/run reference |
+| `EVM-231` | Live pipeline timeline and intermediate result drilldown | Planned | 2026-07-W7 | data intake, validation, quality gate, training, registry, inference, serving, and monitoring stages show animated current state plus stage-level artifacts, metrics, logs, sample outputs, and failure reasons |
+| `EVM-232` | Resource control protocol and audit guardrails | Planned | 2026-07-W7 | Kubernetes, Airflow, and MLflow actions are represented as explicit command intents with dry-run/confirm/apply states, audit trail, RBAC-ready actor fields, and rollback or cancel semantics |
+
 ## Jira Mapping
 
 Jira live sync 기준 mapping이다.
@@ -387,6 +413,7 @@ Jira live sync 기준 mapping이다.
 | `EVM-EPIC-15` | `SCRUM-62` | Epic | https://opop0236.atlassian.net/browse/SCRUM-62 |
 | `EVM-EPIC-16` | `SCRUM-63` | Epic | https://opop0236.atlassian.net/browse/SCRUM-63 |
 | `EVM-EPIC-17` | `SCRUM-64` | Epic | https://opop0236.atlassian.net/browse/SCRUM-64 |
+| `EVM-EPIC-18` | `SCRUM-98` | Epic | https://opop0236.atlassian.net/browse/SCRUM-98 |
 | `EVM-134` | `SCRUM-65` | Task | https://opop0236.atlassian.net/browse/SCRUM-65 |
 | `EVM-135` | `SCRUM-66` | Task | https://opop0236.atlassian.net/browse/SCRUM-66 |
 | `EVM-136` | `SCRUM-91` | Task | https://opop0236.atlassian.net/browse/SCRUM-91 |
@@ -419,6 +446,18 @@ Jira live sync 기준 mapping이다.
 | `EVM-212` | `SCRUM-88` | Task | https://opop0236.atlassian.net/browse/SCRUM-88 |
 | `EVM-213` | `SCRUM-89` | Task | https://opop0236.atlassian.net/browse/SCRUM-89 |
 | `EVM-214` | `SCRUM-90` | Task | https://opop0236.atlassian.net/browse/SCRUM-90 |
+| `EVM-221` | `SCRUM-99` | Task | https://opop0236.atlassian.net/browse/SCRUM-99 |
+| `EVM-222` | `SCRUM-100` | Task | https://opop0236.atlassian.net/browse/SCRUM-100 |
+| `EVM-223` | `SCRUM-101` | Task | https://opop0236.atlassian.net/browse/SCRUM-101 |
+| `EVM-224` | `SCRUM-102` | Task | https://opop0236.atlassian.net/browse/SCRUM-102 |
+| `EVM-225` | `SCRUM-103` | Task | https://opop0236.atlassian.net/browse/SCRUM-103 |
+| `EVM-226` | `SCRUM-104` | Task | https://opop0236.atlassian.net/browse/SCRUM-104 |
+| `EVM-227` | `SCRUM-105` | Task | https://opop0236.atlassian.net/browse/SCRUM-105 |
+| `EVM-228` | `SCRUM-106` | Task | https://opop0236.atlassian.net/browse/SCRUM-106 |
+| `EVM-229` | `SCRUM-107` | Task | https://opop0236.atlassian.net/browse/SCRUM-107 |
+| `EVM-230` | `SCRUM-108` | Task | https://opop0236.atlassian.net/browse/SCRUM-108 |
+| `EVM-231` | `SCRUM-109` | Task | https://opop0236.atlassian.net/browse/SCRUM-109 |
+| `EVM-232` | `SCRUM-110` | Task | https://opop0236.atlassian.net/browse/SCRUM-110 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
 | `EVM-BUG-004` | `SCRUM-55` | Bug | Jira: https://opop0236.atlassian.net/browse/SCRUM-55<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 |
