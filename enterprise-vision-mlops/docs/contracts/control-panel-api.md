@@ -242,6 +242,12 @@ The W7 Control Panel should be able to build these views from the contract:
 - command confirmation and audit drawer
 - stage-level artifact/metric/log/sample-output drilldown
 
+The binding rules are fixed in
+`docs/status/2026-07-09-w7-implementation-acceptance-matrix.md`. UI work should
+not be closed unless each view reads live `CycleRun` or related API responses.
+Static example JSON is allowed for development fixtures only, not as completion
+evidence.
+
 ## Implementation Notes
 
 - `EVM-224` should implement a read-only aggregator that emits `CycleRun`.
@@ -259,3 +265,6 @@ The W7 Control Panel should be able to build these views from the contract:
   to in-cluster Airflow resources or an operator-backed control mode.
 - Actual Airflow/MLflow/Kubernetes write operations should stay behind
   dry-run and confirmation until audit and rollback paths exist.
+- Each W7 issue from `EVM-224` to `EVM-238` must close against the acceptance
+  matrix: implementation files, input data, output artifacts, verification
+  command, success criteria, and failure blocker.

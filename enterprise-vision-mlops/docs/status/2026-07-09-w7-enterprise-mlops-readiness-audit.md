@@ -188,3 +188,9 @@ W7 implementation should start by wiring the read-only aggregation layer first:
 5. Treat `EVM-237` and `EVM-238` as the W7 model-evidence gate: real
    Torch/TorchVision EfficientNet-B0/B7 candidates, no mock adapters, and no
    smoke-only completion claims.
+
+The detailed closure rule for each W7 issue is now fixed in
+`docs/status/2026-07-09-w7-implementation-acceptance-matrix.md`. No issue from
+`EVM-224` through `EVM-238` should be marked Done unless that matrix row has
+real implementation files, input data, output artifacts, verification commands,
+success criteria, and blocker evidence.

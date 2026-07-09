@@ -342,6 +342,13 @@ and smoke-only checks are no longer acceptable completion proof; model work must
 use real Torch training/evaluation over real dataset records, starting with a
 parallel EfficientNet-B0/B7 candidate matrix.
 
+Implementation closure for `EVM-224` through `EVM-238` must follow
+`docs/status/2026-07-09-w7-implementation-acceptance-matrix.md`. Each issue
+must have implementation files, input data, output artifacts, verification
+commands, success criteria, and blocker rules before it can be marked Done.
+`EVM-224` is the hard dependency for UI work; Control Panel views must bind to
+live `CycleRun` API fields, not static examples.
+
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
 | `EVM-221` | Kubernetes runtime resource map | Done | 2026-07-W6 | Docker Compose services are mapped to Kubernetes Deployment/Service/PVC/Secret/ConfigMap/Job/CronJob resources with CPU/GPU/storage placement notes |

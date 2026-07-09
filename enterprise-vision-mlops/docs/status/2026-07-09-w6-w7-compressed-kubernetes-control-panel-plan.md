@@ -10,6 +10,27 @@ The W6 and W7 plan is compressed to finish by next Wednesday,
 | W6 | 2026-07-10 to 2026-07-12 | data curation/lakehouse work, Kubernetes resource map, manifest scaffold, metadata API contract |
 | W7 | 2026-07-13 to 2026-07-15 | enterprise Control Panel v0, animated Kubernetes/pipeline/resource control UI, Kubernetes real execution proof, governance, serving-scale handoff, final integration review |
 
+## 2026-07-09 Scope Control Update
+
+Review feedback identified W7 scope risk: `EVM-224` through `EVM-238` cannot be
+implemented at equal depth without becoming a shallow demo. W7 now follows the
+acceptance matrix in:
+
+- `docs/status/2026-07-09-w7-implementation-acceptance-matrix.md`
+
+Execution order:
+
+1. `EVM-224` read-only aggregation API and `EVM-238` real-test policy are P0.
+2. UI work must bind to live `CycleRun` fields, not static example JSON.
+3. Kubernetes proof must use `kubectl apply`, pod/job status, logs, and
+   artifact evidence.
+4. EfficientNet evidence must include MLflow runs, model artifacts, metric
+   matrix, GPU resource profile, and blocked/failure reasons.
+5. Airflow/MLflow task authoring remains dry-run/queued/confirm/audit before
+   mutation.
+6. Mock adapters, placeholder predictions, and smoke-only checks are excluded
+   from W7 completion evidence.
+
 ## Scope Added
 
 New Epic:
@@ -52,6 +73,12 @@ New Control Panel detail mapping:
 - `EVM-230` -> `SCRUM-108`
 - `EVM-231` -> `SCRUM-109`
 - `EVM-232` -> `SCRUM-110`
+- `EVM-233` -> `SCRUM-111`
+- `EVM-234` -> `SCRUM-112`
+- `EVM-235` -> `SCRUM-113`
+- `EVM-236` -> `SCRUM-114`
+- `EVM-237` -> `SCRUM-115`
+- `EVM-238` -> `SCRUM-116`
 
 ## Enterprise Control Panel Addendum
 
@@ -143,3 +170,4 @@ evidence from historical mock/smoke evidence.
 - `docs/agenda/enterprise-mlops-accelerated-weekly-schedule.md`
 - `docs/agenda/enterprise-mlops-implementation-agenda.md`
 - `docs/issues/issue-register.md`
+- `docs/status/2026-07-09-w7-implementation-acceptance-matrix.md`
