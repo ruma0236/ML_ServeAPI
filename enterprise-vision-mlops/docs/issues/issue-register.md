@@ -337,7 +337,7 @@ resource-control actions visible through real-time or near-real-time UI states.
 
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
-| `EVM-221` | Kubernetes runtime resource map | Planned | 2026-07-W6 | Docker Compose services are mapped to Kubernetes Deployment/Service/PVC/Secret/ConfigMap/Job/CronJob resources with CPU/GPU/storage placement notes |
+| `EVM-221` | Kubernetes runtime resource map | Done | 2026-07-W6 | Docker Compose services are mapped to Kubernetes Deployment/Service/PVC/Secret/ConfigMap/Job/CronJob resources with CPU/GPU/storage placement notes |
 | `EVM-222` | Local Kubernetes manifest scaffold | Planned | 2026-07-W6 | initial k8s manifests or overlays exist for API, MLflow, MinIO, Prometheus/Grafana, and at least one pipeline Job |
 | `EVM-223` | Control Panel metadata and control API contract | Planned | 2026-07-W6 | API contract defines cycle run, dataset version, model version, lineage, metrics, promotion gate, artifacts, serving state, command intent, task assignment, and resource action schemas |
 | `EVM-224` | Cycle lineage aggregation API | Planned | 2026-07-W7 | backend endpoint aggregates registry, lifecycle, dataset, Airflow/MLflow references, Prometheus serving status, and artifact links for one cycle |

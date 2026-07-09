@@ -1,0 +1,334 @@
+{
+  "schema_version": "2026-07-09.w6.evm-runtime-map.v1",
+  "project": "enterprise-vision-mlops",
+  "source": {
+    "compose_file": "docker-compose.yml",
+    "branch": "codex/mac-mini-worker",
+    "issue": "EVM-221",
+    "jira": "SCRUM-99"
+  },
+  "storage_roots": {
+    "large_data_host_root": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+    "data_mount_root": "/mnt/evm-data",
+    "minio_host_root": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/minio",
+    "artifacts_host_root": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts"
+  },
+  "namespaces": [
+    {
+      "name": "evm-platform",
+      "purpose": "core metadata, orchestration, registry, object store, API, and monitoring services"
+    },
+    {
+      "name": "evm-pipelines",
+      "purpose": "batch jobs, Airflow-triggered pipeline jobs, and future GPU/VLM workloads"
+    }
+  ],
+  "node_pools": [
+    {
+      "name": "windows-rtx",
+      "role": "primary local GPU trainer and VLM serving candidate",
+      "accelerators": ["nvidia-rtx-4080-super"],
+      "expected_workloads": ["gpu-training-job", "vlm-serving-deployment", "gpu-batch-inference-job"]
+    },
+    {
+      "name": "local-cpu",
+      "role": "default local control-plane and CPU pipeline execution",
+      "accelerators": [],
+      "expected_workloads": ["api", "airflow", "mlflow", "prometheus", "grafana", "cpu-batch-jobs"]
+    },
+    {
+      "name": "mac-mini-remote",
+      "role": "ARM64 remote evaluator outside the initial Kubernetes cluster",
+      "accelerators": [],
+      "expected_workloads": ["remote-eval-job", "cross-platform-smoke"]
+    }
+  ],
+  "secrets": [
+    {
+      "name": "evm-postgres-secret",
+      "keys": ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"],
+      "scope": ["postgres", "mlflow"]
+    },
+    {
+      "name": "evm-airflow-postgres-secret",
+      "keys": ["AIRFLOW_POSTGRES_USER", "AIRFLOW_POSTGRES_PASSWORD", "AIRFLOW_POSTGRES_DB"],
+      "scope": ["airflow-postgres", "airflow-webserver", "airflow-scheduler", "airflow-init"]
+    },
+    {
+      "name": "evm-minio-secret",
+      "keys": ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+      "scope": ["minio", "minio-create-buckets", "mlflow", "airflow", "pipeline-jobs"]
+    },
+    {
+      "name": "evm-grafana-secret",
+      "keys": ["GRAFANA_ADMIN_USER", "GRAFANA_ADMIN_PASSWORD"],
+      "scope": ["grafana"]
+    }
+  ],
+  "config_maps": [
+    {
+      "name": "evm-runtime-config",
+      "keys": [
+        "EVM_PROJECT_ROOT",
+        "EVM_PIPELINE_CONFIG",
+        "EVM_DATA_MOUNT_ROOT",
+        "MLFLOW_TRACKING_URI",
+        "MLFLOW_S3_ENDPOINT_URL",
+        "MODEL_NAME",
+        "MODEL_STAGE"
+      ]
+    },
+    {
+      "name": "evm-prometheus-config",
+      "source_path": "monitoring/prometheus/prometheus.yml"
+    },
+    {
+      "name": "evm-grafana-provisioning",
+      "source_path": "monitoring/grafana/provisioning"
+    }
+  ],
+  "persistent_volumes": [
+    {
+      "name": "postgres-data",
+      "compose_volume": "postgres-data",
+      "kubernetes": ["PersistentVolumeClaim"],
+      "storage_class_hint": "local-path",
+      "access_mode": "ReadWriteOnce",
+      "capacity_hint": "20Gi",
+      "host_path_hint": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/k8s/postgres"
+    },
+    {
+      "name": "airflow-postgres-data",
+      "compose_volume": "airflow-postgres-data",
+      "kubernetes": ["PersistentVolumeClaim"],
+      "storage_class_hint": "local-path",
+      "access_mode": "ReadWriteOnce",
+      "capacity_hint": "20Gi",
+      "host_path_hint": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/k8s/airflow-postgres"
+    },
+    {
+      "name": "minio-data",
+      "compose_volume": "EVM_HOST_MINIO_ROOT",
+      "kubernetes": ["PersistentVolumeClaim"],
+      "storage_class_hint": "local-path",
+      "access_mode": "ReadWriteOnce",
+      "capacity_hint": "1Ti+",
+      "host_path_hint": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/minio"
+    },
+    {
+      "name": "evm-large-data",
+      "compose_volume": "EVM_HOST_DATA_ROOT",
+      "kubernetes": ["PersistentVolume", "PersistentVolumeClaim"],
+      "storage_class_hint": "local-path",
+      "access_mode": "ReadWriteMany if available, otherwise ReadWriteOnce per worker",
+      "capacity_hint": "1Ti+",
+      "host_path_hint": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops"
+    },
+    {
+      "name": "prometheus-data",
+      "compose_volume": "prometheus-data",
+      "kubernetes": ["PersistentVolumeClaim"],
+      "storage_class_hint": "local-path",
+      "access_mode": "ReadWriteOnce",
+      "capacity_hint": "50Gi",
+      "host_path_hint": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/k8s/prometheus"
+    },
+    {
+      "name": "grafana-data",
+      "compose_volume": "grafana-data",
+      "kubernetes": ["PersistentVolumeClaim"],
+      "storage_class_hint": "local-path",
+      "access_mode": "ReadWriteOnce",
+      "capacity_hint": "10Gi",
+      "host_path_hint": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/k8s/grafana"
+    },
+    {
+      "name": "airflow-logs",
+      "compose_volume": "airflow-logs",
+      "kubernetes": ["PersistentVolumeClaim"],
+      "storage_class_hint": "local-path",
+      "access_mode": "ReadWriteMany if scheduler and webserver share logs",
+      "capacity_hint": "50Gi",
+      "host_path_hint": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/k8s/airflow-logs"
+    }
+  ],
+  "services": [
+    {
+      "compose_service": "postgres",
+      "role": "MLflow backend metadata database",
+      "kubernetes_resources": ["StatefulSet", "Service", "PersistentVolumeClaim", "Secret"],
+      "namespace": "evm-platform",
+      "ports": [{"name": "postgres", "port": 5432, "host_port": 5433}],
+      "placement": {"node_pool": "local-cpu", "gpu_required": false},
+      "storage": ["postgres-data"],
+      "readiness": "pg_isready"
+    },
+    {
+      "compose_service": "airflow-postgres",
+      "role": "Airflow metadata database",
+      "kubernetes_resources": ["StatefulSet", "Service", "PersistentVolumeClaim", "Secret"],
+      "namespace": "evm-platform",
+      "ports": [{"name": "postgres", "port": 5432}],
+      "placement": {"node_pool": "local-cpu", "gpu_required": false},
+      "storage": ["airflow-postgres-data"],
+      "readiness": "pg_isready"
+    },
+    {
+      "compose_service": "airflow-init",
+      "role": "Airflow database migration and admin bootstrap",
+      "kubernetes_resources": ["Job", "ConfigMap", "Secret"],
+      "namespace": "evm-platform",
+      "placement": {"node_pool": "local-cpu", "gpu_required": false},
+      "depends_on": ["airflow-postgres"],
+      "completion_gate": "job succeeded before webserver/scheduler start"
+    },
+    {
+      "compose_service": "airflow-webserver",
+      "role": "Airflow DAG UI and trigger endpoint",
+      "kubernetes_resources": ["Deployment", "Service", "ConfigMap", "Secret", "PersistentVolumeClaim"],
+      "namespace": "evm-platform",
+      "ports": [{"name": "http", "port": 8080, "host_port": 8080}],
+      "placement": {"node_pool": "local-cpu", "gpu_required": false},
+      "storage": ["evm-large-data", "airflow-logs"],
+      "readiness": "GET /health"
+    },
+    {
+      "compose_service": "airflow-scheduler",
+      "role": "DAG scheduling and local task orchestration",
+      "kubernetes_resources": ["Deployment", "ConfigMap", "Secret", "PersistentVolumeClaim"],
+      "namespace": "evm-platform",
+      "placement": {"node_pool": "local-cpu", "gpu_required": false},
+      "storage": ["evm-large-data", "airflow-logs"],
+      "readiness": "airflow jobs check"
+    },
+    {
+      "compose_service": "minio",
+      "role": "S3-compatible object store for raw, processed, validated, and MLflow artifacts",
+      "kubernetes_resources": ["StatefulSet", "Service", "PersistentVolumeClaim", "Secret"],
+      "namespace": "evm-platform",
+      "ports": [
+        {"name": "api", "port": 9000, "host_port": 9000},
+        {"name": "console", "port": 9001, "host_port": 9001}
+      ],
+      "placement": {"node_pool": "local-cpu", "gpu_required": false, "storage_preference": "F-drive"},
+      "storage": ["minio-data"],
+      "readiness": "GET /minio/health/ready"
+    },
+    {
+      "compose_service": "minio-create-buckets",
+      "role": "object bucket bootstrap",
+      "kubernetes_resources": ["Job", "Secret"],
+      "namespace": "evm-platform",
+      "placement": {"node_pool": "local-cpu", "gpu_required": false},
+      "depends_on": ["minio"],
+      "completion_gate": "raw, processed, validated, mlflow-artifacts buckets exist"
+    },
+    {
+      "compose_service": "mlflow",
+      "role": "experiment tracking, registry, and artifact routing",
+      "kubernetes_resources": ["Deployment", "Service", "Secret", "ConfigMap"],
+      "namespace": "evm-platform",
+      "ports": [{"name": "http", "port": 5000, "host_port": 5000}],
+      "placement": {"node_pool": "local-cpu", "gpu_required": false},
+      "depends_on": ["postgres", "minio-create-buckets"],
+      "readiness": "GET /health"
+    },
+    {
+      "compose_service": "api",
+      "role": "FastAPI model serving and metrics endpoint",
+      "kubernetes_resources": ["Deployment", "Service", "ConfigMap", "PersistentVolumeClaim"],
+      "namespace": "evm-platform",
+      "ports": [{"name": "http", "port": 8000, "host_port": 8000}],
+      "placement": {"node_pool": "local-cpu", "gpu_required": false, "future_gpu_node_pool": "windows-rtx"},
+      "storage": ["evm-large-data"],
+      "depends_on": ["mlflow"],
+      "readiness": "GET /health and /ready"
+    },
+    {
+      "compose_service": "prometheus",
+      "role": "metrics scraping and short-term metrics storage",
+      "kubernetes_resources": ["Deployment", "Service", "ConfigMap", "PersistentVolumeClaim"],
+      "namespace": "evm-platform",
+      "ports": [{"name": "http", "port": 9090, "host_port": 9090}],
+      "placement": {"node_pool": "local-cpu", "gpu_required": false},
+      "storage": ["prometheus-data"],
+      "depends_on": ["api"],
+      "readiness": "GET /-/ready"
+    },
+    {
+      "compose_service": "grafana",
+      "role": "dashboard UI",
+      "kubernetes_resources": ["Deployment", "Service", "Secret", "ConfigMap", "PersistentVolumeClaim"],
+      "namespace": "evm-platform",
+      "ports": [{"name": "http", "port": 3000, "host_port": 3000}],
+      "placement": {"node_pool": "local-cpu", "gpu_required": false},
+      "storage": ["grafana-data"],
+      "depends_on": ["prometheus"],
+      "readiness": "GET /api/health"
+    }
+  ],
+  "pipeline_workloads": [
+    {
+      "name": "evm-pipeline-job",
+      "source": "scripts/run_pipeline.py",
+      "kubernetes_resources": ["Job", "ConfigMap", "Secret", "PersistentVolumeClaim"],
+      "namespace": "evm-pipelines",
+      "placement": {"node_pool": "local-cpu", "gpu_required": false},
+      "storage": ["evm-large-data"],
+      "examples": ["dataset-intake-audit", "data-validate", "image-quality", "train", "register-model"]
+    },
+    {
+      "name": "evm-gpu-training-job",
+      "source": "future deep image or VLM training container",
+      "kubernetes_resources": ["Job", "PersistentVolumeClaim", "Secret"],
+      "namespace": "evm-pipelines",
+      "placement": {"node_pool": "windows-rtx", "gpu_required": true, "gpu_resource": "nvidia.com/gpu: 1"},
+      "storage": ["evm-large-data"],
+      "examples": ["deep-image-train", "vlm-finetune-smoke"]
+    },
+    {
+      "name": "evm-vlm-serving",
+      "source": "future vLLM/Triton/KServe/Ray Serve deployment",
+      "kubernetes_resources": ["Deployment", "Service", "HorizontalPodAutoscaler", "PersistentVolumeClaim"],
+      "namespace": "evm-pipelines",
+      "placement": {"node_pool": "windows-rtx", "gpu_required": true, "gpu_resource": "nvidia.com/gpu: 1"},
+      "storage": ["evm-large-data"],
+      "examples": ["qwen-vl-endpoint", "industrial-vlm-endpoint"]
+    }
+  ],
+  "control_panel_resource_fields": [
+    "namespace",
+    "resource_kind",
+    "resource_name",
+    "owner_issue",
+    "status",
+    "readiness",
+    "restarts",
+    "cpu_request",
+    "memory_request",
+    "gpu_request",
+    "storage_claim",
+    "storage_root",
+    "node_pool",
+    "last_transition_time",
+    "dependencies",
+    "control_actions"
+  ],
+  "control_actions": [
+    {
+      "action": "restart_deployment",
+      "allowed_targets": ["api", "airflow-webserver", "airflow-scheduler", "mlflow", "prometheus", "grafana"],
+      "requires_confirmation": true
+    },
+    {
+      "action": "run_pipeline_job",
+      "allowed_targets": ["evm-pipeline-job"],
+      "requires_confirmation": true
+    },
+    {
+      "action": "scale_deployment",
+      "allowed_targets": ["api", "future-vlm-serving"],
+      "requires_confirmation": true
+    }
+  ]
+}
