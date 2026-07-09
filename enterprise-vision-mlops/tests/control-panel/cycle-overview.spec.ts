@@ -15,6 +15,32 @@ test("renders live CycleRun overview and captures evidence", async ({ page }) =>
   await expect(page.getByText(modelLabel)).toBeVisible();
   await expect(page.getByText(cycle.dataset.version, { exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Control Panel views" })).toBeVisible();
+  await expect(page.locator(".ring-sweep")).toBeVisible();
+
+  const ringGeometry = await page.locator(".cycle-ring").evaluate((ring) => {
+    const ringRect = ring.getBoundingClientRect();
+    const ringCenterX = ringRect.left + ringRect.width / 2;
+    const ringCenterY = ringRect.top + ringRect.height / 2;
+    return Array.from(ring.querySelectorAll(".ring-node")).map((node) => {
+      const rect = node.getBoundingClientRect();
+      const nodeCenterX = rect.left + rect.width / 2;
+      const nodeCenterY = rect.top + rect.height / 2;
+      return {
+        insideRing:
+          rect.left >= ringRect.left &&
+          rect.right <= ringRect.right &&
+          rect.top >= ringRect.top &&
+          rect.bottom <= ringRect.bottom,
+        distanceFromCenter: Math.hypot(nodeCenterX - ringCenterX, nodeCenterY - ringCenterY)
+      };
+    });
+  });
+  expect(ringGeometry.length).toBeGreaterThan(0);
+  for (const node of ringGeometry) {
+    expect(node.insideRing).toBeTruthy();
+    expect(node.distanceFromCenter).toBeGreaterThan(60);
+    expect(node.distanceFromCenter).toBeLessThan(100);
+  }
 
   await page.getByRole("button", { name: "Readiness" }).click();
   await expect(page.getByRole("heading", { name: "Real-Test Policy" })).toBeVisible();

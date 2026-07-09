@@ -1,3 +1,5 @@
+import type { CSSProperties, ReactNode } from "react";
+
 import { Activity, Boxes, Database, GitBranch, RadioTower, ServerCog } from "lucide-react";
 
 import { formatNumber, summarizeCycle } from "../api/controlPanelClient";
@@ -10,6 +12,9 @@ interface CycleOverviewProps {
 
 export function CycleOverview({ cycle }: CycleOverviewProps) {
   const summary = summarizeCycle(cycle);
+  const visibleStages = cycle.stages.slice(0, 9);
+  const nodeCount = Math.max(visibleStages.length, 1);
+
   return (
     <section className="overview-grid" aria-label="Cycle overview">
       <div className="summary-strip">
@@ -28,17 +33,20 @@ export function CycleOverview({ cycle }: CycleOverviewProps) {
           <StatusBadge status={cycle.status} />
         </div>
         <div className="cycle-ring" aria-label={`Current cycle status ${cycle.status}`}>
+          <div className="ring-sweep" aria-hidden="true" />
           <div className="ring-core">
             <span>{summary.stageCount}</span>
             <small>stages</small>
           </div>
-          {cycle.stages.slice(0, 9).map((stage, index) => (
-            <i
+          {visibleStages.map((stage, index) => (
+            <span
               key={stage.stage_id}
-              className={`ring-node node-${stage.status}`}
-              style={{ transform: `rotate(${index * (360 / Math.max(cycle.stages.length, 1))}deg) translateY(-86px)` }}
+              className="ring-node-anchor"
+              style={{ "--angle": `${index * (360 / nodeCount)}deg` } as CSSProperties}
               title={`${stage.name}: ${stage.status}`}
-            />
+            >
+              <span className={`ring-node node-${stage.status}`} />
+            </span>
           ))}
         </div>
       </div>
@@ -78,7 +86,7 @@ export function CycleOverview({ cycle }: CycleOverviewProps) {
   );
 }
 
-function MetricTile({ icon, label, value, status }: { icon: React.ReactNode; label: string; value: string; status: string | undefined }) {
+function MetricTile({ icon, label, value, status }: { icon: ReactNode; label: string; value: string; status: string | undefined }) {
   return (
     <div className="metric-tile">
       <div className="metric-icon">{icon}</div>

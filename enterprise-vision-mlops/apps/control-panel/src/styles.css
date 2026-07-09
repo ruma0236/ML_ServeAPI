@@ -654,23 +654,67 @@ h3 {
 
 .cycle-card {
   display: grid;
+  align-content: start;
   min-height: 330px;
 }
 
 .cycle-ring {
+  --ring-size: 220px;
+  --ring-radius: 86px;
+
+  isolation: isolate;
   position: relative;
   display: grid;
-  width: 220px;
-  height: 220px;
+  width: var(--ring-size);
+  height: var(--ring-size);
   place-items: center;
   justify-self: center;
   margin-top: 12px;
+  overflow: hidden;
   border: 1px solid #d9e4e7;
   border-radius: 50%;
   background: radial-gradient(circle, #fff 0 42%, #eef5f7 43% 44%, #fff 45%);
 }
 
+.cycle-ring::before,
+.cycle-ring::after,
+.ring-sweep {
+  position: absolute;
+  z-index: 0;
+  content: "";
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.cycle-ring::before {
+  inset: 28px;
+  border: 2px solid #e4eef1;
+}
+
+.cycle-ring::after {
+  inset: 46px;
+  border: 1px solid #c9d9df;
+}
+
+.ring-sweep {
+  inset: 20px;
+  background:
+    conic-gradient(
+      from 0deg,
+      transparent 0deg 238deg,
+      rgba(59, 124, 168, 0.08) 250deg,
+      rgba(59, 124, 168, 0.5) 274deg,
+      rgba(59, 124, 168, 0.08) 300deg,
+      transparent 318deg 360deg
+    );
+  animation: ring-sweep 5s linear infinite;
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+}
+
 .ring-core {
+  position: relative;
+  z-index: 2;
   display: grid;
   width: 96px;
   height: 96px;
@@ -691,15 +735,25 @@ h3 {
   color: #61747c;
 }
 
-.ring-node {
+.ring-node-anchor {
   position: absolute;
+  z-index: 3;
   top: 50%;
   left: 50%;
+  width: 0;
+  height: 0;
+  transform: rotate(var(--angle)) translateY(calc(var(--ring-radius) * -1));
+  transform-origin: center;
+}
+
+.ring-node {
+  position: absolute;
+  display: block;
   width: 13px;
   height: 13px;
   margin: -6.5px 0 0 -6.5px;
   border-radius: 50%;
-  transform-origin: center;
+  box-shadow: 0 0 0 3px rgba(9, 12, 15, 0.1);
 }
 
 .node-pass,
@@ -1737,6 +1791,26 @@ h3 {
   background: radial-gradient(circle, #0f1012 0 42%, #2a2d33 43% 44%, #0f1012 45%);
 }
 
+:root[data-theme="dark"] .cycle-ring::before {
+  border-color: #252a30;
+}
+
+:root[data-theme="dark"] .cycle-ring::after {
+  border-color: #343a43;
+}
+
+:root[data-theme="dark"] .ring-sweep {
+  background:
+    conic-gradient(
+      from 0deg,
+      transparent 0deg 238deg,
+      rgba(95, 155, 194, 0.06) 250deg,
+      rgba(95, 155, 194, 0.48) 274deg,
+      rgba(95, 155, 194, 0.06) 300deg,
+      transparent 318deg 360deg
+    );
+}
+
 :root[data-theme="dark"] .ring-core span {
   color: #f2f4f6;
 }
@@ -1807,6 +1881,15 @@ h3 {
   }
   50% {
     box-shadow: 0 0 0 9px rgba(59, 124, 168, 0);
+  }
+}
+
+@keyframes ring-sweep {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -1894,12 +1977,8 @@ h3 {
   }
 
   .cycle-ring {
-    width: 190px;
-    height: 190px;
-  }
-
-  .ring-node {
-    transform-origin: center 95px;
+    --ring-size: 190px;
+    --ring-radius: 74px;
   }
 
   .footer-line {
