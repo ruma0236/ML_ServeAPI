@@ -12,24 +12,33 @@ The W6 and W7 plan is compressed to finish by next Wednesday,
 
 ## 2026-07-09 Scope Control Update
 
-Review feedback identified W7 scope risk: `EVM-224` through `EVM-238` cannot be
-implemented at equal depth without becoming a shallow demo. W7 now follows the
-acceptance matrix in:
+Review feedback identified W7 scope risk across `EVM-224` through `EVM-238`.
+The resolution is not to reduce implementation depth. W7 keeps production-grade
+acceptance depth for every task and uses P0/P1/P2 only to define dependency
+order, evidence gates, and blocker visibility. W7 now follows the acceptance
+matrix in:
 
 - `docs/status/2026-07-09-w7-implementation-acceptance-matrix.md`
 
 Execution order:
 
-1. `EVM-224` read-only aggregation API and `EVM-238` real-test policy are P0.
+1. `EVM-224` read-only aggregation API and `EVM-238-A` real-test policy guard
+   are P0.
 2. UI work must bind to live `CycleRun` fields, not static example JSON.
 3. Kubernetes proof must use `kubectl apply`, pod/job status, logs, and
    artifact evidence.
 4. EfficientNet evidence must include MLflow runs, model artifacts, metric
-   matrix, GPU resource profile, and blocked/failure reasons.
+   matrix, split manifest, epoch/step counts, confusion matrices, GPU resource
+   profile, Torch/TorchVision/CUDA metadata, and blocked/failure reasons.
 5. Airflow/MLflow task authoring remains dry-run/queued/confirm/audit before
    mutation.
 6. Mock adapters, placeholder predictions, and smoke-only checks are excluded
    from W7 completion evidence.
+7. `EVM-238-B` can close only after actual `CycleRun.model_matrix` and
+   EfficientNet evidence exist.
+8. W7 empirical artifacts use
+   `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/` as the
+   source-of-truth evidence root; the repo keeps summaries and indexes.
 
 ## Scope Added
 
@@ -56,7 +65,9 @@ New tasks:
 - `EVM-235` - CD/CT push verification and promotion gate
 - `EVM-236` - Enterprise data/model pipeline readiness checklist
 - `EVM-237` - Torch EfficientNet-B0/B7 real model matrix
-- `EVM-238` - W7 real-test-only evidence policy
+- `EVM-238` - W7 real-test-only evidence policy umbrella
+- `EVM-238-A` - W7 real-test policy guard
+- `EVM-238-B` - W7 real-test evidence validation
 
 ## Jira Live Sync
 
@@ -79,6 +90,8 @@ New Control Panel detail mapping:
 - `EVM-236` -> `SCRUM-114`
 - `EVM-237` -> `SCRUM-115`
 - `EVM-238` -> `SCRUM-116`
+- `EVM-238-A` -> `SCRUM-117`
+- `EVM-238-B` -> `SCRUM-118`
 
 ## Enterprise Control Panel Addendum
 
@@ -115,8 +128,9 @@ tabs for:
   gate instead of scattered logs.
 - Real model matrix: W7 model work should use Torch/TorchVision
   EfficientNet-B0 and EfficientNet-B7 candidate runs, with parallelizable
-  conditions, GPU resource profiles, MLflow run references, artifacts, metrics,
-  and promotion blockers surfaced through `CycleRun.model_matrix`.
+  conditions, full VisA split manifests, minimum epoch/step evidence, GPU
+  resource profiles, MLflow run references, artifacts, confusion matrices,
+  metrics, and promotion blockers surfaced through `CycleRun.model_matrix`.
 - Real-test-only evidence: mock adapters, placeholder predictions, and
   smoke-only checks remain historical scaffolding evidence only. They must not
   be used as W7 completion evidence for model or production-readiness claims.

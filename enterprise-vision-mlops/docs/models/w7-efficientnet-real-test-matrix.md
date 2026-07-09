@@ -20,8 +20,15 @@ Accepted evidence:
 - real VisA dataset records from the F-drive data root;
 - real Torch/TorchVision training or fine-tuning run;
 - MLflow run id;
-- model artifact on the F-drive artifact root;
+- model artifact under
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet`;
 - evaluation metrics on held-out validation/test splits;
+- split manifest snapshot;
+- epoch and optimizer-step counts;
+- confusion matrix per candidate;
+- GPU profile with CUDA device, memory, and utilization evidence;
+- environment report with `torch`, `torchvision`, CUDA, Python, and driver
+  versions;
 - model card or lifecycle dashboard;
 - Control Panel `model_matrix` output;
 - CD/CT gate result.
@@ -49,6 +56,22 @@ Source config:
 | `effnet-b0-img224-finetune-sgd` | `torchvision.models.efficientnet_b0` | 224 | fine-tune | SGD | 32 | up to 2 B0 jobs |
 | `effnet-b7-img600-freeze-adamw` | `torchvision.models.efficientnet_b7` | 600 | frozen backbone | AdamW | 8 | exclusive B7 job |
 | `effnet-b7-img600-finetune-adamw` | `torchvision.models.efficientnet_b7` | 600 | fine-tune | AdamW | 4 | exclusive B7 job |
+
+## Minimum Acceptance Depth
+
+`configs/w7_efficientnet_real_test.toml` is the source of truth for the current
+thresholds:
+
+- seed: `20260709`;
+- dataset: at least 10,821 VisA records;
+- split: at least 6,504 train images, 2,136 validation images, and 2,181 test
+  images;
+- EfficientNet-B0: at least 5 epochs per candidate;
+- EfficientNet-B7: at least 3 epochs per candidate;
+- required evidence: MLflow run, model artifact, model card, Control Panel
+  matrix, drift baseline, CD/CT gate, split manifest, training history,
+  confusion matrix, GPU profile, CUDA device/memory capture, Torch/TorchVision
+  versions, and environment report.
 
 ## Resource Interpretation
 

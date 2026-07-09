@@ -348,6 +348,10 @@ must have implementation files, input data, output artifacts, verification
 commands, success criteria, and blocker rules before it can be marked Done.
 `EVM-224` is the hard dependency for UI work; Control Panel views must bind to
 live `CycleRun` API fields, not static examples.
+P0/P1/P2 tiers define dependency order only; they must not be interpreted as a
+reduced-depth implementation plan. `EVM-238` is an umbrella policy task whose
+closure is split into `EVM-238-A` policy guard implementation and `EVM-238-B`
+validation against actual `CycleRun.model_matrix` and EfficientNet evidence.
 
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
@@ -368,7 +372,9 @@ live `CycleRun` API fields, not static examples.
 | `EVM-235` | CD/CT push verification and promotion gate | Planned | 2026-07-W7 | push/PR checks, image build, kustomize render, data quality, model eval, drift review, CT trigger, and promotion blockers are represented as a pass/fail gate before deploy/promote |
 | `EVM-236` | Enterprise data/model pipeline readiness checklist | Planned | 2026-07-W7 | data pipeline readiness covers source policy, schema, quality, lineage, replay/backfill; model pipeline readiness covers MLflow tracking, eval reports, registry, model card, rollback, and owner approval |
 | `EVM-237` | Torch EfficientNet-B0/B7 real model matrix | Planned | 2026-07-W7 | W7 model plan defines real Torch/TorchVision EfficientNet-B0 and EfficientNet-B7 candidates, condition matrix, GPU resource profiles, MLflow tracking requirements, and Control Panel `model_matrix` output |
-| `EVM-238` | W7 real-test-only evidence policy | Planned | 2026-07-W7 | W7 acceptance explicitly rejects mock adapters, placeholder predictions, and smoke-only runs as completion evidence; real dataset, real training, real artifacts, and real evaluation are required |
+| `EVM-238` | W7 real-test-only evidence policy umbrella | Planned | 2026-07-W7 | W7 acceptance explicitly rejects mock adapters, placeholder predictions, and smoke-only runs as completion evidence; closure requires both `EVM-238-A` and `EVM-238-B` |
+| `EVM-238-A` | W7 real-test policy guard | Planned | 2026-07-W7 | guard implementation blocks mock adapters, placeholder predictions, synthetic-only fixtures, and smoke-only evidence before W7 closure |
+| `EVM-238-B` | W7 real-test evidence validation | Planned | 2026-07-W7 | validates actual `CycleRun.model_matrix`, EfficientNet MLflow runs, F-drive artifacts, metrics, split manifest, GPU profile, environment report, and confusion matrices after `EVM-237` evidence exists |
 
 ## Jira Mapping
 
@@ -484,6 +490,8 @@ Jira live sync 기준 mapping이다.
 | `EVM-236` | `SCRUM-114` | Task | https://opop0236.atlassian.net/browse/SCRUM-114 |
 | `EVM-237` | `SCRUM-115` | Task | https://opop0236.atlassian.net/browse/SCRUM-115 |
 | `EVM-238` | `SCRUM-116` | Task | https://opop0236.atlassian.net/browse/SCRUM-116 |
+| `EVM-238-A` | `SCRUM-117` | Task | https://opop0236.atlassian.net/browse/SCRUM-117 |
+| `EVM-238-B` | `SCRUM-118` | Task | https://opop0236.atlassian.net/browse/SCRUM-118 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
 | `EVM-BUG-004` | `SCRUM-55` | Bug | Jira: https://opop0236.atlassian.net/browse/SCRUM-55<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 |

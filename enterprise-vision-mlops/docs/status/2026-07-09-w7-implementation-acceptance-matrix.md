@@ -2,27 +2,31 @@
 
 ## Purpose
 
-This matrix turns the W7 review findings into execution rules. W7 is too broad
-to implement every item at the same depth. The implementation must therefore
-follow strict dependency and evidence gates.
+This matrix turns the W7 review findings into execution rules. W7 is broad, but
+the implementation depth must not be reduced. The P0/P1/P2 tiers define
+dependency order and evidence gates only; every issue still needs production-
+grade implementation files, real inputs, output artifacts, verification
+commands, success criteria, and blocker rules before it can close.
 
 This is a planning/control document. It does not mark W7 implementation as
 started or complete.
 
 ## Scope Control
 
-W7 completion claims are tiered:
+W7 completion claims are ordered by dependency, not by reduced depth:
 
 | Tier | Scope | Rule |
 |---|---|---|
-| P0 | `EVM-224`, `EVM-238` | Must be completed first. No UI or model claim can close without live aggregation and real-test policy enforcement. |
+| P0 | `EVM-224`, `EVM-238-A` | Must be completed first. No UI or model claim can close without live aggregation and a real-test policy guard. |
 | P1 | `EVM-225`, `EVM-229`, `EVM-231`, `EVM-233`, `EVM-236` | Read-only UI and readiness views must bind to `CycleRun` API output, not static examples. |
-| P2 | `EVM-226`, `EVM-227`, `EVM-230`, `EVM-232`, `EVM-234`, `EVM-235`, `EVM-237` | Operational controls, Kubernetes proof, drift/CDCT, and EfficientNet runs can advance only after P0 read-only evidence exists. |
+| P2 | `EVM-226`, `EVM-227`, `EVM-230`, `EVM-232`, `EVM-234`, `EVM-235`, `EVM-237`, `EVM-238-B` | Operational controls, Kubernetes proof, drift/CDCT, EfficientNet runs, and real evidence validation can advance only after P0 read-only evidence exists. |
 | Closeout | `EVM-228` | Can close only after the evidence matrix below is populated with real commands, artifacts, and blockers. |
 
 Hard rules:
 
 - `EVM-224` is the implementation dependency for all UI work.
+- Tiers are sequencing gates only. P1/P2 work must be implemented to the same
+  acceptance depth as P0 before being marked Done.
 - UI completion cannot be claimed from `contracts/control-panel/examples/cycle-run.json` alone.
 - Airflow remains `external-compose`; W7 must not claim in-cluster Airflow
   migration unless new resources are actually added and verified.
@@ -33,6 +37,23 @@ Hard rules:
   reasons.
 - Mock adapters, placeholder predictions, synthetic-only fixtures, and
   smoke-only runs are not W7 completion evidence.
+
+## Evidence Root Rule
+
+W7 empirical evidence uses the F-drive data root as the source of truth:
+
+- Source-of-truth evidence root:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/`
+- Control Panel API captures:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/control_panel/<run_id>/`
+- Control Panel UI test evidence:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/control_panel_ui/<run_id>/`
+- EfficientNet model evidence:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet/<matrix_id>/<candidate_id>/`
+
+The repository should keep only source code, contracts, docs, summaries, and
+small evidence indexes. Large model/data artifacts must not be treated as
+repo-relative completion evidence.
 
 ## UI Field Binding
 
@@ -72,7 +93,8 @@ The Control Panel UI must consume these `CycleRun` fields:
 - Output artifact:
   - live `GET /control-panel/v1/cycles/latest` response
   - live `GET /control-panel/v1/cycles/{cycle_id}` response
-  - captured JSON under `artifacts/runs/control_panel/<run_id>/cycle_run.json`
+  - captured JSON under `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/control_panel/<run_id>/cycle_run.json`
+  - repo-side summary/index under `docs/status/`
 - Verification command:
   - `python -m json.tool contracts\control-panel\examples\cycle-run.json`
   - `curl http://localhost:8000/control-panel/v1/cycles/latest`
@@ -103,11 +125,14 @@ The Control Panel UI must consume these `CycleRun` fields:
   - `TaskAssignment` and `CommandIntent` schemas
 - Output artifact:
   - screenshots or video under `docs/assets/w7-control-panel/`
-  - UI test report under `artifacts/runs/control_panel_ui/<run_id>/`
+  - UI test report under `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/control_panel_ui/<run_id>/`
 - Verification command:
-  - frontend test command chosen by the implementation stack
-  - Playwright screenshot verification after local dev server starts
-  - API fixture check against live `CycleRun`
+  - `npm --prefix apps/control-panel install`
+  - `npm --prefix apps/control-panel run lint`
+  - `npm --prefix apps/control-panel run test`
+  - `npm --prefix apps/control-panel run build`
+  - `npm --prefix apps/control-panel run test:e2e -- --project=chromium`
+  - `python -m pytest tests/test_control_panel_contract.py tests/test_control_panel_aggregation.py -q`
 - Success criteria:
   - UI binds to live API responses;
   - dashboard shows cycle, data, model, drift, CD/CT, and model matrix state;
@@ -137,8 +162,14 @@ The Control Panel UI must consume these `CycleRun` fields:
 - Verification command:
   - `kubectl kustomize infra/kubernetes/local`
   - `kubectl apply -k infra/kubernetes/local`
-  - `kubectl get pods,jobs,svc,pvc -n evm-platform`
-  - `kubectl logs -n evm-platform job/<job-name>`
+  - `kubectl wait --for=condition=available deployment/evm-api -n evm-platform --timeout=300s`
+  - `kubectl wait --for=condition=complete job/evm-domain-pack-check -n evm-pipelines --timeout=600s`
+  - `kubectl wait --for=condition=complete job/evm-curation-workflow -n evm-pipelines --timeout=900s`
+  - `kubectl wait --for=condition=complete job/evm-lakehouse-probe -n evm-pipelines --timeout=900s`
+  - `kubectl logs -n evm-pipelines job/evm-domain-pack-check`
+  - `kubectl logs -n evm-pipelines job/evm-curation-workflow`
+  - `kubectl logs -n evm-pipelines job/evm-lakehouse-probe`
+  - `kubectl get pods,jobs,svc,pvc -A`
 - Success criteria:
   - at least one configured API or pipeline job runs in Kubernetes;
   - pod/job reaches successful terminal state;
@@ -417,28 +448,60 @@ The Control Panel UI must consume these `CycleRun` fields:
   - `docs/models/w7-efficientnet-real-test-matrix.md`
 - Input data:
   - real VisA dataset, `visa-open-data-f1f1c9ee9922`
+  - full split manifest under F-drive dataset root
   - `configs/w7_efficientnet_real_test.toml`
   - Windows RTX 4080 SUPER GPU resource
   - MLflow tracking URI
+  - Torch/TorchVision/CUDA runtime metadata
 - Output artifact:
   - one MLflow run per candidate
-  - model artifact per candidate under F-drive artifact root
+  - model artifact per candidate under `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet/<matrix_id>/<candidate_id>/`
   - metric matrix JSON
+  - split manifest snapshot
+  - training history with epoch and optimizer-step counts
+  - confusion matrix JSON and PNG per candidate
+  - GPU profile JSON with CUDA device, peak memory, and utilization samples
+  - environment JSON with `torch`, `torchvision`, CUDA, Python, and driver data
   - model card or lifecycle dashboard
   - `CycleRun.model_matrix`
 - Verification command:
   - `python scripts/run_pipeline.py efficientnet-training --config configs/w7_efficientnet_real_test.toml`
-  - `pytest tests/test_efficientnet_real_test_matrix.py -q`
+  - `pytest tests/test_efficientnet_real_test_matrix.py tests/test_w7_real_test_policy.py -q`
 - Success criteria:
   - EfficientNet-B0 and EfficientNet-B7 candidates have run ids, artifacts,
     metrics, resource profiles, and blocker reasons;
+  - split manifest proves at least 10,821 VisA records with at least 6,504
+    train images, 2,136 validation images, and 2,181 test images;
+  - fixed seed `20260709` is logged for split, model initialization, and data
+    loader workers;
+  - EfficientNet-B0 candidates run at least 5 epochs and EfficientNet-B7
+    candidates run at least 3 epochs, with optimizer-step counts recorded
+    against `min_epochs_b0` and `min_epochs_b7` config thresholds;
+  - `torch` and `torchvision` versions plus CUDA availability, device name,
+    total memory, and peak memory are captured;
+  - confusion matrix and per-class metrics exist for every candidate;
   - GPU profile is recorded;
   - failed candidates are recorded as blocked, not hidden.
 - Failure blocker:
   - blocked if only the config exists, if there is no MLflow run, or if no
-    model artifact/metrics are produced.
+    model artifact/metrics are produced;
+  - blocked if the run uses fewer records, epochs, or runtime evidence than
+    the acceptance thresholds without an explicit blocker reason.
 
-### EVM-238 - W7 Real-Test-Only Evidence Policy
+### EVM-238 - W7 Real-Test-Only Evidence Policy Umbrella
+
+`EVM-238` remains the umbrella Jira issue for W7 real-test-only evidence. Its
+closure is split to avoid marking the policy complete before the real
+EfficientNet evidence exists.
+
+- `EVM-238-A`: implement the no-mock/no-smoke policy guard.
+- `EVM-238-B`: validate actual `CycleRun.model_matrix` and EfficientNet
+  evidence after `EVM-237` produces runs, metrics, and artifacts.
+
+`EVM-238` cannot be marked Done until both `EVM-238-A` and `EVM-238-B` are
+closed.
+
+### EVM-238-A - W7 Real-Test Policy Guard
 
 - Implementation files:
   - `src/evm/control_panel/real_test_policy.py`
@@ -447,8 +510,8 @@ The Control Panel UI must consume these `CycleRun` fields:
   - `docs/status/YYYY-MM-DD-w7-real-test-policy.md`
 - Input data:
   - `RealTestPolicy`
-  - `CycleRun.model_matrix`
-  - model/pipeline evidence artifacts
+  - task closure records
+  - model and pipeline evidence metadata
 - Output artifact:
   - real-test policy validation report
   - blocked evidence report for mock, placeholder, or smoke-only claims
@@ -463,3 +526,34 @@ The Control Panel UI must consume these `CycleRun` fields:
 - Failure blocker:
   - blocked if any W7 closure record uses mock/smoke-only evidence as the
     completion proof.
+
+### EVM-238-B - W7 Real-Test Evidence Validation
+
+- Implementation files:
+  - `src/evm/control_panel/real_test_policy.py`
+  - `src/evm/control_panel/aggregation.py`
+  - `tests/test_w7_real_test_evidence_validation.py`
+  - `docs/status/YYYY-MM-DD-w7-real-test-evidence-validation.md`
+- Input data:
+  - live `CycleRun.model_matrix`
+  - EfficientNet MLflow run ids from `EVM-237`
+  - candidate artifact directories under `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet/`
+  - split manifest, metric matrix, confusion matrices, GPU profiles, and
+    environment reports
+- Output artifact:
+  - real-test evidence validation report
+  - blocked candidate report for incomplete or non-real evidence
+- Verification command:
+  - `python scripts/run_pipeline.py efficientnet-training --config configs/w7_efficientnet_real_test.toml`
+  - `pytest tests/test_efficientnet_real_test_matrix.py tests/test_w7_real_test_evidence_validation.py -q`
+- Success criteria:
+  - `CycleRun.model_matrix` references actual EfficientNet candidate runs and
+    F-drive artifacts;
+  - every candidate has MLflow run id, model artifact, metric matrix,
+    confusion matrix, GPU profile, environment report, and blocker reason when
+    not promotable;
+  - policy validation fails if `EVM-237` has not produced real evidence.
+- Failure blocker:
+  - blocked until `EVM-237` emits actual model matrix evidence; blocked if
+    `CycleRun.model_matrix` is static, mock-only, or missing candidate
+    artifacts.

@@ -257,14 +257,16 @@ evidence.
 - `EVM-233` to `EVM-236` should close the W7 enterprise-readiness gap: service
   tenancy, drift/retraining trigger visibility, CD/CT gates, and data/model
   readiness checklists.
-- `EVM-237` and `EVM-238` should move W7 model proof from lifecycle/mock/smoke
-  evidence to Torch EfficientNet-B0/B7 real-test evidence with explicit
-  candidate matrices and real-execution policy.
+- `EVM-237`, `EVM-238-A`, and `EVM-238-B` should move W7 model proof from
+  lifecycle/mock/smoke evidence to Torch EfficientNet-B0/B7 real-test evidence
+  with explicit candidate matrices, real-execution policy guards, and evidence
+  validation against actual `CycleRun.model_matrix` output.
 - Airflow task assignment must use the orchestrator contract first. In W6 local
   Kubernetes this means external Airflow REST API control; in W7+ this can move
   to in-cluster Airflow resources or an operator-backed control mode.
 - Actual Airflow/MLflow/Kubernetes write operations should stay behind
   dry-run and confirmation until audit and rollback paths exist.
-- Each W7 issue from `EVM-224` to `EVM-238` must close against the acceptance
-  matrix: implementation files, input data, output artifacts, verification
-  command, success criteria, and failure blocker.
+- Each W7 issue from `EVM-224` to `EVM-238`, including `EVM-238-A` and
+  `EVM-238-B`, must close against the acceptance matrix: implementation files,
+  input data, output artifacts, verification command, success criteria, and
+  failure blocker.
