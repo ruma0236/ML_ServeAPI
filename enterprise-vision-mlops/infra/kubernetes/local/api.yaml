@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evm-api
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/name: evm-api
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: evm-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: evm-api
+        app.kubernetes.io/part-of: enterprise-vision-mlops
+    spec:
+      containers:
+        - name: api
+          image: enterprise-vision-mlops-api:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: APP_NAME
+              value: enterprise-vision-mlops-api
+          envFrom:
+            - configMapRef:
+                name: evm-runtime-config
+          volumeMounts:
+            - name: large-data
+              mountPath: /mnt/evm-data
+              readOnly: true
+            - name: large-data
+              mountPath: /app/artifacts
+              subPath: artifacts
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: large-data
+          persistentVolumeClaim:
+            claimName: evm-large-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evm-api
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/name: evm-api
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  selector:
+    app.kubernetes.io/name: evm-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

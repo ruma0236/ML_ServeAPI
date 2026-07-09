@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: evm-large-data-platform
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/storage: large-data
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: evm-local-hostpath
+  hostPath:
+    path: /run/desktop/mnt/host/f/EnterpriseMLOps_Data/enterprise-vision-mlops
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evm-large-data
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: evm-local-hostpath
+  resources:
+    requests:
+      storage: 1Ti
+  volumeName: evm-large-data-platform
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: evm-large-data-pipelines
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/storage: large-data
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: evm-local-hostpath
+  hostPath:
+    path: /run/desktop/mnt/host/f/EnterpriseMLOps_Data/enterprise-vision-mlops
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evm-large-data
+  namespace: evm-pipelines
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: evm-local-hostpath
+  resources:
+    requests:
+      storage: 1Ti
+  volumeName: evm-large-data-pipelines
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evm-postgres-data
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evm-minio-data
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Ti
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evm-prometheus-data
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evm-grafana-data
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

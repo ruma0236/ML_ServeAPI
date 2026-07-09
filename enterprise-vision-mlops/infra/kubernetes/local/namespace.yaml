@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: evm-platform
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/scope: platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: evm-pipelines
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/scope: pipelines

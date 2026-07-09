@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: evm-domain-pack-check
+  namespace: evm-pipelines
+  labels:
+    app.kubernetes.io/name: evm-domain-pack-check
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/pipeline: domain-pack-check
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: evm-domain-pack-check
+        app.kubernetes.io/part-of: enterprise-vision-mlops
+        evm.openai.local/pipeline: domain-pack-check
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: pipeline
+          image: enterprise-vision-mlops-pipeline:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - domain-pack-check
+            - --config
+            - configs/local.toml
+          envFrom:
+            - configMapRef:
+                name: evm-runtime-config
+          volumeMounts:
+            - name: large-data
+              mountPath: /mnt/evm-data
+      volumes:
+        - name: large-data
+          persistentVolumeClaim:
+            claimName: evm-large-data

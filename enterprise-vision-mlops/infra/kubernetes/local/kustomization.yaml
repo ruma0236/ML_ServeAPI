@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - secrets.dev.yaml
+  - configmaps.yaml
+  - storage.yaml
+  - postgres.yaml
+  - minio.yaml
+  - mlflow.yaml
+  - api.yaml
+  - prometheus-grafana.yaml
+  - pipeline-job.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: enterprise-vision-mlops
+      evm.openai.local/environment: local
+    includeSelectors: false

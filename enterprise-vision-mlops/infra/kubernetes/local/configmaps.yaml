@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: evm-runtime-config
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+data:
+  EVM_PIPELINE_CONFIG: /app/configs/local.toml
+  EVM_DATA_MOUNT_ROOT: /mnt/evm-data
+  MLFLOW_TRACKING_URI: http://evm-mlflow.evm-platform.svc.cluster.local:5000
+  MLFLOW_S3_ENDPOINT_URL: http://evm-minio.evm-platform.svc.cluster.local:9000
+  MODEL_NAME: vision-baseline
+  MODEL_STAGE: Shadow
+  MODEL_REGISTRY_PATH: /app/artifacts/registry/vision-baseline/latest.json
+  VLM_OBSERVABILITY_PATH: /app/artifacts/vlm/visa/observability/benchmark_report.json
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: evm-prometheus-config
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: evm-api
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - evm-api.evm-platform.svc.cluster.local:8000
+
+      - job_name: prometheus
+        static_configs:
+          - targets:
+              - localhost:9090
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: evm-grafana-provisioning
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://evm-prometheus.evm-platform.svc.cluster.local:9090
+        isDefault: true
+        editable: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: evm-runtime-config
+  namespace: evm-pipelines
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+data:
+  EVM_PIPELINE_CONFIG: /app/configs/local.toml
+  EVM_DATA_MOUNT_ROOT: /mnt/evm-data
+  MLFLOW_TRACKING_URI: http://evm-mlflow.evm-platform.svc.cluster.local:5000
+  MLFLOW_S3_ENDPOINT_URL: http://evm-minio.evm-platform.svc.cluster.local:9000
+  MODEL_NAME: vision-baseline
+  MODEL_STAGE: Shadow
