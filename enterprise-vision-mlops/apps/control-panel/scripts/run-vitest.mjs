@@ -6,13 +6,19 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(scriptDir, "..");
 const repoRoot = path.resolve(appRoot, "..", "..");
 const vitestEntry = path.join(appRoot, "node_modules", "vitest", "vitest.mjs");
+const requestedTests = process.argv.slice(2).filter((arg) => arg !== "--run");
+const defaultTests = [
+  "tests/control-panel/cycle-overview.contract.test.ts",
+  "tests/control-panel/kubernetes-topology.contract.test.ts",
+  "tests/control-panel/pipeline-timeline.contract.test.ts"
+];
 
 const result = spawnSync(
   process.execPath,
   [
     vitestEntry,
     "run",
-    "tests/control-panel/cycle-overview.contract.test.ts",
+    ...(requestedTests.length ? requestedTests : defaultTests),
     "--config",
     "apps/control-panel/vite.config.ts",
     "--dir",

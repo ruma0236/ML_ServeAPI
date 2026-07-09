@@ -14,7 +14,7 @@ test("renders live CycleRun overview and captures evidence", async ({ page }) =>
 
   await page.getByRole("button", { name: "Timeline" }).click();
   await expect(page.getByRole("heading", { name: "Pipeline Timeline" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Resource Topology" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Kubernetes Resource Topology" })).toBeVisible();
   await page.waitForTimeout(1000);
 
   const screenshotPath =

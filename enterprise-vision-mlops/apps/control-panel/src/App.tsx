@@ -1,8 +1,8 @@
 import { AlertCircle, RefreshCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchLatestCycle } from "./api/controlPanelClient";
-import type { CycleRun } from "./api/types";
+import { fetchLatestCycle, fetchRuntimeResources } from "./api/controlPanelClient";
+import type { CycleRun, RuntimeResource } from "./api/types";
 import { StatusBadge } from "./components/StatusBadge";
 import { CycleOverview } from "./views/CycleOverview";
 import { DataModelReadiness } from "./views/DataModelReadiness";
@@ -20,6 +20,7 @@ const tabs: Array<{ key: TabKey; label: string }> = [
 
 export function App() {
   const [cycle, setCycle] = useState<CycleRun | null>(null);
+  const [resources, setResources] = useState<RuntimeResource[]>([]);
   const [tab, setTab] = useState<TabKey>("overview");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -29,8 +30,9 @@ export function App() {
     setLoading(true);
     setError("");
     try {
-      const payload = await fetchLatestCycle();
+      const [payload, runtimeResources] = await Promise.all([fetchLatestCycle(), fetchRuntimeResources()]);
       setCycle(payload);
+      setResources(runtimeResources);
       setRefreshedAt(new Date().toLocaleTimeString());
     } catch (err) {
       setError(err instanceof Error ? err.message : "CycleRun request failed");
@@ -46,10 +48,10 @@ export function App() {
   const activeView = useMemo(() => {
     if (!cycle) return null;
     if (tab === "readiness") return <DataModelReadiness cycle={cycle} />;
-    if (tab === "timeline") return <PipelineTimeline cycle={cycle} />;
+    if (tab === "timeline") return <PipelineTimeline cycle={cycle} resources={resources} />;
     if (tab === "gates") return <GateAndRiskPanel cycle={cycle} />;
     return <CycleOverview cycle={cycle} />;
-  }, [cycle, tab]);
+  }, [cycle, resources, tab]);
 
   return (
     <main className="shell">

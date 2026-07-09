@@ -32,6 +32,31 @@ export interface ResourceRef {
   uid?: string | null;
 }
 
+export interface RuntimeResource {
+  resource_id: string;
+  namespace: string;
+  kind: string;
+  name: string;
+  status: State;
+  node_pool: string;
+  readiness?: string | null;
+  restarts: number;
+  cpu_request?: string | null;
+  memory_request?: string | null;
+  gpu_request?: string | null;
+  storage_claim?: string | null;
+  storage_root?: string | null;
+  last_transition_time?: string | null;
+  owner_issue?: string | null;
+  control_actions: string[];
+  pressure?: State;
+  related_stages?: string[];
+}
+
+export interface RuntimeResourceList {
+  resources: RuntimeResource[];
+}
+
 export interface OrgContext {
   team_id: string;
   department: string;

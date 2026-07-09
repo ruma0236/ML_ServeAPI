@@ -45,6 +45,31 @@ class ResourceRef(ContractModel):
     uid: str | None = None
 
 
+class RuntimeResource(ContractModel):
+    resource_id: str
+    namespace: str
+    kind: str
+    name: str
+    status: State
+    node_pool: str
+    readiness: str | None = None
+    restarts: int = Field(default=0, ge=0)
+    cpu_request: str | None = None
+    memory_request: str | None = None
+    gpu_request: str | None = None
+    storage_claim: str | None = None
+    storage_root: str | None = None
+    last_transition_time: str | None = None
+    owner_issue: str | None = None
+    control_actions: list[str] = Field(default_factory=list)
+    pressure: State = "unknown"
+    related_stages: list[str] = Field(default_factory=list)
+
+
+class RuntimeResourceList(ContractModel):
+    resources: list[RuntimeResource]
+
+
 class OrgContext(ContractModel):
     team_id: str
     department: str

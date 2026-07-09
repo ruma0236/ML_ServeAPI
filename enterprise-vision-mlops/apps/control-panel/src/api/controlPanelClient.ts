@@ -1,4 +1,4 @@
-import type { CycleRun, ResourceRef, State } from "./types";
+import type { CycleRun, ResourceRef, RuntimeResource, RuntimeResourceList, State } from "./types";
 
 export const API_BASE =
   import.meta.env.VITE_CONTROL_PANEL_API_BASE?.replace(/\/$/, "") || "";
@@ -11,6 +11,17 @@ export async function fetchLatestCycle(baseUrl = API_BASE): Promise<CycleRun> {
     throw new Error(`CycleRun request failed: ${response.status}`);
   }
   return (await response.json()) as CycleRun;
+}
+
+export async function fetchRuntimeResources(baseUrl = API_BASE): Promise<RuntimeResource[]> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/resources`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`RuntimeResource request failed: ${response.status}`);
+  }
+  const payload = (await response.json()) as RuntimeResourceList;
+  return payload.resources;
 }
 
 export interface CycleSummary {
@@ -47,6 +58,28 @@ export interface ResourceNode {
   status: State;
 }
 
+export interface StageSummary {
+  stageId: string;
+  name: string;
+  status: State;
+  artifactCount: number;
+  metricCount: number;
+  resourceCount: number;
+  blocker: string;
+}
+
+export function summarizeStages(cycle: CycleRun): StageSummary[] {
+  return cycle.stages.map((stage) => ({
+    stageId: stage.stage_id,
+    name: stage.name,
+    status: stage.status,
+    artifactCount: stage.artifacts.length,
+    metricCount: stage.metrics.length,
+    resourceCount: stage.resources.length,
+    blocker: stage.failure_reason || stage.current_step || "closed"
+  }));
+}
+
 export function toResourceNodes(cycle: CycleRun): ResourceNode[] {
   const statusByResource = new Map<string, State>();
   for (const stage of cycle.stages) {
@@ -78,4 +111,14 @@ export function statusTone(status: State | string | null | undefined): "good" | 
 export function formatNumber(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   return new Intl.NumberFormat("en-US").format(value);
+}
+
+export function compactUri(value: string | null | undefined): string {
+  if (!value) return "-";
+  if (value.length <= 54) return value;
+  return `${value.slice(0, 24)}...${value.slice(-24)}`;
+}
+
+export function resourcePressure(resource: RuntimeResource): State {
+  return resource.pressure || resource.status || "unknown";
 }

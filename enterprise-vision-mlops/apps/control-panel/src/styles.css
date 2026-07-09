@@ -442,10 +442,31 @@ h3 {
   gap: 10px;
 }
 
+.timeline-layout,
+.topology-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.8fr);
+  gap: 12px;
+  align-items: start;
+}
+
 .stage-item {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
   gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.stage-item.selected .stage-body,
+.topology-node.selected {
+  border-color: #24788d;
+  box-shadow: 0 0 0 2px rgba(36, 120, 141, 0.13);
 }
 
 .stage-rail {
@@ -512,28 +533,239 @@ h3 {
   gap: 10px;
 }
 
-.resource-map {
-  position: relative;
+.stage-detail,
+.detail-drawer {
+  position: sticky;
+  top: 12px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #dbe5e8;
+  border-radius: 8px;
+  background: #fbfdfe;
+}
+
+.stage-detail header,
+.detail-drawer header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 10px;
 }
 
-.resource-node {
+.stage-detail header span,
+.detail-drawer header span {
+  display: block;
+  color: #65757c;
+  font-size: 0.76rem;
+}
+
+.detail-progress {
+  position: relative;
+  height: 18px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf3f5;
+}
+
+.detail-progress b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2b8194;
+}
+
+.detail-progress span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #1b3d47;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.detail-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+
+.detail-section h4 {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 2px;
+  color: #293a41;
+  font-size: 0.82rem;
+  letter-spacing: 0;
+}
+
+.detail-section h4 svg {
+  width: 16px;
+  height: 16px;
+  color: #28758a;
+}
+
+.metric-grid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.metric-grid div,
+.artifact-list span,
+.detail-chip {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #dce6e9;
+  border-radius: 8px;
+  background: #f7fbfc;
+}
+
+.metric-grid span,
+.artifact-list small,
+.detail-muted {
+  display: block;
+  color: #66787f;
+  font-size: 0.73rem;
+}
+
+.metric-grid strong {
+  display: block;
+  margin-top: 3px;
+  color: #1c3038;
+}
+
+.artifact-list {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+}
+
+.artifact-list span {
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.detail-chip {
+  display: inline-block;
+  color: #34484f;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.result-copy {
+  width: 100%;
+  color: #4b5f67;
+  font-size: 0.82rem;
+}
+
+.stage-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.stage-summary-strip button {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dce6e9;
+  border-radius: 8px;
+  text-align: left;
+  background: #fbfdfe;
+  cursor: pointer;
+}
+
+.stage-summary-strip strong,
+.stage-summary-strip span,
+.stage-summary-strip em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-summary-strip span,
+.stage-summary-strip em {
+  margin-top: 5px;
+  color: #64767d;
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.topology-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(310px, 0.45fr);
+}
+
+.topology-lanes {
+  display: grid;
+  gap: 12px;
+}
+
+.namespace-lane {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dce6e9;
+  border-radius: 8px;
+  background: #f9fcfd;
+}
+
+.namespace-lane header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: #30434b;
+}
+
+.namespace-lane header span {
+  display: grid;
+  min-width: 26px;
+  height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  color: #316070;
+  background: #e4f0f3;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.topology-map {
   position: relative;
   display: grid;
-  min-height: 94px;
-  align-content: center;
-  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.topology-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 116px;
+  align-content: start;
+  align-items: start;
   padding: 12px;
   overflow: hidden;
   border: 1px solid #d7e2e6;
   border-radius: 8px;
+  color: inherit;
+  text-align: left;
   background: #f9fcfd;
+  cursor: pointer;
   animation: lift 900ms both ease;
 }
 
-.resource-node::before {
+.topology-node::before {
   position: absolute;
   inset: 0;
   width: 4px;
@@ -541,29 +773,109 @@ h3 {
   background: #6d828b;
 }
 
-.resource-pass::before {
+.topology-pass::before {
   background: #2f8f68;
 }
 
-.resource-blocked::before {
+.topology-blocked::before,
+.topology-fail::before {
   background: #b5484a;
 }
 
-.resource-queued::before,
-.resource-running::before {
+.topology-queued::before,
+.topology-running::before {
   background: #3b7ca8;
 }
 
-.resource-node span {
+.topology-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 8px;
+  color: #176c7d;
+  background: #e6f2f5;
+}
+
+.topology-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.topology-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.topology-copy small,
+.topology-copy em,
+.topology-meta small {
   color: #63747c;
   font-size: 0.72rem;
+  font-style: normal;
   text-transform: uppercase;
 }
 
-.resource-node strong {
+.topology-copy strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.topology-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding-left: 4px;
+}
+
+.detail-drawer.empty {
+  place-items: center;
+  min-height: 220px;
+  color: #6a7b82;
+  text-align: center;
+}
+
+.stage-detail.empty {
+  place-items: center;
+  min-height: 220px;
+  color: #6a7b82;
+  text-align: center;
+}
+
+.detail-drawer.empty svg {
+  width: 32px;
+  height: 32px;
+  color: #7ca2ad;
+}
+
+.detail-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.detail-list div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.detail-list dt {
+  color: #66787f;
+  font-size: 0.74rem;
+}
+
+.detail-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #1f333b;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .status-badge {
@@ -671,16 +983,24 @@ h3 {
 
 @media (max-width: 980px) {
   .overview-grid,
-  .two-column {
+  .two-column,
+  .timeline-layout,
+  .topology-layout {
     grid-template-columns: 1fr;
   }
 
   .summary-strip,
-  .resource-map,
+  .topology-map,
   .readiness-grid,
   .policy-grid,
-  .gate-columns {
+  .gate-columns,
+  .stage-summary-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stage-detail,
+  .detail-drawer {
+    position: static;
   }
 }
 
@@ -695,10 +1015,12 @@ h3 {
   }
 
   .summary-strip,
-  .resource-map,
+  .topology-map,
   .readiness-grid,
   .policy-grid,
-  .gate-columns {
+  .gate-columns,
+  .stage-summary-strip,
+  .metric-grid {
     grid-template-columns: 1fr;
   }
 

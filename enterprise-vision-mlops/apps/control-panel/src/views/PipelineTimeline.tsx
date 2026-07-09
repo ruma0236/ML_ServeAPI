@@ -1,15 +1,29 @@
-import { Boxes, Workflow } from "lucide-react";
+import { Workflow } from "lucide-react";
+import { useMemo, useState } from "react";
 
-import { toResourceNodes } from "../api/controlPanelClient";
-import type { CycleRun, PipelineStage } from "../api/types";
+import { summarizeStages } from "../api/controlPanelClient";
+import type { CycleRun, PipelineStage, RuntimeResource } from "../api/types";
+import { StageDetail } from "../components/StageDetail";
 import { StatusBadge } from "../components/StatusBadge";
+import { KubernetesTopology } from "./KubernetesTopology";
 
 interface PipelineTimelineProps {
   cycle: CycleRun;
+  resources: RuntimeResource[];
 }
 
-export function PipelineTimeline({ cycle }: PipelineTimelineProps) {
-  const resources = toResourceNodes(cycle);
+export function PipelineTimeline({ cycle, resources }: PipelineTimelineProps) {
+  const [selectedStageId, setSelectedStageId] = useState(cycle.stages[0]?.stage_id || "");
+  const [selectedResourceId, setSelectedResourceId] = useState(resources[0]?.resource_id || "");
+  const selectedStage = useMemo(
+    () => cycle.stages.find((stage) => stage.stage_id === selectedStageId) || cycle.stages[0] || null,
+    [cycle.stages, selectedStageId]
+  );
+  const selectedResource = useMemo(
+    () => resources.find((resource) => resource.resource_id === selectedResourceId) || resources[0] || null,
+    [resources, selectedResourceId]
+  );
+  const summaries = summarizeStages(cycle);
   return (
     <section className="timeline-grid" aria-label="Pipeline timeline and resources">
       <div className="panel wide">
@@ -20,38 +34,46 @@ export function PipelineTimeline({ cycle }: PipelineTimelineProps) {
           </div>
           <Workflow />
         </div>
-        <div className="timeline">
-          {cycle.stages.map((stage) => (
-            <StageItem key={stage.stage_id} stage={stage} />
+        <div className="timeline-layout">
+          <div className="timeline">
+            {cycle.stages.map((stage) => (
+              <StageItem
+                key={stage.stage_id}
+                stage={stage}
+                selected={stage.stage_id === selectedStage?.stage_id}
+                onSelect={() => setSelectedStageId(stage.stage_id)}
+              />
+            ))}
+          </div>
+          {selectedStage ? (
+            <StageDetail stage={selectedStage} />
+          ) : (
+            <aside className="stage-detail empty">No pipeline stages returned by CycleRun.</aside>
+          )}
+        </div>
+        <div className="stage-summary-strip">
+          {summaries.map((summary) => (
+            <button key={summary.stageId} type="button" onClick={() => setSelectedStageId(summary.stageId)}>
+              <strong>{summary.name}</strong>
+              <span>{summary.artifactCount} artifacts / {summary.metricCount} metrics / {summary.resourceCount} resources</span>
+              <em>{summary.blocker}</em>
+            </button>
           ))}
         </div>
       </div>
 
-      <div className="panel wide">
-        <div className="panel-heading">
-          <div>
-            <h2>Resource Topology</h2>
-            <p>{cycle.environment?.namespace || "evm-platform"}</p>
-          </div>
-          <Boxes />
-        </div>
-        <div className="resource-map">
-          {resources.map((resource, index) => (
-            <div key={resource.id} className={`resource-node resource-${resource.status}`} style={{ animationDelay: `${index * 90}ms` }}>
-              <span>{resource.kind}</span>
-              <strong>{resource.name}</strong>
-              <small>{resource.namespace}</small>
-            </div>
-          ))}
-        </div>
-      </div>
+      <KubernetesTopology
+        resources={resources}
+        selectedResource={selectedResource}
+        onSelectResource={(resource) => setSelectedResourceId(resource.resource_id)}
+      />
     </section>
   );
 }
 
-function StageItem({ stage }: { stage: PipelineStage }) {
+function StageItem({ stage, selected, onSelect }: { stage: PipelineStage; selected: boolean; onSelect: () => void }) {
   return (
-    <article className={`stage-item stage-${stage.status}`}>
+    <button type="button" className={`stage-item stage-${stage.status} ${selected ? "selected" : ""}`} onClick={onSelect}>
       <div className="stage-rail">
         <i />
       </div>
@@ -72,6 +94,6 @@ function StageItem({ stage }: { stage: PipelineStage }) {
           <span>{stage.resources.length} resources</span>
         </div>
       </div>
-    </article>
+    </button>
   );
 }
