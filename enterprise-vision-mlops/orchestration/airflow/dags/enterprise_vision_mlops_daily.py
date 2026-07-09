@@ -76,6 +76,7 @@ with DAG(
     object_store_bootstrap = pipeline_task("object_store_bootstrap", "object-store-bootstrap")
     data_validate = pipeline_task("data_validate", "data-validate")
     image_quality = pipeline_task("image_quality", "image-quality")
+    curation_workflow = pipeline_task("curation_workflow", "curation-workflow")
     dataset_shards = pipeline_task("dataset_shards", "dataset-shards")
     vlm_contract = pipeline_task("vlm_contract", "vlm-contract")
     vlm_batch_eval = pipeline_task("vlm_batch_eval", "vlm-batch-eval")
@@ -94,6 +95,7 @@ with DAG(
         >> object_store_bootstrap
         >> data_validate
         >> image_quality
+        >> curation_workflow
         >> dataset_shards
         >> vlm_contract
         >> vlm_batch_eval

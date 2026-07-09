@@ -129,6 +129,19 @@ records_per_shard = 512
 split_seed = 20260706
 split_ratios = { train = 0.6, validation = 0.2, test = 0.2 }
 
+[pipelines.curation_workflow]
+input_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/mvi_quality_manifest.jsonl"
+output_dir = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/curation"
+state_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/curation/curation_state.json"
+curation_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/curation/curation_manifest.jsonl"
+hitl_queue = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/curation/hitl_queue.jsonl"
+sample_review_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/curation/sample_review.jsonl"
+curated_eval_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/curation/curated_eval_manifest.jsonl"
+sample_seed = 20260709
+max_review_samples = 128
+max_eval_records = 0
+eval_splits = ["validation", "test"]
+
 [pipelines.vlm_contract]
 domain_pack = "domain_packs/manufacturing_visual_inspection/domain_pack.toml"
 adapter_backend = "mock"

@@ -304,7 +304,7 @@ deduplication, and curation flows must be replaceable.
 | `EVM-201` | Data source registry and collection policy | Done | 2026-07-06 | `dataset-intake-audit` records source URL, license, retention, access policy, F-drive raw root, object prefix, and readiness state before acquisition |
 | `EVM-202` | Large-scale batch acquisition planner | Done | 2026-07-06 | acquisition plan records download/mount next action, checkpoint path, target manifest, object layout, and retry-ready handoff steps |
 | `EVM-203` | Deduplication and cleaning benchmark | Done | 2026-07-06 | cleaning benchmark reports exact hashes, duplicate groups, unreadable images, dimensions, brightness/blur proxies, labels, classes, and splits |
-| `EVM-204` | Labeling and curation workflow | Planned | 2026-07-W6 | sample review, label state, HITL queue, and curated eval-set promotion states are defined |
+| `EVM-204` | Labeling and curation workflow | Done | 2026-07-W6 | sample review, label state, HITL queue, and curated eval-set promotion states are defined |
 | `EVM-205` | Lakehouse-scale ingestion research spike | Planned | 2026-07-W6 | DuckDB/Polars/Spark/Iceberg tradeoffs are documented with at least one runnable prototype path |
 
 Real VisA cycle evidence: `docs/status/2026-07-06-visa-open-data-cycle.md`
