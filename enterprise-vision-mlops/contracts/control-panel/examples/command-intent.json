@@ -1,0 +1,29 @@
+{
+  "command_id": "cmd-20260709-restart-api-dry-run",
+  "action": "restart_deployment",
+  "target": {
+    "namespace": "evm-platform",
+    "kind": "Deployment",
+    "name": "evm-api",
+    "uid": null
+  },
+  "actor": "codex",
+  "dry_run": true,
+  "reason": "Verify Control Panel command intent lifecycle before enabling mutation.",
+  "parameters": {
+    "strategy": "rolling_restart"
+  },
+  "status": "dry_run",
+  "created_at": "2026-07-09T08:30:00Z",
+  "confirmed_at": null,
+  "applied_at": null,
+  "rollback_command_id": null,
+  "audit": [
+    {
+      "timestamp": "2026-07-09T08:30:00Z",
+      "actor": "codex",
+      "event": "command_intent_created",
+      "details": {"issue": "EVM-223", "jira": "SCRUM-101"}
+    }
+  ]
+}

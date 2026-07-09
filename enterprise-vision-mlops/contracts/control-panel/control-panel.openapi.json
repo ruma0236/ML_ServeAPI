@@ -1,0 +1,504 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Enterprise Vision MLOps Control Panel API",
+    "version": "2026-07-09.w6.v1",
+    "description": "Metadata and control contract for the W6/W7 enterprise MLOps Control Panel."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "local FastAPI service"
+    }
+  ],
+  "paths": {
+    "/control-panel/v1/cycles/{cycle_id}": {
+      "get": {
+        "summary": "Return one lifecycle cycle with lineage, stages, artifacts, serving state, and resource refs.",
+        "operationId": "getCycle",
+        "parameters": [
+          {
+            "name": "cycle_id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "cycle detail",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/CycleRun"}
+              }
+            }
+          },
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/control-panel/v1/cycles/latest": {
+      "get": {
+        "summary": "Return the latest known cycle for dashboard landing state.",
+        "operationId": "getLatestCycle",
+        "responses": {
+          "200": {
+            "description": "latest cycle detail",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/CycleRun"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/control-panel/v1/resources": {
+      "get": {
+        "summary": "Return normalized Kubernetes and external worker resource state.",
+        "operationId": "listResources",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "owner_issue",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "resource list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["resources"],
+                  "properties": {
+                    "resources": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/RuntimeResource"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/control-panel/v1/tasks": {
+      "post": {
+        "summary": "Draft or queue an Airflow/MLflow-aware task assignment.",
+        "operationId": "createTaskAssignment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/TaskAssignmentRequest"}
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "task assignment accepted",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/TaskAssignment"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"}
+        }
+      }
+    },
+    "/control-panel/v1/commands": {
+      "post": {
+        "summary": "Create an auditable command intent for Kubernetes, Airflow, or MLflow actions.",
+        "operationId": "createCommandIntent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/CommandIntentRequest"}
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "command intent created",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/CommandIntent"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"}
+        }
+      }
+    },
+    "/control-panel/v1/commands/{command_id}/confirm": {
+      "post": {
+        "summary": "Confirm a dry-run command intent for application.",
+        "operationId": "confirmCommandIntent",
+        "parameters": [
+          {
+            "name": "command_id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "command confirmed",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/CommandIntent"}
+              }
+            }
+          },
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/control-panel/v1/commands/{command_id}/cancel": {
+      "post": {
+        "summary": "Cancel a pending command intent.",
+        "operationId": "cancelCommandIntent",
+        "parameters": [
+          {
+            "name": "command_id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "command cancelled",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/CommandIntent"}
+              }
+            }
+          },
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    }
+  },
+  "components": {
+    "responses": {
+      "BadRequest": {
+        "description": "invalid request",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+          }
+        }
+      },
+      "NotFound": {
+        "description": "resource not found",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+          }
+        }
+      }
+    },
+    "schemas": {
+      "CycleRun": {
+        "type": "object",
+        "required": ["cycle_id", "status", "started_at", "stages", "dataset", "model", "serving", "resources"],
+        "properties": {
+          "cycle_id": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "started_at": {"type": "string", "format": "date-time"},
+          "finished_at": {"type": ["string", "null"], "format": "date-time"},
+          "owner_issue": {"type": "string"},
+          "airflow": {"$ref": "#/components/schemas/AirflowRef"},
+          "mlflow": {"$ref": "#/components/schemas/MLflowRef"},
+          "dataset": {"$ref": "#/components/schemas/DatasetVersion"},
+          "model": {"$ref": "#/components/schemas/ModelVersion"},
+          "metrics": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Metric"}
+          },
+          "promotion_gate": {"$ref": "#/components/schemas/PromotionGate"},
+          "serving": {"$ref": "#/components/schemas/ServingState"},
+          "stages": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/PipelineStage"}
+          },
+          "resources": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ResourceRef"}
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ArtifactRef"}
+          }
+        }
+      },
+      "PipelineStage": {
+        "type": "object",
+        "required": ["stage_id", "name", "status", "started_at", "artifacts", "metrics"],
+        "properties": {
+          "stage_id": {"type": "string"},
+          "name": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "started_at": {"type": ["string", "null"], "format": "date-time"},
+          "finished_at": {"type": ["string", "null"], "format": "date-time"},
+          "current_step": {"type": ["string", "null"]},
+          "progress": {"type": "number", "minimum": 0, "maximum": 1},
+          "failure_reason": {"type": ["string", "null"]},
+          "sample_outputs": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ArtifactRef"}
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ArtifactRef"}
+          },
+          "metrics": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Metric"}
+          },
+          "resources": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ResourceRef"}
+          }
+        }
+      },
+      "DatasetVersion": {
+        "type": "object",
+        "required": ["dataset_id", "version", "record_count", "storage_uri", "quality_status"],
+        "properties": {
+          "dataset_id": {"type": "string"},
+          "version": {"type": "string"},
+          "domain_pack": {"type": "string"},
+          "record_count": {"type": "integer", "minimum": 0},
+          "split": {
+            "type": "object",
+            "additionalProperties": {"type": "integer"}
+          },
+          "storage_uri": {"type": "string"},
+          "schema_valid_rate": {"type": "number", "minimum": 0, "maximum": 1},
+          "quality_status": {"$ref": "#/components/schemas/State"}
+        }
+      },
+      "ModelVersion": {
+        "type": "object",
+        "required": ["model_name", "version", "stage", "model_type", "registry_uri"],
+        "properties": {
+          "model_name": {"type": "string"},
+          "version": {"type": "string"},
+          "stage": {"type": "string"},
+          "model_type": {"type": "string"},
+          "registry_uri": {"type": "string"},
+          "source_run_id": {"type": "string"},
+          "dataset_version": {"type": "string"}
+        }
+      },
+      "PromotionGate": {
+        "type": "object",
+        "required": ["decision", "status", "blockers"],
+        "properties": {
+          "decision": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "blockers": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "thresholds": {
+            "type": "object",
+            "additionalProperties": {"type": "number"}
+          }
+        }
+      },
+      "ServingState": {
+        "type": "object",
+        "required": ["status", "endpoint", "model_loaded", "model_version"],
+        "properties": {
+          "status": {"$ref": "#/components/schemas/State"},
+          "endpoint": {"type": "string"},
+          "model_loaded": {"type": "boolean"},
+          "model_version": {"type": "string"},
+          "placeholder": {"type": "boolean"},
+          "p95_latency_ms": {"type": ["number", "null"]},
+          "healthy_targets": {"type": ["integer", "null"]}
+        }
+      },
+      "RuntimeResource": {
+        "type": "object",
+        "required": ["resource_id", "namespace", "kind", "name", "status", "node_pool"],
+        "properties": {
+          "resource_id": {"type": "string"},
+          "namespace": {"type": "string"},
+          "kind": {"type": "string"},
+          "name": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "readiness": {"type": ["string", "null"]},
+          "restarts": {"type": "integer", "minimum": 0},
+          "cpu_request": {"type": ["string", "null"]},
+          "memory_request": {"type": ["string", "null"]},
+          "gpu_request": {"type": ["string", "null"]},
+          "storage_claim": {"type": ["string", "null"]},
+          "storage_root": {"type": ["string", "null"]},
+          "node_pool": {"type": "string"},
+          "last_transition_time": {"type": ["string", "null"], "format": "date-time"},
+          "owner_issue": {"type": ["string", "null"]},
+          "control_actions": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      },
+      "TaskAssignmentRequest": {
+        "type": "object",
+        "required": ["task_type", "owner", "priority", "resource_profile", "config_payload"],
+        "properties": {
+          "task_type": {"type": "string", "enum": ["airflow_dag_run", "mlflow_run", "kubernetes_job"]},
+          "owner": {"type": "string"},
+          "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+          "resource_profile": {"type": "string"},
+          "airflow": {"$ref": "#/components/schemas/AirflowRef"},
+          "mlflow": {"$ref": "#/components/schemas/MLflowRef"},
+          "config_payload": {"type": "object"},
+          "dry_run": {"type": "boolean", "default": true}
+        }
+      },
+      "TaskAssignment": {
+        "allOf": [
+          {"$ref": "#/components/schemas/TaskAssignmentRequest"},
+          {
+            "type": "object",
+            "required": ["task_id", "status", "created_at"],
+            "properties": {
+              "task_id": {"type": "string"},
+              "status": {"$ref": "#/components/schemas/State"},
+              "created_at": {"type": "string", "format": "date-time"},
+              "queued_at": {"type": ["string", "null"], "format": "date-time"}
+            }
+          }
+        ]
+      },
+      "CommandIntentRequest": {
+        "type": "object",
+        "required": ["action", "target", "actor", "dry_run", "reason"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["restart_deployment", "scale_deployment", "run_pipeline_job", "cancel_job", "promote_model", "rollback_model"]
+          },
+          "target": {"$ref": "#/components/schemas/ResourceRef"},
+          "actor": {"type": "string"},
+          "dry_run": {"type": "boolean"},
+          "reason": {"type": "string"},
+          "parameters": {"type": "object"}
+        }
+      },
+      "CommandIntent": {
+        "allOf": [
+          {"$ref": "#/components/schemas/CommandIntentRequest"},
+          {
+            "type": "object",
+            "required": ["command_id", "status", "created_at", "audit"],
+            "properties": {
+              "command_id": {"type": "string"},
+              "status": {"type": "string", "enum": ["draft", "dry_run", "pending_confirmation", "applying", "applied", "cancelled", "failed", "rolled_back"]},
+              "created_at": {"type": "string", "format": "date-time"},
+              "confirmed_at": {"type": ["string", "null"], "format": "date-time"},
+              "applied_at": {"type": ["string", "null"], "format": "date-time"},
+              "rollback_command_id": {"type": ["string", "null"]},
+              "audit": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/AuditEvent"}
+              }
+            }
+          }
+        ]
+      },
+      "AuditEvent": {
+        "type": "object",
+        "required": ["timestamp", "actor", "event"],
+        "properties": {
+          "timestamp": {"type": "string", "format": "date-time"},
+          "actor": {"type": "string"},
+          "event": {"type": "string"},
+          "details": {"type": "object"}
+        }
+      },
+      "AirflowRef": {
+        "type": "object",
+        "properties": {
+          "dag_id": {"type": "string"},
+          "dag_run_id": {"type": "string"},
+          "task_id": {"type": ["string", "null"]},
+          "url": {"type": ["string", "null"]}
+        }
+      },
+      "MLflowRef": {
+        "type": "object",
+        "properties": {
+          "experiment_id": {"type": "string"},
+          "run_id": {"type": "string"},
+          "model_name": {"type": "string"},
+          "model_version": {"type": "string"},
+          "url": {"type": ["string", "null"]}
+        }
+      },
+      "ResourceRef": {
+        "type": "object",
+        "required": ["namespace", "kind", "name"],
+        "properties": {
+          "namespace": {"type": "string"},
+          "kind": {"type": "string"},
+          "name": {"type": "string"},
+          "uid": {"type": ["string", "null"]}
+        }
+      },
+      "ArtifactRef": {
+        "type": "object",
+        "required": ["name", "uri", "artifact_type"],
+        "properties": {
+          "name": {"type": "string"},
+          "uri": {"type": "string"},
+          "artifact_type": {"type": "string"},
+          "mime_type": {"type": ["string", "null"]},
+          "preview_uri": {"type": ["string", "null"]}
+        }
+      },
+      "Metric": {
+        "type": "object",
+        "required": ["name", "value"],
+        "properties": {
+          "name": {"type": "string"},
+          "value": {"type": "number"},
+          "unit": {"type": ["string", "null"]},
+          "threshold": {"type": ["number", "null"]},
+          "status": {"$ref": "#/components/schemas/State"}
+        }
+      },
+      "State": {
+        "type": "string",
+        "enum": ["unknown", "queued", "running", "pass", "warn", "fail", "blocked", "done", "cancelled"]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error", "message"],
+        "properties": {
+          "error": {"type": "string"},
+          "message": {"type": "string"},
+          "details": {"type": "object"}
+        }
+      }
+    }
+  }
+}

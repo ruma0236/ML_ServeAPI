@@ -1,0 +1,87 @@
+{
+  "cycle_id": "cycle-20260709-w6-foundation",
+  "status": "running",
+  "started_at": "2026-07-09T08:00:00Z",
+  "finished_at": null,
+  "owner_issue": "EVM-223",
+  "airflow": {
+    "dag_id": "enterprise_vision_mlops_daily",
+    "dag_run_id": "manual__2026-07-09T08:00:00Z",
+    "task_id": null,
+    "url": "http://localhost:8080"
+  },
+  "mlflow": {
+    "experiment_id": "vision-baseline",
+    "run_id": "w6-contract-placeholder",
+    "model_name": "vision-baseline",
+    "model_version": "10",
+    "url": "http://localhost:5000"
+  },
+  "dataset": {
+    "dataset_id": "visa-open-data",
+    "version": "visa-open-data-f1f1c9ee9922",
+    "domain_pack": "manufacturing_visual_inspection",
+    "record_count": 10821,
+    "split": {"train": 6504, "validation": 2136, "test": 2181},
+    "storage_uri": "s3://validated/industrial/visa",
+    "schema_valid_rate": 1.0,
+    "quality_status": "pass"
+  },
+  "model": {
+    "model_name": "vision-baseline",
+    "version": "10",
+    "stage": "Shadow",
+    "model_type": "image_feature_centroid",
+    "registry_uri": "artifacts/registry/vision-baseline/latest.json",
+    "source_run_id": "w5-lifecycle",
+    "dataset_version": "visa-open-data-f1f1c9ee9922"
+  },
+  "metrics": [
+    {"name": "accuracy", "value": 0.577717, "unit": null, "threshold": 0.7, "status": "blocked"},
+    {"name": "auroc", "value": 0.559712, "unit": null, "threshold": 0.65, "status": "blocked"}
+  ],
+  "promotion_gate": {
+    "decision": "shadow_only",
+    "status": "blocked",
+    "blockers": ["accuracy<0.7", "auroc<0.65"],
+    "thresholds": {"accuracy": 0.7, "auroc": 0.65}
+  },
+  "serving": {
+    "status": "pass",
+    "endpoint": "http://localhost:8000",
+    "model_loaded": true,
+    "model_version": "10",
+    "placeholder": false,
+    "p95_latency_ms": null,
+    "healthy_targets": 2
+  },
+  "stages": [
+    {
+      "stage_id": "data-intake",
+      "name": "Data Intake",
+      "status": "pass",
+      "started_at": "2026-07-09T08:00:00Z",
+      "finished_at": "2026-07-09T08:05:00Z",
+      "current_step": null,
+      "progress": 1,
+      "failure_reason": null,
+      "sample_outputs": [],
+      "artifacts": [
+        {"name": "source_registry", "uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/source_registry.json", "artifact_type": "json", "mime_type": "application/json", "preview_uri": null}
+      ],
+      "metrics": [
+        {"name": "records_discovered", "value": 10821, "unit": "records", "threshold": null, "status": "pass"}
+      ],
+      "resources": [
+        {"namespace": "evm-pipelines", "kind": "Job", "name": "evm-domain-pack-check", "uid": null}
+      ]
+    }
+  ],
+  "resources": [
+    {"namespace": "evm-platform", "kind": "Deployment", "name": "evm-api", "uid": null},
+    {"namespace": "evm-platform", "kind": "Deployment", "name": "evm-mlflow", "uid": null}
+  ],
+  "artifacts": [
+    {"name": "runtime_resource_map", "uri": "infra/kubernetes/runtime-resource-map.json", "artifact_type": "json", "mime_type": "application/json", "preview_uri": null}
+  ]
+}
