@@ -334,21 +334,29 @@ cycle and prepare the Docker Compose foundation for local Kubernetes/k3s/kind
 execution. The Control Panel must make Kubernetes resource state, Airflow/MLflow
 task assignment, data intake, training, inference, intermediate artifacts, and
 resource-control actions visible through real-time or near-real-time UI states.
+W7 must explicitly assume both internal platform use by teams/departments and
+external production-service operation. Data pipelines, model experiment/training
+pipelines, drift review, and CD/CT verification gates must be visible and
+actionable from the same control surface.
 
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
 | `EVM-221` | Kubernetes runtime resource map | Done | 2026-07-W6 | Docker Compose services are mapped to Kubernetes Deployment/Service/PVC/Secret/ConfigMap/Job/CronJob resources with CPU/GPU/storage placement notes |
 | `EVM-222` | Local Kubernetes manifest scaffold | Done | 2026-07-W6 | initial k8s manifests or overlays exist for API, MLflow, MinIO, Prometheus/Grafana, and at least one pipeline Job |
 | `EVM-223` | Control Panel metadata and control API contract | Done | 2026-07-W6 | API contract defines cycle run, dataset version, model version, lineage, metrics, promotion gate, artifacts, serving state, command intent, task assignment, and resource action schemas |
-| `EVM-224` | Cycle lineage aggregation API | Planned | 2026-07-W7 | backend endpoint aggregates registry, lifecycle, dataset, Airflow/MLflow references, Prometheus serving status, and artifact links for one cycle |
-| `EVM-225` | MLOps Control Panel v0 | Planned | 2026-07-W7 | UI provides tabbed/depth navigation for Kubernetes control, pipeline control, resource management, lineage, artifacts, cycle detail, dataset/model cards, promotion blockers, and serving state |
+| `EVM-224` | Cycle lineage aggregation API | Planned | 2026-07-W7 | backend endpoint aggregates registry, lifecycle, dataset, Airflow/MLflow references, Prometheus serving status, artifact links, tenant/environment scope, drift state, and CD/CT gate state for one cycle |
+| `EVM-225` | MLOps Control Panel v0 | Planned | 2026-07-W7 | UI provides tabbed/depth navigation for Kubernetes control, pipeline control, resource management, lineage, artifacts, cycle detail, dataset/model cards, promotion blockers, drift/CDCT gates, tenant/environment scope, and serving state |
 | `EVM-226` | Kubernetes local smoke proof | Planned | 2026-07-W7 | local Kubernetes/k3s/kind run proves at least one API or pipeline job path with documented commands and screenshots/logs |
 | `EVM-227` | GPU/VLM serving deployment design | Planned | 2026-07-W7 | Windows RTX, Mac mini evaluator, KServe/Triton/vLLM/Ray Serve options, and GPU scheduling constraints are compared for next implementation |
-| `EVM-228` | Compressed W6/W7 integration review | Planned | 2026-07-W7 | Git/Jira/Notion/Obsidian evidence confirms W6/W7 scope, remaining risks, and next handoff by the 2026-07-15 target |
+| `EVM-228` | Compressed W6/W7 integration review | Planned | 2026-07-W7 | Git/Jira/Notion/Obsidian evidence confirms W6/W7 scope, enterprise-readiness checklist, remaining risks, and next handoff by the 2026-07-15 target |
 | `EVM-229` | Kubernetes resource topology and animation UI | Planned | 2026-07-W7 | UI visualizes namespace/node/pod/job/service/PVC/GPU state with readable animated transitions and drilldowns for allocation, pressure, restarts, and readiness |
-| `EVM-230` | Airflow and MLflow task authoring and assignment UI | Planned | 2026-07-W7 | UI can draft, edit, assign, validate, and queue pipeline tasks with owner, priority, resource profile, config payload, Airflow DAG/run reference, and MLflow experiment/run reference |
-| `EVM-231` | Live pipeline timeline and intermediate result drilldown | Planned | 2026-07-W7 | data intake, validation, quality gate, training, registry, inference, serving, and monitoring stages show animated current state plus stage-level artifacts, metrics, logs, sample outputs, and failure reasons |
+| `EVM-230` | Airflow and MLflow task authoring and assignment UI | Planned | 2026-07-W7 | UI can draft, edit, assign, validate, and queue pipeline tasks with owner, priority, resource profile, config payload, environment/approval policy, Airflow DAG/run reference, MLflow experiment/run reference, and CD/CT gate preview |
+| `EVM-231` | Live pipeline timeline and intermediate result drilldown | Planned | 2026-07-W7 | data intake, validation, quality gate, training, registry, inference, serving, monitoring, drift review, and CD/CT stages show animated current state plus stage-level artifacts, metrics, logs, sample outputs, and failure reasons |
 | `EVM-232` | Resource control protocol and audit guardrails | Planned | 2026-07-W7 | Kubernetes, Airflow, and MLflow actions are represented as explicit command intents with dry-run/confirm/apply states, audit trail, RBAC-ready actor fields, and rollback or cancel semantics |
+| `EVM-233` | Enterprise service tenancy and environment scope | Planned | 2026-07-W7 | W7 API/UI exposes team, department, internal/external service scope, data/model/ops owners, environment tier, namespace/cluster, approval policy, and promotion state |
+| `EVM-234` | Drift detection and retraining trigger surface | Planned | 2026-07-W7 | data drift, prediction drift, reference/current dataset versions, drift report URI, label-review/retrain/block actions, and UI drilldown are represented in cycle detail |
+| `EVM-235` | CD/CT push verification and promotion gate | Planned | 2026-07-W7 | push/PR checks, image build, kustomize render, data quality, model eval, drift review, CT trigger, and promotion blockers are represented as a pass/fail gate before deploy/promote |
+| `EVM-236` | Enterprise data/model pipeline readiness checklist | Planned | 2026-07-W7 | data pipeline readiness covers source policy, schema, quality, lineage, replay/backfill; model pipeline readiness covers MLflow tracking, eval reports, registry, model card, rollback, and owner approval |
 
 ## Jira Mapping
 
@@ -458,6 +466,10 @@ Jira live sync 기준 mapping이다.
 | `EVM-230` | `SCRUM-108` | Task | https://opop0236.atlassian.net/browse/SCRUM-108 |
 | `EVM-231` | `SCRUM-109` | Task | https://opop0236.atlassian.net/browse/SCRUM-109 |
 | `EVM-232` | `SCRUM-110` | Task | https://opop0236.atlassian.net/browse/SCRUM-110 |
+| `EVM-233` | `SCRUM-111` | Task | https://opop0236.atlassian.net/browse/SCRUM-111 |
+| `EVM-234` | `SCRUM-112` | Task | https://opop0236.atlassian.net/browse/SCRUM-112 |
+| `EVM-235` | `SCRUM-113` | Task | https://opop0236.atlassian.net/browse/SCRUM-113 |
+| `EVM-236` | `SCRUM-114` | Task | https://opop0236.atlassian.net/browse/SCRUM-114 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
 | `EVM-BUG-004` | `SCRUM-55` | Bug | Jira: https://opop0236.atlassian.net/browse/SCRUM-55<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 |

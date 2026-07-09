@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise Vision MLOps Control Panel API",
-    "version": "2026-07-09.w6.v1",
-    "description": "Metadata and control contract for the W6/W7 enterprise MLOps Control Panel."
+    "version": "2026-07-09.w7.enterprise.v1",
+    "description": "Metadata and control contract for the W7 enterprise MLOps Control Panel, including organizational service scope, drift review, and CD/CT gates."
   },
   "servers": [
     {
@@ -247,8 +247,12 @@
           "started_at": {"type": "string", "format": "date-time"},
           "finished_at": {"type": ["string", "null"], "format": "date-time"},
           "owner_issue": {"type": "string"},
+          "tenant": {"$ref": "#/components/schemas/OrgContext"},
+          "environment": {"$ref": "#/components/schemas/EnvironmentRef"},
           "airflow": {"$ref": "#/components/schemas/AirflowRef"},
           "mlflow": {"$ref": "#/components/schemas/MLflowRef"},
+          "data_pipeline": {"$ref": "#/components/schemas/DataPipelineReadiness"},
+          "experiment_pipeline": {"$ref": "#/components/schemas/ExperimentPipelineReadiness"},
           "dataset": {"$ref": "#/components/schemas/DatasetVersion"},
           "model": {"$ref": "#/components/schemas/ModelVersion"},
           "metrics": {
@@ -256,6 +260,8 @@
             "items": {"$ref": "#/components/schemas/Metric"}
           },
           "promotion_gate": {"$ref": "#/components/schemas/PromotionGate"},
+          "drift": {"$ref": "#/components/schemas/DriftState"},
+          "cdct_gate": {"$ref": "#/components/schemas/CDCTGate"},
           "serving": {"$ref": "#/components/schemas/ServingState"},
           "stages": {
             "type": "array",
@@ -318,6 +324,58 @@
           "quality_status": {"$ref": "#/components/schemas/State"}
         }
       },
+      "OrgContext": {
+        "type": "object",
+        "required": ["team_id", "department", "service_scope"],
+        "properties": {
+          "team_id": {"type": "string"},
+          "department": {"type": "string"},
+          "product_area": {"type": ["string", "null"]},
+          "service_scope": {"type": "string", "enum": ["internal-team", "internal-department", "external-production"]},
+          "data_owner": {"type": ["string", "null"]},
+          "model_owner": {"type": ["string", "null"]},
+          "ops_owner": {"type": ["string", "null"]}
+        }
+      },
+      "EnvironmentRef": {
+        "type": "object",
+        "required": ["name", "tier", "promotion_state"],
+        "properties": {
+          "name": {"type": "string"},
+          "tier": {"type": "string", "enum": ["dev", "test", "staging", "pre-production", "production"]},
+          "promotion_state": {"type": "string", "enum": ["draft", "candidate", "approved", "blocked", "deployed", "rolled_back"]},
+          "cluster": {"type": ["string", "null"]},
+          "namespace": {"type": ["string", "null"]},
+          "release_ref": {"type": ["string", "null"]}
+        }
+      },
+      "DataPipelineReadiness": {
+        "type": "object",
+        "required": ["contract_status", "quality_status", "lineage_status", "replay_ready"],
+        "properties": {
+          "contract_status": {"$ref": "#/components/schemas/State"},
+          "quality_status": {"$ref": "#/components/schemas/State"},
+          "lineage_status": {"$ref": "#/components/schemas/State"},
+          "replay_ready": {"type": "boolean"},
+          "source_policy_uri": {"type": ["string", "null"]},
+          "quality_report_uri": {"type": ["string", "null"]},
+          "lineage_uri": {"type": ["string", "null"]},
+          "backfill_window": {"type": ["string", "null"]}
+        }
+      },
+      "ExperimentPipelineReadiness": {
+        "type": "object",
+        "required": ["tracking_status", "evaluation_status", "registry_status", "promotion_ready"],
+        "properties": {
+          "tracking_status": {"$ref": "#/components/schemas/State"},
+          "evaluation_status": {"$ref": "#/components/schemas/State"},
+          "registry_status": {"$ref": "#/components/schemas/State"},
+          "promotion_ready": {"type": "boolean"},
+          "experiment_uri": {"type": ["string", "null"]},
+          "model_card_uri": {"type": ["string", "null"]},
+          "evaluation_report_uri": {"type": ["string", "null"]}
+        }
+      },
       "ModelVersion": {
         "type": "object",
         "required": ["model_name", "version", "stage", "model_type", "registry_uri"],
@@ -344,6 +402,53 @@
           "thresholds": {
             "type": "object",
             "additionalProperties": {"type": "number"}
+          }
+        }
+      },
+      "DriftState": {
+        "type": "object",
+        "required": ["status", "data_drift_status", "prediction_drift_status", "action"],
+        "properties": {
+          "status": {"$ref": "#/components/schemas/State"},
+          "data_drift_status": {"$ref": "#/components/schemas/State"},
+          "prediction_drift_status": {"$ref": "#/components/schemas/State"},
+          "reference_dataset_version": {"type": ["string", "null"]},
+          "current_dataset_version": {"type": ["string", "null"]},
+          "drifting_columns": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "drift_score": {"type": ["number", "null"]},
+          "report_uri": {"type": ["string", "null"]},
+          "action": {"type": "string", "enum": ["none", "label_review", "retrain_candidate", "block_promotion", "rollback_review"]}
+        }
+      },
+      "CDCTGate": {
+        "type": "object",
+        "required": ["status", "ci_status", "cd_status", "ct_status", "required_checks"],
+        "properties": {
+          "status": {"$ref": "#/components/schemas/State"},
+          "ci_status": {"$ref": "#/components/schemas/State"},
+          "cd_status": {"$ref": "#/components/schemas/State"},
+          "ct_status": {"$ref": "#/components/schemas/State"},
+          "required_checks": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "passed_checks": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "failed_checks": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "pipeline_run_uri": {"type": ["string", "null"]},
+          "ct_trigger": {"type": ["string", "null"], "enum": ["new-data", "new-code", "drift", "schedule", "manual", null]},
+          "approved_by": {"type": ["string", "null"]},
+          "promotion_blockers": {
+            "type": "array",
+            "items": {"type": "string"}
           }
         }
       },
@@ -393,8 +498,12 @@
           "owner": {"type": "string"},
           "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
           "resource_profile": {"type": "string"},
+          "requester_team": {"type": ["string", "null"]},
+          "environment": {"$ref": "#/components/schemas/EnvironmentRef"},
+          "approval_policy": {"type": ["string", "null"]},
           "airflow": {"$ref": "#/components/schemas/AirflowRef"},
           "mlflow": {"$ref": "#/components/schemas/MLflowRef"},
+          "cdct_gate": {"$ref": "#/components/schemas/CDCTGate"},
           "config_payload": {"type": "object"},
           "dry_run": {"type": "boolean", "default": true}
         }
@@ -420,7 +529,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["restart_deployment", "scale_deployment", "run_pipeline_job", "cancel_job", "trigger_airflow_dag", "pause_airflow_dag", "resume_airflow_dag", "promote_model", "rollback_model"]
+            "enum": ["restart_deployment", "scale_deployment", "run_pipeline_job", "cancel_job", "trigger_airflow_dag", "pause_airflow_dag", "resume_airflow_dag", "run_cd_verification", "run_ct_evaluation", "trigger_drift_review", "approve_environment_promotion", "promote_model", "rollback_model"]
           },
           "target": {"$ref": "#/components/schemas/ResourceRef"},
           "actor": {"type": "string"},

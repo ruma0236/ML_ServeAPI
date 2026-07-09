@@ -2,9 +2,9 @@
 
 Issue: `EVM-223` / Jira `SCRUM-101`
 
-This contract defines the first backend/UI boundary for the enterprise MLOps
-Control Panel. It is intentionally defined before the W7 UI implementation so
-the UI can be built against stable cycle, resource, task, and command shapes.
+This contract defines the backend/UI boundary for the enterprise MLOps Control
+Panel. It is intentionally defined before the W7 UI implementation so the UI can
+be built against stable cycle, resource, task, drift, CD/CT, and command shapes.
 
 Machine-readable contract:
 
@@ -36,8 +36,13 @@ Examples:
 
 - Airflow DAG/run reference
 - MLflow experiment/run/model reference
+- tenant, department, service scope, and environment state
+- data pipeline readiness
+- experiment/training/evaluation readiness
 - dataset version and quality state
 - model version and registry state
+- drift state and drift action
+- CD/CT gate state
 - metrics and thresholds
 - promotion gate decision
 - serving readiness
@@ -46,6 +51,63 @@ Examples:
 - artifact links
 
 The UI should treat this as the primary detail view for one MLOps cycle.
+
+### OrgContext And EnvironmentRef
+
+`OrgContext` and `EnvironmentRef` make the Control Panel usable as a platform
+service rather than a single-user artifact viewer. They capture:
+
+- team and department
+- internal-team, internal-department, or external-production scope
+- data/model/ops owners
+- dev/test/staging/pre-production/production tier
+- promotion state
+- cluster and namespace
+
+The UI should use these fields for service-scope filters, approval routing, and
+environment promotion views.
+
+### DataPipelineReadiness
+
+`DataPipelineReadiness` is the enterprise data-pipeline checklist. It captures:
+
+- source or data contract status
+- quality gate status
+- lineage status
+- replay/backfill readiness
+- source policy, quality report, and lineage artifact links
+
+The UI should render this as a data readiness panel before any training or
+promotion action.
+
+### ExperimentPipelineReadiness
+
+`ExperimentPipelineReadiness` is the model training/experiment/evaluation
+checklist. It captures:
+
+- MLflow tracking status
+- evaluation status
+- registry status
+- promotion readiness
+- experiment, model card, and evaluation report links
+
+The UI should render this next to dataset/model cards so reviewers can see why a
+candidate can or cannot advance.
+
+### DriftState
+
+`DriftState` represents data drift, prediction drift, reference/current dataset
+versions, drifting columns, report URI, and recommended action. W7 should expose
+this as both a dashboard summary and a drilldown before CT or promotion.
+
+### CDCTGate
+
+`CDCTGate` represents the DevOps/MLOps verification boundary. It combines CI,
+CD, and CT state into one deploy/promotion gate with required checks, passed
+checks, failed checks, CT trigger reason, approver, and promotion blockers.
+
+This should be the UI source for "can this pushed change or retrained model move
+forward?".
 
 ### PipelineStage
 
@@ -105,8 +167,12 @@ work. It carries:
 - owner
 - priority
 - resource profile
+- requester team
+- environment
+- approval policy
 - Airflow reference
 - MLflow reference
+- CD/CT gate preview
 - config payload
 - dry-run flag
 
@@ -127,6 +193,10 @@ Allowed initial actions:
 - `trigger_airflow_dag`
 - `pause_airflow_dag`
 - `resume_airflow_dag`
+- `run_cd_verification`
+- `run_ct_evaluation`
+- `trigger_drift_review`
+- `approve_environment_promotion`
 - `promote_model`
 - `rollback_model`
 
@@ -156,8 +226,11 @@ The W7 Control Panel should be able to build these views from the contract:
 
 - `EVM-224` should implement a read-only aggregator that emits `CycleRun`.
 - `EVM-225` should consume `CycleRun`, `RuntimeResource`, `TaskAssignment`, and
-  `CommandIntent` shapes.
+  `CommandIntent` shapes, including tenant, drift, CD/CT, and readiness fields.
 - `EVM-232` should enforce command states before real mutation is enabled.
+- `EVM-233` to `EVM-236` should close the W7 enterprise-readiness gap: service
+  tenancy, drift/retraining trigger visibility, CD/CT gates, and data/model
+  readiness checklists.
 - Airflow task assignment must use the orchestrator contract first. In W6 local
   Kubernetes this means external Airflow REST API control; in W7+ this can move
   to in-cluster Airflow resources or an operator-backed control mode.

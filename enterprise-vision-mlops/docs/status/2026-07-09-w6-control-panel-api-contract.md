@@ -53,11 +53,25 @@ Structured checks confirmed:
 - schema count: `20`
 - example payloads parse as JSON
 
+## W7 Enterprise Supplement
+
+The contract was expanded during the W7 enterprise-readiness audit in
+`docs/status/2026-07-09-w7-enterprise-mlops-readiness-audit.md`.
+
+Current W7 contract stats:
+
+- contract version: `2026-07-09.w7.enterprise.v1`
+- API paths: `8`
+- schema count: `26`
+- new W7 concepts: tenant/service scope, environment/promotion state, data
+  pipeline readiness, experiment pipeline readiness, drift state, and CD/CT
+  gate state
+
 ## Handoff
 
 `EVM-224` should implement the first read-only cycle aggregation API using this
-contract. `EVM-225`, `EVM-229`, `EVM-230`, `EVM-231`, and `EVM-232` should use
-these schemas as the W7 UI/control baseline. Airflow task assignment should
-read the orchestrator contract before enabling mutation, because W6 local
-Kubernetes still controls external Compose Airflow rather than in-cluster
-Airflow resources.
+expanded W7 contract. `EVM-225`, `EVM-229`, `EVM-230`, `EVM-231`, and
+`EVM-232` should use these schemas as the W7 UI/control baseline. Airflow task
+assignment should read the orchestrator contract before enabling mutation,
+because W6 local Kubernetes still controls external Compose Airflow rather than
+in-cluster Airflow resources.
