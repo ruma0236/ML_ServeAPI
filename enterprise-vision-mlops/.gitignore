@@ -10,6 +10,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+node_modules/
 .venv/
 venv/
 
@@ -23,6 +24,11 @@ data/validated/*
 mlruns/
 artifacts/
 *.log
+
+# Frontend local artifacts
+apps/control-panel/node_modules/
+apps/control-panel/dist/
+apps/control-panel/playwright-report/
 
 # OS/editor files
 .DS_Store
