@@ -173,7 +173,11 @@
     "drifting_columns": ["class_name"],
     "drift_score": 0.12,
     "report_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lifecycle/vision-baseline/drift_special_case_queue.json",
-    "action": "label_review"
+    "action": "label_review",
+    "review_queue_count": 1,
+    "severity": "low",
+    "recommended_action": "review 1 queued drift/special cases",
+    "retraining_candidate_required": false
   },
   "cdct_gate": {
     "status": "blocked",
@@ -182,11 +186,23 @@
     "ct_status": "blocked",
     "required_checks": ["unit_tests", "docker_compose_config", "kustomize_render", "drift_review", "promotion_gate"],
     "passed_checks": ["unit_tests", "docker_compose_config", "kustomize_render"],
-    "failed_checks": ["promotion_gate"],
+    "failed_checks": ["model_evaluation", "drift_review", "promotion_gate"],
     "pipeline_run_uri": "https://github.com/ruma0236/ML_ServeAPI/actions",
     "ct_trigger": "drift",
     "approved_by": null,
-    "promotion_blockers": ["accuracy<0.7", "auroc<0.65"]
+    "promotion_blockers": ["accuracy<0.7", "auroc<0.65"],
+    "gate_report_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lifecycle/vision-baseline/lifecycle_dashboard.json",
+    "promotion_decision": "block",
+    "block_reason": "failed checks: model_evaluation, drift_review, promotion_gate; promotion blockers: accuracy<0.7, auroc<0.65",
+    "verification_summary": {
+      "ci": "pass",
+      "cd": "pass",
+      "ct": "blocked",
+      "data_quality": "pass",
+      "model_evaluation": "blocked",
+      "drift_review": "blocked",
+      "promotion_gate": "blocked"
+    }
   },
   "serving": {
     "status": "pass",

@@ -204,6 +204,18 @@ def test_build_latest_cycle_aggregates_local_evidence(tmp_path, monkeypatch):
     assert cycle.environment is not None
     assert cycle.environment.approval_policy == "manual-owner-approval"
     assert "accuracy<0.7" in cycle.environment.promotion_blockers
+    assert cycle.drift is not None
+    assert cycle.drift.action == "label_review"
+    assert cycle.drift.reference_dataset_version == "visa-open-data-test"
+    assert cycle.drift.current_dataset_version == "visa-open-data-test"
+    assert cycle.drift.review_queue_count == 1
+    assert cycle.cdct_gate is not None
+    assert cycle.cdct_gate.ci_status == "pass"
+    assert cycle.cdct_gate.cd_status == "pass"
+    assert cycle.cdct_gate.ct_status == "blocked"
+    assert "model_evaluation" in cycle.cdct_gate.failed_checks
+    assert "drift_review" in cycle.cdct_gate.failed_checks
+    assert cycle.cdct_gate.promotion_decision == "block"
     assert cycle.model_matrix is not None
     assert cycle.model_matrix.real_test_policy.mock_allowed is False
     assert cycle.model_matrix.candidates

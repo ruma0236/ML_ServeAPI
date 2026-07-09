@@ -1,0 +1,22 @@
+import { expect, test } from "@playwright/test";
+
+const tabs = ["Overview", "Readiness", "Timeline", "Operate", "Gates"];
+
+test("@w7-all-tabs-visual captures every Control Panel tab for the active viewport", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Control Panel" })).toBeVisible();
+
+  const evidenceDir =
+    process.env.EVM_W7_ALL_TABS_EVIDENCE_DIR ||
+    "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/all_tabs_visual/latest";
+
+  for (const tab of tabs) {
+    await page.getByRole("button", { name: tab }).click();
+    await expect(page.getByRole("button", { name: tab })).toHaveClass(/active/);
+    await page.waitForTimeout(250);
+    await page.screenshot({
+      path: `${evidenceDir}/${testInfo.project.name}-${tab.toLowerCase()}.png`,
+      fullPage: true
+    });
+  }
+});

@@ -8,13 +8,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from evm.control_panel.cdct import build_cdct_gate
+from evm.control_panel.drift import build_drift_state
 from evm.control_panel.schemas import (
     AirflowRef,
     ArtifactRef,
-    CDCTGate,
     CycleRun,
     DatasetVersion,
-    DriftState,
     MLflowRef,
     Metric,
     ModelCandidate,
@@ -401,7 +401,19 @@ def build_latest_cycle(
     )
     environment_ref = build_environment_ref(blockers, os.getenv("GIT_COMMIT", ""))
 
-    drift_status: State = "warn" if drift_queue else "unknown"
+    drift_state = build_drift_state(
+        drift_queue=drift_queue,
+        drift_queue_path=drift_queue_path,
+        dataset_version=dataset_version,
+        promotion_blockers=blockers,
+    )
+    cdct_gate = build_cdct_gate(
+        promotion_blockers=blockers,
+        drift=drift_state,
+        quality_status=quality_status,
+        pipeline_run_uri="https://github.com/ruma0236/ML_ServeAPI/actions",
+        gate_report_uri=str(lifecycle_dashboard_path) if lifecycle_dashboard_path.exists() else None,
+    )
     cycle = CycleRun(
         cycle_id=(
             f"cycle-w7-{sanitize_cycle_part(dataset_version)}-"
@@ -458,35 +470,8 @@ def build_latest_cycle(
             blockers=blockers,
             thresholds={key: float(value) for key, value in thresholds.items() if isinstance(value, int | float)},
         ),
-        drift=DriftState(
-            status=drift_status,
-            data_drift_status=drift_status,
-            prediction_drift_status="unknown",
-            reference_dataset_version=dataset_version,
-            current_dataset_version=dataset_version,
-            drifting_columns=["class_name"] if drift_queue else [],
-            drift_score=0.12 if drift_queue else None,
-            report_uri=str(drift_queue_path) if drift_queue_path.exists() else None,
-            action="label_review" if drift_queue else "none",
-        ),
-        cdct_gate=CDCTGate(
-            status="blocked" if blockers else "pass",
-            ci_status="pass",
-            cd_status="pass",
-            ct_status="blocked" if blockers else "pass",
-            required_checks=[
-                "unit_tests",
-                "docker_compose_config",
-                "kustomize_render",
-                "drift_review",
-                "promotion_gate",
-            ],
-            passed_checks=["unit_tests", "docker_compose_config", "kustomize_render"],
-            failed_checks=["promotion_gate"] if blockers else [],
-            pipeline_run_uri="https://github.com/ruma0236/ML_ServeAPI/actions",
-            ct_trigger="drift" if drift_queue else "manual",
-            promotion_blockers=blockers,
-        ),
+        drift=drift_state,
+        cdct_gate=cdct_gate,
         serving=ServingState(
             status="pass" if registry else "blocked",
             endpoint=str(get_nested(config, "serving.api_url", "http://localhost:8000")),

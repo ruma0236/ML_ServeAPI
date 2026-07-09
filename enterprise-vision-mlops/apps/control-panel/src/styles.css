@@ -22,16 +22,16 @@ body {
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  background: #111515;
-  color: #e7ece9;
+  background: #050506;
+  color: #f2f4f6;
 }
 
 :root[data-theme="dark"] body {
   background:
-    linear-gradient(90deg, rgba(145, 167, 155, 0.05) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(145, 167, 155, 0.05) 1px, transparent 1px),
-    #111515;
-  color: #e7ece9;
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    #050506;
+  color: #f2f4f6;
 }
 
 button {
@@ -864,6 +864,159 @@ h3 {
   background: #fae9e9;
 }
 
+.drift-review-panel,
+.cdct-gate-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.drift-layout,
+.cdct-layout {
+  display: grid;
+  gap: 12px;
+}
+
+.drift-action-card,
+.cdct-decision-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dde6e9;
+  border-radius: 8px;
+  background: #fafcfd;
+}
+
+.drift-action-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.drift-action-card span,
+.cdct-decision-card span,
+.cdct-status-strip span,
+.drift-state-grid span,
+.cdct-check-row span {
+  color: #60727a;
+  font-size: 0.76rem;
+}
+
+.drift-action-card strong,
+.cdct-decision-card strong,
+.drift-state-grid strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cdct-decision-card svg,
+.drift-action-card svg {
+  width: 20px;
+  height: 20px;
+  color: #a95e1f;
+}
+
+.drift-state-grid,
+.cdct-status-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.drift-state-grid div,
+.cdct-status-strip div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dde6e9;
+  border-radius: 8px;
+  background: #fafcfd;
+}
+
+.drift-detail-list,
+.cdct-detail-list {
+  padding: 10px;
+  border: 1px solid #dde6e9;
+  border-radius: 8px;
+  background: #fafcfd;
+}
+
+.drift-action-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drift-action-rail span {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border: 1px solid #d8e2e6;
+  border-radius: 999px;
+  color: #4a5d65;
+  background: #f7fbfc;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.drift-action-rail svg {
+  width: 15px;
+  height: 15px;
+}
+
+.drift-action-rail span.active {
+  border-color: #d99a56;
+  color: #7a4215;
+  background: #fff4e8;
+}
+
+.cdct-check-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cdct-check-row {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dde6e9;
+  border-radius: 8px;
+  background: #fafcfd;
+}
+
+.cdct-check-row svg {
+  width: 17px;
+  height: 17px;
+  color: #2e7180;
+}
+
+.cdct-check-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cdct-check-blocked {
+  border-color: #e2b8b9;
+  background: #fff7f7;
+}
+
+.cdct-check-pass {
+  border-color: #b8d8c9;
+  background: #f1faf5;
+}
+
+.cdct-blockers {
+  margin-top: -2px;
+}
+
 .timeline {
   display: grid;
   gap: 10px;
@@ -1394,8 +1547,8 @@ h3 {
 :root[data-theme="dark"] .footer-line,
 :root[data-theme="dark"] .summary-strip,
 :root[data-theme="dark"] .panel {
-  border-color: #33403e;
-  background: rgba(24, 30, 29, 0.94);
+  border-color: #2b2e33;
+  background: rgba(15, 16, 18, 0.96);
 }
 
 :root[data-theme="dark"] .eyebrow,
@@ -1414,6 +1567,11 @@ h3 {
 :root[data-theme="dark"] .scope-select span,
 :root[data-theme="dark"] .owner-grid span,
 :root[data-theme="dark"] .checklist-rows span,
+:root[data-theme="dark"] .drift-action-card span,
+:root[data-theme="dark"] .cdct-decision-card span,
+:root[data-theme="dark"] .cdct-status-strip span,
+:root[data-theme="dark"] .drift-state-grid span,
+:root[data-theme="dark"] .cdct-check-row span,
 :root[data-theme="dark"] .readiness-item span,
 :root[data-theme="dark"] .policy span,
 :root[data-theme="dark"] .stage-body p,
@@ -1428,7 +1586,7 @@ h3 {
 :root[data-theme="dark"] .topology-copy em,
 :root[data-theme="dark"] .topology-meta small,
 :root[data-theme="dark"] .detail-list dt {
-  color: #9aa9a4;
+  color: #a4a8ae;
 }
 
 :root[data-theme="dark"] h1,
@@ -1447,10 +1605,13 @@ h3 {
 :root[data-theme="dark"] .owner-grid strong,
 :root[data-theme="dark"] .owner-approval strong,
 :root[data-theme="dark"] .checklist-rows small,
+:root[data-theme="dark"] .drift-action-card strong,
+:root[data-theme="dark"] .cdct-decision-card strong,
+:root[data-theme="dark"] .drift-state-grid strong,
 :root[data-theme="dark"] .result-copy,
 :root[data-theme="dark"] .ledger-item p,
 :root[data-theme="dark"] .detail-chip {
-  color: #e7ece9;
+  color: #f2f4f6;
 }
 
 :root[data-theme="dark"] .metric-tile,
@@ -1474,16 +1635,23 @@ h3 {
 :root[data-theme="dark"] .policy,
 :root[data-theme="dark"] .readiness-item,
 :root[data-theme="dark"] .check-list,
+:root[data-theme="dark"] .drift-action-card,
+:root[data-theme="dark"] .cdct-decision-card,
+:root[data-theme="dark"] .drift-state-grid div,
+:root[data-theme="dark"] .cdct-status-strip div,
+:root[data-theme="dark"] .drift-detail-list,
+:root[data-theme="dark"] .cdct-detail-list,
+:root[data-theme="dark"] .cdct-check-row,
 :root[data-theme="dark"] .namespace-lane,
 :root[data-theme="dark"] .topology-node,
 :root[data-theme="dark"] .stage-summary-strip button,
 :root[data-theme="dark"] .empty-ledger {
-  border-color: #34413f;
-  background: #1b2221;
+  border-color: #2f3338;
+  background: #141518;
 }
 
 :root[data-theme="dark"] .summary-strip {
-  background: #34413f;
+  background: #2b2e33;
 }
 
 :root[data-theme="dark"] .icon-button,
@@ -1493,9 +1661,9 @@ h3 {
 :root[data-theme="dark"] .ops-form input,
 :root[data-theme="dark"] .ops-form select,
 :root[data-theme="dark"] .json-editor textarea {
-  border-color: #40504d;
-  color: #e7ece9;
-  background: #151b1a;
+  border-color: #3a3d43;
+  color: #f2f4f6;
+  background: #090a0c;
 }
 
 :root[data-theme="dark"] .icon-button:hover,
@@ -1512,12 +1680,12 @@ h3 {
 :root[data-theme="dark"] .tabbar button.active,
 :root[data-theme="dark"] .segmented-control button.active {
   color: #f0f5f2;
-  background: #25413d;
+  background: #24272d;
 }
 
 :root[data-theme="dark"] .segmented-control {
-  border-color: #34413f;
-  background: #151b1a;
+  border-color: #2f3338;
+  background: #090a0c;
 }
 
 :root[data-theme="dark"] .segmented-control button {
@@ -1526,9 +1694,31 @@ h3 {
 
 :root[data-theme="dark"] .blocker-pills span,
 :root[data-theme="dark"] .check-list span {
-  border-color: #42514e;
-  color: #dce5e1;
-  background: #17201e;
+  border-color: #3a3d43;
+  color: #e5e7eb;
+  background: #101113;
+}
+
+:root[data-theme="dark"] .drift-action-rail span {
+  border-color: #3a3d43;
+  color: #d6d9de;
+  background: #101113;
+}
+
+:root[data-theme="dark"] .drift-action-rail span.active {
+  border-color: #8a6338;
+  color: #f0c38a;
+  background: #251b11;
+}
+
+:root[data-theme="dark"] .cdct-check-blocked {
+  border-color: #774447;
+  background: #211315;
+}
+
+:root[data-theme="dark"] .cdct-check-pass {
+  border-color: #3a6b54;
+  background: #101b15;
 }
 
 :root[data-theme="dark"] .metric-icon,
@@ -1536,29 +1726,29 @@ h3 {
 :root[data-theme="dark"] .namespace-lane header span,
 :root[data-theme="dark"] .ring-core {
   color: #9bd0c5;
-  background: #203735;
+  background: #191b1f;
 }
 
 :root[data-theme="dark"] .cycle-ring {
-  border-color: #34413f;
-  background: radial-gradient(circle, #17201f 0 42%, #31423f 43% 44%, #17201f 45%);
+  border-color: #2f3338;
+  background: radial-gradient(circle, #0f1012 0 42%, #2a2d33 43% 44%, #0f1012 45%);
 }
 
 :root[data-theme="dark"] .ring-core span {
-  color: #e7ece9;
+  color: #f2f4f6;
 }
 
 :root[data-theme="dark"] .ring-core small,
 :root[data-theme="dark"] .detail-drawer.empty,
 :root[data-theme="dark"] .stage-detail.empty,
 :root[data-theme="dark"] .empty-ledger {
-  color: #9aa9a4;
+  color: #a4a8ae;
 }
 
 :root[data-theme="dark"] .stage-rail::before,
 :root[data-theme="dark"] .progress-line,
 :root[data-theme="dark"] .detail-progress {
-  background: #303c3a;
+  background: #272a2f;
 }
 
 :root[data-theme="dark"] .detail-progress span {
@@ -1566,15 +1756,15 @@ h3 {
 }
 
 :root[data-theme="dark"] .status-badge {
-  border-color: #485754;
-  color: #dce5e1;
-  background: #202927;
+  border-color: #454951;
+  color: #e5e7eb;
+  background: #181a1e;
 }
 
 :root[data-theme="dark"] .status-good {
   border-color: #3b785d;
   color: #9fd9bd;
-  background: #173024;
+  background: #102018;
 }
 
 :root[data-theme="dark"] .status-warn {
@@ -1592,7 +1782,7 @@ h3 {
 :root[data-theme="dark"] .status-run {
   border-color: #3e708d;
   color: #9dc8df;
-  background: #182b35;
+  background: #111d25;
 }
 
 :root[data-theme="dark"] .error-state {
@@ -1602,9 +1792,9 @@ h3 {
 }
 
 :root[data-theme="dark"] .loading-state {
-  border-color: #34413f;
+  border-color: #2f3338;
   color: #a8b7b1;
-  background: #18201e;
+  background: #111214;
 }
 
 @keyframes pulse {
@@ -1645,7 +1835,10 @@ h3 {
   .policy-grid,
   .gate-columns,
   .stage-summary-strip,
-  .ops-summary {
+  .ops-summary,
+  .drift-state-grid,
+  .cdct-status-strip,
+  .cdct-check-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1681,11 +1874,19 @@ h3 {
   .split-bars div,
   .owner-grid > div,
   .checklist-rows div,
-  .owner-approval div {
+  .owner-approval div,
+  .drift-action-card,
+  .cdct-decision-card {
     grid-template-columns: 1fr;
   }
 
   .segmented-control {
+    grid-template-columns: 1fr;
+  }
+
+  .drift-state-grid,
+  .cdct-status-strip,
+  .cdct-check-grid {
     grid-template-columns: 1fr;
   }
 

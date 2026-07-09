@@ -563,7 +563,11 @@
           },
           "drift_score": {"type": ["number", "null"]},
           "report_uri": {"type": ["string", "null"]},
-          "action": {"type": "string", "enum": ["none", "label_review", "retrain_candidate", "block_promotion", "rollback_review"]}
+          "action": {"type": "string", "enum": ["none", "label_review", "retrain_candidate", "block_promotion", "rollback_review"]},
+          "review_queue_count": {"type": "integer", "minimum": 0},
+          "severity": {"type": "string", "enum": ["none", "low", "medium", "high", "critical"]},
+          "recommended_action": {"type": "string"},
+          "retraining_candidate_required": {"type": "boolean"}
         }
       },
       "CDCTGate": {
@@ -592,6 +596,13 @@
           "promotion_blockers": {
             "type": "array",
             "items": {"type": "string"}
+          },
+          "gate_report_uri": {"type": ["string", "null"]},
+          "promotion_decision": {"type": "string", "enum": ["allow", "block", "manual_review"]},
+          "block_reason": {"type": ["string", "null"]},
+          "verification_summary": {
+            "type": "object",
+            "additionalProperties": {"$ref": "#/components/schemas/State"}
           }
         }
       },

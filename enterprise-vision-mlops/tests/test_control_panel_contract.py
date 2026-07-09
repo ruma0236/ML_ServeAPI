@@ -29,6 +29,12 @@ def test_cycle_run_example_conforms_to_pydantic_and_openapi_component():
     assert cycle.data_pipeline.owner_approval_actor == "data-platform"
     assert cycle.experiment_pipeline is not None
     assert cycle.experiment_pipeline.rollback_ready is True
+    assert cycle.drift is not None
+    assert cycle.drift.review_queue_count == 1
+    assert cycle.drift.recommended_action
+    assert cycle.cdct_gate is not None
+    assert cycle.cdct_gate.promotion_decision == "block"
+    assert cycle.cdct_gate.block_reason
     assert report["valid"] is True
     assert "cycle_id" in report["required_fields"]
 
@@ -42,6 +48,10 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "owner_approval_status" in schemas["DataPipelineReadiness"]["properties"]
     assert "rollback_ready" in schemas["ExperimentPipelineReadiness"]["properties"]
     assert "blockers" in schemas["ExperimentPipelineReadiness"]["properties"]
+    assert "review_queue_count" in schemas["DriftState"]["properties"]
+    assert "recommended_action" in schemas["DriftState"]["properties"]
+    assert "promotion_decision" in schemas["CDCTGate"]["properties"]
+    assert "block_reason" in schemas["CDCTGate"]["properties"]
 
 
 def test_control_panel_latest_cycle_route_returns_contract_payload(monkeypatch):

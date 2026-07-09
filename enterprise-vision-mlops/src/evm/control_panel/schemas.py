@@ -243,6 +243,10 @@ class DriftState(ContractModel):
     drifting_columns: list[str] = Field(default_factory=list)
     drift_score: float | None = None
     report_uri: str | None = None
+    review_queue_count: int = Field(default=0, ge=0)
+    severity: Literal["none", "low", "medium", "high", "critical"] = "none"
+    recommended_action: str = ""
+    retraining_candidate_required: bool = False
 
 
 class CDCTGate(ContractModel):
@@ -257,6 +261,10 @@ class CDCTGate(ContractModel):
     ct_trigger: Literal["new-data", "new-code", "drift", "schedule", "manual"] | None = None
     approved_by: str | None = None
     promotion_blockers: list[str] = Field(default_factory=list)
+    gate_report_uri: str | None = None
+    promotion_decision: Literal["allow", "block", "manual_review"] = "manual_review"
+    block_reason: str | None = None
+    verification_summary: dict[str, State] = Field(default_factory=dict)
 
 
 class TaskAssignmentRequest(ContractModel):

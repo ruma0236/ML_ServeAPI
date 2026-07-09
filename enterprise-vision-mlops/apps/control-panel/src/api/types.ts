@@ -200,6 +200,10 @@ export interface DriftState {
   drifting_columns?: string[];
   drift_score?: number | null;
   report_uri?: string | null;
+  review_queue_count?: number;
+  severity?: "none" | "low" | "medium" | "high" | "critical";
+  recommended_action?: string;
+  retraining_candidate_required?: boolean;
 }
 
 export interface CDCTGate {
@@ -214,6 +218,10 @@ export interface CDCTGate {
   ct_trigger?: string | null;
   approved_by?: string | null;
   promotion_blockers: string[];
+  gate_report_uri?: string | null;
+  promotion_decision?: "allow" | "block" | "manual_review";
+  block_reason?: string | null;
+  verification_summary?: Record<string, State>;
 }
 
 export interface TaskAssignmentRequest {
