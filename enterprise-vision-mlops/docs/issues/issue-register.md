@@ -65,9 +65,9 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-EPIC-13` | Manufacturing VLM P0 Foundation | 2026-07-12 | Done | current-week completion sprint: dataset, manifest, adapter, router, batch inference |
 | `EVM-EPIC-14` | VLM Reliability Evaluation And Portfolio Cut | 2026-07-12 | Done | current-week regression gate, rollback simulation, failure scenarios, benchmark, RCA, final portfolio evidence |
 | `EVM-EPIC-15` | Model Lifecycle And Drift Operations | 2026-07-W5 | Planned | real model lifecycle state machine, candidate promotion, drift/special-case tracking, and alert review |
-| `EVM-EPIC-16` | Large-scale Data Acquisition And Cleaning Research | 2026-07-W6 | Planned | source registry, scalable acquisition, dedup/quality benchmark, curation, and lakehouse ingestion research |
+| `EVM-EPIC-16` | Large-scale Data Acquisition And Cleaning Research | 2026-07-W6 | Done | source registry, scalable acquisition, dedup/quality benchmark, curation, and lakehouse ingestion research |
 | `EVM-EPIC-17` | Draft Decision And AgentOps Governance | 2026-07-W7 | Planned | draft/proposal registry, decision trail, AgentOps reliability design, and final portfolio hardening |
-| `EVM-EPIC-18` | Kubernetes Runtime And MLOps Control Panel | 2026-07-W7 | Planned | Kubernetes runtime foundation, metadata/control API, animated visual cycle panel, resource control, task assignment, and serving-scale handoff |
+| `EVM-EPIC-18` | Kubernetes Runtime And MLOps Control Panel | 2026-07-W7 | In Progress | Kubernetes runtime foundation, metadata/control API, animated visual cycle panel, resource control, task assignment, and serving-scale handoff |
 
 ## Backlog
 
