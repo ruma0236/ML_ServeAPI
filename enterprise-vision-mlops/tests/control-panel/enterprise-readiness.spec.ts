@@ -1,0 +1,33 @@
+import { expect, test } from "@playwright/test";
+
+test("@w7-enterprise-readiness renders service scope, readiness gates, and theme controls", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Control Panel" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Readiness" }).click();
+  await expect(page.getByRole("heading", { name: "Enterprise Scope" })).toBeVisible();
+  await expect(page.getByText("Owner Coverage")).toBeVisible();
+  await expect(page.getByText("Environment Gate")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Data Pipeline Checklist" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Model Pipeline Checklist" })).toBeVisible();
+  await expect(page.getByText("Owner approval")).toHaveCount(2);
+  await expect(page.getByText("manual-owner-approval")).toBeVisible();
+  await expect(page.getByLabel("Owner coverage").getByText("data-platform")).toBeVisible();
+  await expect(page.getByLabel("Owner coverage").getByText("ml-platform")).toBeVisible();
+  await expect(page.getByLabel("Enterprise readiness checklist").getByText("data-platform")).toBeVisible();
+  await expect(page.getByLabel("Enterprise readiness checklist").getByText("ml-platform")).toBeVisible();
+
+  await expect(page.locator(":root")).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("button", { name: "Toggle theme" }).click();
+  await expect(page.locator(":root")).toHaveAttribute("data-theme", "light");
+  await page.getByRole("button", { name: "Toggle theme" }).click();
+  await expect(page.locator(":root")).toHaveAttribute("data-theme", "dark");
+
+  const screenshotPath =
+    process.env.EVM_ENTERPRISE_READINESS_SCREENSHOT ||
+    `${
+      process.env.EVM_W7_ENTERPRISE_READINESS_EVIDENCE_DIR ||
+      "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/enterprise_readiness/latest"
+    }/${testInfo.project.name}-enterprise-readiness.png`;
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+});

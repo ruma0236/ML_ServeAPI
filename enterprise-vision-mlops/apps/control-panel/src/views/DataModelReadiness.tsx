@@ -3,6 +3,8 @@ import { Cpu, DatabaseZap, GitCommitVertical, ShieldCheck } from "lucide-react";
 import { formatNumber } from "../api/controlPanelClient";
 import type { CycleRun } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
+import { ReadinessChecklist } from "./ReadinessChecklist";
+import { ServiceScopeFilters } from "./ServiceScopeFilters";
 
 interface DataModelReadinessProps {
   cycle: CycleRun;
@@ -12,6 +14,9 @@ export function DataModelReadiness({ cycle }: DataModelReadinessProps) {
   const splitEntries = Object.entries(cycle.dataset.split || {});
   return (
     <section className="two-column" aria-label="Data and model readiness">
+      <ServiceScopeFilters cycle={cycle} />
+      <ReadinessChecklist cycle={cycle} />
+
       <div className="panel">
         <div className="panel-heading">
           <div>

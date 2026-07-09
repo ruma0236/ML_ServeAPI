@@ -21,8 +21,27 @@ def test_cycle_run_example_conforms_to_pydantic_and_openapi_component():
     )
 
     assert cycle.cycle_id == payload["cycle_id"]
+    assert cycle.tenant is not None
+    assert cycle.tenant.ownership_status == "pass"
+    assert cycle.environment is not None
+    assert cycle.environment.approval_policy == "manual-owner-approval"
+    assert cycle.data_pipeline is not None
+    assert cycle.data_pipeline.owner_approval_actor == "data-platform"
+    assert cycle.experiment_pipeline is not None
+    assert cycle.experiment_pipeline.rollback_ready is True
     assert report["valid"] is True
     assert "cycle_id" in report["required_fields"]
+
+
+def test_openapi_components_expose_enterprise_readiness_fields():
+    openapi = json.loads(Path("contracts/control-panel/control-panel.openapi.json").read_text(encoding="utf-8"))
+    schemas = openapi["components"]["schemas"]
+
+    assert "ownership_status" in schemas["OrgContext"]["properties"]
+    assert "promotion_blockers" in schemas["EnvironmentRef"]["properties"]
+    assert "owner_approval_status" in schemas["DataPipelineReadiness"]["properties"]
+    assert "rollback_ready" in schemas["ExperimentPipelineReadiness"]["properties"]
+    assert "blockers" in schemas["ExperimentPipelineReadiness"]["properties"]
 
 
 def test_control_panel_latest_cycle_route_returns_contract_payload(monkeypatch):

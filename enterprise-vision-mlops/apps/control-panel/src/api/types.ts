@@ -99,6 +99,8 @@ export interface OrgContext {
   data_owner?: string | null;
   model_owner?: string | null;
   ops_owner?: string | null;
+  ownership_status?: State;
+  missing_owners?: string[];
 }
 
 export interface EnvironmentRef {
@@ -108,6 +110,8 @@ export interface EnvironmentRef {
   cluster?: string | null;
   namespace?: string | null;
   release_ref?: string | null;
+  approval_policy?: string | null;
+  promotion_blockers?: string[];
 }
 
 export interface AirflowRef {
@@ -158,6 +162,10 @@ export interface DataPipelineReadiness {
   quality_report_uri?: string | null;
   lineage_uri?: string | null;
   backfill_window?: string | null;
+  owner_approval_required?: boolean;
+  owner_approval_status?: State;
+  owner_approval_actor?: string | null;
+  blockers?: string[];
 }
 
 export interface ExperimentPipelineReadiness {
@@ -168,6 +176,11 @@ export interface ExperimentPipelineReadiness {
   experiment_uri?: string | null;
   model_card_uri?: string | null;
   evaluation_report_uri?: string | null;
+  rollback_ready?: boolean;
+  owner_approval_required?: boolean;
+  owner_approval_status?: State;
+  owner_approval_actor?: string | null;
+  blockers?: string[];
 }
 
 export interface PromotionGate {

@@ -14,6 +14,9 @@ def _write_json(path: Path, payload: dict | list) -> None:
 def _write_project_files(root: Path) -> None:
     (root / "pyproject.toml").write_text("[project]\nname='tmp-evm'\n", encoding="utf-8")
     (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    contract_path = root / "domain_packs/manufacturing_visual_inspection/data_contract.toml"
+    contract_path.parent.mkdir(parents=True, exist_ok=True)
+    contract_path.write_text("[contract]\nname='manufacturing_visual_inspection'\n", encoding="utf-8")
 
 
 def _write_config(root: Path) -> Path:
@@ -189,6 +192,18 @@ def test_build_latest_cycle_aggregates_local_evidence(tmp_path, monkeypatch):
     assert cycle.promotion_gate.status == "blocked"
     assert cycle.data_pipeline is not None
     assert cycle.data_pipeline.quality_status == "pass"
+    assert cycle.data_pipeline.owner_approval_actor == "data-platform"
+    assert cycle.data_pipeline.owner_approval_status == "pass"
+    assert cycle.experiment_pipeline is not None
+    assert cycle.experiment_pipeline.owner_approval_actor == "ml-platform"
+    assert cycle.experiment_pipeline.owner_approval_status == "blocked"
+    assert "accuracy<0.7" in cycle.experiment_pipeline.blockers
+    assert cycle.tenant is not None
+    assert cycle.tenant.ownership_status == "pass"
+    assert cycle.tenant.missing_owners == []
+    assert cycle.environment is not None
+    assert cycle.environment.approval_policy == "manual-owner-approval"
+    assert "accuracy<0.7" in cycle.environment.promotion_blockers
     assert cycle.model_matrix is not None
     assert cycle.model_matrix.real_test_policy.mock_allowed is False
     assert cycle.model_matrix.candidates

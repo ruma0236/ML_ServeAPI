@@ -1,4 +1,4 @@
-import { AlertCircle, RefreshCcw } from "lucide-react";
+import { AlertCircle, Moon, RefreshCcw, Sun } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchLatestCycle, fetchRuntimeResources } from "./api/controlPanelClient";
@@ -24,6 +24,7 @@ export function App() {
   const [cycle, setCycle] = useState<CycleRun | null>(null);
   const [resources, setResources] = useState<RuntimeResource[]>([]);
   const [tab, setTab] = useState<TabKey>("overview");
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshedAt, setRefreshedAt] = useState("");
@@ -56,8 +57,12 @@ export function App() {
     return <CycleOverview cycle={cycle} />;
   }, [cycle, resources, tab]);
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
   return (
-    <main className="shell">
+    <main className="shell" data-theme={theme}>
       <header className="topbar">
         <div>
           <span className="eyebrow">Enterprise Vision MLOps</span>
@@ -65,6 +70,15 @@ export function App() {
         </div>
         <div className="topbar-actions">
           {cycle ? <StatusBadge status={cycle.status} /> : null}
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label="Toggle theme"
+            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          >
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
           <button type="button" className="icon-button" onClick={() => void loadCycle()} aria-label="Refresh cycle">
             <RefreshCcw size={18} />
           </button>

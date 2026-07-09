@@ -397,7 +397,12 @@
           "service_scope": {"type": "string", "enum": ["internal-team", "internal-department", "external-production"]},
           "data_owner": {"type": ["string", "null"]},
           "model_owner": {"type": ["string", "null"]},
-          "ops_owner": {"type": ["string", "null"]}
+          "ops_owner": {"type": ["string", "null"]},
+          "ownership_status": {"$ref": "#/components/schemas/State"},
+          "missing_owners": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
         }
       },
       "EnvironmentRef": {
@@ -409,7 +414,12 @@
           "promotion_state": {"type": "string", "enum": ["draft", "candidate", "approved", "blocked", "deployed", "rolled_back"]},
           "cluster": {"type": ["string", "null"]},
           "namespace": {"type": ["string", "null"]},
-          "release_ref": {"type": ["string", "null"]}
+          "release_ref": {"type": ["string", "null"]},
+          "approval_policy": {"type": ["string", "null"]},
+          "promotion_blockers": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
         }
       },
       "DataPipelineReadiness": {
@@ -423,7 +433,14 @@
           "source_policy_uri": {"type": ["string", "null"]},
           "quality_report_uri": {"type": ["string", "null"]},
           "lineage_uri": {"type": ["string", "null"]},
-          "backfill_window": {"type": ["string", "null"]}
+          "backfill_window": {"type": ["string", "null"]},
+          "owner_approval_required": {"type": "boolean"},
+          "owner_approval_status": {"$ref": "#/components/schemas/State"},
+          "owner_approval_actor": {"type": ["string", "null"]},
+          "blockers": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
         }
       },
       "ExperimentPipelineReadiness": {
@@ -436,7 +453,15 @@
           "promotion_ready": {"type": "boolean"},
           "experiment_uri": {"type": ["string", "null"]},
           "model_card_uri": {"type": ["string", "null"]},
-          "evaluation_report_uri": {"type": ["string", "null"]}
+          "evaluation_report_uri": {"type": ["string", "null"]},
+          "rollback_ready": {"type": "boolean"},
+          "owner_approval_required": {"type": "boolean"},
+          "owner_approval_status": {"$ref": "#/components/schemas/State"},
+          "owner_approval_actor": {"type": ["string", "null"]},
+          "blockers": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
         }
       },
       "ModelVersion": {

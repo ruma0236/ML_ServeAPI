@@ -105,6 +105,8 @@ class OrgContext(ContractModel):
     data_owner: str | None = None
     model_owner: str | None = None
     ops_owner: str | None = None
+    ownership_status: State = "unknown"
+    missing_owners: list[str] = Field(default_factory=list)
 
 
 class EnvironmentRef(ContractModel):
@@ -114,6 +116,8 @@ class EnvironmentRef(ContractModel):
     cluster: str | None = None
     namespace: str | None = None
     release_ref: str | None = None
+    approval_policy: str | None = None
+    promotion_blockers: list[str] = Field(default_factory=list)
 
 
 class AirflowRef(ContractModel):
@@ -146,6 +150,10 @@ class DataPipelineReadiness(ContractModel):
     quality_report_uri: str | None = None
     lineage_uri: str | None = None
     backfill_window: str | None = None
+    owner_approval_required: bool = True
+    owner_approval_status: State = "unknown"
+    owner_approval_actor: str | None = None
+    blockers: list[str] = Field(default_factory=list)
 
 
 class ExperimentPipelineReadiness(ContractModel):
@@ -156,6 +164,11 @@ class ExperimentPipelineReadiness(ContractModel):
     experiment_uri: str | None = None
     model_card_uri: str | None = None
     evaluation_report_uri: str | None = None
+    rollback_ready: bool = False
+    owner_approval_required: bool = True
+    owner_approval_status: State = "unknown"
+    owner_approval_actor: str | None = None
+    blockers: list[str] = Field(default_factory=list)
 
 
 class DatasetVersion(ContractModel):

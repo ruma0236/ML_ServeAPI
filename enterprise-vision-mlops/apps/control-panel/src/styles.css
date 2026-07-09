@@ -20,6 +20,20 @@ body {
   background-size: 28px 28px;
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  background: #111515;
+  color: #e7ece9;
+}
+
+:root[data-theme="dark"] body {
+  background:
+    linear-gradient(90deg, rgba(145, 167, 155, 0.05) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(145, 167, 155, 0.05) 1px, transparent 1px),
+    #111515;
+  color: #e7ece9;
+}
+
 button {
   font: inherit;
 }
@@ -437,6 +451,189 @@ h3 {
   min-width: 0;
   padding: 14px;
   border-radius: 8px;
+}
+
+.scope-layout,
+.readiness-checklist {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr) minmax(320px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.readiness-checklist {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.scope-filter-card,
+.owner-grid,
+.environment-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dce6e9;
+  border-radius: 8px;
+  background: #f8fbfc;
+}
+
+.scope-filter-card header,
+.owner-grid header,
+.environment-card header,
+.owner-approval {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.scope-filter-card header svg,
+.owner-grid header svg,
+.environment-card header svg,
+.owner-approval svg,
+.checklist-rows svg {
+  width: 17px;
+  height: 17px;
+  color: #28758a;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 12px;
+  padding: 4px;
+  border: 1px solid #d5e1e5;
+  border-radius: 8px;
+  background: #eef4f6;
+}
+
+.segmented-control button {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: #4f636b;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.segmented-control button.active {
+  color: #10232b;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(33, 48, 55, 0.1);
+}
+
+.scope-select {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.scope-select span {
+  color: #65757c;
+  font-size: 0.74rem;
+}
+
+.scope-select select {
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid #d1dce1;
+  border-radius: 8px;
+  color: #1d2c33;
+  background: #fff;
+}
+
+.owner-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.owner-grid > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid #dce6e9;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.owner-grid span,
+.checklist-rows span {
+  color: #65757c;
+  font-size: 0.76rem;
+}
+
+.owner-grid strong,
+.checklist-rows small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.environment-card {
+  display: grid;
+  gap: 10px;
+}
+
+.blocker-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.blocker-pills span {
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d9e3e6;
+  border-radius: 999px;
+  color: #435860;
+  background: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.readiness-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.checklist-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.checklist-rows div {
+  display: grid;
+  grid-template-columns: auto minmax(110px, 0.34fr) minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #dce6e9;
+  border-radius: 8px;
+  background: #f8fbfc;
+}
+
+.owner-approval {
+  padding: 10px;
+  border: 1px solid #dce6e9;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.owner-approval div {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
 }
 
 .panel.wide {
@@ -1192,6 +1389,224 @@ h3 {
   border-radius: 8px;
 }
 
+:root[data-theme="dark"] .topbar,
+:root[data-theme="dark"] .tabbar,
+:root[data-theme="dark"] .footer-line,
+:root[data-theme="dark"] .summary-strip,
+:root[data-theme="dark"] .panel {
+  border-color: #33403e;
+  background: rgba(24, 30, 29, 0.94);
+}
+
+:root[data-theme="dark"] .eyebrow,
+:root[data-theme="dark"] .metric-tile span,
+:root[data-theme="dark"] .dense-list dt,
+:root[data-theme="dark"] .stage-meta,
+:root[data-theme="dark"] .footer-line,
+:root[data-theme="dark"] .panel-heading p,
+:root[data-theme="dark"] .candidate-row span,
+:root[data-theme="dark"] .resource-node small,
+:root[data-theme="dark"] .ops-summary span,
+:root[data-theme="dark"] .ops-form label span,
+:root[data-theme="dark"] .json-editor span,
+:root[data-theme="dark"] .ledger-item small,
+:root[data-theme="dark"] .ledger-item header span,
+:root[data-theme="dark"] .scope-select span,
+:root[data-theme="dark"] .owner-grid span,
+:root[data-theme="dark"] .checklist-rows span,
+:root[data-theme="dark"] .readiness-item span,
+:root[data-theme="dark"] .policy span,
+:root[data-theme="dark"] .stage-body p,
+:root[data-theme="dark"] .stage-detail header span,
+:root[data-theme="dark"] .detail-drawer header span,
+:root[data-theme="dark"] .metric-grid span,
+:root[data-theme="dark"] .artifact-list small,
+:root[data-theme="dark"] .detail-muted,
+:root[data-theme="dark"] .stage-summary-strip span,
+:root[data-theme="dark"] .stage-summary-strip em,
+:root[data-theme="dark"] .topology-copy small,
+:root[data-theme="dark"] .topology-copy em,
+:root[data-theme="dark"] .topology-meta small,
+:root[data-theme="dark"] .detail-list dt {
+  color: #9aa9a4;
+}
+
+:root[data-theme="dark"] h1,
+:root[data-theme="dark"] h2,
+:root[data-theme="dark"] h3,
+:root[data-theme="dark"] .metric-tile strong,
+:root[data-theme="dark"] .ops-summary strong,
+:root[data-theme="dark"] .dense-list dd,
+:root[data-theme="dark"] .policy strong,
+:root[data-theme="dark"] .candidate-row strong,
+:root[data-theme="dark"] .topology-copy strong,
+:root[data-theme="dark"] .namespace-lane header,
+:root[data-theme="dark"] .detail-section h4,
+:root[data-theme="dark"] .metric-grid strong,
+:root[data-theme="dark"] .detail-list dd,
+:root[data-theme="dark"] .owner-grid strong,
+:root[data-theme="dark"] .owner-approval strong,
+:root[data-theme="dark"] .checklist-rows small,
+:root[data-theme="dark"] .result-copy,
+:root[data-theme="dark"] .ledger-item p,
+:root[data-theme="dark"] .detail-chip {
+  color: #e7ece9;
+}
+
+:root[data-theme="dark"] .metric-tile,
+:root[data-theme="dark"] .stage-body,
+:root[data-theme="dark"] .stage-detail,
+:root[data-theme="dark"] .detail-drawer,
+:root[data-theme="dark"] .scope-filter-card,
+:root[data-theme="dark"] .owner-grid,
+:root[data-theme="dark"] .owner-grid > div,
+:root[data-theme="dark"] .environment-card,
+:root[data-theme="dark"] .readiness-panel,
+:root[data-theme="dark"] .checklist-rows div,
+:root[data-theme="dark"] .owner-approval,
+:root[data-theme="dark"] .ledger-item,
+:root[data-theme="dark"] .ops-summary div,
+:root[data-theme="dark"] .metric-grid div,
+:root[data-theme="dark"] .artifact-list span,
+:root[data-theme="dark"] .detail-chip,
+:root[data-theme="dark"] .candidate-row,
+:root[data-theme="dark"] .blocker-item,
+:root[data-theme="dark"] .policy,
+:root[data-theme="dark"] .readiness-item,
+:root[data-theme="dark"] .check-list,
+:root[data-theme="dark"] .namespace-lane,
+:root[data-theme="dark"] .topology-node,
+:root[data-theme="dark"] .stage-summary-strip button,
+:root[data-theme="dark"] .empty-ledger {
+  border-color: #34413f;
+  background: #1b2221;
+}
+
+:root[data-theme="dark"] .summary-strip {
+  background: #34413f;
+}
+
+:root[data-theme="dark"] .icon-button,
+:root[data-theme="dark"] .secondary-action,
+:root[data-theme="dark"] .ledger-actions button,
+:root[data-theme="dark"] .scope-select select,
+:root[data-theme="dark"] .ops-form input,
+:root[data-theme="dark"] .ops-form select,
+:root[data-theme="dark"] .json-editor textarea {
+  border-color: #40504d;
+  color: #e7ece9;
+  background: #151b1a;
+}
+
+:root[data-theme="dark"] .icon-button:hover,
+:root[data-theme="dark"] .secondary-action:hover,
+:root[data-theme="dark"] .ledger-actions button:hover {
+  border-color: #6aa6a5;
+  color: #9bd0c5;
+}
+
+:root[data-theme="dark"] .tabbar button {
+  color: #a6b4af;
+}
+
+:root[data-theme="dark"] .tabbar button.active,
+:root[data-theme="dark"] .segmented-control button.active {
+  color: #f0f5f2;
+  background: #25413d;
+}
+
+:root[data-theme="dark"] .segmented-control {
+  border-color: #34413f;
+  background: #151b1a;
+}
+
+:root[data-theme="dark"] .segmented-control button {
+  color: #a6b4af;
+}
+
+:root[data-theme="dark"] .blocker-pills span,
+:root[data-theme="dark"] .check-list span {
+  border-color: #42514e;
+  color: #dce5e1;
+  background: #17201e;
+}
+
+:root[data-theme="dark"] .metric-icon,
+:root[data-theme="dark"] .topology-icon,
+:root[data-theme="dark"] .namespace-lane header span,
+:root[data-theme="dark"] .ring-core {
+  color: #9bd0c5;
+  background: #203735;
+}
+
+:root[data-theme="dark"] .cycle-ring {
+  border-color: #34413f;
+  background: radial-gradient(circle, #17201f 0 42%, #31423f 43% 44%, #17201f 45%);
+}
+
+:root[data-theme="dark"] .ring-core span {
+  color: #e7ece9;
+}
+
+:root[data-theme="dark"] .ring-core small,
+:root[data-theme="dark"] .detail-drawer.empty,
+:root[data-theme="dark"] .stage-detail.empty,
+:root[data-theme="dark"] .empty-ledger {
+  color: #9aa9a4;
+}
+
+:root[data-theme="dark"] .stage-rail::before,
+:root[data-theme="dark"] .progress-line,
+:root[data-theme="dark"] .detail-progress {
+  background: #303c3a;
+}
+
+:root[data-theme="dark"] .detail-progress span {
+  color: #ecf4ef;
+}
+
+:root[data-theme="dark"] .status-badge {
+  border-color: #485754;
+  color: #dce5e1;
+  background: #202927;
+}
+
+:root[data-theme="dark"] .status-good {
+  border-color: #3b785d;
+  color: #9fd9bd;
+  background: #173024;
+}
+
+:root[data-theme="dark"] .status-warn {
+  border-color: #8a6c2e;
+  color: #e6c772;
+  background: #352b16;
+}
+
+:root[data-theme="dark"] .status-bad {
+  border-color: #8e4a4c;
+  color: #efaaa8;
+  background: #351c1d;
+}
+
+:root[data-theme="dark"] .status-run {
+  border-color: #3e708d;
+  color: #9dc8df;
+  background: #182b35;
+}
+
+:root[data-theme="dark"] .error-state {
+  border-color: #7d4346;
+  color: #f0b8b6;
+  background: #2a1718;
+}
+
+:root[data-theme="dark"] .loading-state {
+  border-color: #34413f;
+  color: #a8b7b1;
+  background: #18201e;
+}
+
 @keyframes pulse {
   0%,
   100% {
@@ -1218,7 +1633,9 @@ h3 {
   .topology-layout,
   .ops-layout,
   .ops-hero,
-  .ops-ledger-grid {
+  .ops-ledger-grid,
+  .scope-layout,
+  .readiness-checklist {
     grid-template-columns: 1fr;
   }
 
@@ -1261,7 +1678,14 @@ h3 {
   }
 
   .dense-list div,
-  .split-bars div {
+  .split-bars div,
+  .owner-grid > div,
+  .checklist-rows div,
+  .owner-approval div {
+    grid-template-columns: 1fr;
+  }
+
+  .segmented-control {
     grid-template-columns: 1fr;
   }
 

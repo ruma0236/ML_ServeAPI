@@ -13,17 +13,13 @@ from evm.control_panel.schemas import (
     ArtifactRef,
     CDCTGate,
     CycleRun,
-    DataPipelineReadiness,
     DatasetVersion,
     DriftState,
-    EnvironmentRef,
-    ExperimentPipelineReadiness,
     MLflowRef,
     Metric,
     ModelCandidate,
     ModelExperimentMatrix,
     ModelVersion,
-    OrgContext,
     PipelineStage,
     PromotionGate,
     RealTestPolicy,
@@ -31,6 +27,9 @@ from evm.control_panel.schemas import (
     ServingState,
     State,
 )
+from evm.control_panel.environment import build_environment_ref
+from evm.control_panel.org_context import build_default_org_context
+from evm.control_panel.readiness import build_data_readiness, build_experiment_readiness
 from evm.core.config import get_nested, load_config, resolve_path
 
 
@@ -379,25 +378,28 @@ def build_latest_cycle(
     ]
 
     metrics_list = metric_list(metrics, thresholds)
-    data_readiness = DataPipelineReadiness(
-        contract_status="pass" if Path("domain_packs/manufacturing_visual_inspection/data_contract.toml").exists() else "unknown",
+    org_context = build_default_org_context()
+    contract_path = project_root / "domain_packs/manufacturing_visual_inspection/data_contract.toml"
+    data_readiness = build_data_readiness(
+        contract_path=contract_path,
         quality_status=quality_status,
-        lineage_status="pass" if registry or lifecycle else "unknown",
+        lineage_exists=bool(registry or lifecycle),
         replay_ready=dataset_metadata_path.exists(),
         source_policy_uri="domain_packs/manufacturing_visual_inspection/data_contract.toml",
         quality_report_uri=str(quality_report_path) if quality_report_path.exists() else None,
         lineage_uri=str(lifecycle_dashboard_path) if lifecycle_dashboard_path.exists() else None,
         backfill_window="manual-local",
+        org_context=org_context,
     )
-    experiment_readiness = ExperimentPipelineReadiness(
-        tracking_status="pass" if registry else "unknown",
-        evaluation_status="blocked" if blockers else ("pass" if registry else "unknown"),
-        registry_status=registry_status,
-        promotion_ready=not blockers and bool(registry),
+    experiment_readiness = build_experiment_readiness(
+        registry_exists=bool(registry),
+        blockers=blockers,
         experiment_uri=str(get_nested(config, "mlflow.tracking_uri", "http://localhost:5000")),
         model_card_uri=str(lifecycle_dashboard_path) if lifecycle_dashboard_path.exists() else None,
         evaluation_report_uri="docs/reviews/2026-07-09-w5-real-model-lifecycle-verification.md",
+        org_context=org_context,
     )
+    environment_ref = build_environment_ref(blockers, os.getenv("GIT_COMMIT", ""))
 
     drift_status: State = "warn" if drift_queue else "unknown"
     cycle = CycleRun(
@@ -409,23 +411,8 @@ def build_latest_cycle(
         started_at=str(dataset.get("created_at") or registry.get("registered_at") or utc_now()),
         finished_at=None,
         owner_issue="EVM-224",
-        tenant=OrgContext(
-            team_id="mvi-platform",
-            department="ai-infra",
-            product_area="manufacturing-visual-inspection",
-            service_scope="internal-department",
-            data_owner="data-platform",
-            model_owner="ml-platform",
-            ops_owner="ai-infra-sre",
-        ),
-        environment=EnvironmentRef(
-            name="local-shadow",
-            tier="staging",
-            promotion_state="blocked" if blockers else "candidate",
-            cluster="docker-desktop",
-            namespace="evm-platform",
-            release_ref=os.getenv("GIT_COMMIT", ""),
-        ),
+        tenant=org_context,
+        environment=environment_ref,
         airflow=AirflowRef(
             mode="external-compose",
             control_mode="rest-api",

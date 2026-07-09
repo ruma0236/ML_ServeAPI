@@ -11,7 +11,9 @@
     "service_scope": "internal-department",
     "data_owner": "data-platform",
     "model_owner": "ml-platform",
-    "ops_owner": "ai-infra-sre"
+    "ops_owner": "ai-infra-sre",
+    "ownership_status": "pass",
+    "missing_owners": []
   },
   "environment": {
     "name": "local-shadow",
@@ -19,7 +21,9 @@
     "promotion_state": "candidate",
     "cluster": "docker-desktop",
     "namespace": "evm-platform",
-    "release_ref": "de7b790"
+    "release_ref": "de7b790",
+    "approval_policy": "manual-owner-approval",
+    "promotion_blockers": []
   },
   "airflow": {
     "mode": "external-compose",
@@ -48,7 +52,11 @@
     "source_policy_uri": "domain_packs/manufacturing_visual_inspection/data_contract.toml",
     "quality_report_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/mvi_quality_report.json",
     "lineage_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/runs/curation_workflow/curation-workflow-20260709T090608Z/trace.json",
-    "backfill_window": "manual-local"
+    "backfill_window": "manual-local",
+    "owner_approval_required": true,
+    "owner_approval_status": "pass",
+    "owner_approval_actor": "data-platform",
+    "blockers": []
   },
   "experiment_pipeline": {
     "tracking_status": "pass",
@@ -57,7 +65,12 @@
     "promotion_ready": false,
     "experiment_uri": "http://localhost:5000",
     "model_card_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lifecycle/vision-baseline/lifecycle_dashboard.json",
-    "evaluation_report_uri": "docs/reviews/2026-07-09-w5-real-model-lifecycle-verification.md"
+    "evaluation_report_uri": "docs/reviews/2026-07-09-w5-real-model-lifecycle-verification.md",
+    "rollback_ready": true,
+    "owner_approval_required": true,
+    "owner_approval_status": "blocked",
+    "owner_approval_actor": "ml-platform",
+    "blockers": ["accuracy<0.7", "auroc<0.65"]
   },
   "dataset": {
     "dataset_id": "visa-open-data",
