@@ -373,7 +373,7 @@ validation against actual `CycleRun.model_matrix` and EfficientNet evidence.
 | `EVM-236` | Enterprise data/model pipeline readiness checklist | Planned | 2026-07-W7 | data pipeline readiness covers source policy, schema, quality, lineage, replay/backfill; model pipeline readiness covers MLflow tracking, eval reports, registry, model card, rollback, and owner approval |
 | `EVM-237` | Torch EfficientNet-B0/B7 real model matrix | Planned | 2026-07-W7 | W7 model plan defines real Torch/TorchVision EfficientNet-B0 and EfficientNet-B7 candidates, condition matrix, GPU resource profiles, MLflow tracking requirements, and Control Panel `model_matrix` output |
 | `EVM-238` | W7 real-test-only evidence policy umbrella | Planned | 2026-07-W7 | W7 acceptance explicitly rejects mock adapters, placeholder predictions, and smoke-only runs as completion evidence; closure requires both `EVM-238-A` and `EVM-238-B` |
-| `EVM-238-A` | W7 real-test policy guard | Planned | 2026-07-W7 | guard implementation blocks mock adapters, placeholder predictions, synthetic-only fixtures, and smoke-only evidence before W7 closure |
+| `EVM-238-A` | W7 real-test policy guard | Done | 2026-07-W7 | policy guard validates CycleRun real-test policy and W7 closure records; verified by `docs/status/2026-07-09-w7-real-test-policy.md` |
 | `EVM-238-B` | W7 real-test evidence validation | Planned | 2026-07-W7 | validates actual `CycleRun.model_matrix`, EfficientNet MLflow runs, F-drive artifacts, metrics, split manifest, GPU profile, environment report, and confusion matrices after `EVM-237` evidence exists |
 
 ## Jira Mapping
