@@ -118,6 +118,29 @@
       }
     },
     "/control-panel/v1/tasks": {
+      "get": {
+        "summary": "Return the local task assignment ledger.",
+        "operationId": "listTaskAssignments",
+        "responses": {
+          "200": {
+            "description": "task assignment list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["tasks"],
+                  "properties": {
+                    "tasks": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/TaskAssignment"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "summary": "Draft or queue an Airflow/MLflow-aware task assignment.",
         "operationId": "createTaskAssignment",
@@ -142,7 +165,46 @@
         }
       }
     },
+    "/control-panel/v1/tasks/default": {
+      "get": {
+        "summary": "Return a CycleRun-derived default task assignment draft.",
+        "operationId": "getDefaultTaskAssignment",
+        "responses": {
+          "200": {
+            "description": "default task assignment request",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/TaskAssignmentRequest"}
+              }
+            }
+          }
+        }
+      }
+    },
     "/control-panel/v1/commands": {
+      "get": {
+        "summary": "Return the local command intent audit ledger.",
+        "operationId": "listCommandIntents",
+        "responses": {
+          "200": {
+            "description": "command intent list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["commands"],
+                  "properties": {
+                    "commands": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/CommandIntent"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "summary": "Create an auditable command intent for Kubernetes, Airflow, or MLflow actions.",
         "operationId": "createCommandIntent",
@@ -569,12 +631,16 @@
           {"$ref": "#/components/schemas/TaskAssignmentRequest"},
           {
             "type": "object",
-            "required": ["task_id", "status", "created_at"],
+            "required": ["task_id", "status", "created_at", "audit"],
             "properties": {
               "task_id": {"type": "string"},
-              "status": {"$ref": "#/components/schemas/State"},
+              "status": {"type": "string", "enum": ["draft", "dry_run", "queued", "pending_confirmation", "blocked"]},
               "created_at": {"type": "string", "format": "date-time"},
-              "queued_at": {"type": ["string", "null"], "format": "date-time"}
+              "queued_at": {"type": ["string", "null"], "format": "date-time"},
+              "audit": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/AuditEvent"}
+              }
             }
           }
         ]

@@ -8,13 +8,15 @@ import { CycleOverview } from "./views/CycleOverview";
 import { DataModelReadiness } from "./views/DataModelReadiness";
 import { GateAndRiskPanel } from "./views/GateAndRiskPanel";
 import { PipelineTimeline } from "./views/PipelineTimeline";
+import { TaskAuthoring } from "./views/TaskAuthoring";
 
-type TabKey = "overview" | "readiness" | "timeline" | "gates";
+type TabKey = "overview" | "readiness" | "timeline" | "operate" | "gates";
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "readiness", label: "Readiness" },
   { key: "timeline", label: "Timeline" },
+  { key: "operate", label: "Operate" },
   { key: "gates", label: "Gates" }
 ];
 
@@ -49,6 +51,7 @@ export function App() {
     if (!cycle) return null;
     if (tab === "readiness") return <DataModelReadiness cycle={cycle} />;
     if (tab === "timeline") return <PipelineTimeline cycle={cycle} resources={resources} />;
+    if (tab === "operate") return <TaskAuthoring cycle={cycle} resources={resources} />;
     if (tab === "gates") return <GateAndRiskPanel cycle={cycle} />;
     return <CycleOverview cycle={cycle} />;
   }, [cycle, resources, tab]);

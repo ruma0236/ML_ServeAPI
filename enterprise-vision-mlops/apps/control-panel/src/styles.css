@@ -143,6 +143,236 @@ h3 {
   grid-template-columns: 1fr;
 }
 
+.ops-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.ops-hero {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.65fr) minmax(0, 1.35fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.ops-title {
+  display: grid;
+  gap: 4px;
+}
+
+.ops-title h2 {
+  font-size: 1.18rem;
+}
+
+.ops-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ops-summary div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dce6e9;
+  border-radius: 8px;
+  background: #f8fbfc;
+}
+
+.ops-summary span,
+.ops-form label span,
+.json-editor span,
+.ledger-item small,
+.ledger-item header span {
+  color: #65757c;
+  font-size: 0.73rem;
+}
+
+.ops-summary strong {
+  overflow: hidden;
+  color: #17262d;
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ops-form label,
+.json-editor {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ops-form input,
+.ops-form select,
+.json-editor textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d1dce1;
+  border-radius: 8px;
+  color: #1d2c33;
+  background: #fff;
+}
+
+.ops-form input,
+.ops-form select {
+  min-height: 38px;
+  padding: 7px 9px;
+}
+
+.json-editor {
+  margin-top: 12px;
+}
+
+.json-editor textarea {
+  min-height: 142px;
+  padding: 10px;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.78rem;
+  resize: vertical;
+}
+
+.ops-button-row,
+.ledger-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.primary-action,
+.secondary-action,
+.ledger-actions button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.primary-action,
+.secondary-action {
+  padding: 8px 12px;
+  border: 1px solid #28758a;
+  color: #fff;
+  background: #28758a;
+  font-weight: 800;
+}
+
+.secondary-action {
+  border-color: #cbd8dd;
+  color: #263941;
+  background: #fff;
+}
+
+.primary-action:disabled,
+.secondary-action:disabled,
+.ledger-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ops-ledger-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.ledger-column,
+.ledger-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ledger-column h3 {
+  margin-bottom: 2px;
+}
+
+.ledger-item {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dce6e9;
+  border-left: 4px solid #8aa5b0;
+  border-radius: 8px;
+  background: #fbfdfe;
+}
+
+.ledger-good {
+  border-left-color: #2d9468;
+}
+
+.ledger-warn,
+.ledger-run {
+  border-left-color: #3b7ca8;
+}
+
+.ledger-bad {
+  border-left-color: #b5484a;
+}
+
+.ledger-item header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ledger-item header > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.ledger-item strong,
+.ledger-item span,
+.ledger-item p,
+.ledger-item small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ledger-item p {
+  color: #44565e;
+  font-size: 0.78rem;
+}
+
+.ledger-actions {
+  margin-top: 0;
+}
+
+.ledger-actions button {
+  padding: 6px 8px;
+  border: 1px solid #d3dde2;
+  color: #263941;
+  background: #fff;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.empty-ledger {
+  display: grid;
+  min-height: 78px;
+  place-items: center;
+  border: 1px dashed #ccd9de;
+  border-radius: 8px;
+  color: #63747c;
+  font-size: 0.8rem;
+  background: #f8fbfc;
+}
+
 .summary-strip {
   grid-column: 1 / -1;
   display: grid;
@@ -985,7 +1215,10 @@ h3 {
   .overview-grid,
   .two-column,
   .timeline-layout,
-  .topology-layout {
+  .topology-layout,
+  .ops-layout,
+  .ops-hero,
+  .ops-ledger-grid {
     grid-template-columns: 1fr;
   }
 
@@ -994,7 +1227,8 @@ h3 {
   .readiness-grid,
   .policy-grid,
   .gate-columns,
-  .stage-summary-strip {
+  .stage-summary-strip,
+  .ops-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1020,7 +1254,9 @@ h3 {
   .policy-grid,
   .gate-columns,
   .stage-summary-strip,
-  .metric-grid {
+  .metric-grid,
+  .ops-summary,
+  .ops-form {
     grid-template-columns: 1fr;
   }
 

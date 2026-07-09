@@ -57,6 +57,40 @@ export interface RuntimeResourceList {
   resources: RuntimeResource[];
 }
 
+export type TaskStatus = "draft" | "dry_run" | "queued" | "pending_confirmation" | "blocked";
+export type TaskType = "airflow_dag_run" | "mlflow_run" | "kubernetes_job";
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
+export type CommandStatus =
+  | "draft"
+  | "dry_run"
+  | "pending_confirmation"
+  | "applying"
+  | "applied"
+  | "cancelled"
+  | "failed"
+  | "rolled_back";
+export type CommandAction =
+  | "restart_deployment"
+  | "scale_deployment"
+  | "run_pipeline_job"
+  | "cancel_job"
+  | "trigger_airflow_dag"
+  | "pause_airflow_dag"
+  | "resume_airflow_dag"
+  | "run_cd_verification"
+  | "run_ct_evaluation"
+  | "trigger_drift_review"
+  | "approve_environment_promotion"
+  | "promote_model"
+  | "rollback_model";
+
+export interface AuditEvent {
+  timestamp: string;
+  actor: string;
+  event: string;
+  details: Record<string, string | number | boolean | null>;
+}
+
 export interface OrgContext {
   team_id: string;
   department: string;
@@ -167,6 +201,56 @@ export interface CDCTGate {
   ct_trigger?: string | null;
   approved_by?: string | null;
   promotion_blockers: string[];
+}
+
+export interface TaskAssignmentRequest {
+  task_type: TaskType;
+  owner: string;
+  priority: TaskPriority;
+  resource_profile: string;
+  requester_team?: string | null;
+  environment?: EnvironmentRef | null;
+  approval_policy?: string | null;
+  airflow?: AirflowRef | null;
+  mlflow?: MLflowRef | null;
+  cdct_gate?: CDCTGate | null;
+  config_payload: Record<string, string | number | boolean | null | string[] | Record<string, string | number | boolean | null>>;
+  dry_run: boolean;
+}
+
+export interface TaskAssignment extends TaskAssignmentRequest {
+  task_id: string;
+  status: TaskStatus;
+  created_at: string;
+  queued_at?: string | null;
+  audit: AuditEvent[];
+}
+
+export interface TaskAssignmentList {
+  tasks: TaskAssignment[];
+}
+
+export interface CommandIntentRequest {
+  action: CommandAction;
+  target: ResourceRef;
+  actor: string;
+  dry_run: boolean;
+  reason: string;
+  parameters: Record<string, string | number | boolean | null>;
+}
+
+export interface CommandIntent extends CommandIntentRequest {
+  command_id: string;
+  status: CommandStatus;
+  created_at: string;
+  confirmed_at?: string | null;
+  applied_at?: string | null;
+  rollback_command_id?: string | null;
+  audit: AuditEvent[];
+}
+
+export interface CommandIntentList {
+  commands: CommandIntent[];
 }
 
 export interface ServingState {

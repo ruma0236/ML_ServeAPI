@@ -10,6 +10,7 @@ const requestedTests = process.argv.slice(2).filter((arg) => arg !== "--run");
 const defaultTests = [
   "tests/control-panel/cycle-overview.contract.test.ts",
   "tests/control-panel/kubernetes-topology.contract.test.ts",
+  "tests/control-panel/operations.contract.test.ts",
   "tests/control-panel/pipeline-timeline.contract.test.ts"
 ];
 

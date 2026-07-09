@@ -17,6 +17,26 @@ State = Literal[
     "cancelled",
 ]
 
+TaskStatus = Literal["draft", "dry_run", "queued", "pending_confirmation", "blocked"]
+CommandStatus = Literal["draft", "dry_run", "pending_confirmation", "applying", "applied", "cancelled", "failed", "rolled_back"]
+TaskType = Literal["airflow_dag_run", "mlflow_run", "kubernetes_job"]
+TaskPriority = Literal["low", "normal", "high", "urgent"]
+CommandAction = Literal[
+    "restart_deployment",
+    "scale_deployment",
+    "run_pipeline_job",
+    "cancel_job",
+    "trigger_airflow_dag",
+    "pause_airflow_dag",
+    "resume_airflow_dag",
+    "run_cd_verification",
+    "run_ct_evaluation",
+    "trigger_drift_review",
+    "approve_environment_promotion",
+    "promote_model",
+    "rollback_model",
+]
+
 
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -68,6 +88,13 @@ class RuntimeResource(ContractModel):
 
 class RuntimeResourceList(ContractModel):
     resources: list[RuntimeResource]
+
+
+class AuditEvent(ContractModel):
+    timestamp: str
+    actor: str
+    event: str
+    details: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
 
 
 class OrgContext(ContractModel):
@@ -217,6 +244,56 @@ class CDCTGate(ContractModel):
     ct_trigger: Literal["new-data", "new-code", "drift", "schedule", "manual"] | None = None
     approved_by: str | None = None
     promotion_blockers: list[str] = Field(default_factory=list)
+
+
+class TaskAssignmentRequest(ContractModel):
+    task_type: TaskType
+    owner: str
+    priority: TaskPriority
+    resource_profile: str
+    config_payload: dict[str, str | int | float | bool | None | list[str] | dict[str, str | int | float | bool | None]]
+    requester_team: str | None = None
+    environment: EnvironmentRef | None = None
+    approval_policy: str | None = None
+    airflow: AirflowRef | None = None
+    mlflow: MLflowRef | None = None
+    cdct_gate: CDCTGate | None = None
+    dry_run: bool = True
+
+
+class TaskAssignment(TaskAssignmentRequest):
+    task_id: str
+    status: TaskStatus
+    created_at: str
+    queued_at: str | None = None
+    audit: list[AuditEvent] = Field(default_factory=list)
+
+
+class TaskAssignmentList(ContractModel):
+    tasks: list[TaskAssignment]
+
+
+class CommandIntentRequest(ContractModel):
+    action: CommandAction
+    target: ResourceRef
+    actor: str
+    dry_run: bool
+    reason: str
+    parameters: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+
+
+class CommandIntent(CommandIntentRequest):
+    command_id: str
+    status: CommandStatus
+    created_at: str
+    confirmed_at: str | None = None
+    applied_at: str | None = None
+    rollback_command_id: str | None = None
+    audit: list[AuditEvent] = Field(default_factory=list)
+
+
+class CommandIntentList(ContractModel):
+    commands: list[CommandIntent]
 
 
 class ServingState(ContractModel):

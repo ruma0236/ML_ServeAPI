@@ -1,4 +1,16 @@
-import type { CycleRun, ResourceRef, RuntimeResource, RuntimeResourceList, State } from "./types";
+import type {
+  CommandIntent,
+  CommandIntentList,
+  CommandIntentRequest,
+  CycleRun,
+  ResourceRef,
+  RuntimeResource,
+  RuntimeResourceList,
+  State,
+  TaskAssignment,
+  TaskAssignmentList,
+  TaskAssignmentRequest
+} from "./types";
 
 export const API_BASE =
   import.meta.env.VITE_CONTROL_PANEL_API_BASE?.replace(/\/$/, "") || "";
@@ -22,6 +34,84 @@ export async function fetchRuntimeResources(baseUrl = API_BASE): Promise<Runtime
   }
   const payload = (await response.json()) as RuntimeResourceList;
   return payload.resources;
+}
+
+export async function fetchTaskAssignments(baseUrl = API_BASE): Promise<TaskAssignment[]> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/tasks`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`TaskAssignment request failed: ${response.status}`);
+  }
+  const payload = (await response.json()) as TaskAssignmentList;
+  return payload.tasks;
+}
+
+export async function fetchDefaultTaskAssignment(baseUrl = API_BASE): Promise<TaskAssignmentRequest> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/tasks/default`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`Default task request failed: ${response.status}`);
+  }
+  return (await response.json()) as TaskAssignmentRequest;
+}
+
+export async function createTaskAssignment(request: TaskAssignmentRequest, baseUrl = API_BASE): Promise<TaskAssignment> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/tasks`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    throw new Error(`TaskAssignment create failed: ${response.status}`);
+  }
+  return (await response.json()) as TaskAssignment;
+}
+
+export async function fetchCommandIntents(baseUrl = API_BASE): Promise<CommandIntent[]> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/commands`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`CommandIntent request failed: ${response.status}`);
+  }
+  const payload = (await response.json()) as CommandIntentList;
+  return payload.commands;
+}
+
+export async function createCommandIntent(request: CommandIntentRequest, baseUrl = API_BASE): Promise<CommandIntent> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/commands`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    throw new Error(`CommandIntent create failed: ${response.status}`);
+  }
+  return (await response.json()) as CommandIntent;
+}
+
+export async function confirmCommandIntent(commandId: string, baseUrl = API_BASE): Promise<CommandIntent> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/commands/${commandId}/confirm`, {
+    method: "POST",
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`CommandIntent confirm failed: ${response.status}`);
+  }
+  return (await response.json()) as CommandIntent;
+}
+
+export async function cancelCommandIntent(commandId: string, baseUrl = API_BASE): Promise<CommandIntent> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/commands/${commandId}/cancel`, {
+    method: "POST",
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`CommandIntent cancel failed: ${response.status}`);
+  }
+  return (await response.json()) as CommandIntent;
 }
 
 export interface CycleSummary {
@@ -104,7 +194,7 @@ export function statusTone(status: State | string | null | undefined): "good" | 
   if (status === "pass" || status === "done") return "good";
   if (status === "warn") return "warn";
   if (status === "fail" || status === "blocked" || status === "cancelled") return "bad";
-  if (status === "running" || status === "queued") return "run";
+  if (status === "running" || status === "queued" || status === "dry_run" || status === "pending_confirmation") return "run";
   return "idle";
 }
 
@@ -121,4 +211,19 @@ export function compactUri(value: string | null | undefined): string {
 
 export function resourcePressure(resource: RuntimeResource): State {
   return resource.pressure || resource.status || "unknown";
+}
+
+export function commandActionFor(resource: RuntimeResource): CommandIntentRequest["action"] {
+  const kind = resource.kind.toLowerCase();
+  if (kind === "deployment" || kind === "pod" || kind === "service") return "restart_deployment";
+  if (kind === "job") return "run_pipeline_job";
+  if (kind === "persistentvolumeclaim") return "run_cd_verification";
+  return "trigger_drift_review";
+}
+
+export function commandStatusTone(status: string): "good" | "warn" | "bad" | "idle" | "run" {
+  if (status === "applied") return "good";
+  if (status === "dry_run" || status === "pending_confirmation" || status === "applying") return "run";
+  if (status === "cancelled" || status === "failed" || status === "rolled_back") return "bad";
+  return "idle";
 }

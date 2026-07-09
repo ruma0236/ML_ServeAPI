@@ -11,6 +11,8 @@ from fastapi import FastAPI, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
+from apps.api.control_panel_commands import router as control_panel_commands_router
+from apps.api.control_panel_tasks import router as control_panel_tasks_router
 from apps.api.control_panel import router as control_panel_router
 from evm.core.image_feature_model import extract_image_features, predict_with_model, resolve_image_path
 
@@ -136,6 +138,8 @@ class PredictResponse(BaseModel):
 
 app = FastAPI(title=APP_NAME, version="0.1.0")
 app.include_router(control_panel_router)
+app.include_router(control_panel_tasks_router)
+app.include_router(control_panel_commands_router)
 MODEL_STATE: LoadedModel | None = None
 MODEL_LOAD_ERROR = ""
 
