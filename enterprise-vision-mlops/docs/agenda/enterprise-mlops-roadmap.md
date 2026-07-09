@@ -103,7 +103,7 @@ flowchart LR
 | W2 | 2026-07-06 ~ 2026-07-12 | Data platform | MinIO objects, Parquet output, dataset version |
 | W3 | 2026-07-13 ~ 2026-07-19 | Serving and remote jobs | registry-driven API and mac-mini remote job evidence complete |
 | W4 | 2026-07-06 ~ 2026-07-12 | Current-week enterprise VLM MLOps completion | industrial dataset quality/sharding, VLM adapter/router, batch inference, reliability gates, metrics, CI, final demo evidence |
-| W5 | 2026-07-13 ~ 2026-07-19 | Model lifecycle, drift, and draft governance | lifecycle state machine, drift/special-case queue, RCA feedback, draft registry |
+| W5 | 2026-07-13 ~ 2026-07-19 | Real model lifecycle, serving, drift, and remote validation | trainable feature model, registry v9, lifecycle/lineage/special-case/RCA artifacts, API inference, visual evidence, Mac mini remote proof |
 | W6 | 2026-07-20 ~ 2026-07-26 | Large-scale data acquisition and cleaning research | source policy, batch collection planner, dedup/quality benchmark, lakehouse ingestion research |
 | W7 | 2026-07-27 ~ 2026-07-31 | AgentOps and portfolio hardening | AgentOps reliability design, scale serving research, final stabilization |
 

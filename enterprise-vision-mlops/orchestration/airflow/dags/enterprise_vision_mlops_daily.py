@@ -74,7 +74,6 @@ with DAG(
     dataset_intake_audit = pipeline_task("dataset_intake_audit", "dataset-intake-audit")
     domain_pack_check = pipeline_task("domain_pack_check", "domain-pack-check")
     object_store_bootstrap = pipeline_task("object_store_bootstrap", "object-store-bootstrap")
-    data_ingest = pipeline_task("data_ingest", "data-ingest")
     data_validate = pipeline_task("data_validate", "data-validate")
     image_quality = pipeline_task("image_quality", "image-quality")
     dataset_shards = pipeline_task("dataset_shards", "dataset-shards")
@@ -85,6 +84,7 @@ with DAG(
     vlm_observability = pipeline_task("vlm_observability", "vlm-observability")
     train = pipeline_task("train", "train")
     register_model = pipeline_task("register_model", "register-model")
+    model_lifecycle = pipeline_task("model_lifecycle", "model-lifecycle")
     deploy_check = pipeline_task("deploy_check", "deploy-check")
     monitor_check = pipeline_task("monitor_check", "monitor-check")
 
@@ -92,7 +92,6 @@ with DAG(
         dataset_intake_audit
         >> domain_pack_check
         >> object_store_bootstrap
-        >> data_ingest
         >> data_validate
         >> image_quality
         >> dataset_shards
@@ -103,6 +102,7 @@ with DAG(
         >> vlm_observability
         >> train
         >> register_model
+        >> model_lifecycle
         >> deploy_check
         >> monitor_check
     )

@@ -68,17 +68,32 @@ dataset_metadata = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validat
 input_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/validated_manifest.jsonl"
 dataset_metadata = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/dataset_version.json"
 model_name = "vision-baseline"
-metric_name = "baseline_accuracy"
+model_type = "image_feature_centroid"
+metric_name = "accuracy"
+positive_label = "anomaly"
+feature_sample_bytes = 8192
+max_records = 0
+min_metric = 0.50
 
 [pipelines.model_registry]
 model_name = "vision-baseline"
 source_model_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/models/vision-baseline/model.json"
+
+[pipelines.model_lifecycle]
+output_dir = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lifecycle/vision-baseline"
+min_accuracy = 0.50
+min_recall = 0.10
+special_case_confidence_threshold = 0.70
 
 [pipelines.deployment]
 sample_image_uri = "file:///F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/visa/candle/Data/Images/Normal/0000.JPG"
 
 [pipelines.monitoring]
 prometheus_targets_endpoint = "/api/v1/targets"
+
+[pipelines.w5_verification]
+output_doc = "docs/reviews/2026-07-09-w5-real-model-lifecycle-verification.md"
+asset_dir = "docs/assets/w5-real-model-lifecycle"
 
 [pipelines.image_quality]
 dataset_id = "manufacturing_visual_inspection"

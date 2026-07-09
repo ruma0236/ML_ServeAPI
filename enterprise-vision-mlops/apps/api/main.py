@@ -10,6 +10,8 @@ from fastapi import FastAPI, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
+from evm.core.image_feature_model import extract_image_features, predict_with_model, resolve_image_path
+
 
 APP_NAME = os.getenv("APP_NAME", "enterprise-vision-mlops-api")
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
@@ -21,6 +23,8 @@ MODEL_REGISTRY_PATH = Path(
         f"artifacts/registry/{MODEL_NAME}/latest.json",
     )
 )
+EVM_HOST_DATA_ROOT = os.getenv("EVM_HOST_DATA_ROOT", "F:/EnterpriseMLOps_Data/enterprise-vision-mlops")
+EVM_DATA_MOUNT_ROOT = os.getenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
 VLM_OBSERVABILITY_PATH = Path(
     os.getenv(
         "VLM_OBSERVABILITY_PATH",
@@ -117,8 +121,10 @@ class PredictResponse(BaseModel):
     validated_parquet_uri: str
     prediction: str
     confidence: float
+    scores: dict[str, float] = Field(default_factory=dict)
     latency_ms: float
     placeholder: bool
+    feature_source: str
     registry_path: str
 
 
@@ -167,6 +173,46 @@ def _load_registry_model(path: Path) -> LoadedModel:
         validated_parquet_uri=str(dataset.get("validated_parquet_uri") or ""),
         source_model=source_model,
     )
+
+
+def _request_features(payload: PredictRequest) -> tuple[dict[str, Any], str]:
+    if payload.features:
+        return dict(payload.features), "request_features"
+
+    image_path = resolve_image_path(
+        payload.image_uri,
+        host_data_root=EVM_HOST_DATA_ROOT,
+        data_mount_root=EVM_DATA_MOUNT_ROOT,
+    )
+    if image_path is None or not image_path.exists():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "image_uri is not readable and no features were supplied",
+                "image_uri": payload.image_uri,
+                "resolved_path": str(image_path) if image_path else "",
+                "host_data_root": EVM_HOST_DATA_ROOT,
+                "data_mount_root": EVM_DATA_MOUNT_ROOT,
+            },
+        )
+    return extract_image_features(image_path), "image_uri"
+
+
+def _predict(model: LoadedModel, payload: PredictRequest) -> tuple[str, float, dict[str, float], str]:
+    if model.model_type == "image_feature_centroid":
+        features, feature_source = _request_features(payload)
+        result = predict_with_model(model.source_model, features)
+        scores = {
+            str(label): round(float(score), 6)
+            for label, score in result.get("scores", {}).items()
+        }
+        return (
+            str(result.get("prediction", "unknown")),
+            round(float(result.get("confidence", 0.0)), 6),
+            scores,
+            feature_source,
+        )
+    return model.prediction, model.confidence, {}, "registry_default"
 
 
 def refresh_model_state() -> LoadedModel | None:
@@ -269,6 +315,7 @@ def predict(payload: PredictRequest) -> PredictResponse:
             },
         )
 
+    prediction, confidence, scores, feature_source = _predict(model, payload)
     latency_ms = (time.perf_counter() - start) * 1000
     REQUEST_LATENCY.labels(endpoint="/predict").observe(latency_ms / 1000)
     REQUEST_COUNT.labels(endpoint="/predict", status="ok").inc()
@@ -279,10 +326,12 @@ def predict(payload: PredictRequest) -> PredictResponse:
         model_version=model.model_version,
         dataset_version=model.dataset_version,
         validated_parquet_uri=model.validated_parquet_uri,
-        prediction=model.prediction,
-        confidence=model.confidence,
+        prediction=prediction,
+        confidence=confidence,
+        scores=scores,
         latency_ms=round(latency_ms, 3),
         placeholder=False,
+        feature_source=feature_source,
         registry_path=model.registry_path,
     )
 

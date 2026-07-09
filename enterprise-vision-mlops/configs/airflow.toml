@@ -1,12 +1,12 @@
 [project]
 name = "enterprise-vision-mlops"
-environment = "airflow-local"
+environment = "airflow-local-visa-open-data"
 
 [paths]
 data_root = "/mnt/evm-data/data"
 raw_zone = "/mnt/evm-data/data/raw"
-processed_zone = "/mnt/evm-data/data/processed"
-validated_zone = "/mnt/evm-data/data/validated"
+processed_zone = "/mnt/evm-data/data/processed/visa"
+validated_zone = "/mnt/evm-data/data/validated/visa"
 artifacts_root = "/mnt/evm-data/artifacts"
 reports_root = "/mnt/evm-data/artifacts/reports"
 models_root = "/mnt/evm-data/artifacts/models"
@@ -45,7 +45,7 @@ acquisition_plan_path = "/mnt/evm-data/data/raw/industrial/acquisition_plan.json
 cleaning_report_path = "/mnt/evm-data/data/raw/industrial/cleaning_benchmark.json"
 manifest_path = "/mnt/evm-data/data/raw/industrial/mvi_import_manifest.jsonl"
 checkpoint_dir = "/mnt/evm-data/data/raw/industrial/_checkpoints"
-dataset_version = "industrial-intake-2026.07"
+dataset_version = "visa-open-data-2026.07"
 allowed_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"]
 max_scan_files = 0
 max_quality_samples = 200
@@ -63,27 +63,38 @@ manifest_key = "public-vision-local/v1/manifests/raw_manifest.jsonl"
 buckets = ["raw", "processed", "validated", "mlflow-artifacts"]
 
 [pipelines.data_validation]
-dataset_name = "public-vision-local"
-input_manifest = "/mnt/evm-data/data/raw/raw_manifest.jsonl"
-output_manifest = "/mnt/evm-data/data/validated/validated_manifest.jsonl"
+dataset_name = "visa-open-data"
+input_manifest = "/mnt/evm-data/data/raw/industrial/mvi_import_manifest.jsonl"
+output_manifest = "/mnt/evm-data/data/validated/visa/validated_manifest.jsonl"
 report_name = "validation_report.json"
 allowed_extensions = [".jpg", ".jpeg", ".png"]
-processed_parquet = "/mnt/evm-data/data/processed/processed_dataset.parquet"
-validated_parquet = "/mnt/evm-data/data/validated/validated_dataset.parquet"
-dataset_metadata = "/mnt/evm-data/data/validated/dataset_version.json"
+processed_parquet = "/mnt/evm-data/data/processed/visa/processed_dataset.parquet"
+validated_parquet = "/mnt/evm-data/data/validated/visa/validated_dataset.parquet"
+dataset_metadata = "/mnt/evm-data/data/validated/visa/dataset_version.json"
 
 [pipelines.training]
-input_manifest = "/mnt/evm-data/data/validated/validated_manifest.jsonl"
-dataset_metadata = "/mnt/evm-data/data/validated/dataset_version.json"
+input_manifest = "/mnt/evm-data/data/validated/visa/validated_manifest.jsonl"
+dataset_metadata = "/mnt/evm-data/data/validated/visa/dataset_version.json"
 model_name = "vision-baseline"
-metric_name = "baseline_accuracy"
+model_type = "image_feature_centroid"
+metric_name = "accuracy"
+positive_label = "anomaly"
+feature_sample_bytes = 8192
+max_records = 0
+min_metric = 0.50
 
 [pipelines.model_registry]
 model_name = "vision-baseline"
 source_model_path = "/mnt/evm-data/artifacts/models/vision-baseline/model.json"
 
+[pipelines.model_lifecycle]
+output_dir = "/mnt/evm-data/artifacts/lifecycle/vision-baseline"
+min_accuracy = 0.50
+min_recall = 0.10
+special_case_confidence_threshold = 0.70
+
 [pipelines.deployment]
-sample_image_uri = "s3://raw/sample_0001.jpg"
+sample_image_uri = "file:///F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/visa/candle/Data/Images/Normal/0000.JPG"
 
 [pipelines.monitoring]
 prometheus_targets_endpoint = "/api/v1/targets"
@@ -103,15 +114,15 @@ timeout_seconds = 300
 
 [pipelines.image_quality]
 dataset_id = "manufacturing_visual_inspection"
-dataset_name = "public-vision-local"
-dataset_version = "2026.07-w4"
-input_manifest = "/mnt/evm-data/data/validated/validated_manifest.jsonl"
-dataset_metadata = "/mnt/evm-data/data/validated/dataset_version.json"
-output_manifest = "/mnt/evm-data/data/validated/mvi_quality_manifest.jsonl"
-report_path = "/mnt/evm-data/data/validated/mvi_quality_report.json"
-baseline_path = "/mnt/evm-data/data/validated/mvi_quality_baseline.json"
-raw_image_root = "/mnt/evm-data/data/raw/images"
-license_id = "manual-review-required"
+dataset_name = "visa-open-data"
+dataset_version = "visa-open-data-2026.07"
+input_manifest = "/mnt/evm-data/data/validated/visa/validated_manifest.jsonl"
+dataset_metadata = "/mnt/evm-data/data/validated/visa/dataset_version.json"
+output_manifest = "/mnt/evm-data/data/validated/visa/mvi_quality_manifest.jsonl"
+report_path = "/mnt/evm-data/data/validated/visa/mvi_quality_report.json"
+baseline_path = "/mnt/evm-data/data/validated/visa/mvi_quality_baseline.json"
+raw_image_root = "/mnt/evm-data/data/raw/industrial/visa"
+license_id = "CC-BY-4.0"
 quality_policy = "domain_packs/manufacturing_visual_inspection/quality_policy.toml"
 etl_recipe = "domain_packs/manufacturing_visual_inspection/etl_recipe.toml"
 fail_on_error = true
@@ -119,10 +130,10 @@ duplicate_hash_severity = "warn"
 dimension_mismatch_severity = "warn"
 
 [pipelines.dataset_shards]
-input_manifest = "/mnt/evm-data/data/validated/mvi_quality_manifest.jsonl"
-output_dir = "/mnt/evm-data/data/validated/shards"
-index_path = "/mnt/evm-data/data/validated/shards/shard_index.json"
-records_per_shard = 4
+input_manifest = "/mnt/evm-data/data/validated/visa/mvi_quality_manifest.jsonl"
+output_dir = "/mnt/evm-data/data/validated/visa/shards"
+index_path = "/mnt/evm-data/data/validated/visa/shards/shard_index.json"
+records_per_shard = 512
 split_seed = 20260706
 split_ratios = { train = 0.6, validation = 0.2, test = 0.2 }
 
@@ -130,37 +141,37 @@ split_ratios = { train = 0.6, validation = 0.2, test = 0.2 }
 domain_pack = "domain_packs/manufacturing_visual_inspection/domain_pack.toml"
 adapter_backend = "mock"
 prompt_version = "mvi-default-v1"
-model_version = "mock-vlm-2026.07"
-contract_path = "/mnt/evm-data/artifacts/vlm/contracts/vlm_contract.json"
-router_report_path = "/mnt/evm-data/artifacts/vlm/contracts/router_report.json"
+model_version = "mock-vlm-visa-2026.07"
+contract_path = "/mnt/evm-data/artifacts/vlm/visa/contracts/vlm_contract.json"
+router_report_path = "/mnt/evm-data/artifacts/vlm/visa/contracts/router_report.json"
 
 [pipelines.vlm_batch_eval]
-shard_index = "/mnt/evm-data/data/validated/shards/shard_index.json"
-output_dir = "/mnt/evm-data/artifacts/vlm/batch_outputs"
-summary_path = "/mnt/evm-data/artifacts/vlm/latest_batch_summary.json"
+shard_index = "/mnt/evm-data/data/validated/visa/shards/shard_index.json"
+output_dir = "/mnt/evm-data/artifacts/vlm/visa/batch_outputs"
+summary_path = "/mnt/evm-data/artifacts/vlm/visa/latest_batch_summary.json"
 prompt_version = "mvi-default-v1"
-model_version = "mock-vlm-2026.07"
+model_version = "mock-vlm-visa-2026.07"
 question = "Inspect the product image and return structured defect findings."
 max_records = 0
 
 [pipelines.vlm_reliability]
-batch_summary = "/mnt/evm-data/artifacts/vlm/latest_batch_summary.json"
-registry_dir = "/mnt/evm-data/artifacts/registry/vlm"
-gate_report_path = "/mnt/evm-data/artifacts/vlm/reliability/gate_report.json"
+batch_summary = "/mnt/evm-data/artifacts/vlm/visa/latest_batch_summary.json"
+registry_dir = "/mnt/evm-data/artifacts/registry/vlm/visa"
+gate_report_path = "/mnt/evm-data/artifacts/vlm/visa/reliability/gate_report.json"
 schema_valid_threshold = 0.98
 p95_latency_ms_threshold = 5000
 
 [pipelines.vlm_rca]
-batch_summary = "/mnt/evm-data/artifacts/vlm/latest_batch_summary.json"
-gate_report_path = "/mnt/evm-data/artifacts/vlm/reliability/gate_report.json"
-audit_dir = "/mnt/evm-data/artifacts/vlm/audit"
+batch_summary = "/mnt/evm-data/artifacts/vlm/visa/latest_batch_summary.json"
+gate_report_path = "/mnt/evm-data/artifacts/vlm/visa/reliability/gate_report.json"
+audit_dir = "/mnt/evm-data/artifacts/vlm/visa/audit"
 
 [pipelines.vlm_observability]
-quality_report = "/mnt/evm-data/data/validated/mvi_quality_report.json"
-shard_index = "/mnt/evm-data/data/validated/shards/shard_index.json"
-batch_summary = "/mnt/evm-data/artifacts/vlm/latest_batch_summary.json"
-gate_report_path = "/mnt/evm-data/artifacts/vlm/reliability/gate_report.json"
-audit_summary = "/mnt/evm-data/artifacts/vlm/audit/audit_summary.json"
-benchmark_report = "/mnt/evm-data/artifacts/vlm/observability/benchmark_report.json"
-slo_report = "/mnt/evm-data/artifacts/vlm/observability/slo_report.md"
-metrics_export = "/mnt/evm-data/artifacts/vlm/observability/vlm_metrics.prom"
+quality_report = "/mnt/evm-data/data/validated/visa/mvi_quality_report.json"
+shard_index = "/mnt/evm-data/data/validated/visa/shards/shard_index.json"
+batch_summary = "/mnt/evm-data/artifacts/vlm/visa/latest_batch_summary.json"
+gate_report_path = "/mnt/evm-data/artifacts/vlm/visa/reliability/gate_report.json"
+audit_summary = "/mnt/evm-data/artifacts/vlm/visa/audit/audit_summary.json"
+benchmark_report = "/mnt/evm-data/artifacts/vlm/visa/observability/benchmark_report.json"
+slo_report = "/mnt/evm-data/artifacts/vlm/visa/observability/slo_report.md"
+metrics_export = "/mnt/evm-data/artifacts/vlm/visa/observability/vlm_metrics.prom"

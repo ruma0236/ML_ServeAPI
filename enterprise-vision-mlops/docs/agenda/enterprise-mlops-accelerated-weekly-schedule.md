@@ -289,17 +289,22 @@ CI validates compile/test/smoke path
 2026-07-06 post-completion reset:
 
 W5 now starts after the current-week completion sprint. Its scope is the real
-model lifecycle and operating feedback loop: candidate state, promotion
-evidence, drift/special-case tracking, RCA feedback into eval sets, and draft
-review management.
+model lifecycle and operating feedback loop: real trainable model artifact,
+candidate state, promotion evidence, lineage, drift/special-case tracking, RCA
+feedback into eval sets, serving contract validation, visual evidence, and
+remote Mac mini resource validation.
 
 | ID | Task | Output |
 |---|---|---|
-| `EVM-191` | Model lifecycle state machine | Draft/Registered/Validated/Shadow/Promoted/Deprecated/Archived states |
-| `EVM-192` | Model/dataset/prompt lineage matrix | joined lineage across model, dataset, prompt, adapter, eval config |
-| `EVM-193` | Drift and special-case tracking schema | drift sample, anomaly cluster, owner, severity, resolution state |
-| `EVM-194` | RCA-to-regression feedback loop | failed cases promoted into curated eval/regression sets |
-| `EVM-195` | Lifecycle dashboard and review checkpoint | candidate status and blocker/promote queues |
+| `EVM-191` | Real trainable model lifecycle state machine | `image_feature_centroid` training artifact and lifecycle transition evidence |
+| `EVM-192` | Model/data/resource lineage matrix | dataset version, Parquet URI, model digest, metrics, and resource profile joined to registry v9 |
+| `EVM-193` | Drift and special-case tracking queue | misclassification and label-distribution watch cases with owner/severity/status |
+| `EVM-194` | RCA-to-regression feedback loop | false prediction cases promoted into reviewable regression candidates |
+| `EVM-195` | Lifecycle dashboard and review checkpoint | dashboard JSON plus W5 visual verification package |
+| `EVM-196` | Real model serving contract hardening | FastAPI `/predict` performs registry-loaded feature-model inference |
+| `EVM-197` | Airflow W4/W5 real-cycle alignment | DAG/config point to mounted VisA/F-drive data and include `model_lifecycle` |
+| `EVM-198` | Mac mini M4 Pro resource integration proof | SSH, resource inventory, and remote job artifact collection verified |
+| `EVM-199` | W5 visual verification evidence package | Markdown plus SVG lifecycle, metric, confusion matrix, and topology evidence |
 
 목표:
 

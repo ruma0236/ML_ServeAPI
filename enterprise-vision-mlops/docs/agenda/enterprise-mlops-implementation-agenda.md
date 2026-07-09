@@ -587,7 +587,7 @@ Post-completion W5+ plan:
 
 | Sprint | Date | Focus | Issue IDs |
 |---|---|---|---|
-| W5 | 2026-07-13 to 2026-07-19 | Real model lifecycle, drift/special-case tracking, RCA feedback, draft governance | `EVM-191` to `EVM-195` |
+| W5 | 2026-07-13 to 2026-07-19 | Real model lifecycle, serving contract, drift/special-case tracking, RCA feedback, Mac mini remote validation | `EVM-191` to `EVM-199` |
 | W6 | 2026-07-20 to 2026-07-26 | Large-scale data acquisition and cleaning research | `EVM-201` to `EVM-205` |
 | W7 | 2026-07-27 to 2026-07-31 | Draft/decision governance, AgentOps reliability design, scale serving research, portfolio stabilization | `EVM-211` to `EVM-214` |
 

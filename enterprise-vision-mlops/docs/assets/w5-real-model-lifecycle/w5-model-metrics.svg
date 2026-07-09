@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="360" viewBox="0 0 860 360">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#172026}.title{font-size:22px;font-weight:700}.label{font-size:13px}.small{font-size:11px}.value{font-size:18px;font-weight:700}</style>
+<text x="32" y="42" class="title">W5 Model Evaluation Metrics</text>
+<text x="40" y="106" class="label">accuracy</text>
+<rect x="140" y="86" width="560" height="26" rx="4" fill="#e5e7eb"/>
+<rect x="140" y="86" width="323" height="26" rx="4" fill="#2563eb"/>
+<text x="720" y="106" class="value">0.578</text>
+<text x="40" y="154" class="label">precision</text>
+<rect x="140" y="134" width="560" height="26" rx="4" fill="#e5e7eb"/>
+<rect x="140" y="134" width="67" height="26" rx="4" fill="#0f766e"/>
+<text x="720" y="154" class="value">0.121</text>
+<text x="40" y="202" class="label">recall</text>
+<rect x="140" y="182" width="560" height="26" rx="4" fill="#e5e7eb"/>
+<rect x="140" y="182" width="286" height="26" rx="4" fill="#b45309"/>
+<text x="720" y="202" class="value">0.511</text>
+<text x="40" y="250" class="label">f1</text>
+<rect x="140" y="230" width="560" height="26" rx="4" fill="#e5e7eb"/>
+<rect x="140" y="230" width="109" height="26" rx="4" fill="#7c3aed"/>
+<text x="720" y="250" class="value">0.196</text>
+<text x="40" y="298" class="label">auroc</text>
+<rect x="140" y="278" width="560" height="26" rx="4" fill="#e5e7eb"/>
+<rect x="140" y="278" width="313" height="26" rx="4" fill="#be123c"/>
+<text x="720" y="298" class="value">0.560</text>
+<text x="40" y="332" class="small">Source: registry source_model.metrics from the latest W5 model artifact.</text>
+</svg>

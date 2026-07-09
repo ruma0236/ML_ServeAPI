@@ -113,6 +113,21 @@ def week_from_target(target: str, week_ranges: dict[str, tuple[str, str]]) -> st
     return None
 
 
+def week_from_phase(phase: str | None) -> str | None:
+    if not phase:
+        return None
+    normalized = phase.lower()
+    if "current-week" in normalized or "2026-07-06" in normalized:
+        return "W4"
+    if "phase 15" in normalized or "model lifecycle" in normalized:
+        return "W5"
+    if "phase 16" in normalized or "large-scale data" in normalized:
+        return "W6"
+    if "phase 17" in normalized or "agentops" in normalized:
+        return "W7"
+    return None
+
+
 def infer_parent_id(phase: str | None) -> str | None:
     if not phase:
         return None
@@ -174,6 +189,7 @@ def parse_issue_register(path: Path, week_ranges: dict[str, tuple[str, str]]) ->
 
         if section == "Backlog" and phase:
             target = row.get("Due", row.get("Target", ""))
+            inferred_week = week_from_phase(phase) or week_from_target(strip_markup(target), week_ranges)
             item = JiraItem(
                 source_id=source_id,
                 summary=strip_markup(row.get("Task", "")),
@@ -183,7 +199,7 @@ def parse_issue_register(path: Path, week_ranges: dict[str, tuple[str, str]]) ->
                 acceptance=strip_markup(row.get("Acceptance Criteria", row.get("Evidence", ""))),
                 source_file=str(path.as_posix()),
                 due_date=due_date_from_target(strip_markup(target), week_ranges),
-                week=week_from_target(strip_markup(target), week_ranges),
+                week=inferred_week,
                 phase=phase,
                 parent_id=infer_parent_id(phase),
                 labels=[label_for(source_id), "task"],
@@ -394,7 +410,7 @@ def sprint_goal(week: str) -> str:
         "W2": "MinIO and Parquet data platform",
         "W3": "Registry-driven serving and remote worker jobs",
         "W4": "Current-week enterprise VLM MLOps completion",
-        "W5": "Model lifecycle, drift, and draft governance",
+        "W5": "Real model lifecycle, serving, drift, and remote validation",
         "W6": "Large-scale data acquisition and cleaning research",
         "W7": "AgentOps reliability and portfolio hardening",
     }
@@ -511,6 +527,8 @@ def transition_issue_to_item_status(config: JiraConfig, issue_key: str, status: 
 def labels_for_item(item: JiraItem, extra_labels: list[str]) -> list[str]:
     labels = set(DEFAULT_LABELS + extra_labels + item.labels)
     labels.add(label_for(item.source_id))
+    if item.week:
+        labels.add(label_for(item.week))
     labels.add("july-cut" if item.kind != "Epic" else "planning")
     return sorted(label for label in labels if label)
 

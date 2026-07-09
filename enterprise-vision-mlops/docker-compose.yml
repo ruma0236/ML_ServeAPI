@@ -234,11 +234,14 @@ services:
       MODEL_NAME: vision-baseline
       MODEL_STAGE: Production
       MODEL_REGISTRY_PATH: /app/artifacts/registry/vision-baseline/latest.json
-      VLM_OBSERVABILITY_PATH: /app/artifacts/vlm/observability/benchmark_report.json
+      VLM_OBSERVABILITY_PATH: /app/artifacts/vlm/visa/observability/benchmark_report.json
+      EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
+      EVM_DATA_MOUNT_ROOT: /mnt/evm-data
     ports:
       - "8000:8000"
     volumes:
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}:/app/artifacts:ro
+      - ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}:/mnt/evm-data:ro
     depends_on:
       mlflow:
         condition: service_healthy

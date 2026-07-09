@@ -22,10 +22,12 @@ PIPELINE_MODULES = {
     "vlm-observability": "evm.pipelines.vlm_observability.run",
     "train": "evm.pipelines.training.run",
     "register-model": "evm.pipelines.model_registry.run",
+    "model-lifecycle": "evm.pipelines.model_lifecycle.run",
     "deploy-check": "evm.pipelines.deployment.run",
     "monitor-check": "evm.pipelines.monitoring.run",
     "remote-inventory": "evm.pipelines.remote_workers.run",
     "remote-job": "evm.pipelines.remote_job.run",
+    "w5-verification": "evm.pipelines.w5_verification.run",
 }
 
 

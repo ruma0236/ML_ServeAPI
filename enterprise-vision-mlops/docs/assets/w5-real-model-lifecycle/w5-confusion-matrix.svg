@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="460" viewBox="0 0 720 460">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#172026}.title{font-size:22px;font-weight:700}.label{font-size:13px}.small{font-size:11px}.value{font-size:18px;font-weight:700}</style>
+<text x="32" y="42" class="title">Confusion Matrix (test)</text>
+<text x="200" y="82" class="label">pred: anomaly</text>
+<text x="318" y="82" class="label">pred: normal</text>
+<text x="40" y="164" class="label">actual: anomaly</text>
+<rect x="180" y="100" width="108" height="108" rx="6" fill="rgb(219,238,233)" stroke="#64748b"/>
+<text x="222" y="158" class="value">112</text>
+<rect x="298" y="100" width="108" height="108" rx="6" fill="rgb(220,238,233)" stroke="#64748b"/>
+<text x="340" y="158" class="value">107</text>
+<text x="40" y="282" class="label">actual: normal</text>
+<rect x="180" y="218" width="108" height="108" rx="6" fill="rgb(97,177,159)" stroke="#64748b"/>
+<text x="222" y="276" class="value">814</text>
+<rect x="298" y="218" width="108" height="108" rx="6" fill="rgb(39,148,125)" stroke="#64748b"/>
+<text x="340" y="276" class="value">1148</text>
+<text x="40" y="420" class="small">Darker cells indicate larger counts. Source: latest model evaluation artifact.</text>
+</svg>

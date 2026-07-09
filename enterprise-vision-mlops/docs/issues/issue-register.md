@@ -280,11 +280,15 @@ surfaces.
 
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
-| `EVM-191` | Model lifecycle state machine | Planned | 2026-07-W5 | Draft, Registered, Validated, Shadow, Promoted, Deprecated, and Archived states are defined with transition evidence |
-| `EVM-192` | Model/dataset/prompt lineage matrix | Planned | 2026-07-W5 | every model version joins dataset version, prompt version, adapter backend, eval config, and promotion decision |
-| `EVM-193` | Drift and special-case tracking schema | Planned | 2026-07-W5 | drift sample, anomaly cluster, special case, owner, severity, and resolution state are tracked |
-| `EVM-194` | RCA-to-regression feedback loop | Planned | 2026-07-W5 | failed cases from RCA can be promoted into curated eval/regression sets |
-| `EVM-195` | Lifecycle dashboard and review checkpoint | Planned | 2026-07-W5 | candidate status, blockers, promotions, and drift/special-case queues are visible in one review surface |
+| `EVM-191` | Real trainable model lifecycle state machine | Done | 2026-07-09 | `train` now produces `image_feature_centroid` artifacts with lifecycle gate state; `model-lifecycle` emits Draft/Registered/Validated/Promoted transition evidence |
+| `EVM-192` | Model/data/resource lineage matrix | Done | 2026-07-09 | registry v9 joins dataset version, validated parquet URI, model digest, feature config, metrics, and local resource profile |
+| `EVM-193` | Drift and special-case tracking queue | Done | 2026-07-09 | `drift_special_case_queue.json` records misclassification and label-distribution watch cases with owner, severity, and status |
+| `EVM-194` | RCA-to-regression feedback loop | Done | 2026-07-09 | `rca_regression_candidates.json` promotes false prediction cases into reviewable regression candidates |
+| `EVM-195` | Lifecycle dashboard and visual review checkpoint | Done | 2026-07-09 | `lifecycle_dashboard.json` and W5 verification SVG/Markdown package show candidate state, blockers, metrics, deployment, monitoring, and Mac mini evidence |
+| `EVM-196` | Real model serving contract hardening | Done | 2026-07-09 | FastAPI `/predict` now runs registry-loaded feature model inference and deployment check verifies `feature_source` and class scores |
+| `EVM-197` | Airflow W4/W5 real-cycle alignment | Done | 2026-07-09 | Airflow config points to mounted VisA/F-drive data and DAG includes `model_lifecycle` after `register_model` |
+| `EVM-198` | Mac mini M4 Pro resource integration proof | Done | 2026-07-09 | `remote-inventory` and `remote-job` verify arm64 SSH execution, 12 CPU, 24GB memory, and remote artifact collection |
+| `EVM-199` | W5 visual verification evidence package | Done | 2026-07-09 | `docs/reviews/2026-07-09-w5-real-model-lifecycle-verification.md` and SVG evidence assets generated |
 
 ### Phase 16. Large-scale Data Acquisition And Cleaning Research
 
@@ -400,6 +404,10 @@ Jira live sync 기준 mapping이다.
 | `EVM-193` | `SCRUM-79` | Task | https://opop0236.atlassian.net/browse/SCRUM-79 |
 | `EVM-194` | `SCRUM-80` | Task | https://opop0236.atlassian.net/browse/SCRUM-80 |
 | `EVM-195` | `SCRUM-81` | Task | https://opop0236.atlassian.net/browse/SCRUM-81 |
+| `EVM-196` | `SCRUM-92` | Task | https://opop0236.atlassian.net/browse/SCRUM-92 |
+| `EVM-197` | `SCRUM-93` | Task | https://opop0236.atlassian.net/browse/SCRUM-93 |
+| `EVM-198` | `SCRUM-94` | Task | https://opop0236.atlassian.net/browse/SCRUM-94 |
+| `EVM-199` | `SCRUM-95` | Task | https://opop0236.atlassian.net/browse/SCRUM-95 |
 | `EVM-201` | `SCRUM-82` | Task | https://opop0236.atlassian.net/browse/SCRUM-82 |
 | `EVM-202` | `SCRUM-83` | Task | https://opop0236.atlassian.net/browse/SCRUM-83 |
 | `EVM-203` | `SCRUM-84` | Task | https://opop0236.atlassian.net/browse/SCRUM-84 |
