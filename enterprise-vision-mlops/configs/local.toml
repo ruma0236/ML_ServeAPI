@@ -158,6 +158,7 @@ sample_seed = 20260709
 max_review_samples = 64
 max_eval_records = 0
 eval_splits = ["validation", "test"]
+fail_on_empty = true
 
 [pipelines.lakehouse_probe]
 input_parquet = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/validated_dataset.parquet"

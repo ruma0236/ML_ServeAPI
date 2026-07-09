@@ -92,6 +92,31 @@
         }
       }
     },
+    "/control-panel/v1/orchestrators": {
+      "get": {
+        "summary": "Return orchestrator connection contracts for Airflow, MLflow, and Kubernetes control targets.",
+        "operationId": "listOrchestrators",
+        "responses": {
+          "200": {
+            "description": "orchestrator connection list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["orchestrators"],
+                  "properties": {
+                    "orchestrators": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/OrchestratorConnection"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/control-panel/v1/tasks": {
       "post": {
         "summary": "Draft or queue an Airflow/MLflow-aware task assignment.",
@@ -395,7 +420,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["restart_deployment", "scale_deployment", "run_pipeline_job", "cancel_job", "promote_model", "rollback_model"]
+            "enum": ["restart_deployment", "scale_deployment", "run_pipeline_job", "cancel_job", "trigger_airflow_dag", "pause_airflow_dag", "resume_airflow_dag", "promote_model", "rollback_model"]
           },
           "target": {"$ref": "#/components/schemas/ResourceRef"},
           "actor": {"type": "string"},
@@ -438,10 +463,34 @@
       "AirflowRef": {
         "type": "object",
         "properties": {
+          "mode": {"type": "string", "enum": ["external-compose", "in-cluster", "managed-service"]},
+          "control_mode": {"type": "string", "enum": ["read-only", "rest-api", "cli-bridge", "kubernetes-operator"]},
           "dag_id": {"type": "string"},
           "dag_run_id": {"type": "string"},
           "task_id": {"type": ["string", "null"]},
+          "namespace": {"type": ["string", "null"]},
+          "deployment_name": {"type": ["string", "null"]},
+          "contract_config_map": {"type": ["string", "null"]},
+          "connection_status": {"$ref": "#/components/schemas/State"},
           "url": {"type": ["string", "null"]}
+        }
+      },
+      "OrchestratorConnection": {
+        "type": "object",
+        "required": ["orchestrator", "mode", "control_mode", "status", "base_url"],
+        "properties": {
+          "orchestrator": {"type": "string", "enum": ["airflow", "mlflow", "kubernetes", "remote-worker"]},
+          "mode": {"type": "string"},
+          "control_mode": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "base_url": {"type": ["string", "null"]},
+          "namespace": {"type": ["string", "null"]},
+          "config_ref": {"$ref": "#/components/schemas/ResourceRef"},
+          "supported_actions": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "notes": {"type": ["string", "null"]}
         }
       },
       "MLflowRef": {

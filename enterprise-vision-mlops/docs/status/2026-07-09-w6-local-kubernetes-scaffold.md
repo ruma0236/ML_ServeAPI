@@ -17,6 +17,7 @@ not replace the current Docker Compose runtime yet.
 - `infra/kubernetes/local/configmaps.yaml`
 - `infra/kubernetes/local/secrets.dev.yaml`
 - `infra/kubernetes/local/storage.yaml`
+- `infra/kubernetes/local/airflow-external.yaml`
 - `infra/kubernetes/local/postgres.yaml`
 - `infra/kubernetes/local/minio.yaml`
 - `infra/kubernetes/local/mlflow.yaml`
@@ -35,7 +36,10 @@ The scaffold includes local manifests for:
 - Prometheus: `evm-prometheus`
 - Grafana: `evm-grafana`
 - MLflow Postgres backend: `evm-postgres`
-- Example pipeline Job: `evm-domain-pack-check`
+- External Airflow control contract: `evm-airflow-control-contract`
+- Domain policy validation Job: `evm-domain-pack-check`
+- VisA curation workflow Job: `evm-curation-workflow`
+- VisA lakehouse probe Job: `evm-lakehouse-probe`
 
 ## Storage Boundary
 
@@ -65,7 +69,7 @@ kubectl kustomize infra/kubernetes/local
 
 Observed offline render result:
 
-- rendered resources: `31`
+- rendered resources: `34`
 - missing required resources: `[]`
 - required resources checked:
   - `evm-api`
@@ -74,6 +78,9 @@ Observed offline render result:
   - `evm-prometheus`
   - `evm-grafana`
   - `evm-domain-pack-check`
+  - `evm-curation-workflow`
+  - `evm-lakehouse-probe`
+  - `evm-airflow-control-contract`
 
 Command used for the structured check:
 

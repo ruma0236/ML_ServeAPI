@@ -140,8 +140,15 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     max_review_samples = int(cfg.get("max_review_samples", 64))
     max_eval_records = int(cfg.get("max_eval_records", 0) or 0)
     eval_splits = {str(item) for item in cfg.get("eval_splits", ["validation", "test"])}
+    fail_on_empty = bool(cfg.get("fail_on_empty", True))
 
+    if fail_on_empty and not input_manifest.exists():
+        raise FileNotFoundError(
+            f"curation input manifest does not exist: {display_path(input_manifest, ctx.project_root)}"
+        )
     records = read_jsonl(input_manifest)
+    if fail_on_empty and not records:
+        raise ValueError(f"curation input manifest is empty: {display_path(input_manifest, ctx.project_root)}")
     review_sample_ids = _review_sample_ids(records, max_samples=max_review_samples, seed=sample_seed)
     curated_records: list[dict[str, Any]] = []
     hitl_records: list[dict[str, Any]] = []
@@ -219,8 +226,10 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             "## Contract",
             "",
             "- Input: image-quality manifest.",
-            "- Output: curation manifest, HITL queue, sample review manifest, curated eval manifest, and state summary.",
-            "- The Control Panel can use `label_state`, `review_state`, and `eval_promotion_state` as curation workflow columns.",
+            "- Output: curation manifest, HITL queue, sample review manifest, "
+            "curated eval manifest, and state summary.",
+            "- The Control Panel can use `label_state`, `review_state`, and "
+            "`eval_promotion_state` as curation workflow columns.",
         ],
     )
     return state

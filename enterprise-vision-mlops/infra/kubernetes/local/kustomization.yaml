@@ -6,6 +6,7 @@ resources:
   - secrets.dev.yaml
   - configmaps.yaml
   - storage.yaml
+  - airflow-external.yaml
   - postgres.yaml
   - minio.yaml
   - mlflow.yaml

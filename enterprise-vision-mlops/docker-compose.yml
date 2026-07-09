@@ -36,7 +36,10 @@ services:
       - mlops-local
 
   airflow-init:
-    image: apache/airflow:2.10.5-python3.11
+    build:
+      context: .
+      dockerfile: infra/docker/airflow/Dockerfile
+    image: enterprise-vision-mlops-airflow:local
     container_name: evm-airflow-init
     user: "0:0"
     environment:
@@ -73,7 +76,10 @@ services:
       - mlops-local
 
   airflow-webserver:
-    image: apache/airflow:2.10.5-python3.11
+    build:
+      context: .
+      dockerfile: infra/docker/airflow/Dockerfile
+    image: enterprise-vision-mlops-airflow:local
     container_name: evm-airflow-webserver
     user: "${AIRFLOW_UID:-50000}:0"
     environment:
@@ -110,7 +116,10 @@ services:
       - mlops-local
 
   airflow-scheduler:
-    image: apache/airflow:2.10.5-python3.11
+    build:
+      context: .
+      dockerfile: infra/docker/airflow/Dockerfile
+    image: enterprise-vision-mlops-airflow:local
     container_name: evm-airflow-scheduler
     user: "${AIRFLOW_UID:-50000}:0"
     environment:

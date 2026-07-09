@@ -22,6 +22,7 @@ The contract defines:
 - cycle run detail
 - latest cycle lookup
 - runtime resource list
+- orchestrator connection contracts
 - Airflow/MLflow/Kubernetes task assignment
 - command intent creation
 - command confirmation
@@ -48,12 +49,15 @@ python -m json.tool contracts\control-panel\examples\command-intent.json
 Structured checks confirmed:
 
 - OpenAPI version: `3.1.0`
-- API paths: `7`
-- schema count: `19`
+- API paths: `8`
+- schema count: `20`
 - example payloads parse as JSON
 
 ## Handoff
 
 `EVM-224` should implement the first read-only cycle aggregation API using this
 contract. `EVM-225`, `EVM-229`, `EVM-230`, `EVM-231`, and `EVM-232` should use
-these schemas as the W7 UI/control baseline.
+these schemas as the W7 UI/control baseline. Airflow task assignment should
+read the orchestrator contract before enabling mutation, because W6 local
+Kubernetes still controls external Compose Airflow rather than in-cluster
+Airflow resources.

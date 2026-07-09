@@ -22,6 +22,7 @@ Examples:
 | Cycle detail | `GET /control-panel/v1/cycles/{cycle_id}` | return lifecycle, dataset, model, metrics, gate, serving, resources, artifacts |
 | Latest cycle | `GET /control-panel/v1/cycles/latest` | dashboard landing state |
 | Resource state | `GET /control-panel/v1/resources` | normalized Kubernetes and external worker resource state |
+| Orchestrator contracts | `GET /control-panel/v1/orchestrators` | Airflow, MLflow, Kubernetes, and remote worker control connection status |
 | Task assignment | `POST /control-panel/v1/tasks` | draft or queue Airflow, MLflow, or Kubernetes work |
 | Command intent | `POST /control-panel/v1/commands` | create dry-run or pending command intent |
 | Command confirm | `POST /control-panel/v1/commands/{command_id}/confirm` | confirm an auditable action |
@@ -78,6 +79,23 @@ panels.
 The UI should use this model for the Kubernetes resource topology and resource
 management tab.
 
+### OrchestratorConnection
+
+`OrchestratorConnection` prevents the UI from guessing where orchestration is
+running. The first W6/W7 boundary declares Airflow as `external-compose` through
+`infra/kubernetes/local/airflow-external.yaml`; future Kubernetes-native Airflow
+can replace that contract with `in-cluster` resources without changing the UI
+control model.
+
+The UI should render:
+
+- orchestrator type
+- mode and control mode
+- base URL or namespace
+- connection status
+- supported actions
+- config reference
+
 ### TaskAssignment
 
 `TaskAssignment` is the control boundary for Airflow, MLflow, or Kubernetes
@@ -106,6 +124,9 @@ Allowed initial actions:
 - `scale_deployment`
 - `run_pipeline_job`
 - `cancel_job`
+- `trigger_airflow_dag`
+- `pause_airflow_dag`
+- `resume_airflow_dag`
 - `promote_model`
 - `rollback_model`
 
@@ -137,5 +158,8 @@ The W7 Control Panel should be able to build these views from the contract:
 - `EVM-225` should consume `CycleRun`, `RuntimeResource`, `TaskAssignment`, and
   `CommandIntent` shapes.
 - `EVM-232` should enforce command states before real mutation is enabled.
+- Airflow task assignment must use the orchestrator contract first. In W6 local
+  Kubernetes this means external Airflow REST API control; in W7+ this can move
+  to in-cluster Airflow resources or an operator-backed control mode.
 - Actual Airflow/MLflow/Kubernetes write operations should stay behind
   dry-run and confirmation until audit and rollback paths exist.

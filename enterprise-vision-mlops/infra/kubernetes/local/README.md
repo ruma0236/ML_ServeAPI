@@ -15,7 +15,10 @@ verification. It does not replace the current Docker Compose runtime yet.
 - `evm-api`: FastAPI model serving and metrics endpoint
 - `evm-prometheus`: Prometheus metrics scraping
 - `evm-grafana`: Grafana dashboard UI
-- `evm-domain-pack-check`: example pipeline Job
+- `evm-airflow-control-contract`: external Airflow control boundary for W7 UI
+- `evm-domain-pack-check`: domain policy validation Job using VisA config
+- `evm-curation-workflow`: VisA curation/HITL/eval manifest Job
+- `evm-lakehouse-probe`: VisA Parquet/lakehouse probe Job
 
 ## Local Images
 
@@ -72,6 +75,8 @@ Check:
 kubectl get pods -n evm-platform
 kubectl get jobs -n evm-pipelines
 kubectl logs -n evm-pipelines job/evm-domain-pack-check
+kubectl logs -n evm-pipelines job/evm-curation-workflow
+kubectl logs -n evm-pipelines job/evm-lakehouse-probe
 ```
 
 Port-forward examples:
@@ -89,6 +94,8 @@ kubectl port-forward -n evm-platform svc/evm-grafana 3000:3000
 - `secrets.dev.yaml` is local-development only.
 - Production credentials should move to a real secret manager or
   ExternalSecret-style flow.
+- Airflow is currently represented as an external Compose contract, not as
+  in-cluster webserver/scheduler resources.
 - The Mac mini M4 Pro remains an external remote evaluator for this scaffold.
 - GPU/VLM workloads are modeled by `runtime-resource-map.json` but are not yet
   deployed by this overlay.

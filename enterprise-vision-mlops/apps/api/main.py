@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +59,10 @@ MODEL_INFO = Gauge(
     "Loaded serving model metadata.",
     ["model_name", "model_stage", "model_version", "dataset_version"],
 )
+_MODEL_METRIC_LOCK = threading.Lock()
+_MODEL_LOADED_LABELS: set[tuple[str, str]] = set()
+_MODEL_VERSION_LABELS: set[tuple[str, str]] = set()
+_MODEL_INFO_LABELS: set[tuple[str, str, str, str]] = set()
 VLM_SCHEMA_VALID_RATE = Gauge(
     "evm_vlm_schema_valid_rate",
     "Latest VLM batch schema validity rate from observability artifacts.",
@@ -215,6 +220,25 @@ def _predict(model: LoadedModel, payload: PredictRequest) -> tuple[str, float, d
     return model.prediction, model.confidence, {}, "registry_default"
 
 
+def _remove_metric_child(metric: Gauge, labels: tuple[str, ...]) -> None:
+    try:
+        metric.remove(*labels)
+    except KeyError:
+        pass
+
+
+def _clear_model_metrics() -> None:
+    for labels in list(_MODEL_LOADED_LABELS):
+        _remove_metric_child(MODEL_LOADED, labels)
+    for labels in list(_MODEL_VERSION_LABELS):
+        _remove_metric_child(MODEL_VERSION, labels)
+    for labels in list(_MODEL_INFO_LABELS):
+        _remove_metric_child(MODEL_INFO, labels)
+    _MODEL_LOADED_LABELS.clear()
+    _MODEL_VERSION_LABELS.clear()
+    _MODEL_INFO_LABELS.clear()
+
+
 def refresh_model_state() -> LoadedModel | None:
     global MODEL_LOAD_ERROR, MODEL_STATE
 
@@ -223,24 +247,40 @@ def refresh_model_state() -> LoadedModel | None:
     except Exception as exc:
         MODEL_STATE = None
         MODEL_LOAD_ERROR = str(exc)
-        MODEL_LOADED.labels(model_name=MODEL_NAME, model_stage=MODEL_STAGE).set(0)
+        with _MODEL_METRIC_LOCK:
+            _clear_model_metrics()
+            labels = (MODEL_NAME, MODEL_STAGE)
+            MODEL_LOADED.labels(model_name=MODEL_NAME, model_stage=MODEL_STAGE).set(0)
+            _MODEL_LOADED_LABELS.add(labels)
         return None
 
     MODEL_STATE = model
     MODEL_LOAD_ERROR = ""
-    MODEL_LOADED.labels(model_name=model.model_name, model_stage=model.model_stage).set(1)
-    try:
-        MODEL_VERSION.labels(model_name=model.model_name, model_stage=model.model_stage).set(
-            float(model.model_version)
+    with _MODEL_METRIC_LOCK:
+        _clear_model_metrics()
+        loaded_labels = (model.model_name, model.model_stage)
+        info_labels = (
+            model.model_name,
+            model.model_stage,
+            model.model_version,
+            model.dataset_version or "unknown",
         )
-    except ValueError:
-        MODEL_VERSION.labels(model_name=model.model_name, model_stage=model.model_stage).set(0)
-    MODEL_INFO.labels(
-        model_name=model.model_name,
-        model_stage=model.model_stage,
-        model_version=model.model_version,
-        dataset_version=model.dataset_version or "unknown",
-    ).set(1)
+        MODEL_LOADED.labels(model_name=model.model_name, model_stage=model.model_stage).set(1)
+        _MODEL_LOADED_LABELS.add(loaded_labels)
+        try:
+            MODEL_VERSION.labels(model_name=model.model_name, model_stage=model.model_stage).set(
+                float(model.model_version)
+            )
+        except ValueError:
+            MODEL_VERSION.labels(model_name=model.model_name, model_stage=model.model_stage).set(0)
+        _MODEL_VERSION_LABELS.add(loaded_labels)
+        MODEL_INFO.labels(
+            model_name=model.model_name,
+            model_stage=model.model_stage,
+            model_version=model.model_version,
+            dataset_version=model.dataset_version or "unknown",
+        ).set(1)
+        _MODEL_INFO_LABELS.add(info_labels)
     return model
 
 

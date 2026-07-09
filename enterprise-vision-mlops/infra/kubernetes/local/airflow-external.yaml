@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: evm-airflow-control-contract
+  namespace: evm-platform
+  labels:
+    app.kubernetes.io/name: evm-airflow-control-contract
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+data:
+  AIRFLOW_MODE: external-compose
+  AIRFLOW_BASE_URL: http://host.docker.internal:8080
+  AIRFLOW_DAG_ID: enterprise_vision_mlops_daily
+  AIRFLOW_CONTROL_MODE: rest-api
+  AIRFLOW_CONN_SCOPE: local-dev
+  AIRFLOW_CONTRACT_STATUS: external-control-boundary
+  AIRFLOW_NOTES: >-
+    W6 local Kubernetes keeps Airflow in Docker Compose and exposes it to the
+    Control Panel as an external orchestrator. W7 may either control this
+    endpoint through the Airflow REST API or replace this contract with
+    in-cluster Airflow webserver, scheduler, worker, and metadata DB resources.

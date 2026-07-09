@@ -36,15 +36,15 @@ Kubernetes foundation:
 
 - `runtime-resource-map.json` parses as JSON.
 - All 11 current Docker Compose services are mapped.
-- `kubectl kustomize infra/kubernetes/local` renders `31` resources.
+- `kubectl kustomize infra/kubernetes/local` renders `34` resources.
 - Required local scaffold resources are present for API, MLflow, MinIO,
-  Prometheus, Grafana, and `evm-domain-pack-check` Job.
+  Prometheus, Grafana, external Airflow contract, and VisA pipeline Jobs.
 
 Control Panel contract:
 
 - OpenAPI version: `3.1.0`
-- paths: `7`
-- schemas: `19`
+- paths: `8`
+- schemas: `20`
 - example payloads parse as JSON.
 
 Curation workflow:
@@ -73,6 +73,12 @@ EVM W6 2026-07-10~2026-07-12
 ```
 
 ## Handoff To W7
+
+Review remediation before W7:
+
+- `docs/status/2026-07-09-w6-review-remediation.md` closes the P1/P2/P3 review
+  findings around serving metrics, Airflow control boundary, VisA K8s Jobs,
+  curation fail-closed behavior, and Airflow PyArrow pinning.
 
 W7 should start from:
 

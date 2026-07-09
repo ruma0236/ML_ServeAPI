@@ -64,6 +64,12 @@ root rather than the repo directory.
 
 ## Compose To Kubernetes Mapping
 
+The table below is the target Kubernetes resource map for services that exist
+in Docker Compose. The W6 local overlay does not yet deploy Airflow webserver,
+scheduler, init, or Airflow Postgres as in-cluster resources. Instead it exposes
+`evm-airflow-control-contract` so the W7 Control Panel can control the current
+Compose Airflow instance through an explicit external orchestrator contract.
+
 | Compose service | Kubernetes resources | Namespace | Placement | Storage | Readiness |
 |---|---|---|---|---|---|
 | `postgres` | StatefulSet, Service, PVC, Secret | `evm-platform` | `local-cpu` | `postgres-data` | `pg_isready` |
