@@ -142,6 +142,13 @@ max_review_samples = 128
 max_eval_records = 0
 eval_splits = ["validation", "test"]
 
+[pipelines.lakehouse_probe]
+input_parquet = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/validated_dataset.parquet"
+output_dir = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lakehouse/visa"
+probe_report = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lakehouse/visa/lakehouse_probe.json"
+tradeoff_matrix = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lakehouse/visa/engine_tradeoff_matrix.json"
+recommendation_doc = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lakehouse/visa/lakehouse_recommendation.md"
+
 [pipelines.vlm_contract]
 domain_pack = "domain_packs/manufacturing_visual_inspection/domain_pack.toml"
 adapter_backend = "mock"

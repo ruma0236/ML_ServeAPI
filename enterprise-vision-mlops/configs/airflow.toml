@@ -159,6 +159,13 @@ max_review_samples = 128
 max_eval_records = 0
 eval_splits = ["validation", "test"]
 
+[pipelines.lakehouse_probe]
+input_parquet = "/mnt/evm-data/data/validated/visa/validated_dataset.parquet"
+output_dir = "/mnt/evm-data/artifacts/lakehouse/visa"
+probe_report = "/mnt/evm-data/artifacts/lakehouse/visa/lakehouse_probe.json"
+tradeoff_matrix = "/mnt/evm-data/artifacts/lakehouse/visa/engine_tradeoff_matrix.json"
+recommendation_doc = "/mnt/evm-data/artifacts/lakehouse/visa/lakehouse_recommendation.md"
+
 [pipelines.vlm_contract]
 domain_pack = "domain_packs/manufacturing_visual_inspection/domain_pack.toml"
 adapter_backend = "mock"

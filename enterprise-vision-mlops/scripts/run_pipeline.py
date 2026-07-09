@@ -16,6 +16,7 @@ PIPELINE_MODULES = {
     "image-quality": "evm.pipelines.image_quality.run",
     "dataset-shards": "evm.pipelines.dataset_shards.run",
     "curation-workflow": "evm.pipelines.curation_workflow.run",
+    "lakehouse-probe": "evm.pipelines.lakehouse_probe.run",
     "vlm-contract": "evm.pipelines.vlm_contract.run",
     "vlm-batch-eval": "evm.pipelines.vlm_batch_eval.run",
     "vlm-reliability": "evm.pipelines.vlm_reliability.run",
