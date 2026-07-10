@@ -4,6 +4,8 @@ import json
 import struct
 from pathlib import Path
 
+import pytest
+
 from evm.pipelines.image_quality.run import run
 
 
@@ -121,3 +123,41 @@ fail_on_error = true
     assert records[0]["image_quality"]["image_readable"] is True
     assert records[0]["image_quality"]["detected_width"] == 2
     assert records[0]["image_quality"]["detected_height"] == 3
+
+
+def test_image_quality_rejects_empty_input_without_overwriting_outputs(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='tmp'\n", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    manifest = tmp_path / "empty.jsonl"
+    manifest.write_text("", encoding="utf-8")
+    output = tmp_path / "quality.jsonl"
+    report = tmp_path / "quality.json"
+    output.write_text("sentinel\n", encoding="utf-8")
+    report.write_text('{"sentinel":true}\n', encoding="utf-8")
+    config = tmp_path / "config.toml"
+    config.write_text(
+        f"""
+[project]
+name = "tmp"
+
+[paths]
+artifacts_root = "{(tmp_path / 'artifacts').as_posix()}"
+reports_root = "{(tmp_path / 'reports').as_posix()}"
+
+[pipelines.image_quality]
+input_manifest = "{manifest.as_posix()}"
+output_manifest = "{output.as_posix()}"
+report_path = "{report.as_posix()}"
+baseline_path = "{(tmp_path / 'baseline.json').as_posix()}"
+raw_image_root = "{tmp_path.as_posix()}"
+fail_on_empty = true
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="zero records"):
+        run(str(config))
+
+    assert output.read_text(encoding="utf-8") == "sentinel\n"
+    assert json.loads(report.read_text(encoding="utf-8")) == {"sentinel": True}

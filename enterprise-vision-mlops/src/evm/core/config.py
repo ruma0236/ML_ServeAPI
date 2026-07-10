@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -40,3 +41,12 @@ def resolve_path(config: dict[str, Any], value: str | Path) -> Path:
     if path.is_absolute():
         return path
     return Path(str(config["_project_root"])) / path
+
+
+def map_runtime_data_path(value: str | Path) -> Path:
+    normalized = str(value).replace("\\", "/")
+    host_root = os.getenv("EVM_HOST_DATA_ROOT", "").replace("\\", "/").rstrip("/")
+    mount_root = os.getenv("EVM_DATA_MOUNT_ROOT", "").replace("\\", "/").rstrip("/")
+    if host_root and mount_root and normalized.lower().startswith(host_root.lower()):
+        normalized = f"{mount_root}{normalized[len(host_root):]}"
+    return Path(normalized)

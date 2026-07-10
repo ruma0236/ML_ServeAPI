@@ -55,6 +55,8 @@ services:
       EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
       EVM_GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       EVM_GIT_BRANCH: ${EVM_GIT_BRANCH:-}
+      EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
+      EVM_DATA_MOUNT_ROOT: /mnt/evm-data
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
       AWS_DEFAULT_REGION: us-east-1
@@ -92,6 +94,8 @@ services:
       EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
       EVM_GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       EVM_GIT_BRANCH: ${EVM_GIT_BRANCH:-}
+      EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
+      EVM_DATA_MOUNT_ROOT: /mnt/evm-data
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
       AWS_DEFAULT_REGION: us-east-1
@@ -132,6 +136,8 @@ services:
       EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
       EVM_GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       EVM_GIT_BRANCH: ${EVM_GIT_BRANCH:-}
+      EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
+      EVM_DATA_MOUNT_ROOT: /mnt/evm-data
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
       AWS_DEFAULT_REGION: us-east-1

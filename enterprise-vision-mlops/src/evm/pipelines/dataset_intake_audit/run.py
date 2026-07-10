@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from evm.core.config import get_nested
+from evm.core.config import get_nested, map_runtime_data_path
 from evm.core.data_intake import (
     IMAGE_EXTENSIONS,
     build_manifest_records,
@@ -101,6 +101,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     max_scan_files = int(cfg.get("max_scan_files", 0) or 0)
     max_quality_samples = int(cfg.get("max_quality_samples", 200) or 200)
     license_review_required = bool(cfg.get("license_review_required", True))
+    fail_on_empty = bool(cfg.get("fail_on_empty", False))
     dataset_version = str(cfg.get("dataset_version", "real-intake-unversioned"))
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -109,7 +110,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     dataset_entries: list[dict[str, Any]] = []
     all_records: list[dict[str, Any]] = []
     for dataset in pack.get("datasets", []):
-        root = Path(str(dataset.get("raw_root", "")))
+        root = map_runtime_data_path(str(dataset.get("raw_root", "")))
         image_files = iter_image_files(root, allowed_extensions, max_files=max_scan_files)
         mask_files = [path for path in image_files if is_mask_path(path)]
         dataset_entries.append(
@@ -129,6 +130,11 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
                 dataset_version=dataset_version,
                 allowed_extensions=allowed_extensions,
             )
+        )
+
+    if fail_on_empty and not all_records:
+        raise RuntimeError(
+            "dataset intake discovered zero records; canonical manifests were not updated"
         )
 
     registry = {

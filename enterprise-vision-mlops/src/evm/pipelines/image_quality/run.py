@@ -242,6 +242,10 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         etl_recipe_summary = summarize_etl_recipe(load_etl_recipe(ctx.path(etl_recipe_ref)))
 
     records = read_jsonl(input_manifest)
+    if bool(cfg.get("fail_on_empty", False)) and not records:
+        raise RuntimeError(
+            "image quality received zero records; canonical quality artifacts were not updated"
+        )
     dataset_metadata = _load_json(dataset_metadata_path)
     dataset_version = str(
         cfg.get("dataset_version")

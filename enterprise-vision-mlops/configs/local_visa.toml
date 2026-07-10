@@ -50,6 +50,7 @@ allowed_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"]
 max_scan_files = 0
 max_quality_samples = 200
 license_review_required = true
+fail_on_empty = true
 
 [pipelines.object_storage_bootstrap]
 buckets = ["raw", "processed", "validated", "mlflow-artifacts"]
@@ -60,6 +61,7 @@ input_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/indus
 output_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/validated_manifest.jsonl"
 report_name = "validation_report.json"
 allowed_extensions = [".jpg", ".jpeg", ".png"]
+fail_on_empty = true
 processed_parquet = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/processed/visa/processed_dataset.parquet"
 validated_parquet = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/validated_dataset.parquet"
 dataset_metadata = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/dataset_version.json"
@@ -121,6 +123,7 @@ license_id = "CC-BY-4.0"
 quality_policy = "domain_packs/manufacturing_visual_inspection/quality_policy.toml"
 etl_recipe = "domain_packs/manufacturing_visual_inspection/etl_recipe.toml"
 fail_on_error = true
+fail_on_empty = true
 duplicate_hash_severity = "warn"
 dimension_mismatch_severity = "warn"
 

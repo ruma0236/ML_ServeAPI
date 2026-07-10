@@ -60,10 +60,15 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     processed_bucket = str(get_nested(ctx.config, "object_store.processed_bucket", "processed"))
     validated_bucket = str(get_nested(ctx.config, "object_store.validated_bucket", "validated"))
 
+    records = read_jsonl(input_manifest)
+    fail_on_empty = bool(cfg.get("fail_on_empty", False))
+    if fail_on_empty and not records:
+        raise RuntimeError(
+            "data validation received zero records; canonical validation artifacts were not updated"
+        )
+
     client = ObjectStoreClient.from_config(ctx.config)
     client.ensure_buckets([processed_bucket, validated_bucket])
-
-    records = read_jsonl(input_manifest)
     valid_records: list[dict[str, object]] = []
     processed_records: list[dict[str, object]] = []
     failures: Counter[str] = Counter()
@@ -78,6 +83,11 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             valid_records.append(record)
         else:
             failures[reason] += 1
+
+    if fail_on_empty and not valid_records:
+        raise RuntimeError(
+            "data validation produced zero valid records; canonical validation artifacts were not updated"
+        )
 
     write_jsonl(output_manifest, valid_records)
     manifest_digest = stable_record_digest(valid_records)
