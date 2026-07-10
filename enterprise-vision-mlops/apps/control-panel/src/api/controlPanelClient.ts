@@ -3,6 +3,8 @@ import type {
   CommandIntentList,
   CommandIntentRequest,
   CycleRun,
+  PromotionPolicyDecision,
+  PromotionPolicyRequest,
   ResourceRef,
   RuntimeResource,
   RuntimeResourceList,
@@ -23,6 +25,21 @@ export async function fetchLatestCycle(baseUrl = API_BASE): Promise<CycleRun> {
     throw new Error(`CycleRun request failed: ${response.status}`);
   }
   return (await response.json()) as CycleRun;
+}
+
+export async function evaluatePromotionPolicy(
+  request: PromotionPolicyRequest,
+  baseUrl = API_BASE
+): Promise<PromotionPolicyDecision> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/promotion-policy/evaluate`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    throw new Error(`Promotion policy evaluation failed: ${response.status}`);
+  }
+  return (await response.json()) as PromotionPolicyDecision;
 }
 
 export async function fetchRuntimeResources(baseUrl = API_BASE): Promise<RuntimeResource[]> {

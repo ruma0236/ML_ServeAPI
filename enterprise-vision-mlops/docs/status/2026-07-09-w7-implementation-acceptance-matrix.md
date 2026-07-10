@@ -424,6 +424,13 @@ evidence.
 - Failure blocker:
   - blocked if environment/namespace values are display-only or policy outcome
     is supplied by the caller.
+- Implementation status, 2026-07-10: `Done`.
+  - live verification bundle:
+    `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/promotion_policy/evm-233-verification-20260710T184311/`;
+  - full desktop/mobile Control Panel regression: `14 passed`;
+  - current promotion result is correctly `blocked`, not operationally promoted,
+    because readiness, CT, and rollback evidence remain incomplete;
+  - deployment state transitions remain in `EVM-235`.
 
 ### EVM-234 - Drift Detection And Retraining Trigger Surface
 

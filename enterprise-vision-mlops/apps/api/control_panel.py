@@ -3,7 +3,16 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from evm.control_panel.aggregation import build_latest_cycle
-from evm.control_panel.schemas import CycleRun, ResourceRef, RuntimeResource, RuntimeResourceList, State
+from evm.control_panel.promotion_policy import evaluate_cycle_promotion
+from evm.control_panel.schemas import (
+    CycleRun,
+    PromotionPolicyDecision,
+    PromotionPolicyRequest,
+    ResourceRef,
+    RuntimeResource,
+    RuntimeResourceList,
+    State,
+)
 
 
 router = APIRouter(prefix="/control-panel/v1", tags=["control-panel"])
@@ -12,6 +21,11 @@ router = APIRouter(prefix="/control-panel/v1", tags=["control-panel"])
 @router.get("/cycles/latest", response_model=CycleRun)
 def latest_cycle() -> CycleRun:
     return build_latest_cycle()
+
+
+@router.post("/promotion-policy/evaluate", response_model=PromotionPolicyDecision)
+def evaluate_promotion_policy(request: PromotionPolicyRequest) -> PromotionPolicyDecision:
+    return evaluate_cycle_promotion(build_latest_cycle(), request, persist=True)
 
 
 @router.get("/cycles/{cycle_id}", response_model=CycleRun)

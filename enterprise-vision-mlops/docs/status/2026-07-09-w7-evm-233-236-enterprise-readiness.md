@@ -1,9 +1,34 @@
 # 2026-07-09 W7 EVM-233/236 Enterprise Readiness
 
-> Superseded completion interpretation, 2026-07-10: this document proves the
-> read-only UI/schema baseline only. `EVM-233` and `EVM-236` are reopened for
-> executable environment policy and artifact-content readiness evaluation.
-> See `docs/reviews/2026-07-10-w7-portfolio-readiness-reprioritization.md`.
+> Historical baseline note: this document originally proved the read-only
+> UI/schema surface. As of 2026-07-10, `EVM-236` is closed by the artifact-content
+> evaluator and `EVM-233` is closed by the executable server-side promotion
+> policy. The original implementation details below remain as history.
+
+## 2026-07-10 Executable EVM-233 Closure
+
+- Target environment and namespace now change the server-computed promotion
+  result instead of changing display state only.
+- Staging requires ownership, allow-listed namespace, readiness, and CI.
+- Production additionally requires all CD/CT gates, immutable model and image
+  digests, a valid rollback reference, an allow-listed namespace, and a distinct
+  allow-listed approver.
+- `promote_model` and environment-approval command intents recompute policy from
+  current server evidence. Non-dry-run intent creation returns HTTP `409` unless
+  the result is `allow`.
+- Command target namespace and actor are authoritative; spoofed namespace,
+  requester, or inline approver parameters are ignored.
+- Live evidence:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/promotion_policy/evm-233-verification-20260710T184311/`.
+- UI regression evidence:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/control_panel_ui/playwright/evm-233-regression-20260710T184751/`.
+- Verification: Python `73 passed`, frontend contracts `17 passed`, full
+  Playwright desktop/mobile suite `14 passed`, production build passed, and
+  live CycleRun schema validation passed.
+- Boundary: the current live decision remains correctly `blocked` while
+  readiness, CT, and rollback evidence are incomplete. Deployment execution and
+  rollback state transitions remain `EVM-235`, and the Docker Desktop GPU
+  scheduling blocker remains `EVM-226`.
 
 ## Scope
 

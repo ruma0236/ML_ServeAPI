@@ -1,0 +1,28 @@
+{
+  "org_context": {
+    "team_id": "mvi-platform",
+    "department": "ai-infra",
+    "service_scope": "internal-department",
+    "product_area": "manufacturing-visual-inspection",
+    "data_owner": "data-platform",
+    "model_owner": "ml-platform",
+    "ops_owner": "ai-infra-sre",
+    "ownership_status": "pass",
+    "missing_owners": []
+  },
+  "target_environment": "staging",
+  "target_namespace": "evm-staging",
+  "requester": "ml-platform",
+  "approver": null,
+  "readiness_decision": "ready",
+  "ci_status": "pass",
+  "cd_status": "pass",
+  "ct_status": "pass",
+  "model_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "image_digest": "evm-serving@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "rollback_reference": "registry://efficientnet-b7/41",
+  "rollback_ready": true,
+  "candidate_id": "effnet-b7-img600-finetune-adamw",
+  "dataset_version": "visa-open-data-f1f1c9ee9922",
+  "release_ref": "0123456789abcdef"
+}

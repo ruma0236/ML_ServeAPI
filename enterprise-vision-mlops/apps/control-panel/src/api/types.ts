@@ -9,6 +9,9 @@ export type State =
   | "done"
   | "cancelled";
 
+export type EnvironmentTier = "dev" | "test" | "staging" | "pre-production" | "production";
+export type PromotionPolicyDecisionState = "allow" | "pending_approval" | "blocked";
+
 export interface Metric {
   name: string;
   value: number;
@@ -105,13 +108,48 @@ export interface OrgContext {
 
 export interface EnvironmentRef {
   name: string;
-  tier: string;
+  tier: EnvironmentTier;
   promotion_state: string;
   cluster?: string | null;
   namespace?: string | null;
   release_ref?: string | null;
   approval_policy?: string | null;
   promotion_blockers?: string[];
+}
+
+export interface PromotionPolicyRequest {
+  target_environment: EnvironmentTier;
+  target_namespace: string;
+  requester: string;
+  approver?: string | null;
+}
+
+export interface PromotionPolicyCheck {
+  check_id: string;
+  status: State;
+  required: boolean;
+  reason_code?: string | null;
+  evidence: Record<string, string | number | boolean | null>;
+}
+
+export interface PromotionPolicyDecision {
+  schema_version: string;
+  decision_id: string;
+  policy_version: string;
+  decision: PromotionPolicyDecisionState;
+  status: State;
+  target_environment: EnvironmentTier;
+  target_namespace: string;
+  requester: string;
+  approver?: string | null;
+  approval_policy: string;
+  evaluated_at: string;
+  input_digest: string;
+  required_checks: string[];
+  required_approvals: string[];
+  reason_codes: string[];
+  checks: PromotionPolicyCheck[];
+  audit_uri?: string | null;
 }
 
 export interface AirflowRef {
@@ -295,6 +333,7 @@ export interface CommandIntent extends CommandIntentRequest {
   confirmed_at?: string | null;
   applied_at?: string | null;
   rollback_command_id?: string | null;
+  promotion_policy?: PromotionPolicyDecision | null;
   audit: AuditEvent[];
 }
 
@@ -374,6 +413,7 @@ export interface CycleRun {
   data_pipeline?: DataPipelineReadiness | null;
   experiment_pipeline?: ExperimentPipelineReadiness | null;
   readiness_evaluation?: ArtifactReadinessEvaluation | null;
+  promotion_policy?: PromotionPolicyDecision | null;
   dataset: DatasetVersion;
   model: ModelVersion;
   model_matrix?: ModelExperimentMatrix | null;

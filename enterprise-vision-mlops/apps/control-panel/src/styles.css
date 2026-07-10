@@ -456,7 +456,7 @@ h3 {
 .scope-layout,
 .readiness-checklist {
   display: grid;
-  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(360px, 1.2fr) minmax(270px, 0.85fr) minmax(340px, 1.1fr);
   gap: 12px;
   align-items: stretch;
 }
@@ -494,6 +494,55 @@ h3 {
   width: 17px;
   height: 17px;
   color: #28758a;
+}
+
+.policy-heading-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.policy-heading-state svg {
+  width: 18px;
+  height: 18px;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.service-scope-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 9px 10px;
+  border: 1px solid #dce6e9;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.service-scope-value span {
+  color: #65757c;
+  font-size: 0.74rem;
+}
+
+.service-scope-value strong {
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.policy-input-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .segmented-control {
@@ -537,13 +586,27 @@ h3 {
   font-size: 0.74rem;
 }
 
-.scope-select select {
+.scope-select select,
+.scope-select input {
+  width: 100%;
+  min-width: 0;
   min-height: 38px;
   padding: 7px 9px;
   border: 1px solid #d1dce1;
   border-radius: 8px;
   color: #1d2c33;
   background: #fff;
+}
+
+.scope-select input::placeholder {
+  color: #89979d;
+}
+
+.policy-error {
+  margin: 10px 0 0;
+  color: #a33b3b;
+  font-size: 0.74rem;
+  font-weight: 800;
 }
 
 .owner-grid {
@@ -579,6 +642,32 @@ h3 {
 .environment-card {
   display: grid;
   gap: 10px;
+}
+
+.policy-check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.policy-check-grid > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid #dce6e9;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.policy-check-grid span {
+  min-width: 0;
+  color: #53666e;
+  font-size: 0.7rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .blocker-pills {
@@ -1823,6 +1912,20 @@ h3 {
   background: #141518;
 }
 
+:root[data-theme="dark"] .service-scope-value,
+:root[data-theme="dark"] .policy-check-grid > div {
+  border-color: #2f3338;
+  background: #0d0e10;
+}
+
+:root[data-theme="dark"] .service-scope-value strong {
+  color: #f2f4f6;
+}
+
+:root[data-theme="dark"] .policy-check-grid span {
+  color: #c1c7cc;
+}
+
 :root[data-theme="dark"] .summary-strip {
   background: #2b2e33;
 }
@@ -1831,6 +1934,7 @@ h3 {
 :root[data-theme="dark"] .secondary-action,
 :root[data-theme="dark"] .ledger-actions button,
 :root[data-theme="dark"] .scope-select select,
+:root[data-theme="dark"] .scope-select input,
 :root[data-theme="dark"] .ops-form input,
 :root[data-theme="dark"] .ops-form select,
 :root[data-theme="dark"] .json-editor textarea {
@@ -2077,6 +2181,11 @@ h3 {
   .metric-grid,
   .ops-summary,
   .ops-form {
+    grid-template-columns: 1fr;
+  }
+
+  .policy-input-grid,
+  .policy-check-grid {
     grid-template-columns: 1fr;
   }
 

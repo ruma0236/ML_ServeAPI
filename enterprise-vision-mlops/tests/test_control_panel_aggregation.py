@@ -244,8 +244,12 @@ def test_build_latest_cycle_aggregates_local_evidence(tmp_path, monkeypatch):
     assert cycle.tenant.ownership_status == "pass"
     assert cycle.tenant.missing_owners == []
     assert cycle.environment is not None
-    assert cycle.environment.approval_policy == "manual-owner-approval"
-    assert "accuracy<0.7" in cycle.environment.promotion_blockers
+    assert cycle.environment.approval_policy == "owner-gated"
+    assert cycle.environment.namespace == "evm-staging"
+    assert cycle.promotion_policy is not None
+    assert cycle.promotion_policy.decision == "blocked"
+    assert "readiness_not_ready" in cycle.promotion_policy.reason_codes
+    assert cycle.environment.promotion_blockers == cycle.promotion_policy.reason_codes
     assert cycle.drift is not None
     assert cycle.drift.action == "label_review"
     assert cycle.drift.reference_dataset_version == "visa-open-data-test"

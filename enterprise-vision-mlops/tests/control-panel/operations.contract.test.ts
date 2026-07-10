@@ -5,6 +5,7 @@ import {
   confirmCommandIntent,
   createCommandIntent,
   createTaskAssignment,
+  evaluatePromotionPolicy,
   fetchCommandIntents,
   fetchTaskAssignments
 } from "../../apps/control-panel/src/api/controlPanelClient";
@@ -78,5 +79,43 @@ describe("W7 operations API bindings", () => {
     expect((await createCommandIntent(command, "http://control-panel.test")).status).toBe("dry_run");
     expect((await confirmCommandIntent(command.command_id, "http://control-panel.test")).status).toBe("pending_confirmation");
     expect((await cancelCommandIntent(command.command_id, "http://control-panel.test")).status).toBe("cancelled");
+  });
+
+  it("evaluates target environment and namespace through the server policy contract", async () => {
+    const response = {
+      schema_version: "evm.w7.promotion_policy.v1",
+      decision_id: "promotion-contract",
+      policy_version: "2026.07.w7.evm-233.v1",
+      decision: "pending_approval",
+      status: "queued",
+      target_environment: "production",
+      target_namespace: "evm-production",
+      requester: "ml-platform",
+      approver: null,
+      approval_policy: "two-person-production-approval",
+      evaluated_at: "2026-07-10T00:00:00Z",
+      input_digest: "a".repeat(64),
+      required_checks: ["ownership", "namespace", "readiness", "ci", "approval"],
+      required_approvals: ["ai-infra-sre"],
+      reason_codes: ["approver_required"],
+      checks: [],
+      audit_uri: null
+    } as const;
+    const request = {
+      target_environment: "production",
+      target_namespace: "evm-production",
+      requester: "ml-platform",
+      approver: null
+    } as const;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(response), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const decision = await evaluatePromotionPolicy(request, "http://control-panel.test");
+
+    expect(decision.decision).toBe("pending_approval");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://control-panel.test/control-panel/v1/promotion-policy/evaluate",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(request) })
+    );
   });
 });

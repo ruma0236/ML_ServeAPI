@@ -6,8 +6,13 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from apps.api.control_panel import get_cycle, latest_cycle, list_resources
-from evm.control_panel.schemas import CycleRun, RuntimeResourceList
+from apps.api.control_panel import (
+    evaluate_promotion_policy,
+    get_cycle,
+    latest_cycle,
+    list_resources,
+)
+from evm.control_panel.schemas import CycleRun, PromotionPolicyRequest, RuntimeResourceList
 from evm.control_panel.validate_cycle_run import validate_cycle_run
 
 
@@ -24,7 +29,9 @@ def test_cycle_run_example_conforms_to_pydantic_and_openapi_component():
     assert cycle.tenant is not None
     assert cycle.tenant.ownership_status == "pass"
     assert cycle.environment is not None
-    assert cycle.environment.approval_policy == "manual-owner-approval"
+    assert cycle.environment.approval_policy == "owner-gated"
+    assert cycle.promotion_policy is not None
+    assert cycle.promotion_policy.decision == "blocked"
     assert cycle.data_pipeline is not None
     assert cycle.data_pipeline.owner_approval_actor == "data-platform"
     assert cycle.experiment_pipeline is not None
@@ -47,6 +54,8 @@ def test_openapi_components_expose_enterprise_readiness_fields():
 
     assert "ownership_status" in schemas["OrgContext"]["properties"]
     assert "promotion_blockers" in schemas["EnvironmentRef"]["properties"]
+    assert "reason_codes" in schemas["PromotionPolicyDecision"]["properties"]
+    assert "promotion_policy" in schemas["CycleRun"]["properties"]
     assert "owner_approval_status" in schemas["DataPipelineReadiness"]["properties"]
     assert "rollback_ready" in schemas["ExperimentPipelineReadiness"]["properties"]
     assert "blockers" in schemas["ExperimentPipelineReadiness"]["properties"]
@@ -94,3 +103,28 @@ def test_control_panel_cycle_lookup_404_for_unknown_id():
 
     assert exc.value.status_code == 404
     assert exc.value.detail["error"] == "cycle_not_found"
+
+
+def test_promotion_policy_route_recomputes_target_environment_on_server(
+    tmp_path, monkeypatch
+):
+    cycle = CycleRun.model_validate_json(
+        Path("contracts/control-panel/examples/cycle-run.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr("apps.api.control_panel.build_latest_cycle", lambda: cycle)
+    monkeypatch.setenv("EVM_PROMOTION_POLICY_EVIDENCE_ROOT", str(tmp_path))
+
+    decision = evaluate_promotion_policy(
+        PromotionPolicyRequest(
+            target_environment="production",
+            target_namespace="evm-production",
+            requester="ml-platform",
+            approver=None,
+        )
+    )
+
+    assert decision.target_environment == "production"
+    assert decision.target_namespace == "evm-production"
+    assert decision.decision == "blocked"
+    assert "readiness_not_ready" in decision.reason_codes
+    assert decision.audit_uri

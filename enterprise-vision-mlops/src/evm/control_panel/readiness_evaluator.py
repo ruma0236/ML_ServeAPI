@@ -636,6 +636,8 @@ def check_kubernetes_runtime(
                 "dataset_version": str(payload.get("dataset_version", "")),
                 "completion_claim_allowed": bool(payload.get("completion_claim_allowed")),
                 "gpu_allocatable": str(payload.get("gpu_allocatable", "")),
+                "training_image_digest": str(payload.get("training_image_digest", "")),
+                "serving_image_digest": str(payload.get("serving_image_digest", "")),
             },
             blockers=blockers,
         ),

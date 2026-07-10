@@ -1,0 +1,34 @@
+[policy]
+version = "2026.07.w7.evm-233.v1"
+default_decision = "blocked"
+evidence_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/promotion_policy"
+
+[environments.dev]
+allowed_namespaces = ["evm-dev"]
+approval_policy = "owner-gated"
+required_checks = ["ownership", "namespace", "readiness", "ci"]
+approval_roles = []
+
+[environments.test]
+allowed_namespaces = ["evm-test"]
+approval_policy = "owner-gated"
+required_checks = ["ownership", "namespace", "readiness", "ci"]
+approval_roles = []
+
+[environments.staging]
+allowed_namespaces = ["evm-staging"]
+approval_policy = "owner-gated"
+required_checks = ["ownership", "namespace", "readiness", "ci"]
+approval_roles = []
+
+[environments."pre-production"]
+allowed_namespaces = ["evm-pre-production"]
+approval_policy = "release-owner-approval"
+required_checks = ["ownership", "namespace", "readiness", "ci", "cd", "ct", "approval", "separation_of_duties"]
+approval_roles = ["ml-platform", "ai-infra-sre", "release-manager"]
+
+[environments.production]
+allowed_namespaces = ["evm-production"]
+approval_policy = "two-person-production-approval"
+required_checks = ["ownership", "namespace", "readiness", "ci", "cd", "ct", "model_digest", "image_digest", "rollback_reference", "approval", "separation_of_duties"]
+approval_roles = ["ml-platform", "ai-infra-sre", "release-manager"]

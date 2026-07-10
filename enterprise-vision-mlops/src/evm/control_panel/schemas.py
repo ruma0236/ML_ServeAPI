@@ -17,6 +17,9 @@ State = Literal[
     "cancelled",
 ]
 
+EnvironmentTier = Literal["dev", "test", "staging", "pre-production", "production"]
+PromotionPolicyDecisionState = Literal["allow", "pending_approval", "blocked"]
+
 TaskStatus = Literal["draft", "dry_run", "queued", "pending_confirmation", "blocked"]
 CommandStatus = Literal["draft", "dry_run", "pending_confirmation", "applying", "applied", "cancelled", "failed", "rolled_back"]
 TaskType = Literal["airflow_dag_run", "mlflow_run", "kubernetes_job"]
@@ -111,13 +114,63 @@ class OrgContext(ContractModel):
 
 class EnvironmentRef(ContractModel):
     name: str
-    tier: Literal["dev", "test", "staging", "pre-production", "production"]
+    tier: EnvironmentTier
     promotion_state: Literal["draft", "candidate", "approved", "blocked", "deployed", "rolled_back"]
     cluster: str | None = None
     namespace: str | None = None
     release_ref: str | None = None
     approval_policy: str | None = None
     promotion_blockers: list[str] = Field(default_factory=list)
+
+
+class PromotionPolicyRequest(ContractModel):
+    target_environment: EnvironmentTier
+    target_namespace: str
+    requester: str
+    approver: str | None = None
+
+
+class PromotionPolicyInput(PromotionPolicyRequest):
+    org_context: OrgContext | None = None
+    readiness_decision: Literal["ready", "blocked"] = "blocked"
+    ci_status: State = "unknown"
+    cd_status: State = "unknown"
+    ct_status: State = "unknown"
+    model_digest: str | None = None
+    image_digest: str | None = None
+    rollback_reference: str | None = None
+    rollback_ready: bool = False
+    candidate_id: str = ""
+    dataset_version: str = ""
+    release_ref: str | None = None
+
+
+class PromotionPolicyCheck(ContractModel):
+    check_id: str
+    status: State
+    required: bool = True
+    reason_code: str | None = None
+    evidence: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+
+
+class PromotionPolicyDecision(ContractModel):
+    schema_version: str = "evm.w7.promotion_policy.v1"
+    decision_id: str
+    policy_version: str
+    decision: PromotionPolicyDecisionState
+    status: State
+    target_environment: EnvironmentTier
+    target_namespace: str
+    requester: str
+    approver: str | None = None
+    approval_policy: str
+    evaluated_at: str
+    input_digest: str
+    required_checks: list[str] = Field(default_factory=list)
+    required_approvals: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    checks: list[PromotionPolicyCheck] = Field(default_factory=list)
+    audit_uri: str | None = None
 
 
 class AirflowRef(ContractModel):
@@ -338,6 +391,7 @@ class CommandIntent(CommandIntentRequest):
     confirmed_at: str | None = None
     applied_at: str | None = None
     rollback_command_id: str | None = None
+    promotion_policy: PromotionPolicyDecision | None = None
     audit: list[AuditEvent] = Field(default_factory=list)
 
 
@@ -388,6 +442,7 @@ class CycleRun(ContractModel):
     data_pipeline: DataPipelineReadiness | None = None
     experiment_pipeline: ExperimentPipelineReadiness | None = None
     readiness_evaluation: ArtifactReadinessEvaluation | None = None
+    promotion_policy: PromotionPolicyDecision | None = None
     model_matrix: ModelExperimentMatrix | None = None
     metrics: list[Metric] = Field(default_factory=list)
     promotion_gate: PromotionGate | None = None

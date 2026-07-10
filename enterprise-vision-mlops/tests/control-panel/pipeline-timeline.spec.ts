@@ -13,7 +13,7 @@ test("@w7-pipeline-timeline renders stage timeline and intermediate-result drill
   await page.locator(".timeline").getByRole("button", { name: /EfficientNet Real Test Matrix/ }).click();
   await expect(page.getByLabel("Stage detail")).toContainText("candidate_count");
   await expect(page.getByLabel("Stage detail")).toContainText("evm-efficientnet-training");
-  await expect(page.getByLabel("Stage detail")).toContainText("missing_or_blocked_evidence");
+  await expect(page.getByLabel("Stage detail")).toContainText("closed");
 
   const screenshotPath =
     process.env.EVM_PIPELINE_TIMELINE_SCREENSHOT ||

@@ -247,10 +247,17 @@ services:
       VLM_OBSERVABILITY_PATH: /app/artifacts/vlm/visa/observability/benchmark_report.json
       EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
       EVM_DATA_MOUNT_ROOT: /mnt/evm-data
+      EVM_TARGET_ENVIRONMENT: staging
+      EVM_TARGET_NAMESPACE: evm-staging
+      EVM_PROMOTION_REQUESTER: ml-platform
+      EVM_PROMOTION_POLICY_PERSIST: "true"
+      EVM_PROMOTION_POLICY_EVIDENCE_ROOT: /app/artifacts/w7/promotion_policy
+      EVM_CONTROL_PANEL_LEDGER_ROOT: /app/artifacts/w7/operations
     ports:
       - "8000:8000"
     volumes:
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}:/app/artifacts:ro
+      - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/w7:/app/artifacts/w7
       - ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}:/mnt/evm-data:ro
     depends_on:
       mlflow:

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise Vision MLOps Control Panel API",
-    "version": "2026-07-09.w7.realtest.v1",
+    "version": "2026-07-10.w7.evm233.v1",
     "description": "Metadata and control contract for the W7 enterprise MLOps Control Panel, including organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
   },
   "servers": [
@@ -278,6 +278,31 @@
           "404": {"$ref": "#/components/responses/NotFound"}
         }
       }
+    },
+    "/control-panel/v1/promotion-policy/evaluate": {
+      "post": {
+        "summary": "Evaluate target environment promotion policy from current server evidence.",
+        "operationId": "evaluatePromotionPolicy",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/PromotionPolicyRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "server-computed promotion policy decision",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/PromotionPolicyDecision"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"}
+        }
+      }
     }
   },
   "components": {
@@ -316,6 +341,7 @@
           "data_pipeline": {"$ref": "#/components/schemas/DataPipelineReadiness"},
           "experiment_pipeline": {"$ref": "#/components/schemas/ExperimentPipelineReadiness"},
           "readiness_evaluation": {"$ref": "#/components/schemas/ArtifactReadinessEvaluation"},
+          "promotion_policy": {"$ref": "#/components/schemas/PromotionPolicyDecision"},
           "dataset": {"$ref": "#/components/schemas/DatasetVersion"},
           "model": {"$ref": "#/components/schemas/ModelVersion"},
           "model_matrix": {"$ref": "#/components/schemas/ModelExperimentMatrix"},
@@ -421,6 +447,85 @@
             "type": "array",
             "items": {"type": "string"}
           }
+        }
+      },
+      "PromotionPolicyRequest": {
+        "type": "object",
+        "required": ["target_environment", "target_namespace", "requester"],
+        "properties": {
+          "target_environment": {
+            "type": "string",
+            "enum": ["dev", "test", "staging", "pre-production", "production"]
+          },
+          "target_namespace": {"type": "string"},
+          "requester": {"type": "string"},
+          "approver": {"type": ["string", "null"]}
+        }
+      },
+      "PromotionPolicyCheck": {
+        "type": "object",
+        "required": ["check_id", "status"],
+        "properties": {
+          "check_id": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "required": {"type": "boolean", "default": true},
+          "reason_code": {"type": ["string", "null"]},
+          "evidence": {
+            "type": "object",
+            "additionalProperties": {"type": ["string", "number", "integer", "boolean", "null"]}
+          }
+        }
+      },
+      "PromotionPolicyDecision": {
+        "type": "object",
+        "required": [
+          "decision_id",
+          "policy_version",
+          "decision",
+          "status",
+          "target_environment",
+          "target_namespace",
+          "requester",
+          "approval_policy",
+          "evaluated_at",
+          "input_digest"
+        ],
+        "properties": {
+          "schema_version": {"type": "string"},
+          "decision_id": {"type": "string"},
+          "policy_version": {"type": "string"},
+          "decision": {
+            "type": "string",
+            "enum": ["allow", "pending_approval", "blocked"]
+          },
+          "status": {"$ref": "#/components/schemas/State"},
+          "target_environment": {
+            "type": "string",
+            "enum": ["dev", "test", "staging", "pre-production", "production"]
+          },
+          "target_namespace": {"type": "string"},
+          "requester": {"type": "string"},
+          "approver": {"type": ["string", "null"]},
+          "approval_policy": {"type": "string"},
+          "evaluated_at": {"type": "string", "format": "date-time"},
+          "input_digest": {"type": "string"},
+          "required_checks": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "required_approvals": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "reason_codes": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "checks": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/PromotionPolicyCheck"}
+          },
+          "audit_uri": {"type": ["string", "null"]}
         }
       },
       "DataPipelineReadiness": {
@@ -768,6 +873,7 @@
               "confirmed_at": {"type": ["string", "null"], "format": "date-time"},
               "applied_at": {"type": ["string", "null"], "format": "date-time"},
               "rollback_command_id": {"type": ["string", "null"]},
+              "promotion_policy": {"$ref": "#/components/schemas/PromotionPolicyDecision"},
               "audit": {
                 "type": "array",
                 "items": {"$ref": "#/components/schemas/AuditEvent"}

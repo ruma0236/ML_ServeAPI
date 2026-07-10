@@ -16,14 +16,38 @@
     "missing_owners": []
   },
   "environment": {
-    "name": "local-shadow",
+    "name": "local-staging",
     "tier": "staging",
-    "promotion_state": "candidate",
+    "promotion_state": "blocked",
     "cluster": "docker-desktop",
-    "namespace": "evm-platform",
+    "namespace": "evm-staging",
     "release_ref": "de7b790",
-    "approval_policy": "manual-owner-approval",
-    "promotion_blockers": []
+    "approval_policy": "owner-gated",
+    "promotion_blockers": ["readiness_not_ready"]
+  },
+  "promotion_policy": {
+    "schema_version": "evm.w7.promotion_policy.v1",
+    "decision_id": "promotion-9b6a071bdda96737",
+    "policy_version": "2026.07.w7.evm-233.v1",
+    "decision": "blocked",
+    "status": "blocked",
+    "target_environment": "staging",
+    "target_namespace": "evm-staging",
+    "requester": "ml-platform",
+    "approver": null,
+    "approval_policy": "owner-gated",
+    "evaluated_at": "2026-07-10T08:00:00Z",
+    "input_digest": "9b6a071bdda967379d47b8ed5e762ee97d77eb1c9dcdd2a25bd6ef8e0b67e06e",
+    "required_checks": ["ownership", "namespace", "readiness", "ci"],
+    "required_approvals": [],
+    "reason_codes": ["readiness_not_ready"],
+    "checks": [
+      {"check_id": "ownership", "status": "pass", "required": true, "reason_code": null, "evidence": {"team_id": "mvi-platform", "ownership_status": "pass", "missing_owners": ""}},
+      {"check_id": "namespace", "status": "pass", "required": true, "reason_code": null, "evidence": {"target_namespace": "evm-staging", "allowed_namespaces": "evm-staging"}},
+      {"check_id": "readiness", "status": "blocked", "required": true, "reason_code": "readiness_not_ready", "evidence": {"readiness_decision": "blocked"}},
+      {"check_id": "ci", "status": "pass", "required": true, "reason_code": null, "evidence": {"status": "pass"}}
+    ],
+    "audit_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/promotion_policy/promotion-9b6a071bdda96737/policy_decision.json"
   },
   "airflow": {
     "mode": "external-compose",

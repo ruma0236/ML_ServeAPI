@@ -29,6 +29,7 @@ from evm.control_panel.schemas import (
 )
 from evm.control_panel.environment import build_environment_ref
 from evm.control_panel.org_context import build_default_org_context
+from evm.control_panel.promotion_policy import evaluate_cycle_promotion
 from evm.control_panel.readiness_evaluator import (
     ReadinessInputs,
     evaluate_artifact_readiness,
@@ -653,4 +654,70 @@ def build_latest_cycle(
         ],
         artifacts=stage_artifacts,
     )
-    return cycle
+    persist_policy = os.getenv("EVM_PROMOTION_POLICY_PERSIST", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    policy_decision = evaluate_cycle_promotion(cycle, persist=persist_policy)
+    policy_environment = build_environment_ref(
+        release_ref=os.getenv("GIT_COMMIT", ""),
+        policy_decision=policy_decision,
+    )
+    policy_artifact = (
+        ArtifactRef(
+            name="promotion_policy_decision",
+            uri=policy_decision.audit_uri,
+            artifact_type="json",
+            mime_type="application/json",
+        )
+        if policy_decision.audit_uri
+        else None
+    )
+    policy_stage = PipelineStage(
+        stage_id="promotion-policy",
+        name="Environment Promotion Policy",
+        status=policy_decision.status,
+        started_at=policy_decision.evaluated_at,
+        finished_at=policy_decision.evaluated_at,
+        current_step=(
+            "awaiting_approval"
+            if policy_decision.decision == "pending_approval"
+            else None
+        ),
+        progress=(
+            1.0
+            if policy_decision.decision == "allow"
+            else 0.75
+            if policy_decision.decision == "pending_approval"
+            else 0.0
+        ),
+        failure_reason=(
+            ",".join(policy_decision.reason_codes)
+            if policy_decision.decision == "blocked"
+            else None
+        ),
+        artifacts=[policy_artifact] if policy_artifact else [],
+        metrics=[
+            Metric(
+                name="reason_code_count",
+                value=float(len(policy_decision.reason_codes)),
+                status=policy_decision.status,
+            )
+        ],
+        resources=[
+            ResourceRef(
+                namespace=policy_decision.target_namespace,
+                kind="EnvironmentPolicy",
+                name=policy_decision.target_environment,
+            )
+        ],
+    )
+    return cycle.model_copy(
+        update={
+            "environment": policy_environment,
+            "promotion_policy": policy_decision,
+            "stages": [*cycle.stages, policy_stage],
+            "artifacts": [*cycle.artifacts, *([policy_artifact] if policy_artifact else [])],
+        }
+    )

@@ -16,10 +16,13 @@ describe("Enterprise readiness UI bindings", () => {
   });
 
   it("keeps environment approval and blocker state available for promotion gates", () => {
-    expect(cycle.environment?.approval_policy).toBe("manual-owner-approval");
-    expect(cycle.environment?.promotion_blockers).toEqual([]);
+    expect(cycle.environment?.approval_policy).toBe("owner-gated");
+    expect(cycle.environment?.promotion_blockers).toEqual(["readiness_not_ready"]);
     expect(cycle.environment?.cluster).toBe("docker-desktop");
-    expect(cycle.environment?.namespace).toBe("evm-platform");
+    expect(cycle.environment?.namespace).toBe("evm-staging");
+    expect(cycle.promotion_policy?.decision).toBe("blocked");
+    expect(cycle.promotion_policy?.required_checks).toEqual(["ownership", "namespace", "readiness", "ci"]);
+    expect(cycle.promotion_policy?.reason_codes).toEqual(["readiness_not_ready"]);
   });
 
   it("keeps data and model readiness evidence wired to owner approval fields", () => {

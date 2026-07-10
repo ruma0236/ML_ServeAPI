@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from evm.control_panel.aggregation import build_latest_cycle
+from evm.control_panel.promotion_policy import PromotionPolicyDenied, evaluate_cycle_promotion
 from evm.control_panel.schemas import (
     AuditEvent,
     CDCTGate,
@@ -14,6 +15,8 @@ from evm.control_panel.schemas import (
     CommandIntentList,
     CommandIntentRequest,
     CommandStatus,
+    PromotionPolicyDecision,
+    PromotionPolicyRequest,
     TaskAssignment,
     TaskAssignmentList,
     TaskAssignmentRequest,
@@ -22,6 +25,7 @@ from evm.control_panel.schemas import (
 
 
 DEFAULT_LEDGER_ROOT = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/operations"
+PROMOTION_ACTIONS = {"approve_environment_promotion", "promote_model"}
 
 
 def utc_now() -> str:
@@ -121,11 +125,15 @@ def create_command_intent(request: CommandIntentRequest) -> CommandIntent:
     commands = read_commands()
     created_at = utc_now()
     status: CommandStatus = "dry_run" if request.dry_run else "pending_confirmation"
+    promotion_policy = command_promotion_policy(request)
+    if promotion_policy and not request.dry_run and promotion_policy.decision != "allow":
+        raise PromotionPolicyDenied(promotion_policy)
     command = CommandIntent(
         **request.model_dump(),
         command_id=f"cmd-{created_at.replace(':', '').replace('-', '').replace('Z', '')}-{uuid4().hex[:8]}",
         status=status,
         created_at=created_at,
+        promotion_policy=promotion_policy,
         audit=[
             audit(
                 request.actor,
@@ -134,12 +142,38 @@ def create_command_intent(request: CommandIntentRequest) -> CommandIntent:
                 dry_run=request.dry_run,
                 status=status,
                 target=f"{request.target.namespace}/{request.target.kind}/{request.target.name}",
+                promotion_decision=promotion_policy.decision if promotion_policy else None,
+                promotion_decision_id=promotion_policy.decision_id if promotion_policy else None,
             )
         ],
     )
     commands.commands.insert(0, command)
     write_commands(commands)
     return command
+
+
+def command_promotion_policy(request: CommandIntentRequest) -> PromotionPolicyDecision | None:
+    if request.action not in PROMOTION_ACTIONS:
+        return None
+    cycle = build_latest_cycle()
+    parameters = request.parameters
+    default_environment = cycle.environment.tier if cycle.environment else "staging"
+    target_environment = str(parameters.get("target_environment") or default_environment)
+    if target_environment not in {"dev", "test", "staging", "pre-production", "production"}:
+        target_environment = default_environment
+    target_namespace = request.target.namespace
+    requester = request.actor
+    approver = cycle.promotion_policy.approver if cycle.promotion_policy else None
+    if request.action == "approve_environment_promotion":
+        requester = cycle.promotion_policy.requester if cycle.promotion_policy else request.actor
+        approver = request.actor
+    policy_request = PromotionPolicyRequest(
+        target_environment=target_environment,  # type: ignore[arg-type]
+        target_namespace=target_namespace,
+        requester=requester,
+        approver=approver,
+    )
+    return evaluate_cycle_promotion(cycle, policy_request, persist=True)
 
 
 def confirm_command_intent(command_id: str, actor: str = "operator") -> CommandIntent | None:
