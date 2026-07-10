@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: nvidia-device-plugin
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local-runtime: docker-desktop-wsl2
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+        app.kubernetes.io/name: nvidia-device-plugin
+        evm.openai.local-runtime: docker-desktop-wsl2
+    spec:
+      priorityClassName: system-node-critical
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: nvidia-device-plugin-ctr
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.18.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+            - name: PASS_DEVICE_SPECS
+              value: "true"
+            - name: DEVICE_LIST_STRATEGY
+              value: envvar
+            - name: DEVICE_ID_STRATEGY
+              value: index
+            - name: LD_LIBRARY_PATH
+              value: /usr/lib/wsl/drivers/nvidia-current:/usr/lib/wsl/lib
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: kubelet-device-plugins-dir
+              mountPath: /var/lib/kubelet/device-plugins
+            - name: dxg
+              mountPath: /dev/dxg
+            - name: wsl-lib
+              mountPath: /usr/lib/wsl/lib
+              readOnly: true
+            - name: wsl-driver
+              mountPath: /usr/lib/wsl/drivers/nvidia-current
+              readOnly: true
+      volumes:
+        - name: kubelet-device-plugins-dir
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+            type: Directory
+        - name: dxg
+          hostPath:
+            path: /dev/dxg
+            type: CharDevice
+        - name: wsl-lib
+          hostPath:
+            path: /usr/lib/wsl/lib
+            type: Directory
+        - name: wsl-driver
+          hostPath:
+            path: __WSL_DRIVER_PATH__
+            type: Directory

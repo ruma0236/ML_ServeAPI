@@ -177,11 +177,15 @@ evidence.
   - `infra/kubernetes/model-runtime/b7-training-job.yaml`
   - `infra/kubernetes/model-runtime/b7-serving-deployment.yaml`
   - `infra/kubernetes/model-runtime/kustomization.yaml`
+  - `infra/kubernetes/docker-desktop-gpu/nvidia-device-plugin.yaml.tmpl`
+  - `infra/kubernetes/docker-desktop-gpu/gpu-resource-probe.yaml.tmpl`
+  - `infra/kubernetes/docker-desktop-gpu/model-runtime-workload-patch.yaml.tmpl`
   - `configs/w7_efficientnet_kubernetes.toml`
   - `infra/docker/efficientnet-training/Dockerfile`
   - `infra/docker/efficientnet-serving/Dockerfile`
   - `apps/api/efficientnet_serving.py`
   - `scripts/dev/w7_docker_b7_runtime_proof.ps1`
+  - `scripts/dev/configure_docker_desktop_kubernetes_gpu.ps1`
   - `scripts/dev/w7_kubernetes_b7_execution_proof.ps1`
   - `tests/test_kubernetes_b7_manifests.py`
   - `docs/status/YYYY-MM-DD-w7-kubernetes-b7-execution-proof.md`
@@ -206,6 +210,7 @@ evidence.
   - evidence index under
     `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/kubernetes_b7/<run_id>/`
 - Verification command:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/configure_docker_desktop_kubernetes_gpu.ps1`
   - `docker desktop kubernetes status`
   - `kubectl config use-context docker-desktop`
   - `kubectl get node -o jsonpath="{.items[0].status.allocatable.nvidia\.com/gpu}"`
@@ -236,13 +241,18 @@ evidence.
 - Current checkpoint:
   - implementation, Docker GPU proof, immutable image/model identity, and
     F-drive storage binding are verified;
-  - Docker Desktop Kubernetes does not advertise `nvidia.com/gpu`; the Job was
-    initially Pending with `Insufficient nvidia.com/gpu` and is now Failed with
-    `DeadlineExceeded` after its active deadline, so this issue remains open;
-  - the live observer follow-up exposes this current state through the resource
-    API and UI without treating observability as runtime completion;
-  - evidence is indexed in
-    `docs/status/2026-07-10-w7-kubernetes-b7-execution-proof.md`.
+  - Docker Desktop WSL2 GPU bridge advertises `nvidia.com/gpu=1`; a
+    non-privileged resource probe requested one GPU and reported the RTX 4080
+    SUPER from inside Kubernetes;
+  - bridge evidence is stored under
+    `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/kubernetes_gpu_bridge/evm-gpu-bridge-20260710T135448Z`;
+  - the previous `Insufficient nvidia.com/gpu` / `DeadlineExceeded` blocker is
+    resolved, but the B7 Job, serving rollout, inference, controlled failure,
+    and rollback still keep EVM-226 open;
+  - the live observer can now expose allocatable GPU and the subsequent Job and
+    Deployment transitions without treating the bridge alone as completion;
+  - bridge evidence is indexed in
+    `docs/status/2026-07-10-w7-docker-desktop-kubernetes-gpu-bridge.md`.
 
 ### EVM-227 - Serving Design Record, Execution Absorbed By EVM-226
 

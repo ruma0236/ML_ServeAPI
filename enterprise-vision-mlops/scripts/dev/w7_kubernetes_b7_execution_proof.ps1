@@ -76,7 +76,8 @@ function Write-EvidenceIndex {
 function New-RuntimeManifestOverlay {
     param(
         [Parameter(Mandatory = $true)][string]$TrainingImageDigest,
-        [Parameter(Mandatory = $true)][string]$ServingImageDigest
+        [Parameter(Mandatory = $true)][string]$ServingImageDigest,
+        [Parameter(Mandatory = $true)][string]$WslDriverPath
     )
 
     if ($TrainingImageDigest -notmatch "@sha256:" -or $ServingImageDigest -notmatch "@sha256:") {
@@ -85,6 +86,10 @@ function New-RuntimeManifestOverlay {
     $RuntimeManifestDir = Join-Path $EvidenceDir "runtime-manifests"
     New-Item -ItemType Directory -Force -Path $RuntimeManifestDir | Out-Null
     Copy-Item "infra/kubernetes/model-runtime/*.yaml" $RuntimeManifestDir -Force
+    $WorkloadPatchTemplate = Get-Content `
+        "infra/kubernetes/docker-desktop-gpu/model-runtime-workload-patch.yaml.tmpl" -Raw
+    $WorkloadPatchTemplate.Replace("__WSL_DRIVER_PATH__", $WslDriverPath) |
+        Set-Content (Join-Path $RuntimeManifestDir "docker-desktop-gpu-workload-patch.yaml") -Encoding utf8
     $TrainingDigest = $TrainingImageDigest.Split("@")[1]
     $ServingDigest = $ServingImageDigest.Split("@")[1]
     @"
@@ -95,6 +100,8 @@ images:
   - name: enterprise-vision-mlops-efficientnet-serving
     newName: enterprise-vision-mlops-efficientnet-serving
     digest: $ServingDigest
+patches:
+  - path: docker-desktop-gpu-workload-patch.yaml
 "@ | Add-Content (Join-Path $RuntimeManifestDir "kustomization.yaml") -Encoding utf8
     return $RuntimeManifestDir
 }
@@ -110,10 +117,10 @@ try {
 
     Invoke-Captured -Name "03-kubernetes-node" -FilePath "kubectl" -ArgumentList @("get", "nodes", "-o", "wide") | Out-Null
     Invoke-Captured -Name "04-kubernetes-system-pods" -FilePath "kubectl" -ArgumentList @("get", "pods", "-n", "kube-system", "-o", "wide") | Out-Null
-    Invoke-Captured -Name "05-nvidia-device-plugin-apply" -FilePath "kubectl" -ArgumentList @(
-        "apply",
-        "-f",
-        "https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/deployments/static/nvidia-device-plugin.yml"
+    Invoke-Captured -Name "05-docker-desktop-gpu-bridge" -FilePath "powershell.exe" -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "scripts/dev/configure_docker_desktop_kubernetes_gpu.ps1"
     ) | Out-Null
     Start-Sleep -Seconds 5
     Invoke-Captured -Name "06-nvidia-device-plugin-logs" -FilePath "kubectl" -ArgumentList @(
@@ -126,6 +133,11 @@ try {
     $GpuAllocatable = $GpuResult.output.Trim()
     if (-not $GpuAllocatable -or [int]$GpuAllocatable -lt 1) {
         $Blockers.Add("docker_desktop_kubernetes_gpu_not_advertised")
+    }
+    $WslDriverPath = (& wsl.exe -d docker-desktop -u root -- sh -lc `
+        "find /usr/lib/wsl/drivers -name nvidia-smi -type f | head -n 1 | xargs dirname").Trim()
+    if (-not $WslDriverPath -or -not $WslDriverPath.StartsWith("/usr/lib/wsl/drivers/")) {
+        $Blockers.Add("docker_desktop_wsl_driver_path_missing")
     }
 
     $DockerGpuProof = Invoke-Captured -Name "08-docker-gpu-vector-add" -FilePath "docker" -ArgumentList @(
@@ -167,7 +179,8 @@ try {
         if ($BlockedTrainingImage.exit_code -eq 0 -and $BlockedServingImage.exit_code -eq 0) {
             $BlockedApplyPath = New-RuntimeManifestOverlay `
                 -TrainingImageDigest $BlockedTrainingImage.output.Trim() `
-                -ServingImageDigest $BlockedServingImage.output.Trim()
+                -ServingImageDigest $BlockedServingImage.output.Trim() `
+                -WslDriverPath $WslDriverPath
             Invoke-Captured -Name "13-blocked-runtime-kustomize-render" -FilePath "kubectl" -ArgumentList @(
                 "kustomize", $BlockedApplyPath
             ) -IgnoreFailure | Out-Null
@@ -224,7 +237,8 @@ try {
     $ServingImageDigest = (docker image inspect $ServingImage --format "{{index .RepoDigests 0}}").Trim()
     $RuntimeManifestDir = New-RuntimeManifestOverlay `
         -TrainingImageDigest $TrainingImageDigest `
-        -ServingImageDigest $ServingImageDigest
+        -ServingImageDigest $ServingImageDigest `
+        -WslDriverPath $WslDriverPath
     Invoke-Captured -Name "13-runtime-kustomize-render" -FilePath "kubectl" -ArgumentList @(
         "kustomize", $RuntimeManifestDir
     ) | Out-Null

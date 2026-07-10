@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: evm-b7-training
+  namespace: evm-training
+spec:
+  template:
+    spec:
+      containers:
+        - name: trainer
+          env:
+            - name: LD_LIBRARY_PATH
+              value: /usr/lib/wsl/drivers/nvidia-current:/usr/lib/wsl/lib
+            - name: PATH
+              value: /usr/lib/wsl/drivers/nvidia-current:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          volumeMounts:
+            - name: wsl-lib
+              mountPath: /usr/lib/wsl/lib
+              readOnly: true
+            - name: wsl-driver
+              mountPath: /usr/lib/wsl/drivers/nvidia-current
+              readOnly: true
+      volumes:
+        - name: wsl-lib
+          hostPath:
+            path: /usr/lib/wsl/lib
+            type: Directory
+        - name: wsl-driver
+          hostPath:
+            path: __WSL_DRIVER_PATH__
+            type: Directory
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evm-b7-serving
+  namespace: evm-staging
+spec:
+  template:
+    spec:
+      containers:
+        - name: serving
+          env:
+            - name: LD_LIBRARY_PATH
+              value: /usr/lib/wsl/drivers/nvidia-current:/usr/lib/wsl/lib
+            - name: PATH
+              value: /usr/lib/wsl/drivers/nvidia-current:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          volumeMounts:
+            - name: wsl-lib
+              mountPath: /usr/lib/wsl/lib
+              readOnly: true
+            - name: wsl-driver
+              mountPath: /usr/lib/wsl/drivers/nvidia-current
+              readOnly: true
+      volumes:
+        - name: wsl-lib
+          hostPath:
+            path: /usr/lib/wsl/lib
+            type: Directory
+        - name: wsl-driver
+          hostPath:
+            path: __WSL_DRIVER_PATH__
+            type: Directory
+
