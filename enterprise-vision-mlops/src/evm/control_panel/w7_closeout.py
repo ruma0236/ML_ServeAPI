@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,21 @@ def first_uri(payload: dict[str, Any] | None, *keys: str) -> str | None:
         if isinstance(value, str) and value:
             return value
     return None
+
+
+def canonical_runtime_uri(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.replace("\\", "/")
+    host_root = os.getenv(
+        "EVM_HOST_DATA_ROOT",
+        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+    ).replace("\\", "/").rstrip("/")
+    if normalized.startswith("/app/artifacts"):
+        return f"{host_root}/artifacts{normalized[len('/app/artifacts'):]}"
+    if normalized.startswith("/mnt/evm-data"):
+        return f"{host_root}{normalized[len('/mnt/evm-data'):]}"
+    return normalized
 
 
 def claim(
@@ -210,7 +226,7 @@ def build_closeout_matrix(
             observation_pass,
             f"observation_status={resources.observation_status}",
             "EVM-229",
-            resources.snapshot_uri,
+            canonical_runtime_uri(resources.snapshot_uri),
         ),
         claim(
             "kubernetes_gpu_training",
@@ -221,7 +237,7 @@ def build_closeout_matrix(
                 f"reason={job.reason if job else 'missing'}"
             ),
             "EVM-226",
-            resources.snapshot_uri,
+            canonical_runtime_uri(resources.snapshot_uri),
         ),
         claim(
             "kubernetes_serving_rollout",
@@ -233,7 +249,7 @@ def build_closeout_matrix(
                 f"ready={serving.ready_replicas if serving else None}"
             ),
             "EVM-226",
-            resources.snapshot_uri,
+            canonical_runtime_uri(resources.snapshot_uri),
         ),
         claim(
             "artifact_readiness",

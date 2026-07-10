@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from evm.control_panel.w7_closeout import build_closeout_matrix
+from evm.control_panel.w7_closeout import build_closeout_matrix, canonical_runtime_uri
 
 
 def cycle_payload() -> dict:
@@ -102,3 +102,11 @@ def test_closeout_matrix_does_not_treat_live_observation_as_gpu_execution():
     )
     assert observation.status == "pass"
     assert training.status == "blocked"
+
+
+def test_closeout_matrix_canonicalizes_container_evidence_uri(monkeypatch):
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", "F:/evm")
+
+    assert canonical_runtime_uri("/app/artifacts/w7/observer/latest.json") == (
+        "F:/evm/artifacts/w7/observer/latest.json"
+    )
