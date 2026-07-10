@@ -73,6 +73,32 @@ function Write-EvidenceIndex {
     $Payload | ConvertTo-Json -Depth 12 | Set-Content -Path (Join-Path $EvidenceDir "evidence_index.json") -Encoding utf8
 }
 
+function New-RuntimeManifestOverlay {
+    param(
+        [Parameter(Mandatory = $true)][string]$TrainingImageDigest,
+        [Parameter(Mandatory = $true)][string]$ServingImageDigest
+    )
+
+    if ($TrainingImageDigest -notmatch "@sha256:" -or $ServingImageDigest -notmatch "@sha256:") {
+        throw "Training and serving images must have immutable local RepoDigests"
+    }
+    $RuntimeManifestDir = Join-Path $EvidenceDir "runtime-manifests"
+    New-Item -ItemType Directory -Force -Path $RuntimeManifestDir | Out-Null
+    Copy-Item "infra/kubernetes/model-runtime/*.yaml" $RuntimeManifestDir -Force
+    $TrainingDigest = $TrainingImageDigest.Split("@")[1]
+    $ServingDigest = $ServingImageDigest.Split("@")[1]
+    @"
+images:
+  - name: enterprise-vision-mlops-efficientnet-training
+    newName: enterprise-vision-mlops-efficientnet-training
+    digest: $TrainingDigest
+  - name: enterprise-vision-mlops-efficientnet-serving
+    newName: enterprise-vision-mlops-efficientnet-serving
+    digest: $ServingDigest
+"@ | Add-Content (Join-Path $RuntimeManifestDir "kustomization.yaml") -Encoding utf8
+    return $RuntimeManifestDir
+}
+
 Push-Location $ProjectRoot
 try {
     $KubernetesStatus = Invoke-Captured -Name "01-docker-desktop-kubernetes-status" -FilePath "docker" -ArgumentList @("desktop", "kubernetes", "status")
@@ -131,23 +157,41 @@ try {
     $Render.output | Set-Content -Path (Join-Path $EvidenceDir "rendered-manifests.yaml") -Encoding utf8
 
     if ($Blockers.Count -gt 0) {
-        Invoke-Captured -Name "11-blocked-kustomize-apply" -FilePath "kubectl" -ArgumentList @(
-            "apply", "-k", "infra/kubernetes/model-runtime"
+        $BlockedApplyPath = "infra/kubernetes/model-runtime"
+        $BlockedTrainingImage = Invoke-Captured -Name "11-blocked-training-image-digest" -FilePath "docker" -ArgumentList @(
+            "image", "inspect", $TrainingImage, "--format", "{{index .RepoDigests 0}}"
+        ) -IgnoreFailure
+        $BlockedServingImage = Invoke-Captured -Name "12-blocked-serving-image-digest" -FilePath "docker" -ArgumentList @(
+            "image", "inspect", $ServingImage, "--format", "{{index .RepoDigests 0}}"
+        ) -IgnoreFailure
+        if ($BlockedTrainingImage.exit_code -eq 0 -and $BlockedServingImage.exit_code -eq 0) {
+            $BlockedApplyPath = New-RuntimeManifestOverlay `
+                -TrainingImageDigest $BlockedTrainingImage.output.Trim() `
+                -ServingImageDigest $BlockedServingImage.output.Trim()
+            Invoke-Captured -Name "13-blocked-runtime-kustomize-render" -FilePath "kubectl" -ArgumentList @(
+                "kustomize", $BlockedApplyPath
+            ) -IgnoreFailure | Out-Null
+        }
+        Invoke-Captured -Name "14-blocked-delete-previous-training-job" -FilePath "kubectl" -ArgumentList @(
+            "delete", "job/evm-b7-training", "-n", "evm-training", "--ignore-not-found=true", "--wait=true"
+        ) -IgnoreFailure | Out-Null
+        Invoke-Captured -Name "15-blocked-kustomize-apply" -FilePath "kubectl" -ArgumentList @(
+            "apply", "-k", $BlockedApplyPath
         ) -IgnoreFailure | Out-Null
         Start-Sleep -Seconds 5
-        Invoke-Captured -Name "12-blocked-training-resources" -FilePath "kubectl" -ArgumentList @(
+        Invoke-Captured -Name "16-blocked-training-resources" -FilePath "kubectl" -ArgumentList @(
             "get", "pods,jobs,deploy,rs,svc,pvc", "-n", "evm-training", "-o", "wide"
         ) -IgnoreFailure | Out-Null
-        Invoke-Captured -Name "13-blocked-staging-resources" -FilePath "kubectl" -ArgumentList @(
+        Invoke-Captured -Name "17-blocked-staging-resources" -FilePath "kubectl" -ArgumentList @(
             "get", "pods,jobs,deploy,rs,svc,pvc", "-n", "evm-staging", "-o", "wide"
         ) -IgnoreFailure | Out-Null
-        Invoke-Captured -Name "14-blocked-training-describe" -FilePath "kubectl" -ArgumentList @(
+        Invoke-Captured -Name "18-blocked-training-describe" -FilePath "kubectl" -ArgumentList @(
             "describe", "job/evm-b7-training", "-n", "evm-training"
         ) -IgnoreFailure | Out-Null
-        Invoke-Captured -Name "15-blocked-training-pod-describe" -FilePath "kubectl" -ArgumentList @(
+        Invoke-Captured -Name "19-blocked-training-pod-describe" -FilePath "kubectl" -ArgumentList @(
             "describe", "pod", "-n", "evm-training", "-l", "app.kubernetes.io/name=evm-b7-training"
         ) -IgnoreFailure | Out-Null
-        Invoke-Captured -Name "16-blocked-training-events" -FilePath "kubectl" -ArgumentList @(
+        Invoke-Captured -Name "20-blocked-training-events" -FilePath "kubectl" -ArgumentList @(
             "get", "events", "-n", "evm-training", "--sort-by=.lastTimestamp"
         ) -IgnoreFailure | Out-Null
         Write-EvidenceIndex -Status "blocked" -Additional @{
@@ -157,6 +201,8 @@ try {
             mlflow_ready = ($MlflowHealth.exit_code -eq 0)
             source_model_sha256 = $SourceModelSha256
             split_manifest_sha256 = $SplitManifestSha256
+            training_image_digest = $BlockedTrainingImage.output.Trim()
+            serving_image_digest = $BlockedServingImage.output.Trim()
             completion_claim_allowed = $false
         }
         if ($AllowBlocked) {
@@ -176,24 +222,9 @@ try {
     }
     $TrainingImageDigest = (docker image inspect $TrainingImage --format "{{index .RepoDigests 0}}").Trim()
     $ServingImageDigest = (docker image inspect $ServingImage --format "{{index .RepoDigests 0}}").Trim()
-    if ($TrainingImageDigest -notmatch "@sha256:" -or $ServingImageDigest -notmatch "@sha256:") {
-        throw "Training and serving images must have immutable local RepoDigests"
-    }
-
-    $RuntimeManifestDir = Join-Path $EvidenceDir "runtime-manifests"
-    New-Item -ItemType Directory -Force -Path $RuntimeManifestDir | Out-Null
-    Copy-Item "infra/kubernetes/model-runtime/*.yaml" $RuntimeManifestDir -Force
-    $TrainingDigest = $TrainingImageDigest.Split("@")[1]
-    $ServingDigest = $ServingImageDigest.Split("@")[1]
-    @"
-images:
-  - name: enterprise-vision-mlops-efficientnet-training
-    newName: enterprise-vision-mlops-efficientnet-training
-    digest: $TrainingDigest
-  - name: enterprise-vision-mlops-efficientnet-serving
-    newName: enterprise-vision-mlops-efficientnet-serving
-    digest: $ServingDigest
-"@ | Add-Content (Join-Path $RuntimeManifestDir "kustomization.yaml") -Encoding utf8
+    $RuntimeManifestDir = New-RuntimeManifestOverlay `
+        -TrainingImageDigest $TrainingImageDigest `
+        -ServingImageDigest $ServingImageDigest
     Invoke-Captured -Name "13-runtime-kustomize-render" -FilePath "kubectl" -ArgumentList @(
         "kustomize", $RuntimeManifestDir
     ) | Out-Null
