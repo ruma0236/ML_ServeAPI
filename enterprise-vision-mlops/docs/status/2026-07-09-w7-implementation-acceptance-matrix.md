@@ -503,6 +503,16 @@ evidence.
 
 ### EVM-236 - Enterprise Data/Model Evidence Readiness Evaluator
 
+Execution state on 2026-07-10:
+
+- evaluator implementation and UI/API contract integration are complete;
+- live report `readiness-d7849f6b195bd356` validated 13 content checks and returned
+  `blocked` with 14 deterministic blocker codes;
+- evidence is stored under
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/readiness/evm-236-readiness-20260710T090734Z/`;
+- EVM-236 completion means the evaluator works. It does not override the
+  unresolved data identity, lineage, MLflow, rollback, or Kubernetes blockers.
+
 - Implementation files:
   - `src/evm/control_panel/readiness.py`
   - `src/evm/control_panel/readiness_evaluator.py`

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from evm.core.http import request_json
@@ -41,23 +42,39 @@ class MlflowRestClient:
             return payload.get("run", {}).get("info", {}).get("run_id")
         return None
 
-    def log_param(self, run_id: str, key: str, value: Any) -> None:
-        request_json(
+    def log_param(self, run_id: str, key: str, value: Any) -> bool:
+        status, _ = request_json(
             "POST",
             f"{self.tracking_uri}/api/2.0/mlflow/runs/log-parameter",
             {"run_id": run_id, "key": key, "value": str(value)},
         )
+        return status == 200
 
-    def log_metric(self, run_id: str, key: str, value: float, step: int = 0) -> None:
-        request_json(
+    def log_metric(
+        self,
+        run_id: str,
+        key: str,
+        value: float,
+        step: int = 0,
+        timestamp_ms: int | None = None,
+    ) -> bool:
+        status, _ = request_json(
             "POST",
             f"{self.tracking_uri}/api/2.0/mlflow/runs/log-metric",
-            {"run_id": run_id, "key": key, "value": float(value), "step": step},
+            {
+                "run_id": run_id,
+                "key": key,
+                "value": float(value),
+                "timestamp": timestamp_ms if timestamp_ms is not None else int(time.time() * 1000),
+                "step": step,
+            },
         )
+        return status == 200
 
-    def terminate_run(self, run_id: str, status: str = "FINISHED") -> None:
-        request_json(
+    def terminate_run(self, run_id: str, status: str = "FINISHED") -> bool:
+        response_status, _ = request_json(
             "POST",
             f"{self.tracking_uri}/api/2.0/mlflow/runs/update",
             {"run_id": run_id, "status": status},
         )
+        return response_status == 200

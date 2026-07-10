@@ -315,6 +315,7 @@
           "mlflow": {"$ref": "#/components/schemas/MLflowRef"},
           "data_pipeline": {"$ref": "#/components/schemas/DataPipelineReadiness"},
           "experiment_pipeline": {"$ref": "#/components/schemas/ExperimentPipelineReadiness"},
+          "readiness_evaluation": {"$ref": "#/components/schemas/ArtifactReadinessEvaluation"},
           "dataset": {"$ref": "#/components/schemas/DatasetVersion"},
           "model": {"$ref": "#/components/schemas/ModelVersion"},
           "model_matrix": {"$ref": "#/components/schemas/ModelExperimentMatrix"},
@@ -462,6 +463,64 @@
             "type": "array",
             "items": {"type": "string"}
           }
+        }
+      },
+      "ReadinessEvidenceCheck": {
+        "type": "object",
+        "required": ["check_id", "category", "status"],
+        "properties": {
+          "check_id": {"type": "string"},
+          "category": {"type": "string", "enum": ["data", "model", "runtime"]},
+          "status": {"$ref": "#/components/schemas/State"},
+          "required": {"type": "boolean"},
+          "evidence_uri": {"type": ["string", "null"]},
+          "evidence_digest": {"type": ["string", "null"]},
+          "observed": {
+            "type": "object",
+            "additionalProperties": {"type": ["string", "number", "integer", "boolean", "null"]}
+          },
+          "blockers": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      },
+      "ArtifactReadinessEvaluation": {
+        "type": "object",
+        "required": [
+          "evaluation_id",
+          "decision",
+          "status",
+          "data_status",
+          "model_status",
+          "runtime_status",
+          "candidate_id",
+          "dataset_version",
+          "evaluated_at",
+          "input_digest",
+          "checks"
+        ],
+        "properties": {
+          "schema_version": {"type": "string"},
+          "evaluation_id": {"type": "string"},
+          "decision": {"type": "string", "enum": ["ready", "blocked"]},
+          "status": {"$ref": "#/components/schemas/State"},
+          "data_status": {"$ref": "#/components/schemas/State"},
+          "model_status": {"$ref": "#/components/schemas/State"},
+          "runtime_status": {"$ref": "#/components/schemas/State"},
+          "candidate_id": {"type": "string"},
+          "dataset_version": {"type": "string"},
+          "evaluated_at": {"type": "string", "format": "date-time"},
+          "input_digest": {"type": "string"},
+          "checks": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ReadinessEvidenceCheck"}
+          },
+          "blockers": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "report_uri": {"type": ["string", "null"]}
         }
       },
       "ModelVersion": {

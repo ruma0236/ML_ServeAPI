@@ -29,7 +29,11 @@ from evm.control_panel.schemas import (
 )
 from evm.control_panel.environment import build_environment_ref
 from evm.control_panel.org_context import build_default_org_context
-from evm.control_panel.readiness import build_data_readiness, build_experiment_readiness
+from evm.control_panel.readiness_evaluator import (
+    ReadinessInputs,
+    evaluate_artifact_readiness,
+    runtime_path,
+)
 from evm.core.config import get_nested, load_config, resolve_path
 
 
@@ -151,13 +155,24 @@ def model_matrix_evidence(config: dict[str, Any], matrix_id: str) -> dict[str, A
     artifact_root = resources.get("artifact_root")
     if not artifact_root:
         return {}
-    root = Path(str(artifact_root))
+    root = runtime_path(str(artifact_root))
     if not root.is_absolute():
         config_path = Path(str(config.get("_config_path", "")))
         root = config_path.parent.parent / root if config_path else root
     latest_path = root / "latest_model_matrix.json"
     matrix_path = root / matrix_id / "model_matrix.json"
     return read_json(latest_path) or read_json(matrix_path)
+
+
+def latest_kubernetes_evidence(root: Path) -> Path | None:
+    if not root.exists():
+        return None
+    candidates = [
+        path
+        for path in root.glob("w7-k8s-b7-*/evidence_index.json")
+        if path.is_file()
+    ]
+    return max(candidates, key=lambda path: (path.stat().st_mtime, path.parent.name)) if candidates else None
 
 
 def split_counts(source_model: dict[str, Any]) -> dict[str, int]:
@@ -348,6 +363,27 @@ def build_latest_cycle(
     if not efficientnet_path.is_absolute():
         efficientnet_path = project_root / efficientnet_path
     model_matrix = build_model_matrix(efficientnet_path, dataset_version)
+    efficientnet_config = load_toml(efficientnet_path)
+    matrix_config = (
+        efficientnet_config.get("model_matrix", {})
+        if isinstance(efficientnet_config.get("model_matrix"), dict)
+        else {}
+    )
+    matrix_resources = (
+        efficientnet_config.get("resources", {})
+        if isinstance(efficientnet_config.get("resources"), dict)
+        else {}
+    )
+    matrix_inputs = (
+        efficientnet_config.get("inputs", {})
+        if isinstance(efficientnet_config.get("inputs"), dict)
+        else {}
+    )
+    matrix_acceptance = (
+        efficientnet_config.get("acceptance", {})
+        if isinstance(efficientnet_config.get("acceptance"), dict)
+        else {}
+    )
 
     stage_artifacts = [
         artifact
@@ -447,24 +483,82 @@ def build_latest_cycle(
     metrics_list = metric_list(metrics, thresholds)
     org_context = build_default_org_context()
     contract_path = project_root / "domain_packs/manufacturing_visual_inspection/data_contract.toml"
-    data_readiness = build_data_readiness(
-        contract_path=contract_path,
-        quality_status=quality_status,
-        lineage_exists=bool(registry or lifecycle),
-        replay_ready=dataset_metadata_path.exists(),
-        source_policy_uri="domain_packs/manufacturing_visual_inspection/data_contract.toml",
-        quality_report_uri=str(quality_report_path) if quality_report_path.exists() else None,
-        lineage_uri=str(lifecycle_dashboard_path) if lifecycle_dashboard_path.exists() else None,
-        backfill_window="manual-local",
-        org_context=org_context,
+    selected_candidate_id = str(
+        matrix_config.get("selected_candidate_id", "effnet-b7-img600-finetune-adamw")
     )
-    experiment_readiness = build_experiment_readiness(
-        registry_exists=bool(registry),
-        blockers=blockers,
-        experiment_uri=str(get_nested(config, "mlflow.tracking_uri", "http://localhost:5000")),
-        model_card_uri=str(lifecycle_dashboard_path) if lifecycle_dashboard_path.exists() else None,
-        evaluation_report_uri="docs/reviews/2026-07-09-w5-real-model-lifecycle-verification.md",
-        org_context=org_context,
+    matrix_id = str(matrix_config.get("matrix_id", "w7-efficientnet-real-test-matrix"))
+    matrix_artifact_root = runtime_path(
+        str(matrix_resources.get("artifact_root", artifacts_root / "w7" / "efficientnet"))
+    )
+    matrix_dir = matrix_artifact_root / matrix_id
+    candidate_dir = matrix_dir / selected_candidate_id
+    source_shard_index_value = str(matrix_inputs.get("shard_index", "")).strip()
+    source_shard_index_path = (
+        Path(source_shard_index_value)
+        if source_shard_index_value
+        else matrix_dir / "__missing_source_shard_index__.json"
+    )
+    readiness_report_path = artifacts_root / "w7" / "readiness" / "latest_readiness_evaluation.json"
+    readiness_result = evaluate_artifact_readiness(
+        ReadinessInputs(
+            contract_path=contract_path,
+            dataset_metadata_path=dataset_metadata_path,
+            quality_report_path=quality_report_path,
+            source_shard_index_path=source_shard_index_path,
+            split_manifest_path=matrix_dir / "split_manifest.json",
+            lineage_path=candidate_dir / "lineage.json",
+            candidate_summary_path=candidate_dir / "candidate_summary.json",
+            model_card_path=candidate_dir / "model_card.md",
+            registry_path=registry_path,
+            real_test_validation_path=(
+                artifacts_root
+                / "w7"
+                / "real_test_evidence"
+                / "evm-238-b-real-test-evidence-report.json"
+            ),
+            kubernetes_evidence_path=latest_kubernetes_evidence(
+                artifacts_root / "w7" / "kubernetes_b7"
+            ),
+            mlflow_tracking_uri=os.getenv(
+                "MLFLOW_TRACKING_URI",
+                str(matrix_inputs.get("mlflow_tracking_uri", "http://localhost:5000")),
+            ),
+            candidate_id=selected_candidate_id,
+            dataset_version=str(matrix_config.get("dataset_version", dataset_version)),
+            expected_record_count=int(
+                matrix_acceptance.get("min_total_records")
+                or matrix_config.get("minimum_records")
+                or 0
+            ),
+            expected_source_digest=str(matrix_inputs.get("shard_index_sha256", "")),
+            metric_thresholds={
+                name: float(matrix_acceptance[key])
+                for name, key in {
+                    "accuracy": "promotion_min_accuracy",
+                    "f1": "promotion_min_f1",
+                    "auroc": "promotion_min_auroc",
+                }.items()
+                if isinstance(matrix_acceptance.get(key), int | float)
+            },
+            report_uri=str(readiness_report_path),
+        ),
+        org_context,
+    )
+    data_readiness = readiness_result.data_pipeline
+    experiment_readiness = readiness_result.experiment_pipeline
+    stages.append(
+        stage(
+            "artifact-readiness",
+            "Artifact Readiness",
+            readiness_result.evaluation.status,
+            existing_artifact("readiness_evaluation", readiness_report_path),
+            Metric(
+                name="blocker_count",
+                value=float(len(readiness_result.evaluation.blockers)),
+                status=readiness_result.evaluation.status,
+            ),
+            ResourceRef(namespace="evm-platform", kind="Deployment", name="evm-api"),
+        )
     )
     environment_ref = build_environment_ref(blockers, os.getenv("GIT_COMMIT", ""))
 
@@ -510,6 +604,7 @@ def build_latest_cycle(
         ),
         data_pipeline=data_readiness,
         experiment_pipeline=experiment_readiness,
+        readiness_evaluation=readiness_result.evaluation,
         dataset=DatasetVersion(
             dataset_id=str(dataset.get("dataset_name") or "visa-open-data"),
             version=dataset_version,

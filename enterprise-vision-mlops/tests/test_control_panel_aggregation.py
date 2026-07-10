@@ -230,13 +230,16 @@ def test_build_latest_cycle_aggregates_local_evidence(tmp_path, monkeypatch):
     assert cycle.promotion_gate is not None
     assert cycle.promotion_gate.status == "blocked"
     assert cycle.data_pipeline is not None
-    assert cycle.data_pipeline.quality_status == "pass"
+    assert cycle.data_pipeline.quality_status == "blocked"
     assert cycle.data_pipeline.owner_approval_actor == "data-platform"
-    assert cycle.data_pipeline.owner_approval_status == "pass"
+    assert cycle.data_pipeline.owner_approval_status == "blocked"
+    assert "quality_record_count_mismatch" in cycle.data_pipeline.blockers
     assert cycle.experiment_pipeline is not None
     assert cycle.experiment_pipeline.owner_approval_actor == "ml-platform"
     assert cycle.experiment_pipeline.owner_approval_status == "blocked"
-    assert "accuracy<0.7" in cycle.experiment_pipeline.blockers
+    assert "evaluation_report_missing" in cycle.experiment_pipeline.blockers
+    assert cycle.readiness_evaluation is not None
+    assert cycle.readiness_evaluation.decision == "blocked"
     assert cycle.tenant is not None
     assert cycle.tenant.ownership_status == "pass"
     assert cycle.tenant.missing_owners == []
@@ -297,6 +300,7 @@ def test_build_latest_cycle_marks_missing_upstream_evidence(tmp_path, monkeypatc
     assert cycle.model.stage == "unknown"
     assert cycle.serving.status == "blocked"
     assert cycle.data_pipeline is not None
-    assert cycle.data_pipeline.quality_status == "unknown"
+    assert cycle.data_pipeline.quality_status == "blocked"
+    assert "quality_report_missing" in cycle.data_pipeline.blockers
     assert cycle.experiment_pipeline is not None
     assert cycle.experiment_pipeline.registry_status == "blocked"

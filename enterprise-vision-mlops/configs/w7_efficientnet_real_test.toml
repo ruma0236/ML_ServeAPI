@@ -3,6 +3,7 @@ matrix_id = "w7-efficientnet-real-test-matrix"
 framework = "torch"
 execution_mode = "parallel"
 dataset_version = "visa-open-data-f1f1c9ee9922"
+selected_candidate_id = "effnet-b7-img600-finetune-adamw"
 dataset_policy = "real_full_visa"
 mock_allowed = false
 smoke_allowed = false

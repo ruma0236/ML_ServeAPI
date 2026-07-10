@@ -10,6 +10,9 @@ test("@w7-enterprise-readiness renders service scope, readiness gates, and theme
   await expect(page.getByText("Environment Gate")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Data Pipeline Checklist" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Model Pipeline Checklist" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Artifact Evidence Decision" })).toBeVisible();
+  await expect(page.getByLabel("Artifact evidence evaluation").getByText("quality gate")).toBeVisible();
+  await expect(page.getByLabel("Artifact evidence evaluation").getByText("kubernetes runtime")).toBeVisible();
   await expect(page.getByText("Owner approval")).toHaveCount(2);
   await expect(page.getByText("manual-owner-approval")).toBeVisible();
   await expect(page.getByLabel("Owner coverage").getByText("data-platform")).toBeVisible();

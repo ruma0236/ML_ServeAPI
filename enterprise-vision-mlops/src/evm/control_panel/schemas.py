@@ -141,6 +141,34 @@ class MLflowRef(ContractModel):
     url: str | None = None
 
 
+class ReadinessEvidenceCheck(ContractModel):
+    check_id: str
+    category: Literal["data", "model", "runtime"]
+    status: State
+    required: bool = True
+    evidence_uri: str | None = None
+    evidence_digest: str | None = None
+    observed: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+    blockers: list[str] = Field(default_factory=list)
+
+
+class ArtifactReadinessEvaluation(ContractModel):
+    schema_version: str = "evm.w7.artifact_readiness.v1"
+    evaluation_id: str
+    decision: Literal["ready", "blocked"]
+    status: State
+    data_status: State
+    model_status: State
+    runtime_status: State
+    candidate_id: str
+    dataset_version: str
+    evaluated_at: str
+    input_digest: str
+    checks: list[ReadinessEvidenceCheck]
+    blockers: list[str] = Field(default_factory=list)
+    report_uri: str | None = None
+
+
 class DataPipelineReadiness(ContractModel):
     contract_status: State
     quality_status: State
@@ -359,6 +387,7 @@ class CycleRun(ContractModel):
     mlflow: MLflowRef | None = None
     data_pipeline: DataPipelineReadiness | None = None
     experiment_pipeline: ExperimentPipelineReadiness | None = None
+    readiness_evaluation: ArtifactReadinessEvaluation | None = None
     model_matrix: ModelExperimentMatrix | None = None
     metrics: list[Metric] = Field(default_factory=list)
     promotion_gate: PromotionGate | None = None

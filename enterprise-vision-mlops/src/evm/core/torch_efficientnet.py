@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -21,6 +22,14 @@ from evm.core.pipeline import utc_now, write_json
 
 CLASS_NAMES = ["anomaly", "normal"]
 POSITIVE_CLASS = "anomaly"
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fp:
+        while chunk := fp.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -500,12 +509,19 @@ def log_mlflow_run(
         "artifact_uri": str(candidate_dir),
         "model_artifact": summary.get("model_artifact", ""),
     }
+    failed_writes: list[str] = []
     for key, value in params.items():
-        client.log_param(run_id, key, value)
+        if not client.log_param(run_id, key, value):
+            failed_writes.append(f"param:{key}")
     for key, value in summary.get("metrics", {}).items():
         if isinstance(value, int | float):
-            client.log_metric(run_id, key, float(value))
-    client.terminate_run(run_id)
+            if not client.log_metric(run_id, key, float(value)):
+                failed_writes.append(f"metric:{key}")
+    if failed_writes:
+        client.terminate_run(run_id, status="KILLED")
+        return "blocked", f"mlflow_write_failed:{','.join(sorted(failed_writes))}"
+    if not client.terminate_run(run_id):
+        return "blocked", "mlflow_terminate_failed"
     return "logged", run_id
 
 
@@ -626,7 +642,10 @@ def train_candidate(
     save_confusion_png(test_metrics["confusion_matrix"], candidate_dir / "confusion_matrix.png")
     write_json(candidate_dir / "gpu_profile.json", profile)
     write_json(candidate_dir / "environment_report.json", environment)
-    write_json(candidate_dir / "split_manifest.json", split_manifest)
+    split_manifest_path = candidate_dir / "split_manifest.json"
+    write_json(split_manifest_path, split_manifest)
+    model_sha256 = file_sha256(model_path)
+    split_manifest_sha256 = file_sha256(split_manifest_path)
 
     summary = {
         "schema_version": "evm.w7.efficientnet_candidate.v1",
@@ -652,11 +671,13 @@ def train_candidate(
         "promotion_blockers": blockers,
         "artifact_uri": str(candidate_dir),
         "model_artifact": str(model_path),
+        "model_sha256": model_sha256,
+        "split_manifest_sha256": split_manifest_sha256,
+        "source_shard_index_sha256": str(split_manifest.get("source_shard_index_sha256", "")),
         "training_duration_seconds": duration_seconds,
         "optimizer_step_count": optimizer_step_count,
         "created_at": utc_now(),
     }
-    write_model_card(candidate_dir / "model_card.md", summary)
     mlflow_status, mlflow_result = log_mlflow_run(candidate, candidate_dir, summary, runtime)
     summary["mlflow_status"] = mlflow_status
     if mlflow_status == "logged":
@@ -666,5 +687,23 @@ def train_candidate(
         summary["status"] = "blocked"
         summary["mlflow_error"] = mlflow_result
         summary["execution_blockers"] = ["mlflow_run_missing"]
+    write_model_card(candidate_dir / "model_card.md", summary)
     write_json(candidate_dir / "candidate_summary.json", summary)
+    write_json(
+        candidate_dir / "lineage.json",
+        {
+            "schema_version": "evm.w7.efficientnet_lineage.v1",
+            "candidate_id": candidate.candidate_id,
+            "architecture": candidate.architecture,
+            "dataset_version": split_manifest["dataset_version"],
+            "source_shard_index_sha256": summary["source_shard_index_sha256"],
+            "split_manifest_uri": str(split_manifest_path),
+            "split_manifest_sha256": split_manifest_sha256,
+            "model_artifact": str(model_path),
+            "model_sha256": model_sha256,
+            "mlflow_run_id": summary.get("mlflow_run_id", ""),
+            "artifact_uri": str(candidate_dir),
+            "created_at": summary["created_at"],
+        },
+    )
     return summary

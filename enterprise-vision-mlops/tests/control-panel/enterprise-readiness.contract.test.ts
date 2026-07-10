@@ -34,4 +34,15 @@ describe("Enterprise readiness UI bindings", () => {
     expect(cycle.experiment_pipeline?.owner_approval_actor).toBe("ml-platform");
     expect(cycle.experiment_pipeline?.blockers).toEqual(["accuracy<0.7", "auroc<0.65"]);
   });
+
+  it("binds artifact-content checks and their deterministic blocker decision", () => {
+    expect(cycle.readiness_evaluation?.decision).toBe("blocked");
+    expect(cycle.readiness_evaluation?.candidate_id).toBe("effnet-b7-img600-finetune-adamw");
+    expect(cycle.readiness_evaluation?.checks.map((check) => check.check_id)).toEqual([
+      "data_contract",
+      "mlflow_run",
+      "kubernetes_runtime"
+    ]);
+    expect(cycle.readiness_evaluation?.blockers).toContain("mlflow_metrics_missing");
+  });
 });

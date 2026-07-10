@@ -153,6 +153,34 @@ export interface ModelVersion {
   dataset_version?: string;
 }
 
+export interface ReadinessEvidenceCheck {
+  check_id: string;
+  category: "data" | "model" | "runtime";
+  status: State;
+  required: boolean;
+  evidence_uri?: string | null;
+  evidence_digest?: string | null;
+  observed: Record<string, string | number | boolean | null>;
+  blockers: string[];
+}
+
+export interface ArtifactReadinessEvaluation {
+  schema_version: string;
+  evaluation_id: string;
+  decision: "ready" | "blocked";
+  status: State;
+  data_status: State;
+  model_status: State;
+  runtime_status: State;
+  candidate_id: string;
+  dataset_version: string;
+  evaluated_at: string;
+  input_digest: string;
+  checks: ReadinessEvidenceCheck[];
+  blockers: string[];
+  report_uri?: string | null;
+}
+
 export interface DataPipelineReadiness {
   contract_status: State;
   quality_status: State;
@@ -345,6 +373,7 @@ export interface CycleRun {
   mlflow?: MLflowRef | null;
   data_pipeline?: DataPipelineReadiness | null;
   experiment_pipeline?: ExperimentPipelineReadiness | null;
+  readiness_evaluation?: ArtifactReadinessEvaluation | null;
   dataset: DatasetVersion;
   model: ModelVersion;
   model_matrix?: ModelExperimentMatrix | null;

@@ -1,7 +1,7 @@
-import { CheckSquare, DatabaseZap, GitPullRequestArrow, ShieldCheck } from "lucide-react";
+import { CheckSquare, Copy, DatabaseZap, Fingerprint, GitPullRequestArrow, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
-import type { CycleRun, State } from "../api/types";
+import type { ArtifactReadinessEvaluation, CycleRun, ReadinessEvidenceCheck, State } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 
 interface ReadinessChecklistProps {
@@ -48,8 +48,110 @@ export function ReadinessChecklist({ cycle }: ReadinessChecklistProps) {
         ownerStatus={cycle.experiment_pipeline?.owner_approval_status}
         blockers={cycle.experiment_pipeline?.blockers || []}
       />
+      <EvidenceEvaluationPanel evaluation={cycle.readiness_evaluation} />
     </section>
   );
+}
+
+function EvidenceEvaluationPanel({ evaluation }: { evaluation: ArtifactReadinessEvaluation | null | undefined }) {
+  if (!evaluation) {
+    return (
+      <div className="panel readiness-panel evidence-readiness-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Artifact Evidence Decision</h2>
+            <p>not evaluated</p>
+          </div>
+          <Fingerprint />
+        </div>
+        <StatusBadge status="unknown" compact />
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel readiness-panel evidence-readiness-panel" aria-label="Artifact evidence evaluation">
+      <div className="panel-heading">
+        <div>
+          <h2>Artifact Evidence Decision</h2>
+          <p>{evaluation.evaluation_id}</p>
+        </div>
+        <Fingerprint />
+      </div>
+      <div className="readiness-decision-strip">
+        <DecisionState label="Overall" status={evaluation.status} value={evaluation.decision} />
+        <DecisionState label="Data" status={evaluation.data_status} value={evaluation.dataset_version} />
+        <DecisionState label="Model" status={evaluation.model_status} value={evaluation.candidate_id} />
+        <DecisionState label="Runtime" status={evaluation.runtime_status} value={`${evaluation.checks.length} checks`} />
+      </div>
+      <div className="evidence-check-rows">
+        {evaluation.checks.map((check) => (
+          <EvidenceCheckRow key={check.check_id} check={check} />
+        ))}
+      </div>
+      <div className="blocker-pills evidence-blockers">
+        {(evaluation.blockers.length ? evaluation.blockers : ["no evidence blockers"]).map((blocker) => (
+          <span key={blocker}>{blocker}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DecisionState({ label, status, value }: { label: string; status: State; value: string }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong title={value}>{value}</strong>
+      <StatusBadge status={status} compact />
+    </div>
+  );
+}
+
+function EvidenceCheckRow({ check }: { check: ReadinessEvidenceCheck }) {
+  const evidence = evidenceLabel(check.evidence_uri);
+  const observed = Object.entries(check.observed)
+    .filter(([, value]) => value !== "" && value !== null)
+    .slice(0, 2)
+    .map(([key, value]) => `${key}: ${String(value)}`)
+    .join(" | ");
+  const copyEvidence = () => {
+    if (check.evidence_uri && navigator.clipboard) {
+      void navigator.clipboard.writeText(check.evidence_uri);
+    }
+  };
+
+  return (
+    <div className="evidence-check-row">
+      <span className="evidence-category">{check.category}</span>
+      <div>
+        <strong>{formatCheckId(check.check_id)}</strong>
+        <small title={observed}>{observed || "no observed values"}</small>
+      </div>
+      <div className="evidence-source">
+        <span title={check.evidence_uri || ""}>{evidence}</span>
+        <code title={check.evidence_digest || ""}>{check.evidence_digest?.slice(0, 12) || "no digest"}</code>
+      </div>
+      {check.evidence_uri ? (
+        <button type="button" className="icon-button compact" aria-label={`Copy ${check.check_id} evidence path`} onClick={copyEvidence}>
+          <Copy />
+        </button>
+      ) : (
+        <span className="evidence-copy-spacer" />
+      )}
+      <StatusBadge status={check.status} compact />
+    </div>
+  );
+}
+
+function formatCheckId(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+function evidenceLabel(uri: string | null | undefined) {
+  if (!uri) return "runtime response";
+  const segments = uri.replaceAll("\\", "/").split("/").filter(Boolean);
+  return segments.slice(-2).join("/");
 }
 
 function ChecklistPanel({

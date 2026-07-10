@@ -72,6 +72,53 @@
     "owner_approval_actor": "ml-platform",
     "blockers": ["accuracy<0.7", "auroc<0.65"]
   },
+  "readiness_evaluation": {
+    "schema_version": "evm.w7.artifact_readiness.v1",
+    "evaluation_id": "readiness-9b6a071bdda96737",
+    "decision": "blocked",
+    "status": "blocked",
+    "data_status": "pass",
+    "model_status": "blocked",
+    "runtime_status": "blocked",
+    "candidate_id": "effnet-b7-img600-finetune-adamw",
+    "dataset_version": "visa-open-data-f1f1c9ee9922",
+    "evaluated_at": "2026-07-10T08:00:00Z",
+    "input_digest": "9b6a071bdda967379d47b8ed5e762ee97d77eb1c9dcdd2a25bd6ef8e0b67e06e",
+    "checks": [
+      {
+        "check_id": "data_contract",
+        "category": "data",
+        "status": "pass",
+        "required": true,
+        "evidence_uri": "domain_packs/manufacturing_visual_inspection/data_contract.toml",
+        "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "observed": {"contract_id": "mvi_image_manifest_contract_v1", "contract_version": "2026.07"},
+        "blockers": []
+      },
+      {
+        "check_id": "mlflow_run",
+        "category": "model",
+        "status": "blocked",
+        "required": true,
+        "evidence_uri": null,
+        "evidence_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "observed": {"run_id": "w6-contract-placeholder", "metric_count": 0},
+        "blockers": ["mlflow_metrics_missing"]
+      },
+      {
+        "check_id": "kubernetes_runtime",
+        "category": "runtime",
+        "status": "blocked",
+        "required": true,
+        "evidence_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/kubernetes_b7/latest/evidence_index.json",
+        "evidence_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "observed": {"status": "blocked", "completion_claim_allowed": false},
+        "blockers": ["docker_desktop_kubernetes_gpu_not_advertised"]
+      }
+    ],
+    "blockers": ["docker_desktop_kubernetes_gpu_not_advertised", "mlflow_metrics_missing"],
+    "report_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/readiness/latest_readiness_evaluation.json"
+  },
   "dataset": {
     "dataset_id": "visa-open-data",
     "version": "visa-open-data-f1f1c9ee9922",
