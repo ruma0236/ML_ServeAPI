@@ -62,6 +62,11 @@ not yet proven.
 - Reproducible command: `scripts/dev/w7_closeout.ps1` selects a Python runtime
   that can import the pinned project dependencies instead of relying on the
   dependency-free Windows default Python.
+- Final wrapper proof for source commit `e7b1924`:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/closeout/evm-228-final-20260710T214006/w7-closeout-matrix.json`.
+  The regular evaluator path returned `0`; `-RequireCloseout` returned `1`
+  with the same 7 passing and 6 required blocked claims, proving the closure
+  guard fails closed.
 
 ## Cross-System Checkpoint
 
