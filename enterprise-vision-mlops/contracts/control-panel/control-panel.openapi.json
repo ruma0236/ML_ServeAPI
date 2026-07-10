@@ -515,6 +515,7 @@
               "config_render_digest": {"type": "string"},
               "rollback_reference": {"type": "string"},
               "manifest_ref": {"type": "string"},
+              "audit_uri": {"type": ["string", "null"]},
               "approver": {"type": ["string", "null"]},
               "approved_at": {"type": ["string", "null"], "format": "date-time"},
               "transitions": {"type": "array", "items": {"$ref": "#/components/schemas/DeploymentTransition"}},

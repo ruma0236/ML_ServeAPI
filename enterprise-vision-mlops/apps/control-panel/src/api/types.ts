@@ -239,6 +239,7 @@ export interface DeploymentIntent extends DeploymentIntentRequest {
   config_render_digest: string;
   rollback_reference: string;
   manifest_ref: string;
+  audit_uri?: string | null;
   approver?: string | null;
   approved_at?: string | null;
   transitions: DeploymentTransition[];

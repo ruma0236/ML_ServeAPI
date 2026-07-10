@@ -164,10 +164,22 @@ def build_closeout_matrix(
     )
     readiness_pass = bool(readiness and readiness.status == "pass")
     policy_pass = bool(policy and policy.decision == "allow" and policy.status == "pass")
-    apply_pass = bool(deployment and deployment.state == "applied")
+    apply_pass = bool(
+        deployment
+        and any(
+            transition.to_state == "applied" and transition.result == "applied"
+            for transition in deployment.transitions
+        )
+    )
     rollback_pass = bool(
         deployment
-        and any(transition.to_state == "rolled_back" for transition in deployment.transitions)
+        and any(
+            transition.to_state == "rolled_back" and transition.result == "rolled_back"
+            for transition in deployment.transitions
+        )
+    )
+    deployment_evidence_uri = (
+        (deployment.audit_uri or deployment.ci_evidence_uri) if deployment else None
     )
 
     claims = [
@@ -279,7 +291,7 @@ def build_closeout_matrix(
             apply_pass,
             f"latest_state={deployment.state if deployment else 'no_intent'}",
             "EVM-235",
-            deployment.audit_uri if deployment else None,
+            deployment_evidence_uri,
         ),
         claim(
             "deployment_rollback",
@@ -287,7 +299,7 @@ def build_closeout_matrix(
             rollback_pass,
             "no audited rolled_back transition exists" if not rollback_pass else "rollback recorded",
             "EVM-235",
-            deployment.audit_uri if deployment else None,
+            deployment_evidence_uri,
         ),
         claim(
             "external_airflow_contract",

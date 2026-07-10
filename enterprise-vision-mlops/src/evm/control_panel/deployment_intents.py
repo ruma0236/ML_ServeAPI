@@ -193,6 +193,8 @@ def create_deployment_intent(
         "created_at": created_at,
     }
     intent_id = f"deploy-{payload_sha256(intent_material)[:16]}"
+    immutable_ci_path = intent_root() / intent_id / "ci_evidence.json"
+    atomic_write_json(immutable_ci_path, bundle.model_dump(mode="json"))
     transition = DeploymentTransition(
         from_state="created",
         to_state="dry_run",
@@ -212,7 +214,7 @@ def create_deployment_intent(
         created_at=created_at,
         updated_at=created_at,
         ci_evidence=validation,
-        ci_evidence_uri=canonical_evidence_uri(runtime_path(selected_ci_path)),
+        ci_evidence_uri=canonical_evidence_uri(immutable_ci_path),
         ci_bundle_digest=bundle.bundle_digest,
         readiness_evaluation_id=cycle.readiness_evaluation.evaluation_id,
         promotion_policy=policy,
@@ -223,6 +225,9 @@ def create_deployment_intent(
         config_render_digest=bundle.config_render_digest,
         rollback_reference=evidence["rollback_reference"],
         manifest_ref=DEFAULT_MANIFEST_REF,
+        audit_uri=canonical_evidence_uri(
+            intent_root() / intent_id / "deployment_intent.json"
+        ),
         transitions=[transition],
     )
     intents = read_intents()

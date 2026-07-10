@@ -547,6 +547,7 @@ class DeploymentIntent(DeploymentIntentRequest):
     config_render_digest: str
     rollback_reference: str
     manifest_ref: str
+    audit_uri: str | None = None
     approver: str | None = None
     approved_at: str | None = None
     transitions: list[DeploymentTransition] = Field(default_factory=list)

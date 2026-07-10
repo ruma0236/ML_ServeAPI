@@ -104,6 +104,82 @@ def test_closeout_matrix_does_not_treat_live_observation_as_gpu_execution():
     assert training.status == "blocked"
 
 
+def test_closeout_accepts_audited_apply_followed_by_exact_rollback():
+    payload = cycle_payload()
+    payload["latest_deployment_intent"] = {
+        "target_environment": "staging",
+        "target_namespace": "evm-staging",
+        "target": {"namespace": "evm-staging", "kind": "Deployment", "name": "evm-b7-serving"},
+        "actor": "ml-platform",
+        "reason": "verified rollout",
+        "dry_run": True,
+        "intent_id": "deploy-test",
+        "state": "rolled_back",
+        "version": 6,
+        "created_at": "2026-07-10T00:00:00Z",
+        "updated_at": "2026-07-10T00:05:00Z",
+        "ci_evidence": payload["ci_evidence"],
+        "ci_evidence_uri": "F:/artifacts/w7/ci/latest_ci_evidence.json",
+        "ci_bundle_digest": "c" * 64,
+        "readiness_evaluation_id": "readiness-test",
+        "promotion_policy": payload["promotion_policy"],
+        "model_candidate_id": "effnet-b7-img600-finetune-adamw",
+        "model_artifact_uri": "F:/artifacts/model.pt",
+        "model_digest": "d" * 64,
+        "image_digest": "evm-serving@sha256:" + "e" * 64,
+        "config_render_digest": "f" * 64,
+        "rollback_reference": "F:/artifacts/rollback.json",
+        "manifest_ref": "infra/kubernetes/model-runtime/b7-serving-deployment.yaml",
+        "audit_uri": "F:/artifacts/w7/deployment_intents/deploy-test/deployment_intent.json",
+        "approver": "ai-infra-sre",
+        "approved_at": "2026-07-10T00:02:00Z",
+        "transitions": [
+            {
+                "from_state": "applying",
+                "to_state": "applied",
+                "actor": "deployment-executor",
+                "timestamp": "2026-07-10T00:04:00Z",
+                "environment": "staging",
+                "namespace": "evm-staging",
+                "artifact_digest": "c" * 64,
+                "reason": "apply finished",
+                "result": "applied",
+            },
+            {
+                "from_state": "applied",
+                "to_state": "rolled_back",
+                "actor": "deployment-executor",
+                "timestamp": "2026-07-10T00:05:00Z",
+                "environment": "staging",
+                "namespace": "evm-staging",
+                "artifact_digest": "c" * 64,
+                "reason": "rollback finished",
+                "result": "rolled_back",
+            },
+        ],
+        "execution_result": {
+            "action": "rollback",
+            "status": "rolled_back",
+            "started_at": "2026-07-10T00:04:30Z",
+            "finished_at": "2026-07-10T00:05:00Z",
+            "command": ["kubectl patch deployment/evm-b7-serving"],
+            "exit_code": 0,
+        },
+    }
+
+    matrix = build_closeout_matrix(
+        payload,
+        resource_payload(job_status="done", serving_replicas=1),
+        source_commit="test-commit",
+    )
+
+    applied = next(item for item in matrix.claims if item.claim_id == "deployment_apply")
+    rolled_back = next(item for item in matrix.claims if item.claim_id == "deployment_rollback")
+    assert applied.status == "pass"
+    assert rolled_back.status == "pass"
+    assert applied.evidence_uri == payload["latest_deployment_intent"]["audit_uri"]
+
+
 def test_closeout_matrix_canonicalizes_container_evidence_uri(monkeypatch):
     monkeypatch.setenv("EVM_HOST_DATA_ROOT", "F:/evm")
 

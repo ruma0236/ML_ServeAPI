@@ -228,7 +228,7 @@ def test_create_intent_requires_ci_readiness_policy_and_expected_commit(
 def test_staging_intent_runs_dry_run_approval_queue_apply_and_rollback(
     tmp_path: Path, monkeypatch
 ):
-    configure_paths(tmp_path, monkeypatch)
+    mutable_ci_path = configure_paths(tmp_path, monkeypatch)
     configure_executor_targets(monkeypatch)
     cycle = ready_cycle()
     monkeypatch.setattr("evm.control_panel.deployment_intents.current_cycle", lambda: cycle)
@@ -236,6 +236,10 @@ def test_staging_intent_runs_dry_run_approval_queue_apply_and_rollback(
     intent = create_deployment_intent(deployment_request(), cycle=cycle)
     assert intent.state == "dry_run"
     assert intent.promotion_policy.decision == "allow"
+    immutable_ci_path = Path(intent.ci_evidence_uri)
+    assert immutable_ci_path == tmp_path / "intents" / intent.intent_id / "ci_evidence.json"
+    assert immutable_ci_path.is_file()
+    mutable_ci_path.write_text("{}\n", encoding="utf-8")
 
     intent = request_approval(
         intent.intent_id,
