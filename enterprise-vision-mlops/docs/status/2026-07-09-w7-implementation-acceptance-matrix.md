@@ -236,8 +236,11 @@ evidence.
 - Current checkpoint:
   - implementation, Docker GPU proof, immutable image/model identity, and
     F-drive storage binding are verified;
-  - Docker Desktop Kubernetes does not advertise `nvidia.com/gpu`, so the Job
-    is intentionally Pending and this issue remains open;
+  - Docker Desktop Kubernetes does not advertise `nvidia.com/gpu`; the Job was
+    initially Pending with `Insufficient nvidia.com/gpu` and is now Failed with
+    `DeadlineExceeded` after its active deadline, so this issue remains open;
+  - the live observer follow-up exposes this current state through the resource
+    API and UI without treating observability as runtime completion;
   - evidence is indexed in
     `docs/status/2026-07-10-w7-kubernetes-b7-execution-proof.md`.
 
@@ -282,7 +285,21 @@ evidence.
 
 ### EVM-229 - Kubernetes Resource Topology And Animation UI
 
+Execution follow-up on 2026-07-10:
+
+- commit `a4d318a` adds a five-second sanitized Kubernetes observer, live/stale
+  detection, explicit projection labels, state-change-only history, and Live/All
+  UI modes;
+- the live API shows `6` Kubernetes resources plus `18` declared projections;
+- the real B7 Job is `fail / DeadlineExceeded`, the Node is
+  `warn / GpuNotAdvertised`, and serving is `queued / ScaledToZero`;
+- Python `90`, frontend contracts `19`, desktop/mobile Playwright `14`, and an
+  `80.8s` observer durability proof passed.
+
 - Implementation files:
+  - `src/evm/control_panel/kubernetes_observer.py`
+  - `scripts/dev/start_kubernetes_observer.ps1`
+  - `apps/api/control_panel.py`
   - `apps/control-panel/src/views/KubernetesTopology.*`
   - `apps/control-panel/src/components/ResourceNode.*`
   - `apps/control-panel/src/components/ResourceDetailDrawer.*`
@@ -290,11 +307,13 @@ evidence.
   - `tests/control-panel/kubernetes-topology.contract.test.ts`
 - Input data:
   - `GET /control-panel/v1/resources`
-  - `RuntimeResource[]`
+  - sanitized `KubernetesResourceSnapshot`
+  - `RuntimeResourceList` with live/stale/projected source metadata
   - Kubernetes status from `EVM-226`
 - Output artifact:
   - topology screenshot/video
   - UI test report
+  - F-drive current snapshot and state-change history
 - Verification command:
   - `npm --prefix apps/control-panel run test:e2e -- --project=chromium --grep "@w7-kubernetes-topology"`
   - `npm --prefix apps/control-panel run test:e2e -- --project=MobileChrome --grep "@w7-kubernetes-topology"`
@@ -302,7 +321,9 @@ evidence.
 - Success criteria:
   - namespace, pod/job/service/PVC/GPU/resource pressure states are visible;
   - animation reflects actual status transitions;
-  - failed/crashloop/unknown states are visible.
+  - failed/crashloop/unknown states are visible;
+  - stale or unavailable observation cannot be presented as live;
+  - projected external resources are visibly distinct from Kubernetes state.
 - Failure blocker:
   - blocked if topology is hand-drawn static art or not backed by resource API.
 
@@ -474,7 +495,7 @@ Execution state on 2026-07-10:
   deployment-intent creation fails closed before any mutation;
 - the audited state machine and isolated executor cover `dry_run`, approval,
   queue, apply, failure, and rollback branches in automated tests;
-- Final-code GitHub CI run `29087199282` and deployment-admission run
+- EVM-235 implementation GitHub CI run `29087199282` and deployment-admission run
   `29087230617`
   completed successfully, and their digest-verified evidence is loaded by the
   local API;

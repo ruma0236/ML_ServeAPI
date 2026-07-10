@@ -51,8 +51,11 @@ Node: docker-desktop Ready
 Training PVC: Bound, 1Ti, RWO
 Staging PVC: Bound, 1Ti, ROX
 Training Job image: immutable RepoDigest
-Training Pod: Pending
-Scheduler: 1 Insufficient nvidia.com/gpu
+Initial Training Pod: Pending
+Initial scheduler reason: 1 Insufficient nvidia.com/gpu
+Current Training Job: Failed
+Current Job reason: DeadlineExceeded after activeDeadlineSeconds=7200
+Current serving replicas: 0 by sequencing policy
 ```
 
 The NVIDIA device-plugin `v0.17.1` runs but reports `No devices found` and
@@ -109,6 +112,16 @@ Resolving this requires either a supported NVIDIA runtime configuration for
 Docker Desktop's Kubernetes node or an approved change to a GPU-capable local
 Kubernetes target. Direct Docker GPU success must not be used to mark the issue
 Done.
+
+## Live Observation Follow-Up
+
+Commit `a4d318a` adds a sanitized five-second Kubernetes observer and overlays
+its state into `/control-panel/v1/resources`. The Control Panel now shows the
+current Job phase `Failed`, reason `DeadlineExceeded`, the retained root GPU
+capacity blocker, and the zero-replica serving state. The observer follow-up is
+verified in
+`docs/status/2026-07-10-w7-live-kubernetes-resource-observer.md`. This improves
+operational visibility but does not change the EVM-226 completion boundary.
 
 ## Non-Blocking Follow-Up
 

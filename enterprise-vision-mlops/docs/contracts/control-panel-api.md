@@ -156,9 +156,17 @@ panels.
 - node pool
 - owner issue
 - available control actions
+- observation source: live Kubernetes snapshot or CycleRun projection
+- observation status and timestamp: live, stale, projected, or unavailable
+- Kubernetes reason/message, desired/ready replicas, and GPU capacity
 
 The UI should use this model for the Kubernetes resource topology and resource
 management tab.
+
+`RuntimeResourceList` also carries snapshot age, cluster context, source URI,
+and collection status. The local W7 bridge writes a sanitized F-drive snapshot
+from host `kubectl`; the API does not receive the local kubeconfig. Snapshots
+older than the configured threshold must render as stale rather than live.
 
 ### OrchestratorConnection
 

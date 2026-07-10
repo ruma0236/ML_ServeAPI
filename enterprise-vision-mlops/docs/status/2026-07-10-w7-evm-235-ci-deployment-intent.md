@@ -38,7 +38,7 @@ No real Kubernetes apply or rollback is claimed in this checkpoint.
 ## Real CI Evidence
 
 - Implementation commit: `895533376760309a34b8a926f6eacd801284f05b`
-- Final code and evidence commit:
+- EVM-235 final implementation and evidence commit:
   `7db547cb9df05899769fda04d23da21dc4f53950`
 - CI run: `29087199282`, conclusion `success`
 - CI artifact: `8225236686`, archive SHA-256
