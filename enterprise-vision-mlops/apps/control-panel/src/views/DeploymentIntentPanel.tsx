@@ -52,6 +52,9 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
   const [actionBlockers, setActionBlockers] = useState<string[]>([]);
   const latest = ledger.intents[0] || cycle.latest_deployment_intent || null;
   const namespace = namespaces[environment];
+  const readinessModel = cycle.readiness_evaluation?.checks.find((check) => check.check_id === "model_artifact");
+  const selectedCandidate = latest?.model_candidate_id || cycle.readiness_evaluation?.candidate_id || "not selected";
+  const selectedDigest = latest?.model_digest || String(readinessModel?.observed.actual_sha256 || "");
   const admissionStatus = latest?.state || (
     cycle.ci_evidence?.valid
     && cycle.readiness_evaluation?.decision === "ready"
@@ -203,6 +206,14 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
             <input value={namespace} readOnly />
           </label>
           <label>
+            <span>Model Candidate</span>
+            <input value={selectedCandidate} readOnly title={selectedCandidate} />
+          </label>
+          <label>
+            <span>Model SHA</span>
+            <input value={compactDigest(selectedDigest)} readOnly title={selectedDigest || "No model digest"} />
+          </label>
+          <label>
             <span>Requester</span>
             <input value={requester} onChange={(event) => setRequester(event.target.value)} />
           </label>
@@ -264,4 +275,9 @@ function actionLabel(action: "request-approval" | "approve" | "queue" | null): s
   if (action === "approve") return "Approve";
   if (action === "queue") return "Queue";
   return "Awaiting State";
+}
+
+function compactDigest(value: string): string {
+  if (!value) return "not verified";
+  return value.length > 20 ? `${value.slice(0, 12)}...${value.slice(-8)}` : value;
 }

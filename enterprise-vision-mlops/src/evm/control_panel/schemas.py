@@ -540,6 +540,8 @@ class DeploymentIntent(DeploymentIntentRequest):
     ci_bundle_digest: str
     readiness_evaluation_id: str
     promotion_policy: PromotionPolicyDecision
+    model_candidate_id: str
+    model_artifact_uri: str
     model_digest: str
     image_digest: str
     config_render_digest: str

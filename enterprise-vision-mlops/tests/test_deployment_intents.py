@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from evm.control_panel.cdct import load_ci_evidence, with_ci_bundle_digest
-from evm.control_panel.deployment_executor import execute_apply, execute_rollback
+from evm.control_panel.deployment_executor import (
+    ModelTarget,
+    execute_apply,
+    execute_rollback,
+    load_rollback_target,
+    model_mount_path,
+    verified_model_target,
+)
 from evm.control_panel.deployment_intents import (
     DeploymentIntentBlocked,
     DeploymentTransitionRejected,
@@ -163,6 +171,29 @@ def failed_runner(command, **_kwargs):
     return subprocess.CompletedProcess(command, 1, stdout="", stderr="kubectl failed")
 
 
+def configure_executor_targets(monkeypatch) -> None:
+    current = ModelTarget(
+        candidate_id="effnet-b7-img600-finetune-adamw",
+        artifact_uri="F:/artifacts/model.pt",
+        mount_path="/mnt/evm-data/artifacts/model.pt",
+        digest=MODEL_SHA,
+    )
+    rollback = ModelTarget(
+        candidate_id="effnet-b7-img600-finetune-adamw",
+        artifact_uri="F:/artifacts/rollback-model.pt",
+        mount_path="/mnt/evm-data/artifacts/rollback-model.pt",
+        digest="9" * 64,
+    )
+    monkeypatch.setattr(
+        "evm.control_panel.deployment_executor.verified_model_target",
+        lambda *_args, **_kwargs: current,
+    )
+    monkeypatch.setattr(
+        "evm.control_panel.deployment_executor.load_rollback_target",
+        lambda *_args, **_kwargs: rollback,
+    )
+
+
 def test_ci_evidence_is_immutable_and_fails_closed(tmp_path: Path):
     path = tmp_path / "ci.json"
     write_ci_evidence(path)
@@ -198,6 +229,7 @@ def test_staging_intent_runs_dry_run_approval_queue_apply_and_rollback(
     tmp_path: Path, monkeypatch
 ):
     configure_paths(tmp_path, monkeypatch)
+    configure_executor_targets(monkeypatch)
     cycle = ready_cycle()
     monkeypatch.setattr("evm.control_panel.deployment_intents.current_cycle", lambda: cycle)
 
@@ -230,12 +262,75 @@ def test_staging_intent_runs_dry_run_approval_queue_apply_and_rollback(
     assert applied.state == "applied"
     assert applied.execution_result.exit_code == 0
     assert applied.execution_result.stdout_uri.endswith("apply-stdout.log")
+    assert "patch deployment/evm-b7-serving" in applied.execution_result.command[0]
+    assert f'"EVM_MODEL_SHA256","value":"{MODEL_SHA}"' in applied.execution_result.command[0]
 
     rolled_back = execute_rollback(
         intent.intent_id, runner=successful_runner, require_enabled=False
     )
     assert rolled_back.state == "rolled_back"
     assert rolled_back.transitions[-1].result == "rolled_back"
+    assert all("rollout undo" not in command for command in rolled_back.execution_result.command)
+    assert '"EVM_MODEL_SHA256","value":"' + "9" * 64 in rolled_back.execution_result.command[0]
+
+
+def test_verified_model_target_maps_host_artifact_to_container_mount(
+    tmp_path: Path, monkeypatch
+):
+    host_root = tmp_path / "evm-data"
+    artifact = host_root / "artifacts" / "model.pt"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"immutable-model")
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(host_root))
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
+
+    target = verified_model_target(
+        str(artifact),
+        digest,
+        "effnet-b7-img600-finetune-adamw",
+    )
+
+    assert target.mount_path == "/mnt/evm-data/artifacts/model.pt"
+    assert target.digest == digest
+    with pytest.raises(DeploymentTransitionRejected, match="model_artifact_outside_data_root"):
+        model_mount_path(f"{host_root}-other/artifacts/model.pt")
+
+
+def test_rollback_target_reads_approved_reference_and_rejects_current_model(
+    tmp_path: Path, monkeypatch
+):
+    configure_paths(tmp_path, monkeypatch)
+    intent = create_deployment_intent(deployment_request(), cycle=ready_cycle())
+    host_root = tmp_path / "evm-data"
+    artifact = host_root / "artifacts" / "rollback-model.pt"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"approved-rollback-model")
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    reference = host_root / "artifacts" / "rollback.json"
+    reference.write_text(
+        json.dumps(
+            {
+                "schema_version": "evm.model_rollback_reference.v1",
+                "candidate_id": intent.model_candidate_id,
+                "status": "approved",
+                "rollback_ready": True,
+                "model_digest": digest,
+                "model_artifact": str(artifact),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(host_root))
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
+    intent = intent.model_copy(update={"rollback_reference": str(reference)})
+
+    target = load_rollback_target(intent)
+
+    assert target.digest == digest
+    assert target.mount_path == "/mnt/evm-data/artifacts/rollback-model.pt"
+    with pytest.raises(DeploymentTransitionRejected, match="rollback_reuses_current_model"):
+        load_rollback_target(intent.model_copy(update={"model_digest": digest}))
 
 
 def test_production_requires_allowed_separate_approver_before_queue(
@@ -310,6 +405,7 @@ def test_stale_version_corrupt_ledger_and_executor_failure_are_audited(
     tmp_path: Path, monkeypatch
 ):
     configure_paths(tmp_path, monkeypatch)
+    configure_executor_targets(monkeypatch)
     cycle = ready_cycle()
     monkeypatch.setattr("evm.control_panel.deployment_intents.current_cycle", lambda: cycle)
     intent = create_deployment_intent(deployment_request(), cycle=cycle)

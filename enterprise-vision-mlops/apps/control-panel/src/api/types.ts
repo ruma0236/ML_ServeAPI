@@ -232,6 +232,8 @@ export interface DeploymentIntent extends DeploymentIntentRequest {
   ci_bundle_digest: string;
   readiness_evaluation_id: string;
   promotion_policy: PromotionPolicyDecision;
+  model_candidate_id: string;
+  model_artifact_uri: string;
   model_digest: string;
   image_digest: string;
   config_render_digest: string;

@@ -496,7 +496,7 @@
           {"$ref": "#/components/schemas/DeploymentIntentRequest"},
           {
             "type": "object",
-            "required": ["intent_id", "state", "version", "created_at", "updated_at", "ci_evidence", "ci_evidence_uri", "ci_bundle_digest", "readiness_evaluation_id", "promotion_policy", "model_digest", "image_digest", "config_render_digest", "rollback_reference", "manifest_ref", "transitions"],
+            "required": ["intent_id", "state", "version", "created_at", "updated_at", "ci_evidence", "ci_evidence_uri", "ci_bundle_digest", "readiness_evaluation_id", "promotion_policy", "model_candidate_id", "model_artifact_uri", "model_digest", "image_digest", "config_render_digest", "rollback_reference", "manifest_ref", "transitions"],
             "properties": {
               "intent_id": {"type": "string"},
               "state": {"$ref": "#/components/schemas/DeploymentIntentState"},
@@ -508,6 +508,8 @@
               "ci_bundle_digest": {"type": "string"},
               "readiness_evaluation_id": {"type": "string"},
               "promotion_policy": {"$ref": "#/components/schemas/PromotionPolicyDecision"},
+              "model_candidate_id": {"type": "string"},
+              "model_artifact_uri": {"type": "string"},
               "model_digest": {"type": "string"},
               "image_digest": {"type": "string"},
               "config_render_digest": {"type": "string"},

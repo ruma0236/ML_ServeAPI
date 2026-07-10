@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import subprocess
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
@@ -23,9 +24,123 @@ from evm.control_panel.schemas import (
     DeploymentIntent,
     DeploymentTransitionRequest,
 )
+from evm.control_panel.readiness_evaluator import file_sha256, runtime_path
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
+
+
+@dataclass(frozen=True)
+class ModelTarget:
+    candidate_id: str
+    artifact_uri: str
+    mount_path: str
+    digest: str
+
+
+def model_mount_path(artifact_uri: str) -> str:
+    normalized = artifact_uri.replace("\\", "/")
+    host_root = os.getenv(
+        "EVM_HOST_DATA_ROOT",
+        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+    ).replace("\\", "/").rstrip("/")
+    mount_root = os.getenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data").replace("\\", "/").rstrip("/")
+    mount_prefix = f"{mount_root}/"
+    host_prefix = f"{host_root}/"
+    if normalized.lower().startswith(mount_prefix.lower()):
+        return f"{mount_root}{normalized[len(mount_root):]}"
+    if normalized.lower().startswith(host_prefix.lower()):
+        return f"{mount_root}{normalized[len(host_root):]}"
+    raise DeploymentTransitionRejected("model_artifact_outside_data_root")
+
+
+def verified_model_target(
+    artifact_uri: str,
+    digest: str,
+    candidate_id: str,
+) -> ModelTarget:
+    if not artifact_uri or not digest or not candidate_id:
+        raise DeploymentTransitionRejected("model_target_incomplete")
+    artifact_path = runtime_path(artifact_uri)
+    if not artifact_path.is_file():
+        raise DeploymentTransitionRejected("model_artifact_missing")
+    if file_sha256(artifact_path).lower() != digest.lower():
+        raise DeploymentTransitionRejected("model_artifact_digest_mismatch")
+    return ModelTarget(
+        candidate_id=candidate_id,
+        artifact_uri=artifact_uri,
+        mount_path=model_mount_path(artifact_uri),
+        digest=digest.lower(),
+    )
+
+
+def load_rollback_target(intent: DeploymentIntent) -> ModelTarget:
+    reference_path = runtime_path(intent.rollback_reference)
+    if not reference_path.is_file():
+        raise DeploymentTransitionRejected("rollback_reference_missing")
+    try:
+        payload = json.loads(reference_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DeploymentTransitionRejected("rollback_reference_malformed") from exc
+    if not isinstance(payload, dict):
+        raise DeploymentTransitionRejected("rollback_reference_malformed")
+    if payload.get("schema_version") != "evm.model_rollback_reference.v1":
+        raise DeploymentTransitionRejected("rollback_reference_schema_invalid")
+    if payload.get("status") != "approved" or payload.get("rollback_ready") is not True:
+        raise DeploymentTransitionRejected("rollback_reference_not_approved")
+    target = verified_model_target(
+        str(payload.get("model_artifact") or ""),
+        str(payload.get("model_digest") or ""),
+        str(payload.get("candidate_id") or ""),
+    )
+    if target.candidate_id != intent.model_candidate_id:
+        raise DeploymentTransitionRejected("rollback_candidate_mismatch")
+    if target.digest == intent.model_digest.lower():
+        raise DeploymentTransitionRejected("rollback_reuses_current_model")
+    return target
+
+
+def deployment_patch_command(
+    intent: DeploymentIntent,
+    target: ModelTarget,
+    action: str,
+) -> list[str]:
+    patch = {
+        "spec": {
+            "template": {
+                "metadata": {
+                    "annotations": {
+                        "evm.openai.local/deployment-intent": (
+                            f"{intent.intent_id}:{action}:{target.digest[:12]}"
+                        )
+                    }
+                },
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "serving",
+                            "image": intent.image_digest,
+                            "env": [
+                                {"name": "EVM_MODEL_PATH", "value": target.mount_path},
+                                {"name": "EVM_MODEL_SHA256", "value": target.digest},
+                                {"name": "EVM_MODEL_CANDIDATE_ID", "value": target.candidate_id},
+                            ],
+                        }
+                    ]
+                },
+            }
+        }
+    }
+    return [
+        "kubectl",
+        "-n",
+        intent.target_namespace,
+        "patch",
+        f"deployment/{intent.target.name}",
+        "--type=strategic",
+        "-p",
+        json.dumps(patch, separators=(",", ":")),
+    ]
 
 
 def utc_now() -> str:
@@ -50,26 +165,14 @@ def execute_apply(
         raise DeploymentTransitionRejected("deployment_executor_disabled")
     intent = revalidate_queued_intent(intent_id)
     validate_executor_target(intent)
+    target = verified_model_target(
+        intent.model_artifact_uri,
+        intent.model_digest,
+        intent.model_candidate_id,
+    )
     applying = mark_applying(intent_id)
     commands = [
-        [
-            "kubectl",
-            "-n",
-            applying.target_namespace,
-            "annotate",
-            f"deployment/{applying.target.name}",
-            f"evm.openai.local/deployment-intent={applying.intent_id}",
-            "--overwrite",
-        ],
-        [
-            "kubectl",
-            "-n",
-            applying.target_namespace,
-            "set",
-            "image",
-            f"deployment/{applying.target.name}",
-            f"serving={applying.image_digest}",
-        ],
+        deployment_patch_command(applying, target, "apply"),
         [
             "kubectl",
             "-n",
@@ -96,15 +199,9 @@ def execute_rollback(
     validate_executor_target(intent)
     if intent.state not in {"applied", "failed"}:
         raise DeploymentTransitionRejected("rollback_requires_applied_or_failed_intent")
+    target = load_rollback_target(intent)
     commands = [
-        [
-            "kubectl",
-            "-n",
-            intent.target_namespace,
-            "rollout",
-            "undo",
-            f"deployment/{intent.target.name}",
-        ],
+        deployment_patch_command(intent, target, "rollback"),
         [
             "kubectl",
             "-n",

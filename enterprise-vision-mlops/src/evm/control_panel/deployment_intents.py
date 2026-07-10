@@ -216,6 +216,8 @@ def create_deployment_intent(
         ci_bundle_digest=bundle.bundle_digest,
         readiness_evaluation_id=cycle.readiness_evaluation.evaluation_id,
         promotion_policy=policy,
+        model_candidate_id=evidence["model_candidate_id"],
+        model_artifact_uri=evidence["model_artifact_uri"],
         model_digest=evidence["model_digest"],
         image_digest=bundle.image_digest,
         config_render_digest=bundle.config_render_digest,
@@ -268,9 +270,15 @@ def deployment_gate_blockers(
     model_check = readiness_check(cycle, "model_artifact")
     rollback_check = readiness_check(cycle, "rollback_reference")
     model_digest = str(model_check.get("actual_sha256") or "")
+    model_artifact_uri = str(model_check.get("evidence_uri") or "")
+    model_candidate_id = str(readiness.candidate_id if readiness else "")
     rollback_reference = str(rollback_check.get("evidence_uri") or "")
     if model_check.get("status") != "pass" or not model_digest:
         blockers.append("immutable_model_artifact_not_ready")
+    if not model_artifact_uri:
+        blockers.append("model_artifact_uri_missing")
+    if not model_candidate_id:
+        blockers.append("model_candidate_id_missing")
     if rollback_check.get("status") != "pass" or not rollback_reference:
         blockers.append("rollback_reference_not_ready")
     runtime_digest = str(
@@ -281,6 +289,8 @@ def deployment_gate_blockers(
     elif bundle.image_digest != runtime_digest:
         blockers.append("ci_runtime_image_digest_mismatch")
     return sorted(set(blockers)), {
+        "model_candidate_id": model_candidate_id,
+        "model_artifact_uri": model_artifact_uri,
         "model_digest": model_digest,
         "rollback_reference": rollback_reference,
     }
@@ -368,6 +378,10 @@ def queue_intent(
         blockers.append("readiness_changed_after_creation")
     if current.model_digest != evidence["model_digest"]:
         blockers.append("model_artifact_changed_after_creation")
+    if current.model_artifact_uri != evidence["model_artifact_uri"]:
+        blockers.append("model_artifact_uri_changed_after_creation")
+    if current.model_candidate_id != evidence["model_candidate_id"]:
+        blockers.append("model_candidate_changed_after_creation")
     if current.promotion_policy.policy_version != policy.policy_version:
         blockers.append("promotion_policy_version_changed_after_creation")
     if blockers:
@@ -420,6 +434,10 @@ def revalidate_queued_intent(
         blockers.append("readiness_changed_before_execution")
     if current.model_digest != evidence["model_digest"]:
         blockers.append("model_artifact_changed_before_execution")
+    if current.model_artifact_uri != evidence["model_artifact_uri"]:
+        blockers.append("model_artifact_uri_changed_before_execution")
+    if current.model_candidate_id != evidence["model_candidate_id"]:
+        blockers.append("model_candidate_changed_before_execution")
     if current.promotion_policy.decision_id != policy.decision_id:
         blockers.append("promotion_policy_changed_before_execution")
     if blockers:
