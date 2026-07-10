@@ -259,9 +259,24 @@ evidence.
 
 ### EVM-228 - Compressed W6/W7 Integration Review
 
+Execution checkpoint on 2026-07-10: In Progress / blocked.
+
+- Commits `5be75f7` and `795b876` add an executable closeout matrix that reads
+  the live CycleRun and Kubernetes resource APIs.
+- Matrix `evm-228-20260710T212824/w7-closeout-matrix.json` reports 7 passing
+  claims and 6 required blockers.
+- Passing evidence includes real dataset/model lineage, selected B7 MLflow
+  run, measured drift review, immutable CI evidence, and live Kubernetes
+  observation.
+- Blockers are Kubernetes GPU training, Kubernetes serving rollout, artifact
+  readiness, environment policy, deployment apply, and deployment rollback.
+- EVM-228 cannot close until a rerun with `--require-closeout` returns success.
+
 - Implementation files:
-  - `docs/status/YYYY-MM-DD-w7-integration-review.md`
-  - `docs/reviews/YYYY-MM-DD-w7-final-review.md`
+  - `src/evm/control_panel/w7_closeout.py`
+  - `tests/test_w7_closeout.py`
+  - `docs/status/2026-07-10-w7-integration-review.md`
+  - `docs/reviews/2026-07-10-w7-final-review.md`
 - Input data:
   - all W7 issue evidence
   - Git commit hashes
@@ -274,6 +289,8 @@ evidence.
   - known-risk and blocker register
 - Verification command:
   - `git status --short --branch`
+  - `$env:PYTHONPATH='src'; python -m evm.control_panel.w7_closeout --source-commit <commit> --output F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/closeout/<run_id>/w7-closeout-matrix.json`
+  - repeat with `--require-closeout` for final closure
   - Jira query for `SCRUM-102` to `SCRUM-116`
   - Notion and Obsidian lookup checks
 - Success criteria:
