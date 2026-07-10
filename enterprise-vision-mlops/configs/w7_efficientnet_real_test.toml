@@ -4,6 +4,7 @@ framework = "torch"
 execution_mode = "parallel"
 dataset_version = "visa-open-data-f1f1c9ee9922"
 selected_candidate_id = "effnet-b7-img600-finetune-adamw"
+rollback_registry_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/registry/efficientnet-b7/rollback.json"
 dataset_policy = "real_full_visa"
 mock_allowed = false
 smoke_allowed = false

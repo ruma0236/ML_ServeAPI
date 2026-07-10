@@ -601,6 +601,12 @@ def build_latest_cycle(
         if selected_candidate is not None and selected_candidate.artifact_uri
         else matrix_dir / selected_candidate_id
     )
+    rollback_registry_value = str(matrix_config.get("rollback_registry_path", "")).strip()
+    rollback_registry_path = (
+        runtime_path(rollback_registry_value)
+        if rollback_registry_value
+        else registry_path
+    )
     source_shard_index_value = str(matrix_inputs.get("shard_index", "")).strip()
     source_shard_index_path = (
         Path(source_shard_index_value)
@@ -618,7 +624,7 @@ def build_latest_cycle(
             lineage_path=candidate_dir / "lineage.json",
             candidate_summary_path=candidate_dir / "candidate_summary.json",
             model_card_path=candidate_dir / "model_card.md",
-            registry_path=registry_path,
+            registry_path=rollback_registry_path,
             real_test_validation_path=(
                 artifacts_root
                 / "w7"

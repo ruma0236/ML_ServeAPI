@@ -564,7 +564,8 @@ def check_real_test_validation(
 def check_rollback_reference(
     path: Path,
     candidate_id: str,
-    model_digest: str,
+    rollback_digest: str,
+    current_model_digest: str,
 ) -> ReadinessEvidenceCheck:
     payload, error = read_json(path)
     blockers = _missing_or_malformed("rollback_reference", error)
@@ -578,12 +579,31 @@ def check_rollback_reference(
         or ""
     )
     observed_digest = str(payload.get("model_digest") or source.get("model_digest") or "")
+    artifact_value = str(
+        payload.get("model_artifact") or source.get("model_artifact") or ""
+    )
+    artifact_path = runtime_path(artifact_value) if artifact_value else None
+    artifact_digest = (
+        file_sha256(artifact_path)
+        if artifact_path is not None and artifact_path.exists() and artifact_path.is_file()
+        else ""
+    )
     if loaded and observed_model != candidate_id:
         blockers.append("rollback_candidate_mismatch")
-    if loaded and model_digest and observed_digest != model_digest:
+    if loaded and rollback_digest and observed_digest != rollback_digest:
         blockers.append("rollback_model_digest_mismatch")
     if loaded and not payload.get("version"):
         blockers.append("rollback_version_missing")
+    if loaded and payload.get("status") != "approved":
+        blockers.append("rollback_reference_not_approved")
+    if loaded and payload.get("rollback_ready") is not True:
+        blockers.append("rollback_reference_not_ready")
+    if loaded and (artifact_path is None or not artifact_path.exists() or not artifact_path.is_file()):
+        blockers.append("rollback_artifact_missing")
+    elif loaded and observed_digest and artifact_digest != observed_digest:
+        blockers.append("rollback_artifact_digest_mismatch")
+    if loaded and rollback_digest and current_model_digest and rollback_digest == current_model_digest:
+        blockers.append("rollback_reuses_current_model")
     return evidence_check(
         check_id="rollback_reference",
         category="model",
@@ -591,6 +611,8 @@ def check_rollback_reference(
         observed={
             "model_identity": observed_model,
             "model_digest": observed_digest,
+            "artifact_digest": artifact_digest,
+            "current_model_digest": current_model_digest,
             "version": str(payload.get("version", "")),
         },
         blockers=blockers,
@@ -760,7 +782,12 @@ def evaluate_artifact_readiness(
             inputs.candidate_id,
             inputs.dataset_version,
         ),
-        check_rollback_reference(registry_path, inputs.candidate_id, model_digest),
+        check_rollback_reference(
+            registry_path,
+            inputs.candidate_id,
+            str(kubernetes_payload.get("source_model_sha256") or ""),
+            model_digest,
+        ),
         kubernetes_check,
     ]
 

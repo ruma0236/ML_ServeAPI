@@ -15,9 +15,11 @@ $EvidenceDir = Join-Path $EvidenceRoot $RunId
 $CandidateId = "effnet-b7-img600-finetune-adamw"
 $MatrixDir = "F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\w7\efficientnet\w7-efficientnet-real-test-matrix"
 $SourceCandidateDir = Join-Path $MatrixDir $CandidateId
+$RollbackRegistryPath = "F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\registry\efficientnet-b7\rollback.json"
 $CandidateDir = Join-Path $MatrixDir "runs\$RunId\$CandidateId"
 $SourceModelPath = Join-Path $SourceCandidateDir "model.pt"
 $SourceSplitManifestPath = Join-Path $SourceCandidateDir "split_manifest.json"
+$SourceMlflowRunId = ""
 $ModelPath = Join-Path $CandidateDir "model.pt"
 $SplitManifestPath = Join-Path $CandidateDir "split_manifest.json"
 $TrainingImage = "enterprise-vision-mlops-efficientnet-training:local"
@@ -103,7 +105,7 @@ function Write-EvidenceIndex {
         cluster_context = "docker-desktop"
         candidate_id = $CandidateId
         dataset_version = "visa-open-data-f1f1c9ee9922"
-        source_mlflow_run_id = "a4e2763b28ae494ea67944084edd4b3f"
+        source_mlflow_run_id = $SourceMlflowRunId
         evidence_root = $EvidenceDir
         blockers = @($Blockers)
         git_commit = (git -C $ProjectRoot rev-parse HEAD).Trim()
@@ -230,11 +232,30 @@ try {
         $Blockers.Add("mlflow_health_failed")
     }
 
+    if (Test-Path -LiteralPath $RollbackRegistryPath) {
+        $RollbackRegistry = Get-Content -LiteralPath $RollbackRegistryPath -Raw | ConvertFrom-Json
+        if ($RollbackRegistry.candidate_id -eq $CandidateId -and $RollbackRegistry.model_artifact) {
+            $SourceModelPath = [string]$RollbackRegistry.model_artifact
+            $SourceSplitManifestPath = [string]$RollbackRegistry.split_manifest
+            $SourceMlflowRunId = [string]$RollbackRegistry.mlflow_run_id
+        }
+    }
+    if (-not $SourceMlflowRunId) {
+        $SourceCandidateSummaryPath = Join-Path $SourceCandidateDir "candidate_summary.json"
+        if (Test-Path -LiteralPath $SourceCandidateSummaryPath) {
+            $SourceCandidateSummary = Get-Content -LiteralPath $SourceCandidateSummaryPath -Raw | ConvertFrom-Json
+            $SourceMlflowRunId = [string]$SourceCandidateSummary.mlflow_run_id
+        }
+    }
+
     if (-not (Test-Path $SourceModelPath)) {
         $Blockers.Add("selected_model_artifact_missing")
     }
     if (-not (Test-Path $SourceSplitManifestPath)) {
         $Blockers.Add("selected_split_manifest_missing")
+    }
+    if (-not $SourceMlflowRunId) {
+        $Blockers.Add("selected_source_mlflow_run_missing")
     }
     $SourceModelSha256 = if (Test-Path $SourceModelPath) { (Get-FileHash $SourceModelPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { "" }
     $SplitManifestSha256 = if (Test-Path $SourceSplitManifestPath) { (Get-FileHash $SourceSplitManifestPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { "" }

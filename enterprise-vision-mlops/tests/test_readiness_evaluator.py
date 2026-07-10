@@ -145,13 +145,19 @@ required = true
         f"- MLflow run id: `{RUN_ID}`\n",
         encoding="utf-8",
     )
+    rollback_model = tmp_path / "rollback-model.pt"
+    rollback_model.write_bytes(b"rollback-model")
+    rollback_digest = file_sha256(rollback_model)
     registry = tmp_path / "registry.json"
     write_json(
         registry,
         {
             "version": "1",
             "model_name": CANDIDATE_ID,
-            "model_digest": model_digest,
+            "model_digest": rollback_digest,
+            "model_artifact": str(rollback_model),
+            "status": "approved",
+            "rollback_ready": True,
         },
     )
     real_test = tmp_path / "real_test.json"
@@ -172,7 +178,9 @@ required = true
             "candidate_id": CANDIDATE_ID,
             "dataset_version": DATASET_VERSION,
             "source_mlflow_run_id": RUN_ID,
-            "source_model_sha256": model_digest,
+            "source_model_sha256": rollback_digest,
+            "mlflow_run_id": RUN_ID,
+            "trained_model_sha256": model_digest,
             "gpu_allocatable": "1",
             "blockers": [],
         },
