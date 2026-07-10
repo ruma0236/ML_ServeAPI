@@ -474,7 +474,8 @@ Execution state on 2026-07-10:
   deployment-intent creation fails closed before any mutation;
 - the audited state machine and isolated executor cover `dry_run`, approval,
   queue, apply, failure, and rollback branches in automated tests;
-- GitHub CI run `29086838656` and deployment-admission run `29086875286`
+- Final-code GitHub CI run `29087199282` and deployment-admission run
+  `29087230617`
   completed successfully, and their digest-verified evidence is loaded by the
   local API;
 - live CI and CD are `pass`, while CT, readiness, and policy remain blocked;
@@ -532,6 +533,12 @@ Execution state on 2026-07-10:
   - full Playwright: `14 passed`; post-CI gate/all-tab verification: `4 passed`;
   - Python: `85 passed`; frontend contracts: `7 files / 19 passed`;
   - concurrent API read proof: `24/24` HTTP `200` in `1.777s`;
+  - Jira `SCRUM-113` comment `10233` and parent Epic comment `10234` preserve
+    the In Progress claim boundary;
+  - Notion detail:
+    `https://app.notion.com/p/39910ad2dcad81788a2aeee87e55d719`;
+  - Obsidian work log:
+    `F:/mlops_obsidian_db/mlops/08_Codex_Memory/01_Work_Logs/2026-07-10 W7 EVM-235 CI-Gated Deployment Intent.md`;
   - operational closure remains blocked by `EVM-226` and live `EVM-236`.
 
 ### EVM-236 - Enterprise Data/Model Evidence Readiness Evaluator

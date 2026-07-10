@@ -38,12 +38,14 @@ No real Kubernetes apply or rollback is claimed in this checkpoint.
 ## Real CI Evidence
 
 - Implementation commit: `895533376760309a34b8a926f6eacd801284f05b`
-- CI run: `29086838656`, conclusion `success`
-- CI artifact: `8225093879`, archive SHA-256
-  `967765444b5044c01c081bd1700f57cdbdf7172eed7bee48a731ee0fa09f3fb6`
-- Deployment admission run: `29086875286`, conclusion `success`
-- Admission artifact: `8225102034`, archive SHA-256
-  `2582a6e4730eea3de5c292103fe331ae3f2d93956f699725f8205befa83fd3cd`
+- Final code and evidence commit:
+  `7db547cb9df05899769fda04d23da21dc4f53950`
+- CI run: `29087199282`, conclusion `success`
+- CI artifact: `8225236686`, archive SHA-256
+  `47d80b812b8cd26b25ed95ddefd02f9b26cdc3be464a8537f459781a1c35a36e`
+- Deployment admission run: `29087230617`, conclusion `success`
+- Admission artifact: `8225244356`, archive SHA-256
+  `415859efbda66c3cf38365962d36075712401f8af80645013821014585c6c684`
 - Both artifacts were downloaded through the existing Git credential, checked
   against GitHub's archive digest, and copied to
   `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/ci/`.
@@ -87,6 +89,21 @@ Evidence root:
 Post-CI UI root:
 
 `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/control_panel_ui/playwright/evm-235-post-ci-20260710T1940/`
+
+## Cross-System Synchronization
+
+- Jira `SCRUM-113` remains `In Progress`; implementation and claim-boundary
+  comment: `10233`.
+- Jira parent Epic `SCRUM-98` remains `In Progress`; checkpoint comment:
+  `10234`.
+- Notion detail page:
+  `https://app.notion.com/p/39910ad2dcad81788a2aeee87e55d719`.
+- Notion W7 Acceptance Matrix:
+  `https://app.notion.com/p/39810ad2dcad810e97bfd525beee90b5`.
+- Obsidian work log:
+  `F:/mlops_obsidian_db/mlops/08_Codex_Memory/01_Work_Logs/2026-07-10 W7 EVM-235 CI-Gated Deployment Intent.md`.
+- Obsidian Current Context Pack, Retrieval Index, Memory Hub, and Work Log Graph
+  link to the new work log and preserve the operational blocker boundary.
 
 ## Closure Blockers
 
