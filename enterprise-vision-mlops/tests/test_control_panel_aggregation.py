@@ -256,9 +256,11 @@ def test_build_latest_cycle_aggregates_local_evidence(tmp_path, monkeypatch):
     assert cycle.drift.current_dataset_version == "visa-open-data-test"
     assert cycle.drift.review_queue_count == 1
     assert cycle.cdct_gate is not None
-    assert cycle.cdct_gate.ci_status == "pass"
-    assert cycle.cdct_gate.cd_status == "pass"
+    assert cycle.cdct_gate.ci_status == "blocked"
+    assert cycle.cdct_gate.cd_status == "blocked"
     assert cycle.cdct_gate.ct_status == "blocked"
+    assert "ci_evidence" in cycle.cdct_gate.failed_checks
+    assert "ci_evidence_missing" in cycle.cdct_gate.promotion_blockers
     assert "model_evaluation" in cycle.cdct_gate.failed_checks
     assert "drift_review" in cycle.cdct_gate.failed_checks
     assert cycle.cdct_gate.promotion_decision == "block"

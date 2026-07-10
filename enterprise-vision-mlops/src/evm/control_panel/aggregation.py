@@ -8,13 +8,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from evm.control_panel.cdct import build_cdct_gate
+from evm.control_panel.cdct import build_cdct_gate, load_ci_evidence
+from evm.control_panel.deployment_intents import latest_intent
 from evm.control_panel.drift import build_drift_state
 from evm.control_panel.schemas import (
     AirflowRef,
     ArtifactRef,
+    CIEvidenceValidation,
     CycleRun,
     DatasetVersion,
+    DeploymentIntent,
     MLflowRef,
     Metric,
     ModelCandidate,
@@ -74,6 +77,93 @@ def existing_artifact(name: str, path: Path, artifact_type: str = "json") -> Art
         uri=str(path),
         artifact_type=artifact_type,
         mime_type="application/json" if artifact_type == "json" else None,
+    )
+
+
+def deployment_admission_stage(
+    ci_evidence: CIEvidenceValidation,
+    intent: DeploymentIntent | None,
+) -> PipelineStage:
+    state_map: dict[str, State] = {
+        "dry_run": "queued",
+        "pending_approval": "queued",
+        "queued": "queued",
+        "applying": "running",
+        "applied": "done",
+        "failed": "fail",
+        "rolled_back": "warn",
+    }
+    status: State = state_map.get(intent.state, "blocked") if intent else (
+        "queued" if ci_evidence.valid else "blocked"
+    )
+    terminal = bool(intent and intent.state in {"applied", "failed", "rolled_back"})
+    artifacts: list[ArtifactRef] = []
+    if ci_evidence.source_uri:
+        artifacts.append(
+            ArtifactRef(
+                name="ci_workflow_run",
+                uri=ci_evidence.source_uri,
+                artifact_type="github-actions-run",
+            )
+        )
+    if ci_evidence.report_uri:
+        artifacts.append(
+            ArtifactRef(
+                name="ci_evidence_validation",
+                uri=ci_evidence.report_uri,
+                artifact_type="json",
+                mime_type="application/json",
+            )
+        )
+    if intent:
+        artifacts.append(
+            ArtifactRef(
+                name="deployment_manifest",
+                uri=intent.manifest_ref,
+                artifact_type="kubernetes-manifest",
+            )
+        )
+    blockers = list(ci_evidence.blockers)
+    if intent and intent.state == "failed" and intent.execution_result:
+        blockers.append(f"deployment_executor_exit_{intent.execution_result.exit_code}")
+    return PipelineStage(
+        stage_id="deployment-admission",
+        name="CI/CD Deployment Admission",
+        status=status,
+        started_at=intent.created_at if intent else ci_evidence.checked_at,
+        finished_at=intent.updated_at if terminal and intent else None,
+        current_step=intent.state if intent else "ci_validation",
+        progress=(
+            1.0
+            if intent and intent.state in {"applied", "rolled_back"}
+            else 0.8
+            if intent and intent.state == "applying"
+            else 0.6
+            if intent and intent.state == "queued"
+            else 0.4
+            if intent and intent.state == "pending_approval"
+            else 0.2
+            if intent and intent.state == "dry_run"
+            else 0.1
+            if ci_evidence.valid
+            else 0.0
+        ),
+        failure_reason=",".join(blockers) if blockers else None,
+        artifacts=artifacts,
+        metrics=[
+            Metric(
+                name="transition_count",
+                value=float(len(intent.transitions) if intent else 0),
+                status=status,
+            )
+        ],
+        resources=[
+            intent.target
+            if intent
+            else ResourceRef(
+                namespace="evm-staging", kind="Deployment", name="evm-b7-serving"
+            )
+        ],
     )
 
 
@@ -569,13 +659,25 @@ def build_latest_cycle(
         dataset_version=dataset_version,
         promotion_blockers=blockers,
     )
+    ci_report_path = artifacts_root / "w7" / "ci" / "latest_ci_validation.json"
+    ci_validation = load_ci_evidence(
+        os.getenv(
+            "EVM_CI_EVIDENCE_PATH",
+            str(artifacts_root / "w7" / "ci" / "latest_ci_evidence.json"),
+        ),
+        expected_commit=os.getenv("EVM_EXPECTED_CI_COMMIT") or None,
+        report_uri=ci_report_path,
+    )
     cdct_gate = build_cdct_gate(
         promotion_blockers=blockers,
         drift=drift_state,
         quality_status=quality_status,
         pipeline_run_uri="https://github.com/ruma0236/ML_ServeAPI/actions",
         gate_report_uri=str(lifecycle_dashboard_path) if lifecycle_dashboard_path.exists() else None,
+        ci_evidence=ci_validation,
+        readiness_status=readiness_result.evaluation.status,
     )
+    latest_deployment = latest_intent()
     cycle = CycleRun(
         cycle_id=(
             f"cycle-w7-{sanitize_cycle_part(dataset_version)}-"
@@ -606,6 +708,8 @@ def build_latest_cycle(
         data_pipeline=data_readiness,
         experiment_pipeline=experiment_readiness,
         readiness_evaluation=readiness_result.evaluation,
+        ci_evidence=ci_validation,
+        latest_deployment_intent=latest_deployment,
         dataset=DatasetVersion(
             dataset_id=str(dataset.get("dataset_name") or "visa-open-data"),
             version=dataset_version,
@@ -713,11 +817,16 @@ def build_latest_cycle(
             )
         ],
     )
+    deployment_stage = deployment_admission_stage(ci_validation, latest_deployment)
     return cycle.model_copy(
         update={
             "environment": policy_environment,
             "promotion_policy": policy_decision,
-            "stages": [*cycle.stages, policy_stage],
-            "artifacts": [*cycle.artifacts, *([policy_artifact] if policy_artifact else [])],
+            "stages": [*cycle.stages, policy_stage, deployment_stage],
+            "artifacts": [
+                *cycle.artifacts,
+                *([policy_artifact] if policy_artifact else []),
+                *deployment_stage.artifacts,
+            ],
         }
     )

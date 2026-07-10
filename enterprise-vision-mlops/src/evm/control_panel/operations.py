@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+from functools import wraps
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import RLock
 from uuid import uuid4
 
 from evm.control_panel.aggregation import build_latest_cycle
@@ -26,6 +28,16 @@ from evm.control_panel.schemas import (
 
 DEFAULT_LEDGER_ROOT = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/operations"
 PROMOTION_ACTIONS = {"approve_environment_promotion", "promote_model"}
+_LEDGER_LOCK = RLock()
+
+
+def ledger_transaction(function):
+    @wraps(function)
+    def synchronized(*args, **kwargs):
+        with _LEDGER_LOCK:
+            return function(*args, **kwargs)
+
+    return synchronized
 
 
 def utc_now() -> str:
@@ -79,6 +91,7 @@ def write_json_array(path: Path, payload: list[dict[str, object]]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+@ledger_transaction
 def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
     tasks = read_tasks()
     status = resolve_task_status(request)
@@ -121,6 +134,7 @@ def has_blocking_gate(gate: CDCTGate | None) -> bool:
     return gate.status == "blocked" and bool(gate.failed_checks or gate.promotion_blockers)
 
 
+@ledger_transaction
 def create_command_intent(request: CommandIntentRequest) -> CommandIntent:
     commands = read_commands()
     created_at = utc_now()
@@ -176,6 +190,7 @@ def command_promotion_policy(request: CommandIntentRequest) -> PromotionPolicyDe
     return evaluate_cycle_promotion(cycle, policy_request, persist=True)
 
 
+@ledger_transaction
 def confirm_command_intent(command_id: str, actor: str = "operator") -> CommandIntent | None:
     commands = read_commands()
     for index, command in enumerate(commands.commands):
@@ -193,6 +208,7 @@ def confirm_command_intent(command_id: str, actor: str = "operator") -> CommandI
     return None
 
 
+@ledger_transaction
 def cancel_command_intent(command_id: str, actor: str = "operator") -> CommandIntent | None:
     commands = read_commands()
     for index, command in enumerate(commands.commands):

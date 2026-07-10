@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+from threading import RLock
+from time import monotonic
+
 from fastapi import APIRouter, HTTPException
 
 from evm.control_panel.aggregation import build_latest_cycle
@@ -16,21 +20,56 @@ from evm.control_panel.schemas import (
 
 
 router = APIRouter(prefix="/control-panel/v1", tags=["control-panel"])
+_CYCLE_CACHE_LOCK = RLock()
+_CYCLE_CACHE: CycleRun | None = None
+_CYCLE_CACHE_AT = 0.0
+_CYCLE_CACHE_BUILDER_ID = 0
+
+
+def cycle_cache_ttl() -> float:
+    try:
+        return max(0.0, float(os.getenv("EVM_CONTROL_PANEL_CACHE_TTL_SECONDS", "2")))
+    except ValueError:
+        return 2.0
+
+
+def cycle_snapshot() -> CycleRun:
+    global _CYCLE_CACHE, _CYCLE_CACHE_AT, _CYCLE_CACHE_BUILDER_ID
+    with _CYCLE_CACHE_LOCK:
+        now = monotonic()
+        builder_id = id(build_latest_cycle)
+        if (
+            _CYCLE_CACHE is not None
+            and _CYCLE_CACHE_BUILDER_ID == builder_id
+            and now - _CYCLE_CACHE_AT < cycle_cache_ttl()
+        ):
+            return _CYCLE_CACHE
+        _CYCLE_CACHE = build_latest_cycle()
+        _CYCLE_CACHE_AT = monotonic()
+        _CYCLE_CACHE_BUILDER_ID = builder_id
+        return _CYCLE_CACHE
+
+
+def invalidate_cycle_cache() -> None:
+    global _CYCLE_CACHE, _CYCLE_CACHE_AT
+    with _CYCLE_CACHE_LOCK:
+        _CYCLE_CACHE = None
+        _CYCLE_CACHE_AT = 0.0
 
 
 @router.get("/cycles/latest", response_model=CycleRun)
 def latest_cycle() -> CycleRun:
-    return build_latest_cycle()
+    return cycle_snapshot()
 
 
 @router.post("/promotion-policy/evaluate", response_model=PromotionPolicyDecision)
 def evaluate_promotion_policy(request: PromotionPolicyRequest) -> PromotionPolicyDecision:
-    return evaluate_cycle_promotion(build_latest_cycle(), request, persist=True)
+    return evaluate_cycle_promotion(cycle_snapshot(), request, persist=True)
 
 
 @router.get("/cycles/{cycle_id}", response_model=CycleRun)
 def get_cycle(cycle_id: str) -> CycleRun:
-    cycle = build_latest_cycle()
+    cycle = cycle_snapshot()
     if cycle.cycle_id != cycle_id:
         raise HTTPException(
             status_code=404,
@@ -44,7 +83,7 @@ def get_cycle(cycle_id: str) -> CycleRun:
 
 @router.get("/resources", response_model=RuntimeResourceList)
 def list_resources(namespace: str | None = None, owner_issue: str | None = None) -> RuntimeResourceList:
-    cycle = build_latest_cycle()
+    cycle = cycle_snapshot()
     resources = build_runtime_resources(cycle)
     if namespace:
         resources = [resource for resource in resources if resource.namespace == namespace]

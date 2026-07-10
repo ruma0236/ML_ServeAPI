@@ -324,6 +324,11 @@ h3 {
   background: #fbfdfe;
 }
 
+.ledger-item.focused {
+  border-color: #4a8fa0;
+  box-shadow: 0 0 0 2px rgba(74, 143, 160, 0.14);
+}
+
 .ledger-good {
   border-left-color: #2d9468;
 }
@@ -1123,7 +1128,8 @@ h3 {
 }
 
 .drift-review-panel,
-.cdct-gate-panel {
+.cdct-gate-panel,
+.deployment-intent-panel {
   display: grid;
   gap: 12px;
 }
@@ -1273,6 +1279,161 @@ h3 {
 
 .cdct-blockers {
   margin-top: -2px;
+}
+
+.deployment-heading-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deployment-signal-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.deployment-signal-grid > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dde6e9;
+  border-radius: 8px;
+  background: #fafcfd;
+}
+
+.deployment-signal-grid svg {
+  grid-row: span 2;
+  width: 18px;
+  height: 18px;
+  color: #2e7180;
+}
+
+.deployment-signal-grid span,
+.deployment-form span,
+.deployment-transition span,
+.deployment-transition small {
+  color: #60727a;
+  font-size: 0.74rem;
+}
+
+.deployment-signal-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deployment-signal-grid .status-badge {
+  grid-column: 1 / -1;
+  width: fit-content;
+}
+
+.deployment-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 12px;
+}
+
+.deployment-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dde6e9;
+  border-radius: 8px;
+  background: #fafcfd;
+}
+
+.deployment-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.deployment-form input,
+.deployment-form select {
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid #d1dce1;
+  border-radius: 8px;
+  color: #1d2c33;
+  background: #fff;
+}
+
+.deployment-reason,
+.deployment-actions {
+  grid-column: 1 / -1;
+}
+
+.deployment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.deployment-ledger {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-height: 100%;
+  padding: 12px;
+  border: 1px solid #dde6e9;
+  border-radius: 8px;
+  background: #fafcfd;
+}
+
+.deployment-transition {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  padding-bottom: 12px;
+}
+
+.deployment-transition::before {
+  position: absolute;
+  top: 12px;
+  bottom: -2px;
+  left: 5px;
+  width: 2px;
+  content: "";
+  background: #d8e2e6;
+}
+
+.deployment-transition:last-child::before {
+  display: none;
+}
+
+.deployment-transition i {
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border: 3px solid #f7fafb;
+  border-radius: 50%;
+  background: #2e7180;
+  box-shadow: 0 0 0 1px #7ca7b1;
+}
+
+.deployment-transition div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.deployment-transition strong,
+.deployment-transition span,
+.deployment-transition small {
+  overflow-wrap: anywhere;
+}
+
+.deployment-blockers {
+  margin-top: 0;
 }
 
 .timeline {
@@ -1830,6 +1991,10 @@ h3 {
 :root[data-theme="dark"] .cdct-status-strip span,
 :root[data-theme="dark"] .drift-state-grid span,
 :root[data-theme="dark"] .cdct-check-row span,
+:root[data-theme="dark"] .deployment-signal-grid span,
+:root[data-theme="dark"] .deployment-form span,
+:root[data-theme="dark"] .deployment-transition span,
+:root[data-theme="dark"] .deployment-transition small,
 :root[data-theme="dark"] .readiness-item span,
 :root[data-theme="dark"] .policy span,
 :root[data-theme="dark"] .stage-body p,
@@ -1904,6 +2069,9 @@ h3 {
 :root[data-theme="dark"] .drift-detail-list,
 :root[data-theme="dark"] .cdct-detail-list,
 :root[data-theme="dark"] .cdct-check-row,
+:root[data-theme="dark"] .deployment-signal-grid > div,
+:root[data-theme="dark"] .deployment-form,
+:root[data-theme="dark"] .deployment-ledger,
 :root[data-theme="dark"] .namespace-lane,
 :root[data-theme="dark"] .topology-node,
 :root[data-theme="dark"] .stage-summary-strip button,
@@ -1941,6 +2109,17 @@ h3 {
   border-color: #3a3d43;
   color: #f2f4f6;
   background: #090a0c;
+}
+
+:root[data-theme="dark"] .deployment-form input,
+:root[data-theme="dark"] .deployment-form select {
+  border-color: #3a3d43;
+  color: #f2f4f6;
+  background: #090a0c;
+}
+
+:root[data-theme="dark"] .deployment-transition i {
+  border-color: #141518;
 }
 
 :root[data-theme="dark"] .icon-button:hover,
@@ -2135,6 +2314,14 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .deployment-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .deployment-signal-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .readiness-decision-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2181,6 +2368,11 @@ h3 {
   .metric-grid,
   .ops-summary,
   .ops-form {
+    grid-template-columns: 1fr;
+  }
+
+  .deployment-signal-grid,
+  .deployment-form {
     grid-template-columns: 1fr;
   }
 

@@ -34,7 +34,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: serving
-          image: enterprise-vision-mlops-efficientnet-serving:local
+          image: enterprise-vision-mlops-efficientnet-serving@sha256:840e4f757a8738e12764f475f54b29cdd6366e5212e0e11f9bf1c45b78f1cc88
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

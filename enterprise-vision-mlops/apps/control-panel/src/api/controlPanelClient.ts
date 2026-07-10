@@ -3,6 +3,10 @@ import type {
   CommandIntentList,
   CommandIntentRequest,
   CycleRun,
+  DeploymentIntent,
+  DeploymentIntentList,
+  DeploymentIntentRequest,
+  DeploymentTransitionRequest,
   PromotionPolicyDecision,
   PromotionPolicyRequest,
   ResourceRef,
@@ -40,6 +44,80 @@ export async function evaluatePromotionPolicy(
     throw new Error(`Promotion policy evaluation failed: ${response.status}`);
   }
   return (await response.json()) as PromotionPolicyDecision;
+}
+
+export class ControlPanelApiError extends Error {
+  blockers: string[];
+
+  constructor(message: string, blockers: string[] = []) {
+    super(message);
+    this.name = "ControlPanelApiError";
+    this.blockers = blockers;
+  }
+}
+
+export async function fetchDeploymentIntents(baseUrl = API_BASE): Promise<DeploymentIntentList> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/deployment-intents`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw await controlPanelError(response, "DeploymentIntent request failed");
+  }
+  return (await response.json()) as DeploymentIntentList;
+}
+
+export async function createDeploymentIntent(
+  request: DeploymentIntentRequest,
+  baseUrl = API_BASE
+): Promise<DeploymentIntent> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/deployment-intents`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    throw await controlPanelError(response, "DeploymentIntent create failed");
+  }
+  return (await response.json()) as DeploymentIntent;
+}
+
+export async function transitionDeploymentIntent(
+  intentId: string,
+  action: "request-approval" | "approve" | "queue",
+  request: DeploymentTransitionRequest,
+  baseUrl = API_BASE
+): Promise<DeploymentIntent> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/deployment-intents/${intentId}/${action}`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    }
+  );
+  if (!response.ok) {
+    throw await controlPanelError(response, `DeploymentIntent ${action} failed`);
+  }
+  return (await response.json()) as DeploymentIntent;
+}
+
+async function controlPanelError(response: Response, fallback: string): Promise<ControlPanelApiError> {
+  let message = `${fallback}: ${response.status}`;
+  let blockers: string[] = [];
+  try {
+    const payload = (await response.json()) as {
+      detail?: { message?: string; blockers?: string[]; error?: string } | string;
+    };
+    if (typeof payload.detail === "string") {
+      message = payload.detail;
+    } else if (payload.detail) {
+      blockers = payload.detail.blockers || [];
+      message = payload.detail.message || payload.detail.error || message;
+    }
+  } catch {
+    // The HTTP status remains the authoritative fallback for non-JSON failures.
+  }
+  return new ControlPanelApiError(message, blockers);
 }
 
 export async function fetchRuntimeResources(baseUrl = API_BASE): Promise<RuntimeResource[]> {

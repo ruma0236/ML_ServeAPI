@@ -28,6 +28,7 @@ export function CommandDrawer({ resources, commands, onCommandsChange }: Command
   const [reason, setReason] = useState("W7 guarded operation review");
   const [scale, setScale] = useState("1");
   const [submitting, setSubmitting] = useState(false);
+  const [focusedCommandId, setFocusedCommandId] = useState("");
 
   useEffect(() => {
     if (!resourceId && defaultResource) setResourceId(defaultResource.resource_id);
@@ -54,6 +55,7 @@ export function CommandDrawer({ resources, commands, onCommandsChange }: Command
         }
       };
       const command = await createCommandIntent(request);
+      setFocusedCommandId(command.command_id);
       onCommandsChange([command, ...commands.filter((item) => item.command_id !== command.command_id)]);
     } finally {
       setSubmitting(false);
@@ -119,7 +121,11 @@ export function CommandDrawer({ resources, commands, onCommandsChange }: Command
       <div className="ledger-list">
         {commands.length ? (
           commands.slice(0, 5).map((command) => (
-            <article key={command.command_id} className={`ledger-item ledger-${commandStatusTone(command.status)}`}>
+            <article
+              key={command.command_id}
+              className={`ledger-item ledger-${commandStatusTone(command.status)}${focusedCommandId === command.command_id ? " focused" : ""}`}
+              data-focused-command={focusedCommandId === command.command_id ? "true" : "false"}
+            >
               <header>
                 <div>
                   <strong>{command.action}</strong>

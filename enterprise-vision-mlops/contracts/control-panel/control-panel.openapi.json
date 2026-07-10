@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise Vision MLOps Control Panel API",
-    "version": "2026-07-10.w7.evm233.v1",
-    "description": "Metadata and control contract for the W7 enterprise MLOps Control Panel, including organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
+    "version": "2026-07-10.w7.evm235.v1",
+    "description": "Metadata and guarded mutation contract for the W7 enterprise MLOps Control Panel, including CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
   },
   "servers": [
     {
@@ -303,6 +303,69 @@
           "400": {"$ref": "#/components/responses/BadRequest"}
         }
       }
+    },
+    "/control-panel/v1/deployment-intents": {
+      "get": {
+        "summary": "Return the auditable deployment intent ledger.",
+        "operationId": "listDeploymentIntents",
+        "responses": {
+          "200": {
+            "description": "deployment intent ledger",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeploymentIntentList"}}}
+          }
+        }
+      },
+      "post": {
+        "summary": "Admit a dry-run deployment intent after CI, readiness, and environment policy validation.",
+        "operationId": "createDeploymentIntent",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeploymentIntentRequest"}}}
+        },
+        "responses": {
+          "202": {
+            "description": "dry-run deployment intent admitted",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeploymentIntent"}}}
+          },
+          "409": {"description": "CI, readiness, policy, or ledger admission blocked"}
+        }
+      }
+    },
+    "/control-panel/v1/deployment-intents/{intent_id}/request-approval": {
+      "post": {
+        "summary": "Move a dry-run deployment intent to pending approval.",
+        "operationId": "requestDeploymentApproval",
+        "parameters": [{"name": "intent_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeploymentTransitionRequest"}}}},
+        "responses": {
+          "202": {"description": "approval requested", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeploymentIntent"}}}},
+          "409": {"description": "transition rejected"}
+        }
+      }
+    },
+    "/control-panel/v1/deployment-intents/{intent_id}/approve": {
+      "post": {
+        "summary": "Record a separate authorized approver without applying the deployment.",
+        "operationId": "approveDeploymentIntent",
+        "parameters": [{"name": "intent_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeploymentTransitionRequest"}}}},
+        "responses": {
+          "202": {"description": "approval recorded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeploymentIntent"}}}},
+          "409": {"description": "approval or separation-of-duties check rejected"}
+        }
+      }
+    },
+    "/control-panel/v1/deployment-intents/{intent_id}/queue": {
+      "post": {
+        "summary": "Revalidate all gates and queue an approved intent for the isolated executor.",
+        "operationId": "queueDeploymentIntent",
+        "parameters": [{"name": "intent_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeploymentTransitionRequest"}}}},
+        "responses": {
+          "202": {"description": "deployment intent queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeploymentIntent"}}}},
+          "409": {"description": "current CI, readiness, policy, or version check rejected"}
+        }
+      }
     }
   },
   "components": {
@@ -342,6 +405,8 @@
           "experiment_pipeline": {"$ref": "#/components/schemas/ExperimentPipelineReadiness"},
           "readiness_evaluation": {"$ref": "#/components/schemas/ArtifactReadinessEvaluation"},
           "promotion_policy": {"$ref": "#/components/schemas/PromotionPolicyDecision"},
+          "ci_evidence": {"anyOf": [{"$ref": "#/components/schemas/CIEvidenceValidation"}, {"type": "null"}]},
+          "latest_deployment_intent": {"anyOf": [{"$ref": "#/components/schemas/DeploymentIntent"}, {"type": "null"}]},
           "dataset": {"$ref": "#/components/schemas/DatasetVersion"},
           "model": {"$ref": "#/components/schemas/ModelVersion"},
           "model_matrix": {"$ref": "#/components/schemas/ModelExperimentMatrix"},
@@ -366,6 +431,117 @@
             "items": {"$ref": "#/components/schemas/ArtifactRef"}
           }
         }
+      },
+      "CIEvidenceValidation": {
+        "type": "object",
+        "required": ["schema_version", "validation_id", "valid", "status", "workflow_run_id", "commit_sha", "checked_at", "input_digest", "checks", "blockers"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.w7.ci_evidence_validation.v1"},
+          "validation_id": {"type": "string"},
+          "valid": {"type": "boolean"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "workflow_run_id": {"type": "string"},
+          "commit_sha": {"type": "string"},
+          "checked_at": {"type": "string", "format": "date-time"},
+          "input_digest": {"type": "string"},
+          "checks": {"type": "object", "additionalProperties": {"$ref": "#/components/schemas/State"}},
+          "blockers": {"type": "array", "items": {"type": "string"}},
+          "source_uri": {"type": ["string", "null"]},
+          "report_uri": {"type": ["string", "null"]}
+        }
+      },
+      "DeploymentIntentRequest": {
+        "type": "object",
+        "required": ["target_environment", "target_namespace", "target", "actor", "reason", "dry_run"],
+        "properties": {
+          "target_environment": {"type": "string", "enum": ["dev", "test", "staging", "pre-production", "production"]},
+          "target_namespace": {"type": "string"},
+          "target": {"$ref": "#/components/schemas/ResourceRef"},
+          "actor": {"type": "string"},
+          "reason": {"type": "string"},
+          "dry_run": {"type": "boolean", "const": true}
+        }
+      },
+      "DeploymentTransitionRequest": {
+        "type": "object",
+        "required": ["actor", "reason", "expected_version"],
+        "properties": {
+          "actor": {"type": "string"},
+          "reason": {"type": "string"},
+          "expected_version": {"type": "integer", "minimum": 1}
+        }
+      },
+      "DeploymentTransition": {
+        "type": "object",
+        "required": ["from_state", "to_state", "actor", "timestamp", "environment", "namespace", "artifact_digest", "reason", "result"],
+        "properties": {
+          "from_state": {"type": "string"},
+          "to_state": {"$ref": "#/components/schemas/DeploymentIntentState"},
+          "actor": {"type": "string"},
+          "timestamp": {"type": "string", "format": "date-time"},
+          "environment": {"type": "string"},
+          "namespace": {"type": "string"},
+          "artifact_digest": {"type": "string"},
+          "reason": {"type": "string"},
+          "result": {"type": "string"}
+        }
+      },
+      "DeploymentExecutionResult": {
+        "type": "object",
+        "required": ["action", "status", "started_at", "finished_at", "command", "exit_code"],
+        "properties": {
+          "action": {"type": "string", "enum": ["apply", "rollback"]},
+          "status": {"type": "string", "enum": ["applied", "failed", "rolled_back"]},
+          "started_at": {"type": "string", "format": "date-time"},
+          "finished_at": {"type": "string", "format": "date-time"},
+          "command": {"type": "array", "items": {"type": "string"}},
+          "exit_code": {"type": "integer"},
+          "stdout_uri": {"type": ["string", "null"]},
+          "stderr_uri": {"type": ["string", "null"]}
+        }
+      },
+      "DeploymentIntent": {
+        "allOf": [
+          {"$ref": "#/components/schemas/DeploymentIntentRequest"},
+          {
+            "type": "object",
+            "required": ["intent_id", "state", "version", "created_at", "updated_at", "ci_evidence", "ci_evidence_uri", "ci_bundle_digest", "readiness_evaluation_id", "promotion_policy", "model_digest", "image_digest", "config_render_digest", "rollback_reference", "manifest_ref", "transitions"],
+            "properties": {
+              "intent_id": {"type": "string"},
+              "state": {"$ref": "#/components/schemas/DeploymentIntentState"},
+              "version": {"type": "integer", "minimum": 1},
+              "created_at": {"type": "string", "format": "date-time"},
+              "updated_at": {"type": "string", "format": "date-time"},
+              "ci_evidence": {"$ref": "#/components/schemas/CIEvidenceValidation"},
+              "ci_evidence_uri": {"type": "string"},
+              "ci_bundle_digest": {"type": "string"},
+              "readiness_evaluation_id": {"type": "string"},
+              "promotion_policy": {"$ref": "#/components/schemas/PromotionPolicyDecision"},
+              "model_digest": {"type": "string"},
+              "image_digest": {"type": "string"},
+              "config_render_digest": {"type": "string"},
+              "rollback_reference": {"type": "string"},
+              "manifest_ref": {"type": "string"},
+              "approver": {"type": ["string", "null"]},
+              "approved_at": {"type": ["string", "null"], "format": "date-time"},
+              "transitions": {"type": "array", "items": {"$ref": "#/components/schemas/DeploymentTransition"}},
+              "execution_result": {"anyOf": [{"$ref": "#/components/schemas/DeploymentExecutionResult"}, {"type": "null"}]}
+            }
+          }
+        ]
+      },
+      "DeploymentIntentList": {
+        "type": "object",
+        "required": ["intents", "status", "blockers"],
+        "properties": {
+          "intents": {"type": "array", "items": {"$ref": "#/components/schemas/DeploymentIntent"}},
+          "status": {"$ref": "#/components/schemas/State"},
+          "blockers": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "DeploymentIntentState": {
+        "type": "string",
+        "enum": ["dry_run", "pending_approval", "queued", "applying", "applied", "failed", "rolled_back"]
       },
       "PipelineStage": {
         "type": "object",

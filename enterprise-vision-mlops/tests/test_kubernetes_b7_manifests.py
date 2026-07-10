@@ -42,6 +42,10 @@ def test_b7_workloads_fail_closed_without_kubernetes_gpu() -> None:
     assert 'value: "true"' in serving
     assert "replicas: 0" in serving
     assert "type: Recreate" in serving
+    assert "enterprise-vision-mlops-efficientnet-training@sha256:" in training
+    assert "enterprise-vision-mlops-efficientnet-serving@sha256:" in serving
+    assert ":local" not in training
+    assert ":local" not in serving
 
 
 def test_b7_serving_has_identity_probes_and_read_only_data_mount() -> None:

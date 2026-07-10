@@ -9,6 +9,7 @@ const vitestEntry = path.join(appRoot, "node_modules", "vitest", "vitest.mjs");
 const requestedTests = process.argv.slice(2).filter((arg) => arg !== "--run");
 const defaultTests = [
   "tests/control-panel/cycle-overview.contract.test.ts",
+  "tests/control-panel/deployment-intent.contract.test.ts",
   "tests/control-panel/enterprise-readiness.contract.test.ts",
   "tests/control-panel/gate-risk.contract.test.ts",
   "tests/control-panel/kubernetes-topology.contract.test.ts",

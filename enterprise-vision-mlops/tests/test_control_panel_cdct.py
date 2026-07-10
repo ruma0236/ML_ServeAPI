@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from evm.control_panel.cdct import REQUIRED_CHECKS, build_cdct_gate
+from evm.control_panel.cdct import (
+    REQUIRED_CHECKS,
+    build_cdct_gate,
+    validate_ci_evidence,
+    with_ci_bundle_digest,
+)
 from evm.control_panel.schemas import DriftState
 
 
@@ -17,12 +22,41 @@ def _drift(action: str = "none") -> DriftState:
     )
 
 
+def _ci_evidence():
+    bundle = with_ci_bundle_digest(
+        {
+            "repository": "ruma0236/ML_ServeAPI",
+            "workflow_name": "Enterprise Vision MLOps CI",
+            "workflow_run_id": "123456",
+            "workflow_run_attempt": 1,
+            "commit_sha": "a" * 40,
+            "ref": "refs/heads/codex/mac-mini-worker",
+            "event": "push",
+            "status": "completed",
+            "conclusion": "success",
+            "python_test_result": "pass",
+            "frontend_test_result": "pass",
+            "evidence_validator_result": "pass",
+            "compose_config_result": "pass",
+            "kustomize_render_result": "pass",
+            "image_digest": "evm-serving@sha256:" + "b" * 64,
+            "config_render_digest": "c" * 64,
+            "contract_digest": "d" * 64,
+            "source_uri": "https://github.com/ruma0236/ML_ServeAPI/actions/runs/123456",
+            "generated_at": "2026-07-10T10:00:00Z",
+        }
+    )
+    return validate_ci_evidence(bundle, expected_commit="a" * 40)
+
+
 def test_cdct_gate_separates_required_ci_cd_ct_checks():
     gate = build_cdct_gate(
         promotion_blockers=[],
         drift=_drift("none"),
         quality_status="pass",
         pipeline_run_uri="https://github.com/ruma0236/ML_ServeAPI/actions",
+        ci_evidence=_ci_evidence(),
+        readiness_status="pass",
     )
 
     assert gate.required_checks == REQUIRED_CHECKS
@@ -40,6 +74,8 @@ def test_cdct_gate_blocks_promotion_on_model_and_drift_failures():
         quality_status="pass",
         pipeline_run_uri="https://github.com/ruma0236/ML_ServeAPI/actions",
         gate_report_uri="F:/EnterpriseMLOps_Data/lifecycle_dashboard.json",
+        ci_evidence=_ci_evidence(),
+        readiness_status="pass",
     )
 
     assert gate.status == "blocked"
@@ -59,8 +95,26 @@ def test_cdct_gate_blocks_data_quality_before_promotion():
         drift=_drift("none"),
         quality_status="blocked",
         pipeline_run_uri="https://github.com/ruma0236/ML_ServeAPI/actions",
+        ci_evidence=_ci_evidence(),
+        readiness_status="pass",
     )
 
     assert gate.status == "blocked"
     assert "data_quality" in gate.failed_checks
     assert gate.verification_summary["data_quality"] == "blocked"
+
+
+def test_cdct_gate_fails_closed_without_ci_evidence():
+    gate = build_cdct_gate(
+        promotion_blockers=[],
+        drift=_drift("none"),
+        quality_status="pass",
+        pipeline_run_uri="https://github.com/ruma0236/ML_ServeAPI/actions",
+        readiness_status="pass",
+    )
+
+    assert gate.ci_status == "blocked"
+    assert gate.cd_status == "blocked"
+    assert gate.promotion_decision == "block"
+    assert "ci_evidence" in gate.failed_checks
+    assert "ci_evidence_missing" in gate.promotion_blockers

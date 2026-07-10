@@ -15,6 +15,9 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("model_evaluation");
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("drift_review");
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("promotion_gate");
+  await expect(page.getByRole("heading", { name: "Deployment Intent" })).toBeVisible();
+  await expect(page.getByLabel("Deployment admission signals")).toContainText("CI Evidence");
+  await expect(page.getByLabel("Deployment admission signals")).toContainText("Environment Policy");
 
   const screenshotPath =
     process.env.EVM_DRIFT_CDCT_SCREENSHOT ||

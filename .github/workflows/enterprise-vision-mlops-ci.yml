@@ -1,0 +1,128 @@
+name: Enterprise Vision MLOps CI
+
+on:
+  push:
+    branches:
+      - main
+      - codex/mac-mini-worker
+    paths:
+      - enterprise-vision-mlops/**
+      - .github/workflows/enterprise-vision-mlops-ci.yml
+      - .github/workflows/deployment-intent.yml
+  pull_request:
+    paths:
+      - enterprise-vision-mlops/**
+      - .github/workflows/enterprise-vision-mlops-ci.yml
+      - .github/workflows/deployment-intent.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enterprise-vision-mlops-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-and-attest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: enterprise-vision-mlops
+    steps:
+      - name: Checkout immutable source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: enterprise-vision-mlops/pyproject.toml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: enterprise-vision-mlops/apps/control-panel/package-lock.json
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install verified dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest jsonschema
+          npm --prefix apps/control-panel ci
+
+      - name: Run full Python test suite
+        run: python -m pytest -q
+
+      - name: Run Control Panel type and contract tests
+        run: |
+          npm --prefix apps/control-panel run lint
+          npm --prefix apps/control-panel run test
+          npm --prefix apps/control-panel run build
+
+      - name: Render deployment configuration
+        run: |
+          docker compose config > "$RUNNER_TEMP/evm-compose-rendered.yaml"
+          kubectl kustomize infra/kubernetes/model-runtime > "$RUNNER_TEMP/evm-model-runtime-rendered.yaml"
+
+      - name: Validate CycleRun and real-test policy contracts
+        run: |
+          python -m evm.control_panel.validate_cycle_run \
+            --openapi contracts/control-panel/control-panel.openapi.json \
+            --component CycleRun \
+            --input contracts/control-panel/examples/cycle-run.json \
+            --report "$RUNNER_TEMP/cycle-run-schema-validation.json"
+          python -m pytest -q \
+            tests/test_w7_real_test_policy.py \
+            tests/test_w7_real_test_evidence_validation.py \
+            tests/test_readiness_evaluator.py
+
+      - name: Build immutable CI evidence bundle
+        shell: bash
+        run: |
+          image_digest="$(awk '/image: enterprise-vision-mlops-efficientnet-serving@sha256:/{print $2; exit}' infra/kubernetes/model-runtime/b7-serving-deployment.yaml)"
+          test -n "$image_digest"
+          config_render_digest="$(cat "$RUNNER_TEMP/evm-compose-rendered.yaml" "$RUNNER_TEMP/evm-model-runtime-rendered.yaml" | sha256sum | awk '{print $1}')"
+          contract_digest="$(sha256sum contracts/control-panel/control-panel.openapi.json | awk '{print $1}')"
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p artifacts/w7/ci
+          python -m evm.control_panel.deployment_intents build-ci \
+            --repository "${GITHUB_REPOSITORY}" \
+            --workflow-name "${GITHUB_WORKFLOW}" \
+            --workflow-run-id "${GITHUB_RUN_ID}" \
+            --workflow-run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --commit-sha "${GITHUB_SHA}" \
+            --ref "${GITHUB_REF}" \
+            --event "${GITHUB_EVENT_NAME}" \
+            --conclusion success \
+            --python-test-result pass \
+            --frontend-test-result pass \
+            --evidence-validator-result pass \
+            --compose-config-result pass \
+            --kustomize-render-result pass \
+            --image-digest "$image_digest" \
+            --config-render-digest "$config_render_digest" \
+            --contract-digest "$contract_digest" \
+            --source-uri "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --generated-at "$generated_at" \
+            --output artifacts/w7/ci/latest_ci_evidence.json
+          python -m evm.control_panel.deployment_intents validate-ci \
+            --input artifacts/w7/ci/latest_ci_evidence.json \
+            --expected-commit "${GITHUB_SHA}" \
+            --output artifacts/w7/ci/latest_ci_validation.json \
+            --require-valid
+
+      - name: Upload immutable CI evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: evm-ci-evidence
+          path: |
+            enterprise-vision-mlops/artifacts/w7/ci/latest_ci_evidence.json
+            enterprise-vision-mlops/artifacts/w7/ci/latest_ci_validation.json
+          if-no-files-found: error
+          retention-days: 30

@@ -11,6 +11,14 @@ export type State =
 
 export type EnvironmentTier = "dev" | "test" | "staging" | "pre-production" | "production";
 export type PromotionPolicyDecisionState = "allow" | "pending_approval" | "blocked";
+export type DeploymentIntentState =
+  | "dry_run"
+  | "pending_approval"
+  | "queued"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "rolled_back";
 
 export interface Metric {
   name: string;
@@ -150,6 +158,87 @@ export interface PromotionPolicyDecision {
   reason_codes: string[];
   checks: PromotionPolicyCheck[];
   audit_uri?: string | null;
+}
+
+export interface CIEvidenceValidation {
+  schema_version: string;
+  validation_id: string;
+  valid: boolean;
+  status: State;
+  workflow_run_id: string;
+  commit_sha: string;
+  checked_at: string;
+  input_digest: string;
+  checks: Record<string, State>;
+  blockers: string[];
+  source_uri?: string | null;
+  report_uri?: string | null;
+}
+
+export interface DeploymentIntentRequest {
+  target_environment: EnvironmentTier;
+  target_namespace: string;
+  target: ResourceRef;
+  actor: string;
+  reason: string;
+  dry_run: boolean;
+}
+
+export interface DeploymentTransition {
+  from_state: DeploymentIntentState | "created";
+  to_state: DeploymentIntentState;
+  actor: string;
+  timestamp: string;
+  environment: EnvironmentTier;
+  namespace: string;
+  artifact_digest: string;
+  reason: string;
+  result: string;
+}
+
+export interface DeploymentExecutionResult {
+  action: "apply" | "rollback";
+  status: "applied" | "failed" | "rolled_back";
+  started_at: string;
+  finished_at: string;
+  command: string[];
+  exit_code: number;
+  stdout_uri?: string | null;
+  stderr_uri?: string | null;
+}
+
+export interface DeploymentIntent extends DeploymentIntentRequest {
+  intent_id: string;
+  state: DeploymentIntentState;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  ci_evidence: CIEvidenceValidation;
+  ci_evidence_uri: string;
+  ci_bundle_digest: string;
+  readiness_evaluation_id: string;
+  promotion_policy: PromotionPolicyDecision;
+  model_digest: string;
+  image_digest: string;
+  config_render_digest: string;
+  rollback_reference: string;
+  manifest_ref: string;
+  approver?: string | null;
+  approved_at?: string | null;
+  transitions: DeploymentTransition[];
+  execution_result?: DeploymentExecutionResult | null;
+}
+
+export interface DeploymentIntentList {
+  intents: DeploymentIntent[];
+  status: State;
+  blockers: string[];
+}
+
+export interface DeploymentTransitionRequest {
+  actor: string;
+  reason: string;
+  expected_version: number;
 }
 
 export interface AirflowRef {
@@ -414,6 +503,8 @@ export interface CycleRun {
   experiment_pipeline?: ExperimentPipelineReadiness | null;
   readiness_evaluation?: ArtifactReadinessEvaluation | null;
   promotion_policy?: PromotionPolicyDecision | null;
+  ci_evidence?: CIEvidenceValidation | null;
+  latest_deployment_intent?: DeploymentIntent | null;
   dataset: DatasetVersion;
   model: ModelVersion;
   model_matrix?: ModelExperimentMatrix | null;

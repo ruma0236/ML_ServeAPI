@@ -467,12 +467,27 @@ evidence.
 
 ### EVM-235 - CD/CT Push Verification And Promotion Gate
 
+Execution state on 2026-07-10:
+
+- implementation checkpoint complete, operational closure still `In Progress`;
+- CI evidence, readiness, and environment policy are evaluated server-side and
+  deployment-intent creation fails closed before any mutation;
+- the audited state machine and isolated executor cover `dry_run`, approval,
+  queue, apply, failure, and rollback branches in automated tests;
+- the live API currently returns `409 ci_evidence_missing`, and no real
+  Kubernetes apply/rollback is claimed while `EVM-226` and live `EVM-236`
+  readiness remain blocked;
+- desktop/mobile Control Panel verification passed all 14 Playwright scenarios,
+  and a 24-request concurrent read check completed with all responses `200`.
+
 - Implementation files:
-  - `.github/workflows/ci.yml`
+  - repository-root `.github/workflows/enterprise-vision-mlops-ci.yml`
   - `.github/workflows/deployment-intent.yml`
   - `src/evm/control_panel/cdct.py`
   - `src/evm/control_panel/deployment_intents.py`
   - `src/evm/control_panel/deployment_executor.py`
+  - `apps/api/control_panel_deployments.py`
+  - `apps/control-panel/src/views/DeploymentIntentPanel.tsx`
   - `apps/control-panel/src/views/CDCTGatePanel.*`
   - `tests/test_control_panel_cdct.py`
   - `tests/test_deployment_intents.py`
@@ -489,12 +504,13 @@ evidence.
   - Kubernetes apply/failed/rollback result linked to `EVM-226`
 - Verification command:
   - `python -m pytest tests/test_control_panel_cdct.py tests/test_deployment_intents.py -q`
-  - `python -m evm.control_panel.deployment_intents validate-ci --input $env:TEMP/ci-evidence.json`
+  - `python -m evm.control_panel.deployment_intents validate-ci --input $env:TEMP/ci-evidence.json --expected-commit $(git rev-parse HEAD) --require-valid`
   - `$intent = python -m evm.control_panel.deployment_intents create --input $env:TEMP/staging-intent.json --dry-run | ConvertFrom-Json`
   - `python -m evm.control_panel.deployment_intents request-approval --intent-id $intent.intent_id`
-  - `python -m evm.control_panel.deployment_intents approve --intent-id $intent.intent_id --actor portfolio-approver`
-  - `python -m evm.control_panel.deployment_intents queue --intent-id $intent.intent_id`
+  - `python -m evm.control_panel.deployment_intents approve --intent-id $intent.intent_id --actor ai-infra-sre`
+  - `python -m evm.control_panel.deployment_intents queue --intent-id $intent.intent_id --actor ai-infra-sre`
   - `python -m evm.control_panel.deployment_executor apply --intent-id $intent.intent_id`
+  - `npm --prefix apps/control-panel run test:e2e`
 - Success criteria:
   - deployment intent creation is impossible when CI or `EVM-236` fails;
   - lifecycle follows `dry_run -> pending_approval -> queued -> applying ->

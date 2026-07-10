@@ -44,24 +44,31 @@ export function TaskAuthoring({ cycle, resources }: TaskAuthoringProps) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    async function load() {
+    async function load(initial = false) {
       const [taskTemplate, taskLedger, commandLedger] = await Promise.all([
         fetchDefaultTaskAssignment(),
         fetchTaskAssignments(),
         fetchCommandIntents()
       ]);
-      setDefaultTask(taskTemplate);
       setTasks(taskLedger);
       setCommands(commandLedger);
-      setTaskType(taskTemplate.task_type);
-      setOwner(taskTemplate.owner);
-      setPriority(taskTemplate.priority);
-      setResourceProfile(taskTemplate.resource_profile);
-      setApprovalPolicy(taskTemplate.approval_policy || "manual");
-      setConfigText(JSON.stringify(taskTemplate.config_payload, null, 2));
+      if (initial) {
+        setDefaultTask(taskTemplate);
+        setTaskType(taskTemplate.task_type);
+        setOwner(taskTemplate.owner);
+        setPriority(taskTemplate.priority);
+        setResourceProfile(taskTemplate.resource_profile);
+        setApprovalPolicy(taskTemplate.approval_policy || "manual");
+        setConfigText(JSON.stringify(taskTemplate.config_payload, null, 2));
+      }
     }
 
-    void load().catch((err) => setError(err instanceof Error ? err.message : "operation ledger request failed"));
+    void load(true).catch((err) => setError(err instanceof Error ? err.message : "operation ledger request failed"));
+    const interval = window.setInterval(
+      () => void load().catch((err) => setError(err instanceof Error ? err.message : "operation ledger request failed")),
+      5000
+    );
+    return () => window.clearInterval(interval);
   }, []);
 
   const opsSummary = useMemo(

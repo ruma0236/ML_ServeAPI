@@ -19,6 +19,16 @@ State = Literal[
 
 EnvironmentTier = Literal["dev", "test", "staging", "pre-production", "production"]
 PromotionPolicyDecisionState = Literal["allow", "pending_approval", "blocked"]
+CheckResult = Literal["pass", "fail"]
+DeploymentIntentState = Literal[
+    "dry_run",
+    "pending_approval",
+    "queued",
+    "applying",
+    "applied",
+    "failed",
+    "rolled_back",
+]
 
 TaskStatus = Literal["draft", "dry_run", "queued", "pending_confirmation", "blocked"]
 CommandStatus = Literal["draft", "dry_run", "pending_confirmation", "applying", "applied", "cancelled", "failed", "rolled_back"]
@@ -171,6 +181,45 @@ class PromotionPolicyDecision(ContractModel):
     reason_codes: list[str] = Field(default_factory=list)
     checks: list[PromotionPolicyCheck] = Field(default_factory=list)
     audit_uri: str | None = None
+
+
+class CIEvidenceBundle(ContractModel):
+    schema_version: str = "evm.w7.ci_evidence.v1"
+    repository: str
+    workflow_name: str
+    workflow_run_id: str
+    workflow_run_attempt: int = Field(default=1, ge=1)
+    commit_sha: str
+    ref: str
+    event: str
+    status: Literal["completed"]
+    conclusion: Literal["success", "failure", "cancelled", "timed_out"]
+    python_test_result: CheckResult
+    frontend_test_result: CheckResult
+    evidence_validator_result: CheckResult
+    compose_config_result: CheckResult
+    kustomize_render_result: CheckResult
+    image_digest: str
+    config_render_digest: str
+    contract_digest: str
+    source_uri: str
+    generated_at: str
+    bundle_digest: str
+
+
+class CIEvidenceValidation(ContractModel):
+    schema_version: str = "evm.w7.ci_evidence_validation.v1"
+    validation_id: str
+    valid: bool
+    status: State
+    workflow_run_id: str
+    commit_sha: str
+    checked_at: str
+    input_digest: str
+    checks: dict[str, State] = Field(default_factory=dict)
+    blockers: list[str] = Field(default_factory=list)
+    source_uri: str | None = None
+    report_uri: str | None = None
 
 
 class AirflowRef(ContractModel):
@@ -399,6 +448,72 @@ class CommandIntentList(ContractModel):
     commands: list[CommandIntent]
 
 
+class DeploymentIntentRequest(ContractModel):
+    target_environment: EnvironmentTier
+    target_namespace: str
+    target: ResourceRef
+    actor: str
+    reason: str
+    dry_run: bool = True
+
+
+class DeploymentTransition(ContractModel):
+    from_state: DeploymentIntentState | Literal["created"]
+    to_state: DeploymentIntentState
+    actor: str
+    timestamp: str
+    environment: EnvironmentTier
+    namespace: str
+    artifact_digest: str
+    reason: str
+    result: str
+
+
+class DeploymentExecutionResult(ContractModel):
+    action: Literal["apply", "rollback"]
+    status: Literal["applied", "failed", "rolled_back"]
+    started_at: str
+    finished_at: str
+    command: list[str] = Field(default_factory=list)
+    exit_code: int
+    stdout_uri: str | None = None
+    stderr_uri: str | None = None
+
+
+class DeploymentIntent(DeploymentIntentRequest):
+    intent_id: str
+    state: DeploymentIntentState
+    version: int = Field(ge=1)
+    created_at: str
+    updated_at: str
+    ci_evidence: CIEvidenceValidation
+    ci_evidence_uri: str
+    ci_bundle_digest: str
+    readiness_evaluation_id: str
+    promotion_policy: PromotionPolicyDecision
+    model_digest: str
+    image_digest: str
+    config_render_digest: str
+    rollback_reference: str
+    manifest_ref: str
+    approver: str | None = None
+    approved_at: str | None = None
+    transitions: list[DeploymentTransition] = Field(default_factory=list)
+    execution_result: DeploymentExecutionResult | None = None
+
+
+class DeploymentIntentList(ContractModel):
+    intents: list[DeploymentIntent]
+    status: State = "pass"
+    blockers: list[str] = Field(default_factory=list)
+
+
+class DeploymentTransitionRequest(ContractModel):
+    actor: str
+    reason: str
+    expected_version: int = Field(ge=1)
+
+
 class ServingState(ContractModel):
     status: State
     endpoint: str
@@ -443,6 +558,8 @@ class CycleRun(ContractModel):
     experiment_pipeline: ExperimentPipelineReadiness | None = None
     readiness_evaluation: ArtifactReadinessEvaluation | None = None
     promotion_policy: PromotionPolicyDecision | None = None
+    ci_evidence: CIEvidenceValidation | None = None
+    latest_deployment_intent: DeploymentIntent | None = None
     model_matrix: ModelExperimentMatrix | None = None
     metrics: list[Metric] = Field(default_factory=list)
     promotion_gate: PromotionGate | None = None

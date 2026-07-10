@@ -253,6 +253,10 @@ services:
       EVM_PROMOTION_POLICY_PERSIST: "true"
       EVM_PROMOTION_POLICY_EVIDENCE_ROOT: /app/artifacts/w7/promotion_policy
       EVM_CONTROL_PANEL_LEDGER_ROOT: /app/artifacts/w7/operations
+      EVM_CI_EVIDENCE_PATH: /app/artifacts/w7/ci/latest_ci_evidence.json
+      EVM_EXPECTED_CI_COMMIT: ${EVM_EXPECTED_CI_COMMIT:-}
+      EVM_DEPLOYMENT_INTENT_ROOT: /app/artifacts/w7/deployment_intents
+      EVM_CONTROL_PANEL_CACHE_TTL_SECONDS: "2"
     ports:
       - "8000:8000"
     volumes:

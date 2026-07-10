@@ -16,11 +16,12 @@ test("@w7-operations creates guarded tasks and command intents", async ({ page }
   await expect(page.getByText("queued").first()).toBeVisible();
 
   await page.getByRole("button", { name: "Dry-run" }).nth(1).click();
-  await expect(page.getByText("command_intent_created").first()).toBeVisible();
-  await page.getByRole("button", { name: "Confirm" }).first().click();
-  await expect(page.getByText("pending_confirmation").first()).toBeVisible();
-  await page.getByRole("button", { name: "Cancel" }).first().click();
-  await expect(page.getByText("cancelled").first()).toBeVisible();
+  const focusedCommand = page.locator('[data-focused-command="true"]');
+  await expect(focusedCommand).toContainText("command_intent_created");
+  await focusedCommand.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(focusedCommand).toContainText("pending_confirmation");
+  await focusedCommand.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(focusedCommand).toContainText("cancelled");
 
   const screenshotPath =
     process.env.EVM_OPERATIONS_SCREENSHOT ||

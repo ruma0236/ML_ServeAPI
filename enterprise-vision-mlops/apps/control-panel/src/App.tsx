@@ -1,5 +1,5 @@
 import { AlertCircle, Moon, RefreshCcw, Sun } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchLatestCycle, fetchRuntimeResources } from "./api/controlPanelClient";
 import type { CycleRun, RuntimeResource } from "./api/types";
@@ -28,24 +28,30 @@ export function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshedAt, setRefreshedAt] = useState("");
+  const refreshInFlight = useRef(false);
 
-  async function loadCycle() {
-    setLoading(true);
-    setError("");
+  async function loadCycle(background = false) {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    if (!background) setLoading(true);
     try {
       const [payload, runtimeResources] = await Promise.all([fetchLatestCycle(), fetchRuntimeResources()]);
       setCycle(payload);
       setResources(runtimeResources);
+      setError("");
       setRefreshedAt(new Date().toLocaleTimeString());
     } catch (err) {
       setError(err instanceof Error ? err.message : "CycleRun request failed");
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
+      refreshInFlight.current = false;
     }
   }
 
   useEffect(() => {
     void loadCycle();
+    const interval = window.setInterval(() => void loadCycle(true), 5000);
+    return () => window.clearInterval(interval);
   }, []);
 
   const activeView = useMemo(() => {

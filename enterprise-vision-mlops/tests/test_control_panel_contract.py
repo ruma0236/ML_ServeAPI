@@ -7,10 +7,12 @@ import pytest
 from fastapi import HTTPException
 
 from apps.api.control_panel import (
+    cycle_snapshot,
     evaluate_promotion_policy,
     get_cycle,
     latest_cycle,
     list_resources,
+    invalidate_cycle_cache,
 )
 from evm.control_panel.schemas import CycleRun, PromotionPolicyRequest, RuntimeResourceList
 from evm.control_panel.validate_cycle_run import validate_cycle_run
@@ -66,6 +68,12 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "recommended_action" in schemas["DriftState"]["properties"]
     assert "promotion_decision" in schemas["CDCTGate"]["properties"]
     assert "block_reason" in schemas["CDCTGate"]["properties"]
+    assert "ci_evidence" in schemas["CycleRun"]["properties"]
+    assert "latest_deployment_intent" in schemas["CycleRun"]["properties"]
+    assert "DeploymentIntent" in schemas
+    assert "CIEvidenceValidation" in schemas
+    assert "/control-panel/v1/deployment-intents" in openapi["paths"]
+    assert "/control-panel/v1/deployment-intents/{intent_id}/queue" in openapi["paths"]
 
 
 def test_control_panel_latest_cycle_route_returns_contract_payload(monkeypatch):
@@ -103,6 +111,26 @@ def test_control_panel_cycle_lookup_404_for_unknown_id():
 
     assert exc.value.status_code == 404
     assert exc.value.detail["error"] == "cycle_not_found"
+
+
+def test_cycle_snapshot_reuses_one_aggregation_within_short_ttl(monkeypatch):
+    cycle = CycleRun.model_validate_json(
+        Path("contracts/control-panel/examples/cycle-run.json").read_text(encoding="utf-8")
+    )
+    calls = 0
+
+    def build():
+        nonlocal calls
+        calls += 1
+        return cycle
+
+    monkeypatch.setattr("apps.api.control_panel.build_latest_cycle", build)
+    monkeypatch.setenv("EVM_CONTROL_PANEL_CACHE_TTL_SECONDS", "30")
+    invalidate_cycle_cache()
+
+    assert cycle_snapshot().cycle_id == cycle.cycle_id
+    assert cycle_snapshot().cycle_id == cycle.cycle_id
+    assert calls == 1
 
 
 def test_promotion_policy_route_recomputes_target_environment_on_server(
