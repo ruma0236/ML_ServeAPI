@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import importlib
+import sys
 from pathlib import Path
 
 from evm.core.torch_efficientnet import load_shard_records
@@ -10,6 +12,8 @@ from evm.pipelines.efficientnet_training.run import (
     run,
     source_digest_blockers,
 )
+
+training_run_module = importlib.import_module("evm.pipelines.efficientnet_training.run")
 
 
 def _write_json(path: Path, payload: dict | list) -> None:
@@ -25,6 +29,25 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 def _write_project_files(root: Path) -> None:
     (root / "pyproject.toml").write_text("[project]\nname='tmp-evm'\n", encoding="utf-8")
     (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+
+
+def test_cli_main_uses_the_explicit_kubernetes_config(monkeypatch, capsys) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        training_run_module,
+        "run",
+        lambda config_path: calls.append(str(config_path)) or {"status": "pass"},
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["efficientnet-training", "/app/configs/w7_efficientnet_kubernetes.toml"],
+    )
+
+    training_run_module.main()
+
+    assert calls == ["/app/configs/w7_efficientnet_kubernetes.toml"]
+    assert json.loads(capsys.readouterr().out) == {"status": "pass"}
 
 
 def test_efficientnet_pipeline_fails_closed_when_real_split_is_too_small(tmp_path, monkeypatch):

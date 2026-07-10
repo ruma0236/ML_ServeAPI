@@ -271,8 +271,10 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
 
 def main(argv: Sequence[str] | None = None) -> None:
     import json
+    import sys
 
-    config_path = argv[0] if argv else "configs/w7_efficientnet_real_test.toml"
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    config_path = arguments[0] if arguments else "configs/w7_efficientnet_real_test.toml"
     print(json.dumps(run(config_path), indent=2, ensure_ascii=False))
 
 
