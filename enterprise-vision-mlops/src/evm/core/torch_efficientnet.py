@@ -202,11 +202,9 @@ def environment_report(device: Any) -> dict[str, Any]:
 
 class VisaImageDataset:
     def __init__(self, records: list[dict[str, Any]], input_size: int) -> None:
-        from PIL import Image
         from torchvision import transforms
 
         self.records = records
-        self.image_module = Image
         self.label_to_index = {label: idx for idx, label in enumerate(CLASS_NAMES)}
         self.transform = transforms.Compose(
             [
@@ -223,6 +221,8 @@ class VisaImageDataset:
         return len(self.records)
 
     def __getitem__(self, index: int) -> tuple[Any, int]:
+        from PIL import Image
+
         record = self.records[index]
         path = resolve_image_path(
             str(record.get("image_uri") or ""),
@@ -231,7 +231,7 @@ class VisaImageDataset:
         if path is None or not path.exists():
             sample_id = record.get("sample_id") or record.get("id") or index
             raise FileNotFoundError(f"missing image for sample {sample_id}: {path}")
-        with self.image_module.open(path) as image:
+        with Image.open(path) as image:
             tensor = self.transform(image.convert("RGB"))
         label = self.label_to_index[str(record["_normalized_label"])]
         return tensor, label
