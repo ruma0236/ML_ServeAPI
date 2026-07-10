@@ -60,6 +60,20 @@ not yet proven.
 - Kubernetes model-runtime Kustomize dry-run: pass
 - Closeout matrix schema: `evm.w7.closeout_matrix.v1`
 
+## Cross-System Checkpoint
+
+- GitHub CI `29092749627`, Jira Realtime Sync `29092749613`, and Deployment
+  Admission `29092789468` succeeded for review commit `715b25b`.
+- Jira `SCRUM-106` remains In Progress with closeout comment `10249`.
+- Jira W7 Epic `SCRUM-98` remains In Progress with checkpoint comment `10250`.
+- Notion checkpoint:
+  `https://app.notion.com/p/39910ad2dcad813092e4cbbbddb27153`.
+- Obsidian checkpoint:
+  `08_Codex_Memory/01_Work_Logs/2026-07-10 W7 EVM-228 Live Closeout Matrix.md`.
+
+This synchronization records the blocked decision; it does not convert any
+blocked claim into completion evidence.
+
 ## Remaining Order
 
 1. Resolve Docker Desktop Kubernetes `nvidia.com/gpu` advertisement and rerun
