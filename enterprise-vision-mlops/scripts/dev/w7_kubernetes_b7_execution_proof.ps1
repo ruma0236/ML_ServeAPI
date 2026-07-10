@@ -25,6 +25,7 @@ $ModelPath = Join-Path $CandidateDir "model.pt"
 $SplitManifestPath = Join-Path $CandidateDir "split_manifest.json"
 $TrainingImage = "enterprise-vision-mlops-efficientnet-training:local"
 $ServingImage = "enterprise-vision-mlops-efficientnet-serving:local"
+$MlflowArtifactModelUploaded = $false
 $Blockers = [System.Collections.Generic.List[string]]::new()
 
 New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
@@ -426,6 +427,33 @@ try {
     Copy-Item $EnvironmentReportPath (Join-Path $EvidenceDir "environment_report.json") -Force
     Copy-Item $GpuProfilePath (Join-Path $EvidenceDir "gpu_profile.json") -Force
 
+    $MlflowArtifactContainerDir = $CandidateDir.Replace(
+        "F:\EnterpriseMLOps_Data\enterprise-vision-mlops",
+        "/mnt/evm-data"
+    ).Replace("\", "/")
+    $MlflowUploadCode = (
+        "from mlflow import MlflowClient; " +
+        "MlflowClient().log_artifacts('$($CandidateSummary.mlflow_run_id)', " +
+        "'$MlflowArtifactContainerDir', artifact_path='evidence')"
+    )
+    Invoke-Captured -Name "20b-mlflow-artifact-upload" -FilePath "docker" -ArgumentList @(
+        "run", "--rm", "--network", "evm-local",
+        "-e", "MLFLOW_TRACKING_URI=http://mlflow:5000",
+        "-v", "F:/EnterpriseMLOps_Data/enterprise-vision-mlops:/mnt/evm-data:ro",
+        "enterprise-vision-mlops-mlflow",
+        "python", "-c", $MlflowUploadCode
+    ) | Out-Null
+    $MlflowArtifactList = Invoke-Captured -Name "20c-mlflow-artifact-list" -FilePath "curl.exe" -ArgumentList @(
+        "-fsS", "-G",
+        "--data-urlencode", "run_id=$($CandidateSummary.mlflow_run_id)",
+        "--data-urlencode", "path=evidence",
+        "http://localhost:5000/api/2.0/mlflow/artifacts/list"
+    )
+    if ($MlflowArtifactList.output -notmatch 'evidence/model\.pt') {
+        throw "MLflow artifact listing does not contain evidence/model.pt"
+    }
+    $MlflowArtifactModelUploaded = $true
+
     Invoke-Captured -Name "21-serving-model-identity" -FilePath "kubectl" -ArgumentList @(
         "set", "env", "deployment/evm-b7-serving", "-n", "evm-staging", "EVM_MODEL_SHA256=$TrainedModelSha256"
     ) | Out-Null
@@ -506,6 +534,7 @@ try {
         training_image_digest = $TrainingImageDigest
         serving_image_digest = $ServingImageDigest
         mlflow_run_id = $CandidateSummary.mlflow_run_id
+        mlflow_artifact_model_uploaded = $MlflowArtifactModelUploaded
         controlled_failure_observed = $true
         rollback_completed = $true
         completion_claim_allowed = $true

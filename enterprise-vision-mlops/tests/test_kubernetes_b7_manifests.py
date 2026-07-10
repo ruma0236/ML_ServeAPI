@@ -87,3 +87,6 @@ def test_execution_proof_uses_run_scoped_model_artifacts() -> None:
     assert "runtime-artifact-patch.yaml" in script
     assert '"scale", "deployment/evm-b7-serving"' in script
     assert '"--replicas=0"' in script
+    assert "20b-mlflow-artifact-upload" in script
+    assert "20c-mlflow-artifact-list" in script
+    assert "evidence/model\\.pt" in script
