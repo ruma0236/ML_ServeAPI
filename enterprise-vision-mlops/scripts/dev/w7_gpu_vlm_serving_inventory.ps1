@@ -1,6 +1,7 @@
 param(
   [string]$EvidenceRoot = "F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\w7\gpu_vlm_serving",
   [string]$ConfigPath = "configs\local.toml",
+  [string]$TorchPython = $(if ($env:EVM_W7_TORCH_PYTHON) { $env:EVM_W7_TORCH_PYTHON } else { "python" }),
   [switch]$SkipRemoteJob
 )
 
@@ -108,7 +109,7 @@ $commandResults += Invoke-Capture -Name "nvidia-smi-full" -Script {
   nvidia-smi
 } -AllowFailure
 $commandResults += Invoke-Capture -Name "python-torch-probe" -Script {
-  python $torchProbePath
+  & $TorchPython $torchProbePath
 } -AllowFailure
 $commandResults += Invoke-Capture -Name "docker-compose-ps" -Script {
   docker compose ps --format json
