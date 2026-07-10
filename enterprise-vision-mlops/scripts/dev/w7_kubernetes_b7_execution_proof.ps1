@@ -1,6 +1,7 @@
 param(
     [switch]$SkipBuild,
     [switch]$AllowBlocked,
+    [int]$TrainingSeed = 20260710,
     [int]$TrainingTimeoutSeconds = 7200,
     [int]$RolloutTimeoutSeconds = 600
 )
@@ -109,6 +110,7 @@ function Write-EvidenceIndex {
         evidence_root = $EvidenceDir
         blockers = @($Blockers)
         git_commit = (git -C $ProjectRoot rev-parse HEAD).Trim()
+        training_seed = $TrainingSeed
         created_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     }
     foreach ($Key in $Additional.Keys) {
@@ -149,6 +151,8 @@ spec:
           env:
             - name: EVM_EFFICIENTNET_RUN_ID
               value: $RunId
+            - name: EVM_EFFICIENTNET_SEED
+              value: "$TrainingSeed"
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -81,6 +81,8 @@ def test_execution_proof_uses_run_scoped_model_artifacts() -> None:
     )
 
     assert "EVM_EFFICIENTNET_RUN_ID" in script
+    assert "EVM_EFFICIENTNET_SEED" in script
+    assert "[int]$TrainingSeed = 20260710" in script
     assert '"runs\\$RunId\\$CandidateId"' in script
     assert "runtime-artifact-patch.yaml" in script
     assert '"scale", "deployment/evm-b7-serving"' in script

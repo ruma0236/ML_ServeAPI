@@ -155,6 +155,9 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
     acceptance = config.get("acceptance", {})
     inputs = config.get("inputs", {})
     execution = config.get("execution", {})
+    execution_seed = int(
+        os.getenv("EVM_EFFICIENTNET_SEED", str(acceptance.get("seed", 20260709)))
+    )
 
     matrix_id = str(matrix_cfg.get("matrix_id", "w7-efficientnet-real-test-matrix"))
     execution_run_id = os.getenv("EVM_EFFICIENTNET_RUN_ID", "").strip()
@@ -176,7 +179,7 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         shard_index,
         splits,
         dataset_version=dataset_version,
-        seed=int(acceptance.get("seed", 20260709)),
+        seed=execution_seed,
     )
     split_manifest["source_shard_index_sha256"] = shard_index_sha256
     split_manifest["expected_shard_index_sha256"] = expected_shard_index_sha256
@@ -187,7 +190,7 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
     write_json(matrix_dir / "split_manifest.json", split_manifest)
 
     runtime = TorchRuntimeConfig(
-        seed=int(acceptance.get("seed", 20260709)),
+        seed=execution_seed,
         require_cuda=bool(acceptance.get("require_cuda_available", True)),
         num_workers=int(execution.get("num_workers", 4)),
         pin_memory=bool(execution.get("pin_memory", True)),
@@ -289,6 +292,7 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         "dataset_version": dataset_version,
         "artifact_root": str(matrix_dir),
         "execution_run_id": execution_run_id or None,
+        "execution_seed": execution_seed,
         "split_manifest": str(matrix_dir / "split_manifest.json"),
         "source_shard_index_sha256": shard_index_sha256,
         "split_blockers": split_blockers,

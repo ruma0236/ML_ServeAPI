@@ -211,6 +211,7 @@ require_cuda_available = true
         encoding="utf-8",
     )
     monkeypatch.delenv("EVM_EFFICIENTNET_CANDIDATES", raising=False)
+    monkeypatch.setenv("EVM_EFFICIENTNET_SEED", "20260710")
 
     summary = run(str(config))
 
@@ -222,6 +223,8 @@ require_cuda_available = true
         "test_images<2181",
     ]
     assert summary["candidates"][0]["status"] == "blocked"
+    assert summary["candidates"][0]["conditions"]["seed"] == 20260710
+    assert summary["execution_seed"] == 20260710
     latest = json.loads((artifacts_root / "latest_model_matrix.json").read_text(encoding="utf-8"))
     assert latest["candidate_count"] == 1
     assert latest["candidates"][0]["execution_blockers"] == summary["split_blockers"]
