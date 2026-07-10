@@ -1,5 +1,8 @@
 # 2026-07-10 W7 EVM-235 CI-Gated Deployment Intent
 
+> Historical implementation checkpoint. Live apply and exact rollback are now
+> complete in `docs/status/2026-07-11-w7-kubernetes-b7-closeout.md`.
+
 ## Decision
 
 The EVM-235 implementation is complete, but operational closure remains `In

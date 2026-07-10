@@ -185,7 +185,9 @@ function ChecklistPanel({
           <div key={item.label}>
             <CheckSquare />
             <span>{item.label}</span>
-            <small>{item.evidence || "missing evidence"}</small>
+            <small title={item.evidence || "missing evidence"}>
+              {item.evidence || "missing evidence"}
+            </small>
             <StatusBadge status={item.status} compact />
           </div>
         ))}

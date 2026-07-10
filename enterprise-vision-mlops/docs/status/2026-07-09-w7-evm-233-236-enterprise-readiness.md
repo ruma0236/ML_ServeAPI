@@ -3,7 +3,9 @@
 > Historical baseline note: this document originally proved the read-only
 > UI/schema surface. As of 2026-07-10, `EVM-236` is closed by the artifact-content
 > evaluator and `EVM-233` is closed by the executable server-side promotion
-> policy. The original implementation details below remain as history.
+> policy. Final `ready` and staging `allow` execution evidence is indexed in
+> `docs/status/2026-07-11-w7-kubernetes-b7-closeout.md`.
+> The original implementation details below remain as history.
 
 ## 2026-07-10 Executable EVM-233 Closure
 

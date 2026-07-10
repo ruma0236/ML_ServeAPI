@@ -1,5 +1,8 @@
 # W7 Integration Review Checkpoint
 
+> Historical blocked checkpoint. The final live matrix reports 13/13 passing
+> claims in `docs/status/2026-07-11-w7-kubernetes-b7-closeout.md`.
+
 Date: 2026-07-10
 
 ## Decision

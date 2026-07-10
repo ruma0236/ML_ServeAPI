@@ -12,6 +12,12 @@ This is the live implementation-control document. Completed UI/schema
 foundations remain valid, but an issue is reopened when later review shows that
 its operational behavior was represented rather than executed.
 
+Final execution update, 2026-07-11: `EVM-226`, `EVM-228`, `EVM-233`,
+`EVM-235`, and `EVM-236` satisfy their execution criteria. The live closeout
+matrix reports 13/13 passing claims and zero blockers. Detailed evidence and
+the remaining legacy-baseline boundary are recorded in
+`docs/status/2026-07-11-w7-kubernetes-b7-closeout.md`.
+
 ## Scope Control
 
 W7 completion claims are ordered by dependency, not by reduced depth:
@@ -239,20 +245,14 @@ evidence.
     `nvidia.com/gpu`, storage cannot be mounted, Job/Deployment probes fail,
     model identity is mutable, or expected artifacts are not produced.
 - Current checkpoint:
-  - implementation, Docker GPU proof, immutable image/model identity, and
-    F-drive storage binding are verified;
-  - Docker Desktop WSL2 GPU bridge advertises `nvidia.com/gpu=1`; a
-    non-privileged resource probe requested one GPU and reported the RTX 4080
-    SUPER from inside Kubernetes;
-  - bridge evidence is stored under
-    `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/kubernetes_gpu_bridge/evm-gpu-bridge-20260710T135448Z`;
-  - the previous `Insufficient nvidia.com/gpu` / `DeadlineExceeded` blocker is
-    resolved, but the B7 Job, serving rollout, inference, controlled failure,
-    and rollback still keep EVM-226 open;
-  - the live observer can now expose allocatable GPU and the subsequent Job and
-    Deployment transitions without treating the bridge alone as completion;
-  - bridge evidence is indexed in
-    `docs/status/2026-07-10-w7-docker-desktop-kubernetes-gpu-bridge.md`.
+  - `Done`; Docker Desktop advertises `nvidia.com/gpu=1` and the real VisA B7
+    Job completed as run `w7-k8s-b7-20260711T010003`;
+  - MLflow run `445be011d88a40ada5e70ab86de4f750`, model SHA
+    `1d1df27fc20089688cc4efef8496169dcac700f65b84951190dc61fcc438337d`,
+    1/1 Ready serving, CUDA inference, controlled failure, and recovery are
+    verified;
+  - final evidence is indexed in
+    `docs/status/2026-07-11-w7-kubernetes-b7-closeout.md`.
 
 ### EVM-227 - Serving Design Record, Execution Absorbed By EVM-226
 
@@ -269,18 +269,14 @@ evidence.
 
 ### EVM-228 - Compressed W6/W7 Integration Review
 
-Execution checkpoint on 2026-07-10: In Progress / blocked.
+Execution closure on 2026-07-11: `Done`.
 
-- Commits `5be75f7` and `795b876` add an executable closeout matrix that reads
-  the live CycleRun and Kubernetes resource APIs.
-- Matrix `evm-228-20260710T212824/w7-closeout-matrix.json` reports 7 passing
-  claims and 6 required blockers.
-- Passing evidence includes real dataset/model lineage, selected B7 MLflow
-  run, measured drift review, immutable CI evidence, and live Kubernetes
-  observation.
-- Blockers are Kubernetes GPU training, Kubernetes serving rollout, artifact
-  readiness, environment policy, deployment apply, and deployment rollback.
-- EVM-228 cannot close until a rerun with `--require-closeout` returns success.
+- The live CycleRun/resource closeout returned 13 passing claims, zero required
+  blockers, and `closeout_allowed=true` with `--require-closeout`.
+- Apply and rollback claims are evaluated from the immutable transition
+  history, so a final `rolled_back` state retains proof of the prior apply.
+- Evidence root:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/verification/w7-gates-20260711T012355/final-closeout-28f40d8/`.
 
 - Implementation files:
   - `src/evm/control_panel/w7_closeout.py`
@@ -479,9 +475,9 @@ Execution follow-up on 2026-07-10:
   - live verification bundle:
     `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/promotion_policy/evm-233-verification-20260710T184311/`;
   - full desktop/mobile Control Panel regression: `14 passed`;
-  - current promotion result is correctly `blocked`, not operationally promoted,
-    because readiness, CT, and rollback evidence remain incomplete;
-  - deployment state transitions remain in `EVM-235`.
+  - final staging promotion result is `allow` because readiness, CI, immutable
+    image/model identities, namespace, ownership, and rollback evidence pass;
+  - the approved apply and exact rollback transitions are closed by `EVM-235`.
 
 ### EVM-234 - Review-First B7 Drift Event
 
@@ -540,22 +536,17 @@ Execution state on 2026-07-10: Done.
 
 ### EVM-235 - CD/CT Push Verification And Promotion Gate
 
-Execution state on 2026-07-10:
+Execution state on 2026-07-11: `Done`.
 
-- implementation checkpoint complete, operational closure still `In Progress`;
-- CI evidence, readiness, and environment policy are evaluated server-side and
-  deployment-intent creation fails closed before any mutation;
-- the audited state machine and isolated executor cover `dry_run`, approval,
-  queue, apply, failure, and rollback branches in automated tests;
-- EVM-235 implementation GitHub CI run `29087199282` and deployment-admission run
-  `29087230617`
-  completed successfully, and their digest-verified evidence is loaded by the
-  local API;
-- live CI and CD are `pass`, while CT, readiness, and policy remain blocked;
-  deployment creation returns `409` with readiness, policy, and rollback
-  blockers, so no real Kubernetes apply/rollback is claimed;
-- desktop/mobile Control Panel verification passed all 14 Playwright scenarios,
-  and a 24-request concurrent read check completed with all responses `200`.
+- Intent `deploy-3bfdb1f5a81ba507` completed `dry_run`, approval, queue,
+  `applying`, `applied`, and exact `rolled_back` transitions against the live
+  Docker Desktop Kubernetes cluster;
+- deployment CI run `29108295585` is bound to execution commit `4b668bf`; the
+  current control-plane CI run is `29108780028`;
+- the intent stores an immutable CI bundle and model/image identities;
+- apply returned real VisA CUDA inference, and rollback recomputed the approved
+  baseline artifact checksum instead of using `kubectl rollout undo`;
+- the full Desktop Chrome and Pixel 5 Playwright suite passes 14/14 scenarios.
 
 - Implementation files:
   - repository-root `.github/workflows/enterprise-vision-mlops-ci.yml`
@@ -602,31 +593,24 @@ Execution state on 2026-07-10:
     before validators pass, or UI/API calls Kubernetes directly.
 
 - Current evidence:
-  - `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/deployment_intents/evm-235-verification-20260710T193530/`
-  - full Playwright: `14 passed`; post-CI gate/all-tab verification: `4 passed`;
-  - Python: `85 passed`; frontend contracts: `7 files / 19 passed`;
-  - concurrent API read proof: `24/24` HTTP `200` in `1.777s`;
-  - Jira `SCRUM-113` comment `10233` and parent Epic comment `10234` preserve
-    the In Progress claim boundary;
-  - Notion detail:
-    `https://app.notion.com/p/39910ad2dcad81788a2aeee87e55d719`;
-  - Obsidian work log:
-    `F:/mlops_obsidian_db/mlops/08_Codex_Memory/01_Work_Logs/2026-07-10 W7 EVM-235 CI-Gated Deployment Intent.md`;
-  - operational closure remains blocked by `EVM-226` and live `EVM-236`.
+  - `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/deployment_intents/deploy-3bfdb1f5a81ba507/`;
+  - apply/rollback verification and real inference captures:
+    `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/verification/w7-gates-20260711T012355/deployment-intent-4b668bf/`;
+  - Python: `120 passed`; frontend contracts: `19 passed`; Playwright: `14 passed`;
+  - final review: `docs/status/2026-07-11-w7-kubernetes-b7-closeout.md`.
 
 ### EVM-236 - Enterprise Data/Model Evidence Readiness Evaluator
 
-Execution state on 2026-07-10:
+Execution state on 2026-07-11: `Done / ready`.
 
-- evaluator implementation and UI/API contract integration are complete;
-- live report `readiness-d7849f6b195bd356` validated 13 content checks and returned
-  `blocked` with 14 deterministic blocker codes;
-- evidence is stored under
-  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/readiness/evm-236-readiness-20260710T090734Z/`;
-- EVM-236 completion means the evaluator works. It does not override the
-  unresolved data identity, lineage, MLflow, rollback, or Kubernetes blockers.
-- Jira `SCRUM-114` is Done with implementation-closure comment `10228` and
-  `readiness-blocked` claim-boundary labeling.
+- The evaluator returns `ready` with 13/13 content checks and zero blockers.
+- Data contract, 10,821-record metadata/shards/split, quality, lineage, MLflow,
+  model card/artifact checksum, real-test validation, approved rollback, and
+  Kubernetes runtime all pass.
+- Independent validator evidence is stored under
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/verification/w7-gates-20260711T012355/final-closeout-28f40d8/`.
+- Jira `SCRUM-114` remains Done and its former blocked result is superseded by
+  this execution evidence.
 - Notion detail:
   `https://app.notion.com/p/39910ad2dcad8153b403e63a543de127`.
 - Obsidian work log:

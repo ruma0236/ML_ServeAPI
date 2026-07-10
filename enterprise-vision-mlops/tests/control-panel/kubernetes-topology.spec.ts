@@ -1,6 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-test("@w7-kubernetes-topology renders API-backed resource topology and drilldown", async ({ page }, testInfo) => {
+test("@w7-kubernetes-topology renders API-backed resource topology and drilldown", async ({ page, request }, testInfo) => {
+  const resourceResponse = await request.get("http://127.0.0.1:8000/control-panel/v1/resources");
+  expect(resourceResponse.ok()).toBe(true);
+  const resourcePayload = await resourceResponse.json();
+  const trainingResource = resourcePayload.resources.find(
+    (resource: { kind: string; name: string }) => resource.kind === "Job" && resource.name === "evm-b7-training"
+  );
+  expect(trainingResource).toBeTruthy();
+
   await page.goto("/");
   await page.getByRole("button", { name: "Timeline" }).click();
 
@@ -10,10 +18,17 @@ test("@w7-kubernetes-topology renders API-backed resource topology and drilldown
   await expect(page.getByText("PERSISTENTVOLUMECLAIM").first()).toBeVisible();
   await expect(page.locator(".observation-state")).toContainText("live");
 
-  await page.getByRole("button", { name: /Job evm-b7-training fail/ }).click();
-  await expect(page.getByLabel("Resource detail")).toContainText("kubernetes_snapshot");
-  await expect(page.getByLabel("Resource detail")).toContainText("DeadlineExceeded");
-  await expect(page.getByLabel("Resource detail")).toContainText("Job was active longer than specified deadline");
+  const trainingButton = page.getByRole("button", {
+    name: `${trainingResource.kind} ${trainingResource.name} ${trainingResource.status}`,
+    exact: true
+  });
+  await trainingButton.click();
+  const resourceDetail = page.getByLabel("Resource detail");
+  await expect(resourceDetail).toContainText("kubernetes_snapshot");
+  await expect(resourceDetail).toContainText(trainingResource.reason);
+  if (trainingResource.message) {
+    await expect(resourceDetail).toContainText(trainingResource.message);
+  }
 
   await page.getByRole("button", { name: "All", exact: true }).click();
   await expect(page.getByText("evm-platform").first()).toBeVisible();
@@ -28,7 +43,7 @@ test("@w7-kubernetes-topology renders API-backed resource topology and drilldown
   await expect(page.getByLabel("Resource detail")).toContainText("RTX 4080");
   await expect(page.getByLabel("Resource detail")).toContainText("rerun_dry_run");
 
-  await page.getByRole("button", { name: /Job evm-b7-training fail/ }).click();
+  await trainingButton.click();
 
   const screenshotPath =
     process.env.EVM_KUBERNETES_TOPOLOGY_SCREENSHOT ||

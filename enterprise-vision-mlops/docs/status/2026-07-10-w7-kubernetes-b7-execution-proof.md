@@ -1,5 +1,8 @@
 # 2026-07-10 W7 Kubernetes B7 Execution Proof
 
+> Historical blocked checkpoint. Superseded by the completed real execution
+> and closeout in `docs/status/2026-07-11-w7-kubernetes-b7-closeout.md`.
+
 ## Decision
 
 `EVM-226` remains `In Progress` and blocked. Docker Desktop Kubernetes is now
