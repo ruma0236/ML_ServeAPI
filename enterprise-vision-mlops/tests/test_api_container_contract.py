@@ -12,6 +12,9 @@ def test_api_container_includes_control_panel_runtime_files() -> None:
     assert "COPY domain_packs /app/domain_packs" in dockerfile
     assert "COPY pyproject.toml docker-compose.yml /app/" in dockerfile
     assert "EVM_CONTROL_PANEL_CONFIG: configs/airflow.toml" in compose
+    assert "EVM_EXPECTED_CI_COMMIT: ${EVM_EXPECTED_CI_COMMIT:-}" in compose
+    assert "GIT_COMMIT: ${EVM_GIT_COMMIT:-}" in compose
+    assert "GIT_BRANCH: ${EVM_GIT_BRANCH:-}" in compose
 
 
 def test_pipeline_container_has_project_root_markers_for_config_resolution() -> None:
