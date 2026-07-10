@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: evm-training
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/environment: training
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: evm-staging
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/environment: staging

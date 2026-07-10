@@ -94,7 +94,11 @@ def load_shard_records(shard_index_path: Path) -> tuple[dict[str, Any], dict[str
         split = str(shard.get("split") or "")
         if split not in splits:
             continue
-        shard_path = Path(str(shard.get("path") or ""))
+        shard_path = resolve_image_path(
+            str(shard.get("path") or ""),
+            host_data_root=os.getenv("EVM_HOST_DATA_ROOT"),
+            data_mount_root=os.getenv("EVM_DATA_MOUNT_ROOT"),
+        ) or Path()
         if not shard_path.is_absolute():
             shard_path = shard_index_path.parent / shard_path
         records = read_jsonl(shard_path)
@@ -228,6 +232,8 @@ class VisaImageDataset:
         path = resolve_image_path(
             str(record.get("image_uri") or ""),
             image_path=str(record.get("image_path") or ""),
+            host_data_root=os.getenv("EVM_HOST_DATA_ROOT"),
+            data_mount_root=os.getenv("EVM_DATA_MOUNT_ROOT"),
         )
         if path is None or not path.exists():
             sample_id = record.get("sample_id") or record.get("id") or index

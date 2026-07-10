@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: evm-b7-training
+  namespace: evm-training
+  labels:
+    app.kubernetes.io/name: evm-b7-training
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/candidate-id: effnet-b7-img600-finetune-adamw
+    evm.openai.local/dataset-version: visa-open-data-f1f1c9ee9922
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 7200
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: evm-b7-training
+        app.kubernetes.io/part-of: enterprise-vision-mlops
+        evm.openai.local/candidate-id: effnet-b7-img600-finetune-adamw
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: trainer
+          image: enterprise-vision-mlops-efficientnet-training:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - evm.pipelines.efficientnet_training.run
+            - /app/configs/w7_efficientnet_kubernetes.toml
+          env:
+            - name: EVM_EFFICIENTNET_CANDIDATES
+              value: effnet-b7-img600-finetune-adamw
+            - name: EVM_HOST_DATA_ROOT
+              value: F:/EnterpriseMLOps_Data/enterprise-vision-mlops
+            - name: EVM_DATA_MOUNT_ROOT
+              value: /mnt/evm-data
+            - name: HOME
+              value: /tmp
+            - name: MPLCONFIGDIR
+              value: /tmp/matplotlib
+            - name: TORCH_HOME
+              value: /mnt/evm-data/cache/torch
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+          resources:
+            requests:
+              cpu: "6"
+              memory: 12Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "16"
+              memory: 28Gi
+              nvidia.com/gpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: large-data
+              mountPath: /mnt/evm-data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: large-data
+          persistentVolumeClaim:
+            claimName: evm-large-data
+        - name: tmp
+          emptyDir: {}

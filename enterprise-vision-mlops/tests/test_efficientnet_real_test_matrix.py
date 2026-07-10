@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from evm.pipelines.efficientnet_training.run import matrix_status, merge_candidate_results, run
+from evm.core.torch_efficientnet import load_shard_records
+from evm.pipelines.efficientnet_training.run import (
+    matrix_status,
+    merge_candidate_results,
+    run,
+    source_digest_blockers,
+)
 
 
 def _write_json(path: Path, payload: dict | list) -> None:
@@ -154,3 +160,48 @@ def test_partial_candidate_results_merge_existing_matrix_evidence():
         "effnet-b0-img224-finetune-sgd",
     }
     assert matrix_status(merged, configured_candidate_count=4) == "warn"
+
+
+def test_shard_records_map_windows_f_drive_to_container_mount(tmp_path, monkeypatch):
+    mounted_root = tmp_path / "mnt" / "evm-data"
+    shard_path = mounted_root / "data" / "validated" / "visa" / "shards" / "train.jsonl"
+    _write_jsonl(
+        shard_path,
+        [
+            {
+                "sample_id": "mapped-1",
+                "split": "train",
+                "label_type": "normal",
+                "image_path": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/image.jpg",
+            }
+        ],
+    )
+    shard_index_path = mounted_root / "data" / "validated" / "visa" / "shards" / "index.json"
+    _write_json(
+        shard_index_path,
+        {
+            "shards": [
+                {
+                    "shard_id": "train-0000",
+                    "split": "train",
+                    "path": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/shards/train.jsonl",
+                }
+            ]
+        },
+    )
+    monkeypatch.setenv(
+        "EVM_HOST_DATA_ROOT", "F:/EnterpriseMLOps_Data/enterprise-vision-mlops"
+    )
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", mounted_root.as_posix())
+
+    _, splits = load_shard_records(shard_index_path)
+
+    assert len(splits["train"]) == 1
+    assert splits["train"][0]["sample_id"] == "mapped-1"
+
+
+def test_source_digest_mismatch_blocks_training() -> None:
+    assert source_digest_blockers("actual", "expected") == [
+        "shard_index_sha256_mismatch:expected=expected,actual=actual"
+    ]
+    assert source_digest_blockers("ABC123", "abc123") == []

@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: evm-training-large-data
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/volume-role: training
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: evm-local-hostpath
+  claimRef:
+    namespace: evm-training
+    name: evm-large-data
+  hostPath:
+    path: /run/desktop/mnt/host/f/EnterpriseMLOps_Data/enterprise-vision-mlops
+    type: Directory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evm-large-data
+  namespace: evm-training
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Ti
+  storageClassName: evm-local-hostpath
+  volumeName: evm-training-large-data
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: evm-staging-large-data
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/volume-role: staging
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: evm-local-hostpath
+  claimRef:
+    namespace: evm-staging
+    name: evm-large-data
+  hostPath:
+    path: /run/desktop/mnt/host/f/EnterpriseMLOps_Data/enterprise-vision-mlops
+    type: Directory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evm-large-data
+  namespace: evm-staging
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 1Ti
+  storageClassName: evm-local-hostpath
+  volumeName: evm-staging-large-data

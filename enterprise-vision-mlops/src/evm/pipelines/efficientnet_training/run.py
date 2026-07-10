@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tomllib
@@ -27,6 +28,25 @@ def read_json(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def file_sha256(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fp:
+        while chunk := fp.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def source_digest_blockers(actual: str, expected: str) -> list[str]:
+    if not expected:
+        return []
+    if actual.lower() != expected.lower():
+        return [
+            "shard_index_sha256_mismatch:"
+            f"expected={expected.lower()},actual={actual.lower()}"
+        ]
+    return []
 
 
 def load_config(config_path: str | Path) -> dict[str, Any]:
@@ -117,6 +137,8 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
     shard_index_path = Path(str(inputs.get("shard_index", "")))
     if not shard_index_path.is_absolute():
         shard_index_path = resolve_path(config, shard_index_path)
+    shard_index_sha256 = file_sha256(shard_index_path)
+    expected_shard_index_sha256 = str(inputs.get("shard_index_sha256", "")).strip()
     shard_index, splits = load_shard_records(shard_index_path)
     split_manifest = split_manifest_snapshot(
         shard_index,
@@ -124,7 +146,12 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         dataset_version=dataset_version,
         seed=int(acceptance.get("seed", 20260709)),
     )
-    split_blockers = validate_acceptance_split(split_manifest, acceptance)
+    split_manifest["source_shard_index_sha256"] = shard_index_sha256
+    split_manifest["expected_shard_index_sha256"] = expected_shard_index_sha256
+    split_blockers = source_digest_blockers(
+        shard_index_sha256,
+        expected_shard_index_sha256,
+    ) + validate_acceptance_split(split_manifest, acceptance)
     write_json(matrix_dir / "split_manifest.json", split_manifest)
 
     runtime = TorchRuntimeConfig(
@@ -230,6 +257,7 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         "dataset_version": dataset_version,
         "artifact_root": str(matrix_dir),
         "split_manifest": str(matrix_dir / "split_manifest.json"),
+        "source_shard_index_sha256": shard_index_sha256,
         "split_blockers": split_blockers,
         "candidate_count": len(merged_candidate_results),
         "configured_candidate_count": len(all_candidates_cfg),

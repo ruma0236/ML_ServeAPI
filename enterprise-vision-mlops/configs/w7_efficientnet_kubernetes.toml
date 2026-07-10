@@ -1,7 +1,7 @@
 [model_matrix]
 matrix_id = "w7-efficientnet-real-test-matrix"
 framework = "torch"
-execution_mode = "parallel"
+execution_mode = "exclusive_gpu_job"
 dataset_version = "visa-open-data-f1f1c9ee9922"
 dataset_policy = "real_full_visa"
 mock_allowed = false
@@ -11,20 +11,19 @@ requires_real_training = true
 minimum_records = 10821
 
 [resources]
-primary_gpu = "windows-rtx-4080-super"
-remote_evaluator = "mac-mini-m4-pro"
-artifact_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet"
-dataset_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data"
+primary_gpu = "docker-desktop-kubernetes-rtx-4080-super"
+artifact_root = "/mnt/evm-data/artifacts/w7/efficientnet"
+dataset_root = "/mnt/evm-data/data"
 max_b0_parallel_jobs = 2
 max_b7_parallel_jobs = 1
 allow_cpu_fallback = false
 
 [inputs]
 base_config = "configs/local_visa.toml"
-shard_index = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/shards/shard_index.json"
+shard_index = "/mnt/evm-data/data/validated/visa/shards/shard_index.json"
 shard_index_sha256 = "49584d29e7ebf7dd8d8f7e13fb54cd0ba81bdb60a892b92e1d43f80368cc4f7d"
-mlflow_tracking_uri = "http://localhost:5000"
-mlflow_experiment_name = "enterprise-vision-w7-efficientnet"
+mlflow_tracking_uri = "http://host.docker.internal:5000"
+mlflow_experiment_name = "enterprise-vision-w7-efficientnet-kubernetes"
 positive_label = "anomaly"
 
 [execution]

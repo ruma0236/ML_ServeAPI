@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evm-b7-serving
+  namespace: evm-staging
+  labels:
+    app.kubernetes.io/name: evm-b7-serving
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/candidate-id: effnet-b7-img600-finetune-adamw
+    evm.openai.local/environment: staging
+spec:
+  replicas: 0
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: evm-b7-serving
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: evm-b7-serving
+        app.kubernetes.io/part-of: enterprise-vision-mlops
+        evm.openai.local/candidate-id: effnet-b7-img600-finetune-adamw
+        evm.openai.local/environment: staging
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: serving
+          image: enterprise-vision-mlops-efficientnet-serving:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: APP_NAME
+              value: evm-b7-serving
+            - name: EVM_MODEL_PATH
+              value: /mnt/evm-data/artifacts/w7/efficientnet/w7-efficientnet-real-test-matrix/effnet-b7-img600-finetune-adamw/model.pt
+            - name: EVM_MODEL_SHA256
+              value: f5aafeb1060e10048359cbb78393ea2c7519cfa47f501bf8c6b065373c87fe47
+            - name: EVM_MODEL_CANDIDATE_ID
+              value: effnet-b7-img600-finetune-adamw
+            - name: EVM_DATASET_VERSION
+              value: visa-open-data-f1f1c9ee9922
+            - name: EVM_REQUIRE_CUDA
+              value: "true"
+            - name: EVM_HOST_DATA_ROOT
+              value: F:/EnterpriseMLOps_Data/enterprise-vision-mlops
+            - name: EVM_DATA_MOUNT_ROOT
+              value: /mnt/evm-data
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: large-data
+              mountPath: /mnt/evm-data
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: large-data
+          persistentVolumeClaim:
+            claimName: evm-large-data
+            readOnly: true
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evm-b7-serving
+  namespace: evm-staging
+  labels:
+    app.kubernetes.io/name: evm-b7-serving
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  selector:
+    app.kubernetes.io/name: evm-b7-serving
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
