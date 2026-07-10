@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from evm.core.image_feature_model import resolve_image_path
+from evm.core.mlflow_client import MlflowRestClient
 from evm.core.pipeline import utc_now, write_json
 
 
@@ -466,37 +467,40 @@ def log_mlflow_run(
     summary: dict[str, Any],
     runtime: TorchRuntimeConfig,
 ) -> tuple[str, str | None]:
-    try:
-        import mlflow
+    client = MlflowRestClient(runtime.mlflow_tracking_uri)
+    if not client.health():
+        return "blocked", "mlflow_health_failed"
+    experiment_id = client.get_or_create_experiment(runtime.mlflow_experiment_name)
+    if not experiment_id:
+        return "blocked", "mlflow_experiment_missing"
+    run_id = client.create_run(experiment_id, candidate.candidate_id)
+    if not run_id:
+        return "blocked", "mlflow_run_missing"
 
-        mlflow.set_tracking_uri(runtime.mlflow_tracking_uri)
-        mlflow.set_experiment(runtime.mlflow_experiment_name)
-        with mlflow.start_run(run_name=candidate.candidate_id) as active_run:
-            run_id = active_run.info.run_id
-            mlflow.log_params(
-                {
-                    "candidate_id": candidate.candidate_id,
-                    "architecture": candidate.architecture,
-                    "backbone": candidate.backbone,
-                    "input_size": candidate.input_size,
-                    "pretrained": candidate.pretrained,
-                    "freeze_backbone": candidate.freeze_backbone,
-                    "optimizer": candidate.optimizer,
-                    "learning_rate": candidate.learning_rate,
-                    "batch_size": candidate.batch_size,
-                    "mixed_precision": candidate.mixed_precision,
-                    "epochs": candidate.epochs,
-                    "seed": runtime.seed,
-                    "dataset_version": summary["dataset_version"],
-                }
-            )
-            for key, value in summary.get("metrics", {}).items():
-                if isinstance(value, int | float):
-                    mlflow.log_metric(key, float(value))
-            mlflow.log_artifacts(str(candidate_dir))
-        return "logged", run_id
-    except Exception as exc:
-        return "blocked", None if not str(exc) else str(exc)
+    params = {
+        "candidate_id": candidate.candidate_id,
+        "architecture": candidate.architecture,
+        "backbone": candidate.backbone,
+        "input_size": candidate.input_size,
+        "pretrained": candidate.pretrained,
+        "freeze_backbone": candidate.freeze_backbone,
+        "optimizer": candidate.optimizer,
+        "learning_rate": candidate.learning_rate,
+        "batch_size": candidate.batch_size,
+        "mixed_precision": candidate.mixed_precision,
+        "epochs": candidate.epochs,
+        "seed": runtime.seed,
+        "dataset_version": summary["dataset_version"],
+        "artifact_uri": str(candidate_dir),
+        "model_artifact": summary.get("model_artifact", ""),
+    }
+    for key, value in params.items():
+        client.log_param(run_id, key, value)
+    for key, value in summary.get("metrics", {}).items():
+        if isinstance(value, int | float):
+            client.log_metric(run_id, key, float(value))
+    client.terminate_run(run_id)
+    return "logged", run_id
 
 
 def train_candidate(

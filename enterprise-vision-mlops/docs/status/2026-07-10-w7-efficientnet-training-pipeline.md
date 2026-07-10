@@ -5,7 +5,11 @@
 This checkpoint advances `EVM-237` from runtime preflight into implementation.
 It adds the W7 `efficientnet-training` pipeline, Control Panel model-matrix
 evidence ingestion, and tests for fail-closed split validation. It does not
-close `EVM-237`; real EfficientNet-B0/B7 training has not been executed yet.
+close `EVM-237`; the full EfficientNet-B0/B7 candidate matrix has not been
+executed yet.
+
+Follow-up: the first real candidate run is now recorded separately in
+`docs/status/2026-07-10-w7-efficientnet-b0-freeze-real-run.md`.
 
 ## Implementation
 
