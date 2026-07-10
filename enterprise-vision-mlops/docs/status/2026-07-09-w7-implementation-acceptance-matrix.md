@@ -173,6 +173,7 @@ The Control Panel UI must consume these `CycleRun` fields:
   - created pipeline artifact under F-drive artifact root
   - screenshots if UI is used
 - Verification command:
+  - `scripts\dev\w7_kubernetes_real_execution_proof.ps1 -BuildImages`
   - `kubectl kustomize infra/kubernetes/local`
   - `kubectl apply -k infra/kubernetes/local`
   - `kubectl wait --for=condition=available deployment/evm-api -n evm-platform --timeout=300s`
@@ -211,6 +212,7 @@ The Control Panel UI must consume these `CycleRun` fields:
   - remote inventory and remote job summaries
   - next implementation backlog
 - Verification command:
+  - `scripts\dev\w7_gpu_vlm_serving_inventory.ps1`
   - `nvidia-smi --query-gpu=name,memory.total,memory.used,memory.free,driver_version --format=csv,noheader`
   - `python -c "import json, torch; print(json.dumps({'torch': torch.__version__, 'cuda_available': torch.cuda.is_available(), 'cuda_device': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None, 'cuda_memory_total': torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0}))"`
   - `python scripts/run_pipeline.py remote-inventory --config configs/local.toml`
