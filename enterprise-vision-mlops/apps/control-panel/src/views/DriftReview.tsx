@@ -1,4 +1,4 @@
-import { AlertTriangle, GitBranch, ListChecks, Waves } from "lucide-react";
+import { BadgeCheck, FileSearch, LockKeyhole, Waves } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { compactUri } from "../api/controlPanelClient";
@@ -19,12 +19,13 @@ const actionLabels: Record<string, string> = {
 
 export function DriftReview({ cycle }: DriftReviewProps) {
   const drift = cycle.drift;
+  const measured = drift?.measurement_status === "measured";
   return (
     <div className="panel drift-review-panel">
       <div className="panel-heading">
         <div>
           <h2>Drift Review</h2>
-          <p>{actionLabels[drift?.action || "none"] || drift?.action || "none"}</p>
+          <p>{drift?.review_event_type || actionLabels[drift?.action || "none"] || drift?.action || "none"}</p>
         </div>
         <Waves />
       </div>
@@ -39,23 +40,58 @@ export function DriftReview({ cycle }: DriftReviewProps) {
         </div>
 
         <div className="drift-state-grid">
-          <DriftStateTile label="Data Drift" status={drift?.data_drift_status} value={drift?.severity || "none"} />
-          <DriftStateTile label="Prediction Drift" status={drift?.prediction_drift_status} value={drift?.prediction_drift_status || "unknown"} />
+          <DriftStateTile label="Input Category JS" status={drift?.data_drift_status} value={formatMetric(drift?.input_category_js)} />
+          <DriftStateTile label="Confidence PSI" status={drift?.prediction_drift_status} value={formatMetric(drift?.confidence_psi)} />
           <DriftStateTile label="Review Queue" status={drift?.review_queue_count ? "warn" : "pass"} value={String(drift?.review_queue_count || 0)} />
-          <DriftStateTile label="Retraining" status={drift?.retraining_candidate_required ? "warn" : "pass"} value={drift?.retraining_candidate_required ? "required" : "not required"} />
+          <DriftStateTile label="Auto Retraining" status={drift?.automatic_retraining ? "fail" : "pass"} value={drift?.automatic_retraining ? "enabled" : "disabled"} />
         </div>
 
         <dl className="detail-list drift-detail-list">
-          <Row label="Reference" value={drift?.reference_dataset_version} />
-          <Row label="Current" value={drift?.current_dataset_version} />
-          <Row label="Score" value={formatScore(drift)} />
+          <Row label="Measurement" value={drift?.measurement_status} />
+          <Row label="Candidate" value={drift?.model_candidate_id} />
+          <Row label="Event" value={drift?.review_event_id} />
+          <Row label="Event State" value={drift?.review_event_status} />
+          <Row label="Baseline" value={windowLabel(drift?.reference_window_id, drift?.reference_record_count)} />
+          <Row label="Current" value={windowLabel(drift?.current_window_id, drift?.current_record_count)} />
+          <Row label="Predicted Class JS" value={formatMetric(drift?.predicted_class_js)} />
+          <Row label="Mean Confidence Drop" value={formatMetric(drift?.mean_confidence_drop)} />
+          <Row label="Low Confidence Increase" value={formatPercent(drift?.low_confidence_rate_increase)} />
           <Row label="Report" value={compactUri(drift?.report_uri)} />
+          <Row label="Label Queue" value={compactUri(drift?.label_review_queue_uri)} />
         </dl>
 
+        {measured ? (
+          <div className="drift-confidence-comparison" aria-label="Confidence quantile comparison">
+            <header>
+              <span>Confidence</span>
+              <strong>Baseline</strong>
+              <strong>Current</strong>
+            </header>
+            {(["p10", "p50", "p90"] as const).map((quantile) => (
+              <div key={quantile}>
+                <span>{quantile.toUpperCase()}</span>
+                <strong>{formatMetric(drift?.reference_confidence_quantiles?.[quantile])}</strong>
+                <strong>{formatMetric(drift?.current_confidence_quantiles?.[quantile])}</strong>
+              </div>
+            ))}
+            <div>
+              <span>Low rate</span>
+              <strong>{formatPercent(drift?.reference_low_confidence_rate)}</strong>
+              <strong>{formatPercent(drift?.current_low_confidence_rate)}</strong>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="drift-rule-list" aria-label="Triggered drift rules">
+          {(drift?.triggered_rules?.length ? drift.triggered_rules : ["no policy threshold exceeded"]).map((rule) => (
+            <span key={rule}>{rule}</span>
+          ))}
+        </div>
+
         <div className="drift-action-rail" aria-label="Drift action rail">
-          <ActionPill icon={<ListChecks />} label="Label Review" active={drift?.action === "label_review"} />
-          <ActionPill icon={<GitBranch />} label="Retrain" active={drift?.action === "retrain_candidate"} />
-          <ActionPill icon={<AlertTriangle />} label="Block" active={drift?.action === "block_promotion"} />
+          <ActionPill icon={<FileSearch />} label="Label Review" active={drift?.action === "label_review"} />
+          <ActionPill icon={<BadgeCheck />} label="Approval Pending" active={drift?.approval_required === true} />
+          <ActionPill icon={<LockKeyhole />} label="No Auto Retrain" active={drift?.automatic_retraining === false} />
         </div>
       </div>
     </div>
@@ -72,11 +108,11 @@ function DriftStateTile({ label, value, status }: { label: string; value: string
   );
 }
 
-function Row({ label, value }: { label: string; value: string | null | undefined }) {
+function Row({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value || "-"}</dd>
+      <dd>{value === null || value === undefined || value === "" ? "-" : value}</dd>
     </div>
   );
 }
@@ -90,7 +126,17 @@ function ActionPill({ icon, label, active }: { icon: ReactNode; label: string; a
   );
 }
 
-function formatScore(drift: DriftState | null | undefined): string {
-  if (drift?.drift_score === null || drift?.drift_score === undefined) return "-";
-  return drift.drift_score.toFixed(4);
+function formatMetric(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "-";
+  return value.toFixed(4);
+}
+
+function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "-";
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function windowLabel(windowId: string | null | undefined, count: number | undefined): string {
+  if (!windowId) return "-";
+  return `${windowId} · ${count || 0} records`;
 }

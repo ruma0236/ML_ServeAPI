@@ -8,12 +8,16 @@ describe("Gate and risk UI bindings", () => {
 
   it("keeps drift review fields separate and actionable", () => {
     expect(cycle.drift?.data_drift_status).toBe("warn");
-    expect(cycle.drift?.prediction_drift_status).toBe("unknown");
-    expect(cycle.drift?.reference_dataset_version).toBe(cycle.dataset.version);
-    expect(cycle.drift?.current_dataset_version).toBe(cycle.dataset.version);
+    expect(cycle.drift?.prediction_drift_status).toBe("pass");
+    expect(cycle.drift?.measurement_status).toBe("measured");
+    expect(cycle.drift?.reference_window_id).toBe("validation-all-products");
+    expect(cycle.drift?.current_window_id).toBe("test-pcb3-intake");
     expect(cycle.drift?.action).toBe("label_review");
-    expect(cycle.drift?.review_queue_count).toBe(1);
-    expect(cycle.drift?.recommended_action).toContain("review");
+    expect(cycle.drift?.review_event_type).toBe("review_required");
+    expect(cycle.drift?.review_queue_count).toBe(128);
+    expect(cycle.drift?.triggered_rules).toEqual(["input_category_js"]);
+    expect(cycle.drift?.automatic_retraining).toBe(false);
+    expect(cycle.drift?.approval_required).toBe(true);
   });
 
   it("keeps CI, CD, and CT gate fields separate from promotion blockers", () => {

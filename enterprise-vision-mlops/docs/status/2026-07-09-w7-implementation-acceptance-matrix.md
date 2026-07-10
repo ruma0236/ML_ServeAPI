@@ -21,7 +21,7 @@ W7 completion claims are ordered by dependency, not by reduced depth:
 | Foundation complete | `EVM-224`, `EVM-225`, `EVM-229`, `EVM-230`, `EVM-231`, `EVM-232`, `EVM-237`, `EVM-238` | Preserve the live API, Control Panel, real EfficientNet matrix, and evidence validators as dependencies. |
 | P0 runtime proof | `EVM-226` with `EVM-227` execution scope absorbed | Fix Docker Desktop Kubernetes as the W7 cluster and execute the selected B7 training Job and serving Deployment with GPU and artifact evidence. |
 | P1 policy path | `EVM-236` -> `EVM-233` -> `EVM-235` | Evaluate evidence, apply environment/namespace promotion policy, then create and execute an audited deployment intent. |
-| P2 review path | `EVM-234` | Emit a measured B7 `review_required` event from real current inputs without automatic retraining. |
+| P2 review path complete | `EVM-234` | Measured B7 `review_required` event, real label-review queue, API/UI integration, and no-auto-retrain guard are verified. |
 | Closeout | `EVM-228` | Replay one traceable cycle only after P0/P1/P2 execution evidence is complete. |
 
 Hard rules:
@@ -453,14 +453,33 @@ Execution follow-up on 2026-07-10:
     because readiness, CT, and rollback evidence remain incomplete;
   - deployment state transitions remain in `EVM-235`.
 
-### EVM-234 - Drift Detection And Retraining Trigger Surface
+### EVM-234 - Review-First B7 Drift Event
+
+Execution state on 2026-07-10: Done.
+
+- Real run `drift-review-20260710T120826Z` compares 2,136 VisA validation
+  records with a disjoint 205-record `pcb3` test intake window using the pinned
+  selected B7 model on CUDA.
+- Input category JS `0.742829` exceeded policy `0.10`; confidence PSI
+  `0.016077`, predicted-class JS `0.000128`, and confidence deltas remained
+  within policy.
+- Event `drift-cf8be9047505ec32` is `review_required / open`, with 128 real
+  records queued for label review and approval.
+- Automatic retraining, deployment, and promotion are false. Queue heuristics
+  cannot route directly to retraining.
+- Evidence:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/drift_review/drift-review-20260710T120826Z`.
+- Verification: Python 98, frontend 19, full Playwright 14, final drift UI 2,
+  CycleRun validation, Compose config, and Kustomize dry-run passed.
 
 - Implementation files:
   - `src/evm/control_panel/drift.py`
   - `src/evm/pipelines/drift_review/run.py`
   - `configs/b7_drift_policy.toml`
+  - `scripts/dev/w7_b7_drift_review.ps1`
   - `apps/control-panel/src/views/DriftReview.*`
   - `tests/test_control_panel_drift.py`
+  - `tests/test_drift_review_pipeline.py`
 - Input data:
   - selected B7 validation baseline predictions and confidence values
   - current real-input window predictions and confidence values
@@ -473,7 +492,7 @@ Execution follow-up on 2026-07-10:
   - label-review queue reference
 - Verification command:
   - `python -m pytest tests/test_control_panel_drift.py -q`
-  - `python scripts/run_pipeline.py drift-review --config configs/local_visa.toml`
+  - `powershell -ExecutionPolicy Bypass -File scripts/dev/w7_b7_drift_review.ps1`
   - `curl.exe -fsS http://localhost:8000/control-panel/v1/cycles/latest -o $env:TEMP/evm-cycle-run-latest.json`
   - `python -m evm.control_panel.validate_cycle_run --openapi contracts/control-panel/control-panel.openapi.json --component CycleRun --input $env:TEMP/evm-cycle-run-latest.json`
 - Success criteria:

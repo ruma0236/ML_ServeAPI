@@ -115,9 +115,13 @@ as a single opaque model card.
 
 ### DriftState
 
-`DriftState` represents data drift, prediction drift, reference/current dataset
-versions, drifting columns, report URI, and recommended action. W7 should expose
-this as both a dashboard summary and a drilldown before CT or promotion.
+`DriftState` represents measured input and prediction distribution change,
+reference/current windows, confidence quantiles, policy thresholds, triggered
+rules, report/event/label-queue URIs, and the required human action. W7 exposes
+this in the existing Gates and Timeline views before CT or promotion; it does
+not add a separate drift dashboard. A `review_required` event routes to label
+review and approval and must keep automatic retraining, deployment, and
+promotion disabled.
 
 ### CDCTGate
 

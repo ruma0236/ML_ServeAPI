@@ -14,7 +14,12 @@ from apps.api.control_panel import (
     list_resources,
     invalidate_cycle_cache,
 )
-from evm.control_panel.schemas import CycleRun, PromotionPolicyRequest, RuntimeResourceList
+from evm.control_panel.schemas import (
+    CycleRun,
+    DriftState,
+    PromotionPolicyRequest,
+    RuntimeResourceList,
+)
 from evm.control_panel.validate_cycle_run import validate_cycle_run
 
 
@@ -41,7 +46,10 @@ def test_cycle_run_example_conforms_to_pydantic_and_openapi_component():
     assert cycle.readiness_evaluation is not None
     assert cycle.readiness_evaluation.decision == "blocked"
     assert cycle.drift is not None
-    assert cycle.drift.review_queue_count == 1
+    assert cycle.drift.review_queue_count == 128
+    assert cycle.drift.measurement_status == "measured"
+    assert cycle.drift.review_event_type == "review_required"
+    assert cycle.drift.automatic_retraining is False
     assert cycle.drift.recommended_action
     assert cycle.cdct_gate is not None
     assert cycle.cdct_gate.promotion_decision == "block"
@@ -66,6 +74,12 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "readiness_evaluation" in schemas["CycleRun"]["properties"]
     assert "review_queue_count" in schemas["DriftState"]["properties"]
     assert "recommended_action" in schemas["DriftState"]["properties"]
+    assert "measurement_status" in schemas["DriftState"]["properties"]
+    assert "review_event_type" in schemas["DriftState"]["properties"]
+    assert "input_category_js" in schemas["DriftState"]["properties"]
+    assert "confidence_psi" in schemas["DriftState"]["properties"]
+    assert "triggered_rules" in schemas["DriftState"]["properties"]
+    assert "automatic_retraining" in schemas["DriftState"]["properties"]
     assert "promotion_decision" in schemas["CDCTGate"]["properties"]
     assert "block_reason" in schemas["CDCTGate"]["properties"]
     assert "ci_evidence" in schemas["CycleRun"]["properties"]
@@ -76,6 +90,15 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "observation_status" in schemas["RuntimeResourceList"]["properties"]
     assert "/control-panel/v1/deployment-intents" in openapi["paths"]
     assert "/control-panel/v1/deployment-intents/{intent_id}/queue" in openapi["paths"]
+
+
+def test_openapi_drift_state_covers_every_pydantic_field():
+    openapi = json.loads(
+        Path("contracts/control-panel/control-panel.openapi.json").read_text(encoding="utf-8")
+    )
+    properties = openapi["components"]["schemas"]["DriftState"]["properties"]
+
+    assert set(DriftState.model_fields).issubset(properties)
 
 
 def test_control_panel_latest_cycle_route_returns_contract_payload(monkeypatch):

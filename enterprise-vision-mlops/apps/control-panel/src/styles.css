@@ -1257,6 +1257,63 @@ h3 {
   background: #fafcfd;
 }
 
+.drift-confidence-comparison {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #dde6e9;
+  border-radius: 8px;
+  background: #fafcfd;
+}
+
+.drift-confidence-comparison header,
+.drift-confidence-comparison div {
+  display: grid;
+  grid-template-columns: minmax(92px, 1fr) repeat(2, minmax(74px, 0.8fr));
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 9px 11px;
+}
+
+.drift-confidence-comparison header {
+  border-bottom: 1px solid #dde6e9;
+  background: #f0f5f7;
+}
+
+.drift-confidence-comparison div + div {
+  border-top: 1px solid #e7edef;
+}
+
+.drift-confidence-comparison span {
+  color: #60727a;
+  font-size: 0.76rem;
+}
+
+.drift-confidence-comparison strong {
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
+.drift-rule-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.drift-rule-list span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 5px 8px;
+  border: 1px solid #d99a56;
+  border-radius: 6px;
+  color: #7a4215;
+  background: #fff4e8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 .drift-action-rail {
   display: flex;
   flex-wrap: wrap;
@@ -2050,6 +2107,7 @@ h3 {
 :root[data-theme="dark"] .cdct-decision-card span,
 :root[data-theme="dark"] .cdct-status-strip span,
 :root[data-theme="dark"] .drift-state-grid span,
+:root[data-theme="dark"] .drift-confidence-comparison span,
 :root[data-theme="dark"] .cdct-check-row span,
 :root[data-theme="dark"] .deployment-signal-grid span,
 :root[data-theme="dark"] .deployment-form span,
@@ -2113,6 +2171,7 @@ h3 {
 :root[data-theme="dark"] .drift-action-card strong,
 :root[data-theme="dark"] .cdct-decision-card strong,
 :root[data-theme="dark"] .drift-state-grid strong,
+:root[data-theme="dark"] .drift-confidence-comparison strong,
 :root[data-theme="dark"] .result-copy,
 :root[data-theme="dark"] .ledger-item p,
 :root[data-theme="dark"] .detail-chip {
@@ -2147,6 +2206,7 @@ h3 {
 :root[data-theme="dark"] .drift-state-grid div,
 :root[data-theme="dark"] .cdct-status-strip div,
 :root[data-theme="dark"] .drift-detail-list,
+:root[data-theme="dark"] .drift-confidence-comparison,
 :root[data-theme="dark"] .cdct-detail-list,
 :root[data-theme="dark"] .cdct-check-row,
 :root[data-theme="dark"] .deployment-signal-grid > div,
@@ -2158,6 +2218,21 @@ h3 {
 :root[data-theme="dark"] .empty-ledger {
   border-color: #2f3338;
   background: #141518;
+}
+
+:root[data-theme="dark"] .drift-confidence-comparison header {
+  border-color: #2f3338;
+  background: #1b1d20;
+}
+
+:root[data-theme="dark"] .drift-confidence-comparison div + div {
+  border-color: #292d31;
+}
+
+:root[data-theme="dark"] .drift-rule-list span {
+  border-color: #6a4a2c;
+  color: #e4b47f;
+  background: #241b13;
 }
 
 :root[data-theme="dark"] .service-scope-value,

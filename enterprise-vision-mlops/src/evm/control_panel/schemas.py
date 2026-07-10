@@ -403,6 +403,29 @@ class DriftState(ContractModel):
     severity: Literal["none", "low", "medium", "high", "critical"] = "none"
     recommended_action: str = ""
     retraining_candidate_required: bool = False
+    measurement_status: Literal["measured", "legacy_queue", "unavailable"] = "unavailable"
+    review_event_id: str | None = None
+    review_event_type: Literal["review_required", "within_policy"] | None = None
+    review_event_status: Literal["open", "acknowledged", "approved", "closed"] | None = None
+    model_candidate_id: str | None = None
+    reference_window_id: str | None = None
+    current_window_id: str | None = None
+    reference_record_count: int = Field(default=0, ge=0)
+    current_record_count: int = Field(default=0, ge=0)
+    input_category_js: float | None = None
+    predicted_class_js: float | None = None
+    confidence_psi: float | None = None
+    mean_confidence_drop: float | None = None
+    low_confidence_rate_increase: float | None = None
+    reference_low_confidence_rate: float | None = None
+    current_low_confidence_rate: float | None = None
+    reference_confidence_quantiles: dict[str, float] = Field(default_factory=dict)
+    current_confidence_quantiles: dict[str, float] = Field(default_factory=dict)
+    thresholds: dict[str, float] = Field(default_factory=dict)
+    triggered_rules: list[str] = Field(default_factory=list)
+    label_review_queue_uri: str | None = None
+    approval_required: bool = False
+    automatic_retraining: bool = False
 
 
 class CDCTGate(ContractModel):

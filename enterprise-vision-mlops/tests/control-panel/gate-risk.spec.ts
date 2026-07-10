@@ -8,8 +8,14 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
   await expect(page.getByRole("heading", { name: "Drift Review" })).toBeVisible();
   await expect(page.getByText("Recommended Action")).toBeVisible();
   await expect(page.getByLabel("Drift action rail").getByText("Label Review")).toBeVisible();
-  await expect(page.getByText("Reference")).toBeVisible();
-  await expect(page.getByText("Current")).toBeVisible();
+  await expect(page.getByText("Auto Retraining")).toBeVisible();
+  await expect(page.getByText("disabled")).toBeVisible();
+  await expect(page.getByText("Input Category JS")).toBeVisible();
+  await expect(page.getByLabel("Confidence quantile comparison")).toContainText("Baseline");
+  await expect(page.getByLabel("Triggered drift rules")).toContainText("input_category_js");
+  await expect(page.getByLabel("Drift action rail")).toContainText("Approval Pending");
+  await expect(page.locator(".drift-detail-list dt").filter({ hasText: "Baseline" })).toBeVisible();
+  await expect(page.locator(".drift-detail-list dt").filter({ hasText: "Current" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "CD/CT Gate" })).toBeVisible();
   await expect(page.getByText("Block Reason")).toBeVisible();
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("model_evaluation");

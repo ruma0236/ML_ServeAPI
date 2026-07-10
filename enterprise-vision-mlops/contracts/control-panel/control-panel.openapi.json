@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise Vision MLOps Control Panel API",
-    "version": "2026-07-10.w7.evm235.v1",
+    "version": "2026-07-10.w7.measured-drift.v1",
     "description": "Metadata and guarded mutation contract for the W7 enterprise MLOps Control Panel, including CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
   },
   "servers": [
@@ -898,7 +898,42 @@
           "review_queue_count": {"type": "integer", "minimum": 0},
           "severity": {"type": "string", "enum": ["none", "low", "medium", "high", "critical"]},
           "recommended_action": {"type": "string"},
-          "retraining_candidate_required": {"type": "boolean"}
+          "retraining_candidate_required": {"type": "boolean"},
+          "measurement_status": {"type": "string", "enum": ["measured", "legacy_queue", "unavailable"]},
+          "review_event_id": {"type": ["string", "null"]},
+          "review_event_type": {"type": ["string", "null"], "enum": ["review_required", "within_policy", null]},
+          "review_event_status": {"type": ["string", "null"], "enum": ["open", "acknowledged", "approved", "closed", null]},
+          "model_candidate_id": {"type": ["string", "null"]},
+          "reference_window_id": {"type": ["string", "null"]},
+          "current_window_id": {"type": ["string", "null"]},
+          "reference_record_count": {"type": "integer", "minimum": 0},
+          "current_record_count": {"type": "integer", "minimum": 0},
+          "input_category_js": {"type": ["number", "null"]},
+          "predicted_class_js": {"type": ["number", "null"]},
+          "confidence_psi": {"type": ["number", "null"]},
+          "mean_confidence_drop": {"type": ["number", "null"]},
+          "low_confidence_rate_increase": {"type": ["number", "null"]},
+          "reference_low_confidence_rate": {"type": ["number", "null"]},
+          "current_low_confidence_rate": {"type": ["number", "null"]},
+          "reference_confidence_quantiles": {
+            "type": "object",
+            "additionalProperties": {"type": "number"}
+          },
+          "current_confidence_quantiles": {
+            "type": "object",
+            "additionalProperties": {"type": "number"}
+          },
+          "thresholds": {
+            "type": "object",
+            "additionalProperties": {"type": "number"}
+          },
+          "triggered_rules": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "label_review_queue_uri": {"type": ["string", "null"]},
+          "approval_required": {"type": "boolean"},
+          "automatic_retraining": {"type": "boolean"}
         }
       },
       "CDCTGate": {

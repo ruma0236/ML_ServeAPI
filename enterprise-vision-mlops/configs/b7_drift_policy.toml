@@ -1,0 +1,42 @@
+[identity]
+candidate_id = "effnet-b7-img600-finetune-adamw"
+architecture = "efficientnet-b7"
+dataset_version = "visa-open-data-f1f1c9ee9922"
+
+[inputs]
+shard_index = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/shards/shard_index.json"
+shard_index_sha256 = "49584d29e7ebf7dd8d8f7e13fb54cd0ba81bdb60a892b92e1d43f80368cc4f7d"
+model_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet/w7-efficientnet-real-test-matrix/effnet-b7-img600-finetune-adamw/model.pt"
+model_sha256 = "f5aafeb1060e10048359cbb78393ea2c7519cfa47f501bf8c6b065373c87fe47"
+
+[windows.reference]
+window_id = "validation-all-products"
+split = "validation"
+class_names = []
+min_records = 2000
+max_records = 0
+
+[windows.current]
+window_id = "test-pcb3-intake"
+split = "test"
+class_names = ["pcb3"]
+min_records = 150
+max_records = 0
+
+[policy]
+input_category_js = 0.10
+predicted_class_js = 0.05
+confidence_psi = 0.10
+mean_confidence_drop = 0.05
+low_confidence_rate_increase = 0.10
+low_confidence_threshold = 0.70
+max_queue_records = 128
+
+[execution]
+seed = 20260710
+batch_size = 8
+num_workers = 4
+require_cuda = true
+
+[outputs]
+artifact_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/drift_review"

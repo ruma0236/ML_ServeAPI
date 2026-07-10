@@ -413,6 +413,9 @@ def build_latest_cycle(
     )
     lifecycle_dashboard_path = lifecycle_dir / "lifecycle_dashboard.json"
     drift_queue_path = lifecycle_dir / "drift_special_case_queue.json"
+    measured_drift_root = runtime_path(artifacts_root / "w7" / "drift_review")
+    measured_drift_report_path = measured_drift_root / "latest_drift_report.json"
+    measured_drift_event_path = measured_drift_root / "latest_review_event.json"
 
     registry = read_json(registry_path)
     source_model = registry.get("source_model") if isinstance(registry.get("source_model"), dict) else {}
@@ -422,6 +425,8 @@ def build_latest_cycle(
     quality = read_json(quality_report_path)
     lifecycle = read_json(lifecycle_dashboard_path)
     drift_queue = read_json_list(drift_queue_path)
+    measured_drift_report = read_json(measured_drift_report_path)
+    measured_drift_event = read_json(measured_drift_event_path)
     lakehouse = read_json(lakehouse_probe_path)
     curation_state = read_json(curation_state_path)
 
@@ -483,6 +488,7 @@ def build_latest_cycle(
             existing_artifact("quality_report", quality_report_path),
             existing_artifact("curation_state", curation_state_path),
             existing_artifact("lakehouse_probe", lakehouse_probe_path),
+            existing_artifact("measured_drift_report", measured_drift_report_path),
             existing_artifact("model_registry_latest", registry_path),
             existing_artifact("lifecycle_dashboard", lifecycle_dashboard_path),
             existing_artifact("drift_special_case_queue", drift_queue_path),
@@ -658,6 +664,22 @@ def build_latest_cycle(
         drift_queue_path=drift_queue_path,
         dataset_version=dataset_version,
         promotion_blockers=blockers,
+        measured_report=measured_drift_report,
+        review_event=measured_drift_event,
+    )
+    stages.append(
+        stage(
+            "drift-review",
+            "Measured B7 Drift Review",
+            drift_state.status,
+            existing_artifact("measured_drift_report", measured_drift_report_path),
+            Metric(
+                name="triggered_rule_count",
+                value=float(len(drift_state.triggered_rules)),
+                status=drift_state.status,
+            ),
+            ResourceRef(namespace="evm-platform", kind="Deployment", name="evm-api"),
+        )
     )
     ci_report_path = Path(
         os.getenv(

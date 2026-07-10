@@ -26,6 +26,7 @@ PIPELINE_MODULES = {
     "efficientnet-training": "evm.pipelines.efficientnet_training.run",
     "register-model": "evm.pipelines.model_registry.run",
     "model-lifecycle": "evm.pipelines.model_lifecycle.run",
+    "drift-review": "evm.pipelines.drift_review.run",
     "deploy-check": "evm.pipelines.deployment.run",
     "monitor-check": "evm.pipelines.monitoring.run",
     "remote-inventory": "evm.pipelines.remote_workers.run",

@@ -373,6 +373,29 @@ export interface DriftState {
   severity?: "none" | "low" | "medium" | "high" | "critical";
   recommended_action?: string;
   retraining_candidate_required?: boolean;
+  measurement_status?: "measured" | "legacy_queue" | "unavailable";
+  review_event_id?: string | null;
+  review_event_type?: "review_required" | "within_policy" | null;
+  review_event_status?: "open" | "acknowledged" | "approved" | "closed" | null;
+  model_candidate_id?: string | null;
+  reference_window_id?: string | null;
+  current_window_id?: string | null;
+  reference_record_count?: number;
+  current_record_count?: number;
+  input_category_js?: number | null;
+  predicted_class_js?: number | null;
+  confidence_psi?: number | null;
+  mean_confidence_drop?: number | null;
+  low_confidence_rate_increase?: number | null;
+  reference_low_confidence_rate?: number | null;
+  current_low_confidence_rate?: number | null;
+  reference_confidence_quantiles?: Record<string, number>;
+  current_confidence_quantiles?: Record<string, number>;
+  thresholds?: Record<string, number>;
+  triggered_rules?: string[];
+  label_review_queue_uri?: string | null;
+  approval_required?: boolean;
+  automatic_retraining?: boolean;
 }
 
 export interface CDCTGate {

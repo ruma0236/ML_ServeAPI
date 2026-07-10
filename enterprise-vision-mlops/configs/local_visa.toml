@@ -94,6 +94,9 @@ min_f1 = 0.50
 min_auroc = 0.65
 special_case_confidence_threshold = 0.70
 
+[pipelines.drift_review]
+policy = "configs/b7_drift_policy.toml"
+
 [pipelines.deployment]
 sample_image_uri = "file:///F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/visa/candle/Data/Images/Normal/0000.JPG"
 
