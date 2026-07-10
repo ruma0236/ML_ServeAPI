@@ -63,11 +63,11 @@ def selected_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]
     return [candidate for candidate in candidates if str(candidate.get("candidate_id")) in allowed]
 
 
-def matrix_status(candidate_results: list[dict[str, Any]]) -> str:
+def matrix_status(candidate_results: list[dict[str, Any]], configured_candidate_count: int) -> str:
     if not candidate_results:
         return "blocked"
     pass_count = sum(1 for item in candidate_results if item.get("status") == "pass")
-    if pass_count == len(candidate_results):
+    if pass_count == len(candidate_results) == configured_candidate_count:
         return "pass"
     return "warn" if pass_count else "blocked"
 
@@ -114,7 +114,8 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
     )
 
     candidate_results: list[dict[str, Any]] = []
-    candidates_cfg = selected_candidates(config.get("candidates", []))
+    all_candidates_cfg = config.get("candidates", [])
+    candidates_cfg = selected_candidates(all_candidates_cfg)
     for candidate_payload in candidates_cfg:
         candidate = candidate_config(candidate_payload, acceptance)
         candidate_dir = matrix_dir / candidate.candidate_id
@@ -192,7 +193,7 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
     summary = {
         "schema_version": "evm.w7.efficientnet_model_matrix.v1",
         "matrix_id": matrix_id,
-        "status": matrix_status(candidate_results),
+        "status": matrix_status(candidate_results, len(all_candidates_cfg)),
         "execution_mode": str(matrix_cfg.get("execution_mode", "parallel")),
         "framework": "torch",
         "dataset_version": dataset_version,
@@ -200,6 +201,7 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         "split_manifest": str(matrix_dir / "split_manifest.json"),
         "split_blockers": split_blockers,
         "candidate_count": len(candidate_results),
+        "configured_candidate_count": len(all_candidates_cfg),
         "candidates": candidate_results,
         "created_at": utc_now(),
     }
