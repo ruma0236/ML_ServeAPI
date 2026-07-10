@@ -94,6 +94,10 @@ def selected_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]
     return [candidate for candidate in candidates if str(candidate.get("candidate_id")) in allowed]
 
 
+def candidate_artifact_root(matrix_dir: Path, execution_run_id: str) -> Path:
+    return matrix_dir / "runs" / execution_run_id if execution_run_id else matrix_dir
+
+
 def matrix_status(candidate_results: list[dict[str, Any]], configured_candidate_count: int) -> str:
     if not candidate_results:
         return "blocked"
@@ -153,12 +157,14 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
     execution = config.get("execution", {})
 
     matrix_id = str(matrix_cfg.get("matrix_id", "w7-efficientnet-real-test-matrix"))
+    execution_run_id = os.getenv("EVM_EFFICIENTNET_RUN_ID", "").strip()
     dataset_version = str(matrix_cfg.get("dataset_version", "unknown"))
     artifact_root = Path(str(resources.get("artifact_root", "artifacts/w7/efficientnet")))
     if not artifact_root.is_absolute():
         artifact_root = project_root / artifact_root
     matrix_dir = artifact_root / matrix_id
     matrix_dir.mkdir(parents=True, exist_ok=True)
+    candidate_root = candidate_artifact_root(matrix_dir, execution_run_id)
 
     shard_index_path = Path(str(inputs.get("shard_index", "")))
     if not shard_index_path.is_absolute():
@@ -196,7 +202,7 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
     candidates_cfg = selected_candidates(all_candidates_cfg)
     for candidate_payload in candidates_cfg:
         candidate = candidate_config(candidate_payload, acceptance)
-        candidate_dir = matrix_dir / candidate.candidate_id
+        candidate_dir = candidate_root / candidate.candidate_id
         if split_blockers:
             blocked = {
                 "schema_version": "evm.w7.efficientnet_candidate.v1",
@@ -282,6 +288,7 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         "framework": "torch",
         "dataset_version": dataset_version,
         "artifact_root": str(matrix_dir),
+        "execution_run_id": execution_run_id or None,
         "split_manifest": str(matrix_dir / "split_manifest.json"),
         "source_shard_index_sha256": shard_index_sha256,
         "split_blockers": split_blockers,

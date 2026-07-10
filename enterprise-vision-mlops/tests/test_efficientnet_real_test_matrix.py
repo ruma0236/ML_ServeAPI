@@ -7,8 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from evm.core.torch_efficientnet import load_shard_records
+from evm.core.torch_efficientnet import (
+    load_shard_records,
+    optimal_f1_threshold,
+    predictions_at_threshold,
+)
 from evm.pipelines.efficientnet_training.run import (
+    candidate_artifact_root,
     matrix_status,
     merge_candidate_results,
     required_candidate_blockers,
@@ -17,6 +22,17 @@ from evm.pipelines.efficientnet_training.run import (
 )
 
 training_run_module = importlib.import_module("evm.pipelines.efficientnet_training.run")
+
+
+def test_validation_threshold_maximizes_anomaly_f1_without_test_labels() -> None:
+    labels = [0, 0, 1, 1]
+    scores = [0.9, 0.7, 0.8, 0.1]
+
+    calibration = optimal_f1_threshold(labels, scores)
+
+    assert calibration["threshold"] == 0.7
+    assert calibration["f1"] == pytest.approx(0.8)
+    assert predictions_at_threshold(scores, float(calibration["threshold"])) == [0, 0, 0, 1]
 
 
 def _write_json(path: Path, payload: dict | list) -> None:
@@ -93,6 +109,14 @@ def test_required_candidate_pass_needs_mlflow_evidence(monkeypatch) -> None:
             ]
         }
     ) == [f"required_candidate_mlflow_run_missing:{candidate_id}"]
+
+
+def test_execution_run_id_scopes_candidate_artifacts(tmp_path) -> None:
+    matrix_dir = tmp_path / "matrix"
+
+    candidate_root = candidate_artifact_root(matrix_dir, "k8s-proof-123")
+
+    assert candidate_root == matrix_dir / "runs" / "k8s-proof-123"
 
 
 def test_efficientnet_pipeline_fails_closed_when_real_split_is_too_small(tmp_path, monkeypatch):

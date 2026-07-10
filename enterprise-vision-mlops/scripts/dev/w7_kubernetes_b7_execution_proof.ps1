@@ -13,7 +13,11 @@ $EvidenceRoot = "F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\w7\ku
 $RunId = "w7-k8s-b7-{0}" -f (Get-Date -Format "yyyyMMddTHHmmss")
 $EvidenceDir = Join-Path $EvidenceRoot $RunId
 $CandidateId = "effnet-b7-img600-finetune-adamw"
-$CandidateDir = "F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\w7\efficientnet\w7-efficientnet-real-test-matrix\$CandidateId"
+$MatrixDir = "F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\w7\efficientnet\w7-efficientnet-real-test-matrix"
+$SourceCandidateDir = Join-Path $MatrixDir $CandidateId
+$CandidateDir = Join-Path $MatrixDir "runs\$RunId\$CandidateId"
+$SourceModelPath = Join-Path $SourceCandidateDir "model.pt"
+$SourceSplitManifestPath = Join-Path $SourceCandidateDir "split_manifest.json"
 $ModelPath = Join-Path $CandidateDir "model.pt"
 $SplitManifestPath = Join-Path $CandidateDir "split_manifest.json"
 $TrainingImage = "enterprise-vision-mlops-efficientnet-training:local"
@@ -128,6 +132,36 @@ function New-RuntimeManifestOverlay {
         "infra/kubernetes/docker-desktop-gpu/model-runtime-workload-patch.yaml.tmpl" -Raw
     $WorkloadPatchTemplate.Replace("__WSL_DRIVER_PATH__", $WslDriverPath) |
         Set-Content (Join-Path $RuntimeManifestDir "docker-desktop-gpu-workload-patch.yaml") -Encoding utf8
+    $RuntimeModelPath = "/mnt/evm-data/artifacts/w7/efficientnet/w7-efficientnet-real-test-matrix/runs/$RunId/$CandidateId/model.pt"
+    @"
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: evm-b7-training
+  namespace: evm-training
+spec:
+  template:
+    spec:
+      containers:
+        - name: trainer
+          env:
+            - name: EVM_EFFICIENTNET_RUN_ID
+              value: $RunId
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evm-b7-serving
+  namespace: evm-staging
+spec:
+  template:
+    spec:
+      containers:
+        - name: serving
+          env:
+            - name: EVM_MODEL_PATH
+              value: $RuntimeModelPath
+"@ | Set-Content (Join-Path $RuntimeManifestDir "runtime-artifact-patch.yaml") -Encoding utf8
     $TrainingDigest = $TrainingImageDigest.Split("@")[1]
     $ServingDigest = $ServingImageDigest.Split("@")[1]
     @"
@@ -140,6 +174,7 @@ images:
     digest: $ServingDigest
 patches:
   - path: docker-desktop-gpu-workload-patch.yaml
+  - path: runtime-artifact-patch.yaml
 "@ | Add-Content (Join-Path $RuntimeManifestDir "kustomization.yaml") -Encoding utf8
     return $RuntimeManifestDir
 }
@@ -192,14 +227,14 @@ try {
         $Blockers.Add("mlflow_health_failed")
     }
 
-    if (-not (Test-Path $ModelPath)) {
+    if (-not (Test-Path $SourceModelPath)) {
         $Blockers.Add("selected_model_artifact_missing")
     }
-    if (-not (Test-Path $SplitManifestPath)) {
+    if (-not (Test-Path $SourceSplitManifestPath)) {
         $Blockers.Add("selected_split_manifest_missing")
     }
-    $SourceModelSha256 = if (Test-Path $ModelPath) { (Get-FileHash $ModelPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { "" }
-    $SplitManifestSha256 = if (Test-Path $SplitManifestPath) { (Get-FileHash $SplitManifestPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { "" }
+    $SourceModelSha256 = if (Test-Path $SourceModelPath) { (Get-FileHash $SourceModelPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { "" }
+    $SplitManifestSha256 = if (Test-Path $SourceSplitManifestPath) { (Get-FileHash $SourceSplitManifestPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { "" }
 
     $Render = Invoke-Captured -Name "10-kustomize-render" -FilePath "kubectl" -ArgumentList @(
         "kustomize", "infra/kubernetes/model-runtime"
@@ -317,6 +352,7 @@ try {
         (Join-Path $CandidateDir "training_history.json"),
         (Join-Path $CandidateDir "confusion_matrix.json"),
         (Join-Path $CandidateDir "confusion_matrix.png"),
+        (Join-Path $CandidateDir "threshold_calibration.json"),
         (Join-Path $CandidateDir "model_card.md"),
         (Join-Path $CandidateDir "lineage.json")
     )

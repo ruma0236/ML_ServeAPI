@@ -588,7 +588,19 @@ def build_latest_cycle(
         str(matrix_resources.get("artifact_root", artifacts_root / "w7" / "efficientnet"))
     )
     matrix_dir = matrix_artifact_root / matrix_id
-    candidate_dir = matrix_dir / selected_candidate_id
+    selected_candidate = next(
+        (
+            candidate
+            for candidate in model_matrix.candidates
+            if candidate.candidate_id == selected_candidate_id
+        ),
+        None,
+    )
+    candidate_dir = (
+        runtime_path(selected_candidate.artifact_uri)
+        if selected_candidate is not None and selected_candidate.artifact_uri
+        else matrix_dir / selected_candidate_id
+    )
     source_shard_index_value = str(matrix_inputs.get("shard_index", "")).strip()
     source_shard_index_path = (
         Path(source_shard_index_value)
@@ -602,7 +614,7 @@ def build_latest_cycle(
             dataset_metadata_path=dataset_metadata_path,
             quality_report_path=quality_report_path,
             source_shard_index_path=source_shard_index_path,
-            split_manifest_path=matrix_dir / "split_manifest.json",
+            split_manifest_path=candidate_dir / "split_manifest.json",
             lineage_path=candidate_dir / "lineage.json",
             candidate_summary_path=candidate_dir / "candidate_summary.json",
             model_card_path=candidate_dir / "model_card.md",

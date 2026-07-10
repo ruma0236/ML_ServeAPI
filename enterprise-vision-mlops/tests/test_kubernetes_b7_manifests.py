@@ -73,3 +73,13 @@ def test_f_drive_is_the_only_large_artifact_storage_root() -> None:
     assert storage.count("claimRef:") == 2
     assert "persistentVolumeReclaimPolicy: Retain" in storage
     assert "storage: 1Ti" in storage
+
+
+def test_execution_proof_uses_run_scoped_model_artifacts() -> None:
+    script = Path("scripts/dev/w7_kubernetes_b7_execution_proof.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "EVM_EFFICIENTNET_RUN_ID" in script
+    assert '"runs\\$RunId\\$CandidateId"' in script
+    assert "runtime-artifact-patch.yaml" in script

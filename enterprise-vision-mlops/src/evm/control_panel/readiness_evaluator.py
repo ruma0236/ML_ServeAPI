@@ -505,7 +505,11 @@ def check_model_artifact(
         actual_digest = file_sha256(path)
         if path.stat().st_size <= 0:
             blockers.append("model_artifact_empty")
-    expected_digest = str(kubernetes_evidence.get("source_model_sha256") or "")
+    expected_digest = str(
+        kubernetes_evidence.get("trained_model_sha256")
+        or kubernetes_evidence.get("source_model_sha256")
+        or ""
+    )
     if actual_digest and expected_digest and actual_digest.lower() != expected_digest.lower():
         blockers.append("model_artifact_digest_mismatch")
     return (
@@ -621,9 +625,13 @@ def check_kubernetes_runtime(
         blockers.append("kubernetes_candidate_mismatch")
     if loaded and payload.get("dataset_version") != dataset_version:
         blockers.append("kubernetes_dataset_version_mismatch")
-    if loaded and payload.get("source_mlflow_run_id") != run_id:
+    observed_run_id = payload.get("mlflow_run_id") or payload.get("source_mlflow_run_id")
+    observed_model_digest = payload.get("trained_model_sha256") or payload.get(
+        "source_model_sha256"
+    )
+    if loaded and observed_run_id != run_id:
         blockers.append("kubernetes_mlflow_run_mismatch")
-    if loaded and model_digest and payload.get("source_model_sha256") != model_digest:
+    if loaded and model_digest and observed_model_digest != model_digest:
         blockers.append("kubernetes_model_digest_mismatch")
     return (
         evidence_check(

@@ -47,6 +47,7 @@ class ModelRuntime:
     class_names: list[str]
     input_size: int
     model_sha256: str
+    decision_threshold: float
 
     def metadata(self) -> dict[str, Any]:
         return {
@@ -59,6 +60,7 @@ class ModelRuntime:
             "input_size": self.input_size,
             "model_path": str(MODEL_PATH),
             "model_sha256": self.model_sha256,
+            "decision_threshold": self.decision_threshold,
             "device": str(self.device),
             "cuda_available": self.device.type == "cuda",
         }
@@ -78,6 +80,7 @@ class InferenceResponse(BaseModel):
     scores: dict[str, float]
     latency_ms: float
     device: str
+    decision_threshold: float
 
 
 MODEL_RUNTIME: ModelRuntime | None = None
@@ -103,6 +106,14 @@ def _build_model(architecture: str, class_count: int) -> Any:
     in_features = model.classifier[-1].in_features
     model.classifier[-1] = nn.Linear(in_features, class_count)
     return model
+
+
+def prediction_for_scores(
+    scores: dict[str, float], decision_threshold: float
+) -> tuple[str, float]:
+    anomaly_score = float(scores.get("anomaly", 0.0))
+    prediction = "anomaly" if anomaly_score >= decision_threshold else "normal"
+    return prediction, float(scores[prediction])
 
 
 def load_model() -> ModelRuntime:
@@ -140,6 +151,9 @@ def load_model() -> ModelRuntime:
     input_size = int(checkpoint.get("input_size") or 0)
     if input_size <= 0:
         raise RuntimeError("checkpoint input_size is invalid")
+    decision_threshold = float(checkpoint.get("decision_threshold", 0.5))
+    if not 0.0 <= decision_threshold <= 1.0:
+        raise RuntimeError("checkpoint decision_threshold is invalid")
 
     model = _build_model(architecture, len(class_names)).to(device)
     model.load_state_dict(checkpoint["state_dict"])
@@ -164,6 +178,7 @@ def load_model() -> ModelRuntime:
         class_names=class_names,
         input_size=input_size,
         model_sha256=actual_sha256,
+        decision_threshold=decision_threshold,
     )
 
 
@@ -250,15 +265,16 @@ def predict(payload: InferenceRequest) -> InferenceResponse:
         label: round(float(probabilities[index].detach().cpu().item()), 6)
         for index, label in enumerate(runtime.class_names)
     }
-    prediction = max(scores, key=scores.get)
+    prediction, confidence = prediction_for_scores(scores, runtime.decision_threshold)
     return InferenceResponse(
         candidate_id=runtime.candidate_id,
         model_sha256=runtime.model_sha256,
         dataset_version=runtime.dataset_version,
         image_uri=payload.image_uri,
         prediction=prediction,
-        confidence=scores[prediction],
+        confidence=confidence,
         scores=scores,
         latency_ms=round(latency_ms, 3),
         device=str(runtime.device),
+        decision_threshold=runtime.decision_threshold,
     )

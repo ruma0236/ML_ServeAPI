@@ -82,7 +82,8 @@ def set_torch_seed(seed: int) -> None:
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
     except Exception:
         return
 
@@ -356,6 +357,59 @@ def classification_metrics(
     }
 
 
+def predictions_at_threshold(positive_scores: list[float], threshold: float) -> list[int]:
+    return [0 if score >= threshold else 1 for score in positive_scores]
+
+
+def optimal_f1_threshold(labels: list[int], positive_scores: list[float]) -> dict[str, float | str]:
+    if not labels or len(labels) != len(positive_scores):
+        return {
+            "method": "validation_max_f1",
+            "threshold": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+        }
+
+    positives = sum(1 for label in labels if label == 0)
+    if positives == 0:
+        return {
+            "method": "validation_max_f1",
+            "threshold": 0.5,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+        }
+
+    ranked = sorted(zip(positive_scores, labels, strict=True), reverse=True)
+    best = (0.0, 0.0, 0.0, 0.5)
+    true_positives = 0
+    false_positives = 0
+    index = 0
+    while index < len(ranked):
+        threshold = float(ranked[index][0])
+        while index < len(ranked) and math.isclose(float(ranked[index][0]), threshold):
+            if ranked[index][1] == 0:
+                true_positives += 1
+            else:
+                false_positives += 1
+            index += 1
+        precision = true_positives / max(true_positives + false_positives, 1)
+        recall = true_positives / positives
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        candidate = (f1, precision, recall, threshold)
+        if candidate > best:
+            best = candidate
+
+    return {
+        "method": "validation_max_f1",
+        "threshold": best[3],
+        "precision": best[1],
+        "recall": best[2],
+        "f1": best[0],
+    }
+
+
 def percentile(values: list[float], pct: float) -> float:
     if not values:
         return 0.0
@@ -364,12 +418,11 @@ def percentile(values: list[float], pct: float) -> float:
     return ordered[index]
 
 
-def evaluate(model: Any, loader: Any, device: Any) -> dict[str, Any]:
+def collect_inference_outputs(model: Any, loader: Any, device: Any) -> dict[str, list[Any]]:
     import torch
 
     model.eval()
     labels: list[int] = []
-    predictions: list[int] = []
     positive_scores: list[float] = []
     latency_samples_ms: list[float] = []
     with torch.no_grad():
@@ -382,14 +435,41 @@ def evaluate(model: Any, loader: Any, device: Any) -> dict[str, Any]:
                 torch.cuda.synchronize()
             elapsed_ms = (time.perf_counter() - started) * 1000
             probs = torch.softmax(logits, dim=1)
-            preds = probs.argmax(dim=1)
             batch_size = int(images.shape[0])
             per_image_ms = elapsed_ms / max(batch_size, 1)
             latency_samples_ms.extend([per_image_ms] * batch_size)
             labels.extend(int(item) for item in targets.detach().cpu().tolist())
-            predictions.extend(int(item) for item in preds.detach().cpu().tolist())
             positive_scores.extend(float(item) for item in probs[:, 0].detach().cpu().tolist())
-    return classification_metrics(labels, predictions, positive_scores, latency_samples_ms)
+    return {
+        "labels": labels,
+        "positive_scores": positive_scores,
+        "latency_samples_ms": latency_samples_ms,
+    }
+
+
+def metrics_from_outputs(outputs: dict[str, list[Any]], positive_threshold: float) -> dict[str, Any]:
+    labels = [int(item) for item in outputs["labels"]]
+    positive_scores = [float(item) for item in outputs["positive_scores"]]
+    latency_samples_ms = [float(item) for item in outputs["latency_samples_ms"]]
+    return classification_metrics(
+        labels,
+        predictions_at_threshold(positive_scores, positive_threshold),
+        positive_scores,
+        latency_samples_ms,
+    )
+
+
+def evaluate(
+    model: Any,
+    loader: Any,
+    device: Any,
+    *,
+    positive_threshold: float = 0.5,
+) -> dict[str, Any]:
+    return metrics_from_outputs(
+        collect_inference_outputs(model, loader, device),
+        positive_threshold,
+    )
 
 
 def save_confusion_png(confusion_payload: dict[str, Any], path: Path) -> None:
@@ -460,6 +540,7 @@ def write_model_card(path: Path, summary: dict[str, Any]) -> None:
         f"- Dataset version: `{summary['dataset_version']}`",
         f"- MLflow run id: `{summary.get('mlflow_run_id', '')}`",
         f"- Artifact URI: `{summary.get('artifact_uri', '')}`",
+        f"- Anomaly decision threshold: `{summary.get('decision_threshold', 0.5)}`",
         "",
         "## Metrics",
         "",
@@ -508,6 +589,7 @@ def log_mlflow_run(
         "dataset_version": summary["dataset_version"],
         "artifact_uri": str(candidate_dir),
         "model_artifact": summary.get("model_artifact", ""),
+        "decision_threshold": summary.get("decision_threshold", 0.5),
     }
     failed_writes: list[str] = []
     for key, value in params.items():
@@ -612,7 +694,26 @@ def train_candidate(
             }
         )
 
-    test_metrics = evaluate(model, test_loader, device)
+    validation_outputs = collect_inference_outputs(model, validation_loader, device)
+    threshold_calibration = optimal_f1_threshold(
+        [int(item) for item in validation_outputs["labels"]],
+        [float(item) for item in validation_outputs["positive_scores"]],
+    )
+    decision_threshold = float(threshold_calibration["threshold"])
+    validation_calibrated_metrics = metrics_from_outputs(
+        validation_outputs,
+        decision_threshold,
+    )
+    threshold_calibration["validation_accuracy"] = float(
+        validation_calibrated_metrics["accuracy"]
+    )
+    threshold_calibration["validation_auroc"] = float(
+        validation_calibrated_metrics["auroc"]
+    )
+    test_metrics = metrics_from_outputs(
+        collect_inference_outputs(model, test_loader, device),
+        decision_threshold,
+    )
     duration_seconds = round(time.perf_counter() - started_at, 3)
     profile = gpu_profile(device)
     environment = environment_report(device)
@@ -634,12 +735,15 @@ def train_candidate(
             "state_dict": model.state_dict(),
             "input_size": candidate.input_size,
             "dataset_version": split_manifest["dataset_version"],
+            "decision_threshold": decision_threshold,
+            "threshold_method": threshold_calibration["method"],
         },
         model_path,
     )
     write_json(candidate_dir / "training_history.json", history)
     write_json(candidate_dir / "confusion_matrix.json", test_metrics["confusion_matrix"])
     save_confusion_png(test_metrics["confusion_matrix"], candidate_dir / "confusion_matrix.png")
+    write_json(candidate_dir / "threshold_calibration.json", threshold_calibration)
     write_json(candidate_dir / "gpu_profile.json", profile)
     write_json(candidate_dir / "environment_report.json", environment)
     split_manifest_path = candidate_dir / "split_manifest.json"
@@ -667,6 +771,8 @@ def train_candidate(
             "seed": runtime.seed,
         },
         "metrics": metrics,
+        "decision_threshold": decision_threshold,
+        "threshold_calibration": threshold_calibration,
         "per_class": test_metrics["per_class"],
         "promotion_blockers": blockers,
         "artifact_uri": str(candidate_dir),

@@ -32,3 +32,10 @@ def test_readiness_fails_closed_when_model_is_not_loaded(monkeypatch) -> None:
     assert response.status_code == 503
     assert b'"status":"blocked"' in response.body
     assert b'"gpu_not_available"' in response.body
+
+
+def test_prediction_uses_the_checkpoint_anomaly_threshold() -> None:
+    scores = {"anomaly": 0.61, "normal": 0.39}
+
+    assert efficientnet_serving.prediction_for_scores(scores, 0.7) == ("normal", 0.39)
+    assert efficientnet_serving.prediction_for_scores(scores, 0.6) == ("anomaly", 0.61)
