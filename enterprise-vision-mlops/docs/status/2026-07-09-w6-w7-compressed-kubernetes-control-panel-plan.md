@@ -69,6 +69,28 @@ New tasks:
 - `EVM-238-A` - W7 real-test policy guard
 - `EVM-238-B` - W7 real-test evidence validation
 
+## 2026-07-10 Portfolio Evidence Reprioritization
+
+The Control Panel and real EfficientNet matrix are now implemented, but a
+second review found that `EVM-233` to `EVM-236` were closed at presentation or
+schema depth. They are reopened for operational evidence. The active order is:
+
+1. `EVM-226`: standardize on Docker Desktop Kubernetes and execute the selected
+   B7 training Job and serving Deployment. The active serving scope of
+   `EVM-227` is absorbed here.
+2. `EVM-236`: replace checklist inference with an artifact-content readiness
+   evaluator.
+3. `EVM-233`: make environment and namespace policy determine promotion
+   eligibility.
+4. `EVM-235`: gate deployment-intent creation on CI and readiness evidence and
+   execute audited deployment states through apply/failure/rollback.
+5. `EVM-234`: compare B7 baseline/current predictions and emit a
+   review-first `review_required` event.
+6. `EVM-228`: close only after one traceable cycle connects all evidence.
+
+The objective review and portfolio claim boundary are in
+`docs/reviews/2026-07-10-w7-portfolio-readiness-reprioritization.md`.
+
 ## Jira Live Sync
 
 Live Jira sync was applied on `2026-07-09`.
@@ -167,17 +189,14 @@ Audit result:
 
 ## Interpretation
 
-This update does not require an immediate production-grade Kubernetes cutover.
-The near-term goal is to keep the W5 lifecycle visible and repeatable while
-preparing the runtime boundary for Kubernetes. The Control Panel should let the
-user inspect and operate a full cycle visually instead of opening each
-lifecycle, registry, dataset, metrics, Airflow, MLflow, and Kubernetes artifact
-by hand. W7 is therefore not complete unless it can show whether a cycle is
-safe to promote across environments and why a drift/CD/CT gate blocked or
-allowed the next action. W7 model readiness is also not complete unless at
-least the model plan and Control Panel contract can represent real
-Torch/TorchVision EfficientNet-B0/B7 candidates and distinguish real execution
-evidence from historical mock/smoke evidence.
+W7 now requires a real local Kubernetes runtime proof before closeout. This is
+not a claim of organization-wide production cutover; it is one deeply verified
+Docker Desktop Kubernetes path for the selected B7 model. The Control Panel
+must show computed readiness, policy, deployment-state, and review-event
+results instead of only displaying labels and checklists. W7 is not complete
+until one traceable cycle proves whether deployment is allowed, who approved
+it, what artifact was applied, what Kubernetes did, and why review or rollback
+was required.
 
 ## Updated Source Files
 

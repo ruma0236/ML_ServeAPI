@@ -8,8 +8,9 @@ dependency order and evidence gates only; every issue still needs production-
 grade implementation files, real inputs, output artifacts, verification
 commands, success criteria, and blocker rules before it can close.
 
-This is a planning/control document. It does not mark W7 implementation as
-started or complete.
+This is the live implementation-control document. Completed UI/schema
+foundations remain valid, but an issue is reopened when later review shows that
+its operational behavior was represented rather than executed.
 
 ## Scope Control
 
@@ -17,26 +18,32 @@ W7 completion claims are ordered by dependency, not by reduced depth:
 
 | Tier | Scope | Rule |
 |---|---|---|
-| P0 | `EVM-224`, `EVM-238-A` | Must be completed first. No UI or model claim can close without live aggregation and a real-test policy guard. |
-| P1 | `EVM-225`, `EVM-229`, `EVM-231`, `EVM-233`, `EVM-236` | Read-only UI and readiness views must bind to `CycleRun` API output, not static examples. |
-| P2 | `EVM-226`, `EVM-227`, `EVM-230`, `EVM-232`, `EVM-234`, `EVM-235`, `EVM-237`, `EVM-238-B` | Operational controls, Kubernetes proof, drift/CDCT, EfficientNet runs, and real evidence validation can advance only after P0 read-only evidence exists. |
-| Closeout | `EVM-228` | Can close only after the evidence matrix below is populated with real commands, artifacts, and blockers. |
+| Foundation complete | `EVM-224`, `EVM-225`, `EVM-229`, `EVM-230`, `EVM-231`, `EVM-232`, `EVM-237`, `EVM-238` | Preserve the live API, Control Panel, real EfficientNet matrix, and evidence validators as dependencies. |
+| P0 runtime proof | `EVM-226` with `EVM-227` execution scope absorbed | Fix Docker Desktop Kubernetes as the W7 cluster and execute the selected B7 training Job and serving Deployment with GPU and artifact evidence. |
+| P1 policy path | `EVM-236` -> `EVM-233` -> `EVM-235` | Evaluate evidence, apply environment/namespace promotion policy, then create and execute an audited deployment intent. |
+| P2 review path | `EVM-234` | Emit a measured B7 `review_required` event from real current inputs without automatic retraining. |
+| Closeout | `EVM-228` | Replay one traceable cycle only after P0/P1/P2 execution evidence is complete. |
 
 Hard rules:
 
 - `EVM-224` is the implementation dependency for all UI work.
-- Tiers are sequencing gates only. P1/P2 work must be implemented to the same
-  acceptance depth as P0 before being marked Done.
+- Tiers are sequencing gates only. P0/P1/P2 work must be implemented to the
+  same acceptance depth before being marked Done.
 - UI completion cannot be claimed from `contracts/control-panel/examples/cycle-run.json` alone.
 - Airflow remains `external-compose`; W7 must not claim in-cluster Airflow
   migration unless new resources are actually added and verified.
-- Kubernetes proof means `kubectl apply`, pod/job status, logs, and artifacts,
-  not manifest existence.
+- Kubernetes proof means Docker Desktop Kubernetes, `nvidia.com/gpu`
+  scheduling, `kubectl apply`, pod/job status, probes, logs, serving requests,
+  failure evidence, and artifacts, not manifest existence.
 - EfficientNet proof means real Torch/TorchVision training/evaluation,
   MLflow run ids, model artifacts, metrics, resource profiles, and blocker
   reasons.
 - Mock adapters, placeholder predictions, synthetic-only fixtures, and
   smoke-only runs are not W7 completion evidence.
+- UI fields and schema objects are not sufficient completion evidence for
+  tenancy policy, CD/CT, readiness, or drift behavior.
+- The detailed reprioritization and portfolio claim boundary are recorded in
+  `docs/reviews/2026-07-10-w7-portfolio-readiness-reprioritization.md`.
 
 ## Evidence Root Rule
 
@@ -50,6 +57,10 @@ W7 empirical evidence uses the F-drive data root as the source of truth:
   `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/control_panel_ui/<run_id>/`
 - EfficientNet model evidence:
   `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet/<matrix_id>/<candidate_id>/`
+- Kubernetes B7 runtime evidence:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/kubernetes_b7/<run_id>/`
+- Readiness, deployment-intent, and drift evidence:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/{readiness,deployment_intents,drift_review}/<run_id>/`
 
 The repository should keep only source code, contracts, docs, summaries, and
 small evidence indexes. Large model/data artifacts must not be treated as
@@ -154,77 +165,83 @@ The Control Panel UI must consume these `CycleRun` fields:
 - Failure blocker:
   - blocked if the UI reads only `cycle-run.json` or hides blockers.
 
-### EVM-226 - Kubernetes Local Real Execution Proof
+### EVM-226 - Docker Desktop Kubernetes B7 Training And Serving Proof
+
+This issue absorbs the active execution scope of `EVM-227`. Docker Desktop
+Kubernetes is the only W7 local-cluster target. The existing `EVM-227` design
+and inventory remain historical inputs, not independent production-serving
+evidence.
 
 - Implementation files:
-  - `infra/kubernetes/local/*.yaml`
-  - `infra/kubernetes/local/kustomization.yaml`
-  - `infra/docker/pipeline/Dockerfile`
-  - `docs/status/YYYY-MM-DD-w7-kubernetes-real-execution-proof.md`
+  - `infra/kubernetes/model-runtime/namespaces.yaml`
+  - `infra/kubernetes/model-runtime/b7-training-job.yaml`
+  - `infra/kubernetes/model-runtime/b7-serving-deployment.yaml`
+  - `infra/kubernetes/model-runtime/kustomization.yaml`
+  - `infra/docker/efficientnet-training/Dockerfile`
+  - `apps/api` B7 inference loader and probe contract
+  - `scripts/dev/w7_kubernetes_b7_execution_proof.ps1`
+  - `tests/test_kubernetes_b7_manifests.py`
+  - `docs/status/YYYY-MM-DD-w7-kubernetes-b7-execution-proof.md`
 - Input data:
-  - local Kubernetes context
-  - `configs/local_visa.toml`
-  - `F:/EnterpriseMLOps_Data/enterprise-vision-mlops` data/artifact root
-  - MinIO/MLflow/API image configuration
+  - Docker Desktop Kubernetes context `docker-desktop`
+  - node allocatable resource `nvidia.com/gpu`
+  - selected candidate `effnet-b7-img600-finetune-adamw`
+  - VisA dataset version and immutable split-manifest digest
+  - source MLflow run `a4e2763b28ae494ea67944084edd4b3f`
+  - F-drive data, evidence, and model artifact roots
+  - immutable training and serving image digests
 - Output artifact:
-  - `kubectl apply` log
-  - pod/job status snapshot
-  - job logs
-  - created pipeline artifact under F-drive artifact root
-  - screenshots if UI is used
+  - cluster/GPU preflight JSON
+  - manifest render and `kubectl apply` logs
+  - `evm-training` Job status, events, logs, resource usage, MLflow run, and
+    model artifact checksum
+  - `evm-staging` Deployment/ReplicaSet/Pod status, rollout history,
+    readiness/liveness results, and inference request/response
+  - one controlled failed Job or rollout with events and failure logs
+  - rollback target and rollback result
+  - evidence index under
+    `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/kubernetes_b7/<run_id>/`
 - Verification command:
-  - `scripts\dev\w7_kubernetes_real_execution_proof.ps1 -BuildImages`
-  - `kubectl kustomize infra/kubernetes/local`
-  - `kubectl apply -k infra/kubernetes/local`
-  - `kubectl wait --for=condition=available deployment/evm-api -n evm-platform --timeout=300s`
-  - `kubectl wait --for=condition=complete job/evm-domain-pack-check -n evm-pipelines --timeout=600s`
-  - `kubectl wait --for=condition=complete job/evm-curation-workflow -n evm-pipelines --timeout=900s`
-  - `kubectl wait --for=condition=complete job/evm-lakehouse-probe -n evm-pipelines --timeout=900s`
-  - `kubectl logs -n evm-pipelines job/evm-domain-pack-check`
-  - `kubectl logs -n evm-pipelines job/evm-curation-workflow`
-  - `kubectl logs -n evm-pipelines job/evm-lakehouse-probe`
-  - `kubectl get pods,jobs,svc,pvc -A`
+  - `docker desktop kubernetes status`
+  - `kubectl config use-context docker-desktop`
+  - `kubectl get node -o jsonpath="{.items[0].status.allocatable.nvidia\.com/gpu}"`
+  - `kubectl kustomize infra/kubernetes/model-runtime`
+  - `kubectl apply -k infra/kubernetes/model-runtime`
+  - `kubectl wait --for=condition=complete job/evm-b7-training -n evm-training --timeout=7200s`
+  - `kubectl logs -n evm-training job/evm-b7-training --all-containers=true`
+  - `kubectl rollout status deployment/evm-b7-serving -n evm-staging --timeout=600s`
+  - `kubectl get pods,jobs,deploy,rs,svc -n evm-training -o wide`
+  - `kubectl get pods,jobs,deploy,rs,svc -n evm-staging -o wide`
+  - `kubectl describe job/evm-b7-training -n evm-training`
+  - `kubectl describe deployment/evm-b7-serving -n evm-staging`
+  - `scripts\dev\w7_kubernetes_b7_execution_proof.ps1`
 - Success criteria:
-  - at least one configured API or pipeline job runs in Kubernetes;
-  - pod/job reaches successful terminal state;
-  - job produces expected artifact;
-  - logs identify config, dataset, and output path.
+  - the node advertises a schedulable GPU and both workloads request and limit
+    `nvidia.com/gpu: 1`;
+  - the B7 Job uses the declared real VisA split and writes a traceable model
+    artifact plus MLflow run;
+  - the serving Deployment loads the selected artifact by digest, becomes
+    ready, survives liveness checks, and returns a real inference result;
+  - logs, events, resource use, artifact checksums, failure evidence, and
+    rollback evidence are captured;
+  - no CPU fallback or manifest-only result is accepted.
 - Failure blocker:
-  - blocked if no current kube context exists, pods crash, or no artifact is
-    produced.
+  - blocked if Docker Desktop Kubernetes is disabled, the node lacks
+    `nvidia.com/gpu`, storage cannot be mounted, Job/Deployment probes fail,
+    model identity is mutable, or expected artifacts are not produced.
 
-### EVM-227 - GPU/VLM Serving Deployment Design
+### EVM-227 - Serving Design Record, Execution Absorbed By EVM-226
 
-- Implementation files:
-  - `docs/status/YYYY-MM-DD-w7-gpu-vlm-serving-design.md`
-  - `docs/models/w7-efficientnet-real-test-matrix.md`
-  - optional future manifests under `infra/kubernetes/gpu/`
-- Input data:
-  - Windows RTX 4080 SUPER capability
-  - Mac mini M4 Pro remote evaluator capability
-  - EfficientNet-B0/B7 resource profiles
-  - KServe/Triton/vLLM/Ray Serve/Kueue comparison criteria
-- Output artifact:
-  - serving design decision table
-  - resource placement plan
-  - `nvidia-smi` GPU probe output
-  - Torch CUDA probe JSON
-  - remote inventory and remote job summaries
-  - next implementation backlog
-- Verification command:
-  - `scripts\dev\w7_gpu_vlm_serving_inventory.ps1`
-  - `nvidia-smi --query-gpu=name,memory.total,memory.used,memory.free,driver_version --format=csv,noheader`
-  - `python -c "import json, torch; print(json.dumps({'torch': torch.__version__, 'cuda_available': torch.cuda.is_available(), 'cuda_device': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None, 'cuda_memory_total': torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0}))"`
-  - `python scripts/run_pipeline.py remote-inventory --config configs/local.toml`
-  - `python scripts/run_pipeline.py remote-job --config configs/local.toml`
-- Success criteria:
-  - clearly separates training GPU, serving runtime, and remote evaluator roles;
-  - records local GPU name, memory, driver version, Torch version, CUDA
-    availability, CUDA device name, and remote worker CPU/memory/architecture;
-  - does not claim production serving until measured;
-  - chooses next concrete serving experiment.
-- Failure blocker:
-  - blocked if it claims GPU/KServe/Triton readiness without resource evidence.
+- Historical result:
+  - GPU inventory, runtime comparison, and worker placement design are complete
+    in `docs/status/2026-07-10-w7-gpu-vlm-serving-deployment-design.md`.
+- Active rule:
+  - no separate production-serving completion claim is permitted from this
+    issue;
+  - B7 packaging, Kubernetes serving, probes, GPU scheduling, inference, and
+    rollback evidence are accepted only under `EVM-226`;
+  - Triton, KServe, Ray Serve, and vLLM remain future alternatives until a
+    measured need justifies them.
 
 ### EVM-228 - Compressed W6/W7 Integration Review
 
@@ -364,105 +381,150 @@ The Control Panel UI must consume these `CycleRun` fields:
 - Implementation files:
   - `src/evm/control_panel/org_context.py`
   - `src/evm/control_panel/environment.py`
+  - `src/evm/control_panel/promotion_policy.py`
+  - `configs/promotion_policy.toml`
   - `apps/control-panel/src/views/ServiceScopeFilters.*`
-  - `tests/test_control_panel_org_context.py`
+  - `tests/test_promotion_policy.py`
 - Input data:
   - `OrgContext`
   - `EnvironmentRef`
-  - owner/team/service metadata config
+  - target environment and namespace
+  - requester and approver identities
+  - immutable image/model artifact digests
+  - `EVM-236` readiness decision
+  - `EVM-235` CI/CD/CT gate decision and rollback reference
 - Output artifact:
-  - tenant/environment fields in `CycleRun`
-  - UI service-scope filter state
+  - computed `allow`, `pending_approval`, or `blocked` policy decision
+  - explicit policy reason codes
+  - tenant/environment fields and decision in `CycleRun`
+  - audit record containing policy version and evaluated inputs
 - Verification command:
-  - `pytest tests/test_control_panel_org_context.py -q`
-  - API response check for required tenant/environment fields
+  - `python -m pytest tests/test_promotion_policy.py -q`
+  - `python -m evm.control_panel.promotion_policy --policy configs/promotion_policy.toml --fixture tests/fixtures/promotion/staging-pass.json`
+  - `python -m evm.control_panel.promotion_policy --policy configs/promotion_policy.toml --fixture tests/fixtures/promotion/production-missing-approval.json`
 - Success criteria:
-  - team, department, service scope, owners, environment tier, cluster,
-    namespace, and promotion state are present;
-  - unknown ownership blocks promotion claims.
+  - staging can queue only when readiness, CI, namespace, and ownership policy
+    pass;
+  - production additionally requires an allow-listed production namespace,
+    all gates, rollback reference, immutable digests, and an approver different
+    from the requester;
+  - unknown ownership, namespace mismatch, or missing approval blocks intent
+    creation with deterministic reasons.
 - Failure blocker:
-  - blocked if cycles cannot be attributed to team/environment ownership.
+  - blocked if environment/namespace values are display-only or policy outcome
+    is supplied by the caller.
 
 ### EVM-234 - Drift Detection And Retraining Trigger Surface
 
 - Implementation files:
   - `src/evm/control_panel/drift.py`
+  - `src/evm/pipelines/drift_review/run.py`
+  - `configs/b7_drift_policy.toml`
   - `apps/control-panel/src/views/DriftReview.*`
   - `tests/test_control_panel_drift.py`
 - Input data:
-  - current/reference dataset versions
-  - drift artifacts such as `drift_special_case_queue.json`
-  - prediction distribution or evaluation artifacts
+  - selected B7 validation baseline predictions and confidence values
+  - current real-input window predictions and confidence values
+  - baseline/current dataset versions and window timestamps
+  - reviewed drift thresholds
 - Output artifact:
   - `DriftState` in `CycleRun`
-  - drift report link
-  - recommended action
+  - measured drift report with distribution and confidence deltas
+  - `review_required` event with evidence URI, threshold, and reason
+  - label-review queue reference
 - Verification command:
-  - `pytest tests/test_control_panel_drift.py -q`
-  - API response check for `drift.action`
+  - `python -m pytest tests/test_control_panel_drift.py -q`
+  - `python scripts/run_pipeline.py drift-review --config configs/local_visa.toml`
+  - `curl.exe -fsS http://localhost:8000/control-panel/v1/cycles/latest -o $env:TEMP/evm-cycle-run-latest.json`
+  - `python -m evm.control_panel.validate_cycle_run --openapi contracts/control-panel/control-panel.openapi.json --component CycleRun --input $env:TEMP/evm-cycle-run-latest.json`
 - Success criteria:
-  - data drift and prediction drift are shown separately;
-  - reference/current datasets are visible;
-  - action is one of `none`, `label_review`, `retrain_candidate`,
-    `block_promotion`, or `rollback_review`.
+  - the report compares a real B7 baseline with a distinct real current window;
+  - documented distribution and confidence statistics drive the decision;
+  - exceeded policy emits `review_required` and routes to label review and
+    approval;
+  - no automatic retraining, deployment, or promotion is triggered.
 - Failure blocker:
-  - blocked if drift is only a text note or lacks reference/current versions.
+  - blocked if drift is inferred from queue length, synthetic data, or a
+    heuristic score without measured baseline/current predictions.
 
 ### EVM-235 - CD/CT Push Verification And Promotion Gate
 
 - Implementation files:
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/deployment-intent.yml`
   - `src/evm/control_panel/cdct.py`
+  - `src/evm/control_panel/deployment_intents.py`
+  - `src/evm/control_panel/deployment_executor.py`
   - `apps/control-panel/src/views/CDCTGatePanel.*`
   - `tests/test_control_panel_cdct.py`
+  - `tests/test_deployment_intents.py`
 - Input data:
-  - unit test result
-  - docker compose config result
-  - kustomize render result
-  - data quality result
-  - model evaluation result
-  - drift review result
-  - CT trigger reason
+  - immutable CI evidence bundle containing commit SHA, workflow run id, test
+    result, evidence-validator result, image digest, and config-render digest
+  - `EVM-236` readiness decision
+  - `EVM-233` environment policy decision
+  - actor, approver, target namespace, rollback reference, and CT trigger
 - Output artifact:
-  - `CDCTGate` in `CycleRun`
-  - pass/fail gate report
-  - promotion blockers list
+  - validated CI/CD/CT gate report
+  - deployment intent ledger
+  - state-transition audit events
+  - Kubernetes apply/failed/rollback result linked to `EVM-226`
 - Verification command:
-  - `pytest tests/test_control_panel_cdct.py -q`
-  - command-runner or CI artifact parse test
+  - `python -m pytest tests/test_control_panel_cdct.py tests/test_deployment_intents.py -q`
+  - `python -m evm.control_panel.deployment_intents validate-ci --input $env:TEMP/ci-evidence.json`
+  - `$intent = python -m evm.control_panel.deployment_intents create --input $env:TEMP/staging-intent.json --dry-run | ConvertFrom-Json`
+  - `python -m evm.control_panel.deployment_intents request-approval --intent-id $intent.intent_id`
+  - `python -m evm.control_panel.deployment_intents approve --intent-id $intent.intent_id --actor portfolio-approver`
+  - `python -m evm.control_panel.deployment_intents queue --intent-id $intent.intent_id`
+  - `python -m evm.control_panel.deployment_executor apply --intent-id $intent.intent_id`
 - Success criteria:
-  - CI, CD, and CT are separate fields;
-  - failed checks block promotion;
-  - gate explains why promotion is allowed or blocked.
+  - deployment intent creation is impossible when CI or `EVM-236` fails;
+  - lifecycle follows `dry_run -> pending_approval -> queued -> applying ->
+    applied`, with `failed` and `rolled_back` branches;
+  - production cannot queue without the `EVM-233` approver and namespace
+    policy;
+  - every transition records actor, timestamp, environment, namespace,
+    artifact digest, reason, and result;
+  - only the executor can mutate Kubernetes and only from `queued`.
 - Failure blocker:
-  - blocked if CI/CD/CT are collapsed into one generic status.
+  - blocked if CI/CD/CT fields are hard-coded, deployment intent can be created
+    before validators pass, or UI/API calls Kubernetes directly.
 
-### EVM-236 - Enterprise Data/Model Pipeline Readiness Checklist
+### EVM-236 - Enterprise Data/Model Evidence Readiness Evaluator
 
 - Implementation files:
   - `src/evm/control_panel/readiness.py`
+  - `src/evm/control_panel/readiness_evaluator.py`
+  - `src/evm/control_panel/validate_readiness.py`
   - `apps/control-panel/src/views/ReadinessChecklist.*`
-  - `tests/test_control_panel_readiness.py`
+  - `tests/test_readiness_evaluator.py`
 - Input data:
-  - data contract
-  - quality report
-  - lineage URI
-  - backfill/replay state
-  - MLflow experiment/run
-  - evaluation report
-  - registry/model card
+  - parsed data contract and schema version
+  - split manifest, record counts, dataset version, and digest
+  - lineage graph and source identity
+  - quality-gate report and threshold values
+  - MLflow run status, parameters, metrics, and artifact URI
+  - evaluation report, model card identity, model artifact checksum, and
+    rollback reference
 - Output artifact:
   - `DataPipelineReadiness`
   - `ExperimentPipelineReadiness`
-  - readiness panel screenshot
+  - machine-readable readiness evaluation report with `ready` or `blocked`,
+    blocker codes, evidence URIs, digests, and evaluation timestamp
 - Verification command:
-  - `pytest tests/test_control_panel_readiness.py -q`
-  - live `CycleRun` readiness field check
+  - `python -m pytest tests/test_readiness_evaluator.py -q`
+  - `python -m evm.control_panel.validate_readiness --cycle http://localhost:8000/control-panel/v1/cycles/latest --output $env:TEMP/readiness-evaluation.json`
+  - `python -m json.tool $env:TEMP/readiness-evaluation.json`
 - Success criteria:
-  - data and model readiness are separate;
-  - missing lineage, quality, registry, or evaluation evidence blocks readiness;
-  - owner approval requirement is visible.
+  - evaluator parses artifact content instead of checking only file existence;
+  - dataset identity agrees across contract, split, lineage, MLflow run, model
+    card, and model artifact;
+  - missing, stale, malformed, mismatched, or failing evidence returns
+    `blocked` with deterministic blocker codes;
+  - the same inputs reproduce the same decision and evidence digests.
 - Failure blocker:
-  - blocked if readiness is inferred from a single "pass" status.
+  - blocked if readiness is inferred from a single status, caller-supplied
+    booleans, or path existence alone.
 
 ### EVM-237 - Torch EfficientNet-B0/B7 Real Model Matrix
 

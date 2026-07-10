@@ -1,5 +1,10 @@
 # 2026-07-09 W7 EVM-234/235 Drift CD/CT Gates
 
+> Superseded completion interpretation, 2026-07-10: this document proves the
+> read-only UI/schema baseline only. `EVM-234` and `EVM-235` are reopened for a
+> measured B7 `review_required` event and CI-gated deployment state machine.
+> See `docs/reviews/2026-07-10-w7-portfolio-readiness-reprioritization.md`.
+
 ## Scope
 
 This closes the W7 read-only risk and release gate surface for:

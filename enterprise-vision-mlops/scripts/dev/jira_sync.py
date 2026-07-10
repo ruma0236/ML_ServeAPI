@@ -482,22 +482,21 @@ def move_issues_to_sprint(config: JiraConfig, sprint_id: int, issue_keys: list[s
 
 
 def transition_targets_for_status(status: str) -> list[str]:
+    defaults = {
+        "Next": ["selected for development", "to do", "해야 할 일"],
+        "In Progress": ["in progress", "진행 중"],
+        "Blocked": ["blocked", "차단됨"],
+        "Done": ["done", "완료"],
+    }
+    targets = list(defaults.get(status, []))
     env_map = os.getenv("JIRA_STATUS_TRANSITION_MAP", "")
     if env_map:
         try:
             parsed = json.loads(env_map)
-            targets = parsed.get(status, [])
-            return [str(target).lower() for target in targets]
+            targets.extend(str(target) for target in parsed.get(status, []))
         except json.JSONDecodeError as exc:
             raise RuntimeError("JIRA_STATUS_TRANSITION_MAP must be valid JSON.") from exc
-
-    defaults = {
-        "Next": ["selected for development", "to do"],
-        "In Progress": ["in progress"],
-        "Blocked": ["blocked"],
-        "Done": ["done"],
-    }
-    return defaults.get(status, [])
+    return list(dict.fromkeys(str(target).lower() for target in targets))
 
 
 def transition_issue_to_item_status(config: JiraConfig, issue_key: str, status: str) -> dict[str, str]:

@@ -1,5 +1,9 @@
 # 2026-07-10 W7 GPU/VLM Serving Deployment Design
 
+> Scope transfer, 2026-07-10: this design and inventory remain valid historical
+> evidence, but active B7 Kubernetes serving acceptance is absorbed by
+> `EVM-226`. This document is not an independent production-serving proof.
+
 ## Scope
 
 This closes `EVM-227` as a deployment design and resource-evidence checkpoint.

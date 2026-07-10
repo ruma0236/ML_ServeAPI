@@ -1,5 +1,10 @@
 # 2026-07-09 W7 EVM-233/236 Enterprise Readiness
 
+> Superseded completion interpretation, 2026-07-10: this document proves the
+> read-only UI/schema baseline only. `EVM-233` and `EVM-236` are reopened for
+> executable environment policy and artifact-content readiness evaluation.
+> See `docs/reviews/2026-07-10-w7-portfolio-readiness-reprioritization.md`.
+
 ## Scope
 
 This closes the W7 read-only enterprise readiness surface for:

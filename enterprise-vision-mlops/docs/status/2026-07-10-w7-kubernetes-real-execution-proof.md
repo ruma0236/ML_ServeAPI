@@ -1,5 +1,9 @@
 # 2026-07-10 W7 Kubernetes Real Execution Proof
 
+> Updated target, 2026-07-10: Docker Desktop Kubernetes is the fixed W7
+> cluster. Completion now requires the selected B7 GPU training Job and serving
+> Deployment; the active execution scope of `EVM-227` is absorbed here.
+
 ## Scope
 
 This checkpoint starts `EVM-226` with execution-grade evidence capture. It does
