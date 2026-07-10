@@ -30,6 +30,19 @@
   rollback state transitions remain `EVM-235`, and the Docker Desktop GPU
   scheduling blocker remains `EVM-226`.
 
+## 2026-07-10 EVM-233 Synchronization
+
+- Git implementation commit: `6d9ac66`, pushed to
+  `origin/codex/mac-mini-worker`.
+- Jira: `EVM-233` / `SCRUM-111` transitioned to Done; implementation comment
+  `10230`; parent Epic `SCRUM-98` comment `10231`.
+- Notion detail:
+  `https://app.notion.com/p/39910ad2dcad81a09c03c43a9bf5d0f6`.
+- Notion W7 Implementation Acceptance Matrix and Evidence And Run Ledger were
+  updated with the completed policy dependency and next handoff.
+- Obsidian target:
+  `F:/mlops_obsidian_db/mlops/08_Codex_Memory/01_Work_Logs/2026-07-10 W7 EVM-233 Environment Promotion Policy.md`.
+
 ## Scope
 
 This closes the W7 read-only enterprise readiness surface for:
