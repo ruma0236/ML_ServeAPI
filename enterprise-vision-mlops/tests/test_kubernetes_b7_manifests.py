@@ -90,3 +90,5 @@ def test_execution_proof_uses_run_scoped_model_artifacts() -> None:
     assert "20b-mlflow-artifact-upload" in script
     assert "20c-mlflow-artifact-list" in script
     assert "evidence/model\\.pt" in script
+    assert "$SourceGitCommit = (git -C $ProjectRoot rev-parse HEAD).Trim()" in script
+    assert "git_commit = $SourceGitCommit" in script

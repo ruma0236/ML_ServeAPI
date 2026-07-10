@@ -10,6 +10,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$SourceGitCommit = (git -C $ProjectRoot rev-parse HEAD).Trim()
 $EvidenceRoot = "F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\w7\kubernetes_b7"
 $RunId = "w7-k8s-b7-{0}" -f (Get-Date -Format "yyyyMMddTHHmmss")
 $EvidenceDir = Join-Path $EvidenceRoot $RunId
@@ -110,7 +111,8 @@ function Write-EvidenceIndex {
         source_mlflow_run_id = $SourceMlflowRunId
         evidence_root = $EvidenceDir
         blockers = @($Blockers)
-        git_commit = (git -C $ProjectRoot rev-parse HEAD).Trim()
+        git_commit = $SourceGitCommit
+        finalization_git_commit = (git -C $ProjectRoot rev-parse HEAD).Trim()
         training_seed = $TrainingSeed
         created_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     }
