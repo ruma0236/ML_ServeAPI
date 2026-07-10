@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from evm.control_panel.aggregation import build_latest_cycle
+from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import CycleRun
 from evm.core.config import project_root_from
 
@@ -260,7 +261,7 @@ def validate_real_test_evidence(
         )
 
     split_manifest_value = str(matrix_payload.get("split_manifest") or "")
-    split_manifest_path = Path(split_manifest_value) if split_manifest_value else None
+    split_manifest_path = runtime_path(split_manifest_value) if split_manifest_value else None
     if split_manifest_path is None:
         violations.append({"code": "split_manifest_missing", "message": "latest_model_matrix.json must include split_manifest."})
         split_manifest = {}
@@ -306,7 +307,11 @@ def validate_real_test_evidence(
             continue
 
         candidate_dir_value = str(matrix_candidate.get("artifact_uri") or cycle_candidate.artifact_uri or "")
-        candidate_dir = Path(candidate_dir_value) if candidate_dir_value else Path("__missing_candidate_artifact_uri__")
+        candidate_dir = (
+            runtime_path(candidate_dir_value)
+            if candidate_dir_value
+            else Path("__missing_candidate_artifact_uri__")
+        )
         if not candidate_dir_value:
             violations.append({"code": "candidate_artifact_uri_missing", "candidate_id": candidate_id})
         elif not candidate_dir.is_dir():
@@ -349,7 +354,8 @@ def validate_real_test_evidence(
             )
         if not (summary.get("mlflow_run_id") and cycle_candidate.run_uri):
             violations.append({"code": "candidate_mlflow_run_missing", "candidate_id": candidate_id})
-        if not (summary.get("model_artifact") and Path(str(summary.get("model_artifact"))).exists()):
+        model_artifact_value = str(summary.get("model_artifact") or "")
+        if not (model_artifact_value and runtime_path(model_artifact_value).exists()):
             violations.append({"code": "candidate_model_artifact_missing", "candidate_id": candidate_id})
 
         metric_names = {metric.name for metric in cycle_candidate.metrics}

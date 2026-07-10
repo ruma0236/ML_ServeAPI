@@ -202,6 +202,35 @@ def test_real_test_evidence_validation_passes_complete_candidate(tmp_path):
     assert report["violations"] == []
 
 
+def test_real_test_evidence_validation_maps_container_artifact_paths(tmp_path, monkeypatch):
+    _write_project_files(tmp_path)
+    host_root = tmp_path / "evm-data"
+    artifact_root = host_root / "artifacts/w7/efficientnet"
+    config = _write_config(tmp_path, artifact_root)
+    candidate_dir = _write_candidate_artifacts(artifact_root)
+    matrix_path = artifact_root / "latest_model_matrix.json"
+    matrix_payload = json.loads(matrix_path.read_text(encoding="utf-8"))
+
+    def container_path(path: str | Path) -> str:
+        relative = Path(path).relative_to(host_root).as_posix()
+        return f"/mnt/evm-data/{relative}"
+
+    matrix_payload["split_manifest"] = container_path(matrix_payload["split_manifest"])
+    matrix_payload["candidates"][0]["artifact_uri"] = container_path(candidate_dir)
+    _write_json(matrix_path, matrix_payload)
+    summary_path = candidate_dir / "candidate_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["model_artifact"] = container_path(summary["model_artifact"])
+    _write_json(summary_path, summary)
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(host_root))
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
+
+    report = validate_real_test_evidence(_cycle(candidate_dir), config)
+
+    assert report["valid"] is True
+    assert report["violations"] == []
+
+
 def test_real_test_evidence_validation_blocks_missing_artifact(tmp_path):
     _write_project_files(tmp_path)
     artifact_root = tmp_path / "artifacts/w7/efficientnet"

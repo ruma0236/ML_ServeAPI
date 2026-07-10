@@ -9,6 +9,7 @@ from evm.control_panel.readiness_evaluator import (
     canonical_evidence_uri,
     evaluate_artifact_readiness,
     file_sha256,
+    runtime_path,
 )
 from evm.control_panel.validate_readiness import validate_evaluation
 
@@ -34,6 +35,17 @@ def test_canonical_evidence_uri_maps_container_mount_to_f_drive(monkeypatch):
     assert canonical_evidence_uri(Path("/app/domain_packs/mvi/data_contract.toml")) == (
         "domain_packs/mvi/data_contract.toml"
     )
+
+
+def test_runtime_path_maps_container_mount_to_existing_host_artifact(tmp_path, monkeypatch):
+    host_root = tmp_path / "evm-data"
+    artifact = host_root / "artifacts" / "candidate_summary.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(host_root))
+
+    assert runtime_path("/mnt/evm-data/artifacts/candidate_summary.json") == artifact
 
 
 def write_json(path: Path, payload: object) -> None:

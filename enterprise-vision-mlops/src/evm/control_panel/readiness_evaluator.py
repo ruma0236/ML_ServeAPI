@@ -92,13 +92,22 @@ def runtime_path(value: str | Path) -> Path:
     path = Path(value)
     if path.exists():
         return path
+
+    normalized = str(value).replace("\\", "/")
+    host_root = os.getenv(
+        "EVM_HOST_DATA_ROOT",
+        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+    ).replace("\\", "/").rstrip("/")
+    mount_root = os.getenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data").replace("\\", "/").rstrip("/")
+    if normalized.lower().startswith(mount_root.lower()):
+        host_path = Path(f"{host_root}{normalized[len(mount_root):]}")
+        if host_path.exists():
+            return host_path
+
     mapped = resolve_image_path(
         str(value),
-        host_data_root=os.getenv(
-            "EVM_HOST_DATA_ROOT",
-            "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
-        ),
-        data_mount_root=os.getenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data"),
+        host_data_root=host_root,
+        data_mount_root=mount_root,
     )
     return mapped or path
 
