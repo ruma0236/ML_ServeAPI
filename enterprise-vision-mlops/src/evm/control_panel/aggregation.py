@@ -108,6 +108,58 @@ def metric_list(metrics: dict[str, Any], thresholds: dict[str, Any] | None = Non
     return result
 
 
+def candidate_metric_list(metrics: dict[str, Any], acceptance: dict[str, Any]) -> list[Metric]:
+    threshold_map = {
+        "accuracy": acceptance.get("promotion_min_accuracy"),
+        "f1": acceptance.get("promotion_min_f1"),
+        "auroc": acceptance.get("promotion_min_auroc"),
+    }
+    result: list[Metric] = []
+    for name in (
+        "accuracy",
+        "precision",
+        "recall",
+        "f1",
+        "auroc",
+        "latency_p95_ms",
+        "gpu_memory_peak_mb",
+    ):
+        value = metrics.get(name)
+        if not isinstance(value, int | float):
+            continue
+        threshold = threshold_map.get(name)
+        unit = "ms" if name.endswith("_ms") else "MB" if name.endswith("_mb") else None
+        result.append(
+            Metric(
+                name=name,
+                value=round(float(value), 6),
+                unit=unit,
+                threshold=float(threshold) if isinstance(threshold, int | float) else None,
+                status=metric_status(
+                    float(value),
+                    float(threshold) if isinstance(threshold, int | float) else None,
+                )
+                if isinstance(threshold, int | float)
+                else "pass",
+            )
+        )
+    return result
+
+
+def model_matrix_evidence(config: dict[str, Any], matrix_id: str) -> dict[str, Any]:
+    resources = config.get("resources", {}) if isinstance(config.get("resources"), dict) else {}
+    artifact_root = resources.get("artifact_root")
+    if not artifact_root:
+        return {}
+    root = Path(str(artifact_root))
+    if not root.is_absolute():
+        config_path = Path(str(config.get("_config_path", "")))
+        root = config_path.parent.parent / root if config_path else root
+    latest_path = root / "latest_model_matrix.json"
+    matrix_path = root / matrix_id / "model_matrix.json"
+    return read_json(latest_path) or read_json(matrix_path)
+
+
 def split_counts(source_model: dict[str, Any]) -> dict[str, int]:
     mapping = {
         "train": source_model.get("training_records"),
@@ -129,6 +181,12 @@ def build_model_matrix(config_path: Path, dataset_version: str) -> ModelExperime
     matrix_cfg = cfg.get("model_matrix", {}) if isinstance(cfg.get("model_matrix"), dict) else {}
     acceptance = cfg.get("acceptance", {}) if isinstance(cfg.get("acceptance"), dict) else {}
     candidates_cfg = cfg.get("candidates", []) if isinstance(cfg.get("candidates"), list) else []
+    evidence = model_matrix_evidence(cfg, str(matrix_cfg.get("matrix_id", "w7-efficientnet-real-test-matrix")))
+    evidence_candidates = {
+        str(item.get("candidate_id")): item
+        for item in evidence.get("candidates", [])
+        if isinstance(item, dict) and item.get("candidate_id")
+    }
 
     minimum_records = acceptance.get("min_total_records") or matrix_cfg.get("minimum_records")
     candidates: list[ModelCandidate] = []
@@ -153,24 +211,33 @@ def build_model_matrix(config_path: Path, dataset_version: str) -> ModelExperime
             )
             if key in item
         }
+        candidate_evidence = evidence_candidates.get(candidate_id, {})
+        evidence_metrics = (
+            candidate_evidence.get("metrics")
+            if isinstance(candidate_evidence.get("metrics"), dict)
+            else {}
+        )
+        promotion_blockers = candidate_evidence.get("promotion_blockers")
+        if not isinstance(promotion_blockers, list):
+            promotion_blockers = ["not_executed_yet"]
         candidates.append(
             ModelCandidate(
                 candidate_id=candidate_id,
                 framework="torch",
                 architecture=architecture,  # type: ignore[arg-type]
                 backbone=str(item.get("backbone", "")),
-                status="queued",
+                status=str(candidate_evidence.get("status") or "queued"),  # type: ignore[arg-type]
                 dataset_version=str(matrix_cfg.get("dataset_version") or dataset_version),
-                run_uri=None,
-                artifact_uri=None,
+                run_uri=candidate_evidence.get("run_uri"),
+                artifact_uri=candidate_evidence.get("artifact_uri"),
                 resource_profile=str(item.get("resource_profile", "unknown")),
                 conditions=conditions,
-                metrics=[],
-                promotion_blockers=["not_executed_yet"],
+                metrics=candidate_metric_list(evidence_metrics, acceptance),
+                promotion_blockers=[str(item) for item in promotion_blockers],
             )
         )
 
-    matrix_status: State = "queued" if candidates else "blocked"
+    matrix_status: State = str(evidence.get("status") or ("queued" if candidates else "blocked"))  # type: ignore[assignment]
     execution_mode = str(matrix_cfg.get("execution_mode", "parallel"))
     if execution_mode not in {"parallel", "sequential", "blocked"}:
         execution_mode = "parallel"

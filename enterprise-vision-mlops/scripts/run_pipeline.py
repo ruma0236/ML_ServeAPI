@@ -23,6 +23,7 @@ PIPELINE_MODULES = {
     "vlm-rca": "evm.pipelines.vlm_rca.run",
     "vlm-observability": "evm.pipelines.vlm_observability.run",
     "train": "evm.pipelines.training.run",
+    "efficientnet-training": "evm.pipelines.efficientnet_training.run",
     "register-model": "evm.pipelines.model_registry.run",
     "model-lifecycle": "evm.pipelines.model_lifecycle.run",
     "deploy-check": "evm.pipelines.deployment.run",

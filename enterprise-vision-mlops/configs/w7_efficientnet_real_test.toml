@@ -19,6 +19,17 @@ max_b0_parallel_jobs = 2
 max_b7_parallel_jobs = 1
 allow_cpu_fallback = false
 
+[inputs]
+base_config = "configs/local_visa.toml"
+shard_index = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/shards/shard_index.json"
+mlflow_tracking_uri = "http://localhost:5000"
+mlflow_experiment_name = "enterprise-vision-w7-efficientnet"
+positive_label = "anomaly"
+
+[execution]
+num_workers = 4
+pin_memory = true
+
 [[candidates]]
 candidate_id = "effnet-b0-img224-freeze-adamw"
 architecture = "efficientnet-b0"

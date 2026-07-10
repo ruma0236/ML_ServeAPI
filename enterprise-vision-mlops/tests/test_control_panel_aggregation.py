@@ -60,7 +60,7 @@ output_dir = "{(artifacts_root / 'lifecycle/vision-baseline').as_posix()}"
         encoding="utf-8",
     )
     (root / "configs" / "w7_efficientnet_real_test.toml").write_text(
-        """
+        f"""
 [model_matrix]
 matrix_id = "w7-efficientnet-real-test-matrix"
 framework = "torch"
@@ -71,6 +71,9 @@ smoke_allowed = false
 requires_real_dataset = true
 requires_real_training = true
 minimum_records = 10821
+
+[resources]
+artifact_root = "{(artifacts_root / 'w7/efficientnet').as_posix()}"
 
 [[candidates]]
 candidate_id = "effnet-b0-img224-freeze-adamw"
@@ -174,6 +177,42 @@ def _write_evidence(root: Path) -> None:
     )
 
 
+def _write_efficientnet_evidence(root: Path) -> None:
+    artifacts_root = root / "artifacts"
+    candidate_dir = (
+        artifacts_root
+        / "w7/efficientnet/w7-efficientnet-real-test-matrix/effnet-b0-img224-freeze-adamw"
+    )
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(candidate_dir / "candidate_summary.json", {"status": "pass"})
+    _write_json(
+        artifacts_root / "w7/efficientnet/latest_model_matrix.json",
+        {
+            "schema_version": "evm.w7.efficientnet_model_matrix.v1",
+            "matrix_id": "w7-efficientnet-real-test-matrix",
+            "status": "pass",
+            "candidates": [
+                {
+                    "candidate_id": "effnet-b0-img224-freeze-adamw",
+                    "status": "pass",
+                    "run_uri": "http://localhost:5000/#/runs/run-1",
+                    "artifact_uri": str(candidate_dir),
+                    "metrics": {
+                        "accuracy": 0.82,
+                        "precision": 0.76,
+                        "recall": 0.74,
+                        "f1": 0.75,
+                        "auroc": 0.84,
+                        "latency_p95_ms": 12.3,
+                        "gpu_memory_peak_mb": 4096.0,
+                    },
+                    "promotion_blockers": [],
+                }
+            ],
+        },
+    )
+
+
 def test_build_latest_cycle_aggregates_local_evidence(tmp_path, monkeypatch):
     _write_project_files(tmp_path)
     config = _write_config(tmp_path)
@@ -220,6 +259,31 @@ def test_build_latest_cycle_aggregates_local_evidence(tmp_path, monkeypatch):
     assert cycle.model_matrix.real_test_policy.mock_allowed is False
     assert cycle.model_matrix.candidates
     assert any(artifact.name == "model_registry_latest" for artifact in cycle.artifacts)
+
+
+def test_build_latest_cycle_reads_efficientnet_candidate_evidence(tmp_path, monkeypatch):
+    _write_project_files(tmp_path)
+    config = _write_config(tmp_path)
+    _write_evidence(tmp_path)
+    _write_efficientnet_evidence(tmp_path)
+    monkeypatch.delenv("MODEL_REGISTRY_PATH", raising=False)
+
+    cycle = build_latest_cycle(config_path=config)
+
+    assert cycle.model_matrix is not None
+    assert cycle.model_matrix.status == "pass"
+    candidate = cycle.model_matrix.candidates[0]
+    assert candidate.status == "pass"
+    assert candidate.run_uri == "http://localhost:5000/#/runs/run-1"
+    assert candidate.artifact_uri
+    assert candidate.promotion_blockers == []
+    assert {metric.name for metric in candidate.metrics} >= {
+        "accuracy",
+        "f1",
+        "auroc",
+        "latency_p95_ms",
+        "gpu_memory_peak_mb",
+    }
 
 
 def test_build_latest_cycle_marks_missing_upstream_evidence(tmp_path, monkeypatch):
