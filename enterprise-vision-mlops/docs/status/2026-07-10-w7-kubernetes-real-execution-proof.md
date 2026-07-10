@@ -1,5 +1,10 @@
 # 2026-07-10 W7 Kubernetes Real Execution Proof
 
+> Historical checkpoint. Superseded by
+> `docs/status/2026-07-10-w7-kubernetes-b7-execution-proof.md`, where Docker
+> Desktop Kubernetes is running and the remaining blocker is GPU resource
+> advertisement rather than control-plane availability.
+
 > Updated target, 2026-07-10: Docker Desktop Kubernetes is the fixed W7
 > cluster. Completion now requires the selected B7 GPU training Job and serving
 > Deployment; the active execution scope of `EVM-227` is absorbed here.

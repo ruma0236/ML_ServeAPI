@@ -177,8 +177,11 @@ evidence.
   - `infra/kubernetes/model-runtime/b7-training-job.yaml`
   - `infra/kubernetes/model-runtime/b7-serving-deployment.yaml`
   - `infra/kubernetes/model-runtime/kustomization.yaml`
+  - `configs/w7_efficientnet_kubernetes.toml`
   - `infra/docker/efficientnet-training/Dockerfile`
-  - `apps/api` B7 inference loader and probe contract
+  - `infra/docker/efficientnet-serving/Dockerfile`
+  - `apps/api/efficientnet_serving.py`
+  - `scripts/dev/w7_docker_b7_runtime_proof.ps1`
   - `scripts/dev/w7_kubernetes_b7_execution_proof.ps1`
   - `tests/test_kubernetes_b7_manifests.py`
   - `docs/status/YYYY-MM-DD-w7-kubernetes-b7-execution-proof.md`
@@ -187,6 +190,7 @@ evidence.
   - node allocatable resource `nvidia.com/gpu`
   - selected candidate `effnet-b7-img600-finetune-adamw`
   - VisA dataset version and immutable split-manifest digest
+  - immutable source shard-index digest
   - source MLflow run `a4e2763b28ae494ea67944084edd4b3f`
   - F-drive data, evidence, and model artifact roots
   - immutable training and serving image digests
@@ -229,6 +233,13 @@ evidence.
   - blocked if Docker Desktop Kubernetes is disabled, the node lacks
     `nvidia.com/gpu`, storage cannot be mounted, Job/Deployment probes fail,
     model identity is mutable, or expected artifacts are not produced.
+- Current checkpoint:
+  - implementation, Docker GPU proof, immutable image/model identity, and
+    F-drive storage binding are verified;
+  - Docker Desktop Kubernetes does not advertise `nvidia.com/gpu`, so the Job
+    is intentionally Pending and this issue remains open;
+  - evidence is indexed in
+    `docs/status/2026-07-10-w7-kubernetes-b7-execution-proof.md`.
 
 ### EVM-227 - Serving Design Record, Execution Absorbed By EVM-226
 
