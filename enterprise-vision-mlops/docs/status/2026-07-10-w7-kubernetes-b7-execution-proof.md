@@ -89,7 +89,7 @@ scripts\dev\w7_kubernetes_b7_execution_proof.ps1 -AllowBlocked
 
 Results:
 
-- Python: `58 passed`, with two existing FastAPI `on_event` deprecation
+- Python: `59 passed`, with two existing FastAPI `on_event` deprecation
   warnings from `apps/api/main.py`.
 - Kustomize client dry-run: namespaces, service, PVs, PVCs, Deployment, and Job
   all render and validate.
@@ -116,3 +116,26 @@ The CUDA training and serving images are each about 3.74 GB. A shared pinned
 CUDA/Torch base image and registry-backed BuildKit cache should be added after
 the scheduling blocker is resolved to reduce duplicate downloads, local disk
 use, and source-only rebuild time.
+
+Local stack recovery exposed a Compose race in which three Airflow services
+attempted to build the same image tag concurrently. Commit `ac60132` makes
+`start_local_stack.ps1` build each unique image through one canonical service,
+run `compose up --no-build`, and fail on non-zero Docker exit codes. The full
+stack was then restored; Airflow, API, MLflow, MinIO, Prometheus, and Grafana
+health endpoints all returned HTTP 200.
+
+## Cross-System Sync
+
+- Git implementation/status/runtime commits through `ac60132` are pushed to
+  `origin/codex/mac-mini-worker`.
+- Jira `SCRUM-104` remains `In Progress` under `SCRUM-98`, with labels
+  `w7-p0`, `kubernetes`, and `gpu-blocked`; execution evidence comment:
+  `10226`.
+- Notion evidence page:
+  `https://app.notion.com/p/39910ad2dcad817687e2d3102ce443b4`.
+- Notion W7 Implementation Acceptance Matrix was updated with the EVM-226
+  completion boundary and handoff.
+- Obsidian work log:
+  `F:/mlops_obsidian_db/mlops/08_Codex_Memory/01_Work_Logs/2026-07-10 W7 EVM-226 Kubernetes B7 Execution Proof.md`.
+- Obsidian Retrieval Index, Current Context Pack, and Work Log Graph now link
+  this checkpoint and supersede the old disabled-cluster state.
