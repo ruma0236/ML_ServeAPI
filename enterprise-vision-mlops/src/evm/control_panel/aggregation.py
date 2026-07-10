@@ -659,7 +659,12 @@ def build_latest_cycle(
         dataset_version=dataset_version,
         promotion_blockers=blockers,
     )
-    ci_report_path = artifacts_root / "w7" / "ci" / "latest_ci_validation.json"
+    ci_report_path = Path(
+        os.getenv(
+            "EVM_CI_VALIDATION_REPORT_PATH",
+            str(artifacts_root / "w7" / "ci" / "latest_ci_validation.json"),
+        )
+    )
     ci_validation = load_ci_evidence(
         os.getenv(
             "EVM_CI_EVIDENCE_PATH",

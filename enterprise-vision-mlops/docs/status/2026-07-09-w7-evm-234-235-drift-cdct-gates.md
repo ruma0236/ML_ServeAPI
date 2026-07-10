@@ -4,6 +4,8 @@
 > read-only UI/schema baseline only. `EVM-234` and `EVM-235` are reopened for a
 > measured B7 `review_required` event and CI-gated deployment state machine.
 > See `docs/reviews/2026-07-10-w7-portfolio-readiness-reprioritization.md`.
+> The executable EVM-235 implementation superseding this read-only baseline is
+> recorded in `docs/status/2026-07-10-w7-evm-235-ci-deployment-intent.md`.
 
 ## Scope
 

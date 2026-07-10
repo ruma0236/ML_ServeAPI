@@ -5,6 +5,7 @@ from evm.control_panel.cdct import (
     build_cdct_gate,
     validate_ci_evidence,
     with_ci_bundle_digest,
+    load_ci_evidence,
 )
 from evm.control_panel.schemas import DriftState
 
@@ -118,3 +119,48 @@ def test_cdct_gate_fails_closed_without_ci_evidence():
     assert gate.promotion_decision == "block"
     assert "ci_evidence" in gate.failed_checks
     assert "ci_evidence_missing" in gate.promotion_blockers
+
+
+def test_ci_validation_fails_closed_when_audit_report_cannot_persist(
+    tmp_path, monkeypatch
+):
+    bundle = with_ci_bundle_digest(
+        {
+            "repository": "ruma0236/ML_ServeAPI",
+            "workflow_name": "Enterprise Vision MLOps CI",
+            "workflow_run_id": "123456",
+            "workflow_run_attempt": 1,
+            "commit_sha": "a" * 40,
+            "ref": "refs/heads/codex/mac-mini-worker",
+            "event": "push",
+            "status": "completed",
+            "conclusion": "success",
+            "python_test_result": "pass",
+            "frontend_test_result": "pass",
+            "evidence_validator_result": "pass",
+            "compose_config_result": "pass",
+            "kustomize_render_result": "pass",
+            "image_digest": "evm-serving@sha256:" + "b" * 64,
+            "config_render_digest": "c" * 64,
+            "contract_digest": "d" * 64,
+            "source_uri": "https://github.com/ruma0236/ML_ServeAPI/actions/runs/123456",
+            "generated_at": "2026-07-10T10:00:00Z",
+        }
+    )
+    path = tmp_path / "ci.json"
+    path.write_text(bundle.model_dump_json(), encoding="utf-8")
+    monkeypatch.setattr(
+        "evm.control_panel.cdct.atomic_write_json",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("read only")),
+    )
+
+    validation = load_ci_evidence(
+        path,
+        expected_commit="a" * 40,
+        report_uri=tmp_path / "report.json",
+    )
+
+    assert validation.valid is False
+    assert validation.status == "blocked"
+    assert validation.report_uri is None
+    assert validation.blockers == ["ci_validation_report_persistence_failed"]

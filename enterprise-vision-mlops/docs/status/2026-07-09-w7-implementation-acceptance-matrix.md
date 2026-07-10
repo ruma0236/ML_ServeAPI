@@ -474,9 +474,12 @@ Execution state on 2026-07-10:
   deployment-intent creation fails closed before any mutation;
 - the audited state machine and isolated executor cover `dry_run`, approval,
   queue, apply, failure, and rollback branches in automated tests;
-- the live API currently returns `409 ci_evidence_missing`, and no real
-  Kubernetes apply/rollback is claimed while `EVM-226` and live `EVM-236`
-  readiness remain blocked;
+- GitHub CI run `29086838656` and deployment-admission run `29086875286`
+  completed successfully, and their digest-verified evidence is loaded by the
+  local API;
+- live CI and CD are `pass`, while CT, readiness, and policy remain blocked;
+  deployment creation returns `409` with readiness, policy, and rollback
+  blockers, so no real Kubernetes apply/rollback is claimed;
 - desktop/mobile Control Panel verification passed all 14 Playwright scenarios,
   and a 24-request concurrent read check completed with all responses `200`.
 
@@ -523,6 +526,13 @@ Execution state on 2026-07-10:
 - Failure blocker:
   - blocked if CI/CD/CT fields are hard-coded, deployment intent can be created
     before validators pass, or UI/API calls Kubernetes directly.
+
+- Current evidence:
+  - `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/deployment_intents/evm-235-verification-20260710T193530/`
+  - full Playwright: `14 passed`; post-CI gate/all-tab verification: `4 passed`;
+  - Python: `85 passed`; frontend contracts: `7 files / 19 passed`;
+  - concurrent API read proof: `24/24` HTTP `200` in `1.777s`;
+  - operational closure remains blocked by `EVM-226` and live `EVM-236`.
 
 ### EVM-236 - Enterprise Data/Model Evidence Readiness Evaluator
 

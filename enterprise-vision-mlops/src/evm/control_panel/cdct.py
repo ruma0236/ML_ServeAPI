@@ -154,7 +154,20 @@ def load_ci_evidence(
         checked_at=checked_at,
     )
     if report_path:
-        atomic_write_json(report_path, validation.model_dump(mode="json"))
+        try:
+            atomic_write_json(report_path, validation.model_dump(mode="json"))
+        except OSError:
+            blockers = sorted(
+                set([*validation.blockers, "ci_validation_report_persistence_failed"])
+            )
+            return validation.model_copy(
+                update={
+                    "valid": False,
+                    "status": "blocked",
+                    "blockers": blockers,
+                    "report_uri": None,
+                }
+            )
     return validation
 
 
