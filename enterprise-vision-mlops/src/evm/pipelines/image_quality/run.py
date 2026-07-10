@@ -248,8 +248,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         )
     dataset_metadata = _load_json(dataset_metadata_path)
     dataset_version = str(
-        cfg.get("dataset_version")
-        or dataset_metadata.get("dataset_version")
+        dataset_metadata.get("dataset_version")
+        or cfg.get("dataset_version")
         or f"{cfg.get('dataset_name', 'dataset')}-unversioned"
     )
     hash_counts: dict[str, int] = Counter()

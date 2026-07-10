@@ -100,6 +100,7 @@ reports_root = "{(artifacts_dir / "reports").as_posix()}"
 [pipelines.image_quality]
 dataset_id = "fixture"
 dataset_name = "fixture"
+dataset_version = "stale-config-version"
 input_manifest = "{manifest_path.as_posix()}"
 dataset_metadata = "{metadata_path.as_posix()}"
 output_manifest = "{(validated_dir / "quality_manifest.jsonl").as_posix()}"
@@ -116,6 +117,7 @@ fail_on_error = true
     report = run(str(config_path))
 
     assert report["status"] == "pass"
+    assert report["dataset_version"] == "fixture-v1"
     assert report["quality_policy"]["policy_id"] == "fixture_policy"
     assert report["etl_recipe"]["recipe_id"] == "fixture_recipe"
     quality_manifest = validated_dir / "quality_manifest.jsonl"
