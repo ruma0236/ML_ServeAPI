@@ -274,6 +274,7 @@ Execution checkpoint on 2026-07-10: In Progress / blocked.
 
 - Implementation files:
   - `src/evm/control_panel/w7_closeout.py`
+  - `scripts/dev/w7_closeout.ps1`
   - `tests/test_w7_closeout.py`
   - `docs/status/2026-07-10-w7-integration-review.md`
   - `docs/reviews/2026-07-10-w7-final-review.md`
@@ -289,8 +290,10 @@ Execution checkpoint on 2026-07-10: In Progress / blocked.
   - known-risk and blocker register
 - Verification command:
   - `git status --short --branch`
-  - `$env:PYTHONPATH='src'; python -m evm.control_panel.w7_closeout --source-commit <commit> --output F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/closeout/<run_id>/w7-closeout-matrix.json`
-  - repeat with `--require-closeout` for final closure
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/w7_closeout.ps1`
+  - repeat with `-RequireCloseout` for final closure; the command must return
+    exit code `1` while required claims remain blocked and `0` only when all
+    required claims pass
   - Jira query for `SCRUM-102` to `SCRUM-116`
   - Notion and Obsidian lookup checks
 - Success criteria:

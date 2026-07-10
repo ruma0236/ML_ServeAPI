@@ -59,6 +59,9 @@ not yet proven.
 - Docker Compose config: pass
 - Kubernetes model-runtime Kustomize dry-run: pass
 - Closeout matrix schema: `evm.w7.closeout_matrix.v1`
+- Reproducible command: `scripts/dev/w7_closeout.ps1` selects a Python runtime
+  that can import the pinned project dependencies instead of relying on the
+  dependency-free Windows default Python.
 
 ## Cross-System Checkpoint
 
