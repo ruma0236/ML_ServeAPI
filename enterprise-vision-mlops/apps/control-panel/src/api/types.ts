@@ -62,10 +62,24 @@ export interface RuntimeResource {
   control_actions: string[];
   pressure?: State;
   related_stages?: string[];
+  observation_source?: "cycle_projection" | "kubernetes_snapshot";
+  observation_status?: "live" | "stale" | "projected" | "unavailable";
+  observed_at?: string | null;
+  observation_message?: string | null;
+  reason?: string | null;
+  desired_replicas?: number | null;
+  ready_replicas?: number | null;
+  gpu_capacity?: string | null;
 }
 
 export interface RuntimeResourceList {
   resources: RuntimeResource[];
+  observation_status: "live" | "stale" | "projected" | "unavailable";
+  observed_at?: string | null;
+  snapshot_age_seconds?: number | null;
+  cluster_context?: string | null;
+  snapshot_uri?: string | null;
+  observation_message?: string | null;
 }
 
 export type TaskStatus = "draft" | "dry_run" | "queued" | "pending_confirmation" | "blocked";

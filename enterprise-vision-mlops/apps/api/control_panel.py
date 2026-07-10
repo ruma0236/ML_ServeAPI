@@ -7,6 +7,10 @@ from time import monotonic
 from fastapi import APIRouter, HTTPException
 
 from evm.control_panel.aggregation import build_latest_cycle
+from evm.control_panel.kubernetes_observer import (
+    load_kubernetes_resource_snapshot,
+    merge_runtime_resources,
+)
 from evm.control_panel.promotion_policy import evaluate_cycle_promotion
 from evm.control_panel.schemas import (
     CycleRun,
@@ -84,12 +88,16 @@ def get_cycle(cycle_id: str) -> CycleRun:
 @router.get("/resources", response_model=RuntimeResourceList)
 def list_resources(namespace: str | None = None, owner_issue: str | None = None) -> RuntimeResourceList:
     cycle = cycle_snapshot()
-    resources = build_runtime_resources(cycle)
+    resource_list = merge_runtime_resources(
+        build_runtime_resources(cycle),
+        load_kubernetes_resource_snapshot(),
+    )
+    resources = resource_list.resources
     if namespace:
         resources = [resource for resource in resources if resource.namespace == namespace]
     if owner_issue:
         resources = [resource for resource in resources if resource.owner_issue == owner_issue]
-    return RuntimeResourceList(resources=resources)
+    return resource_list.model_copy(update={"resources": resources})
 
 
 def build_runtime_resources(cycle: CycleRun) -> list[RuntimeResource]:

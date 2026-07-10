@@ -30,6 +30,7 @@ export function ResourceNode({ resource, selected, onSelect }: ResourceNodeProps
       <span className="topology-meta">
         <StatusBadge status={resource.status} compact />
         <small>pressure {resourcePressure(resource)}</small>
+        <small>{resource.observation_source === "kubernetes_snapshot" ? "live" : "projected"}</small>
       </span>
     </button>
   );

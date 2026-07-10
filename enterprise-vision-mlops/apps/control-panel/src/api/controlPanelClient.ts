@@ -120,7 +120,7 @@ async function controlPanelError(response: Response, fallback: string): Promise<
   return new ControlPanelApiError(message, blockers);
 }
 
-export async function fetchRuntimeResources(baseUrl = API_BASE): Promise<RuntimeResource[]> {
+export async function fetchRuntimeResources(baseUrl = API_BASE): Promise<RuntimeResourceList> {
   const response = await fetch(`${baseUrl}/control-panel/v1/resources`, {
     headers: { Accept: "application/json" }
   });
@@ -128,7 +128,7 @@ export async function fetchRuntimeResources(baseUrl = API_BASE): Promise<Runtime
     throw new Error(`RuntimeResource request failed: ${response.status}`);
   }
   const payload = (await response.json()) as RuntimeResourceList;
-  return payload.resources;
+  return payload;
 }
 
 export async function fetchTaskAssignments(baseUrl = API_BASE): Promise<TaskAssignment[]> {

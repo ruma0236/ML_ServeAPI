@@ -258,6 +258,8 @@ services:
       EVM_EXPECTED_CI_COMMIT: ${EVM_EXPECTED_CI_COMMIT:-}
       EVM_DEPLOYMENT_INTENT_ROOT: /app/artifacts/w7/deployment_intents
       EVM_CONTROL_PANEL_CACHE_TTL_SECONDS: "2"
+      EVM_KUBERNETES_RESOURCE_SNAPSHOT_PATH: /app/artifacts/w7/kubernetes_observer/latest.json
+      EVM_KUBERNETES_SNAPSHOT_STALE_SECONDS: "15"
     ports:
       - "8000:8000"
     volumes:

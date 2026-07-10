@@ -36,9 +36,24 @@ export function ResourceDetailDrawer({ resource }: ResourceDetailDrawerProps) {
         <Row label="CPU" value={resource.cpu_request} />
         <Row label="Memory" value={resource.memory_request} />
         <Row label="GPU" value={resource.gpu_request || "none"} />
+        <Row label="GPU Capacity" value={resource.gpu_capacity || "none"} />
         <Row label="Storage" value={resource.storage_claim || compactUri(resource.storage_root)} />
         <Row label="Restarts" value={String(resource.restarts)} />
+        <Row label="Source" value={resource.observation_source || "cycle_projection"} />
+        <Row label="Observed" value={resource.observed_at} />
+        <Row label="Reason" value={resource.reason} />
+        <Row
+          label="Replicas"
+          value={
+            resource.desired_replicas == null
+              ? null
+              : `${resource.ready_replicas || 0} / ${resource.desired_replicas}`
+          }
+        />
       </dl>
+      {resource.observation_message ? (
+        <div className="resource-observation-message">{resource.observation_message}</div>
+      ) : null}
       <div className="detail-section">
         <h4>
           <Gauge />

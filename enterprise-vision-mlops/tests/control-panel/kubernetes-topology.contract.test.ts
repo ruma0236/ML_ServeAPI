@@ -10,6 +10,10 @@ describe("W7 Kubernetes topology bindings", () => {
 
   it("loads RuntimeResource records from the resource API contract", async () => {
     const payload: RuntimeResourceList = {
+      observation_status: "live",
+      observed_at: "2026-07-10T11:00:00Z",
+      snapshot_age_seconds: 2,
+      cluster_context: "docker-desktop",
       resources: [
         {
           resource_id: "evm-platform:Deployment:evm-api",
@@ -27,22 +31,25 @@ describe("W7 Kubernetes topology bindings", () => {
           owner_issue: "EVM-224",
           control_actions: ["view", "restart_dry_run", "scale_dry_run"],
           pressure: "pass",
-          related_stages: ["Model Lifecycle"]
+          related_stages: ["Model Lifecycle"],
+          observation_source: "kubernetes_snapshot",
+          observation_status: "live"
         }
       ]
     };
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const resources = await fetchRuntimeResources("http://control-panel.test");
+    const snapshot = await fetchRuntimeResources("http://control-panel.test");
 
     expect(fetchMock).toHaveBeenCalledWith(
       "http://control-panel.test/control-panel/v1/resources",
       expect.objectContaining({ headers: { Accept: "application/json" } })
     );
-    expect(resources[0]).toEqual(expect.objectContaining({ namespace: "evm-platform", name: "evm-api" }));
-    expect(resources[0].control_actions).toContain("restart_dry_run");
-    expect(resourcePressure(resources[0])).toBe("pass");
+    expect(snapshot.observation_status).toBe("live");
+    expect(snapshot.resources[0]).toEqual(expect.objectContaining({ namespace: "evm-platform", name: "evm-api" }));
+    expect(snapshot.resources[0].control_actions).toContain("restart_dry_run");
+    expect(resourcePressure(snapshot.resources[0])).toBe("pass");
   });
 
   it("falls back to status when pressure is not provided", () => {

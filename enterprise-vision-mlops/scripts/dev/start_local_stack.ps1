@@ -1,6 +1,7 @@
 param(
     [switch]$Build,
-    [switch]$NoAirflowRecreate
+    [switch]$NoAirflowRecreate,
+    [switch]$NoKubernetesObserver
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,6 +62,10 @@ try {
     }
 
     Invoke-Docker -Arguments @("compose", "ps")
+
+    if (-not $NoKubernetesObserver) {
+        & (Join-Path $PSScriptRoot "start_kubernetes_observer.ps1")
+    }
 }
 finally {
     Pop-Location

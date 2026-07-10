@@ -29,6 +29,8 @@ DeploymentIntentState = Literal[
     "failed",
     "rolled_back",
 ]
+ResourceObservationSource = Literal["cycle_projection", "kubernetes_snapshot"]
+ResourceObservationStatus = Literal["live", "stale", "projected", "unavailable"]
 
 TaskStatus = Literal["draft", "dry_run", "queued", "pending_confirmation", "blocked"]
 CommandStatus = Literal["draft", "dry_run", "pending_confirmation", "applying", "applied", "cancelled", "failed", "rolled_back"]
@@ -97,10 +99,34 @@ class RuntimeResource(ContractModel):
     control_actions: list[str] = Field(default_factory=list)
     pressure: State = "unknown"
     related_stages: list[str] = Field(default_factory=list)
+    observation_source: ResourceObservationSource = "cycle_projection"
+    observation_status: ResourceObservationStatus = "projected"
+    observed_at: str | None = None
+    observation_message: str | None = None
+    reason: str | None = None
+    desired_replicas: int | None = Field(default=None, ge=0)
+    ready_replicas: int | None = Field(default=None, ge=0)
+    gpu_capacity: str | None = None
 
 
 class RuntimeResourceList(ContractModel):
     resources: list[RuntimeResource]
+    observation_status: ResourceObservationStatus = "unavailable"
+    observed_at: str | None = None
+    snapshot_age_seconds: float | None = Field(default=None, ge=0)
+    cluster_context: str | None = None
+    snapshot_uri: str | None = None
+    observation_message: str | None = None
+
+
+class KubernetesResourceSnapshot(ContractModel):
+    schema_version: Literal["evm.w7.kubernetes_resource_snapshot.v1"]
+    cluster_context: str
+    observed_at: str
+    collection_status: Literal["pass", "fail"]
+    resource_status: State
+    message: str | None = None
+    resources: list[RuntimeResource] = Field(default_factory=list)
 
 
 class AuditEvent(ContractModel):

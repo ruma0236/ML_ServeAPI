@@ -76,16 +76,7 @@
             "description": "resource list",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["resources"],
-                  "properties": {
-                    "resources": {
-                      "type": "array",
-                      "items": {"$ref": "#/components/schemas/RuntimeResource"}
-                    }
-                  }
-                }
+                "schema": {"$ref": "#/components/schemas/RuntimeResourceList"}
               }
             }
           }
@@ -981,7 +972,42 @@
           "control_actions": {
             "type": "array",
             "items": {"type": "string"}
-          }
+          },
+          "pressure": {"$ref": "#/components/schemas/State"},
+          "related_stages": {"type": "array", "items": {"type": "string"}},
+          "observation_source": {
+            "type": "string",
+            "enum": ["cycle_projection", "kubernetes_snapshot"]
+          },
+          "observation_status": {
+            "type": "string",
+            "enum": ["live", "stale", "projected", "unavailable"]
+          },
+          "observed_at": {"type": ["string", "null"], "format": "date-time"},
+          "observation_message": {"type": ["string", "null"]},
+          "reason": {"type": ["string", "null"]},
+          "desired_replicas": {"type": ["integer", "null"], "minimum": 0},
+          "ready_replicas": {"type": ["integer", "null"], "minimum": 0},
+          "gpu_capacity": {"type": ["string", "null"]}
+        }
+      },
+      "RuntimeResourceList": {
+        "type": "object",
+        "required": ["resources", "observation_status"],
+        "properties": {
+          "resources": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/RuntimeResource"}
+          },
+          "observation_status": {
+            "type": "string",
+            "enum": ["live", "stale", "projected", "unavailable"]
+          },
+          "observed_at": {"type": ["string", "null"], "format": "date-time"},
+          "snapshot_age_seconds": {"type": ["number", "null"], "minimum": 0},
+          "cluster_context": {"type": ["string", "null"]},
+          "snapshot_uri": {"type": ["string", "null"]},
+          "observation_message": {"type": ["string", "null"]}
         }
       },
       "TaskAssignmentRequest": {

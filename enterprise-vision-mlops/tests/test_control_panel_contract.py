@@ -72,6 +72,8 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "latest_deployment_intent" in schemas["CycleRun"]["properties"]
     assert "DeploymentIntent" in schemas
     assert "CIEvidenceValidation" in schemas
+    assert "observation_source" in schemas["RuntimeResource"]["properties"]
+    assert "observation_status" in schemas["RuntimeResourceList"]["properties"]
     assert "/control-panel/v1/deployment-intents" in openapi["paths"]
     assert "/control-panel/v1/deployment-intents/{intent_id}/queue" in openapi["paths"]
 
@@ -103,6 +105,7 @@ def test_control_panel_resources_route_returns_runtime_resource_contract(monkeyp
     assert all(resource.node_pool for resource in resources)
     assert "/control-panel/v1/resources" in openapi["paths"]
     assert "RuntimeResource" in openapi["components"]["schemas"]
+    assert payload.observation_status in {"live", "stale", "unavailable"}
 
 
 def test_control_panel_cycle_lookup_404_for_unknown_id():

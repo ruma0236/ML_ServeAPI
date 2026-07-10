@@ -2,17 +2,18 @@ import { Workflow } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { summarizeStages } from "../api/controlPanelClient";
-import type { CycleRun, PipelineStage, RuntimeResource } from "../api/types";
+import type { CycleRun, PipelineStage, RuntimeResourceList } from "../api/types";
 import { StageDetail } from "../components/StageDetail";
 import { StatusBadge } from "../components/StatusBadge";
 import { KubernetesTopology } from "./KubernetesTopology";
 
 interface PipelineTimelineProps {
   cycle: CycleRun;
-  resources: RuntimeResource[];
+  resourceSnapshot: RuntimeResourceList;
 }
 
-export function PipelineTimeline({ cycle, resources }: PipelineTimelineProps) {
+export function PipelineTimeline({ cycle, resourceSnapshot }: PipelineTimelineProps) {
+  const resources = resourceSnapshot.resources;
   const [selectedStageId, setSelectedStageId] = useState(cycle.stages[0]?.stage_id || "");
   const [selectedResourceId, setSelectedResourceId] = useState(resources[0]?.resource_id || "");
   const selectedStage = useMemo(
@@ -63,7 +64,7 @@ export function PipelineTimeline({ cycle, resources }: PipelineTimelineProps) {
       </div>
 
       <KubernetesTopology
-        resources={resources}
+        snapshot={resourceSnapshot}
         selectedResource={selectedResource}
         onSelectResource={(resource) => setSelectedResourceId(resource.resource_id)}
       />

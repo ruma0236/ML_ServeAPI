@@ -858,6 +858,56 @@ h3 {
   color: #2e7180;
 }
 
+.observation-state {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.observation-state span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid #c9d9dd;
+  border-radius: 6px;
+  color: #425b64;
+  background: #f3f8f9;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.observation-state span svg {
+  width: 14px;
+  height: 14px;
+}
+
+.resource-source-control {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 108px;
+  margin-top: 0;
+}
+
+.resource-source-control button {
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
+.observation-state .observation-live {
+  border-color: #a8d4c0;
+  color: #246a4f;
+  background: #eaf6f0;
+}
+
+.observation-state .observation-stale,
+.observation-state .observation-unavailable {
+  border-color: #e1b8b9;
+  color: #8d3739;
+  background: #fbefef;
+}
+
 .cycle-card {
   display: grid;
   align-content: start;
@@ -1877,6 +1927,16 @@ h3 {
   font-weight: 800;
 }
 
+.resource-observation-message {
+  padding: 10px;
+  border: 1px solid #d7e2e6;
+  border-radius: 6px;
+  color: #41565f;
+  background: #f5f9fa;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .status-badge {
   display: inline-grid;
   min-width: 76px;
@@ -2010,6 +2070,26 @@ h3 {
 :root[data-theme="dark"] .topology-meta small,
 :root[data-theme="dark"] .detail-list dt {
   color: #a4a8ae;
+}
+
+:root[data-theme="dark"] .observation-state span,
+:root[data-theme="dark"] .resource-observation-message {
+  border-color: #30383d;
+  color: #c1c9cd;
+  background: #171b1e;
+}
+
+:root[data-theme="dark"] .observation-state .observation-live {
+  border-color: #285944;
+  color: #8fc9aa;
+  background: #14231c;
+}
+
+:root[data-theme="dark"] .observation-state .observation-stale,
+:root[data-theme="dark"] .observation-state .observation-unavailable {
+  border-color: #69383a;
+  color: #e1a0a2;
+  background: #271718;
 }
 
 :root[data-theme="dark"] h1,
@@ -2357,6 +2437,33 @@ h3 {
 
   .topbar {
     align-items: flex-start;
+  }
+
+  .tabbar {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 2px;
+    overflow: visible;
+  }
+
+  .tabbar button {
+    min-width: 0;
+    padding: 9px 3px;
+    font-size: 0.74rem;
+  }
+
+  .panel-heading {
+    align-items: flex-start;
+  }
+
+  .observation-state {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .resource-source-control {
+    order: 2;
+    width: 100%;
   }
 
   .summary-strip,

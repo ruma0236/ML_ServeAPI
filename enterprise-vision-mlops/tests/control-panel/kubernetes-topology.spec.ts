@@ -5,10 +5,19 @@ test("@w7-kubernetes-topology renders API-backed resource topology and drilldown
   await page.getByRole("button", { name: "Timeline" }).click();
 
   await expect(page.getByRole("heading", { name: "Kubernetes Resource Topology" })).toBeVisible();
-  await expect(page.getByText("evm-platform").first()).toBeVisible();
-  await expect(page.getByText("evm-pipelines").first()).toBeVisible();
+  await expect(page.getByText("evm-training").first()).toBeVisible();
   await expect(page.getByText("SERVICE").first()).toBeVisible();
   await expect(page.getByText("PERSISTENTVOLUMECLAIM").first()).toBeVisible();
+  await expect(page.locator(".observation-state")).toContainText("live");
+
+  await page.getByRole("button", { name: /Job evm-b7-training fail/ }).click();
+  await expect(page.getByLabel("Resource detail")).toContainText("kubernetes_snapshot");
+  await expect(page.getByLabel("Resource detail")).toContainText("DeadlineExceeded");
+  await expect(page.getByLabel("Resource detail")).toContainText("Job was active longer than specified deadline");
+
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await expect(page.getByText("evm-platform").first()).toBeVisible();
+  await expect(page.getByText("evm-pipelines").first()).toBeVisible();
 
   await page.getByRole("button", { name: /Deployment evm-api/ }).click();
   await expect(page.getByLabel("Resource detail")).toContainText("Dry-run Actions");
@@ -18,6 +27,8 @@ test("@w7-kubernetes-topology renders API-backed resource topology and drilldown
   await page.getByRole("button", { name: /Job evm-efficientnet-training/ }).click();
   await expect(page.getByLabel("Resource detail")).toContainText("RTX 4080");
   await expect(page.getByLabel("Resource detail")).toContainText("rerun_dry_run");
+
+  await page.getByRole("button", { name: /Job evm-b7-training fail/ }).click();
 
   const screenshotPath =
     process.env.EVM_KUBERNETES_TOPOLOGY_SCREENSHOT ||

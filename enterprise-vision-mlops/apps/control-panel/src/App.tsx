@@ -2,7 +2,7 @@ import { AlertCircle, Moon, RefreshCcw, Sun } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchLatestCycle, fetchRuntimeResources } from "./api/controlPanelClient";
-import type { CycleRun, RuntimeResource } from "./api/types";
+import type { CycleRun, RuntimeResourceList } from "./api/types";
 import { StatusBadge } from "./components/StatusBadge";
 import { CycleOverview } from "./views/CycleOverview";
 import { DataModelReadiness } from "./views/DataModelReadiness";
@@ -22,7 +22,10 @@ const tabs: Array<{ key: TabKey; label: string }> = [
 
 export function App() {
   const [cycle, setCycle] = useState<CycleRun | null>(null);
-  const [resources, setResources] = useState<RuntimeResource[]>([]);
+  const [resourceSnapshot, setResourceSnapshot] = useState<RuntimeResourceList>({
+    resources: [],
+    observation_status: "unavailable"
+  });
   const [tab, setTab] = useState<TabKey>("overview");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [error, setError] = useState("");
@@ -37,7 +40,7 @@ export function App() {
     try {
       const [payload, runtimeResources] = await Promise.all([fetchLatestCycle(), fetchRuntimeResources()]);
       setCycle(payload);
-      setResources(runtimeResources);
+      setResourceSnapshot(runtimeResources);
       setError("");
       setRefreshedAt(new Date().toLocaleTimeString());
     } catch (err) {
@@ -57,11 +60,11 @@ export function App() {
   const activeView = useMemo(() => {
     if (!cycle) return null;
     if (tab === "readiness") return <DataModelReadiness cycle={cycle} />;
-    if (tab === "timeline") return <PipelineTimeline cycle={cycle} resources={resources} />;
-    if (tab === "operate") return <TaskAuthoring cycle={cycle} resources={resources} />;
+    if (tab === "timeline") return <PipelineTimeline cycle={cycle} resourceSnapshot={resourceSnapshot} />;
+    if (tab === "operate") return <TaskAuthoring cycle={cycle} resources={resourceSnapshot.resources} />;
     if (tab === "gates") return <GateAndRiskPanel cycle={cycle} />;
     return <CycleOverview cycle={cycle} />;
-  }, [cycle, resources, tab]);
+  }, [cycle, resourceSnapshot, tab]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
