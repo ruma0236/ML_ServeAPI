@@ -57,7 +57,10 @@ jobs:
           retention-days: 30
 
   reject-failed-ci:
-    if: ${{ github.event.workflow_run.conclusion != 'success' }}
+    if: >-
+      ${{ github.event.workflow_run.conclusion != 'success' &&
+          github.event.workflow_run.conclusion != 'cancelled' &&
+          github.event.workflow_run.conclusion != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
       - name: Block deployment intent admission
@@ -65,3 +68,14 @@ jobs:
           echo "Deployment intent admission blocked."
           echo "CI conclusion: ${{ github.event.workflow_run.conclusion }}"
           exit 1
+
+  record-superseded-ci:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'cancelled' ||
+          github.event.workflow_run.conclusion == 'skipped' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record non-admission for superseded CI
+        run: |
+          echo "No deployment admission artifact will be created."
+          echo "The source CI was superseded with conclusion: ${{ github.event.workflow_run.conclusion }}"
