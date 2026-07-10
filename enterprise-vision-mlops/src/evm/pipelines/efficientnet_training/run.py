@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tomllib
 from collections.abc import Sequence
@@ -16,6 +17,16 @@ from evm.core.torch_efficientnet import (
     train_candidate,
     validate_acceptance_split,
 )
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def load_config(config_path: str | Path) -> dict[str, Any]:
@@ -70,6 +81,20 @@ def matrix_status(candidate_results: list[dict[str, Any]], configured_candidate_
     if pass_count == len(candidate_results) == configured_candidate_count:
         return "pass"
     return "warn" if pass_count else "blocked"
+
+
+def merge_candidate_results(
+    existing_matrix: dict[str, Any],
+    new_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for item in existing_matrix.get("candidates", []):
+        if isinstance(item, dict) and item.get("candidate_id"):
+            merged[str(item["candidate_id"])] = item
+    for item in new_results:
+        if item.get("candidate_id"):
+            merged[str(item["candidate_id"])] = item
+    return list(merged.values())
 
 
 def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str, Any]:
@@ -190,23 +215,29 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
             write_json(candidate_dir / "candidate_summary.json", blocked)
             candidate_results.append(blocked)
 
+    latest_matrix_path = artifact_root / "latest_model_matrix.json"
+    merged_candidate_results = merge_candidate_results(
+        read_json(latest_matrix_path),
+        candidate_results,
+    )
+
     summary = {
         "schema_version": "evm.w7.efficientnet_model_matrix.v1",
         "matrix_id": matrix_id,
-        "status": matrix_status(candidate_results, len(all_candidates_cfg)),
+        "status": matrix_status(merged_candidate_results, len(all_candidates_cfg)),
         "execution_mode": str(matrix_cfg.get("execution_mode", "parallel")),
         "framework": "torch",
         "dataset_version": dataset_version,
         "artifact_root": str(matrix_dir),
         "split_manifest": str(matrix_dir / "split_manifest.json"),
         "split_blockers": split_blockers,
-        "candidate_count": len(candidate_results),
+        "candidate_count": len(merged_candidate_results),
         "configured_candidate_count": len(all_candidates_cfg),
-        "candidates": candidate_results,
+        "candidates": merged_candidate_results,
         "created_at": utc_now(),
     }
     write_json(matrix_dir / "model_matrix.json", summary)
-    write_json(artifact_root / "latest_model_matrix.json", summary)
+    write_json(latest_matrix_path, summary)
     return summary
 
 

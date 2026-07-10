@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from evm.pipelines.efficientnet_training.run import run
+from evm.pipelines.efficientnet_training.run import matrix_status, merge_candidate_results, run
 
 
 def _write_json(path: Path, payload: dict | list) -> None:
@@ -127,3 +127,30 @@ require_cuda_available = true
     latest = json.loads((artifacts_root / "latest_model_matrix.json").read_text(encoding="utf-8"))
     assert latest["candidate_count"] == 1
     assert latest["candidates"][0]["execution_blockers"] == summary["split_blockers"]
+
+
+def test_partial_candidate_results_merge_existing_matrix_evidence():
+    existing = {
+        "candidates": [
+            {
+                "candidate_id": "effnet-b0-img224-freeze-adamw",
+                "status": "pass",
+                "mlflow_run_id": "run-freeze",
+            }
+        ]
+    }
+    incoming = [
+        {
+            "candidate_id": "effnet-b0-img224-finetune-sgd",
+            "status": "pass",
+            "mlflow_run_id": "run-finetune",
+        }
+    ]
+
+    merged = merge_candidate_results(existing, incoming)
+
+    assert {item["candidate_id"] for item in merged} == {
+        "effnet-b0-img224-freeze-adamw",
+        "effnet-b0-img224-finetune-sgd",
+    }
+    assert matrix_status(merged, configured_candidate_count=4) == "warn"
