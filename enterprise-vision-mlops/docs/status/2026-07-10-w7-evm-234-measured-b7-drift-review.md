@@ -76,7 +76,7 @@ predictions, and label-review queue with SHA-256 digests.
 
 ## Verification
 
-- Python: 98 passed
+- Python: 99 passed
 - Frontend contracts: 19 passed
 - TypeScript lint and production build: pass
 - Full Playwright desktop/mobile regression: 14 passed
@@ -84,6 +84,24 @@ predictions, and label-review queue with SHA-256 digests.
 - CycleRun Pydantic/OpenAPI validation: pass
 - Docker Compose config: pass
 - Kubernetes model-runtime Kustomize dry-run: pass
+
+## CI And Cross-System Synchronization
+
+- Implementation commit: `81f433f`
+- GitHub CI run `29091783811`: success
+- CI artifact `8227065139`, archive SHA-256:
+  `f004110d3180aa216dffbc29615be94f173801ee596e33d888d405763e1c7959`
+- Deployment admission run `29091815311`: success
+- Admission artifact `8227073932`, archive SHA-256:
+  `df0122e24925f627a8134b6302837d457b2c081ea874ed494d06caec2dfe2ca8`
+- Jira Realtime Sync run `29091783807`: success
+- Jira EVM-234 / `SCRUM-112`: Done, comment `10243`
+- Jira EVM-228 / `SCRUM-106`: In Progress, boundary comment `10244`
+- Jira parent Epic / `SCRUM-98`: In Progress, checkpoint comment `10245`
+- Notion detail:
+  `https://app.notion.com/p/39910ad2dcad81908071f73ff500ca60`
+- Obsidian work log:
+  `F:/mlops_obsidian_db/mlops/08_Codex_Memory/01_Work_Logs/2026-07-10 W7 EVM-234 Measured B7 Drift Review.md`
 
 ## Claim Boundary
 
