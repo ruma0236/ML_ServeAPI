@@ -512,6 +512,13 @@ Execution state on 2026-07-10:
   `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/readiness/evm-236-readiness-20260710T090734Z/`;
 - EVM-236 completion means the evaluator works. It does not override the
   unresolved data identity, lineage, MLflow, rollback, or Kubernetes blockers.
+- Jira `SCRUM-114` is Done with implementation-closure comment `10228` and
+  `readiness-blocked` claim-boundary labeling.
+- Notion detail:
+  `https://app.notion.com/p/39910ad2dcad8153b403e63a543de127`.
+- Obsidian work log:
+  `F:/mlops_obsidian_db/mlops/08_Codex_Memory/01_Work_Logs/2026-07-10 W7 EVM-236 Artifact Readiness Evaluator.md`, linked from the Current Context
+  Pack, Retrieval Index, Memory Hub, and Work Log Graph.
 
 - Implementation files:
   - `src/evm/control_panel/readiness.py`
