@@ -41,7 +41,7 @@ spec:
             - name: DEVICE_ID_STRATEGY
               value: index
             - name: LD_LIBRARY_PATH
-              value: /usr/lib/wsl/drivers/nvidia-current:/usr/lib/wsl/lib
+              value: __WSL_DRIVER_PATH__:/usr/lib/wsl/lib
           securityContext:
             privileged: true
           volumeMounts:
@@ -53,7 +53,7 @@ spec:
               mountPath: /usr/lib/wsl/lib
               readOnly: true
             - name: wsl-driver
-              mountPath: /usr/lib/wsl/drivers/nvidia-current
+              mountPath: __WSL_DRIVER_PATH__
               readOnly: true
       volumes:
         - name: kubelet-device-plugins-dir

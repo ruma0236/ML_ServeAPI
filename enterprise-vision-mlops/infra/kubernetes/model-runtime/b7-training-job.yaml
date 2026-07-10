@@ -36,6 +36,7 @@ spec:
             - -m
             - evm.pipelines.efficientnet_training.run
             - /app/configs/w7_efficientnet_kubernetes.toml
+            - --require-pass
           env:
             - name: EVM_EFFICIENTNET_CANDIDATES
               value: effnet-b7-img600-finetune-adamw

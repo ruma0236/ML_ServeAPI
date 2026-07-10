@@ -24,6 +24,7 @@ def test_docker_desktop_gpu_plugin_template_is_pinned_and_scoped() -> None:
     assert "value: \"true\"" in manifest
     assert "path: /dev/dxg" in manifest
     assert "path: __WSL_DRIVER_PATH__" in manifest
+    assert "mountPath: __WSL_DRIVER_PATH__" in manifest
 
 
 def test_gpu_workloads_stay_non_privileged_and_request_accounted_gpu() -> None:
@@ -34,7 +35,10 @@ def test_gpu_workloads_stay_non_privileged_and_request_accounted_gpu() -> None:
     assert "allowPrivilegeEscalation: false" in probe
     assert "privileged: true" not in probe
     assert "privileged: true" not in workload_patch
-    assert workload_patch.count("__WSL_DRIVER_PATH__") == 2
+    assert probe.count("__WSL_DRIVER_PATH__") == 4
+    assert workload_patch.count("__WSL_DRIVER_PATH__") == 8
+    assert "/usr/lib/wsl/drivers/nvidia-current" not in probe
+    assert "/usr/lib/wsl/drivers/nvidia-current" not in workload_patch
 
 
 def test_gpu_bridge_script_fails_closed_and_records_f_drive_evidence() -> None:

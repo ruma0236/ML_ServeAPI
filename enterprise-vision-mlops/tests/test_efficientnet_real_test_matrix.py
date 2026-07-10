@@ -5,10 +5,13 @@ import importlib
 import sys
 from pathlib import Path
 
+import pytest
+
 from evm.core.torch_efficientnet import load_shard_records
 from evm.pipelines.efficientnet_training.run import (
     matrix_status,
     merge_candidate_results,
+    required_candidate_blockers,
     run,
     source_digest_blockers,
 )
@@ -48,6 +51,48 @@ def test_cli_main_uses_the_explicit_kubernetes_config(monkeypatch, capsys) -> No
 
     assert calls == ["/app/configs/w7_efficientnet_kubernetes.toml"]
     assert json.loads(capsys.readouterr().out) == {"status": "pass"}
+
+
+def test_cli_require_pass_fails_a_blocked_selected_candidate(monkeypatch, capsys) -> None:
+    candidate_id = "effnet-b7-img600-finetune-adamw"
+    monkeypatch.setenv("EVM_EFFICIENTNET_CANDIDATES", candidate_id)
+    monkeypatch.setattr(
+        training_run_module,
+        "run",
+        lambda _config_path: {
+            "status": "warn",
+            "candidates": [
+                {
+                    "candidate_id": candidate_id,
+                    "status": "blocked",
+                    "execution_blockers": ["cuda_missing"],
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        training_run_module.main(["config.toml", "--require-pass"])
+
+    assert exc_info.value.code == 2
+    assert "required_candidate_not_pass" in capsys.readouterr().err
+
+
+def test_required_candidate_pass_needs_mlflow_evidence(monkeypatch) -> None:
+    candidate_id = "effnet-b7-img600-finetune-adamw"
+    monkeypatch.setenv("EVM_EFFICIENTNET_CANDIDATES", candidate_id)
+
+    assert required_candidate_blockers(
+        {
+            "candidates": [
+                {
+                    "candidate_id": candidate_id,
+                    "status": "pass",
+                    "execution_blockers": [],
+                }
+            ]
+        }
+    ) == [f"required_candidate_mlflow_run_missing:{candidate_id}"]
 
 
 def test_efficientnet_pipeline_fails_closed_when_real_split_is_too_small(tmp_path, monkeypatch):

@@ -10,15 +10,15 @@ spec:
         - name: trainer
           env:
             - name: LD_LIBRARY_PATH
-              value: /usr/lib/wsl/drivers/nvidia-current:/usr/lib/wsl/lib
+              value: __WSL_DRIVER_PATH__:/usr/lib/wsl/lib
             - name: PATH
-              value: /usr/lib/wsl/drivers/nvidia-current:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+              value: __WSL_DRIVER_PATH__:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
           volumeMounts:
             - name: wsl-lib
               mountPath: /usr/lib/wsl/lib
               readOnly: true
             - name: wsl-driver
-              mountPath: /usr/lib/wsl/drivers/nvidia-current
+              mountPath: __WSL_DRIVER_PATH__
               readOnly: true
       volumes:
         - name: wsl-lib
@@ -42,15 +42,15 @@ spec:
         - name: serving
           env:
             - name: LD_LIBRARY_PATH
-              value: /usr/lib/wsl/drivers/nvidia-current:/usr/lib/wsl/lib
+              value: __WSL_DRIVER_PATH__:/usr/lib/wsl/lib
             - name: PATH
-              value: /usr/lib/wsl/drivers/nvidia-current:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+              value: __WSL_DRIVER_PATH__:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
           volumeMounts:
             - name: wsl-lib
               mountPath: /usr/lib/wsl/lib
               readOnly: true
             - name: wsl-driver
-              mountPath: /usr/lib/wsl/drivers/nvidia-current
+              mountPath: __WSL_DRIVER_PATH__
               readOnly: true
       volumes:
         - name: wsl-lib
@@ -61,4 +61,3 @@ spec:
           hostPath:
             path: __WSL_DRIVER_PATH__
             type: Directory
-

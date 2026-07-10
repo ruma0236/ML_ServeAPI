@@ -117,6 +117,32 @@ def merge_candidate_results(
     return list(merged.values())
 
 
+def required_candidate_blockers(summary: dict[str, Any]) -> list[str]:
+    requested = os.getenv("EVM_EFFICIENTNET_CANDIDATES", "").strip()
+    required_ids = {item.strip() for item in requested.split(",") if item.strip()}
+    candidates = {
+        str(item.get("candidate_id")): item
+        for item in summary.get("candidates", [])
+        if isinstance(item, dict) and item.get("candidate_id")
+    }
+    if not required_ids:
+        required_ids = set(candidates)
+
+    blockers: list[str] = []
+    for candidate_id in sorted(required_ids):
+        candidate = candidates.get(candidate_id)
+        if candidate is None:
+            blockers.append(f"required_candidate_missing:{candidate_id}")
+            continue
+        if candidate.get("status") != "pass":
+            blockers.append(f"required_candidate_not_pass:{candidate_id}")
+        if candidate.get("execution_blockers"):
+            blockers.append(f"required_candidate_execution_blocked:{candidate_id}")
+        if not candidate.get("mlflow_run_id"):
+            blockers.append(f"required_candidate_mlflow_run_missing:{candidate_id}")
+    return blockers
+
+
 def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str, Any]:
     config = load_config(config_path)
     project_root = Path(str(config["_project_root"]))
@@ -270,12 +296,17 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    import json
     import sys
 
     arguments = list(sys.argv[1:] if argv is None else argv)
-    config_path = arguments[0] if arguments else "configs/w7_efficientnet_real_test.toml"
-    print(json.dumps(run(config_path), indent=2, ensure_ascii=False))
+    require_pass = "--require-pass" in arguments
+    positional = [argument for argument in arguments if not argument.startswith("--")]
+    config_path = positional[0] if positional else "configs/w7_efficientnet_real_test.toml"
+    summary = run(config_path)
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    if require_pass and (blockers := required_candidate_blockers(summary)):
+        print(json.dumps({"require_pass_blockers": blockers}), file=sys.stderr)
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

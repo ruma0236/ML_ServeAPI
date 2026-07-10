@@ -243,6 +243,7 @@ try {
         "kustomize", $RuntimeManifestDir
     ) | Out-Null
 
+    $TrainingStartedAtUtc = [DateTimeOffset]::UtcNow
     Invoke-Captured -Name "14-delete-previous-training-job" -FilePath "kubectl" -ArgumentList @(
         "delete", "job/evm-b7-training", "-n", "evm-training", "--ignore-not-found=true", "--wait=true"
     ) -IgnoreFailure | Out-Null
@@ -265,13 +266,61 @@ try {
         "top", "pod", "-n", "evm-training"
     ) -IgnoreFailure | Out-Null
 
-    if (-not (Test-Path $ModelPath)) {
-        throw "Training Job completed without model artifact: $ModelPath"
+    $CandidateSummaryPath = Join-Path $CandidateDir "candidate_summary.json"
+    $EnvironmentReportPath = Join-Path $CandidateDir "environment_report.json"
+    $GpuProfilePath = Join-Path $CandidateDir "gpu_profile.json"
+    $RequiredTrainingArtifacts = @(
+        $ModelPath,
+        $CandidateSummaryPath,
+        $EnvironmentReportPath,
+        $GpuProfilePath,
+        (Join-Path $CandidateDir "training_history.json"),
+        (Join-Path $CandidateDir "confusion_matrix.json"),
+        (Join-Path $CandidateDir "confusion_matrix.png"),
+        (Join-Path $CandidateDir "model_card.md"),
+        (Join-Path $CandidateDir "lineage.json")
+    )
+    foreach ($ArtifactPath in $RequiredTrainingArtifacts) {
+        if (-not (Test-Path -LiteralPath $ArtifactPath)) {
+            throw "Training Job completed without required artifact: $ArtifactPath"
+        }
+    }
+
+    $CandidateSummary = Get-Content -LiteralPath $CandidateSummaryPath -Raw | ConvertFrom-Json
+    $EnvironmentReport = Get-Content -LiteralPath $EnvironmentReportPath -Raw | ConvertFrom-Json
+    $GpuProfile = Get-Content -LiteralPath $GpuProfilePath -Raw | ConvertFrom-Json
+    if ($CandidateSummary.candidate_id -ne $CandidateId -or $CandidateSummary.status -ne "pass") {
+        throw "Selected candidate did not pass: $($CandidateSummary.status)"
+    }
+    if ($CandidateSummary.PSObject.Properties.Name -contains "execution_blockers" -and $CandidateSummary.execution_blockers.Count -gt 0) {
+        throw "Selected candidate has execution blockers: $($CandidateSummary.execution_blockers -join ', ')"
+    }
+    if (-not $CandidateSummary.mlflow_run_id -or $CandidateSummary.mlflow_status -ne "logged") {
+        throw "Selected candidate is missing a logged MLflow run"
+    }
+    if ([int]$CandidateSummary.conditions.epochs -lt 3 -or [int]$CandidateSummary.optimizer_step_count -le 0) {
+        throw "Selected candidate lacks real three-epoch optimizer evidence"
+    }
+    $CandidateCreatedAt = [DateTimeOffset]::Parse([string]$CandidateSummary.created_at)
+    if ($CandidateCreatedAt -lt $TrainingStartedAtUtc.AddSeconds(-2)) {
+        throw "Candidate summary predates this Kubernetes training execution"
+    }
+    if ($EnvironmentReport.platform -notmatch "linux" -or -not [bool]$EnvironmentReport.cuda_available -or $EnvironmentReport.device -ne "cuda") {
+        throw "Environment report does not prove Linux CUDA execution"
+    }
+    if ($GpuProfile.device -ne "cuda" -or [double]$GpuProfile.cuda_memory_peak_mb -le 0) {
+        throw "GPU profile does not contain CUDA peak-memory evidence"
+    }
+    if ((Get-Item -LiteralPath $ModelPath).LastWriteTimeUtc -lt $TrainingStartedAtUtc.UtcDateTime.AddSeconds(-2)) {
+        throw "Model artifact was not refreshed by this Kubernetes training execution"
     }
     $TrainedModelSha256 = (Get-FileHash $ModelPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    Copy-Item (Join-Path $CandidateDir "candidate_summary.json") (Join-Path $EvidenceDir "candidate_summary.json") -Force
-    Copy-Item (Join-Path $CandidateDir "environment_report.json") (Join-Path $EvidenceDir "environment_report.json") -Force
-    Copy-Item (Join-Path $CandidateDir "gpu_profile.json") (Join-Path $EvidenceDir "gpu_profile.json") -Force
+    if ($CandidateSummary.model_sha256 -ne $TrainedModelSha256) {
+        throw "Candidate summary model digest does not match the trained artifact"
+    }
+    Copy-Item $CandidateSummaryPath (Join-Path $EvidenceDir "candidate_summary.json") -Force
+    Copy-Item $EnvironmentReportPath (Join-Path $EvidenceDir "environment_report.json") -Force
+    Copy-Item $GpuProfilePath (Join-Path $EvidenceDir "gpu_profile.json") -Force
 
     Invoke-Captured -Name "21-serving-model-identity" -FilePath "kubectl" -ArgumentList @(
         "set", "env", "deployment/evm-b7-serving", "-n", "evm-staging", "EVM_MODEL_SHA256=$TrainedModelSha256"
@@ -342,7 +391,6 @@ try {
         "rollout", "history", "deployment/evm-b7-serving", "-n", "evm-staging"
     ) | Out-Null
 
-    $CandidateSummary = Get-Content (Join-Path $CandidateDir "candidate_summary.json") -Raw | ConvertFrom-Json
     Write-EvidenceIndex -Status "pass" -Additional @{
         kubernetes_status = $KubernetesStatus.output
         gpu_allocatable = $GpuAllocatable
