@@ -190,6 +190,9 @@ try {
 
     Invoke-Captured -Name "03-kubernetes-node" -FilePath "kubectl" -ArgumentList @("get", "nodes", "-o", "wide") | Out-Null
     Invoke-Captured -Name "04-kubernetes-system-pods" -FilePath "kubectl" -ArgumentList @("get", "pods", "-n", "kube-system", "-o", "wide") | Out-Null
+    Invoke-Captured -Name "04-release-serving-gpu" -FilePath "kubectl" -ArgumentList @(
+        "scale", "deployment/evm-b7-serving", "-n", "evm-staging", "--replicas=0"
+    ) -IgnoreFailure | Out-Null
     Invoke-Captured -Name "05-docker-desktop-gpu-bridge" -FilePath "powershell.exe" -ArgumentList @(
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
