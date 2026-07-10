@@ -47,6 +47,44 @@ function Invoke-Captured {
     }
 }
 
+function Wait-KubernetesJobTerminal {
+    param(
+        [Parameter(Mandatory = $true)][string]$JobName,
+        [Parameter(Mandatory = $true)][string]$Namespace,
+        [Parameter(Mandatory = $true)][int]$TimeoutSeconds,
+        [Parameter(Mandatory = $true)][string]$EvidenceName
+    )
+
+    $OutputPath = Join-Path $EvidenceDir "$EvidenceName.log"
+    $Deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $Trace = [System.Collections.Generic.List[string]]::new()
+    do {
+        $Job = & kubectl get "job/$JobName" -n $Namespace -o json 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            @($Job) | ForEach-Object { "$($_)" } | Set-Content -Path $OutputPath -Encoding utf8
+            throw "Unable to read Kubernetes Job $Namespace/$JobName"
+        }
+        $Payload = $Job | ConvertFrom-Json
+        $StatusProperties = $Payload.status.PSObject.Properties.Name
+        $Succeeded = if ($StatusProperties -contains "succeeded") { [int]$Payload.status.succeeded } else { 0 }
+        $Failed = if ($StatusProperties -contains "failed") { [int]$Payload.status.failed } else { 0 }
+        $Active = if ($StatusProperties -contains "active") { [int]$Payload.status.active } else { 0 }
+        $Trace.Add("$([DateTime]::UtcNow.ToString('o')) active=$Active succeeded=$Succeeded failed=$Failed")
+        if ($Succeeded -ge 1) {
+            $Trace | Set-Content -Path $OutputPath -Encoding utf8
+            return
+        }
+        if ($Failed -ge 1) {
+            $Trace | Set-Content -Path $OutputPath -Encoding utf8
+            throw "Kubernetes Job $Namespace/$JobName failed"
+        }
+        Start-Sleep -Seconds 5
+    } while ((Get-Date) -lt $Deadline)
+
+    $Trace | Set-Content -Path $OutputPath -Encoding utf8
+    throw "Kubernetes Job $Namespace/$JobName did not finish within $TimeoutSeconds seconds"
+}
+
 function Write-EvidenceIndex {
     param(
         [Parameter(Mandatory = $true)][string]$Status,
@@ -250,9 +288,11 @@ try {
     Invoke-Captured -Name "15-kustomize-apply" -FilePath "kubectl" -ArgumentList @(
         "apply", "-k", $RuntimeManifestDir
     ) | Out-Null
-    Invoke-Captured -Name "16-training-wait" -FilePath "kubectl" -ArgumentList @(
-        "wait", "--for=condition=complete", "job/evm-b7-training", "-n", "evm-training", "--timeout=${TrainingTimeoutSeconds}s"
-    ) | Out-Null
+    Wait-KubernetesJobTerminal `
+        -JobName "evm-b7-training" `
+        -Namespace "evm-training" `
+        -TimeoutSeconds $TrainingTimeoutSeconds `
+        -EvidenceName "16-training-wait"
     Invoke-Captured -Name "17-training-logs" -FilePath "kubectl" -ArgumentList @(
         "logs", "-n", "evm-training", "job/evm-b7-training", "--all-containers=true"
     ) | Out-Null
@@ -411,6 +451,21 @@ try {
 catch {
     if ($Blockers.Count -eq 0) {
         $Blockers.Add($_.Exception.Message)
+    }
+    $TrainingJobExists = & kubectl get job/evm-b7-training -n evm-training -o name 2>$null
+    if ($LASTEXITCODE -eq 0 -and $TrainingJobExists) {
+        Invoke-Captured -Name "failure-training-logs" -FilePath "kubectl" -ArgumentList @(
+            "logs", "-n", "evm-training", "job/evm-b7-training", "--all-containers=true"
+        ) -IgnoreFailure | Out-Null
+        Invoke-Captured -Name "failure-training-describe" -FilePath "kubectl" -ArgumentList @(
+            "describe", "job/evm-b7-training", "-n", "evm-training"
+        ) -IgnoreFailure | Out-Null
+        Invoke-Captured -Name "failure-training-pod-describe" -FilePath "kubectl" -ArgumentList @(
+            "describe", "pod", "-n", "evm-training", "-l", "app.kubernetes.io/name=evm-b7-training"
+        ) -IgnoreFailure | Out-Null
+        Invoke-Captured -Name "failure-training-events" -FilePath "kubectl" -ArgumentList @(
+            "get", "events", "-n", "evm-training", "--sort-by=.lastTimestamp"
+        ) -IgnoreFailure | Out-Null
     }
     if (-not (Test-Path (Join-Path $EvidenceDir "evidence_index.json"))) {
         Write-EvidenceIndex -Status "failed" -Additional @{ completion_claim_allowed = $false }

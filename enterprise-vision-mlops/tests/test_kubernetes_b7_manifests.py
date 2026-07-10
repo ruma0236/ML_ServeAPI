@@ -37,6 +37,9 @@ def test_b7_workloads_fail_closed_without_kubernetes_gpu() -> None:
     assert "EVM_EFFICIENTNET_CANDIDATES" in training
     assert "effnet-b7-img600-finetune-adamw" in training
     assert "TORCH_HOME" in training
+    assert "mountPath: /dev/shm" in training
+    assert "medium: Memory" in training
+    assert "sizeLimit: 2Gi" in training
     assert "EVM_REQUIRE_CUDA" in serving
     assert "EVM_DATASET_VERSION" in serving
     assert 'value: "true"' in serving
