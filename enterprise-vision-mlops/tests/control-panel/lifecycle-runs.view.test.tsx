@@ -92,6 +92,24 @@ describe("Lifecycle Runs view", () => {
     expect(container.textContent).toContain("cycle-contract-1");
   });
 
+  it("disables retry when the current stage exhausted its policy", async () => {
+    const exhausted = {
+      ...run,
+      current_stage: "artifact_readiness",
+      stages: run.stages.map((stage) => stage.stage_id === "artifact_readiness"
+        ? { ...stage, attempt: stage.max_attempts }
+        : stage)
+    };
+    api.fetchLifecycleRuns.mockResolvedValue({ runs: [exhausted], total: 1 });
+    await act(async () => root.render(<LifecycleRuns />));
+    await flushUpdates();
+
+    const retry = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Retry Exhausted")
+    );
+    expect(retry?.disabled).toBe(true);
+  });
+
   it("keeps a legacy dry-run fail closed when source provenance is missing", async () => {
     const legacy = {
       ...run,

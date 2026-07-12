@@ -4378,6 +4378,7 @@ h3 {
 }
 .lifecycle-stage-status strong { color: #26383f; font-size: 0.72rem; }
 .lifecycle-stage-status span { font-size: 0.6rem; font-weight: 800; white-space: nowrap; }
+.lifecycle-stage-status small { color: #87949a; font-size: 0.58rem; }
 .stage-running .lifecycle-stage-status strong { color: #267f96; }
 .stage-completed .lifecycle-stage-status strong { color: #27825e; }
 .stage-blocked .lifecycle-stage-status strong,

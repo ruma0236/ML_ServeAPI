@@ -84,6 +84,13 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
     if (!selected.source_commit) blockers.push("source_revision_missing");
     return [...new Set(blockers)];
   }, [selected]);
+  const retryStage = useMemo(() => {
+    if (!selected || !["blocked", "failed"].includes(selected.state)) return null;
+    return selected.stages.find((stage) => stage.stage_id === selected.current_stage)
+      || selected.stages.find((stage) => stage.state === "blocked" || stage.state === "failed")
+      || null;
+  }, [selected]);
+  const canRetry = Boolean(retryStage && retryStage.attempt < retryStage.max_attempts);
 
   function select(runId: string) {
     selectedRef.current = runId;
@@ -226,8 +233,14 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
                   </>
                 ) : null}
                 {selected.state === "blocked" || selected.state === "failed" ? (
-                  <button type="button" className="secondary-action" disabled={busy} onClick={() => void runAction("retry")}>
-                    <RotateCcw size={16} /> Retry Stage
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    disabled={busy || !canRetry}
+                    onClick={() => void runAction("retry")}
+                    title={canRetry ? "Retry the failed stage" : "This stage exhausted its retry policy"}
+                  >
+                    <RotateCcw size={16} /> {canRetry ? "Retry Stage" : "Retry Exhausted"}
                   </button>
                 ) : null}
                 {isCancellable(selected.state) ? (
@@ -315,7 +328,8 @@ function LifecycleStageRow({ stage, index }: { stage: LifecycleStage; index: num
       </div>
       <div className="lifecycle-stage-status" title={stageAttemptTitle(stage)}>
         <strong>{stageStatusMetric(stage, progress)}</strong>
-        <span>{timing || stageAttemptLabel(stage)}</span>
+        <span>{stageStatusDetail(stage, timing)}</span>
+        {timing && (stage.state === "blocked" || stage.state === "failed") ? <small>{timing}</small> : null}
       </div>
     </article>
   );
@@ -382,7 +396,7 @@ function workerLabel(worker: LifecycleWorkerState): string {
 
 
 function isCancellable(state: LifecycleRunState): boolean {
-  return ["queued", "running", "waiting_approval", "blocked", "failed"].includes(state);
+  return ["queued", "running", "waiting_approval"].includes(state);
 }
 
 
@@ -418,12 +432,19 @@ function stageStatusMetric(stage: LifecycleStage, progress: number): string {
 
 
 function stageAttemptLabel(stage: LifecycleStage): string {
+  if (stage.state === "completed" && !stage.attempt) return "Completed";
   if (!stage.attempt) return stage.state === "not_started" ? "Not started" : "No attempt";
   if (stage.state === "blocked" || stage.state === "failed") {
     const retriesLeft = Math.max(0, stage.max_attempts - stage.attempt);
     return retriesLeft ? `${retriesLeft} ${retriesLeft === 1 ? "retry" : "retries"} left` : "No retries left";
   }
   return `Attempt ${stage.attempt}`;
+}
+
+
+function stageStatusDetail(stage: LifecycleStage, timing: string): string {
+  if (stage.state === "blocked" || stage.state === "failed") return stageAttemptLabel(stage);
+  return timing || stageAttemptLabel(stage);
 }
 
 
