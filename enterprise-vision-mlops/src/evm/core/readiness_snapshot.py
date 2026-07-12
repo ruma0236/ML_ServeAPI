@@ -38,9 +38,6 @@ def file_sha256(path: Path) -> str:
 
 def runtime_path(value: str | Path) -> Path:
     path = Path(value)
-    if path.exists():
-        return path
-
     normalized = str(value).replace("\\", "/")
     host_root = os.getenv(
         "EVM_HOST_DATA_ROOT",
@@ -51,13 +48,20 @@ def runtime_path(value: str | Path) -> Path:
         "/",
     ).rstrip("/")
     if normalized.lower().startswith(host_root.lower()):
+        if Path(host_root).exists():
+            return path
         mapped = Path(f"{mount_root}{normalized[len(host_root):]}")
-        if mapped.exists():
+        if Path(mount_root).exists():
             return mapped
     if normalized.lower().startswith(mount_root.lower()):
         mapped = Path(f"{host_root}{normalized[len(mount_root):]}")
-        if mapped.exists():
+        if Path(host_root).exists():
             return mapped
+        if Path(mount_root).exists():
+            return path
+
+    if path.exists():
+        return path
     return path
 
 

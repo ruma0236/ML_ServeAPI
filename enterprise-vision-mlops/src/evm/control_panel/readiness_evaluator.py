@@ -92,9 +92,6 @@ def payload_sha256(payload: Any) -> str:
 
 def runtime_path(value: str | Path) -> Path:
     path = Path(value)
-    if path.exists():
-        return path
-
     normalized = str(value).replace("\\", "/")
     host_root = os.getenv(
         "EVM_HOST_DATA_ROOT",
@@ -113,8 +110,13 @@ def runtime_path(value: str | Path) -> Path:
             return mount_path
     if normalized.lower().startswith(mount_root.lower()):
         host_path = Path(f"{host_root}{normalized[len(mount_root):]}")
-        if host_path.exists():
+        if Path(host_root).exists():
             return host_path
+        if Path(mount_root).exists():
+            return path
+
+    if path.exists():
+        return path
 
     mapped = resolve_image_path(
         str(value),

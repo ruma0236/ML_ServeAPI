@@ -403,7 +403,11 @@ def build_model_matrix(config_path: Path, dataset_version: str) -> ModelExperime
 
 
 def path_from_config(config: dict[str, Any], key: str, default: str | Path) -> Path:
-    return runtime_path(resolve_path(config, get_nested(config, key, default)))
+    configured = get_nested(config, key, default)
+    mapped = runtime_path(configured)
+    if mapped.exists():
+        return mapped
+    return runtime_path(resolve_path(config, configured))
 
 
 def build_latest_cycle(
@@ -413,11 +417,17 @@ def build_latest_cycle(
     config_path = config_path or os.getenv("EVM_CONTROL_PANEL_CONFIG", DEFAULT_CONFIG_PATH)
     config = load_config(config_path)
     project_root = Path(str(config["_project_root"]))
-    artifacts_root = runtime_path(
-        resolve_path(config, get_nested(config, "paths.artifacts_root", "artifacts"))
+    artifacts_root = path_from_config(
+        config,
+        "paths.artifacts_root",
+        "artifacts",
     )
     release_ref = resolve_release_ref(artifacts_root)
-    registry_root = resolve_path(config, get_nested(config, "paths.registry_root", "artifacts/registry"))
+    registry_root = path_from_config(
+        config,
+        "paths.registry_root",
+        "artifacts/registry",
+    )
     model_name = str(get_nested(config, "pipelines.model_registry.model_name", "vision-baseline"))
     registry_path = Path(os.getenv("MODEL_REGISTRY_PATH", str(registry_root / model_name / "latest.json")))
     if not registry_path.is_absolute():
