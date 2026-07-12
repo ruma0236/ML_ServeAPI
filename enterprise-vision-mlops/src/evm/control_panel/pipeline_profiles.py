@@ -27,7 +27,7 @@ _PROFILE_LOCK = RLock()
 
 
 class SplitPolicy(ContractModel):
-    seed: int = Field(default=20260712, ge=1)
+    seed: int = Field(default=20260706, ge=1)
     train: float = Field(default=0.6, gt=0, lt=1)
     validation: float = Field(default=0.2, gt=0, lt=1)
     test: float = Field(default=0.2, gt=0, lt=1)
@@ -261,6 +261,29 @@ def validate_profile(profile: PipelineRunProfile) -> PipelineProfileValidation:
                 blockers.append("split_manifest_identity_missing")
             elif str(split_identity).lower() != profile.data.split_manifest_sha256.lower():
                 blockers.append("split_manifest_identity_mismatch")
+            if isinstance(split_payload, dict):
+                manifest_seed = split_payload.get("split_seed")
+                if manifest_seed is not None:
+                    try:
+                        if int(manifest_seed) != split.seed:
+                            blockers.append("split_manifest_seed_mismatch")
+                    except (TypeError, ValueError):
+                        blockers.append("split_manifest_policy_invalid")
+                manifest_ratios = split_payload.get("split_ratios")
+                if manifest_ratios is not None:
+                    try:
+                        expected_ratios = {
+                            "train": split.train,
+                            "validation": split.validation,
+                            "test": split.test,
+                        }
+                        if not isinstance(manifest_ratios, dict) or any(
+                            abs(float(manifest_ratios[name]) - expected) > 0.000001
+                            for name, expected in expected_ratios.items()
+                        ):
+                            blockers.append("split_manifest_ratios_mismatch")
+                    except (KeyError, TypeError, ValueError):
+                        blockers.append("split_manifest_policy_invalid")
     if split.allow_holdout_in_training:
         blockers.append("holdout_training_overlap_forbidden")
     if profile.gates.isolated_ct_dataset_required:

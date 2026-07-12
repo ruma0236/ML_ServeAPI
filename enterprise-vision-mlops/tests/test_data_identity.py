@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from evm.core.data_intake import build_manifest_records, sample_id_for
 from evm.core.dataset import shard_index_identity_digest, stable_record_digest
+from evm.pipelines.dataset_shards.run import run as run_dataset_shards
 
 
 def _record(*, image_uri: str, image_path: str) -> dict[str, object]:
@@ -123,3 +125,50 @@ def test_shard_identity_ignores_runtime_paths_and_trace_metadata() -> None:
     }
 
     assert shard_index_identity_digest(host) == shard_index_identity_digest(container)
+
+
+def test_dataset_shard_index_records_split_policy(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='tmp'\n", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    manifest = tmp_path / "quality.jsonl"
+    manifest.write_text(
+        "".join(
+            json.dumps({"sample_id": f"sample-{index}", "label": "normal"}) + "\n"
+            for index in range(10)
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "shards"
+    config = tmp_path / "config.toml"
+    config.write_text(
+        "\n".join(
+            [
+                "[project]",
+                'name = "tmp"',
+                "",
+                "[paths]",
+                f'artifacts_root = "{(tmp_path / "artifacts").as_posix()}"',
+                f'reports_root = "{(tmp_path / "reports").as_posix()}"',
+                "",
+                "[pipelines.dataset_shards]",
+                f'input_manifest = "{manifest.as_posix()}"',
+                f'output_dir = "{output.as_posix()}"',
+                f'index_path = "{(output / "shard_index.json").as_posix()}"',
+                "records_per_shard = 4",
+                "split_seed = 20260706",
+                "",
+                "[pipelines.dataset_shards.split_ratios]",
+                "train = 0.6",
+                "validation = 0.2",
+                "test = 0.2",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_dataset_shards(str(config))
+
+    assert result["split_seed"] == 20260706
+    assert result["split_ratios"] == {"train": 0.6, "validation": 0.2, "test": 0.2}
+    assert result["identity_sha256"] == shard_index_identity_digest(result)

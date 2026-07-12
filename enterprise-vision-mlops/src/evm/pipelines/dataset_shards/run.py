@@ -80,6 +80,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "input_manifest": display_path(input_manifest, ctx.project_root),
         "output_dir": display_path(output_dir, ctx.project_root),
         "records_per_shard": records_per_shard,
+        "split_seed": split_seed,
+        "split_ratios": ratios,
         "record_count": len(normalized),
         "shard_count": len(shards),
         "split_counts": summarize_counts(normalized, "split"),

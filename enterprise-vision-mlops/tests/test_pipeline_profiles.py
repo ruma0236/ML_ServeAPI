@@ -35,7 +35,14 @@ def profile_with_evidence(
     split_manifest = data_root / "shard_index.json"
     split_identity = "a" * 64
     split_manifest.write_text(
-        json.dumps({"schema_version": "evm.dataset_shards.v1", "identity_sha256": split_identity}),
+        json.dumps(
+            {
+                "schema_version": "evm.dataset_shards.v1",
+                "identity_sha256": split_identity,
+                "split_seed": 20260706,
+                "split_ratios": {"train": 0.6, "validation": 0.2, "test": 0.2},
+            }
+        ),
         encoding="utf-8",
     )
     profile = default_profile()
@@ -101,7 +108,7 @@ def test_saved_profile_is_versioned_idempotent_and_renders_runtime_configs(
     assert len(read_profiles().profiles) == 2
     airflow = json.loads(Path(first.airflow_config_uri).read_text(encoding="utf-8"))
     model = json.loads(Path(first.model_config_uri).read_text(encoding="utf-8"))
-    assert airflow["pipelines"]["dataset_shards"]["split_seed"] == 20260712
+    assert airflow["pipelines"]["dataset_shards"]["split_seed"] == 20260706
     assert airflow["pipelines"]["dataset_shards"]["split_ratios"]["test"] == 0.2
     assert model["candidates"][0]["architecture"] == "efficientnet-b0"
     assert model["candidates"][0]["early_stop_accuracy"] == 0.93
@@ -182,6 +189,12 @@ def test_profile_validation_checks_manifest_identity_and_presence(tmp_path: Path
     missing = validate_profile(profile.model_copy(update={"data": missing_data}))
     assert missing.valid is False
     assert "source_manifest_not_found" in missing.blockers
+
+    wrong_seed = profile.data.split.model_copy(update={"seed": 20260712})
+    seed_data = profile.data.model_copy(update={"split": wrong_seed})
+    seed_mismatch = validate_profile(profile.model_copy(update={"data": seed_data}))
+    assert seed_mismatch.valid is False
+    assert "split_manifest_seed_mismatch" in seed_mismatch.blockers
 
 
 def test_profile_rejects_base_config_outside_allowlist(tmp_path: Path) -> None:
