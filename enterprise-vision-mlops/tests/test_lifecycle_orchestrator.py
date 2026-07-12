@@ -132,6 +132,30 @@ def test_airflow_running_observation_reaches_lifecycle_stage(tmp_path, monkeypat
     assert result.stages[1].runtime_state == "running"
 
 
+def test_airflow_runtime_refreshes_after_lifecycle_stage_is_running(
+    tmp_path, monkeypatch
+) -> None:
+    run = queued_run(tmp_path, monkeypatch)
+    responses = iter(
+        [
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "queued"}),
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "queued"}),
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "running"}),
+        ]
+    )
+    monkeypatch.setattr(operations, "urlopen", lambda *_args, **_kwargs: next(responses))
+
+    first = process_lifecycle_run(run.run_id)
+    refreshed = process_lifecycle_run(run.run_id)
+
+    assert first.stages[1].state == "running"
+    assert first.stages[1].runtime_state == "queued"
+    assert refreshed.stages[1].state == "running"
+    assert refreshed.stages[1].runtime_state == "running"
+    assert refreshed.version > first.version
+    assert refreshed.audit[-1].event == "lifecycle_stage_runtime_updated"
+
+
 def test_airflow_dispatch_failure_propagates_reason_to_lifecycle(tmp_path, monkeypatch) -> None:
     run = queued_run(tmp_path, monkeypatch)
 

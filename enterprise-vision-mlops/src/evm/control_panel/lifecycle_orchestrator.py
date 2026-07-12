@@ -34,6 +34,7 @@ from evm.control_panel.lifecycle_runs import (
     mark_lifecycle_rollback_failed,
     transition_stage,
     update_run_evidence,
+    update_stage_runtime,
 )
 from evm.control_panel.operations import (
     TaskDispatchError,
@@ -180,6 +181,21 @@ def process_data_pipeline(
             runtime_id=task.runtime_id,
             runtime_state=task.runtime_state,
             detail="Airflow DAG run is executing isolated data stages",
+        )
+    elif (
+        task.status == "running"
+        and stage.state == "running"
+        and (
+            task.runtime_state != stage.runtime_state
+            or task.runtime_id != stage.runtime_id
+        )
+    ):
+        run = update_stage_runtime(
+            run.run_id,
+            "data_pipeline",
+            actor="lifecycle-worker",
+            runtime_id=task.runtime_id,
+            runtime_state=task.runtime_state or "unknown",
         )
     if task.status == "done":
         current = required_run(run.run_id)

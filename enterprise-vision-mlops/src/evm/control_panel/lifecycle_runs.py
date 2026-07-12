@@ -847,6 +847,41 @@ def transition_stage(
     return mutate_run(run_id, None, update)
 
 
+def update_stage_runtime(
+    run_id: str,
+    stage_id: str,
+    *,
+    actor: str,
+    runtime_state: str,
+    runtime_id: str | None = None,
+) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        index = stage_index(run, stage_id)
+        stage = run.stages[index]
+        previous_state = stage.runtime_state
+        previous_id = stage.runtime_id
+        run.stages[index] = stage.model_copy(
+            update={
+                "runtime_state": runtime_state,
+                "runtime_id": runtime_id or stage.runtime_id,
+            }
+        )
+        run.audit.append(
+            audit(
+                actor,
+                "lifecycle_stage_runtime_updated",
+                stage_id=stage_id,
+                previous_runtime_state=previous_state,
+                runtime_state=runtime_state,
+                previous_runtime_id=previous_id,
+                runtime_id=runtime_id or previous_id,
+            )
+        )
+        return run
+
+    return mutate_run(run_id, None, update)
+
+
 def update_run_evidence(
     run_id: str,
     *,

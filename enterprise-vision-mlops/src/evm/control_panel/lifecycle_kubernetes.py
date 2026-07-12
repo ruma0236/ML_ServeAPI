@@ -17,7 +17,7 @@ from evm.control_panel.schemas import CycleRun, TaskAssignment
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 DEFAULT_TRAINING_IMAGE = (
     "enterprise-vision-mlops-efficientnet-training@"
-    "sha256:9a8756dbf9780cf6d617b9888adfc979c3124c63a8a5bd8d21ee2e0f14982a51"
+    "sha256:5792957ad75e0fc78955a7577a7e6d2fff17c9d1e0ae391aceef83acf2cbedac"
 )
 DEFAULT_SERVING_IMAGE = (
     "enterprise-vision-mlops-efficientnet-serving@"
