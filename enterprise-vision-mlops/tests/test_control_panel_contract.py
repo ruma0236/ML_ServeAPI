@@ -31,6 +31,15 @@ from evm.control_panel.pipeline_profiles import (
     PipelineProfileValidation,
     PipelineRunProfile,
 )
+from evm.control_panel.lifecycle_runs import (
+    LifecycleActionRequest,
+    LifecycleApprovalRequest,
+    LifecycleRun,
+    LifecycleRunList,
+    LifecycleRunRequest,
+    LifecycleStage,
+    LifecycleWorkerState,
+)
 from evm.control_panel.validate_cycle_run import validate_cycle_run
 
 
@@ -115,6 +124,12 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "/control-panel/v1/pipeline-profiles/validate" in openapi["paths"]
     assert "/control-panel/v1/pipeline-profiles/{profile_id}" in openapi["paths"]
     assert "/control-panel/v1/pipeline-profiles/{profile_id}/launch" in openapi["paths"]
+    assert "/control-panel/v1/lifecycle-runs" in openapi["paths"]
+    assert "/control-panel/v1/lifecycle-runs/worker" in openapi["paths"]
+    assert "/control-panel/v1/lifecycle-runs/{run_id}" in openapi["paths"]
+    assert "/control-panel/v1/lifecycle-runs/{run_id}/queue" in openapi["paths"]
+    assert "/control-panel/v1/lifecycle-runs/{run_id}/retry" in openapi["paths"]
+    assert "/control-panel/v1/lifecycle-runs/{run_id}/approve" in openapi["paths"]
     assert set(ControlPanelDiagnostics.model_fields).issubset(
         schemas["ControlPanelDiagnostics"]["properties"]
     )
@@ -150,6 +165,23 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert set(PipelineProfileLaunch.model_fields).issubset(
         schemas["PipelineProfileLaunch"]["properties"]
     )
+    assert set(LifecycleRun.model_fields).issubset(schemas["LifecycleRun"]["properties"])
+    assert set(LifecycleRunList.model_fields).issubset(schemas["LifecycleRunList"]["properties"])
+    assert set(LifecycleStage.model_fields).issubset(schemas["LifecycleStage"]["properties"])
+    assert set(LifecycleWorkerState.model_fields).issubset(
+        schemas["LifecycleWorkerState"]["properties"]
+    )
+    assert set(LifecycleRunRequest.model_fields).issubset(
+        schemas["LifecycleRunRequest"]["properties"]
+    )
+    assert set(LifecycleActionRequest.model_fields).issubset(
+        schemas["LifecycleActionRequest"]["properties"]
+    )
+    approval_properties = {
+        *schemas["LifecycleActionRequest"]["properties"],
+        *schemas["LifecycleApprovalRequest"]["allOf"][1]["properties"],
+    }
+    assert set(LifecycleApprovalRequest.model_fields).issubset(approval_properties)
 
 
 def test_openapi_drift_state_covers_every_pydantic_field():

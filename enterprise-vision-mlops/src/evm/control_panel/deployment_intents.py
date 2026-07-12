@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import time
+from contextlib import contextmanager
 from functools import wraps
 from datetime import UTC, datetime
 from pathlib import Path
@@ -50,6 +53,9 @@ DEFAULT_MANIFEST_REFS = {
     ),
 }
 ALLOWED_TARGET_NAMES = set(DEFAULT_MANIFEST_REFS)
+LIFECYCLE_TARGET_PATTERN = re.compile(
+    r"evm-b(?:0|7)-(?:dev|test|staging|preprod|production)"
+)
 _LEDGER_LOCK = RLock()
 
 
@@ -57,7 +63,8 @@ def ledger_transaction(function):
     @wraps(function)
     def synchronized(*args, **kwargs):
         with _LEDGER_LOCK:
-            return function(*args, **kwargs)
+            with intent_file_lock():
+                return function(*args, **kwargs)
 
     return synchronized
 
@@ -91,6 +98,35 @@ def intent_root() -> Path:
 
 def ledger_path() -> Path:
     return intent_root() / "deployment_intents.json"
+
+
+@contextmanager
+def intent_file_lock(timeout_seconds: float = 30.0):
+    root = intent_root()
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / ".deployment-intents.lock"
+    deadline = time.monotonic() + timeout_seconds
+    descriptor: int | None = None
+    while descriptor is None:
+        try:
+            descriptor = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(descriptor, f"{os.getpid()} {utc_now()}".encode("utf-8"))
+        except FileExistsError:
+            try:
+                if time.time() - path.stat().st_mtime > 300:
+                    path.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                raise DeploymentTransitionRejected("deployment_ledger_lock_timeout")
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        path.unlink(missing_ok=True)
 
 
 def ci_evidence_path() -> str:
@@ -161,6 +197,7 @@ def create_deployment_intent(
     *,
     cycle: CycleRun | None = None,
     ci_path: str | Path | None = None,
+    manifest_ref: str | Path | None = None,
 ) -> DeploymentIntent:
     if not request.dry_run:
         raise DeploymentIntentBlocked(["direct_non_dry_run_creation_forbidden"])
@@ -177,6 +214,9 @@ def create_deployment_intent(
     except (OSError, json.JSONDecodeError, ValueError):
         raise DeploymentIntentBlocked(validation.blockers, validation) from None
     policy = evaluate_intent_policy(cycle, request)
+    selected_manifest_ref = str(
+        manifest_ref or DEFAULT_MANIFEST_REFS.get(request.target.name, "")
+    )
     blockers, evidence = deployment_gate_blockers(
         request,
         cycle,
@@ -185,6 +225,7 @@ def create_deployment_intent(
         policy,
         expected_commit=expected_commit,
         allow_pending_approval=True,
+        manifest_ref=selected_manifest_ref,
     )
     if blockers:
         raise DeploymentIntentBlocked(blockers, validation)
@@ -229,7 +270,7 @@ def create_deployment_intent(
         image_digest=bundle.image_digest,
         config_render_digest=bundle.config_render_digest,
         rollback_reference=evidence["rollback_reference"],
-        manifest_ref=DEFAULT_MANIFEST_REFS[request.target.name],
+        manifest_ref=selected_manifest_ref,
         audit_uri=canonical_evidence_uri(
             intent_root() / intent_id / "deployment_intent.json"
         ),
@@ -251,6 +292,7 @@ def deployment_gate_blockers(
     *,
     expected_commit: str | None,
     allow_pending_approval: bool = False,
+    manifest_ref: str | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     blockers = list(validation.blockers)
     readiness = cycle.readiness_evaluation
@@ -274,7 +316,7 @@ def deployment_gate_blockers(
         blockers.append("target_resource_namespace_mismatch")
     if request.target.kind != "Deployment":
         blockers.append("target_kind_not_allowed")
-    if request.target.name not in ALLOWED_TARGET_NAMES:
+    if not deployment_target_allowed(request.target.name, manifest_ref):
         blockers.append("target_name_not_allowed")
 
     model_check = readiness_check(cycle, "model_artifact")
@@ -381,6 +423,7 @@ def queue_intent(
         validation,
         policy,
         expected_commit=expected_commit,
+        manifest_ref=current.manifest_ref,
     )
     if current.ci_bundle_digest != bundle.bundle_digest:
         blockers.append("ci_bundle_changed_after_creation")
@@ -437,6 +480,7 @@ def revalidate_queued_intent(
         validation,
         policy,
         expected_commit=expected_commit,
+        manifest_ref=current.manifest_ref,
     )
     if current.ci_bundle_digest != bundle.bundle_digest:
         blockers.append("ci_bundle_changed_before_execution")
@@ -523,48 +567,49 @@ def transition_intent(
     mutate: Callable[[DeploymentIntent], dict[str, Any]] | None = None,
 ) -> DeploymentIntent:
     with _LEDGER_LOCK:
-        intents = read_intents()
-        index = next(
-            (i for i, item in enumerate(intents.intents) if item.intent_id == intent_id),
-            None,
-        )
-        if index is None:
-            raise DeploymentIntentNotFound(intent_id)
-        intent = intents.intents[index]
-        if request.expected_version != intent.version:
-            raise DeploymentVersionConflict(
-                f"expected version {request.expected_version}, current {intent.version}"
+        with intent_file_lock():
+            intents = read_intents()
+            index = next(
+                (i for i, item in enumerate(intents.intents) if item.intent_id == intent_id),
+                None,
             )
-        if intent.state not in allowed_from:
-            raise DeploymentTransitionRejected(
-                f"state {intent.state} cannot transition to {to_state}"
+            if index is None:
+                raise DeploymentIntentNotFound(intent_id)
+            intent = intents.intents[index]
+            if request.expected_version != intent.version:
+                raise DeploymentVersionConflict(
+                    f"expected version {request.expected_version}, current {intent.version}"
+                )
+            if intent.state not in allowed_from:
+                raise DeploymentTransitionRejected(
+                    f"state {intent.state} cannot transition to {to_state}"
+                )
+            updates = mutate(intent) if mutate else {}
+            timestamp = utc_now()
+            transition = DeploymentTransition(
+                from_state=intent.state,
+                to_state=to_state,
+                actor=request.actor,
+                timestamp=timestamp,
+                environment=intent.target_environment,
+                namespace=intent.target_namespace,
+                artifact_digest=intent.ci_bundle_digest,
+                reason=request.reason,
+                result=result,
             )
-        updates = mutate(intent) if mutate else {}
-        timestamp = utc_now()
-        transition = DeploymentTransition(
-            from_state=intent.state,
-            to_state=to_state,
-            actor=request.actor,
-            timestamp=timestamp,
-            environment=intent.target_environment,
-            namespace=intent.target_namespace,
-            artifact_digest=intent.ci_bundle_digest,
-            reason=request.reason,
-            result=result,
-        )
-        intent = intent.model_copy(
-            update={
-                **updates,
-                "state": to_state,
-                "version": intent.version + 1,
-                "updated_at": timestamp,
-                "transitions": [*intent.transitions, transition],
-            }
-        )
-        intents.intents[index] = intent
-        write_intents(intents)
-        write_intent_snapshot(intent)
-        return intent
+            intent = intent.model_copy(
+                update={
+                    **updates,
+                    "state": to_state,
+                    "version": intent.version + 1,
+                    "updated_at": timestamp,
+                    "transitions": [*intent.transitions, transition],
+                }
+            )
+            intents.intents[index] = intent
+            write_intents(intents)
+            write_intent_snapshot(intent)
+            return intent
 
 
 def readiness_check(cycle: CycleRun, check_id: str) -> dict[str, Any]:
@@ -579,6 +624,23 @@ def readiness_check(cycle: CycleRun, check_id: str) -> dict[str, Any]:
         "status": check.status,
         "evidence_uri": check.evidence_uri,
     }
+
+
+def deployment_target_allowed(target_name: str, manifest_ref: str | None) -> bool:
+    if target_name in ALLOWED_TARGET_NAMES and not manifest_ref:
+        return True
+    if target_name in ALLOWED_TARGET_NAMES and manifest_ref == DEFAULT_MANIFEST_REFS[target_name]:
+        return True
+    if not manifest_ref or not LIFECYCLE_TARGET_PATTERN.fullmatch(target_name):
+        return False
+    generated_root = os.getenv("EVM_KUBERNETES_GENERATED_MANIFEST_ROOT", "").strip()
+    if not generated_root:
+        return False
+    candidate = Path(manifest_ref).resolve()
+    allowed_root = Path(generated_root).resolve()
+    return candidate.is_relative_to(allowed_root) and (
+        candidate / "kustomization.yaml"
+    ).is_file()
 
 
 def expected_ci_commit(cycle: CycleRun) -> str | None:

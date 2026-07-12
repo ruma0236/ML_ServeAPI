@@ -64,9 +64,12 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def read_toml(path: Path) -> dict[str, Any]:
-    with path.open("rb") as fp:
-        payload = tomllib.load(fp)
+def read_config(path: Path) -> dict[str, Any]:
+    if path.suffix.lower() == ".json":
+        payload = read_json(path)
+    else:
+        with path.open("rb") as fp:
+            payload = tomllib.load(fp)
     payload["_config_path"] = str(path.resolve())
     payload["_project_root"] = str(project_root_from(path))
     return payload
@@ -225,7 +228,7 @@ def validate_real_test_evidence(
     cycle: CycleRun,
     efficientnet_config_path: Path = Path("configs/w7_efficientnet_real_test.toml"),
 ) -> dict[str, Any]:
-    config = read_toml(efficientnet_config_path)
+    config = read_config(efficientnet_config_path)
     matrix_cfg = config.get("model_matrix", {})
     resources = config.get("resources", {})
     acceptance = config.get("acceptance", {})

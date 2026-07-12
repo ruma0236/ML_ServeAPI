@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from base64 import b64encode
+from contextlib import contextmanager
 from functools import wraps
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,7 +49,8 @@ def ledger_transaction(function):
     @wraps(function)
     def synchronized(*args, **kwargs):
         with _LEDGER_LOCK:
-            return function(*args, **kwargs)
+            with ledger_file_lock():
+                return function(*args, **kwargs)
 
     return synchronized
 
@@ -66,6 +69,39 @@ def task_ledger_path() -> Path:
 
 def command_ledger_path() -> Path:
     return ledger_root() / "command_intents.json"
+
+
+@contextmanager
+def ledger_file_lock(timeout_seconds: float = 30.0):
+    root = ledger_root()
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / ".operations.lock"
+    deadline = time.monotonic() + timeout_seconds
+    descriptor: int | None = None
+    while descriptor is None:
+        try:
+            descriptor = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(descriptor, f"{os.getpid()} {utc_now()}".encode("utf-8"))
+        except FileExistsError:
+            try:
+                if time.time() - path.stat().st_mtime > 300:
+                    path.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                raise TaskDispatchError(
+                    "operations_ledger_lock_timeout",
+                    "Timed out waiting for the cross-process operations ledger lock.",
+                    status_code=503,
+                )
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        path.unlink(missing_ok=True)
 
 
 def audit(actor: str, event: str, **details: str | int | float | bool | None) -> AuditEvent:
@@ -100,7 +136,12 @@ def read_json_array(path: Path) -> list[dict[str, object]]:
 
 def write_json_array(path: Path, payload: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
 
 
 @ledger_transaction

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from apps.api.control_panel_commands import router as control_panel_commands_router
 from apps.api.control_panel_deployments import router as control_panel_deployments_router
 from apps.api.control_panel_governance import router as control_panel_governance_router
+from apps.api.control_panel_lifecycle import router as control_panel_lifecycle_router
 from apps.api.control_panel_orchestrators import router as control_panel_orchestrators_router
 from apps.api.control_panel_profiles import router as control_panel_profiles_router
 from apps.api.control_panel_tasks import router as control_panel_tasks_router
@@ -146,6 +147,7 @@ app.include_router(control_panel_tasks_router)
 app.include_router(control_panel_commands_router)
 app.include_router(control_panel_deployments_router)
 app.include_router(control_panel_governance_router)
+app.include_router(control_panel_lifecycle_router)
 app.include_router(control_panel_orchestrators_router)
 app.include_router(control_panel_profiles_router)
 MODEL_STATE: LoadedModel | None = None

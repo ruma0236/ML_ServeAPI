@@ -15,6 +15,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  createLifecycleRun,
   fetchDefaultPipelineProfile,
   fetchPipelineProfiles,
   launchPipelineProfile,
@@ -24,6 +25,7 @@ import {
 import type {
   CycleRun,
   EnvironmentTier,
+  LifecycleRun,
   PipelineCapability,
   PipelinePlanStage,
   PipelineProfileRecord,
@@ -53,6 +55,7 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
   const [validation, setValidation] = useState<PipelineProfileValidation | null>(null);
   const [saved, setSaved] = useState<PipelineProfileRecord | null>(null);
   const [task, setTask] = useState<TaskAssignment | null>(null);
+  const [lifecycleRun, setLifecycleRun] = useState<LifecycleRun | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [rawOpen, setRawOpen] = useState(false);
@@ -101,6 +104,7 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
   function updateProfile(next: PipelineRunProfile) {
     setSaved(null);
     setTask(null);
+    setLifecycleRun(null);
     setError("");
     setProfile(next);
   }
@@ -136,6 +140,18 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
     setBusy(true);
     setError("");
     try {
+      if (activeProfile.execution_scope === "full_lifecycle") {
+        const result = await createLifecycleRun({
+          profile_id: savedCurrent.profile_id,
+          profile_version: savedCurrent.version,
+          actor: activeProfile.owner,
+          reason: `${dryRun ? "Preview" : "Execute"} ${activeProfile.profile_name} full lifecycle`,
+          dry_run: dryRun
+        });
+        setLifecycleRun(result);
+        setTask(null);
+        return;
+      }
       const result = await launchPipelineProfile(savedCurrent.profile_id, savedCurrent.version, {
         actor: activeProfile.owner,
         reason: `${dryRun ? "Preview" : "Queue"} ${activeProfile.profile_name}`,
@@ -143,6 +159,7 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
       });
       setValidation(result.validation);
       setTask(result.task || null);
+      setLifecycleRun(null);
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -304,9 +321,10 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
               <ShieldCheck size={16} /> Preview Run
             </button>
             <button type="button" className="primary-action" disabled={busy || !savedCurrent || !validation?.executable} onClick={() => void launch(false)}>
-              <Play size={16} /> Queue Data Cycle
+              <Play size={16} /> {profile.execution_scope === "full_lifecycle" ? "Queue Full Lifecycle" : "Queue Data Cycle"}
             </button>
             {task ? <div className="profile-task"><StatusBadge status={task.status} compact /><span>{task.task_id}</span></div> : null}
+            {lifecycleRun ? <div className="profile-task"><LifecycleState state={lifecycleRun.state} /><span>{lifecycleRun.run_id}</span></div> : null}
           </div>
         </div>
       </div>
@@ -366,6 +384,12 @@ function planStateLabel(state: PipelinePlanStage["state"]): string {
   if (state === "ready") return "Ready To Start";
   if (state === "blocked") return "Blocked";
   return "Not Started";
+}
+
+
+function LifecycleState({ state }: { state: LifecycleRun["state"] }) {
+  const label = state === "dry_run" ? "Dry Run Ready" : state === "queued" ? "Queued" : state.replaceAll("_", " ");
+  return <strong className={`profile-lifecycle-state state-${state}`}>{label}</strong>;
 }
 
 

@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Callable
 
 from evm.control_panel.deployment_intents import (
-    ALLOWED_TARGET_NAMES,
     DeploymentTransitionRejected,
     get_intent,
     intent_root,
@@ -19,6 +18,7 @@ from evm.control_panel.deployment_intents import (
     finish_execution,
     revalidate_queued_intent,
     transition_intent,
+    deployment_target_allowed,
 )
 from evm.control_panel.schemas import (
     DeploymentExecutionResult,
@@ -94,8 +94,8 @@ def load_rollback_target(intent: DeploymentIntent) -> ModelTarget:
         str(payload.get("model_digest") or ""),
         str(payload.get("candidate_id") or ""),
     )
-    if target.candidate_id != intent.model_candidate_id:
-        raise DeploymentTransitionRejected("rollback_candidate_mismatch")
+    if target.candidate_id == intent.model_candidate_id:
+        raise DeploymentTransitionRejected("rollback_reuses_current_candidate")
     if target.digest == intent.model_digest.lower():
         raise DeploymentTransitionRejected("rollback_reuses_current_model")
     return target
@@ -146,8 +146,11 @@ def deployment_patch_command(
 
 def manifest_apply_command(intent: DeploymentIntent) -> list[str]:
     manifest = Path(intent.manifest_ref).resolve()
-    allowed_root = (Path.cwd() / "infra" / "kubernetes").resolve()
-    if not manifest.is_relative_to(allowed_root):
+    allowed_roots = [(Path.cwd() / "infra" / "kubernetes").resolve()]
+    generated_root = os.getenv("EVM_KUBERNETES_GENERATED_MANIFEST_ROOT", "").strip()
+    if generated_root:
+        allowed_roots.append(Path(generated_root).resolve())
+    if not any(manifest.is_relative_to(root) for root in allowed_roots):
         raise DeploymentTransitionRejected("executor_manifest_not_allowed")
     if manifest.is_dir():
         if not (manifest / "kustomization.yaml").is_file():
@@ -175,10 +178,11 @@ def execute_apply(
     *,
     runner: Runner = subprocess.run,
     require_enabled: bool = True,
+    cycle=None,
 ) -> DeploymentIntent:
     if require_enabled and not executor_enabled():
         raise DeploymentTransitionRejected("deployment_executor_disabled")
-    intent = revalidate_queued_intent(intent_id)
+    intent = revalidate_queued_intent(intent_id, cycle=cycle)
     validate_executor_target(intent)
     target = verified_model_target(
         intent.model_artifact_uri,
@@ -288,7 +292,10 @@ def run_commands(
 
 
 def validate_executor_target(intent: DeploymentIntent) -> None:
-    if intent.target.kind != "Deployment" or intent.target.name not in ALLOWED_TARGET_NAMES:
+    if intent.target.kind != "Deployment" or not deployment_target_allowed(
+        intent.target.name,
+        intent.manifest_ref,
+    ):
         raise DeploymentTransitionRejected("executor_target_not_allowed")
     if intent.target.namespace != intent.target_namespace:
         raise DeploymentTransitionRejected("executor_namespace_mismatch")

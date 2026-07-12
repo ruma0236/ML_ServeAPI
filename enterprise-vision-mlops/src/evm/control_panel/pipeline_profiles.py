@@ -365,9 +365,9 @@ def capability_matrix(profile: PipelineRunProfile) -> list[PipelineCapability]:
         capability(
             "full_lifecycle_orchestrator",
             "One-click full lifecycle",
-            "partial",
+            "wired",
             profile.execution_scope == "full_lifecycle",
-            "Airflow data dispatch and Kubernetes model execution exist, but are not yet one dependency-aware run state machine.",
+            "LifecycleRun coordinates Airflow data, Kubernetes GPU training, MLflow evidence, readiness, CI/CT, approval, deployment, serving validation, monitoring, retry, and exact rollback.",
         ),
         capability(
             "airflow_data_dispatch",
@@ -599,6 +599,10 @@ def render_model_config(
 ) -> dict[str, object]:
     config = load_toml(profile.base_model_config)
     candidate_id = f"{profile.model.architecture}-profile-{profile_id}-v{version}"
+    host_data_root = os.getenv(
+        "EVM_HOST_DATA_ROOT",
+        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+    ).replace("\\", "/").rstrip("/")
     config.setdefault("model_matrix", {}).update(
         matrix_id=f"profile-{profile_id}-v{version}",
         dataset_version=profile.data.dataset_version,
@@ -608,6 +612,10 @@ def render_model_config(
         smoke_allowed=False,
         requires_real_dataset=True,
         requires_real_training=True,
+        rollback_registry_path=(
+            f"{host_data_root}/artifacts/registry/"
+            f"{profile.model.architecture}/rollback.json"
+        ),
     )
     config.setdefault("resources", {}).update(
         primary_gpu=profile.resources.compute_target,

@@ -28,16 +28,18 @@ import { CycleOverview } from "./views/CycleOverview";
 import { DataModelReadiness } from "./views/DataModelReadiness";
 import { GateAndRiskPanel } from "./views/GateAndRiskPanel";
 import { GovernancePanel } from "./views/GovernancePanel";
+import { LifecycleRuns } from "./views/LifecycleRuns";
 import { PipelineTimeline } from "./views/PipelineTimeline";
 import { PipelineProfileStudio } from "./views/PipelineProfileStudio";
 import { ReleaseControl } from "./views/ReleaseControl";
 import { TaskAuthoring } from "./views/TaskAuthoring";
 
-type TabKey = "overview" | "configure" | "readiness" | "timeline" | "operate" | "gates" | "release" | "governance";
+type TabKey = "overview" | "configure" | "runs" | "readiness" | "timeline" | "operate" | "gates" | "release" | "governance";
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "configure", label: "Configure" },
+  { key: "runs", label: "Runs" },
   { key: "readiness", label: "Readiness" },
   { key: "timeline", label: "Timeline" },
   { key: "operate", label: "Operate" },
@@ -170,6 +172,7 @@ export function App() {
   }
 
   const activeView = useMemo(() => {
+    if (tab === "runs") return <LifecycleRuns />;
     if (!cycle) return null;
     if (tab === "configure") return <PipelineProfileStudio cycle={cycle} />;
     if (tab === "readiness") return <DataModelReadiness cycle={cycle} />;

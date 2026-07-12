@@ -186,7 +186,7 @@ required = true
         registry,
         {
             "version": "1",
-            "model_name": CANDIDATE_ID,
+            "model_name": "effnet-b0-previous-production",
             "model_digest": rollback_digest,
             "model_artifact": str(rollback_model),
             "status": "approved",

@@ -1,7 +1,8 @@
 param(
     [switch]$Build,
     [switch]$NoAirflowRecreate,
-    [switch]$NoKubernetesObserver
+    [switch]$NoKubernetesObserver,
+    [switch]$NoLifecycleWorker
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,6 +30,18 @@ try {
     $env:EVM_GIT_COMMIT = $commit
     $env:EVM_GIT_BRANCH = $branch
     $env:EVM_EXPECTED_CI_COMMIT = $commit
+
+    $artifactRoot = if ($env:EVM_HOST_ARTIFACTS_ROOT) {
+        $env:EVM_HOST_ARTIFACTS_ROOT
+    } else {
+        "F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts"
+    }
+    $prometheusTargetRoot = Join-Path $artifactRoot "w7\prometheus-targets"
+    $prometheusTargetFile = Join-Path $prometheusTargetRoot "lifecycle-serving.json"
+    New-Item -ItemType Directory -Force -Path $prometheusTargetRoot | Out-Null
+    if (-not (Test-Path -LiteralPath $prometheusTargetFile)) {
+        Set-Content -LiteralPath $prometheusTargetFile -Value "[]" -Encoding ascii
+    }
 
     Write-Host "EVM_GIT_COMMIT=$commit"
     Write-Host "EVM_GIT_BRANCH=$branch"
@@ -68,6 +81,9 @@ try {
 
     if (-not $NoKubernetesObserver) {
         & (Join-Path $PSScriptRoot "start_kubernetes_observer.ps1")
+    }
+    if (-not $NoLifecycleWorker) {
+        & (Join-Path $PSScriptRoot "start_lifecycle_worker.ps1")
     }
 }
 finally {

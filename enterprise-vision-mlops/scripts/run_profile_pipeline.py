@@ -36,6 +36,16 @@ MODEL_PIPELINES = {
     "deploy-check",
     "monitor-check",
 }
+LIFECYCLE_DATA_PIPELINES = {
+    "dataset-intake-audit",
+    "domain-pack-check",
+    "object-store-bootstrap",
+    "data-validate",
+    "lakehouse-probe",
+    "image-quality",
+    "curation-workflow",
+    "dataset-shards",
+}
 SKIP_EXIT_CODE = 99
 
 
@@ -51,6 +61,7 @@ def allowed_roots() -> list[Path]:
         [
             str(project_root() / "configs"),
             "/mnt/evm-data/artifacts/w7/pipeline_profiles",
+            "/mnt/evm-data/artifacts/w7/lifecycle_runs",
         ]
     )
     return [Path(item).resolve() for item in values]
@@ -84,6 +95,27 @@ def execution_scope(path: Path) -> str:
     return str(control_plane.get("execution_scope") or "full_lifecycle")
 
 
+def pipeline_stage_scope(path: Path) -> str:
+    if path.suffix.lower() == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        with path.open("rb") as handle:
+            payload = tomllib.load(handle)
+    if not isinstance(payload, dict):
+        raise RuntimeError("pipeline_config_root_invalid")
+    control_plane = payload.get("control_plane")
+    if not isinstance(control_plane, dict):
+        return "all"
+    return str(control_plane.get("pipeline_stage_scope") or "all")
+
+
+def should_skip_pipeline(path: Path, pipeline: str) -> bool:
+    stage_scope = pipeline_stage_scope(path)
+    if stage_scope == "data":
+        return pipeline not in LIFECYCLE_DATA_PIPELINES
+    return pipeline in MODEL_PIPELINES and execution_scope(path) == "data_cycle"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run an allow-listed pipeline with a validated profile config.")
     parser.add_argument("pipeline")
@@ -91,12 +123,12 @@ def main() -> int:
     if args.pipeline not in PIPELINES:
         raise RuntimeError("pipeline_name_not_allowed")
     config = resolve_config()
-    if execution_scope(config) == "data_cycle" and args.pipeline in MODEL_PIPELINES:
+    if should_skip_pipeline(config, args.pipeline):
         print(
             json.dumps(
                 {
                     "status": "skipped",
-                    "reason": "pipeline_profile_data_cycle_scope",
+                    "reason": "pipeline_profile_data_stage_scope",
                     "pipeline": args.pipeline,
                     "config": str(config),
                 },

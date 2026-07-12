@@ -307,15 +307,17 @@ def split_counts(source_model: dict[str, Any]) -> dict[str, int]:
     return {key: int(value) for key, value in mapping.items() if isinstance(value, int)}
 
 
-def load_toml(path: Path) -> dict[str, Any]:
+def load_model_config(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
+    if path.suffix.lower() == ".json":
+        return read_json(path)
     with path.open("rb") as fp:
         return tomllib.load(fp)
 
 
 def build_model_matrix(config_path: Path, dataset_version: str) -> ModelExperimentMatrix:
-    cfg = load_toml(config_path)
+    cfg = load_model_config(config_path)
     matrix_cfg = cfg.get("model_matrix", {}) if isinstance(cfg.get("model_matrix"), dict) else {}
     acceptance = cfg.get("acceptance", {}) if isinstance(cfg.get("acceptance"), dict) else {}
     candidates_cfg = cfg.get("candidates", []) if isinstance(cfg.get("candidates"), list) else []
@@ -401,7 +403,7 @@ def build_model_matrix(config_path: Path, dataset_version: str) -> ModelExperime
 
 
 def path_from_config(config: dict[str, Any], key: str, default: str | Path) -> Path:
-    return resolve_path(config, get_nested(config, key, default))
+    return runtime_path(resolve_path(config, get_nested(config, key, default)))
 
 
 def build_latest_cycle(
@@ -411,7 +413,9 @@ def build_latest_cycle(
     config_path = config_path or os.getenv("EVM_CONTROL_PANEL_CONFIG", DEFAULT_CONFIG_PATH)
     config = load_config(config_path)
     project_root = Path(str(config["_project_root"]))
-    artifacts_root = resolve_path(config, get_nested(config, "paths.artifacts_root", "artifacts"))
+    artifacts_root = runtime_path(
+        resolve_path(config, get_nested(config, "paths.artifacts_root", "artifacts"))
+    )
     release_ref = resolve_release_ref(artifacts_root)
     registry_root = resolve_path(config, get_nested(config, "paths.registry_root", "artifacts/registry"))
     model_name = str(get_nested(config, "pipelines.model_registry.model_name", "vision-baseline"))
@@ -495,7 +499,7 @@ def build_latest_cycle(
     if not efficientnet_path.is_absolute():
         efficientnet_path = project_root / efficientnet_path
     model_matrix = build_model_matrix(efficientnet_path, dataset_version)
-    efficientnet_config = load_toml(efficientnet_path)
+    efficientnet_config = load_model_config(efficientnet_path)
     matrix_config = (
         efficientnet_config.get("model_matrix", {})
         if isinstance(efficientnet_config.get("model_matrix"), dict)
@@ -527,6 +531,19 @@ def build_latest_cycle(
         else {}
     )
     product_profile_active = bool(validation_profile.get("temporary"))
+    control_plane = (
+        efficientnet_config.get("control_plane", {})
+        if isinstance(efficientnet_config.get("control_plane"), dict)
+        else {}
+    )
+    managed_candidate_active = product_profile_active or bool(
+        control_plane.get("lifecycle_run_id")
+    )
+    runtime_evidence = (
+        control_plane.get("runtime_evidence", {})
+        if isinstance(control_plane.get("runtime_evidence"), dict)
+        else {}
+    )
     selected_candidate_id = str(
         matrix_config.get("selected_candidate_id", "effnet-b7-img600-finetune-adamw")
     )
@@ -538,7 +555,7 @@ def build_latest_cycle(
         ),
         None,
     )
-    if product_profile_active:
+    if managed_candidate_active:
         blockers = []
         if model_matrix.status != "pass":
             blockers.append(f"model_matrix_{model_matrix.status}")
@@ -698,7 +715,7 @@ def build_latest_cycle(
         or ""
     )
     candidate_summary_payload = read_json(candidate_dir / "candidate_summary.json")
-    if product_profile_active:
+    if managed_candidate_active:
         model_name = str(product_config.get("model_name") or selected_candidate_id)
         model_version = str(
             candidate_summary_payload.get("mlflow_run_id")
@@ -752,11 +769,32 @@ def build_latest_cycle(
         )
         readiness_expected_digests = readiness_snapshot.expected_digests
         readiness_snapshot_blockers = readiness_snapshot.blockers
-    kubernetes_evidence_path = latest_kubernetes_evidence(
-        artifacts_root / "w7" / "kubernetes_execution",
-        artifacts_root / "w7" / "kubernetes_b7",
+    configured_kubernetes_evidence = str(runtime_evidence.get("kubernetes") or "")
+    kubernetes_evidence_path = (
+        runtime_path(configured_kubernetes_evidence)
+        if configured_kubernetes_evidence
+        else latest_kubernetes_evidence(
+            artifacts_root / "w7" / "kubernetes_execution",
+            artifacts_root / "w7" / "kubernetes_b7",
+        )
     )
-    readiness_report_path = artifacts_root / "w7" / "readiness" / "latest_readiness_evaluation.json"
+    configured_readiness_path = str(runtime_evidence.get("readiness") or "")
+    readiness_report_path = (
+        runtime_path(configured_readiness_path)
+        if configured_readiness_path
+        else artifacts_root / "w7" / "readiness" / "latest_readiness_evaluation.json"
+    )
+    configured_real_test_path = str(runtime_evidence.get("real_test_validation") or "")
+    real_test_validation_path = (
+        runtime_path(configured_real_test_path)
+        if configured_real_test_path
+        else (
+            artifacts_root
+            / "w7"
+            / "real_test_evidence"
+            / "evm-238-b-real-test-evidence-report.json"
+        )
+    )
     readiness_result = evaluate_artifact_readiness(
         ReadinessInputs(
             contract_path=contract_path,
@@ -768,12 +806,7 @@ def build_latest_cycle(
             candidate_summary_path=candidate_dir / "candidate_summary.json",
             model_card_path=candidate_dir / "model_card.md",
             registry_path=rollback_registry_path,
-            real_test_validation_path=(
-                artifacts_root
-                / "w7"
-                / "real_test_evidence"
-                / "evm-238-b-real-test-evidence-report.json"
-            ),
+            real_test_validation_path=real_test_validation_path,
             kubernetes_evidence_path=kubernetes_evidence_path,
             mlflow_tracking_uri=os.getenv(
                 "MLFLOW_TRACKING_URI",
@@ -862,9 +895,14 @@ def build_latest_cycle(
         readiness_status=readiness_result.evaluation.status,
     )
     latest_deployment = latest_intent()
-    if product_profile_active and (
+    lifecycle_run_id = str(control_plane.get("lifecycle_run_id") or "")
+    if managed_candidate_active and (
         latest_deployment is None
         or latest_deployment.model_candidate_id != selected_candidate_id
+        or (
+            lifecycle_run_id
+            and latest_deployment.cycle_id != lifecycle_run_id
+        )
     ):
         latest_deployment = None
     if (
@@ -876,14 +914,14 @@ def build_latest_cycle(
             update={"approved_by": latest_deployment.approver}
         )
     if (
-        product_profile_active
+        managed_candidate_active
         and latest_deployment is not None
         and latest_deployment.state == "applied"
         and latest_deployment.target_environment == "production"
     ):
         model_stage = "Production"
     product_deployment_applied = bool(
-        product_profile_active
+        managed_candidate_active
         and latest_deployment is not None
         and latest_deployment.state == "applied"
         and latest_deployment.target_environment == "production"
@@ -940,12 +978,12 @@ def build_latest_cycle(
         mlflow=MLflowRef(
             experiment_id=(
                 str(matrix_inputs.get("mlflow_experiment_name", ""))
-                if product_profile_active
+                if managed_candidate_active
                 else str(get_nested(config, "mlflow.experiment_name", ""))
             ),
             run_id=(
                 str(candidate_summary_payload.get("mlflow_run_id", ""))
-                if product_profile_active
+                if managed_candidate_active
                 else str(source_model.get("trace", {}).get("pipeline_run_id", ""))
                 if isinstance(source_model.get("trace"), dict)
                 else ""
@@ -977,7 +1015,7 @@ def build_latest_cycle(
             registry_uri=str(registry_path),
             source_run_id=(
                 str(candidate_summary_payload.get("mlflow_run_id", ""))
-                if product_profile_active
+                if managed_candidate_active
                 else str(source_model.get("trace", {}).get("pipeline_run_id", ""))
                 if isinstance(source_model.get("trace"), dict)
                 else ""
@@ -989,7 +1027,7 @@ def build_latest_cycle(
         promotion_gate=PromotionGate(
             decision=(
                 "allow"
-                if product_profile_active and not blockers
+                if managed_candidate_active and not blockers
                 else str(registry.get("promotion_decision") or lifecycle_policy.get("decision") or "unknown")
             ),
             status=promotion_status,
@@ -1001,20 +1039,20 @@ def build_latest_cycle(
         serving=ServingState(
             status=(
                 "pass" if product_serving_ready else "blocked"
-            ) if product_profile_active else ("pass" if registry else "blocked"),
+            ) if managed_candidate_active else ("pass" if registry else "blocked"),
             endpoint=(
                 str(product_config.get("serving_endpoint", ""))
-                if product_profile_active
+                if managed_candidate_active
                 else str(get_nested(config, "serving.api_url", "http://localhost:8000"))
             ),
-            model_loaded=product_serving_ready if product_profile_active else bool(registry),
+            model_loaded=product_serving_ready if managed_candidate_active else bool(registry),
             model_version=model_version,
             placeholder=False if registry else None,
             p95_latency_ms=(
-                serving_p95_latency_ms if product_profile_active else None
+                serving_p95_latency_ms if managed_candidate_active else None
             ),
             healthy_targets=(
-                serving_healthy_targets if product_profile_active else 2
+                serving_healthy_targets if managed_candidate_active else 2
             ),
         ),
         stages=stages,
@@ -1032,7 +1070,7 @@ def build_latest_cycle(
                         name=str(product_config.get("target_deployment", "evm-b0-production")),
                     )
                 ]
-                if product_profile_active
+                if managed_candidate_active
                 else []
             ),
         ],
@@ -1043,7 +1081,7 @@ def build_latest_cycle(
         "true",
         "yes",
     }
-    policy_decision = applied_product_policy(product_profile_active, latest_deployment)
+    policy_decision = applied_product_policy(managed_candidate_active, latest_deployment)
     if policy_decision is None:
         policy_decision = evaluate_cycle_promotion(cycle, persist=persist_policy)
     policy_environment = build_environment_ref(

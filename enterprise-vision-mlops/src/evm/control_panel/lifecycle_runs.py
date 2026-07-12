@@ -1,0 +1,1075 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import time
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Callable, Literal
+from uuid import uuid4
+
+from pydantic import Field
+
+from evm.control_panel.pipeline_profiles import (
+    PipelineProfileRecord,
+    get_profile,
+    validate_profile,
+)
+from evm.control_panel.readiness_evaluator import runtime_path
+from evm.control_panel.schemas import AuditEvent, ContractModel
+
+
+LifecycleRunState = Literal[
+    "dry_run",
+    "queued",
+    "running",
+    "waiting_approval",
+    "blocked",
+    "failed",
+    "completed",
+    "cancelled",
+    "rolling_back",
+    "rolled_back",
+]
+LifecycleStageState = Literal[
+    "not_started",
+    "queued",
+    "running",
+    "waiting_approval",
+    "blocked",
+    "failed",
+    "completed",
+    "skipped",
+    "cancelled",
+]
+LifecycleRuntime = Literal[
+    "control-plane",
+    "airflow",
+    "kubernetes",
+    "mlflow",
+    "github-actions",
+    "serving",
+    "prometheus",
+]
+
+
+class LifecycleRunError(RuntimeError):
+    def __init__(self, code: str, message: str, *, status_code: int = 409):
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+
+
+class LifecycleRunRequest(ContractModel):
+    profile_id: str
+    profile_version: int | None = Field(default=None, ge=1)
+    actor: str = Field(min_length=2)
+    reason: str = Field(min_length=8)
+    dry_run: bool = True
+
+
+class LifecycleActionRequest(ContractModel):
+    actor: str = Field(min_length=2)
+    reason: str = Field(min_length=8)
+    expected_version: int = Field(ge=1)
+
+
+class LifecycleApprovalRequest(LifecycleActionRequest):
+    approver: str = Field(min_length=2)
+
+
+class LifecycleStage(ContractModel):
+    stage_id: str
+    label: str
+    runtime: LifecycleRuntime
+    state: LifecycleStageState = "not_started"
+    progress: float = Field(default=0.0, ge=0, le=1)
+    attempt: int = Field(default=0, ge=0)
+    max_attempts: int = Field(default=1, ge=1)
+    started_at: str | None = None
+    finished_at: str | None = None
+    task_id: str | None = None
+    runtime_id: str | None = None
+    runtime_state: str | None = None
+    evidence_uri: str | None = None
+    detail: str | None = None
+    blockers: list[str] = Field(default_factory=list)
+
+
+class LifecycleRun(ContractModel):
+    schema_version: Literal["evm.lifecycle_run.v1"] = "evm.lifecycle_run.v1"
+    run_id: str
+    profile_id: str
+    profile_version: int
+    profile_digest: str
+    effective_config_digest: str
+    source_commit: str | None = None
+    source_branch: str | None = None
+    state: LifecycleRunState
+    version: int = Field(ge=1)
+    actor: str
+    reason: str
+    dry_run: bool
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    current_stage: str | None = None
+    progress: float = Field(default=0.0, ge=0, le=1)
+    profile_snapshot_uri: str
+    airflow_config_uri: str
+    airflow_runtime_uri: str
+    model_config_uri: str
+    model_runtime_uri: str
+    artifact_root: str
+    cycle_snapshot_uri: str | None = None
+    model_matrix_uri: str | None = None
+    readiness_uri: str | None = None
+    real_test_validation_uri: str | None = None
+    deployment_intent_id: str | None = None
+    approver: str | None = None
+    failure_reason: str | None = None
+    blockers: list[str] = Field(default_factory=list)
+    stages: list[LifecycleStage] = Field(default_factory=list)
+    audit: list[AuditEvent] = Field(default_factory=list)
+
+
+class LifecycleRunList(ContractModel):
+    runs: list[LifecycleRun] = Field(default_factory=list)
+    total: int = 0
+
+
+class LifecycleWorkerState(ContractModel):
+    status: Literal["online", "stale", "offline"]
+    worker_id: str | None = None
+    pid: int | None = None
+    started_at: str | None = None
+    last_seen_at: str | None = None
+    current_run_id: str | None = None
+    message: str | None = None
+
+
+STAGE_SPECS: tuple[tuple[str, str, LifecycleRuntime, int], ...] = (
+    ("profile_snapshot", "Profile Snapshot", "control-plane", 1),
+    ("data_pipeline", "Data Pipeline", "airflow", 2),
+    ("model_training", "Model Training", "kubernetes", 2),
+    ("model_evaluation", "Model Evaluation", "mlflow", 2),
+    ("artifact_readiness", "Artifact Readiness", "control-plane", 3),
+    ("ci_ct_gate", "CI / CT Admission", "github-actions", 20),
+    ("approval", "Human Approval", "control-plane", 1),
+    ("deployment", "Deployment", "kubernetes", 1),
+    ("serving_validation", "Serving Validation", "serving", 2),
+    ("monitoring", "Monitoring", "prometheus", 3),
+)
+TERMINAL_STAGE_STATES = {"completed", "skipped", "cancelled"}
+ALLOWED_STAGE_TRANSITIONS: dict[LifecycleStageState, set[LifecycleStageState]] = {
+    "not_started": {
+        "queued",
+        "running",
+        "waiting_approval",
+        "skipped",
+        "blocked",
+        "cancelled",
+    },
+    "queued": {"running", "blocked", "failed", "cancelled"},
+    "running": {"completed", "blocked", "failed", "cancelled"},
+    "waiting_approval": {"completed", "blocked", "cancelled"},
+    "blocked": set(),
+    "failed": set(),
+    "completed": set(),
+    "skipped": set(),
+    "cancelled": set(),
+}
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def lifecycle_root() -> Path:
+    return Path(
+        os.getenv(
+            "EVM_LIFECYCLE_RUN_ROOT",
+            "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/lifecycle_runs",
+        )
+    )
+
+
+def lifecycle_runtime_root() -> str:
+    return os.getenv(
+        "EVM_LIFECYCLE_RUNTIME_ROOT",
+        "/mnt/evm-data/artifacts/w7/lifecycle_runs",
+    ).replace("\\", "/").rstrip("/")
+
+
+def lifecycle_host_root() -> str:
+    return os.getenv(
+        "EVM_HOST_DATA_ROOT",
+        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+    ).replace("\\", "/").rstrip("/")
+
+
+def run_path(run_id: str) -> Path:
+    return lifecycle_root() / run_id / "lifecycle_run.json"
+
+
+def worker_state_path() -> Path:
+    return lifecycle_root() / "_worker.json"
+
+
+def audit(actor: str, event: str, **details: str | int | float | bool | None) -> AuditEvent:
+    return AuditEvent(timestamp=utc_now(), actor=actor, event=event, details=details)
+
+
+def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
+    record = get_profile(request.profile_id, request.profile_version)
+    if record is None:
+        raise LifecycleRunError(
+            "pipeline_profile_not_found",
+            f"Pipeline profile {request.profile_id} was not found.",
+            status_code=404,
+        )
+    if record.profile.execution_scope != "full_lifecycle":
+        raise LifecycleRunError(
+            "full_lifecycle_profile_required",
+            "LifecycleRun requires a full_lifecycle profile.",
+        )
+    validation = validate_profile(record.profile)
+    if not validation.valid:
+        raise LifecycleRunError(
+            "pipeline_profile_invalid",
+            ", ".join(validation.blockers) or "Pipeline profile is invalid.",
+            status_code=422,
+        )
+    if not request.dry_run and not validation.executable:
+        raise LifecycleRunError(
+            "pipeline_profile_not_executable",
+            ", ".join(validation.blockers) or "Pipeline profile is not executable.",
+        )
+
+    created_at = utc_now()
+    run_id = f"lifecycle-{created_at.replace(':', '').replace('-', '').replace('Z', '')}-{uuid4().hex[:8]}"
+    snapshot = prepare_runtime_snapshot(run_id, record)
+    stages = build_stages()
+    stages[0] = stages[0].model_copy(
+        update={
+            "state": "completed",
+            "progress": 1.0,
+            "attempt": 1,
+            "started_at": created_at,
+            "finished_at": created_at,
+            "evidence_uri": snapshot["profile_snapshot_uri"],
+            "detail": f"profile digest {record.digest[:16]}",
+        }
+    )
+    state: LifecycleRunState = "dry_run" if request.dry_run else "queued"
+    run = LifecycleRun(
+        run_id=run_id,
+        profile_id=record.profile_id,
+        profile_version=record.version,
+        profile_digest=record.digest,
+        effective_config_digest=snapshot["effective_config_digest"],
+        source_commit=os.getenv("GIT_COMMIT") or os.getenv("EVM_GIT_COMMIT") or None,
+        source_branch=os.getenv("GIT_BRANCH") or os.getenv("EVM_GIT_BRANCH") or None,
+        state=state,
+        version=1,
+        actor=request.actor,
+        reason=request.reason,
+        dry_run=request.dry_run,
+        created_at=created_at,
+        updated_at=created_at,
+        current_stage="data_pipeline" if not request.dry_run else None,
+        progress=stage_progress(stages),
+        profile_snapshot_uri=snapshot["profile_snapshot_uri"],
+        airflow_config_uri=snapshot["airflow_config_uri"],
+        airflow_runtime_uri=snapshot["airflow_runtime_uri"],
+        model_config_uri=snapshot["model_config_uri"],
+        model_runtime_uri=snapshot["model_runtime_uri"],
+        artifact_root=snapshot["artifact_root"],
+        stages=stages,
+        audit=[
+            audit(
+                request.actor,
+                "lifecycle_run_created",
+                dry_run=request.dry_run,
+                profile_id=record.profile_id,
+                profile_version=record.version,
+                state=state,
+            )
+        ],
+    )
+    write_run(run)
+    return run
+
+
+def build_stages() -> list[LifecycleStage]:
+    return [
+        LifecycleStage(
+            stage_id=stage_id,
+            label=label,
+            runtime=runtime,
+            max_attempts=max_attempts,
+        )
+        for stage_id, label, runtime, max_attempts in STAGE_SPECS
+    ]
+
+
+def prepare_runtime_snapshot(run_id: str, record: PipelineProfileRecord) -> dict[str, str]:
+    directory = lifecycle_root() / run_id
+    directory.mkdir(parents=True, exist_ok=False)
+    profile_path = directory / "profile.snapshot.json"
+    airflow_path = directory / "airflow.runtime.json"
+    model_path = directory / "model.runtime.json"
+    profile_payload = record.profile.model_dump(mode="json")
+    airflow_payload = read_object(record.airflow_config_uri)
+    model_payload = read_object(record.model_config_uri)
+    host_artifact_root = f"{lifecycle_host_root()}/artifacts/w7/lifecycle_runs/{run_id}"
+    runtime_artifact_root = f"{lifecycle_runtime_root()}/{run_id}"
+    control_plane = {
+        "lifecycle_run_id": run_id,
+        "profile_id": record.profile_id,
+        "profile_version": record.version,
+        "profile_digest": record.digest,
+        "artifact_root": host_artifact_root,
+    }
+    airflow_payload.setdefault("control_plane", {}).update(control_plane)
+    airflow_payload["control_plane"]["pipeline_stage_scope"] = "data"
+    configure_run_scoped_data_outputs(airflow_payload, runtime_artifact_root)
+    matrix = model_payload.setdefault("model_matrix", {})
+    matrix["matrix_id"] = run_id
+    matrix["execution_run_id"] = run_id
+    resources = model_payload.setdefault("resources", {})
+    resources["artifact_root"] = f"{host_artifact_root}/model"
+    inputs = model_payload.setdefault("inputs", {})
+    inputs["base_config"] = f"{runtime_artifact_root}/airflow.runtime.json"
+    inputs["shard_index"] = f"{runtime_artifact_root}/data/shards/shard_index.json"
+    inputs["mlflow_tracking_uri"] = os.getenv(
+        "EVM_LIFECYCLE_MLFLOW_URI",
+        "http://host.docker.internal:5000",
+    )
+    model_payload.setdefault("control_plane", {}).update(control_plane)
+    model_payload["control_plane"]["runtime_evidence"] = {
+        "kubernetes": f"{host_artifact_root}/kubernetes/evidence_index.json",
+        "real_test_validation": f"{host_artifact_root}/real_test_validation.json",
+        "cycle_snapshot": f"{host_artifact_root}/cycle.snapshot.json",
+        "readiness": f"{host_artifact_root}/readiness.json",
+    }
+    profile_gates = profile_payload.get("gates", {})
+    profile_model = profile_payload.get("model", {})
+    architecture = str(
+        profile_model.get("architecture", "efficientnet-b0")
+        if isinstance(profile_model, dict)
+        else "efficientnet-b0"
+    )
+    target_environment = str(
+        profile_gates.get("target_environment", "staging")
+        if isinstance(profile_gates, dict)
+        else "staging"
+    )
+    target_namespace = str(
+        profile_gates.get("target_namespace", "evm-staging")
+        if isinstance(profile_gates, dict)
+        else "evm-staging"
+    )
+    model_payload["product"] = {
+        "model_name": f"{architecture}-visa-anomaly",
+        "target_environment": target_environment,
+        "target_namespace": target_namespace,
+        "target_deployment": lifecycle_deployment_name(architecture, target_environment),
+        "serving_endpoint": os.getenv(
+            "EVM_LIFECYCLE_SERVING_ENDPOINT",
+            f"http://127.0.0.1:{lifecycle_node_port(target_environment)}",
+        ),
+    }
+    write_json(profile_path, profile_payload)
+    write_json(airflow_path, airflow_payload)
+    write_json(model_path, model_payload)
+    effective_digest = payload_digest(
+        {"profile": profile_payload, "airflow": airflow_payload, "model": model_payload}
+    )
+    snapshot_manifest = {
+        "schema_version": "evm.lifecycle_run_snapshot.v1",
+        "run_id": run_id,
+        "profile_digest": record.digest,
+        "effective_config_digest": effective_digest,
+        "files": {
+            "profile": str(profile_path),
+            "airflow": str(airflow_path),
+            "model": str(model_path),
+        },
+    }
+    write_json(directory / "snapshot_manifest.json", snapshot_manifest)
+    return {
+        "profile_snapshot_uri": str(profile_path),
+        "airflow_config_uri": str(airflow_path),
+        "airflow_runtime_uri": f"{runtime_artifact_root}/airflow.runtime.json",
+        "model_config_uri": str(model_path),
+        "model_runtime_uri": f"{runtime_artifact_root}/model.runtime.json",
+        "artifact_root": host_artifact_root,
+        "effective_config_digest": effective_digest,
+    }
+
+
+def configure_run_scoped_data_outputs(
+    config: dict[str, object],
+    runtime_artifact_root: str,
+) -> None:
+    pipelines = config.setdefault("pipelines", {})
+    if not isinstance(pipelines, dict):
+        raise LifecycleRunError(
+            "profile_runtime_config_invalid",
+            "Airflow runtime config pipelines must be an object.",
+            status_code=422,
+        )
+    data_root = f"{runtime_artifact_root}/data"
+    artifacts_root = f"{runtime_artifact_root}/data-artifacts"
+    update_pipeline(
+        pipelines,
+        "dataset_intake_audit",
+        {
+            "output_dir": f"{data_root}/intake",
+            "registry_path": f"{data_root}/intake/source_registry.json",
+            "acquisition_plan_path": f"{data_root}/intake/acquisition_plan.json",
+            "cleaning_report_path": f"{data_root}/intake/cleaning_benchmark.json",
+            "manifest_path": f"{data_root}/intake/import_manifest.jsonl",
+            "checkpoint_dir": f"{data_root}/intake/_checkpoints",
+        },
+    )
+    validation_manifest = f"{data_root}/validated/validated_manifest.jsonl"
+    quality_manifest = f"{data_root}/quality/quality_manifest.jsonl"
+    validated_parquet = f"{data_root}/validated/validated_dataset.parquet"
+    update_pipeline(
+        pipelines,
+        "data_validation",
+        {
+            "output_manifest": validation_manifest,
+            "processed_parquet": f"{data_root}/processed/processed_dataset.parquet",
+            "validated_parquet": validated_parquet,
+            "dataset_metadata": f"{data_root}/validated/dataset_version.json",
+        },
+    )
+    update_pipeline(
+        pipelines,
+        "image_quality",
+        {
+            "input_manifest": validation_manifest,
+            "dataset_metadata": f"{data_root}/validated/dataset_version.json",
+            "output_manifest": quality_manifest,
+            "report_path": f"{data_root}/quality/quality_report.json",
+            "baseline_path": f"{data_root}/quality/quality_baseline.json",
+        },
+    )
+    update_pipeline(
+        pipelines,
+        "curation_workflow",
+        {
+            "input_manifest": quality_manifest,
+            "output_dir": f"{data_root}/curation",
+            "state_path": f"{data_root}/curation/curation_state.json",
+            "curation_manifest": f"{data_root}/curation/curation_manifest.jsonl",
+            "hitl_queue": f"{data_root}/curation/hitl_queue.jsonl",
+            "sample_review_manifest": f"{data_root}/curation/sample_review.jsonl",
+            "curated_eval_manifest": f"{data_root}/curation/curated_eval_manifest.jsonl",
+        },
+    )
+    update_pipeline(
+        pipelines,
+        "dataset_shards",
+        {
+            "input_manifest": quality_manifest,
+            "output_dir": f"{data_root}/shards",
+            "index_path": f"{data_root}/shards/shard_index.json",
+        },
+    )
+    update_pipeline(
+        pipelines,
+        "lakehouse_probe",
+        {
+            "input_parquet": validated_parquet,
+            "output_dir": f"{artifacts_root}/lakehouse",
+            "probe_report": f"{artifacts_root}/lakehouse/lakehouse_probe.json",
+            "tradeoff_matrix": f"{artifacts_root}/lakehouse/engine_tradeoff_matrix.json",
+            "recommendation_doc": f"{artifacts_root}/lakehouse/recommendation.md",
+        },
+    )
+
+
+def update_pipeline(
+    pipelines: dict[str, object],
+    pipeline_id: str,
+    values: dict[str, object],
+) -> None:
+    pipeline = pipelines.setdefault(pipeline_id, {})
+    if not isinstance(pipeline, dict):
+        raise LifecycleRunError(
+            "profile_runtime_config_invalid",
+            f"Airflow pipeline {pipeline_id} must be an object.",
+            status_code=422,
+        )
+    pipeline.update(values)
+
+
+def lifecycle_deployment_name(architecture: str, environment: str) -> str:
+    architecture_slug = architecture.replace("efficientnet-", "b")
+    environment_slug = environment.replace("pre-production", "preprod")
+    return f"evm-{architecture_slug}-{environment_slug}"
+
+
+def lifecycle_node_port(environment: str) -> int:
+    return {
+        "dev": 30811,
+        "test": 30812,
+        "staging": 30813,
+        "pre-production": 30814,
+        "production": 30800,
+    }.get(environment, 30813)
+
+
+def read_runs() -> LifecycleRunList:
+    root = lifecycle_root()
+    if not root.exists():
+        return LifecycleRunList()
+    runs: list[LifecycleRun] = []
+    for path in root.glob("lifecycle-*/lifecycle_run.json"):
+        try:
+            runs.append(LifecycleRun.model_validate_json(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    runs.sort(key=lambda item: (item.created_at, item.run_id), reverse=True)
+    return LifecycleRunList(runs=runs, total=len(runs))
+
+
+def get_lifecycle_run(run_id: str) -> LifecycleRun | None:
+    path = run_path(run_id)
+    if not path.is_file():
+        return None
+    try:
+        return LifecycleRun.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def queue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        if run.state != "dry_run":
+            raise LifecycleRunError(
+                "lifecycle_run_not_dry_run",
+                f"LifecycleRun {run_id} is {run.state}; only dry_run can be queued.",
+            )
+        record = get_profile(run.profile_id, run.profile_version)
+        if record is None or record.digest != run.profile_digest:
+            raise LifecycleRunError(
+                "pipeline_profile_snapshot_mismatch",
+                "The saved profile no longer matches the LifecycleRun snapshot.",
+            )
+        validation = validate_profile(record.profile)
+        if not validation.executable:
+            raise LifecycleRunError(
+                "pipeline_profile_not_executable",
+                ", ".join(validation.blockers) or "Pipeline profile is not executable.",
+            )
+        run.state = "queued"
+        run.dry_run = False
+        run.current_stage = "data_pipeline"
+        run.audit.append(audit(request.actor, "lifecycle_run_queued", reason=request.reason))
+        return run
+
+    return mutate_run(run_id, request.expected_version, update)
+
+
+def approve_lifecycle_run(
+    run_id: str,
+    request: LifecycleApprovalRequest,
+) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        if run.state != "waiting_approval" or run.current_stage != "approval":
+            raise LifecycleRunError(
+                "lifecycle_run_not_waiting_approval",
+                f"LifecycleRun {run_id} is not waiting at the approval stage.",
+            )
+        if request.approver != request.actor:
+            raise LifecycleRunError(
+                "lifecycle_approval_actor_mismatch",
+                "The approval actor must match the named approver.",
+            )
+        if request.approver == run.actor:
+            raise LifecycleRunError(
+                "lifecycle_requester_approver_conflict",
+                "The LifecycleRun requester cannot approve the same run.",
+            )
+        index = stage_index(run, "approval")
+        stage = run.stages[index]
+        if stage.state != "waiting_approval":
+            raise LifecycleRunError(
+                "lifecycle_approval_stage_invalid",
+                f"Approval stage is {stage.state}; waiting_approval is required.",
+            )
+        now = utc_now()
+        run.stages[index] = stage.model_copy(
+            update={
+                "state": "completed",
+                "progress": 1.0,
+                "finished_at": now,
+                "detail": f"Approved by {request.approver}: {request.reason}",
+                "blockers": [],
+            }
+        )
+        run.approver = request.approver
+        run.current_stage = next_stage_id(run)
+        run.state = derive_run_state(run)
+        run.audit.append(
+            audit(
+                request.actor,
+                "lifecycle_run_approved",
+                approver=request.approver,
+                reason=request.reason,
+            )
+        )
+        return run
+
+    return mutate_run(run_id, request.expected_version, update)
+
+
+def cancel_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        if run.state in {"completed", "cancelled", "rolled_back"}:
+            raise LifecycleRunError(
+                "lifecycle_run_terminal",
+                f"LifecycleRun {run_id} is already {run.state}.",
+            )
+        for index, stage in enumerate(run.stages):
+            if stage.state in {"queued", "running", "waiting_approval", "not_started"}:
+                run.stages[index] = stage.model_copy(update={"state": "cancelled"})
+        run.state = "cancelled"
+        run.finished_at = utc_now()
+        run.current_stage = None
+        run.audit.append(audit(request.actor, "lifecycle_run_cancelled", reason=request.reason))
+        return run
+
+    return mutate_run(run_id, request.expected_version, update)
+
+
+def retry_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        if run.state not in {"failed", "blocked"}:
+            raise LifecycleRunError(
+                "lifecycle_run_not_retryable",
+                f"LifecycleRun {run_id} is {run.state}; retry requires failed or blocked.",
+            )
+        stage = current_or_failed_stage(run)
+        if stage is None:
+            raise LifecycleRunError("lifecycle_stage_not_found", "No retryable stage was found.")
+        if stage.attempt >= stage.max_attempts:
+            raise LifecycleRunError(
+                "lifecycle_stage_attempts_exhausted",
+                f"Stage {stage.stage_id} exhausted {stage.max_attempts} attempts.",
+            )
+        index = stage_index(run, stage.stage_id)
+        run.stages[index] = stage.model_copy(
+            update={
+                "state": "not_started",
+                "progress": 0.0,
+                "started_at": None,
+                "finished_at": None,
+                "task_id": None,
+                "runtime_id": None,
+                "runtime_state": None,
+                "evidence_uri": None,
+                "detail": f"Retry requested: {request.reason}",
+                "blockers": [],
+            }
+        )
+        run.state = "queued"
+        run.current_stage = stage.stage_id
+        run.failure_reason = None
+        run.blockers = []
+        run.finished_at = None
+        run.audit.append(
+            audit(
+                request.actor,
+                "lifecycle_stage_retry_requested",
+                stage_id=stage.stage_id,
+                reason=request.reason,
+                next_attempt=stage.attempt + 1,
+            )
+        )
+        return run
+
+    return mutate_run(run_id, request.expected_version, update)
+
+
+def transition_stage(
+    run_id: str,
+    stage_id: str,
+    state: LifecycleStageState,
+    *,
+    actor: str,
+    detail: str | None = None,
+    progress: float | None = None,
+    task_id: str | None = None,
+    runtime_id: str | None = None,
+    runtime_state: str | None = None,
+    evidence_uri: str | None = None,
+    blockers: list[str] | None = None,
+) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        if run.dry_run:
+            raise LifecycleRunError(
+                "lifecycle_dry_run_immutable",
+                "Dry-run LifecycleRun stages cannot execute; queue the run first.",
+            )
+        index = stage_index(run, stage_id)
+        stage = run.stages[index]
+        if state == stage.state:
+            return run
+        if state not in ALLOWED_STAGE_TRANSITIONS[stage.state]:
+            raise LifecycleRunError(
+                "lifecycle_stage_transition_invalid",
+                f"Stage {stage_id} cannot transition from {stage.state} to {state}.",
+            )
+        if state in {"queued", "running", "waiting_approval"}:
+            assert_dependencies_complete(run, index)
+        now = utc_now()
+        next_attempt = stage.attempt
+        started_at = stage.started_at
+        finished_at = stage.finished_at
+        if state == "queued" and stage.state == "not_started":
+            next_attempt += 1
+            started_at = now
+            if not run.started_at:
+                run.started_at = now
+        if state == "running" and stage.state not in {"running", "queued"}:
+            next_attempt += 1
+            started_at = now
+            if not run.started_at:
+                run.started_at = now
+        if state in {"completed", "skipped", "failed", "blocked", "cancelled"}:
+            finished_at = now
+        next_progress = progress
+        if next_progress is None:
+            if state in {"completed", "skipped"}:
+                next_progress = 1.0
+            elif state in {"queued", "not_started", "waiting_approval"}:
+                next_progress = 0.0
+            else:
+                next_progress = stage.progress
+        stage = stage.model_copy(
+            update={
+                "state": state,
+                "progress": next_progress,
+                "attempt": next_attempt,
+                "started_at": started_at,
+                "finished_at": finished_at,
+                "task_id": task_id or stage.task_id,
+                "runtime_id": runtime_id or stage.runtime_id,
+                "runtime_state": runtime_state or stage.runtime_state,
+                "evidence_uri": evidence_uri or stage.evidence_uri,
+                "detail": detail or stage.detail,
+                "blockers": sorted(set(blockers or [])),
+            }
+        )
+        run.stages[index] = stage
+        run.current_stage = next_stage_id(run)
+        run.progress = stage_progress(run.stages)
+        run.state = derive_run_state(run)
+        run.blockers = sorted(
+            {blocker for item in run.stages for blocker in item.blockers}
+        )
+        if state in {"failed", "blocked"}:
+            run.failure_reason = detail or (stage.blockers[0] if stage.blockers else state)
+        if run.state in {"completed", "failed", "cancelled", "rolled_back"}:
+            run.finished_at = now
+        run.audit.append(
+            audit(
+                actor,
+                "lifecycle_stage_transition",
+                stage_id=stage_id,
+                stage_state=state,
+                run_state=run.state,
+                attempt=stage.attempt,
+                detail=detail,
+            )
+        )
+        return run
+
+    return mutate_run(run_id, None, update)
+
+
+def update_run_evidence(
+    run_id: str,
+    *,
+    actor: str,
+    cycle_snapshot_uri: str | None = None,
+    model_matrix_uri: str | None = None,
+    readiness_uri: str | None = None,
+    real_test_validation_uri: str | None = None,
+    deployment_intent_id: str | None = None,
+    approver: str | None = None,
+) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        run.cycle_snapshot_uri = cycle_snapshot_uri or run.cycle_snapshot_uri
+        run.model_matrix_uri = model_matrix_uri or run.model_matrix_uri
+        run.readiness_uri = readiness_uri or run.readiness_uri
+        run.real_test_validation_uri = (
+            real_test_validation_uri or run.real_test_validation_uri
+        )
+        run.deployment_intent_id = deployment_intent_id or run.deployment_intent_id
+        run.approver = approver or run.approver
+        run.audit.append(audit(actor, "lifecycle_evidence_updated"))
+        return run
+
+    return mutate_run(run_id, None, update)
+
+
+def mark_lifecycle_rollback(
+    run_id: str,
+    *,
+    actor: str,
+    state: Literal["rolling_back", "rolled_back"],
+    detail: str,
+) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        if state == "rolling_back" and run.state not in {"failed", "running", "blocked"}:
+            raise LifecycleRunError(
+                "lifecycle_rollback_not_allowed",
+                f"LifecycleRun {run_id} cannot roll back from {run.state}.",
+            )
+        if state == "rolled_back" and run.state != "rolling_back":
+            raise LifecycleRunError(
+                "lifecycle_rollback_not_running",
+                f"LifecycleRun {run_id} is not rolling back.",
+            )
+        run.state = state
+        run.finished_at = utc_now() if state == "rolled_back" else None
+        run.current_stage = None if state == "rolled_back" else run.current_stage
+        run.audit.append(
+            audit(actor, f"lifecycle_run_{state}", detail=detail)
+        )
+        return run
+
+    return mutate_run(run_id, None, update)
+
+
+def mark_lifecycle_rollback_failed(
+    run_id: str,
+    *,
+    actor: str,
+    detail: str,
+) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        if run.state != "rolling_back":
+            raise LifecycleRunError(
+                "lifecycle_rollback_not_running",
+                f"LifecycleRun {run_id} is not rolling back.",
+            )
+        run.state = "failed"
+        run.finished_at = utc_now()
+        run.failure_reason = detail
+        run.blockers = sorted(set([*run.blockers, "lifecycle_rollback_failed"]))
+        run.audit.append(audit(actor, "lifecycle_run_rollback_failed", detail=detail))
+        return run
+
+    return mutate_run(run_id, None, update)
+
+
+def mutate_run(
+    run_id: str,
+    expected_version: int | None,
+    update: Callable[[LifecycleRun], LifecycleRun],
+) -> LifecycleRun:
+    with run_lock(run_id):
+        current = get_lifecycle_run(run_id)
+        if current is None:
+            raise LifecycleRunError(
+                "lifecycle_run_not_found",
+                f"LifecycleRun {run_id} was not found.",
+                status_code=404,
+            )
+        if expected_version is not None and current.version != expected_version:
+            raise LifecycleRunError(
+                "lifecycle_run_version_conflict",
+                f"Expected version {expected_version}, current version is {current.version}.",
+            )
+        updated = update(current.model_copy(deep=True))
+        updated.version = current.version + 1
+        updated.updated_at = utc_now()
+        updated.progress = stage_progress(updated.stages)
+        write_run(updated)
+        return updated
+
+
+def derive_run_state(run: LifecycleRun) -> LifecycleRunState:
+    states = {stage.state for stage in run.stages}
+    if run.state == "cancelled" or "cancelled" in states:
+        return "cancelled"
+    if "failed" in states:
+        return "failed"
+    if "blocked" in states:
+        return "blocked"
+    if "waiting_approval" in states:
+        return "waiting_approval"
+    if all(stage.state in TERMINAL_STAGE_STATES for stage in run.stages):
+        return "completed"
+    if "running" in states:
+        return "running"
+    return "queued"
+
+
+def next_stage_id(run: LifecycleRun) -> str | None:
+    for stage in run.stages:
+        if stage.state not in TERMINAL_STAGE_STATES:
+            return stage.stage_id
+    return None
+
+
+def current_or_failed_stage(run: LifecycleRun) -> LifecycleStage | None:
+    if run.current_stage:
+        match = next((item for item in run.stages if item.stage_id == run.current_stage), None)
+        if match and match.state in {"failed", "blocked"}:
+            return match
+    return next((item for item in run.stages if item.state in {"failed", "blocked"}), None)
+
+
+def stage_progress(stages: list[LifecycleStage]) -> float:
+    if not stages:
+        return 0.0
+    return round(sum(stage.progress for stage in stages) / len(stages), 4)
+
+
+def stage_index(run: LifecycleRun, stage_id: str) -> int:
+    for index, stage in enumerate(run.stages):
+        if stage.stage_id == stage_id:
+            return index
+    raise LifecycleRunError(
+        "lifecycle_stage_not_found",
+        f"Lifecycle stage {stage_id} was not found.",
+        status_code=404,
+    )
+
+
+def assert_dependencies_complete(run: LifecycleRun, stage_index_value: int) -> None:
+    incomplete = [
+        stage.stage_id
+        for stage in run.stages[:stage_index_value]
+        if stage.state not in {"completed", "skipped"}
+    ]
+    if incomplete:
+        raise LifecycleRunError(
+            "lifecycle_dependency_incomplete",
+            f"Incomplete dependencies: {', '.join(incomplete)}",
+        )
+
+
+def write_run(run: LifecycleRun) -> None:
+    path = run_path(run.run_id)
+    atomic_write_json(path, run.model_dump(mode="json"))
+    atomic_write_json(lifecycle_root() / "latest_lifecycle_run.json", run.model_dump(mode="json"))
+
+
+def read_worker_state(stale_after_seconds: int = 20) -> LifecycleWorkerState:
+    path = worker_state_path()
+    if not path.is_file():
+        return LifecycleWorkerState(status="offline", message="worker heartbeat is missing")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        observed = LifecycleWorkerState.model_validate(payload)
+    except (OSError, ValueError):
+        return LifecycleWorkerState(status="offline", message="worker heartbeat is invalid")
+    last_seen = parse_utc(observed.last_seen_at)
+    if last_seen is None or (datetime.now(UTC) - last_seen).total_seconds() > stale_after_seconds:
+        return observed.model_copy(update={"status": "stale", "message": "worker heartbeat is stale"})
+    return observed.model_copy(update={"status": "online", "message": None})
+
+
+def write_worker_state(state: LifecycleWorkerState) -> None:
+    atomic_write_json(worker_state_path(), state.model_dump(mode="json"))
+
+
+def parse_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def read_object(value: str) -> dict[str, object]:
+    path = runtime_path(value)
+    if not path.is_file():
+        raise LifecycleRunError(
+            "profile_runtime_config_missing",
+            f"Runtime config does not exist: {value}",
+            status_code=422,
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise LifecycleRunError(
+            "profile_runtime_config_invalid",
+            f"Runtime config is not valid JSON: {value}",
+            status_code=422,
+        ) from exc
+    if not isinstance(payload, dict):
+        raise LifecycleRunError(
+            "profile_runtime_config_invalid",
+            f"Runtime config is not an object: {value}",
+            status_code=422,
+        )
+    return payload
+
+
+def payload_digest(payload: object) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def write_json(path: Path, payload: object) -> None:
+    atomic_write_json(path, payload)
+
+
+def atomic_write_json(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(path)
+
+
+@contextmanager
+def run_lock(run_id: str, timeout_seconds: float = 5.0):
+    directory = lifecycle_root() / run_id
+    directory.mkdir(parents=True, exist_ok=True)
+    lock_path = directory / ".transition.lock"
+    deadline = time.monotonic() + timeout_seconds
+    descriptor: int | None = None
+    while descriptor is None:
+        try:
+            descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(descriptor, f"{os.getpid()} {utc_now()}".encode("utf-8"))
+        except FileExistsError:
+            try:
+                if time.time() - lock_path.stat().st_mtime > 120:
+                    lock_path.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                raise LifecycleRunError(
+                    "lifecycle_run_lock_timeout",
+                    f"Timed out acquiring LifecycleRun lock for {run_id}.",
+                    status_code=503,
+                )
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        lock_path.unlink(missing_ok=True)

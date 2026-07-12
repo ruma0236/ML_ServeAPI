@@ -49,13 +49,17 @@ def profile_with_evidence(
     return profile.model_copy(update={"execution_scope": execution_scope, "data": data})
 
 
-def test_default_full_lifecycle_fails_closed_on_unwired_orchestrator(tmp_path: Path) -> None:
+def test_default_full_lifecycle_is_executable_through_lifecycle_orchestrator(tmp_path: Path) -> None:
     validation = validate_profile(profile_with_evidence(tmp_path))
 
     assert validation.valid is True
-    assert validation.executable is False
-    assert validation.status == "blocked"
-    assert "capability_not_wired:full_lifecycle_orchestrator" in validation.blockers
+    assert validation.executable is True
+    assert validation.status == "ready"
+    assert validation.blockers == []
+    capability = next(
+        item for item in validation.capabilities if item.capability_id == "full_lifecycle_orchestrator"
+    )
+    assert capability.status == "wired"
 
 
 def test_data_cycle_profile_is_executable_but_cross_validation_is_not(tmp_path: Path) -> None:
@@ -102,6 +106,9 @@ def test_saved_profile_is_versioned_idempotent_and_renders_runtime_configs(
     assert model["candidates"][0]["architecture"] == "efficientnet-b0"
     assert model["candidates"][0]["early_stop_accuracy"] == 0.93
     assert model["inputs"]["base_config"] == first.airflow_runtime_uri
+    assert model["model_matrix"]["rollback_registry_path"].endswith(
+        "/artifacts/registry/efficientnet-b0/rollback.json"
+    )
 
 
 def test_data_cycle_launch_creates_guarded_task_assignment(tmp_path: Path, monkeypatch) -> None:
@@ -133,7 +140,7 @@ def test_full_lifecycle_launch_does_not_create_task(tmp_path: Path, monkeypatch)
     result = launch_profile(record, PipelineProfileLaunchRequest(dry_run=False))
 
     assert result.task is None
-    assert result.validation.executable is False
+    assert result.validation.executable is True
 
 
 def test_profile_validation_checks_manifest_identity_and_presence(tmp_path: Path) -> None:

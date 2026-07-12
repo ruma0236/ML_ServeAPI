@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise Vision MLOps Control Panel API",
-    "version": "2026-07-12.pipeline-profile.v1",
-    "description": "Multi-cycle metadata and guarded mutation contract for the enterprise MLOps Control Panel, including versioned human-authored pipeline profiles, runtime task dispatch, CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
+    "version": "2026-07-12.lifecycle-run.v1",
+    "description": "Multi-cycle metadata and guarded mutation contract for the enterprise MLOps Control Panel, including versioned human-authored pipeline profiles, persistent dependency-aware lifecycle runs, runtime task dispatch, CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
   },
   "servers": [
     {
@@ -565,6 +565,81 @@
           "404": {"$ref": "#/components/responses/NotFound"},
           "409": {"description": "profile is blocked, invalid, or not executable"}
         }
+      }
+    },
+    "/control-panel/v1/lifecycle-runs": {
+      "get": {
+        "summary": "List persistent dependency-aware lifecycle runs.",
+        "operationId": "listLifecycleRuns",
+        "responses": {
+          "200": {"description": "lifecycle run ledger", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRunList"}}}}
+        }
+      },
+      "post": {
+        "summary": "Create a dry-run preview or queue an immutable full lifecycle run.",
+        "operationId": "createLifecycleRun",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRunRequest"}}}},
+        "responses": {
+          "202": {"description": "lifecycle run created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}},
+          "409": {"description": "profile is not executable"},
+          "422": {"description": "profile contract rejected"}
+        }
+      }
+    },
+    "/control-panel/v1/lifecycle-runs/worker": {
+      "get": {
+        "summary": "Return host lifecycle worker heartbeat and current claim.",
+        "operationId": "getLifecycleWorker",
+        "responses": {
+          "200": {"description": "worker heartbeat", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleWorkerState"}}}}
+        }
+      }
+    },
+    "/control-panel/v1/lifecycle-runs/{run_id}": {
+      "get": {
+        "summary": "Read one persistent lifecycle run and its stage evidence.",
+        "operationId": "getLifecycleRun",
+        "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {
+          "200": {"description": "lifecycle run", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/control-panel/v1/lifecycle-runs/{run_id}/queue": {
+      "post": {
+        "summary": "Queue a validated dry-run snapshot using optimistic locking.",
+        "operationId": "queueLifecycleRun",
+        "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleActionRequest"}}}},
+        "responses": {"202": {"description": "run queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "409": {"description": "transition rejected"}}
+      }
+    },
+    "/control-panel/v1/lifecycle-runs/{run_id}/cancel": {
+      "post": {
+        "summary": "Cancel non-terminal lifecycle work using optimistic locking.",
+        "operationId": "cancelLifecycleRun",
+        "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleActionRequest"}}}},
+        "responses": {"202": {"description": "run cancelled", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "409": {"description": "transition rejected"}}
+      }
+    },
+    "/control-panel/v1/lifecycle-runs/{run_id}/retry": {
+      "post": {
+        "summary": "Retry the current failed or blocked stage within its attempt policy.",
+        "operationId": "retryLifecycleRun",
+        "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleActionRequest"}}}},
+        "responses": {"202": {"description": "stage retry queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "409": {"description": "attempts exhausted or transition rejected"}}
+      }
+    },
+    "/control-panel/v1/lifecycle-runs/{run_id}/approve": {
+      "post": {
+        "summary": "Record independent approval and release the deployment dependency.",
+        "operationId": "approveLifecycleRun",
+        "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleApprovalRequest"}}}},
+        "responses": {"202": {"description": "run approved", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "409": {"description": "requester and approver conflict or transition rejected"}}
       }
     }
   },
@@ -1814,6 +1889,119 @@
           "version": {"type": "integer", "minimum": 1},
           "validation": {"$ref": "#/components/schemas/PipelineProfileValidation"},
           "task": {"anyOf": [{"$ref": "#/components/schemas/TaskAssignment"}, {"type": "null"}]}
+        }
+      },
+      "LifecycleRunRequest": {
+        "type": "object",
+        "required": ["profile_id", "actor", "reason", "dry_run"],
+        "properties": {
+          "profile_id": {"type": "string"},
+          "profile_version": {"type": ["integer", "null"], "minimum": 1},
+          "actor": {"type": "string", "minLength": 2},
+          "reason": {"type": "string", "minLength": 8},
+          "dry_run": {"type": "boolean"}
+        }
+      },
+      "LifecycleActionRequest": {
+        "type": "object",
+        "required": ["actor", "reason", "expected_version"],
+        "properties": {
+          "actor": {"type": "string", "minLength": 2},
+          "reason": {"type": "string", "minLength": 8},
+          "expected_version": {"type": "integer", "minimum": 1}
+        }
+      },
+      "LifecycleApprovalRequest": {
+        "allOf": [
+          {"$ref": "#/components/schemas/LifecycleActionRequest"},
+          {
+            "type": "object",
+            "required": ["approver"],
+            "properties": {"approver": {"type": "string", "minLength": 2}}
+          }
+        ]
+      },
+      "LifecycleStage": {
+        "type": "object",
+        "required": ["stage_id", "label", "runtime", "state", "progress", "attempt", "max_attempts", "blockers"],
+        "properties": {
+          "stage_id": {"type": "string"},
+          "label": {"type": "string"},
+          "runtime": {"type": "string", "enum": ["control-plane", "airflow", "kubernetes", "mlflow", "github-actions", "serving", "prometheus"]},
+          "state": {"type": "string", "enum": ["not_started", "queued", "running", "waiting_approval", "blocked", "failed", "completed", "skipped", "cancelled"]},
+          "progress": {"type": "number", "minimum": 0, "maximum": 1},
+          "attempt": {"type": "integer", "minimum": 0},
+          "max_attempts": {"type": "integer", "minimum": 1},
+          "started_at": {"type": ["string", "null"]},
+          "finished_at": {"type": ["string", "null"]},
+          "task_id": {"type": ["string", "null"]},
+          "runtime_id": {"type": ["string", "null"]},
+          "runtime_state": {"type": ["string", "null"]},
+          "evidence_uri": {"type": ["string", "null"]},
+          "detail": {"type": ["string", "null"]},
+          "blockers": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "LifecycleRun": {
+        "type": "object",
+        "required": ["schema_version", "run_id", "profile_id", "profile_version", "profile_digest", "effective_config_digest", "state", "version", "actor", "reason", "dry_run", "created_at", "updated_at", "progress", "profile_snapshot_uri", "airflow_config_uri", "airflow_runtime_uri", "model_config_uri", "model_runtime_uri", "artifact_root", "blockers", "stages", "audit"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.lifecycle_run.v1"},
+          "run_id": {"type": "string"},
+          "profile_id": {"type": "string"},
+          "profile_version": {"type": "integer", "minimum": 1},
+          "profile_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "effective_config_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "source_commit": {"type": ["string", "null"]},
+          "source_branch": {"type": ["string", "null"]},
+          "state": {"type": "string", "enum": ["dry_run", "queued", "running", "waiting_approval", "blocked", "failed", "completed", "cancelled", "rolling_back", "rolled_back"]},
+          "version": {"type": "integer", "minimum": 1},
+          "actor": {"type": "string"},
+          "reason": {"type": "string"},
+          "dry_run": {"type": "boolean"},
+          "created_at": {"type": "string"},
+          "updated_at": {"type": "string"},
+          "started_at": {"type": ["string", "null"]},
+          "finished_at": {"type": ["string", "null"]},
+          "current_stage": {"type": ["string", "null"]},
+          "progress": {"type": "number", "minimum": 0, "maximum": 1},
+          "profile_snapshot_uri": {"type": "string"},
+          "airflow_config_uri": {"type": "string"},
+          "airflow_runtime_uri": {"type": "string"},
+          "model_config_uri": {"type": "string"},
+          "model_runtime_uri": {"type": "string"},
+          "artifact_root": {"type": "string"},
+          "cycle_snapshot_uri": {"type": ["string", "null"]},
+          "model_matrix_uri": {"type": ["string", "null"]},
+          "readiness_uri": {"type": ["string", "null"]},
+          "real_test_validation_uri": {"type": ["string", "null"]},
+          "deployment_intent_id": {"type": ["string", "null"]},
+          "approver": {"type": ["string", "null"]},
+          "failure_reason": {"type": ["string", "null"]},
+          "blockers": {"type": "array", "items": {"type": "string"}},
+          "stages": {"type": "array", "items": {"$ref": "#/components/schemas/LifecycleStage"}},
+          "audit": {"type": "array", "items": {"$ref": "#/components/schemas/AuditEvent"}}
+        }
+      },
+      "LifecycleRunList": {
+        "type": "object",
+        "required": ["runs", "total"],
+        "properties": {
+          "runs": {"type": "array", "items": {"$ref": "#/components/schemas/LifecycleRun"}},
+          "total": {"type": "integer", "minimum": 0}
+        }
+      },
+      "LifecycleWorkerState": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": {"type": "string", "enum": ["online", "stale", "offline"]},
+          "worker_id": {"type": ["string", "null"]},
+          "pid": {"type": ["integer", "null"]},
+          "started_at": {"type": ["string", "null"]},
+          "last_seen_at": {"type": ["string", "null"]},
+          "current_run_id": {"type": ["string", "null"]},
+          "message": {"type": ["string", "null"]}
         }
       },
       "State": {

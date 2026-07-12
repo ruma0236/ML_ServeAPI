@@ -777,6 +777,118 @@ export interface PipelineProfileLaunch {
   task?: TaskAssignment | null;
 }
 
+export type LifecycleRunState =
+  | "dry_run"
+  | "queued"
+  | "running"
+  | "waiting_approval"
+  | "blocked"
+  | "failed"
+  | "completed"
+  | "cancelled"
+  | "rolling_back"
+  | "rolled_back";
+
+export type LifecycleStageState =
+  | "not_started"
+  | "queued"
+  | "running"
+  | "waiting_approval"
+  | "blocked"
+  | "failed"
+  | "completed"
+  | "skipped"
+  | "cancelled";
+
+export interface LifecycleStage {
+  stage_id: string;
+  label: string;
+  runtime: "control-plane" | "airflow" | "kubernetes" | "mlflow" | "github-actions" | "serving" | "prometheus";
+  state: LifecycleStageState;
+  progress: number;
+  attempt: number;
+  max_attempts: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+  task_id?: string | null;
+  runtime_id?: string | null;
+  runtime_state?: string | null;
+  evidence_uri?: string | null;
+  detail?: string | null;
+  blockers: string[];
+}
+
+export interface LifecycleRun {
+  schema_version: "evm.lifecycle_run.v1";
+  run_id: string;
+  profile_id: string;
+  profile_version: number;
+  profile_digest: string;
+  effective_config_digest: string;
+  source_commit?: string | null;
+  source_branch?: string | null;
+  state: LifecycleRunState;
+  version: number;
+  actor: string;
+  reason: string;
+  dry_run: boolean;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  current_stage?: string | null;
+  progress: number;
+  profile_snapshot_uri: string;
+  airflow_config_uri: string;
+  airflow_runtime_uri: string;
+  model_config_uri: string;
+  model_runtime_uri: string;
+  artifact_root: string;
+  cycle_snapshot_uri?: string | null;
+  model_matrix_uri?: string | null;
+  readiness_uri?: string | null;
+  real_test_validation_uri?: string | null;
+  deployment_intent_id?: string | null;
+  approver?: string | null;
+  failure_reason?: string | null;
+  blockers: string[];
+  stages: LifecycleStage[];
+  audit: AuditEvent[];
+}
+
+export interface LifecycleRunList {
+  runs: LifecycleRun[];
+  total: number;
+}
+
+export interface LifecycleWorkerState {
+  status: "online" | "stale" | "offline";
+  worker_id?: string | null;
+  pid?: number | null;
+  started_at?: string | null;
+  last_seen_at?: string | null;
+  current_run_id?: string | null;
+  message?: string | null;
+}
+
+export interface LifecycleRunRequest {
+  profile_id: string;
+  profile_version?: number | null;
+  actor: string;
+  reason: string;
+  dry_run: boolean;
+}
+
+export interface LifecycleActionRequest {
+  actor: string;
+  reason: string;
+  expected_version: number;
+}
+
+export interface LifecycleApprovalRequest extends LifecycleActionRequest {
+  approver: string;
+}
+
 export interface CommandIntentRequest {
   action: CommandAction;
   target: ResourceRef;

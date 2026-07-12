@@ -15,6 +15,12 @@ import type {
   DeploymentTransitionRequest,
   DriftReviewTransitionRequest,
   DriftReviewWorkflow,
+  LifecycleActionRequest,
+  LifecycleApprovalRequest,
+  LifecycleRun,
+  LifecycleRunList,
+  LifecycleRunRequest,
+  LifecycleWorkerState,
   OrchestratorConnectionList,
   PipelineProfileLaunch,
   PipelineProfileLaunchRequest,
@@ -384,6 +390,82 @@ export async function launchPipelineProfile(
   );
   if (!response.ok) throw await controlPanelError(response, "Pipeline profile launch failed");
   return (await response.json()) as PipelineProfileLaunch;
+}
+
+export async function fetchLifecycleRuns(baseUrl = API_BASE): Promise<LifecycleRunList> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/lifecycle-runs`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw await controlPanelError(response, "LifecycleRun list failed");
+  return (await response.json()) as LifecycleRunList;
+}
+
+export async function fetchLifecycleWorker(baseUrl = API_BASE): Promise<LifecycleWorkerState> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/lifecycle-runs/worker`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw await controlPanelError(response, "Lifecycle worker status failed");
+  return (await response.json()) as LifecycleWorkerState;
+}
+
+export async function fetchLifecycleRun(
+  runId: string,
+  baseUrl = API_BASE
+): Promise<LifecycleRun> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/lifecycle-runs/${encodeURIComponent(runId)}`,
+    { headers: { Accept: "application/json" } }
+  );
+  if (!response.ok) throw await controlPanelError(response, "LifecycleRun request failed");
+  return (await response.json()) as LifecycleRun;
+}
+
+export async function createLifecycleRun(
+  request: LifecycleRunRequest,
+  baseUrl = API_BASE
+): Promise<LifecycleRun> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/lifecycle-runs`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) throw await controlPanelError(response, "LifecycleRun create failed");
+  return (await response.json()) as LifecycleRun;
+}
+
+export async function transitionLifecycleRun(
+  runId: string,
+  action: "queue" | "cancel" | "retry",
+  request: LifecycleActionRequest,
+  baseUrl = API_BASE
+): Promise<LifecycleRun> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/lifecycle-runs/${encodeURIComponent(runId)}/${action}`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    }
+  );
+  if (!response.ok) throw await controlPanelError(response, `LifecycleRun ${action} failed`);
+  return (await response.json()) as LifecycleRun;
+}
+
+export async function approveLifecycleRun(
+  runId: string,
+  request: LifecycleApprovalRequest,
+  baseUrl = API_BASE
+): Promise<LifecycleRun> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/lifecycle-runs/${encodeURIComponent(runId)}/approve`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    }
+  );
+  if (!response.ok) throw await controlPanelError(response, "LifecycleRun approval failed");
+  return (await response.json()) as LifecycleRun;
 }
 
 export async function fetchCommandIntents(baseUrl = API_BASE): Promise<CommandIntent[]> {

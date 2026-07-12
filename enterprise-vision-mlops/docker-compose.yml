@@ -264,6 +264,8 @@ services:
       EVM_CONTROL_PANEL_LEDGER_ROOT: /app/artifacts/w7/operations
       EVM_PIPELINE_PROFILE_ROOT: /app/artifacts/w7/pipeline_profiles
       EVM_PIPELINE_PROFILE_RUNTIME_ROOT: /mnt/evm-data/artifacts/w7/pipeline_profiles
+      EVM_LIFECYCLE_RUN_ROOT: /app/artifacts/w7/lifecycle_runs
+      EVM_LIFECYCLE_RUNTIME_ROOT: /mnt/evm-data/artifacts/w7/lifecycle_runs
       EVM_CI_EVIDENCE_PATH: /app/artifacts/w7/ci/latest_ci_evidence.json
       EVM_CI_VALIDATION_REPORT_PATH: /app/artifacts/w7/ci/latest_ci_validation.json
       EVM_EXPECTED_CI_COMMIT: ${EVM_EXPECTED_CI_COMMIT:-}
@@ -329,6 +331,7 @@ services:
       - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:9090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/w7/prometheus-targets:/etc/prometheus/targets:ro
       - prometheus-data:/prometheus
     depends_on:
       api:

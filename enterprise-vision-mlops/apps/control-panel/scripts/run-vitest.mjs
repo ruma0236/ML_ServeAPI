@@ -14,6 +14,8 @@ const defaultTests = [
   "tests/control-panel/gate-risk.contract.test.ts",
   "tests/control-panel/governance-diagnostics.contract.test.ts",
   "tests/control-panel/kubernetes-topology.contract.test.ts",
+  "tests/control-panel/lifecycle-runs.contract.test.tsx",
+  "tests/control-panel/lifecycle-runs.view.test.tsx",
   "tests/control-panel/live-sync.contract.test.tsx",
   "tests/control-panel/operations.contract.test.ts",
   "tests/control-panel/pipeline-profile.contract.test.ts",

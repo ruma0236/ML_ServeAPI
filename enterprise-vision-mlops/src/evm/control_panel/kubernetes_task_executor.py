@@ -33,8 +33,11 @@ def resolve_manifest_dir(value: object) -> Path:
     if not candidate.is_absolute():
         candidate = root / candidate
     candidate = candidate.resolve()
-    allowed_root = (root / "infra" / "kubernetes").resolve()
-    if not candidate.is_relative_to(allowed_root):
+    allowed_roots = [(root / "infra" / "kubernetes").resolve()]
+    generated_root = os.getenv("EVM_KUBERNETES_GENERATED_MANIFEST_ROOT", "").strip()
+    if generated_root:
+        allowed_roots.append(Path(generated_root).resolve())
+    if not any(candidate.is_relative_to(allowed_root) for allowed_root in allowed_roots):
         raise KubernetesTaskExecutionError("kubernetes_manifest_dir_not_allowed")
     if not (candidate / "kustomization.yaml").is_file():
         raise KubernetesTaskExecutionError("kustomization_missing")
@@ -101,8 +104,8 @@ def execute_kubernetes_task(
         raise KubernetesTaskExecutionError("task_not_found")
     if task.task_type != "kubernetes_job":
         raise KubernetesTaskExecutionError("task_is_not_kubernetes_job")
-    if task.status != "queued":
-        raise KubernetesTaskExecutionError(f"task_not_queued:{task.status}")
+    if task.status not in {"queued", "running"}:
+        raise KubernetesTaskExecutionError(f"task_not_executable:{task.status}")
     if task.config_payload.get("adapter") != "host-kubectl-bridge":
         raise KubernetesTaskExecutionError("kubernetes_adapter_not_allowed")
 
@@ -143,7 +146,8 @@ def execute_kubernetes_task(
         command_log.append(result_payload(context, ["kubectl", "config", "current-context"]))
         if context.returncode != 0 or context.stdout.strip() != "docker-desktop":
             raise KubernetesTaskExecutionError("unexpected_kubernetes_context")
-        if bool(task.config_payload.get("delete_existing", True)):
+        recovering = task.status == "running"
+        if not recovering and bool(task.config_payload.get("delete_existing", True)):
             delete = run_command(
                 runner,
                 ["kubectl", "delete", "job", job_name, "-n", namespace, "--ignore-not-found=true"],
@@ -152,10 +156,11 @@ def execute_kubernetes_task(
             command_log.append(result_payload(delete, ["kubectl", "delete", "job", job_name]))
             if delete.returncode != 0:
                 raise KubernetesTaskExecutionError("kubernetes_job_delete_failed")
-        apply = run_command(runner, ["kubectl", "apply", "-k", str(manifest_dir)], timeout=180)
-        command_log.append(result_payload(apply, ["kubectl", "apply", "-k", str(manifest_dir)]))
-        if apply.returncode != 0:
-            raise KubernetesTaskExecutionError("kubernetes_apply_failed")
+        if not recovering:
+            apply = run_command(runner, ["kubectl", "apply", "-k", str(manifest_dir)], timeout=180)
+            command_log.append(result_payload(apply, ["kubectl", "apply", "-k", str(manifest_dir)]))
+            if apply.returncode != 0:
+                raise KubernetesTaskExecutionError("kubernetes_apply_failed")
         wait_for_job(
             runner,
             namespace=namespace,

@@ -13,7 +13,9 @@ from evm.control_panel.deployment_executor import (
     execute_apply,
     execute_rollback,
     load_rollback_target,
+    manifest_apply_command,
     model_mount_path,
+    validate_executor_target,
     verified_model_target,
 )
 from evm.control_panel.deployment_intents import (
@@ -22,6 +24,7 @@ from evm.control_panel.deployment_intents import (
     DeploymentVersionConflict,
     approve_intent,
     create_deployment_intent,
+    deployment_target_allowed,
     queue_intent,
     read_intents,
     request_approval,
@@ -317,7 +320,7 @@ def test_rollback_target_reads_approved_reference_and_rejects_current_model(
         json.dumps(
             {
                 "schema_version": "evm.model_rollback_reference.v1",
-                "candidate_id": intent.model_candidate_id,
+                "candidate_id": "effnet-b0-previous-production",
                 "status": "approved",
                 "rollback_ready": True,
                 "model_digest": digest,
@@ -336,6 +339,37 @@ def test_rollback_target_reads_approved_reference_and_rejects_current_model(
     assert target.mount_path == "/mnt/evm-data/artifacts/rollback-model.pt"
     with pytest.raises(DeploymentTransitionRejected, match="rollback_reuses_current_model"):
         load_rollback_target(intent.model_copy(update={"model_digest": digest}))
+
+
+def test_generated_lifecycle_manifest_is_allowlisted_only_inside_configured_root(
+    tmp_path: Path,
+    monkeypatch,
+):
+    configure_paths(tmp_path, monkeypatch)
+    generated_root = tmp_path / "lifecycle-runs"
+    manifest_dir = generated_root / "run-1" / "kubernetes" / "serving"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "kustomization.yaml").write_text("resources: []\n", encoding="utf-8")
+    monkeypatch.setenv("EVM_KUBERNETES_GENERATED_MANIFEST_ROOT", str(generated_root))
+    intent = create_deployment_intent(deployment_request(), cycle=ready_cycle())
+    dynamic = intent.model_copy(
+        update={
+            "target": ResourceRef(
+                namespace="evm-staging",
+                kind="Deployment",
+                name="evm-b0-staging",
+            ),
+            "manifest_ref": str(manifest_dir),
+        }
+    )
+
+    assert deployment_target_allowed(dynamic.target.name, dynamic.manifest_ref) is True
+    validate_executor_target(dynamic)
+    assert manifest_apply_command(dynamic) == ["kubectl", "apply", "-k", str(manifest_dir)]
+    assert deployment_target_allowed(
+        "evm-b0-staging",
+        str(tmp_path / "outside"),
+    ) is False
 
 
 def test_production_requires_allowed_separate_approver_before_queue(

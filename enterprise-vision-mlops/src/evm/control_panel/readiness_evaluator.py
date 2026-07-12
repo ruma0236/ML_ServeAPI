@@ -644,8 +644,8 @@ def check_rollback_reference(
         if artifact_path is not None and artifact_path.exists() and artifact_path.is_file()
         else ""
     )
-    if loaded and observed_model != candidate_id:
-        blockers.append("rollback_candidate_mismatch")
+    if loaded and observed_model == candidate_id:
+        blockers.append("rollback_reuses_current_candidate")
     if loaded and rollback_digest and observed_digest != rollback_digest:
         blockers.append("rollback_model_digest_mismatch")
     if loaded and not payload.get("version"):
