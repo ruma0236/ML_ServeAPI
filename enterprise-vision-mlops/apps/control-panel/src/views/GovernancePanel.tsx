@@ -1,16 +1,20 @@
 import { CheckCheck, FileClock, GitPullRequestArrow, Plus, RotateCcw, X } from "lucide-react";
 import { useState } from "react";
 
-import { createDecisionRecord, transitionDecisionRecord } from "../api/controlPanelClient";
+import { compactUri, createDecisionRecord, transitionDecisionRecord } from "../api/controlPanelClient";
 import type {
+  CycleRun,
   DecisionRecord,
   DecisionRecordList,
   DecisionState,
-  DecisionSubjectType
+  DecisionSubjectType,
+  LifecycleRun
 } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 
 interface GovernancePanelProps {
+  cycle: CycleRun;
+  lifecycleRun?: LifecycleRun | null;
   registry: DecisionRecordList;
   onRefresh: () => Promise<void>;
 }
@@ -24,11 +28,11 @@ const subjectTypes: DecisionSubjectType[] = [
   "serving_change"
 ];
 
-export function GovernancePanel({ registry, onRefresh }: GovernancePanelProps) {
+export function GovernancePanel({ cycle, lifecycleRun, registry, onRefresh }: GovernancePanelProps) {
   const [subjectType, setSubjectType] = useState<DecisionSubjectType>("model_candidate");
-  const [title, setTitle] = useState("EfficientNet B7 lifecycle decision");
-  const [summary, setSummary] = useState("Record evidence, review ownership, and the final lifecycle decision.");
-  const [owner, setOwner] = useState("ml-platform");
+  const [title, setTitle] = useState(`${cycle.model.model_name} lifecycle decision`);
+  const [summary, setSummary] = useState(`Review ${cycle.dataset.version} and ${cycle.model.version} lifecycle evidence.`);
+  const [owner, setOwner] = useState(cycle.tenant?.model_owner || "ml-platform");
   const [actor, setActor] = useState("ai-infra-sre");
   const [reason, setReason] = useState("Review current evidence and advance the governance state.");
   const [busy, setBusy] = useState(false);
@@ -38,13 +42,27 @@ export function GovernancePanel({ registry, onRefresh }: GovernancePanelProps) {
     setBusy(true);
     setError("");
     try {
+      const evidenceUris = [
+        lifecycleRun?.model_matrix_uri,
+        lifecycleRun?.readiness_uri,
+        lifecycleRun?.real_test_validation_uri,
+        lifecycleRun?.cycle_snapshot_uri,
+        cycle.readiness_evaluation?.report_uri,
+        cycle.cdct_gate?.gate_report_uri
+      ].filter((value): value is string => Boolean(value));
       await createDecisionRecord({
         subject_type: subjectType,
         title,
         summary,
         owner,
-        evidence_uris: [],
-        metadata: {}
+        evidence_uris: [...new Set(evidenceUris)],
+        metadata: {
+          cycle_id: cycle.cycle_id,
+          lifecycle_run_id: lifecycleRun?.run_id || null,
+          dataset_version: cycle.dataset.version,
+          model_version: cycle.model.version,
+          source_commit: lifecycleRun?.source_commit || null
+        }
       });
       await onRefresh();
     } catch (err) {
@@ -78,6 +96,10 @@ export function GovernancePanel({ registry, onRefresh }: GovernancePanelProps) {
         <div className="panel-heading">
           <div><h2>Decision Draft</h2><p>EVM-211</p></div>
           <FileClock />
+        </div>
+        <div className="governance-context" aria-label="Decision evidence context">
+          <span>Cycle</span><strong title={cycle.cycle_id}>{compactUri(cycle.cycle_id)}</strong>
+          <span>Run</span><strong title={lifecycleRun?.run_id || ""}>{lifecycleRun?.run_id || "No run selected"}</strong>
         </div>
         <div className="governance-form">
           <label><span>Subject</span><select value={subjectType} onChange={(event) => setSubjectType(event.target.value as DecisionSubjectType)}>{subjectTypes.map((item) => <option key={item}>{item}</option>)}</select></label>

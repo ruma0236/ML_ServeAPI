@@ -4395,6 +4395,23 @@ h3 {
 
 .danger-action:disabled { cursor: not-allowed; opacity: 0.55; }
 
+.governance-context {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px 10px;
+  margin-bottom: 12px;
+  padding: 9px 10px;
+  border: 1px solid #d5e0e4;
+  border-radius: 7px;
+  background: #f8fafb;
+}
+
+.governance-context span { color: #65767d; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; }
+.governance-context strong { overflow: hidden; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
+
+:root[data-theme="dark"] .governance-context { border-color: #30363b; background: #0c0f11; }
+:root[data-theme="dark"] .governance-context span { color: #8d989e; }
+
 .lifecycle-stage-list {
   display: grid;
 }

@@ -22,7 +22,8 @@ interface ReleaseStage {
 
 export function ReleaseControl({ cycle, lifecycleRun }: ReleaseControlProps) {
   const intent = cycle.latest_deployment_intent;
-  const stages: ReleaseStage[] = lifecycleRun ? lifecycleReleaseStages(lifecycleRun) : [
+  const targetEnvironment = intent?.target_environment || cycle.environment?.tier || "unknown";
+  const stages: ReleaseStage[] = lifecycleRun ? lifecycleReleaseStages(lifecycleRun, targetEnvironment) : [
     {
       id: "ci",
       label: "Continuous Integration",
@@ -79,7 +80,6 @@ export function ReleaseControl({ cycle, lifecycleRun }: ReleaseControlProps) {
   const productionReady = intent?.target_environment === "production"
     && stages.every((stage) => stage.status === "pass" || stage.status === "done")
     && intent?.state === "applied";
-  const targetEnvironment = intent?.target_environment || cycle.environment?.tier || "unknown";
   const targetVerified = lifecycleRun
     ? lifecycleRun.state === "completed"
     : stages.every((stage) => stage.status === "pass" || stage.status === "done");
@@ -110,8 +110,8 @@ export function ReleaseControl({ cycle, lifecycleRun }: ReleaseControlProps) {
         </div>
       </div>
 
-      <div className="release-progress-summary" aria-label={`Release progress ${releaseProgress}%`}>
-        <div><span>Release Progress</span><strong>{releaseProgress}%</strong></div>
+      <div className="release-progress-summary" aria-label={`Target verification progress ${releaseProgress}%`}>
+        <div><span>{targetEnvironment === "production" ? "Production Release" : "Target Verification"}</span><strong>{releaseProgress}%</strong></div>
         <div className="release-progress-bar"><b style={{ width: `${releaseProgress}%` }} /></div>
         <span>{stages.filter((stage) => stage.status === "pass" || stage.status === "done").length} of {stages.length} stages completed</span>
       </div>
@@ -139,7 +139,7 @@ export function ReleaseControl({ cycle, lifecycleRun }: ReleaseControlProps) {
 
       {blockers.length ? (
         <div className="release-blockers" role="alert">
-          <strong>Release blockers</strong>
+          <strong>{targetEnvironment === "production" ? "Release blockers" : "Production promotion blockers"}</strong>
           <div>{blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}</div>
         </div>
       ) : null}
@@ -208,16 +208,16 @@ function releaseBlockers(
 }
 
 
-function lifecycleReleaseStages(run: LifecycleRun): ReleaseStage[] {
+function lifecycleReleaseStages(run: LifecycleRun, targetEnvironment: string): ReleaseStage[] {
   const stage = (stageId: string) => run.stages.find((item) => item.stage_id === stageId);
   return [
     lifecycleReleaseStage("ci", "Continuous Integration", stage("ci_ct_gate")),
     lifecycleReleaseStage("ct", "Continuous Test", stage("ci_ct_gate")),
     lifecycleReleaseStage("readiness", "Artifact Readiness", stage("artifact_readiness")),
     lifecycleReleaseStage("approval", "Promotion Approval", stage("approval")),
-    lifecycleReleaseStage("deployment", "Continuous Deployment", stage("deployment")),
+    lifecycleReleaseStage("deployment", targetEnvironment === "production" ? "Continuous Deployment" : "Target Deployment", stage("deployment")),
     lifecycleReleaseStage("serving", "Model Serving", stage("serving_validation")),
-    lifecycleReleaseStage("monitoring", "Production Monitoring", stage("monitoring"))
+    lifecycleReleaseStage("monitoring", targetEnvironment === "production" ? "Production Monitoring" : "Target Monitoring", stage("monitoring"))
   ];
 }
 
@@ -227,7 +227,9 @@ function lifecycleReleaseStage(id: string, label: string, stage?: LifecycleStage
     id,
     label,
     status: stage ? lifecycleStageState(stage.state) : "unknown",
-    detail: stage?.runtime_state || stage?.detail || (stage ? stage.state.replaceAll("_", " ") : "Not scheduled"),
+    detail: stage?.stage_id === "approval" && stage.state === "completed"
+      ? "approved"
+      : stage?.runtime_state || stage?.detail || (stage ? stage.state.replaceAll("_", " ") : "Not scheduled"),
     evidence: stage?.evidence_uri
   };
 }

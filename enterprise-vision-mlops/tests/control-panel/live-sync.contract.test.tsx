@@ -108,6 +108,7 @@ describe("Control Panel source synchronization", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     const catalog: CycleRunList = {
       cycles: [{
         cycle_id: exampleCycle.cycle_id,
@@ -167,6 +168,7 @@ describe("Control Panel source synchronization", () => {
     await act(async () => governance?.click());
     expect(container.textContent).toContain("Retain verified B7 rollback in staging");
     expect(container.textContent).not.toContain("API unavailable");
+    expect(localStorage.getItem("evm.control-panel.selected-tab")).toBe("governance");
   });
 });
 

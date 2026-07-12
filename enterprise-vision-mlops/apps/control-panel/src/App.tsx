@@ -8,6 +8,7 @@ import {
   fetchDecisionRecords,
   fetchLatestCycle,
   fetchLatestDriftReview,
+  fetchLifecycleRun,
   fetchOrchestrators,
   fetchRuntimeResources
 } from "./api/controlPanelClient";
@@ -59,11 +60,16 @@ const sourceDefinitions = [
   { source_id: "decisions", label: "Decisions" }
 ];
 
+const SELECTED_CYCLE_KEY = "evm.control-panel.selected-cycle";
+const SELECTED_RUN_KEY = "evm.control-panel.selected-run";
+const SELECTED_TAB_KEY = "evm.control-panel.selected-tab";
+
 export function App() {
+  const restoredCycleId = readLocalValue(SELECTED_CYCLE_KEY);
   const [cycle, setCycle] = useState<CycleRun | null>(null);
   const [catalog, setCatalog] = useState<CycleRunList | null>(null);
-  const [selectedCycleId, setSelectedCycleId] = useState("");
-  const selectedCycleRef = useRef("");
+  const [selectedCycleId, setSelectedCycleId] = useState(restoredCycleId);
+  const selectedCycleRef = useRef(restoredCycleId);
   const [resourceSnapshot, setResourceSnapshot] = useState<RuntimeResourceList>({
     resources: [],
     observation_status: "unavailable"
@@ -79,7 +85,7 @@ export function App() {
   const [syncSources, setSyncSources] = useState<ClientSyncSource[]>(
     sourceDefinitions.map((source) => ({ ...source, status: "stale" }))
   );
-  const [tab, setTab] = useState<TabKey>("overview");
+  const [tab, setTab] = useState<TabKey>(() => restoredTab());
   const [lifecycleContext, setLifecycleContext] = useState<LifecycleRun | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [error, setError] = useState("");
@@ -158,10 +164,27 @@ export function App() {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const runId = readLocalValue(SELECTED_RUN_KEY);
+    if (!runId) return;
+    void fetchLifecycleRun(runId)
+      .then(async (run) => {
+        setLifecycleContext(run);
+        if (run.cycle_id && run.cycle_id !== selectedCycleRef.current) {
+          await selectCycle(run.cycle_id, true);
+        }
+      })
+      .catch(() => removeLocalValue(SELECTED_RUN_KEY));
+  }, []);
+
   async function selectCycle(cycleId: string, preserveLifecycleContext = false) {
-    if (!preserveLifecycleContext) setLifecycleContext(null);
+    if (!preserveLifecycleContext) {
+      setLifecycleContext(null);
+      removeLocalValue(SELECTED_RUN_KEY);
+    }
     selectedCycleRef.current = cycleId;
     setSelectedCycleId(cycleId);
+    writeLocalValue(SELECTED_CYCLE_KEY, cycleId);
     setLoading(true);
     try {
       const [selected, selectedDiagnostics] = await Promise.all([
@@ -180,6 +203,7 @@ export function App() {
 
   async function selectLifecycleContext(run: LifecycleRun) {
     setLifecycleContext(run);
+    writeLocalValue(SELECTED_RUN_KEY, run.run_id);
     if (run.cycle_id) await selectCycle(run.cycle_id, true);
   }
 
@@ -198,7 +222,7 @@ export function App() {
     );
     if (tab === "gates") return <GateAndRiskPanel cycle={cycle} workflow={driftWorkflow} onRefresh={() => loadCycle(true)} />;
     if (tab === "release") return <ReleaseControl cycle={cycle} lifecycleRun={lifecycleContext} />;
-    if (tab === "governance") return <GovernancePanel registry={decisionRegistry} onRefresh={() => loadCycle(true)} />;
+    if (tab === "governance") return <GovernancePanel cycle={cycle} lifecycleRun={lifecycleContext} registry={decisionRegistry} onRefresh={() => loadCycle(true)} />;
     return <CycleOverview cycle={cycle} />;
   }, [cycle, decisionRegistry, driftWorkflow, lifecycleContext, orchestratorConnections, resourceSnapshot, tab]);
 
@@ -254,7 +278,10 @@ export function App() {
             key={item.key}
             type="button"
             className={item.key === tab ? "active" : ""}
-            onClick={() => setTab(item.key)}
+            onClick={() => {
+              setTab(item.key);
+              writeLocalValue(SELECTED_TAB_KEY, item.key);
+            }}
           >
             {item.label}
           </button>
@@ -281,6 +308,35 @@ export function App() {
       </footer>
     </main>
   );
+}
+
+function readLocalValue(key: string): string {
+  try {
+    return window.localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeLocalValue(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Browser storage is an ergonomic enhancement, not a runtime dependency.
+  }
+}
+
+function removeLocalValue(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Browser storage is an ergonomic enhancement, not a runtime dependency.
+  }
+}
+
+function restoredTab(): TabKey {
+  const value = readLocalValue(SELECTED_TAB_KEY);
+  return tabs.some((item) => item.key === value) ? value as TabKey : "overview";
 }
 
 function errorMessage(error: unknown): string {
