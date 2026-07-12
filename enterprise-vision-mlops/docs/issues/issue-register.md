@@ -172,6 +172,7 @@ Long-range planning details are maintained in
 | `EVM-113` | vLLM/Triton/KServe serving comparison | Planned | 2027-Q1 | serving recommendation with runtime, rollout, and monitoring tradeoffs |
 | `EVM-121` | enterprise RBAC/secrets/audit plan | Planned | 2027-Q1 | operational policy document covering Airflow, MLflow, MinIO, Grafana, API |
 | `EVM-122` | incident and rollback runbooks | Planned | 2027-Q1 | runbooks for data failure, model rollback, latency incident, storage outage |
+| `EVM-123` | secure Tailnet remote operator access | Done | 2026-07-12 | Docker ports are localhost-only; eight Tailnet routes and nine remote endpoint checks pass from the Mac mini |
 
 ### Phase 13. Manufacturing VLM P0 Foundation
 
@@ -494,6 +495,7 @@ Jira live sync 기준 mapping이다.
 | `EVM-238` | `SCRUM-116` | Task | https://opop0236.atlassian.net/browse/SCRUM-116 |
 | `EVM-238-A` | `SCRUM-117` | Task | https://opop0236.atlassian.net/browse/SCRUM-117 |
 | `EVM-238-B` | `SCRUM-118` | Task | https://opop0236.atlassian.net/browse/SCRUM-118 |
+| `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
 | `EVM-BUG-004` | `SCRUM-55` | Bug | Jira: https://opop0236.atlassian.net/browse/SCRUM-55<br>GitHub: https://github.com/ruma0236/ML_ServeAPI/issues/4 |

@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mlflow}
       POSTGRES_DB: ${POSTGRES_DB:-mlflow}
     ports:
-      - "5433:5432"
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:5433:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -102,7 +102,7 @@ services:
       PYTHONPATH: /opt/airflow/evm_project/src
     command: webserver
     ports:
-      - "8080:8080"
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     volumes:
       - ./orchestration/airflow/dags:/opt/airflow/dags:ro
       - ./:/opt/airflow/evm_project
@@ -167,8 +167,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:9000:9000"
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:9001:9001"
     volumes:
       - ${EVM_HOST_MINIO_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/minio}:/data
     networks:
@@ -224,7 +224,7 @@ services:
       - --port
       - "5000"
     ports:
-      - "5000:5000"
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:5000:5000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -272,7 +272,7 @@ services:
       EVM_DRIFT_REVIEW_ROOT: /app/artifacts/w7/drift_review
       EVM_DECISION_REGISTRY_ROOT: /app/artifacts/governance/decisions
     ports:
-      - "8000:8000"
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:8000:8000"
     volumes:
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}:/app/artifacts:ro
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/w7:/app/artifacts/w7
@@ -297,7 +297,7 @@ services:
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
     ports:
-      - "9090:9090"
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:9090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -315,7 +315,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
-      - "3000:3000"
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro

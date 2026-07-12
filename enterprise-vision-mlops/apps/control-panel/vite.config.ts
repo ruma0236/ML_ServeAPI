@@ -3,6 +3,10 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 const apiProxyTarget = process.env.VITE_CONTROL_PANEL_API_PROXY_TARGET || "http://127.0.0.1:8000";
+const allowedHosts = (process.env.VITE_CONTROL_PANEL_ALLOWED_HOSTS || "ruma.tail35433c.ts.net")
+  .split(",")
+  .map((host) => host.trim())
+  .filter(Boolean);
 
 export default defineConfig({
   plugins: [react()],
@@ -14,6 +18,7 @@ export default defineConfig({
   },
   server: {
     host: "127.0.0.1",
+    allowedHosts,
     port: 5174,
     strictPort: true,
     proxy: {
@@ -25,6 +30,7 @@ export default defineConfig({
   },
   preview: {
     host: "127.0.0.1",
+    allowedHosts,
     port: 4174,
     strictPort: true
   },
