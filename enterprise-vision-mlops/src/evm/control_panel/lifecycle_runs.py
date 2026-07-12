@@ -556,7 +556,7 @@ def update_pipeline(
 
 
 def lifecycle_deployment_name(architecture: str, environment: str) -> str:
-    architecture_slug = architecture.replace("efficientnet-", "b")
+    architecture_slug = architecture.removeprefix("efficientnet-")
     environment_slug = environment.replace("pre-production", "preprod")
     return f"evm-{architecture_slug}-{environment_slug}"
 

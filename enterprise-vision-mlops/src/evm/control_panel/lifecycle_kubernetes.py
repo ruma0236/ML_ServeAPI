@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from evm.control_panel.lifecycle_runs import LifecycleRun
+from evm.control_panel.lifecycle_runs import LifecycleRun, lifecycle_deployment_name
 from evm.control_panel.readiness_evaluator import file_sha256, runtime_path
 from evm.control_panel.schemas import CycleRun, TaskAssignment
 
@@ -156,7 +156,7 @@ def materialize_serving_bundle(run: LifecycleRun, cycle: CycleRun) -> ServingBun
     candidate_id, artifact_uri, digest, dataset_version = cycle_model_identity(cycle)
     deployment_name = str(
         object_value(model, "product").get("target_deployment")
-        or f"evm-{architecture.replace('efficientnet-', 'b')}-{environment}"
+        or lifecycle_deployment_name(architecture, environment)
     )
     image = pinned_image("EVM_LIFECYCLE_SERVING_IMAGE", DEFAULT_SERVING_IMAGE)
     node_port = NODE_PORTS.get(environment)

@@ -15,6 +15,7 @@ from evm.control_panel.lifecycle_runs import (
     approve_lifecycle_run,
     create_lifecycle_run,
     get_lifecycle_run,
+    lifecycle_deployment_name,
     queue_lifecycle_run,
     read_runs,
     transition_stage,
@@ -135,6 +136,7 @@ def test_dry_run_creates_immutable_runtime_snapshot(tmp_path: Path, monkeypatch)
     assert model_snapshot["inputs"]["shard_index"] == (
         f"{run.airflow_runtime_uri.rsplit('/', 1)[0]}/data/shards/shard_index.json"
     )
+    assert model_snapshot["product"]["target_deployment"] == "evm-b0-staging"
     assert model_snapshot["resources"]["artifact_root"].lower().startswith(
         str(tmp_path / "data-root").replace("\\", "/").lower()
     )
@@ -144,6 +146,22 @@ def test_dry_run_creates_immutable_runtime_snapshot(tmp_path: Path, monkeypatch)
         assert shared_directory.is_dir()
         if os.name != "nt":
             assert shared_directory.stat().st_mode & 0o777 == 0o777
+
+
+@pytest.mark.parametrize(
+    ("architecture", "environment", "expected"),
+    [
+        ("efficientnet-b0", "staging", "evm-b0-staging"),
+        ("efficientnet-b7", "production", "evm-b7-production"),
+        ("efficientnet-b0", "pre-production", "evm-b0-preprod"),
+    ],
+)
+def test_lifecycle_deployment_name_matches_allowlist(
+    architecture: str,
+    environment: str,
+    expected: str,
+) -> None:
+    assert lifecycle_deployment_name(architecture, environment) == expected
 
 
 def test_dry_run_cannot_execute_and_queue_is_version_guarded(tmp_path: Path, monkeypatch) -> None:
