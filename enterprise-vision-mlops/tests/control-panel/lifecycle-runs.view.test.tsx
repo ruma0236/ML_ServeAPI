@@ -55,6 +55,10 @@ describe("Lifecycle Runs view", () => {
     expect(container.textContent).toContain("Blocked");
     expect(container.textContent).toContain("artifact_readiness_blocked");
     expect(container.textContent).toContain("40%");
+    expect(container.textContent).not.toContain("1/3");
+    expect(container.textContent).toContain("2 retries left");
+    const progress = container.querySelector('[role="progressbar"][aria-label="artifact readiness progress"]');
+    expect(progress?.getAttribute("aria-valuenow")).toBe("0");
     const retry = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent?.includes("Retry Stage")
     );
@@ -67,6 +71,16 @@ describe("Lifecycle Runs view", () => {
       "retry",
       expect.objectContaining({ expected_version: 3 })
     );
+  });
+
+  it("renders completion separately from retry capacity", async () => {
+    await act(async () => root.render(<LifecycleRuns />));
+    await flushUpdates();
+
+    const completed = container.querySelector('[aria-label="profile snapshot: Completed"]');
+    expect(completed?.textContent).toContain("100%");
+    expect(completed?.textContent).not.toContain("1/3");
+    expect(completed?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("100");
   });
 
   it("keeps a legacy dry-run fail closed when source provenance is missing", async () => {

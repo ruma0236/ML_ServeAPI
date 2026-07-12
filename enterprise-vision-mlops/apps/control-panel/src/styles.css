@@ -4325,7 +4325,7 @@ h3 {
 
 .lifecycle-stage-row {
   display: grid;
-  grid-template-columns: 34px 30px minmax(0, 1fr) 42px;
+  grid-template-columns: 34px 30px minmax(0, 1fr) minmax(72px, auto);
   gap: 9px;
   align-items: start;
   min-height: 82px;
@@ -4352,10 +4352,41 @@ h3 {
 .stage-completed .lifecycle-stage-progress b { background: #27825e; }
 .stage-blocked .lifecycle-stage-progress b,
 .stage-failed .lifecycle-stage-progress b { background: #b74950; }
+.stage-waiting_approval .lifecycle-stage-progress b { background: #ae742d; }
+.stage-queued .lifecycle-stage-progress b { min-width: 8px; background: #6b808b; }
+.stage-running .lifecycle-stage-progress {
+  position: relative;
+  box-shadow: 0 0 0 1px rgba(38, 127, 150, 0.18), 0 0 16px rgba(38, 127, 150, 0.16);
+}
+.stage-running .lifecycle-stage-progress::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.22) 48%, transparent 100%);
+  content: "";
+  transform: translateX(-100%);
+  animation: lifecycle-progress-scan 1.6s ease-in-out infinite;
+}
 .lifecycle-stage-copy details { font-size: 0.66rem; }
 .lifecycle-stage-copy details summary { color: #a23b44; cursor: pointer; font-weight: 800; }
 .lifecycle-stage-copy code { display: block; margin-top: 4px; overflow-wrap: anywhere; color: #9f3942; font-size: 0.64rem; }
-.lifecycle-stage-attempt { color: #6c7b82; font-size: 0.65rem; font-weight: 900; text-align: right; }
+.lifecycle-stage-status {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  color: #6c7b82;
+  text-align: right;
+}
+.lifecycle-stage-status strong { color: #26383f; font-size: 0.72rem; }
+.lifecycle-stage-status span { font-size: 0.6rem; font-weight: 800; white-space: nowrap; }
+.stage-running .lifecycle-stage-status strong { color: #267f96; }
+.stage-completed .lifecycle-stage-status strong { color: #27825e; }
+.stage-blocked .lifecycle-stage-status strong,
+.stage-failed .lifecycle-stage-status strong { color: #b74950; }
+
+@keyframes lifecycle-progress-scan {
+  0% { transform: translateX(-100%); }
+  65%, 100% { transform: translateX(100%); }
+}
 
 .lifecycle-failure,
 .lifecycle-evidence {
@@ -4414,7 +4445,7 @@ h3 {
 :root[data-theme="dark"] .lifecycle-summary-main p,
 :root[data-theme="dark"] .lifecycle-metadata span,
 :root[data-theme="dark"] .lifecycle-stage-copy > span,
-:root[data-theme="dark"] .lifecycle-stage-attempt,
+:root[data-theme="dark"] .lifecycle-stage-status,
 :root[data-theme="dark"] .lifecycle-evidence-row span,
 :root[data-theme="dark"] .lifecycle-audit-list time,
 :root[data-theme="dark"] .lifecycle-audit-list span {
@@ -4446,6 +4477,11 @@ h3 {
 }
 
 :root[data-theme="dark"] .lifecycle-stage-icon { border-color: #444a50; color: #a1aab0; }
+:root[data-theme="dark"] .lifecycle-stage-status strong { color: #d7dce0; }
+:root[data-theme="dark"] .stage-running .lifecycle-stage-status strong { color: #61b2c5; }
+:root[data-theme="dark"] .stage-completed .lifecycle-stage-status strong { color: #63bd91; }
+:root[data-theme="dark"] .stage-blocked .lifecycle-stage-status strong,
+:root[data-theme="dark"] .stage-failed .lifecycle-stage-status strong { color: #df777f; }
 
 @media (max-width: 980px) {
   .lifecycle-layout { grid-template-columns: 1fr; }
@@ -4461,7 +4497,7 @@ h3 {
   .lifecycle-run-rows { grid-template-columns: 1fr; }
   .lifecycle-metadata { grid-template-columns: 1fr; }
   .lifecycle-stage-row { grid-template-columns: 26px 26px minmax(0, 1fr); }
-  .lifecycle-stage-attempt { grid-column: 3; text-align: left; }
+  .lifecycle-stage-status { grid-column: 3; justify-items: start; text-align: left; }
   .lifecycle-stage-copy header { align-items: flex-start; flex-direction: column; }
   .lifecycle-evidence-row,
   .lifecycle-audit-list > div { grid-template-columns: 1fr; }
@@ -4472,7 +4508,8 @@ h3 {
 @media (prefers-reduced-motion: reduce) {
   .lifecycle-progress.state-running b,
   .lifecycle-stage-progress.is-running b,
-  .stage-running .lifecycle-stage-icon {
+  .stage-running .lifecycle-stage-icon,
+  .stage-running .lifecycle-stage-progress::after {
     animation: none;
   }
 }

@@ -275,21 +275,37 @@ export function LifecycleRuns() {
 
 
 function LifecycleStageRow({ stage, index }: { stage: LifecycleStage; index: number }) {
+  const progress = stageProgressPercent(stage);
+  const timing = stageTiming(stage);
   return (
-    <article className={`lifecycle-stage-row stage-${stage.state}`}>
+    <article
+      className={`lifecycle-stage-row stage-${stage.state}`}
+      aria-label={`${stage.label}: ${stageStateLabel(stage.state)}`}
+    >
       <div className="lifecycle-stage-index">{String(index + 1).padStart(2, "0")}</div>
       <div className="lifecycle-stage-icon">{stageIcon(stage.state)}</div>
       <div className="lifecycle-stage-copy">
         <header><strong>{stage.label}</strong><em>{stageStateLabel(stage.state)}</em></header>
         <span>{stage.runtime} / {stage.runtime_state || stage.detail || "Waiting for dependency"}</span>
-        <div className={`lifecycle-stage-progress ${stage.state === "running" ? "is-running" : ""}`}>
-          <b style={{ width: `${Math.round(stage.progress * 100)}%` }} />
+        <div
+          className={`lifecycle-stage-progress is-${stage.state}`}
+          role="progressbar"
+          aria-label={`${stage.label} progress`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress}
+          aria-valuetext={`${stageStateLabel(stage.state)}, ${progress}%`}
+        >
+          <b style={{ width: `${progress}%` }} />
         </div>
         {stage.blockers.length ? (
           <details><summary>{stage.blockers.length} blocker{stage.blockers.length === 1 ? "" : "s"}</summary>{stage.blockers.map((item) => <code key={item}>{item}</code>)}</details>
         ) : null}
       </div>
-      <div className="lifecycle-stage-attempt">{stage.attempt}/{stage.max_attempts}</div>
+      <div className="lifecycle-stage-status" title={stageAttemptTitle(stage)}>
+        <strong>{stageStatusMetric(stage, progress)}</strong>
+        <span>{timing || stageAttemptLabel(stage)}</span>
+      </div>
     </article>
   );
 }
@@ -369,6 +385,61 @@ function currentStageLabel(run: LifecycleRun): string {
   if (run.state === "dry_run") return "Ready to Queue";
   if (["completed", "cancelled", "rolled_back"].includes(run.state)) return "Terminal";
   return "Waiting for Worker";
+}
+
+
+function stageProgressPercent(stage: LifecycleStage): number {
+  if (stage.state === "completed") return 100;
+  return Math.max(0, Math.min(100, Math.round(stage.progress * 100)));
+}
+
+
+function stageStatusMetric(stage: LifecycleStage, progress: number): string {
+  if (stage.state === "completed") return "100%";
+  if (stage.state === "running") return progress ? `${progress}%` : "Live";
+  if (stage.state === "waiting_approval") return "Waiting";
+  if (stage.state === "queued") return "Queued";
+  if (stage.state === "blocked" || stage.state === "failed") return "Stopped";
+  if (stage.state === "skipped") return "Skipped";
+  if (stage.state === "cancelled") return "Cancelled";
+  return "Pending";
+}
+
+
+function stageAttemptLabel(stage: LifecycleStage): string {
+  if (!stage.attempt) return stage.state === "not_started" ? "Not started" : "No attempt";
+  if (stage.state === "blocked" || stage.state === "failed") {
+    const retriesLeft = Math.max(0, stage.max_attempts - stage.attempt);
+    return retriesLeft ? `${retriesLeft} ${retriesLeft === 1 ? "retry" : "retries"} left` : "No retries left";
+  }
+  return `Attempt ${stage.attempt}`;
+}
+
+
+function stageAttemptTitle(stage: LifecycleStage): string {
+  if (!stage.attempt) return `No attempt started; maximum ${stage.max_attempts}`;
+  return `Attempt ${stage.attempt}; maximum ${stage.max_attempts}`;
+}
+
+
+function stageTiming(stage: LifecycleStage): string {
+  if (!stage.started_at) return "";
+  const startedAt = Date.parse(stage.started_at);
+  const finishedAt = stage.finished_at ? Date.parse(stage.finished_at) : Date.now();
+  if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt) return "";
+  return formatDuration(Math.max(0, finishedAt - startedAt));
+}
+
+
+function formatDuration(milliseconds: number): string {
+  const seconds = Math.round(milliseconds / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
 
