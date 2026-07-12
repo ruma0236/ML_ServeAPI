@@ -345,6 +345,24 @@ def build_stages() -> list[LifecycleStage]:
 def prepare_runtime_snapshot(run_id: str, record: PipelineProfileRecord) -> dict[str, str]:
     directory = lifecycle_root() / run_id
     directory.mkdir(parents=True, exist_ok=False)
+    shared_directories = [
+        directory,
+        directory / "data",
+        directory / "model",
+        directory / "kubernetes",
+        directory / "serving",
+        directory / "monitoring",
+    ]
+    for shared_directory in shared_directories:
+        shared_directory.mkdir(parents=True, exist_ok=True)
+        try:
+            shared_directory.chmod(0o777)
+        except OSError as exc:
+            raise LifecycleRunError(
+                "lifecycle_storage_permission_failed",
+                f"Shared lifecycle directory is not writable: {shared_directory}: {exc}",
+                status_code=500,
+            ) from exc
     profile_path = directory / "profile.snapshot.json"
     airflow_path = directory / "airflow.runtime.json"
     model_path = directory / "model.runtime.json"

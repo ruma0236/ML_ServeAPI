@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -137,6 +138,12 @@ def test_dry_run_creates_immutable_runtime_snapshot(tmp_path: Path, monkeypatch)
     assert model_snapshot["resources"]["artifact_root"].lower().startswith(
         str(tmp_path / "data-root").replace("\\", "/").lower()
     )
+    run_root = Path(run.profile_snapshot_uri).parent
+    for shared_name in ("data", "model", "kubernetes", "serving", "monitoring"):
+        shared_directory = run_root / shared_name
+        assert shared_directory.is_dir()
+        if os.name != "nt":
+            assert shared_directory.stat().st_mode & 0o777 == 0o777
 
 
 def test_dry_run_cannot_execute_and_queue_is_version_guarded(tmp_path: Path, monkeypatch) -> None:
