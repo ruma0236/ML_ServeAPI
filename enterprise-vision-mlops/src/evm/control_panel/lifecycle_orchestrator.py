@@ -166,6 +166,10 @@ def process_data_pipeline(
         task = dispatch_task_assignment(task.task_id)
         if task is None:
             raise LifecycleStageBlocked("airflow_task_disappeared")
+    task = next(
+        (item for item in sync_running_tasks().tasks if item.task_id == task.task_id),
+        task,
+    )
     if task.status == "running" and stage.state == "queued":
         run = transition_stage(
             run.run_id,
@@ -177,10 +181,6 @@ def process_data_pipeline(
             runtime_state=task.runtime_state,
             detail="Airflow DAG run is executing isolated data stages",
         )
-    task = next(
-        (item for item in sync_running_tasks().tasks if item.task_id == task.task_id),
-        task,
-    )
     if task.status == "done":
         current = required_run(run.run_id)
         if stage_for(current, "data_pipeline").state == "queued":

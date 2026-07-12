@@ -114,6 +114,24 @@ def test_airflow_success_advances_lifecycle_to_model_training(tmp_path, monkeypa
     assert tasks[0].config_payload["pipeline_stage_scope"] == "data"
 
 
+def test_airflow_running_observation_reaches_lifecycle_stage(tmp_path, monkeypatch) -> None:
+    run = queued_run(tmp_path, monkeypatch)
+    responses = iter(
+        [
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "queued"}),
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "running"}),
+        ]
+    )
+    monkeypatch.setattr(operations, "urlopen", lambda *_args, **_kwargs: next(responses))
+
+    result = process_lifecycle_run(run.run_id)
+
+    assert result.state == "running"
+    assert result.current_stage == "data_pipeline"
+    assert result.stages[1].state == "running"
+    assert result.stages[1].runtime_state == "running"
+
+
 def test_airflow_dispatch_failure_propagates_reason_to_lifecycle(tmp_path, monkeypatch) -> None:
     run = queued_run(tmp_path, monkeypatch)
 
