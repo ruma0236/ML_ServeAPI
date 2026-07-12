@@ -10,6 +10,7 @@ from apps.api.control_panel import (
 from evm.control_panel.cycle_catalog import find_cycle
 from evm.control_panel.decision_registry import (
     DecisionNotFound,
+    DecisionPersistenceError,
     DecisionTransitionRejected,
     DecisionVersionConflict,
     create_decision,
@@ -91,6 +92,8 @@ def list_decisions() -> DecisionRecordList:
 def create_decision_route(request: DecisionRecordRequest) -> DecisionRecord:
     try:
         return create_decision(request)
+    except DecisionPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except DecisionTransitionRejected as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -108,6 +111,8 @@ def transition_decision_route(
         return transition_decision(decision_id, request)
     except DecisionNotFound as exc:
         raise HTTPException(status_code=404, detail="decision_not_found") from exc
+    except DecisionPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except DecisionVersionConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except DecisionTransitionRejected as exc:

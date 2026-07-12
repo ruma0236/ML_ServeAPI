@@ -7,7 +7,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from evm.control_panel.readiness_evaluator import canonical_evidence_uri, runtime_path
+from evm.control_panel.readiness_evaluator import canonical_evidence_uri
 from evm.control_panel.schemas import (
     DriftReviewStatus,
     DriftReviewTransition,
@@ -45,12 +45,12 @@ def utc_now() -> str:
 
 
 def drift_root() -> Path:
-    return runtime_path(os.getenv("EVM_DRIFT_REVIEW_ROOT", DEFAULT_DRIFT_ROOT))
+    return Path(os.getenv("EVM_DRIFT_REVIEW_ROOT", DEFAULT_DRIFT_ROOT))
 
 
 def latest_event_path() -> Path:
     configured = os.getenv("EVM_DRIFT_REVIEW_EVENT_PATH")
-    return runtime_path(configured) if configured else drift_root() / "latest_review_event.json"
+    return Path(configured) if configured else drift_root() / "latest_review_event.json"
 
 
 def load_latest_drift_workflow() -> DriftReviewWorkflow:

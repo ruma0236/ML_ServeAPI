@@ -127,6 +127,7 @@ export function GovernancePanel({ cycle, lifecycleRun, registry, onRefresh }: Go
                 <StatusBadge status={decisionTone(record.state)} compact />
               </header>
               <p>{record.summary}</p>
+              <small title={String(record.metadata.cycle_id || "")}>{record.evidence_uris.length} evidence / {compactUri(String(record.metadata.cycle_id || "unbound cycle"))}</small>
               <div className="decision-actions">{decisionActions(record).map((action) => (
                 <button key={action.state} type="button" className="secondary-action" disabled={busy} onClick={() => void transition(record, action.state)}>{action.icon}{action.label}</button>
               ))}</div>

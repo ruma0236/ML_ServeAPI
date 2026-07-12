@@ -8,7 +8,6 @@ from threading import RLock
 from typing import Any
 from uuid import uuid4
 
-from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import (
     DecisionRecord,
     DecisionRecordList,
@@ -43,12 +42,16 @@ class DecisionTransitionRejected(RuntimeError):
     pass
 
 
+class DecisionPersistenceError(RuntimeError):
+    pass
+
+
 def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def decision_root() -> Path:
-    return runtime_path(os.getenv("EVM_DECISION_REGISTRY_ROOT", DEFAULT_DECISION_ROOT))
+    return Path(os.getenv("EVM_DECISION_REGISTRY_ROOT", DEFAULT_DECISION_ROOT))
 
 
 def registry_path() -> Path:
@@ -161,13 +164,19 @@ def persist_record(record: DecisionRecord) -> None:
 
 
 def atomic_write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    temporary.replace(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        temporary.replace(path)
+    except OSError as exc:
+        raise DecisionPersistenceError("decision_registry_persistence_failed") from exc
 
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fp:
-        fp.write(json.dumps(payload, sort_keys=True) + "\n")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fp:
+            fp.write(json.dumps(payload, sort_keys=True) + "\n")
+    except OSError as exc:
+        raise DecisionPersistenceError("decision_event_persistence_failed") from exc

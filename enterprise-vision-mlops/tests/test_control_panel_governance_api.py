@@ -12,6 +12,7 @@ from apps.api.control_panel_governance import (
     transition_decision_route,
     transition_drift_review_route,
 )
+from evm.control_panel import decision_registry
 from evm.control_panel.schemas import (
     CycleRun,
     DecisionRecordRequest,
@@ -146,3 +147,33 @@ def test_decision_routes_enforce_independent_approval(tmp_path, monkeypatch):
         )
     assert denied.value.status_code == 422
     assert "separation_of_duties" in denied.value.detail
+
+
+def test_decision_route_returns_service_unavailable_for_persistence_failure(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("EVM_DECISION_REGISTRY_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        decision_registry,
+        "atomic_write_json",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            decision_registry.DecisionPersistenceError(
+                "decision_registry_persistence_failed"
+            )
+        ),
+    )
+
+    with pytest.raises(HTTPException) as failure:
+        create_decision_route(
+            DecisionRecordRequest(
+                subject_type="serving_change",
+                title="Persistence failure contract",
+                summary="Return an explicit service availability error.",
+                owner="ml-platform",
+                evidence_uris=[],
+                metadata={},
+            )
+        )
+
+    assert failure.value.status_code == 503
+    assert failure.value.detail == "decision_registry_persistence_failed"
