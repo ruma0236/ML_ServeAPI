@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+from base64 import b64encode
 from functools import wraps
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from evm.control_panel.aggregation import build_latest_cycle
@@ -23,12 +27,20 @@ from evm.control_panel.schemas import (
     TaskAssignmentList,
     TaskAssignmentRequest,
     TaskStatus,
+    TaskTransitionRequest,
 )
 
 
 DEFAULT_LEDGER_ROOT = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/operations"
 PROMOTION_ACTIONS = {"approve_environment_promotion", "promote_model"}
 _LEDGER_LOCK = RLock()
+
+
+class TaskDispatchError(RuntimeError):
+    def __init__(self, code: str, message: str, *, status_code: int = 409):
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
 
 
 def ledger_transaction(function):
@@ -102,6 +114,11 @@ def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
         status=status,
         created_at=created_at,
         queued_at=created_at if status == "queued" else None,
+        failure_reason=(
+            "task_dispatcher_not_available"
+            if status == "blocked" and request.task_type != "airflow_dag_run"
+            else None
+        ),
         audit=[
             audit(
                 request.owner,
@@ -118,9 +135,274 @@ def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
     return task
 
 
+@ledger_transaction
+def confirm_task_assignment(
+    task_id: str,
+    request: TaskTransitionRequest,
+) -> TaskAssignment | None:
+    tasks = read_tasks()
+    for index, task in enumerate(tasks.tasks):
+        if task.task_id != task_id:
+            continue
+        if task.status != "pending_confirmation":
+            raise TaskDispatchError(
+                "task_not_pending_confirmation",
+                f"Task {task_id} is {task.status}; confirmation requires pending_confirmation.",
+            )
+        if task.approval_policy in {"two_person", "change_ticket"}:
+            raise TaskDispatchError(
+                "task_external_approval_required",
+                f"Task {task_id} requires an external {task.approval_policy} approval record.",
+            )
+        task.status = "queued"
+        task.queued_at = utc_now()
+        task.audit.append(
+            audit(
+                request.actor,
+                "task_assignment_confirmed",
+                reason=request.reason,
+                approval_policy=task.approval_policy,
+            )
+        )
+        tasks.tasks[index] = task
+        write_tasks(tasks)
+        return task
+    return None
+
+
+@ledger_transaction
+def dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
+    tasks = read_tasks()
+    for index, task in enumerate(tasks.tasks):
+        if task.task_id != task_id:
+            continue
+        if task.task_type != "airflow_dag_run":
+            raise TaskDispatchError(
+                "task_dispatcher_not_available",
+                f"No runtime dispatcher is registered for {task.task_type}.",
+            )
+        if task.status != "queued":
+            raise TaskDispatchError(
+                "task_not_queued",
+                f"Task {task_id} must be queued before dispatch; current status is {task.status}.",
+            )
+
+        dag_id = str(task.config_payload.get("dag_id") or (task.airflow.dag_id if task.airflow else ""))
+        if not dag_id:
+            raise TaskDispatchError("airflow_dag_id_missing", "Airflow DAG ID is required.")
+        dag_run_id = f"cp__{task.task_id.replace('task-', '')}"
+        payload = {
+            "dag_run_id": dag_run_id,
+            "conf": {
+                **task.config_payload,
+                "control_panel_task_id": task.task_id,
+                "cycle_id": task.cycle_id,
+            },
+        }
+        try:
+            response = airflow_api_request(
+                f"/dags/{quote(dag_id, safe='')}/dagRuns",
+                method="POST",
+                payload=payload,
+            )
+        except TaskDispatchError as exc:
+            task.status = "failed"
+            task.finished_at = utc_now()
+            task.failure_reason = exc.code
+            task.audit.append(
+                audit(task.owner, "task_dispatch_failed", error_code=exc.code, runtime="airflow")
+            )
+            tasks.tasks[index] = task
+            write_tasks(tasks)
+            raise
+
+        task.status = "running"
+        task.dispatched_at = utc_now()
+        task.runtime_system = "airflow"
+        task.runtime_id = str(response.get("dag_run_id") or dag_run_id)
+        task.runtime_state = str(response.get("state") or "queued")
+        task.runtime_url = (
+            f"{airflow_api_root()}/dags/{quote(dag_id, safe='')}/dagRuns/"
+            f"{quote(task.runtime_id, safe='')}"
+        )
+        task.audit.append(
+            audit(
+                task.owner,
+                "task_dispatched",
+                runtime="airflow",
+                runtime_id=task.runtime_id,
+                runtime_state=task.runtime_state,
+            )
+        )
+        tasks.tasks[index] = task
+        write_tasks(tasks)
+        return task
+    return None
+
+
+@ledger_transaction
+def sync_running_tasks(limit: int = 20) -> TaskAssignmentList:
+    tasks = read_tasks()
+    changed = False
+    running = 0
+    for index, task in enumerate(tasks.tasks):
+        if task.status != "running" or task.runtime_system != "airflow" or not task.runtime_url:
+            continue
+        if running >= limit:
+            break
+        running += 1
+        try:
+            response = airflow_api_request_url(task.runtime_url)
+        except TaskDispatchError:
+            continue
+        runtime_state = str(response.get("state") or task.runtime_state or "unknown")
+        mapped_status: TaskStatus
+        if runtime_state == "success":
+            mapped_status = "done"
+        elif runtime_state in {"failed", "upstream_failed"}:
+            mapped_status = "failed"
+        else:
+            mapped_status = "running"
+        if mapped_status == task.status and runtime_state == task.runtime_state:
+            continue
+        previous = task.runtime_state
+        task.runtime_state = runtime_state
+        task.status = mapped_status
+        if mapped_status in {"done", "failed"}:
+            task.finished_at = utc_now()
+        if mapped_status == "failed":
+            task.failure_reason = runtime_state
+        task.audit.append(
+            audit(
+                "airflow-runtime-sync",
+                "task_runtime_state_changed",
+                previous_state=previous,
+                runtime_state=runtime_state,
+                status=mapped_status,
+            )
+        )
+        tasks.tasks[index] = task
+        changed = True
+    if changed:
+        write_tasks(tasks)
+    return tasks
+
+
+@ledger_transaction
+def update_task_runtime(
+    task_id: str,
+    *,
+    actor: str,
+    event: str,
+    status: TaskStatus,
+    runtime_system: str | None = None,
+    runtime_id: str | None = None,
+    runtime_url: str | None = None,
+    runtime_state: str | None = None,
+    runtime_evidence_uri: str | None = None,
+    failure_reason: str | None = None,
+) -> TaskAssignment | None:
+    tasks = read_tasks()
+    for index, task in enumerate(tasks.tasks):
+        if task.task_id != task_id:
+            continue
+        task.status = status
+        task.runtime_system = runtime_system or task.runtime_system
+        task.runtime_id = runtime_id or task.runtime_id
+        task.runtime_url = runtime_url or task.runtime_url
+        task.runtime_state = runtime_state or task.runtime_state
+        task.runtime_evidence_uri = runtime_evidence_uri or task.runtime_evidence_uri
+        task.failure_reason = failure_reason
+        if status == "running" and not task.dispatched_at:
+            task.dispatched_at = utc_now()
+        if status in {"done", "failed", "cancelled"}:
+            task.finished_at = utc_now()
+        task.audit.append(
+            audit(
+                actor,
+                event,
+                status=status,
+                runtime=task.runtime_system,
+                runtime_state=task.runtime_state,
+                failure_reason=failure_reason,
+            )
+        )
+        tasks.tasks[index] = task
+        write_tasks(tasks)
+        return task
+    return None
+
+
+def airflow_api_root() -> str:
+    return os.getenv(
+        "EVM_AIRFLOW_API_URL",
+        "http://127.0.0.1:8080/api/v1",
+    ).rstrip("/")
+
+
+def airflow_api_request(path: str, *, method: str = "GET", payload: dict[str, object] | None = None) -> dict[str, object]:
+    return airflow_api_request_url(f"{airflow_api_root()}{path}", method=method, payload=payload)
+
+
+def airflow_api_request_url(
+    url: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    username = os.getenv("EVM_AIRFLOW_API_USERNAME", os.getenv("AIRFLOW_ADMIN_USERNAME", "admin"))
+    password = os.getenv("EVM_AIRFLOW_API_PASSWORD", os.getenv("AIRFLOW_ADMIN_PASSWORD", "admin"))
+    token = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = Request(
+        url,
+        data=body,
+        method=method,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Basic {token}",
+        },
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            parsed = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise TaskDispatchError(
+            "airflow_api_rejected",
+            f"Airflow API returned HTTP {exc.code}.",
+            status_code=502,
+        ) from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise TaskDispatchError(
+            "airflow_api_unavailable",
+            f"Airflow API is unavailable: {exc}",
+            status_code=502,
+        ) from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise TaskDispatchError(
+            "airflow_api_invalid_response",
+            "Airflow API returned an invalid JSON response.",
+            status_code=502,
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise TaskDispatchError(
+            "airflow_api_invalid_response",
+            "Airflow API returned a non-object response.",
+            status_code=502,
+        )
+    return parsed
+
+
 def resolve_task_status(request: TaskAssignmentRequest) -> TaskStatus:
     if request.dry_run:
         return "dry_run"
+    kubernetes_bridge = (
+        request.task_type == "kubernetes_job"
+        and request.config_payload.get("adapter") == "host-kubectl-bridge"
+    )
+    if request.task_type != "airflow_dag_run" and not kubernetes_bridge:
+        return "blocked"
     if has_blocking_gate(request.cdct_gate):
         return "blocked"
     if request.approval_policy in {"manual", "two_person", "change_ticket"}:
@@ -225,6 +507,7 @@ def cancel_command_intent(command_id: str, actor: str = "operator") -> CommandIn
 def default_task_request() -> TaskAssignmentRequest:
     cycle = build_latest_cycle()
     return TaskAssignmentRequest(
+        cycle_id=cycle.cycle_id,
         task_type="airflow_dag_run",
         owner=cycle.tenant.ops_owner if cycle.tenant and cycle.tenant.ops_owner else "ai-infra-sre",
         requester_team=cycle.tenant.team_id if cycle.tenant else "mvi-platform",

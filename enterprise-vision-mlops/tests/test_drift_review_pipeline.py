@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from evm.pipelines.drift_review.run import (
+    backbone_for_architecture,
     evaluate_measured_drift,
     jensen_shannon_divergence,
     population_stability_index,
@@ -8,6 +9,11 @@ from evm.pipelines.drift_review.run import (
     real_input_validation,
     window_observation_range,
 )
+
+
+def test_drift_checkpoint_contract_supports_b0_and_b7() -> None:
+    assert backbone_for_architecture("efficientnet-b0").endswith("efficientnet_b0")
+    assert backbone_for_architecture("efficientnet-b7").endswith("efficientnet_b7")
 
 
 def prediction(sample_id: str, class_name: str, predicted_label: str, confidence: float) -> dict:

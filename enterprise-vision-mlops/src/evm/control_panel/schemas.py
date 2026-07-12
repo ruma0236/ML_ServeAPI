@@ -44,7 +44,17 @@ DecisionSubjectType = Literal[
     "serving_change",
 ]
 
-TaskStatus = Literal["draft", "dry_run", "queued", "pending_confirmation", "blocked"]
+TaskStatus = Literal[
+    "draft",
+    "dry_run",
+    "queued",
+    "pending_confirmation",
+    "running",
+    "done",
+    "failed",
+    "cancelled",
+    "blocked",
+]
 CommandStatus = Literal["draft", "dry_run", "pending_confirmation", "applying", "applied", "cancelled", "failed", "rolled_back"]
 TaskType = Literal["airflow_dag_run", "mlflow_run", "kubernetes_job"]
 TaskPriority = Literal["low", "normal", "high", "urgent"]
@@ -279,6 +289,26 @@ class MLflowRef(ContractModel):
     model_name: str = ""
     model_version: str = ""
     url: str | None = None
+
+
+class OrchestratorConnection(ContractModel):
+    orchestrator: Literal["airflow", "mlflow", "kubernetes", "remote-worker"]
+    mode: str
+    control_mode: str
+    status: State
+    base_url: str | None = None
+    namespace: str | None = None
+    config_ref: ResourceRef | None = None
+    supported_actions: list[str] = Field(default_factory=list)
+    notes: str | None = None
+    checked_at: str
+    blockers: list[str] = Field(default_factory=list)
+
+
+class OrchestratorConnectionList(ContractModel):
+    orchestrators: list[OrchestratorConnection] = Field(default_factory=list)
+    checked_at: str
+    status: State
 
 
 class ReadinessEvidenceCheck(ContractModel):
@@ -585,6 +615,7 @@ class CDCTGate(ContractModel):
 
 
 class TaskAssignmentRequest(ContractModel):
+    cycle_id: str | None = None
     task_type: TaskType
     owner: str
     priority: TaskPriority
@@ -604,11 +635,24 @@ class TaskAssignment(TaskAssignmentRequest):
     status: TaskStatus
     created_at: str
     queued_at: str | None = None
+    dispatched_at: str | None = None
+    finished_at: str | None = None
+    runtime_system: str | None = None
+    runtime_id: str | None = None
+    runtime_url: str | None = None
+    runtime_state: str | None = None
+    runtime_evidence_uri: str | None = None
+    failure_reason: str | None = None
     audit: list[AuditEvent] = Field(default_factory=list)
 
 
 class TaskAssignmentList(ContractModel):
     tasks: list[TaskAssignment]
+
+
+class TaskTransitionRequest(ContractModel):
+    actor: str
+    reason: str
 
 
 class CommandIntentRequest(ContractModel):
@@ -636,6 +680,7 @@ class CommandIntentList(ContractModel):
 
 
 class DeploymentIntentRequest(ContractModel):
+    cycle_id: str | None = None
     target_environment: EnvironmentTier
     target_namespace: str
     target: ResourceRef
@@ -756,3 +801,28 @@ class CycleRun(ContractModel):
     drift: DriftState | None = None
     cdct_gate: CDCTGate | None = None
     artifacts: list[ArtifactRef] = Field(default_factory=list)
+
+
+class CycleRunSummary(ContractModel):
+    cycle_id: str
+    status: State
+    started_at: str
+    finished_at: str | None = None
+    dataset_id: str
+    dataset_version: str
+    model_name: str
+    model_version: str
+    model_stage: str
+    environment: EnvironmentTier | None = None
+    owner_issue: str
+    stage_count: int = Field(ge=0)
+    progress: float = Field(ge=0, le=1)
+    source_uri: str | None = None
+    live: bool = False
+
+
+class CycleRunList(ContractModel):
+    cycles: list[CycleRunSummary] = Field(default_factory=list)
+    latest_cycle_id: str
+    selected_cycle_id: str | None = None
+    total: int = Field(ge=0)

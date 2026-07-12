@@ -3,29 +3,36 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   fetchControlPanelDiagnostics,
+  fetchCycle,
+  fetchCycles,
   fetchDecisionRecords,
   fetchLatestCycle,
   fetchLatestDriftReview,
+  fetchOrchestrators,
   fetchRuntimeResources
 } from "./api/controlPanelClient";
 import type {
   ControlPanelDiagnostics,
   CycleRun,
+  CycleRunList,
   DecisionRecordList,
   DriftReviewWorkflow,
+  OrchestratorConnectionList,
   RuntimeResourceList,
   State
 } from "./api/types";
 import { DiagnosticsDrawer, type ClientSyncSource } from "./components/DiagnosticsDrawer";
+import { CycleSelector } from "./components/CycleSelector";
 import { StatusBadge } from "./components/StatusBadge";
 import { CycleOverview } from "./views/CycleOverview";
 import { DataModelReadiness } from "./views/DataModelReadiness";
 import { GateAndRiskPanel } from "./views/GateAndRiskPanel";
 import { GovernancePanel } from "./views/GovernancePanel";
 import { PipelineTimeline } from "./views/PipelineTimeline";
+import { ReleaseControl } from "./views/ReleaseControl";
 import { TaskAuthoring } from "./views/TaskAuthoring";
 
-type TabKey = "overview" | "readiness" | "timeline" | "operate" | "gates" | "governance";
+type TabKey = "overview" | "readiness" | "timeline" | "operate" | "gates" | "release" | "governance";
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: "overview", label: "Overview" },
@@ -33,12 +40,15 @@ const tabs: Array<{ key: TabKey; label: string }> = [
   { key: "timeline", label: "Timeline" },
   { key: "operate", label: "Operate" },
   { key: "gates", label: "Gates" },
+  { key: "release", label: "Release" },
   { key: "governance", label: "Governance" }
 ];
 
 const sourceDefinitions = [
-  { source_id: "cycle", label: "Cycle API" },
+  { source_id: "catalog", label: "Cycle Catalog" },
+  { source_id: "cycle", label: "Selected Cycle" },
   { source_id: "resources", label: "Kubernetes" },
+  { source_id: "orchestrators", label: "Orchestrators" },
   { source_id: "diagnostics", label: "Diagnostics" },
   { source_id: "drift", label: "Drift Review" },
   { source_id: "decisions", label: "Decisions" }
@@ -46,9 +56,17 @@ const sourceDefinitions = [
 
 export function App() {
   const [cycle, setCycle] = useState<CycleRun | null>(null);
+  const [catalog, setCatalog] = useState<CycleRunList | null>(null);
+  const [selectedCycleId, setSelectedCycleId] = useState("");
+  const selectedCycleRef = useRef("");
   const [resourceSnapshot, setResourceSnapshot] = useState<RuntimeResourceList>({
     resources: [],
     observation_status: "unavailable"
+  });
+  const [orchestratorConnections, setOrchestratorConnections] = useState<OrchestratorConnectionList>({
+    orchestrators: [],
+    checked_at: "",
+    status: "unknown"
   });
   const [diagnostics, setDiagnostics] = useState<ControlPanelDiagnostics | null>(null);
   const [driftWorkflow, setDriftWorkflow] = useState<DriftReviewWorkflow | null>(null);
@@ -69,8 +87,10 @@ export function App() {
     if (!background) setLoading(true);
     try {
       const results = await Promise.allSettled([
-        fetchLatestCycle(),
+        fetchCycles(),
+        selectedCycleRef.current ? fetchCycle(selectedCycleRef.current) : fetchLatestCycle(),
         fetchRuntimeResources(),
+        fetchOrchestrators(),
         fetchControlPanelDiagnostics(),
         fetchLatestDriftReview(),
         fetchDecisionRecords()
@@ -90,7 +110,22 @@ export function App() {
         };
       }));
 
-      const [cycleResult, resourceResult, diagnosticsResult, driftResult, decisionsResult] = results;
+      const [
+        catalogResult,
+        cycleResult,
+        resourceResult,
+        orchestratorResult,
+        diagnosticsResult,
+        driftResult,
+        decisionsResult
+      ] = results;
+      if (catalogResult.status === "fulfilled") {
+        setCatalog(catalogResult.value);
+        if (!selectedCycleRef.current) {
+          selectedCycleRef.current = catalogResult.value.latest_cycle_id;
+          setSelectedCycleId(catalogResult.value.latest_cycle_id);
+        }
+      }
       if (cycleResult.status === "fulfilled") {
         setCycle(cycleResult.value);
         setError("");
@@ -98,6 +133,7 @@ export function App() {
         setError(errorMessage(cycleResult.reason));
       }
       if (resourceResult.status === "fulfilled") setResourceSnapshot(resourceResult.value);
+      if (orchestratorResult.status === "fulfilled") setOrchestratorConnections(orchestratorResult.value);
       if (diagnosticsResult.status === "fulfilled") setDiagnostics(diagnosticsResult.value);
       if (driftResult.status === "fulfilled") setDriftWorkflow(driftResult.value);
       if (decisionsResult.status === "fulfilled") setDecisionRegistry(decisionsResult.value);
@@ -116,15 +152,37 @@ export function App() {
     return () => window.clearInterval(interval);
   }, []);
 
+  async function selectCycle(cycleId: string) {
+    selectedCycleRef.current = cycleId;
+    setSelectedCycleId(cycleId);
+    setLoading(true);
+    try {
+      const selected = await fetchCycle(cycleId);
+      setCycle(selected);
+      setError("");
+    } catch (selectionError) {
+      setError(errorMessage(selectionError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const activeView = useMemo(() => {
     if (!cycle) return null;
     if (tab === "readiness") return <DataModelReadiness cycle={cycle} />;
     if (tab === "timeline") return <PipelineTimeline cycle={cycle} resourceSnapshot={resourceSnapshot} />;
-    if (tab === "operate") return <TaskAuthoring cycle={cycle} resources={resourceSnapshot.resources} />;
+    if (tab === "operate") return (
+      <TaskAuthoring
+        cycle={cycle}
+        resources={resourceSnapshot.resources}
+        orchestrators={orchestratorConnections.orchestrators}
+      />
+    );
     if (tab === "gates") return <GateAndRiskPanel cycle={cycle} workflow={driftWorkflow} onRefresh={() => loadCycle(true)} />;
+    if (tab === "release") return <ReleaseControl cycle={cycle} />;
     if (tab === "governance") return <GovernancePanel registry={decisionRegistry} onRefresh={() => loadCycle(true)} />;
     return <CycleOverview cycle={cycle} />;
-  }, [cycle, decisionRegistry, driftWorkflow, resourceSnapshot, tab]);
+  }, [cycle, decisionRegistry, driftWorkflow, orchestratorConnections, resourceSnapshot, tab]);
 
   const syncStatus: State = syncSources.some((source) => source.status === "error")
     ? "blocked"
@@ -143,6 +201,7 @@ export function App() {
           <span className="eyebrow">Enterprise Vision MLOps</span>
           <h1>Control Panel</h1>
         </div>
+        <CycleSelector catalog={catalog} selectedCycleId={selectedCycleId} onSelect={(cycleId) => void selectCycle(cycleId)} />
         <div className="topbar-actions">
           <div className="sync-indicator" title="Control Panel source synchronization">
             <i className={syncStatus === "pass" ? "live" : "degraded"} />

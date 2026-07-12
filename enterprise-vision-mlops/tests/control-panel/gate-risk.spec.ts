@@ -23,12 +23,14 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("model_evaluation");
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("drift_review");
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("promotion_gate");
+  await page.getByRole("button", { name: "Release" }).click();
+  await expect(page.getByRole("heading", { name: "Release Control" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Deployment Intent" })).toBeVisible();
   await expect(page.getByLabel("Deployment admission signals")).toContainText("CI Evidence");
   await expect(page.getByLabel("Deployment admission signals")).toContainText("Environment Policy");
 
   await page.getByLabel("Runtime diagnostics").locator("summary").first().click();
-  await expect(page.getByLabel("Control Panel synchronization sources")).toContainText("Cycle API");
+  await expect(page.getByLabel("Control Panel synchronization sources")).toContainText("Cycle Catalog");
   await expect(page.getByLabel("Blocked and warning reasons")).toContainText("accuracy");
 
   const screenshotPath =

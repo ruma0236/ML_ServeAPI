@@ -78,6 +78,10 @@ def candidate_epochs(candidate: dict[str, Any], acceptance: dict[str, Any]) -> i
 
 
 def candidate_config(candidate: dict[str, Any], acceptance: dict[str, Any]) -> EfficientNetCandidateConfig:
+    early_stop_value = candidate.get(
+        "early_stop_accuracy",
+        acceptance.get("early_stop_accuracy"),
+    )
     return EfficientNetCandidateConfig(
         candidate_id=str(candidate["candidate_id"]),
         architecture=str(candidate.get("architecture", "efficientnet-b0")),
@@ -91,6 +95,18 @@ def candidate_config(candidate: dict[str, Any], acceptance: dict[str, Any]) -> E
         mixed_precision=bool(candidate.get("mixed_precision", True)),
         resource_profile=str(candidate.get("resource_profile", "gpu-unknown")),
         epochs=candidate_epochs(candidate, acceptance),
+        early_stop_accuracy=(
+            float(early_stop_value)
+            if isinstance(early_stop_value, int | float)
+            else None
+        ),
+        early_stop_min_epochs=int(
+            candidate.get(
+                "early_stop_min_epochs",
+                acceptance.get("early_stop_min_epochs", 1),
+            )
+        ),
+        class_weighted_loss=bool(candidate.get("class_weighted_loss", True)),
     )
 
 
@@ -150,6 +166,8 @@ def required_candidate_blockers(summary: dict[str, Any]) -> list[str]:
             blockers.append(f"required_candidate_not_pass:{candidate_id}")
         if candidate.get("execution_blockers"):
             blockers.append(f"required_candidate_execution_blocked:{candidate_id}")
+        if candidate.get("promotion_blockers"):
+            blockers.append(f"required_candidate_promotion_blocked:{candidate_id}")
         if not candidate.get("mlflow_run_id"):
             blockers.append(f"required_candidate_mlflow_run_missing:{candidate_id}")
     return blockers
@@ -176,16 +194,15 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
     )
     execution_run_id = os.getenv("EVM_EFFICIENTNET_RUN_ID", "").strip()
     dataset_version = str(matrix_cfg.get("dataset_version", "unknown"))
-    artifact_root = Path(str(resources.get("artifact_root", "artifacts/w7/efficientnet")))
-    if not artifact_root.is_absolute():
-        artifact_root = project_root / artifact_root
+    artifact_root = runtime_config_path(
+        config,
+        str(resources.get("artifact_root", "artifacts/w7/efficientnet")),
+    )
     matrix_dir = artifact_root / matrix_id
     matrix_dir.mkdir(parents=True, exist_ok=True)
     candidate_root = candidate_artifact_root(matrix_dir, execution_run_id)
 
-    shard_index_path = Path(str(inputs.get("shard_index", "")))
-    if not shard_index_path.is_absolute():
-        shard_index_path = resolve_path(config, shard_index_path)
+    shard_index_path = runtime_config_path(config, str(inputs.get("shard_index", "")))
     shard_index, splits = load_shard_records(shard_index_path)
     shard_index_file_sha256 = file_sha256(shard_index_path)
     shard_index_identity_sha256 = str(shard_index.get("identity_sha256") or "")
@@ -302,6 +319,9 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
                     "batch_size": candidate.batch_size,
                     "mixed_precision": candidate.mixed_precision,
                     "epochs": candidate.epochs,
+                    "early_stop_accuracy": candidate.early_stop_accuracy,
+                    "early_stop_min_epochs": candidate.early_stop_min_epochs,
+                    "class_weighted_loss": candidate.class_weighted_loss,
                     "seed": runtime.seed,
                 },
                 "metrics": {},
@@ -349,6 +369,9 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
                     "batch_size": candidate.batch_size,
                     "mixed_precision": candidate.mixed_precision,
                     "epochs": candidate.epochs,
+                    "early_stop_accuracy": candidate.early_stop_accuracy,
+                    "early_stop_min_epochs": candidate.early_stop_min_epochs,
+                    "class_weighted_loss": candidate.class_weighted_loss,
                     "seed": runtime.seed,
                 },
                 "metrics": {},

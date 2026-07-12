@@ -26,8 +26,13 @@ router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-deployments"
 
 
 @router.get("/deployment-intents", response_model=DeploymentIntentList)
-def list_deployment_intents() -> DeploymentIntentList:
-    return read_intents()
+def list_deployment_intents(cycle_id: str | None = None) -> DeploymentIntentList:
+    ledger = read_intents()
+    if not cycle_id:
+        return ledger
+    return ledger.model_copy(
+        update={"intents": [intent for intent in ledger.intents if intent.cycle_id == cycle_id]}
+    )
 
 
 @router.post("/deployment-intents", response_model=DeploymentIntent, status_code=202)

@@ -183,6 +183,30 @@ def _candidate_min_epochs(candidate_cfg: dict[str, Any], acceptance: dict[str, A
     return int(acceptance.get("min_epochs_b0", 5))
 
 
+def _valid_early_stop(
+    candidate_cfg: dict[str, Any],
+    summary: dict[str, Any],
+    history: list[dict[str, Any]],
+) -> bool:
+    threshold = candidate_cfg.get("early_stop_accuracy")
+    minimum_epochs = int(candidate_cfg.get("early_stop_min_epochs", 1))
+    if not isinstance(threshold, int | float) or not history:
+        return False
+    final_validation = history[-1].get("validation", {})
+    accuracy = (
+        final_validation.get("accuracy")
+        if isinstance(final_validation, dict)
+        else None
+    )
+    return bool(
+        summary.get("early_stopped") is True
+        and int(summary.get("early_stop_epoch") or 0) == len(history)
+        and len(history) >= minimum_epochs
+        and isinstance(accuracy, int | float)
+        and float(accuracy) >= float(threshold)
+    )
+
+
 def _required_candidate_files(candidate_dir: Path) -> dict[str, Path]:
     return {
         "candidate_summary": candidate_dir / "candidate_summary.json",
@@ -336,7 +360,12 @@ def validate_real_test_evidence(
 
         epochs_required = _candidate_min_epochs(candidate_cfg, acceptance)
         epochs_actual = len(history_payload) if isinstance(history_payload, list) else 0
-        if epochs_actual < epochs_required:
+        early_stop_valid = _valid_early_stop(
+            candidate_cfg,
+            summary,
+            history_payload if isinstance(history_payload, list) else [],
+        )
+        if epochs_actual < epochs_required and not early_stop_valid:
             violations.append(
                 {
                     "code": "candidate_epoch_count_too_small",
@@ -392,6 +421,10 @@ def validate_real_test_evidence(
                 "mlflow_run_id": summary.get("mlflow_run_id", ""),
                 "artifact_uri": str(candidate_dir),
                 "epochs": epochs_actual,
+                "epochs_requested": epochs_required,
+                "early_stopped": bool(summary.get("early_stopped")),
+                "early_stop_epoch": summary.get("early_stop_epoch"),
+                "early_stop_valid": early_stop_valid,
                 "optimizer_steps": optimizer_steps,
                 "metrics": {metric.name: metric.value for metric in cycle_candidate.metrics},
                 "promotion_blockers": cycle_candidate.promotion_blockers,

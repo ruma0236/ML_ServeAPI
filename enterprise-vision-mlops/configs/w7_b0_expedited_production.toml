@@ -1,0 +1,109 @@
+[validation_profile]
+profile_id = "expedited-production-validation"
+temporary = true
+purpose = "Validate the guarded Control Panel path through local production without replacing standard acceptance policy."
+expires_after_run = true
+original_config = "configs/w7_efficientnet_real_test.toml"
+
+[product]
+model_name = "efficientnet-b0-visa-anomaly"
+target_environment = "production"
+target_namespace = "evm-production"
+target_deployment = "evm-b0-production"
+serving_endpoint = "http://evm-b0-production.evm-production.svc.cluster.local:8000"
+
+[model_matrix]
+matrix_id = "w7-b0-expedited-production-matrix"
+framework = "torch"
+execution_mode = "single-gpu"
+dataset_version = "visa-open-data-e35d93d5561f"
+selected_candidate_id = "effnet-b0-img224-expedited-adamw"
+rollback_registry_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/registry/efficientnet-b0/rollback.json"
+require_readiness_snapshot = true
+dataset_policy = "real_full_visa"
+mock_allowed = false
+smoke_allowed = false
+requires_real_dataset = true
+requires_real_training = true
+minimum_records = 10821
+
+[resources]
+primary_gpu = "windows-rtx-4080-super"
+remote_evaluator = "mac-mini-m4-pro"
+artifact_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited"
+dataset_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data"
+max_b0_parallel_jobs = 1
+max_b7_parallel_jobs = 0
+allow_cpu_fallback = false
+
+[inputs]
+base_config = "configs/local_visa.toml"
+shard_index = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/shards/shard_index.json"
+shard_identity_sha256 = "64043adeeca6654467b842c7b5bb8fc64ce8a0b2c78ca158623164f829a38cd0"
+mlflow_tracking_uri = "http://host.docker.internal:5000"
+mlflow_experiment_name = "enterprise-vision-expedited-production-validation"
+positive_label = "anomaly"
+
+[execution]
+num_workers = 4
+pin_memory = true
+
+[[candidates]]
+candidate_id = "effnet-b0-img224-expedited-adamw"
+architecture = "efficientnet-b0"
+backbone = "torchvision.models.efficientnet_b0"
+input_size = 224
+pretrained = true
+freeze_backbone = false
+optimizer = "adamw"
+learning_rate = 0.0001
+batch_size = 64
+mixed_precision = true
+resource_profile = "gpu-rtx4080-b0-expedited"
+max_parallel_jobs = 1
+epochs = 8
+early_stop_accuracy = 0.93
+early_stop_min_epochs = 2
+class_weighted_loss = false
+
+[acceptance]
+required_metrics = ["accuracy", "precision", "recall", "f1", "auroc", "latency_p95_ms", "gpu_memory_peak_mb"]
+promotion_min_accuracy = 0.88
+promotion_min_f1 = 0.20
+promotion_min_auroc = 0.70
+seed = 20260712
+min_total_records = 10821
+min_train_images = 6504
+min_validation_images = 2136
+min_test_images = 2181
+min_epochs_b0 = 1
+min_epochs_b7 = 0
+early_stop_accuracy = 0.93
+early_stop_min_epochs = 2
+require_mlflow_run = true
+require_model_artifact = true
+require_model_card = true
+require_control_panel_matrix = true
+require_drift_baseline = true
+require_cdct_gate = true
+require_split_manifest = true
+require_training_history = true
+require_confusion_matrix = true
+require_gpu_profile = true
+require_cuda_available = true
+require_cuda_device_name = true
+require_cuda_memory_capture = true
+require_torch_version = true
+require_torchvision_version = true
+require_environment_report = true
+
+[temporary_override]
+approved_for = "local-docker-desktop-production-validation"
+approved_by = "user-directed-validation"
+standard_promotion_min_accuracy = 0.80
+standard_promotion_min_f1 = 0.75
+standard_promotion_min_auroc = 0.80
+override_promotion_min_accuracy = 0.88
+override_promotion_min_f1 = 0.20
+override_promotion_min_auroc = 0.70
+reason = "Shorten end-to-end control-plane verification; not valid for external production claims."

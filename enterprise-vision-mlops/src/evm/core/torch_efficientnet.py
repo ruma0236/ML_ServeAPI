@@ -56,6 +56,22 @@ class EfficientNetCandidateConfig:
     mixed_precision: bool
     resource_profile: str
     epochs: int
+    early_stop_accuracy: float | None = None
+    early_stop_min_epochs: int = 1
+    class_weighted_loss: bool = True
+
+
+def early_stop_reached(
+    candidate: EfficientNetCandidateConfig,
+    *,
+    epoch: int,
+    validation_accuracy: float,
+) -> bool:
+    return bool(
+        candidate.early_stop_accuracy is not None
+        and epoch >= candidate.early_stop_min_epochs
+        and validation_accuracy >= candidate.early_stop_accuracy
+    )
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -210,7 +226,7 @@ def environment_report(device: Any) -> dict[str, Any]:
         )
         report["nvidia_smi"] = result.stdout.strip()
         report["nvidia_smi_exit_code"] = result.returncode
-    except (FileNotFoundError, subprocess.SubprocessError) as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         report["nvidia_smi_error"] = str(exc)
     return report
 
@@ -541,6 +557,9 @@ def write_model_card(path: Path, summary: dict[str, Any]) -> None:
         f"- MLflow run id: `{summary.get('mlflow_run_id', '')}`",
         f"- Artifact URI: `{summary.get('artifact_uri', '')}`",
         f"- Anomaly decision threshold: `{summary.get('decision_threshold', 0.5)}`",
+        f"- Epochs completed: `{summary.get('conditions', {}).get('epochs', 0)}`",
+        f"- Early stopped: `{summary.get('early_stopped', False)}`",
+        f"- Early-stop accuracy: `{summary.get('early_stop_accuracy')}`",
         "",
         "## Metrics",
         "",
@@ -585,6 +604,9 @@ def log_mlflow_run(
         "batch_size": candidate.batch_size,
         "mixed_precision": candidate.mixed_precision,
         "epochs": candidate.epochs,
+        "early_stop_accuracy": candidate.early_stop_accuracy,
+        "early_stop_min_epochs": candidate.early_stop_min_epochs,
+        "class_weighted_loss": candidate.class_weighted_loss,
         "seed": runtime.seed,
         "dataset_version": summary["dataset_version"],
         "artifact_uri": str(candidate_dir),
@@ -660,11 +682,15 @@ def train_candidate(
     model = build_model(candidate, len(CLASS_NAMES)).to(device)
     trainable_parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
     optimizer = build_optimizer(candidate, trainable_parameters)
-    criterion = nn.CrossEntropyLoss(weight=class_weights(splits["train"], device))
+    criterion = nn.CrossEntropyLoss(
+        weight=class_weights(splits["train"], device) if candidate.class_weighted_loss else None
+    )
     scaler = GradScaler(enabled=candidate.mixed_precision and device.type == "cuda")
 
     history: list[dict[str, Any]] = []
     optimizer_step_count = 0
+    stopped_early = False
+    early_stop_epoch: int | None = None
     started_at = time.perf_counter()
     for epoch in range(1, candidate.epochs + 1):
         model.train()
@@ -693,6 +719,14 @@ def train_candidate(
                 },
             }
         )
+        if early_stop_reached(
+            candidate,
+            epoch=epoch,
+            validation_accuracy=float(validation_metrics["accuracy"]),
+        ):
+            stopped_early = True
+            early_stop_epoch = epoch
+            break
 
     validation_outputs = collect_inference_outputs(model, validation_loader, device)
     threshold_calibration = optimal_f1_threshold(
@@ -767,7 +801,13 @@ def train_candidate(
             "learning_rate": candidate.learning_rate,
             "batch_size": candidate.batch_size,
             "mixed_precision": candidate.mixed_precision,
-            "epochs": candidate.epochs,
+            "epochs": len(history),
+            "epochs_requested": candidate.epochs,
+            "early_stop_accuracy": candidate.early_stop_accuracy,
+            "early_stop_min_epochs": candidate.early_stop_min_epochs,
+            "early_stopped": stopped_early,
+            "early_stop_epoch": early_stop_epoch,
+            "class_weighted_loss": candidate.class_weighted_loss,
             "seed": runtime.seed,
         },
         "metrics": metrics,
@@ -782,6 +822,9 @@ def train_candidate(
         "source_shard_index_sha256": str(split_manifest.get("source_shard_index_sha256", "")),
         "training_duration_seconds": duration_seconds,
         "optimizer_step_count": optimizer_step_count,
+        "early_stopped": stopped_early,
+        "early_stop_epoch": early_stop_epoch,
+        "early_stop_accuracy": candidate.early_stop_accuracy,
         "created_at": utc_now(),
     }
     mlflow_status, mlflow_result = log_mlflow_run(candidate, candidate_dir, summary, runtime)

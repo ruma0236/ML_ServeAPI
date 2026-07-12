@@ -69,6 +69,8 @@ jobs:
         run: |
           docker compose config > "$RUNNER_TEMP/evm-compose-rendered.yaml"
           kubectl kustomize infra/kubernetes/model-runtime > "$RUNNER_TEMP/evm-model-runtime-rendered.yaml"
+          kubectl kustomize infra/kubernetes/expedited-production-validation/training > "$RUNNER_TEMP/evm-b0-training-rendered.yaml"
+          kubectl kustomize infra/kubernetes/expedited-production-validation/production > "$RUNNER_TEMP/evm-b0-production-rendered.yaml"
 
       - name: Validate CycleRun and real-test policy contracts
         run: |
@@ -85,9 +87,9 @@ jobs:
       - name: Build immutable CI evidence bundle
         shell: bash
         run: |
-          image_digest="$(awk '/image: enterprise-vision-mlops-efficientnet-serving@sha256:/{print $2; exit}' infra/kubernetes/model-runtime/b7-serving-deployment.yaml)"
+          image_digest="$(awk '/image: enterprise-vision-mlops-efficientnet-serving@sha256:/{print $2; exit}' infra/kubernetes/expedited-production-validation/production/serving.yaml)"
           test -n "$image_digest"
-          config_render_digest="$(cat "$RUNNER_TEMP/evm-compose-rendered.yaml" "$RUNNER_TEMP/evm-model-runtime-rendered.yaml" | sha256sum | awk '{print $1}')"
+          config_render_digest="$(cat "$RUNNER_TEMP/evm-compose-rendered.yaml" "$RUNNER_TEMP/evm-model-runtime-rendered.yaml" "$RUNNER_TEMP/evm-b0-training-rendered.yaml" "$RUNNER_TEMP/evm-b0-production-rendered.yaml" | sha256sum | awk '{print $1}')"
           contract_digest="$(sha256sum contracts/control-panel/control-panel.openapi.json | awk '{print $1}')"
           generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           mkdir -p artifacts/w7/ci

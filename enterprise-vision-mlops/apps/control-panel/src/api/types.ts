@@ -82,7 +82,36 @@ export interface RuntimeResourceList {
   observation_message?: string | null;
 }
 
-export type TaskStatus = "draft" | "dry_run" | "queued" | "pending_confirmation" | "blocked";
+export interface OrchestratorConnection {
+  orchestrator: "airflow" | "mlflow" | "kubernetes" | "remote-worker";
+  mode: string;
+  control_mode: string;
+  status: State;
+  base_url?: string | null;
+  namespace?: string | null;
+  config_ref?: ResourceRef | null;
+  supported_actions: string[];
+  notes?: string | null;
+  checked_at: string;
+  blockers: string[];
+}
+
+export interface OrchestratorConnectionList {
+  orchestrators: OrchestratorConnection[];
+  checked_at: string;
+  status: State;
+}
+
+export type TaskStatus =
+  | "draft"
+  | "dry_run"
+  | "queued"
+  | "pending_confirmation"
+  | "running"
+  | "done"
+  | "failed"
+  | "cancelled"
+  | "blocked";
 export type TaskType = "airflow_dag_run" | "mlflow_run" | "kubernetes_job";
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
 export type CommandStatus =
@@ -190,6 +219,7 @@ export interface CIEvidenceValidation {
 }
 
 export interface DeploymentIntentRequest {
+  cycle_id?: string | null;
   target_environment: EnvironmentTier;
   target_namespace: string;
   target: ResourceRef;
@@ -547,6 +577,7 @@ export interface CDCTGate {
 }
 
 export interface TaskAssignmentRequest {
+  cycle_id?: string | null;
   task_type: TaskType;
   owner: string;
   priority: TaskPriority;
@@ -566,11 +597,24 @@ export interface TaskAssignment extends TaskAssignmentRequest {
   status: TaskStatus;
   created_at: string;
   queued_at?: string | null;
+  dispatched_at?: string | null;
+  finished_at?: string | null;
+  runtime_system?: string | null;
+  runtime_id?: string | null;
+  runtime_url?: string | null;
+  runtime_state?: string | null;
+  runtime_evidence_uri?: string | null;
+  failure_reason?: string | null;
   audit: AuditEvent[];
 }
 
 export interface TaskAssignmentList {
   tasks: TaskAssignment[];
+}
+
+export interface TaskTransitionRequest {
+  actor: string;
+  reason: string;
 }
 
 export interface CommandIntentRequest {
@@ -683,4 +727,29 @@ export interface CycleRun {
   stages: PipelineStage[];
   resources: ResourceRef[];
   artifacts: ArtifactRef[];
+}
+
+export interface CycleRunSummary {
+  cycle_id: string;
+  status: State;
+  started_at: string;
+  finished_at?: string | null;
+  dataset_id: string;
+  dataset_version: string;
+  model_name: string;
+  model_version: string;
+  model_stage: string;
+  environment?: EnvironmentTier | null;
+  owner_issue: string;
+  stage_count: number;
+  progress: number;
+  source_uri?: string | null;
+  live: boolean;
+}
+
+export interface CycleRunList {
+  cycles: CycleRunSummary[];
+  latest_cycle_id: string;
+  selected_cycle_id?: string | null;
+  total: number;
 }

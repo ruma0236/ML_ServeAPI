@@ -7,6 +7,7 @@ from evm.control_panel.org_context import build_default_org_context
 from evm.control_panel.readiness_evaluator import (
     ReadinessInputs,
     canonical_evidence_uri,
+    check_source_shard,
     evaluate_artifact_readiness,
     file_sha256,
     runtime_path,
@@ -17,6 +18,26 @@ from evm.control_panel.validate_readiness import validate_evaluation
 CANDIDATE_ID = "effnet-b7-img600-finetune-adamw"
 DATASET_VERSION = "visa-open-data-f1f1c9ee9922"
 RUN_ID = "a4e2763b28ae494ea67944084edd4b3f"
+
+
+def test_source_shard_accepts_embedded_identity_digest(tmp_path: Path) -> None:
+    source = tmp_path / "shard-index.json"
+    digest = "6" * 64
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "evm.dataset_shards.v1",
+                "record_count": 10821,
+                "identity_sha256": digest,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    check = check_source_shard(source, digest, 10821)
+
+    assert check.status == "pass"
+    assert check.observed["actual_sha256"] == digest
 
 
 def test_canonical_evidence_uri_maps_container_mount_to_f_drive(monkeypatch):

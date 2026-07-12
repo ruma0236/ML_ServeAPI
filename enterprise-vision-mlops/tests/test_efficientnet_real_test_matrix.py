@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from evm.core.torch_efficientnet import (
+    EfficientNetCandidateConfig,
+    early_stop_reached,
     load_shard_records,
     optimal_f1_threshold,
     predictions_at_threshold,
@@ -17,11 +19,29 @@ from evm.pipelines.efficientnet_training.run import (
     matrix_status,
     merge_candidate_results,
     required_candidate_blockers,
+    runtime_config_path,
     run,
     source_digest_blockers,
 )
 
 training_run_module = importlib.import_module("evm.pipelines.efficientnet_training.run")
+
+
+def test_runtime_config_path_maps_host_data_root(tmp_path: Path, monkeypatch) -> None:
+    mounted_root = tmp_path / "mnt" / "evm-data"
+    monkeypatch.setenv(
+        "EVM_HOST_DATA_ROOT",
+        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+    )
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", mounted_root.as_posix())
+    config = {"_project_root": str(tmp_path)}
+
+    resolved = runtime_config_path(
+        config,
+        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7",
+    )
+
+    assert resolved == mounted_root / "artifacts" / "w7"
 
 
 def test_validation_threshold_maximizes_anomaly_f1_without_test_labels() -> None:
@@ -33,6 +53,30 @@ def test_validation_threshold_maximizes_anomaly_f1_without_test_labels() -> None
     assert calibration["threshold"] == 0.7
     assert calibration["f1"] == pytest.approx(0.8)
     assert predictions_at_threshold(scores, float(calibration["threshold"])) == [0, 0, 0, 1]
+
+
+def test_expedited_early_stop_requires_minimum_epoch_and_accuracy() -> None:
+    candidate = EfficientNetCandidateConfig(
+        candidate_id="effnet-b0-expedited",
+        architecture="efficientnet-b0",
+        backbone="torchvision.models.efficientnet_b0",
+        input_size=224,
+        pretrained=True,
+        freeze_backbone=False,
+        optimizer="adamw",
+        learning_rate=0.0001,
+        batch_size=64,
+        mixed_precision=True,
+        resource_profile="gpu-rtx4080-b0-expedited",
+        epochs=8,
+        early_stop_accuracy=0.93,
+        early_stop_min_epochs=2,
+        class_weighted_loss=False,
+    )
+
+    assert early_stop_reached(candidate, epoch=1, validation_accuracy=0.95) is False
+    assert early_stop_reached(candidate, epoch=2, validation_accuracy=0.92) is False
+    assert early_stop_reached(candidate, epoch=2, validation_accuracy=0.93) is True
 
 
 def _write_json(path: Path, payload: dict | list) -> None:

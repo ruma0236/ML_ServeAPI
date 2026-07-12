@@ -1,0 +1,154 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evm-b0-production
+  namespace: evm-production
+  labels:
+    app.kubernetes.io/name: evm-b0-production
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/validation-profile: expedited-production-validation
+    evm.openai.local/environment: production
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: evm-b0-production
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: evm-b0-production
+        app.kubernetes.io/part-of: enterprise-vision-mlops
+        evm.openai.local/validation-profile: expedited-production-validation
+        evm.openai.local/environment: production
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: serving
+          image: enterprise-vision-mlops-efficientnet-serving@sha256:073b63bb18a983ff36264068ec9addd353040e92d16c0209737a8ce0567d2d76
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              DRIVER_DIR=""
+              for candidate in /usr/lib/wsl/drivers/*; do
+                if [ -f "$candidate/libcuda.so.1.1" ]; then
+                  DRIVER_DIR="$candidate"
+                  break
+                fi
+              done
+              test -n "$DRIVER_DIR"
+              export LD_LIBRARY_PATH="$DRIVER_DIR:/usr/lib/wsl/lib"
+              export PATH="$DRIVER_DIR:/usr/lib/wsl/lib:$PATH"
+              exec uvicorn apps.api.efficientnet_serving:app --host 0.0.0.0 --port 8000
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: APP_NAME
+              value: evm-b0-production
+            - name: EVM_MODEL_PATH
+              value: /mnt/evm-data/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/model.pt
+            - name: EVM_MODEL_SHA256
+              value: abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f
+            - name: EVM_MODEL_CANDIDATE_ID
+              value: effnet-b0-img224-expedited-adamw
+            - name: EVM_DATASET_VERSION
+              value: visa-open-data-e35d93d5561f
+            - name: EVM_REQUIRE_CUDA
+              value: "true"
+            - name: EVM_HOST_DATA_ROOT
+              value: F:/EnterpriseMLOps_Data/enterprise-vision-mlops
+            - name: EVM_DATA_MOUNT_ROOT
+              value: /mnt/evm-data
+            # Docker Desktop's WSL GPU bridge requires the runtime hook to expose all devices.
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 12Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: wsl-lib
+              mountPath: /usr/lib/wsl/lib
+              readOnly: true
+            - name: wsl-drivers
+              mountPath: /usr/lib/wsl/drivers
+              readOnly: true
+            - name: large-data
+              mountPath: /mnt/evm-data
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: wsl-lib
+          hostPath:
+            path: /usr/lib/wsl/lib
+            type: Directory
+        - name: wsl-drivers
+          hostPath:
+            path: /usr/lib/wsl/drivers
+            type: Directory
+        - name: large-data
+          persistentVolumeClaim:
+            claimName: evm-large-data
+            readOnly: true
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evm-b0-production
+  namespace: evm-production
+  labels:
+    app.kubernetes.io/name: evm-b0-production
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  selector:
+    app.kubernetes.io/name: evm-b0-production
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

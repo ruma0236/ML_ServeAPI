@@ -1,14 +1,26 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-from evm.control_panel.aggregation import build_latest_cycle
+from evm.control_panel.aggregation import build_latest_cycle, latest_kubernetes_evidence
 
 
 def _write_json(path: Path, payload: dict | list) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def test_latest_kubernetes_evidence_scans_generic_and_legacy_roots(tmp_path: Path) -> None:
+    legacy = tmp_path / "legacy" / "w7-k8s-b7-old" / "evidence_index.json"
+    generic = tmp_path / "generic" / "w7-k8s-b0-new" / "evidence_index.json"
+    _write_json(legacy, {"status": "pass"})
+    _write_json(generic, {"status": "pass"})
+    os.utime(legacy, (1, 1))
+    os.utime(generic, (2, 2))
+
+    assert latest_kubernetes_evidence(tmp_path / "generic", tmp_path / "legacy") == generic
 
 
 def _write_project_files(root: Path) -> None:

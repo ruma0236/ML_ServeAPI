@@ -7,9 +7,10 @@ is provided through Tailscale Serve, so the services remain limited to devices
 and users authorized by the tailnet. Do not forward the Docker backend ports
 directly from the public router.
 
-The Control Panel Vite server accepts the tailnet DNS name through the explicit
-`VITE_CONTROL_PANEL_ALLOWED_HOSTS` allowlist. Add exact hostnames as a
-comma-separated list; do not use a wildcard.
+The Control Panel is a versioned static build served by Nginx on fixed port
+`4173`. Nginx proxies `/control-panel/` to the Control API over the private
+Compose network. Vite port `5174` is reserved for local Playwright execution
+and is not an operator endpoint.
 
 The Tailscale URLs use HTTP at the application layer, but the tailnet transport
 is encrypted. Public internet access requires a separate HTTPS gateway with
@@ -33,7 +34,7 @@ powershell -ExecutionPolicy Bypass -File scripts/dev/configure_tailscale_remote_
 
 | Service | Tailnet port | Local target | Purpose |
 |---|---:|---:|---|
-| Control Panel | 4174 | 4173 | Unified lifecycle UI and proxied Control Panel API |
+| Control Panel | 4173 | 4173 | Unified lifecycle UI and proxied Control Panel API |
 | Grafana | 3001 | 3000 | Dashboards and operational metrics |
 | MLflow | 5001 | 5000 | Experiments, runs, artifacts, and model registry |
 | Airflow | 8081 | 8080 | DAG inspection and orchestration operations |

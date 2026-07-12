@@ -424,7 +424,8 @@ def collect_local_resource_profile() -> dict[str, Any]:
             timeout=10,
             check=False,
         )
-    except (FileNotFoundError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as exc:
+        profile["gpu_probe_error"] = f"{type(exc).__name__}: {exc}"
         return profile
 
     if result.returncode != 0:

@@ -284,7 +284,11 @@ def check_source_shard(
         "source_shard_index",
     )
     loaded = error is None
-    snapshot_digest = str(payload.get("source_shard_index_sha256") or "")
+    snapshot_digest = str(
+        payload.get("source_shard_index_sha256")
+        or payload.get("identity_sha256")
+        or ""
+    )
     evidence_digest = file_sha256(path) if path.exists() and path.is_file() else ""
     actual_digest = snapshot_digest or evidence_digest
     observed_count = int(payload.get("record_count") or 0)

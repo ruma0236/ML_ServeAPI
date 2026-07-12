@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: evm-production
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/environment: production
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: evm-production-large-data
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/volume-role: production
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: evm-local-hostpath
+  claimRef:
+    namespace: evm-production
+    name: evm-large-data
+  hostPath:
+    path: /run/desktop/mnt/host/f/EnterpriseMLOps_Data/enterprise-vision-mlops
+    type: Directory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evm-large-data
+  namespace: evm-production
+  labels:
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 1Ti
+  storageClassName: evm-local-hostpath
+  volumeName: evm-production-large-data

@@ -55,6 +55,9 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
   const readinessModel = cycle.readiness_evaluation?.checks.find((check) => check.check_id === "model_artifact");
   const selectedCandidate = latest?.model_candidate_id || cycle.readiness_evaluation?.candidate_id || "not selected";
   const selectedDigest = latest?.model_digest || String(readinessModel?.observed.actual_sha256 || "");
+  const targetDeployment = cycle.model.model_type === "efficientnet-b0"
+    ? "evm-b0-production"
+    : "evm-b7-serving";
   const admissionStatus = latest?.state || (
     cycle.ci_evidence?.valid
     && cycle.readiness_evaluation?.decision === "ready"
@@ -65,7 +68,7 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
 
   async function loadLedger() {
     try {
-      setLedger(await fetchDeploymentIntents());
+      setLedger(await fetchDeploymentIntents(undefined, cycle.cycle_id));
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "deployment ledger unavailable");
     }
@@ -75,7 +78,7 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
     void loadLedger();
     const interval = window.setInterval(() => void loadLedger(), 5000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [cycle.cycle_id]);
 
   const nextAction = useMemo(() => {
     if (!latest) return null;
@@ -90,9 +93,10 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
     clearActionState();
     try {
       const created = await createDeploymentIntent({
+        cycle_id: cycle.cycle_id,
         target_environment: environment,
         target_namespace: namespace,
-        target: { namespace, kind: "Deployment", name: "evm-b7-serving" },
+        target: { namespace, kind: "Deployment", name: targetDeployment },
         actor: requester,
         reason,
         dry_run: true
@@ -240,8 +244,8 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
             <div key={`${item.timestamp}-${index}`} className="deployment-transition">
               <i />
               <div>
-                <strong>{item.from_state} → {item.to_state}</strong>
-                <span>{item.actor} · {item.result}</span>
+                <strong>{item.from_state} -&gt; {item.to_state}</strong>
+                <span>{item.actor} / {item.result}</span>
                 <small>{new Date(item.timestamp).toLocaleString()}</small>
               </div>
             </div>

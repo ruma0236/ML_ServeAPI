@@ -243,18 +243,17 @@ def load_checkpoint(model_path: Path, require_cuda: bool) -> tuple[Any, Any, dic
     import torch
 
     if require_cuda and not torch.cuda.is_available():
-        raise RuntimeError("CUDA is required for W7 measured B7 drift evidence")
+        raise RuntimeError("CUDA is required for W7 measured EfficientNet drift evidence")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = torch.load(model_path, map_location=device, weights_only=True)
     if not isinstance(checkpoint, dict):
         raise ValueError("model checkpoint must be a mapping")
     architecture = str(checkpoint.get("architecture") or "")
-    if architecture != "efficientnet-b7":
-        raise ValueError(f"selected checkpoint is not EfficientNet-B7: {architecture}")
+    backbone = backbone_for_architecture(architecture)
     candidate = EfficientNetCandidateConfig(
         candidate_id=str(checkpoint.get("candidate_id") or "unknown"),
         architecture=architecture,
-        backbone="torchvision.models.efficientnet_b7",
+        backbone=backbone,
         input_size=int(checkpoint.get("input_size") or 600),
         pretrained=False,
         freeze_backbone=False,
@@ -392,6 +391,17 @@ def window_observation_range(records: list[dict[str, Any]]) -> dict[str, str | N
     }
 
 
+def backbone_for_architecture(architecture: str) -> str:
+    backbones = {
+        "efficientnet-b0": "torchvision.models.efficientnet_b0",
+        "efficientnet-b7": "torchvision.models.efficientnet_b7",
+    }
+    try:
+        return backbones[architecture]
+    except KeyError as exc:
+        raise ValueError(f"unsupported EfficientNet architecture: {architecture}") from exc
+
+
 def run(config_path: str = "configs/local_visa.toml") -> dict[str, Any]:
     import torch
 
@@ -400,7 +410,8 @@ def run(config_path: str = "configs/local_visa.toml") -> dict[str, Any]:
     pipeline_config = get_nested(config, "pipelines.drift_review", {})
     policy_path = resolve_path(
         config,
-        str(pipeline_config.get("policy", "configs/b7_drift_policy.toml")),
+        os.getenv("EVM_DRIFT_POLICY_CONFIG", "").strip()
+        or str(pipeline_config.get("policy", "configs/b7_drift_policy.toml")),
     )
     with policy_path.open("rb") as fp:
         policy = tomllib.load(fp)
@@ -553,7 +564,7 @@ def run(config_path: str = "configs/local_visa.toml") -> dict[str, Any]:
         "status": "review_required" if review_required else "pass",
         "decision": evaluation["decision"],
         "candidate_id": str(identity["candidate_id"]),
-        "architecture": "efficientnet-b7",
+        "architecture": str(checkpoint.get("architecture") or identity.get("architecture") or ""),
         "model_sha256": event["model_sha256"],
         "model_artifact": str(inputs["model_path"]),
         "dataset_version": str(identity["dataset_version"]),
@@ -617,10 +628,9 @@ def run(config_path: str = "configs/local_visa.toml") -> dict[str, Any]:
         "run_id": rid,
         "status": report["status"],
         "completion_claim_allowed": (
-            review_required
-            and bool(queue)
-            and bool(input_validation["valid"])
+            bool(input_validation["valid"])
             and device.type == "cuda"
+            and (bool(queue) if review_required else not queue)
         ),
         "no_mock_no_smoke": True,
         "model_sha256": event["model_sha256"],

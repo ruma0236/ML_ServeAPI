@@ -8,6 +8,7 @@ from evm.core.readiness_snapshot import (
     file_sha256,
     load_readiness_snapshot,
     read_json,
+    source_shard_digest,
 )
 
 
@@ -52,6 +53,23 @@ def source_files(tmp_path: Path, *, split_snapshot: bool) -> tuple[Path, Path, P
         }
     write_json(source, source_payload)
     return dataset, quality, source
+
+
+def test_raw_shard_index_uses_embedded_identity_digest(tmp_path: Path) -> None:
+    source = tmp_path / "shard-index.json"
+    write_json(
+        source,
+        {
+            "schema_version": "evm.dataset_shards.v1",
+            "record_count": 10821,
+            "identity_sha256": SOURCE_DIGEST,
+        },
+    )
+
+    assert source_shard_digest(source, read_json(source)) == (
+        SOURCE_DIGEST,
+        "shard_index_identity",
+    )
 
 
 def test_snapshot_survives_mutation_of_original_latest_sources(tmp_path: Path) -> None:

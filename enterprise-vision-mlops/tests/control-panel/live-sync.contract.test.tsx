@@ -6,13 +6,18 @@ import exampleCycle from "../../contracts/control-panel/examples/cycle-run.json"
 import type {
   ControlPanelDiagnostics,
   CycleRun,
+  CycleRunList,
   DecisionRecordList,
   DriftReviewWorkflow,
+  OrchestratorConnectionList,
   RuntimeResourceList
 } from "../../apps/control-panel/src/api/types";
 
 const api = vi.hoisted(() => ({
+  fetchCycles: vi.fn(),
+  fetchCycle: vi.fn(),
   fetchLatestCycle: vi.fn(),
+  fetchOrchestrators: vi.fn(),
   fetchRuntimeResources: vi.fn(),
   fetchControlPanelDiagnostics: vi.fn(),
   fetchLatestDriftReview: vi.fn(),
@@ -30,6 +35,22 @@ const resources: RuntimeResourceList = {
   resources: [],
   observation_status: "live",
   observed_at: "2026-07-12T00:00:00Z"
+};
+const orchestrators: OrchestratorConnectionList = {
+  orchestrators: [
+    {
+      orchestrator: "airflow",
+      mode: "external-compose",
+      control_mode: "rest-api",
+      status: "pass",
+      base_url: "http://airflow-webserver:8080/api/v1",
+      supported_actions: ["trigger_dag"],
+      checked_at: "2026-07-12T00:00:00Z",
+      blockers: []
+    }
+  ],
+  checked_at: "2026-07-12T00:00:00Z",
+  status: "pass"
 };
 const diagnostics: ControlPanelDiagnostics = {
   schema_version: "evm.control_panel.diagnostics.v1",
@@ -87,7 +108,30 @@ describe("Control Panel source synchronization", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    const catalog: CycleRunList = {
+      cycles: [{
+        cycle_id: exampleCycle.cycle_id,
+        status: exampleCycle.status,
+        started_at: exampleCycle.started_at,
+        finished_at: exampleCycle.finished_at,
+        dataset_id: exampleCycle.dataset.dataset_id,
+        dataset_version: exampleCycle.dataset.version,
+        model_name: exampleCycle.model.model_name,
+        model_version: exampleCycle.model.version,
+        model_stage: exampleCycle.model.stage,
+        environment: exampleCycle.environment?.tier,
+        owner_issue: exampleCycle.owner_issue,
+        stage_count: exampleCycle.stages.length,
+        progress: 1,
+        live: true
+      }],
+      latest_cycle_id: exampleCycle.cycle_id,
+      total: 1
+    };
+    api.fetchCycles.mockResolvedValue(catalog);
+    api.fetchCycle.mockResolvedValue(exampleCycle as CycleRun);
     api.fetchLatestCycle.mockResolvedValue(exampleCycle as CycleRun);
+    api.fetchOrchestrators.mockResolvedValue(orchestrators);
     api.fetchRuntimeResources.mockResolvedValue(resources);
     api.fetchControlPanelDiagnostics.mockResolvedValue(diagnostics);
     api.fetchLatestDriftReview.mockResolvedValue(drift);

@@ -4,6 +4,7 @@ import type {
   CommandIntentRequest,
   ControlPanelDiagnostics,
   CycleRun,
+  CycleRunList,
   DecisionRecord,
   DecisionRecordList,
   DecisionRecordRequest,
@@ -14,6 +15,7 @@ import type {
   DeploymentTransitionRequest,
   DriftReviewTransitionRequest,
   DriftReviewWorkflow,
+  OrchestratorConnectionList,
   PromotionPolicyDecision,
   PromotionPolicyRequest,
   ResourceRef,
@@ -22,7 +24,8 @@ import type {
   State,
   TaskAssignment,
   TaskAssignmentList,
-  TaskAssignmentRequest
+  TaskAssignmentRequest,
+  TaskTransitionRequest
 } from "./types";
 
 export const API_BASE =
@@ -34,6 +37,26 @@ export async function fetchLatestCycle(baseUrl = API_BASE): Promise<CycleRun> {
   });
   if (!response.ok) {
     throw new Error(`CycleRun request failed: ${response.status}`);
+  }
+  return (await response.json()) as CycleRun;
+}
+
+export async function fetchCycles(baseUrl = API_BASE): Promise<CycleRunList> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/cycles?limit=100`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`CycleRun catalog request failed: ${response.status}`);
+  }
+  return (await response.json()) as CycleRunList;
+}
+
+export async function fetchCycle(cycleId: string, baseUrl = API_BASE): Promise<CycleRun> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/cycles/${encodeURIComponent(cycleId)}`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`CycleRun ${cycleId} request failed: ${response.status}`);
   }
   return (await response.json()) as CycleRun;
 }
@@ -148,8 +171,12 @@ export class ControlPanelApiError extends Error {
   }
 }
 
-export async function fetchDeploymentIntents(baseUrl = API_BASE): Promise<DeploymentIntentList> {
-  const response = await fetch(`${baseUrl}/control-panel/v1/deployment-intents`, {
+export async function fetchDeploymentIntents(
+  baseUrl = API_BASE,
+  cycleId?: string
+): Promise<DeploymentIntentList> {
+  const query = cycleId ? `?cycle_id=${encodeURIComponent(cycleId)}` : "";
+  const response = await fetch(`${baseUrl}/control-panel/v1/deployment-intents${query}`, {
     headers: { Accept: "application/json" }
   });
   if (!response.ok) {
@@ -223,6 +250,16 @@ export async function fetchRuntimeResources(baseUrl = API_BASE): Promise<Runtime
   return payload;
 }
 
+export async function fetchOrchestrators(baseUrl = API_BASE): Promise<OrchestratorConnectionList> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/orchestrators`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`Orchestrator connection request failed: ${response.status}`);
+  }
+  return (await response.json()) as OrchestratorConnectionList;
+}
+
 export async function fetchTaskAssignments(baseUrl = API_BASE): Promise<TaskAssignment[]> {
   const response = await fetch(`${baseUrl}/control-panel/v1/tasks`, {
     headers: { Accept: "application/json" }
@@ -252,6 +289,33 @@ export async function createTaskAssignment(request: TaskAssignmentRequest, baseU
   });
   if (!response.ok) {
     throw new Error(`TaskAssignment create failed: ${response.status}`);
+  }
+  return (await response.json()) as TaskAssignment;
+}
+
+export async function dispatchTaskAssignment(taskId: string, baseUrl = API_BASE): Promise<TaskAssignment> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/tasks/${encodeURIComponent(taskId)}/dispatch`, {
+    method: "POST",
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw await controlPanelError(response, "Task dispatch failed");
+  }
+  return (await response.json()) as TaskAssignment;
+}
+
+export async function confirmTaskAssignment(
+  taskId: string,
+  request: TaskTransitionRequest,
+  baseUrl = API_BASE
+): Promise<TaskAssignment> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/tasks/${encodeURIComponent(taskId)}/confirm`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    throw await controlPanelError(response, "Task confirmation failed");
   }
   return (await response.json()) as TaskAssignment;
 }

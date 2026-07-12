@@ -1,0 +1,115 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: evm-b0-expedited-training
+  namespace: evm-training
+  labels:
+    app.kubernetes.io/name: evm-b0-expedited-training
+    app.kubernetes.io/part-of: enterprise-vision-mlops
+    evm.openai.local/validation-profile: expedited-production-validation
+    evm.openai.local/candidate-id: effnet-b0-img224-expedited-adamw
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: evm-b0-expedited-training
+        app.kubernetes.io/part-of: enterprise-vision-mlops
+        evm.openai.local/validation-profile: expedited-production-validation
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: trainer
+          image: enterprise-vision-mlops-efficientnet-training@sha256:9a8756dbf9780cf6d617b9888adfc979c3124c63a8a5bd8d21ee2e0f14982a51
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              DRIVER_DIR=""
+              for candidate in /usr/lib/wsl/drivers/*; do
+                if [ -f "$candidate/libcuda.so.1.1" ]; then
+                  DRIVER_DIR="$candidate"
+                  break
+                fi
+              done
+              test -n "$DRIVER_DIR"
+              export LD_LIBRARY_PATH="$DRIVER_DIR:/usr/lib/wsl/lib"
+              export PATH="$DRIVER_DIR:/usr/lib/wsl/lib:$PATH"
+              exec python -m evm.pipelines.efficientnet_training.run \
+                /app/configs/w7_b0_expedited_production.toml --require-pass
+          env:
+            - name: EVM_EFFICIENTNET_CANDIDATES
+              value: effnet-b0-img224-expedited-adamw
+            - name: EVM_EFFICIENTNET_SEED
+              value: "20260712"
+            - name: EVM_HOST_DATA_ROOT
+              value: F:/EnterpriseMLOps_Data/enterprise-vision-mlops
+            - name: EVM_DATA_MOUNT_ROOT
+              value: /mnt/evm-data
+            - name: HOME
+              value: /tmp
+            - name: MPLCONFIGDIR
+              value: /tmp/matplotlib
+            - name: TORCH_HOME
+              value: /mnt/evm-data/cache/torch
+            # Docker Desktop's WSL GPU bridge requires the runtime hook to expose all devices.
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+          resources:
+            requests:
+              cpu: "6"
+              memory: 10Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "16"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: wsl-lib
+              mountPath: /usr/lib/wsl/lib
+              readOnly: true
+            - name: wsl-drivers
+              mountPath: /usr/lib/wsl/drivers
+              readOnly: true
+            - name: large-data
+              mountPath: /mnt/evm-data
+            - name: dshm
+              mountPath: /dev/shm
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: wsl-lib
+          hostPath:
+            path: /usr/lib/wsl/lib
+            type: Directory
+        - name: wsl-drivers
+          hostPath:
+            path: /usr/lib/wsl/drivers
+            type: Directory
+        - name: large-data
+          persistentVolumeClaim:
+            claimName: evm-large-data
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
+        - name: tmp
+          emptyDir: {}

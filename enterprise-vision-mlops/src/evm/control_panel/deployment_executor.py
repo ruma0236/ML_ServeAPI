@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from evm.control_panel.deployment_intents import (
+    ALLOWED_TARGET_NAMES,
     DeploymentTransitionRejected,
     get_intent,
     intent_root,
@@ -143,6 +144,20 @@ def deployment_patch_command(
     ]
 
 
+def manifest_apply_command(intent: DeploymentIntent) -> list[str]:
+    manifest = Path(intent.manifest_ref).resolve()
+    allowed_root = (Path.cwd() / "infra" / "kubernetes").resolve()
+    if not manifest.is_relative_to(allowed_root):
+        raise DeploymentTransitionRejected("executor_manifest_not_allowed")
+    if manifest.is_dir():
+        if not (manifest / "kustomization.yaml").is_file():
+            raise DeploymentTransitionRejected("executor_kustomization_missing")
+        return ["kubectl", "apply", "-k", str(manifest)]
+    if not manifest.is_file():
+        raise DeploymentTransitionRejected("executor_manifest_missing")
+    return ["kubectl", "apply", "-f", str(manifest)]
+
+
 def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -172,6 +187,7 @@ def execute_apply(
     )
     applying = mark_applying(intent_id)
     commands = [
+        manifest_apply_command(applying),
         deployment_patch_command(applying, target, "apply"),
         [
             "kubectl",
@@ -272,7 +288,7 @@ def run_commands(
 
 
 def validate_executor_target(intent: DeploymentIntent) -> None:
-    if intent.target.kind != "Deployment" or intent.target.name != "evm-b7-serving":
+    if intent.target.kind != "Deployment" or intent.target.name not in ALLOWED_TARGET_NAMES:
         raise DeploymentTransitionRejected("executor_target_not_allowed")
     if intent.target.namespace != intent.target_namespace:
         raise DeploymentTransitionRejected("executor_namespace_mismatch")

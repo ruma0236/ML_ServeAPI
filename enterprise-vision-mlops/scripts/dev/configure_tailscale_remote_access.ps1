@@ -17,7 +17,7 @@ if ($status.BackendState -ne "Running" -or -not $status.Self.Online) {
 
 $dnsName = $status.Self.DNSName.TrimEnd(".")
 $routes = @(
-    [pscustomobject]@{ Name = "Control Panel"; RemotePort = 4174; LocalPort = 4173 },
+    [pscustomobject]@{ Name = "Control Panel"; RemotePort = 4173; LocalPort = 4173 },
     [pscustomobject]@{ Name = "Grafana"; RemotePort = 3001; LocalPort = 3000 },
     [pscustomobject]@{ Name = "MLflow"; RemotePort = 5001; LocalPort = 5000 },
     [pscustomobject]@{ Name = "Airflow"; RemotePort = 8081; LocalPort = 8080 },

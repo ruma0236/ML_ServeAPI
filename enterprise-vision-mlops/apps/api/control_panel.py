@@ -4,9 +4,10 @@ import os
 from threading import RLock
 from time import monotonic
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from evm.control_panel.aggregation import build_latest_cycle
+from evm.control_panel.cycle_catalog import build_cycle_catalog, find_cycle
 from evm.control_panel.kubernetes_observer import (
     load_kubernetes_resource_snapshot,
     merge_runtime_resources,
@@ -14,6 +15,8 @@ from evm.control_panel.kubernetes_observer import (
 from evm.control_panel.promotion_policy import evaluate_cycle_promotion
 from evm.control_panel.schemas import (
     CycleRun,
+    CycleRunList,
+    EnvironmentTier,
     PromotionPolicyDecision,
     PromotionPolicyRequest,
     ResourceRef,
@@ -66,6 +69,22 @@ def latest_cycle() -> CycleRun:
     return cycle_snapshot()
 
 
+@router.get("/cycles", response_model=CycleRunList)
+def list_cycles(
+    status: State | None = None,
+    environment: EnvironmentTier | None = None,
+    query: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> CycleRunList:
+    return build_cycle_catalog(
+        cycle_snapshot(),
+        status=status,
+        environment=environment,
+        query=query,
+        limit=limit,
+    )
+
+
 @router.post("/promotion-policy/evaluate", response_model=PromotionPolicyDecision)
 def evaluate_promotion_policy(request: PromotionPolicyRequest) -> PromotionPolicyDecision:
     return evaluate_cycle_promotion(cycle_snapshot(), request, persist=True)
@@ -73,13 +92,13 @@ def evaluate_promotion_policy(request: PromotionPolicyRequest) -> PromotionPolic
 
 @router.get("/cycles/{cycle_id}", response_model=CycleRun)
 def get_cycle(cycle_id: str) -> CycleRun:
-    cycle = cycle_snapshot()
-    if cycle.cycle_id != cycle_id:
+    cycle = find_cycle(cycle_id, cycle_snapshot())
+    if cycle is None:
         raise HTTPException(
             status_code=404,
             detail={
                 "error": "cycle_not_found",
-                "message": f"Only latest local cycle is available: {cycle.cycle_id}",
+                "message": f"CycleRun is not available in the live or historical catalog: {cycle_id}",
             },
         )
     return cycle

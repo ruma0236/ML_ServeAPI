@@ -256,12 +256,12 @@ def model_matrix_evidence(config: dict[str, Any], matrix_id: str) -> dict[str, A
     return read_json(latest_path) or read_json(matrix_path)
 
 
-def latest_kubernetes_evidence(root: Path) -> Path | None:
-    if not root.exists():
-        return None
+def latest_kubernetes_evidence(*roots: Path) -> Path | None:
     candidates = [
         path
-        for path in root.glob("w7-k8s-b7-*/evidence_index.json")
+        for root in roots
+        if root.exists()
+        for path in root.glob("w7-k8s-*/evidence_index.json")
         if path.is_file()
     ]
     return max(candidates, key=lambda path: (path.stat().st_mtime, path.parent.name)) if candidates else None
@@ -456,7 +456,10 @@ def build_latest_cycle(
     model_version = str(registry.get("version") or "")
     model_type = str(source_model.get("model_type") or "unknown")
 
-    efficientnet_path = Path(efficientnet_config_path or DEFAULT_EFFICIENTNET_CONFIG_PATH)
+    efficientnet_path = Path(
+        efficientnet_config_path
+        or os.getenv("EVM_EFFICIENTNET_CONFIG", DEFAULT_EFFICIENTNET_CONFIG_PATH)
+    )
     if not efficientnet_path.is_absolute():
         efficientnet_path = project_root / efficientnet_path
     model_matrix = build_model_matrix(efficientnet_path, dataset_version)
@@ -481,6 +484,55 @@ def build_latest_cycle(
         if isinstance(efficientnet_config.get("acceptance"), dict)
         else {}
     )
+    validation_profile = (
+        efficientnet_config.get("validation_profile", {})
+        if isinstance(efficientnet_config.get("validation_profile"), dict)
+        else {}
+    )
+    product_config = (
+        efficientnet_config.get("product", {})
+        if isinstance(efficientnet_config.get("product"), dict)
+        else {}
+    )
+    product_profile_active = bool(validation_profile.get("temporary"))
+    selected_candidate_id = str(
+        matrix_config.get("selected_candidate_id", "effnet-b7-img600-finetune-adamw")
+    )
+    selected_candidate = next(
+        (
+            candidate
+            for candidate in model_matrix.candidates
+            if candidate.candidate_id == selected_candidate_id
+        ),
+        None,
+    )
+    if product_profile_active:
+        blockers = []
+        if model_matrix.status != "pass":
+            blockers.append(f"model_matrix_{model_matrix.status}")
+        if selected_candidate is None:
+            blockers.append("selected_candidate_missing")
+        else:
+            if selected_candidate.status != "pass":
+                blockers.append(f"selected_candidate_{selected_candidate.status}")
+            blockers.extend(selected_candidate.promotion_blockers)
+            metrics = {metric.name: metric.value for metric in selected_candidate.metrics}
+            model_type = selected_candidate.architecture
+        thresholds = {
+            name: float(matrix_acceptance[key])
+            for name, key in {
+                "accuracy": "promotion_min_accuracy",
+                "f1": "promotion_min_f1",
+                "auroc": "promotion_min_auroc",
+            }.items()
+            if isinstance(matrix_acceptance.get(key), int | float)
+        }
+        promotion_status = "blocked" if blockers else "pass"
+        registry_status = (
+            "pass"
+            if selected_candidate is not None and selected_candidate.status == "pass"
+            else "blocked"
+        )
 
     stage_artifacts = [
         artifact
@@ -581,22 +633,11 @@ def build_latest_cycle(
     metrics_list = metric_list(metrics, thresholds)
     org_context = build_default_org_context()
     contract_path = project_root / "domain_packs/manufacturing_visual_inspection/data_contract.toml"
-    selected_candidate_id = str(
-        matrix_config.get("selected_candidate_id", "effnet-b7-img600-finetune-adamw")
-    )
     matrix_id = str(matrix_config.get("matrix_id", "w7-efficientnet-real-test-matrix"))
     matrix_artifact_root = runtime_path(
         str(matrix_resources.get("artifact_root", artifacts_root / "w7" / "efficientnet"))
     )
     matrix_dir = matrix_artifact_root / matrix_id
-    selected_candidate = next(
-        (
-            candidate
-            for candidate in model_matrix.candidates
-            if candidate.candidate_id == selected_candidate_id
-        ),
-        None,
-    )
     candidate_dir = (
         runtime_path(selected_candidate.artifact_uri)
         if selected_candidate is not None and selected_candidate.artifact_uri
@@ -619,8 +660,35 @@ def build_latest_cycle(
         or matrix_config.get("minimum_records")
         or 0
     )
-    expected_source_digest = str(matrix_inputs.get("shard_index_sha256", ""))
+    expected_source_digest = str(
+        matrix_inputs.get("shard_identity_sha256")
+        or matrix_inputs.get("shard_index_sha256")
+        or ""
+    )
     candidate_summary_payload = read_json(candidate_dir / "candidate_summary.json")
+    if product_profile_active:
+        model_name = str(product_config.get("model_name") or selected_candidate_id)
+        model_version = str(
+            candidate_summary_payload.get("mlflow_run_id")
+            or str(candidate_summary_payload.get("model_sha256", ""))[:12]
+            or "pending"
+        )
+        model_stage = "Candidate"
+        registry_path = candidate_dir / "candidate_summary.json"
+        product_artifact = existing_artifact("model_candidate_summary", registry_path)
+        stages = [
+            item.model_copy(
+                update={
+                    "status": registry_status if item.stage_id == "model-registry" else promotion_status,
+                    "artifacts": [product_artifact] if product_artifact else [],
+                    "failure_reason": None if not blockers else ",".join(blockers),
+                    "progress": 1.0 if not blockers else 0.0,
+                }
+            )
+            if item.stage_id in {"model-registry", "model-lifecycle"}
+            else item
+            for item in stages
+        ]
     readiness_snapshot = load_readiness_snapshot(
         candidate_dir.parent
         / "_readiness_inputs"
@@ -671,6 +739,7 @@ def build_latest_cycle(
                 / "evm-238-b-real-test-evidence-report.json"
             ),
             kubernetes_evidence_path=latest_kubernetes_evidence(
+                artifacts_root / "w7" / "kubernetes_execution",
                 artifacts_root / "w7" / "kubernetes_b7"
             ),
             mlflow_tracking_uri=os.getenv(
@@ -760,6 +829,24 @@ def build_latest_cycle(
         readiness_status=readiness_result.evaluation.status,
     )
     latest_deployment = latest_intent()
+    if product_profile_active and (
+        latest_deployment is None
+        or latest_deployment.model_candidate_id != selected_candidate_id
+    ):
+        latest_deployment = None
+    if (
+        product_profile_active
+        and latest_deployment is not None
+        and latest_deployment.state == "applied"
+        and latest_deployment.target_environment == "production"
+    ):
+        model_stage = "Production"
+    product_serving_ready = bool(
+        product_profile_active
+        and latest_deployment is not None
+        and latest_deployment.state == "applied"
+        and latest_deployment.target_environment == "production"
+    )
     cycle = CycleRun(
         cycle_id=(
             f"cycle-w7-{sanitize_cycle_part(dataset_version)}-"
@@ -781,8 +868,18 @@ def build_latest_cycle(
             url="http://localhost:8080",
         ),
         mlflow=MLflowRef(
-            experiment_id=str(get_nested(config, "mlflow.experiment_name", "")),
-            run_id=str(source_model.get("trace", {}).get("pipeline_run_id", "")) if isinstance(source_model.get("trace"), dict) else "",
+            experiment_id=(
+                str(matrix_inputs.get("mlflow_experiment_name", ""))
+                if product_profile_active
+                else str(get_nested(config, "mlflow.experiment_name", ""))
+            ),
+            run_id=(
+                str(candidate_summary_payload.get("mlflow_run_id", ""))
+                if product_profile_active
+                else str(source_model.get("trace", {}).get("pipeline_run_id", ""))
+                if isinstance(source_model.get("trace"), dict)
+                else ""
+            ),
             model_name=model_name,
             model_version=model_version,
             url=str(get_nested(config, "mlflow.tracking_uri", "http://localhost:5000")),
@@ -808,13 +905,23 @@ def build_latest_cycle(
             stage=model_stage,
             model_type=model_type,
             registry_uri=str(registry_path),
-            source_run_id=str(source_model.get("trace", {}).get("pipeline_run_id", "")) if isinstance(source_model.get("trace"), dict) else "",
+            source_run_id=(
+                str(candidate_summary_payload.get("mlflow_run_id", ""))
+                if product_profile_active
+                else str(source_model.get("trace", {}).get("pipeline_run_id", ""))
+                if isinstance(source_model.get("trace"), dict)
+                else ""
+            ),
             dataset_version=dataset_version,
         ),
         model_matrix=model_matrix,
         metrics=metrics_list,
         promotion_gate=PromotionGate(
-            decision=str(registry.get("promotion_decision") or lifecycle_policy.get("decision") or "unknown"),
+            decision=(
+                "allow"
+                if product_profile_active and not blockers
+                else str(registry.get("promotion_decision") or lifecycle_policy.get("decision") or "unknown")
+            ),
             status=promotion_status,
             blockers=blockers,
             thresholds={key: float(value) for key, value in thresholds.items() if isinstance(value, int | float)},
@@ -822,13 +929,19 @@ def build_latest_cycle(
         drift=drift_state,
         cdct_gate=cdct_gate,
         serving=ServingState(
-            status="pass" if registry else "blocked",
-            endpoint=str(get_nested(config, "serving.api_url", "http://localhost:8000")),
-            model_loaded=bool(registry),
+            status=(
+                "pass" if product_serving_ready else "blocked"
+            ) if product_profile_active else ("pass" if registry else "blocked"),
+            endpoint=(
+                str(product_config.get("serving_endpoint", ""))
+                if product_profile_active
+                else str(get_nested(config, "serving.api_url", "http://localhost:8000"))
+            ),
+            model_loaded=product_serving_ready if product_profile_active else bool(registry),
             model_version=model_version,
             placeholder=False if registry else None,
             p95_latency_ms=None,
-            healthy_targets=2,
+            healthy_targets=(1 if product_serving_ready else 0) if product_profile_active else 2,
         ),
         stages=stages,
         resources=[
@@ -837,6 +950,17 @@ def build_latest_cycle(
             ResourceRef(namespace="evm-platform", kind="Deployment", name="evm-minio"),
             ResourceRef(namespace="evm-pipelines", kind="Job", name="evm-curation-workflow"),
             ResourceRef(namespace="evm-pipelines", kind="Job", name="evm-lakehouse-probe"),
+            *(
+                [
+                    ResourceRef(
+                        namespace=str(product_config.get("target_namespace", "evm-production")),
+                        kind="Deployment",
+                        name=str(product_config.get("target_deployment", "evm-b0-production")),
+                    )
+                ]
+                if product_profile_active
+                else []
+            ),
         ],
         artifacts=stage_artifacts,
     )

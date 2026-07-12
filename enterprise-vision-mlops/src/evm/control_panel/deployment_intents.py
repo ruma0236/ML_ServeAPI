@@ -43,8 +43,13 @@ DEFAULT_INTENT_ROOT = (
 DEFAULT_CI_EVIDENCE_PATH = (
     "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/ci/latest_ci_evidence.json"
 )
-DEFAULT_MANIFEST_REF = "infra/kubernetes/model-runtime/b7-serving-deployment.yaml"
-ALLOWED_TARGET_NAMES = {"evm-b7-serving"}
+DEFAULT_MANIFEST_REFS = {
+    "evm-b7-serving": "infra/kubernetes/model-runtime/b7-serving-deployment.yaml",
+    "evm-b0-production": (
+        "infra/kubernetes/expedited-production-validation/production"
+    ),
+}
+ALLOWED_TARGET_NAMES = set(DEFAULT_MANIFEST_REFS)
 _LEDGER_LOCK = RLock()
 
 
@@ -224,7 +229,7 @@ def create_deployment_intent(
         image_digest=bundle.image_digest,
         config_render_digest=bundle.config_render_digest,
         rollback_reference=evidence["rollback_reference"],
-        manifest_ref=DEFAULT_MANIFEST_REF,
+        manifest_ref=DEFAULT_MANIFEST_REFS[request.target.name],
         audit_uri=canonical_evidence_uri(
             intent_root() / intent_id / "deployment_intent.json"
         ),

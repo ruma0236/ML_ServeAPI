@@ -43,6 +43,7 @@ try {
         "enterprise-vision-mlops-airflow:local" = "airflow-init"
         "enterprise-vision-mlops-mlflow:latest" = "mlflow"
         "enterprise-vision-mlops-api:latest" = "api"
+        "enterprise-vision-mlops-control-panel:latest" = "control-panel"
     }
     foreach ($entry in $imageTargets.GetEnumerator()) {
         if ($Build -or $localImages -notcontains $entry.Key) {

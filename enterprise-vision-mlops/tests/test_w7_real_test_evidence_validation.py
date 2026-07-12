@@ -3,7 +3,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from evm.control_panel.real_test_policy import validate_real_test_evidence
+from evm.control_panel.real_test_policy import _valid_early_stop, validate_real_test_evidence
+
+
+def test_real_test_validator_accepts_audited_early_stop() -> None:
+    candidate = {"early_stop_accuracy": 0.93, "early_stop_min_epochs": 2}
+    summary = {"early_stopped": True, "early_stop_epoch": 2}
+    history = [
+        {"epoch": 1, "validation": {"accuracy": 0.91}},
+        {"epoch": 2, "validation": {"accuracy": 0.942}},
+    ]
+
+    assert _valid_early_stop(candidate, summary, history) is True
+    assert _valid_early_stop(candidate, summary, history[:1]) is False
 from evm.control_panel.schemas import (
     CycleRun,
     DatasetVersion,

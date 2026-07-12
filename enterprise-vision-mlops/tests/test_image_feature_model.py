@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from evm.core.image_feature_model import (
     FEATURE_NAMES,
+    collect_local_resource_profile,
     extract_image_features,
     predict_with_model,
     train_centroid_classifier,
@@ -43,3 +44,17 @@ def test_train_centroid_classifier_predicts_from_features():
     assert model["evaluation"]["selected_split"] == "test"
     assert model["metrics"]["accuracy"] == 1.0
     assert prediction["prediction"] == "anomaly"
+
+
+def test_resource_profile_falls_back_to_cpu_when_gpu_probe_is_not_executable(monkeypatch):
+    def denied(*_args, **_kwargs):
+        raise PermissionError(13, "Permission denied", "nvidia-smi")
+
+    monkeypatch.setattr("evm.core.image_feature_model.subprocess.run", denied)
+
+    profile = collect_local_resource_profile()
+
+    assert profile["accelerator_used"] == "cpu"
+    assert profile["gpu_detected"] is False
+    assert profile["gpu"] == []
+    assert "PermissionError" in profile["gpu_probe_error"]

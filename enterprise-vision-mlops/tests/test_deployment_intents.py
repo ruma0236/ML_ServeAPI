@@ -266,8 +266,9 @@ def test_staging_intent_runs_dry_run_approval_queue_apply_and_rollback(
     assert applied.state == "applied"
     assert applied.execution_result.exit_code == 0
     assert applied.execution_result.stdout_uri.endswith("apply-stdout.log")
-    assert "patch deployment/evm-b7-serving" in applied.execution_result.command[0]
-    assert f'"EVM_MODEL_SHA256","value":"{MODEL_SHA}"' in applied.execution_result.command[0]
+    assert applied.execution_result.command[0].startswith("kubectl apply -f ")
+    assert "patch deployment/evm-b7-serving" in applied.execution_result.command[1]
+    assert f'"EVM_MODEL_SHA256","value":"{MODEL_SHA}"' in applied.execution_result.command[1]
 
     rolled_back = execute_rollback(
         intent.intent_id, runner=successful_runner, require_enabled=False

@@ -84,6 +84,9 @@ def source_shard_digest(path: Path, payload: dict[str, Any]) -> tuple[str, str]:
     embedded = str(payload.get("source_shard_index_sha256") or "")
     if embedded:
         return embedded, "split_manifest_snapshot"
+    identity = str(payload.get("identity_sha256") or "")
+    if identity:
+        return identity, "shard_index_identity"
     return file_sha256(path), "shard_index"
 
 

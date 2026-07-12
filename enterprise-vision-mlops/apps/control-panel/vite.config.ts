@@ -31,7 +31,7 @@ export default defineConfig({
   preview: {
     host: "127.0.0.1",
     allowedHosts,
-    port: 4174,
+    port: 4173,
     strictPort: true
   },
   test: {

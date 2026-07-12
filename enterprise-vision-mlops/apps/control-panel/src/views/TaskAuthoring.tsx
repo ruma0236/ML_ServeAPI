@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   compactUri,
+  confirmTaskAssignment,
   createTaskAssignment,
+  dispatchTaskAssignment,
   fetchCommandIntents,
   fetchDefaultTaskAssignment,
   fetchTaskAssignments
@@ -11,6 +13,7 @@ import {
 import type {
   CommandIntent,
   CycleRun,
+  OrchestratorConnection,
   RuntimeResource,
   TaskAssignment,
   TaskAssignmentRequest,
@@ -23,6 +26,7 @@ import { StatusBadge } from "../components/StatusBadge";
 interface TaskAuthoringProps {
   cycle: CycleRun;
   resources: RuntimeResource[];
+  orchestrators: OrchestratorConnection[];
 }
 
 const resourceProfiles = ["local-pipeline-workers", "windows-rtx-4080-super", "local-compose-platform", "mac-mini-m4-pro-evaluator"];
@@ -30,7 +34,7 @@ const taskTypes: TaskType[] = ["airflow_dag_run", "mlflow_run", "kubernetes_job"
 const priorities: TaskPriority[] = ["normal", "high", "urgent", "low"];
 const approvalPolicies = ["auto", "manual", "two_person", "change_ticket"];
 
-export function TaskAuthoring({ cycle, resources }: TaskAuthoringProps) {
+export function TaskAuthoring({ cycle, resources, orchestrators }: TaskAuthoringProps) {
   const [defaultTask, setDefaultTask] = useState<TaskAssignmentRequest | null>(null);
   const [tasks, setTasks] = useState<TaskAssignment[]>([]);
   const [commands, setCommands] = useState<CommandIntent[]>([]);
@@ -42,6 +46,7 @@ export function TaskAuthoring({ cycle, resources }: TaskAuthoringProps) {
   const [configText, setConfigText] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [taskScope, setTaskScope] = useState<"selected" | "all">("selected");
 
   useEffect(() => {
     async function load(initial = false) {
@@ -71,15 +76,16 @@ export function TaskAuthoring({ cycle, resources }: TaskAuthoringProps) {
     return () => window.clearInterval(interval);
   }, []);
 
-  const opsSummary = useMemo(
-    () => [
-      { label: "Airflow", value: cycle.airflow?.mode || "unknown", status: cycle.airflow?.connection_status || "unknown" },
-      { label: "MLflow", value: cycle.mlflow?.model_name || "unknown", status: cycle.experiment_pipeline?.tracking_status || "unknown" },
+  const opsSummary = useMemo(() => {
+    const runtime = new Map(orchestrators.map((item) => [item.orchestrator, item]));
+    return [
+      { label: "Airflow", value: runtime.get("airflow")?.mode || cycle.airflow?.mode || "unknown", status: runtime.get("airflow")?.status || "unknown" },
+      { label: "MLflow", value: runtime.get("mlflow")?.mode || cycle.mlflow?.model_name || "unknown", status: runtime.get("mlflow")?.status || "unknown" },
+      { label: "Kubernetes", value: runtime.get("kubernetes")?.mode || cycle.environment?.cluster || "unknown", status: runtime.get("kubernetes")?.status || "unknown" },
       { label: "CD/CT", value: cycle.cdct_gate?.ct_trigger || "manual", status: cycle.cdct_gate?.status || "unknown" },
       { label: "Environment", value: cycle.environment?.name || "local", status: cycle.environment?.promotion_state === "blocked" ? "blocked" : "running" }
-    ],
-    [cycle]
-  );
+    ];
+  }, [cycle, orchestrators]);
 
   function buildTaskRequest(dryRun: boolean): TaskAssignmentRequest {
     const parsedConfig = parseConfig(configText);
@@ -92,6 +98,7 @@ export function TaskAuthoring({ cycle, resources }: TaskAuthoringProps) {
         config_payload: parsedConfig,
         dry_run: true
       }),
+      cycle_id: cycle.cycle_id,
       task_type: taskType,
       owner,
       priority,
@@ -101,7 +108,9 @@ export function TaskAuthoring({ cycle, resources }: TaskAuthoringProps) {
       approval_policy: approvalPolicy,
       airflow: cycle.airflow || defaultTask?.airflow || null,
       mlflow: cycle.mlflow || defaultTask?.mlflow || null,
-      cdct_gate: dryRun || approvalPolicy === "auto" ? null : cycle.cdct_gate || defaultTask?.cdct_gate || null,
+      cdct_gate: dryRun || approvalPolicy === "auto" || taskType === "airflow_dag_run"
+        ? null
+        : cycle.cdct_gate || defaultTask?.cdct_gate || null,
       config_payload: parsedConfig,
       dry_run: dryRun
     };
@@ -111,10 +120,31 @@ export function TaskAuthoring({ cycle, resources }: TaskAuthoringProps) {
     setSubmitting(true);
     setError("");
     try {
-      const task = await createTaskAssignment(buildTaskRequest(dryRun));
+      let task = await createTaskAssignment(buildTaskRequest(dryRun));
+      if (!dryRun && task.status === "queued" && task.task_type === "airflow_dag_run") {
+        task = await dispatchTaskAssignment(task.task_id);
+      }
       setTasks([task, ...tasks.filter((item) => item.task_id !== task.task_id)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "task assignment failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function advanceTask(task: TaskAssignment) {
+    setSubmitting(true);
+    setError("");
+    try {
+      const updated = task.status === "pending_confirmation"
+        ? await confirmTaskAssignment(task.task_id, {
+            actor: owner,
+            reason: `Confirm ${task.task_type} for ${task.cycle_id || "unbound cycle"}`
+          })
+        : await dispatchTaskAssignment(task.task_id);
+      setTasks((current) => [updated, ...current.filter((item) => item.task_id !== updated.task_id)]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "task transition failed");
     } finally {
       setSubmitting(false);
     }
@@ -205,7 +235,7 @@ export function TaskAuthoring({ cycle, resources }: TaskAuthoringProps) {
           </button>
           <button type="button" className="secondary-action" disabled={submitting} onClick={() => void submitTask(false)}>
             <Play size={16} />
-            Queue
+            {taskType === "airflow_dag_run" && approvalPolicy === "auto" ? "Queue & Dispatch" : "Queue Intent"}
           </button>
         </div>
       </div>
@@ -220,8 +250,17 @@ export function TaskAuthoring({ cycle, resources }: TaskAuthoringProps) {
           </div>
           <GitBranch />
         </div>
+        <div className="ledger-scope" aria-label="Assignment ledger scope">
+          <button type="button" className={taskScope === "selected" ? "active" : ""} onClick={() => setTaskScope("selected")}>Selected Cycle</button>
+          <button type="button" className={taskScope === "all" ? "active" : ""} onClick={() => setTaskScope("all")}>All Cycles</button>
+        </div>
         <div className="ops-ledger-grid">
-          <LedgerColumn title="Tasks" items={tasks} />
+          <LedgerColumn
+            title="Tasks"
+            items={taskScope === "all" ? tasks : tasks.filter((task) => task.cycle_id === cycle.cycle_id)}
+            disabled={submitting}
+            onAdvance={(task) => void advanceTask(task)}
+          />
           <CommandColumn commands={commands} />
         </div>
       </div>
@@ -234,7 +273,17 @@ function parseConfig(value: string): TaskAssignmentRequest["config_payload"] {
   return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
 }
 
-function LedgerColumn({ title, items }: { title: string; items: TaskAssignment[] }) {
+function LedgerColumn({
+  title,
+  items,
+  disabled,
+  onAdvance
+}: {
+  title: string;
+  items: TaskAssignment[];
+  disabled: boolean;
+  onAdvance: (task: TaskAssignment) => void;
+}) {
   return (
     <div className="ledger-column">
       <h3>{title}</h3>
@@ -244,12 +293,28 @@ function LedgerColumn({ title, items }: { title: string; items: TaskAssignment[]
             <header>
               <div>
                 <strong>{task.task_type}</strong>
-                <span>{task.owner} / {task.resource_profile}</span>
+              <span>{task.owner} / {task.resource_profile}</span>
               </div>
               <StatusBadge status={task.status} compact />
             </header>
-            <p>{compactUri(task.task_id)}</p>
-            <small>{task.audit.at(-1)?.event || "audit pending"}</small>
+            <p>{compactUri(task.cycle_id || "unbound cycle")}</p>
+            <small>{task.runtime_state || task.audit.at(-1)?.event || "audit pending"}</small>
+            {task.failure_reason ? <small className="ledger-failure">{task.failure_reason}</small> : null}
+            {task.runtime_evidence_uri ? (
+              <small title={task.runtime_evidence_uri}>{compactUri(task.runtime_evidence_uri)}</small>
+            ) : null}
+            {(
+              task.status === "pending_confirmation" && task.approval_policy === "manual"
+            ) || (task.status === "queued" && task.task_type === "airflow_dag_run") ? (
+              <div className="ledger-actions">
+                <button type="button" onClick={() => onAdvance(task)} disabled={disabled}>
+                  {task.status === "pending_confirmation" ? "Confirm" : "Dispatch"}
+                </button>
+              </div>
+            ) : null}
+            {task.status === "pending_confirmation" && task.approval_policy !== "manual" ? (
+              <small>External {task.approval_policy} approval required</small>
+            ) : null}
           </article>
         ))
       ) : (

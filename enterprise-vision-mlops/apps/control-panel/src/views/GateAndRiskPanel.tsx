@@ -4,7 +4,6 @@ import type { CycleRun, DriftReviewWorkflow } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { CDCTGatePanel } from "./CDCTGatePanel";
 import { DriftReview } from "./DriftReview";
-import { DeploymentIntentPanel } from "./DeploymentIntentPanel";
 
 interface GateAndRiskPanelProps {
   cycle: CycleRun;
@@ -36,7 +35,6 @@ export function GateAndRiskPanel({ cycle, workflow, onRefresh }: GateAndRiskPane
 
       <DriftReview cycle={cycle} workflow={workflow} onRefresh={onRefresh} />
       <CDCTGatePanel cycle={cycle} />
-      <DeploymentIntentPanel cycle={cycle} />
     </section>
   );
 }

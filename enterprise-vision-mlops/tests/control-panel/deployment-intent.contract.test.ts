@@ -40,6 +40,18 @@ describe("Deployment intent API contract", () => {
     expect(fetchMock.mock.calls[2][0]).toContain("/deployment-intents/deploy-1/request-approval");
   });
 
+  it("filters the deployment ledger by selected CycleRun", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ intents: [], status: "pass", blockers: [] }), { status: 200 })
+    );
+
+    await fetchDeploymentIntents("http://control-panel.test", "cycle-live");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://control-panel.test/control-panel/v1/deployment-intents?cycle_id=cycle-live"
+    );
+  });
+
   it("preserves server blockers from a denied admission", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(

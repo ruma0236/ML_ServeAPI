@@ -46,6 +46,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@airflow-postgres:5432/${AIRFLOW_POSTGRES_DB:-airflow}
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-evm-airflow-local-secret}
       AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
@@ -88,6 +89,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER:-airflow}:${AIRFLOW_POSTGRES_PASSWORD:-airflow}@airflow-postgres:5432/${AIRFLOW_POSTGRES_DB:-airflow}
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-evm-airflow-local-secret}
       EVM_PROJECT_ROOT: /opt/airflow/evm_project
@@ -250,6 +252,7 @@ services:
       MODEL_STAGE: Production
       MODEL_REGISTRY_PATH: /app/artifacts/registry/vision-baseline/latest.json
       EVM_CONTROL_PANEL_CONFIG: configs/airflow.toml
+      EVM_EFFICIENTNET_CONFIG: ${EVM_EFFICIENTNET_CONFIG:-configs/w7_efficientnet_real_test.toml}
       VLM_OBSERVABILITY_PATH: /app/artifacts/vlm/visa/observability/benchmark_report.json
       EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
       EVM_DATA_MOUNT_ROOT: /mnt/evm-data
@@ -266,6 +269,11 @@ services:
       GIT_BRANCH: ${EVM_GIT_BRANCH:-}
       EVM_DEPLOYMENT_INTENT_ROOT: /app/artifacts/w7/deployment_intents
       EVM_CONTROL_PANEL_CACHE_TTL_SECONDS: "2"
+      EVM_CONTROL_PANEL_CYCLE_HISTORY_ROOT: /app/artifacts/w7
+      EVM_CONTROL_PANEL_CATALOG_SCAN_LIMIT: "500"
+      EVM_AIRFLOW_API_URL: http://airflow-webserver:8080/api/v1
+      EVM_AIRFLOW_API_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
+      EVM_AIRFLOW_API_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
       EVM_KUBERNETES_RESOURCE_SNAPSHOT_PATH: /app/artifacts/w7/kubernetes_observer/latest.json
       EVM_KUBERNETES_SNAPSHOT_STALE_SECONDS: "15"
       EVM_CONTROL_PANEL_DIAGNOSTIC_ROOT: /app/artifacts/w7/control_panel_diagnostics
@@ -285,6 +293,25 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
       interval: 10s
       timeout: 5s
+      retries: 10
+    networks:
+      - mlops-local
+
+  control-panel:
+    build:
+      context: apps/control-panel
+      dockerfile: Dockerfile
+    image: enterprise-vision-mlops-control-panel:latest
+    container_name: evm-control-panel
+    ports:
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:4173:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
       retries: 10
     networks:
       - mlops-local

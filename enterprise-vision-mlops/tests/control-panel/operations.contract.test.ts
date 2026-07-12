@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelCommandIntent,
+  confirmTaskAssignment,
   confirmCommandIntent,
   createCommandIntent,
   createTaskAssignment,
+  dispatchTaskAssignment,
   evaluatePromotionPolicy,
   fetchCommandIntents,
   fetchTaskAssignments
@@ -54,6 +56,58 @@ describe("W7 operations API bindings", () => {
 
     expect(await fetchTaskAssignments("http://control-panel.test")).toEqual([]);
     expect(await fetchCommandIntents("http://control-panel.test")).toEqual([]);
+  });
+
+  it("dispatches queued Airflow assignments through the runtime route", async () => {
+    const response = {
+      task_id: "task-runtime",
+      task_type: "airflow_dag_run",
+      owner: "ai-infra-sre",
+      priority: "normal",
+      resource_profile: "local-pipeline-workers",
+      config_payload: { dag_id: "enterprise_vision_mlops_daily" },
+      dry_run: false,
+      status: "running",
+      created_at: "2026-07-12T00:00:00Z",
+      runtime_system: "airflow",
+      runtime_id: "cp__runtime",
+      runtime_state: "queued",
+      audit: []
+    } satisfies TaskAssignment;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(response), { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect((await dispatchTaskAssignment("task-runtime", "http://control-panel.test")).status).toBe("running");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://control-panel.test/control-panel/v1/tasks/task-runtime/dispatch",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("confirms a manual task before dispatch", async () => {
+    const response = {
+      task_id: "task-manual",
+      task_type: "airflow_dag_run",
+      owner: "ai-infra-sre",
+      priority: "normal",
+      resource_profile: "local-pipeline-workers",
+      approval_policy: "manual",
+      config_payload: { dag_id: "enterprise_vision_mlops_daily" },
+      dry_run: false,
+      status: "queued",
+      created_at: "2026-07-12T00:00:00Z",
+      queued_at: "2026-07-12T00:01:00Z",
+      audit: []
+    } satisfies TaskAssignment;
+    const transition = { actor: "ai-infra-sre", reason: "operator confirmed" };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(response), { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect((await confirmTaskAssignment("task-manual", transition, "http://control-panel.test")).status).toBe("queued");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://control-panel.test/control-panel/v1/tasks/task-manual/confirm",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(transition) })
+    );
   });
 
   it("creates, confirms, and cancels command intents without apply state", async () => {

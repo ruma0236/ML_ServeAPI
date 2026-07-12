@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise Vision MLOps Control Panel API",
-    "version": "2026-07-12.post-w7.diagnostics-governance.v1",
-    "description": "Metadata and guarded mutation contract for the W7 enterprise MLOps Control Panel, including CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
+    "version": "2026-07-12.post-w7.multi-cycle-release.v1",
+    "description": "Multi-cycle metadata and guarded mutation contract for the enterprise MLOps Control Panel, including runtime task dispatch, CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
   },
   "servers": [
     {
@@ -12,6 +12,24 @@
     }
   ],
   "paths": {
+    "/control-panel/v1/cycles": {
+      "get": {
+        "summary": "Search and list live and historical lifecycle cycles.",
+        "operationId": "listCycles",
+        "parameters": [
+          {"name": "status", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/State"}},
+          {"name": "environment", "in": "query", "required": false, "schema": {"type": "string", "enum": ["dev", "test", "staging", "pre-production", "production"]}},
+          {"name": "query", "in": "query", "required": false, "schema": {"type": "string"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}
+        ],
+        "responses": {
+          "200": {
+            "description": "cycle catalog",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CycleRunList"}}}
+          }
+        }
+      }
+    },
     "/control-panel/v1/cycles/{cycle_id}": {
       "get": {
         "summary": "Return one lifecycle cycle with lineage, stages, artifacts, serving state, and resource refs.",
@@ -94,12 +112,14 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["orchestrators"],
+                  "required": ["orchestrators", "checked_at", "status"],
                   "properties": {
                     "orchestrators": {
                       "type": "array",
                       "items": {"$ref": "#/components/schemas/OrchestratorConnection"}
-                    }
+                    },
+                    "checked_at": {"type": "string", "format": "date-time"},
+                    "status": {"$ref": "#/components/schemas/State"}
                   }
                 }
               }
@@ -169,6 +189,44 @@
               }
             }
           }
+        }
+      }
+    },
+    "/control-panel/v1/tasks/{task_id}/dispatch": {
+      "post": {
+        "summary": "Dispatch a queued task through its registered runtime adapter.",
+        "operationId": "dispatchTaskAssignment",
+        "parameters": [
+          {"name": "task_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "202": {
+            "description": "task dispatched to the runtime",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskAssignment"}}}
+          },
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"description": "task cannot be dispatched by the selected runtime adapter"}
+        }
+      }
+    },
+    "/control-panel/v1/tasks/{task_id}/confirm": {
+      "post": {
+        "summary": "Confirm a manual task assignment before runtime dispatch.",
+        "operationId": "confirmTaskAssignment",
+        "parameters": [
+          {"name": "task_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskTransitionRequest"}}}
+        },
+        "responses": {
+          "202": {
+            "description": "manual task confirmation recorded",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskAssignment"}}}
+          },
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"description": "task state or external approval policy rejected confirmation"}
         }
       }
     },
@@ -299,6 +357,9 @@
       "get": {
         "summary": "Return the auditable deployment intent ledger.",
         "operationId": "listDeploymentIntents",
+        "parameters": [
+          {"name": "cycle_id", "in": "query", "required": false, "schema": {"type": "string"}}
+        ],
         "responses": {
           "200": {
             "description": "deployment intent ledger",
@@ -503,6 +564,37 @@
           }
         }
       },
+      "CycleRunSummary": {
+        "type": "object",
+        "required": ["cycle_id", "status", "started_at", "dataset_id", "dataset_version", "model_name", "model_version", "model_stage", "owner_issue", "stage_count", "progress", "live"],
+        "properties": {
+          "cycle_id": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "started_at": {"type": "string", "format": "date-time"},
+          "finished_at": {"type": ["string", "null"], "format": "date-time"},
+          "dataset_id": {"type": "string"},
+          "dataset_version": {"type": "string"},
+          "model_name": {"type": "string"},
+          "model_version": {"type": "string"},
+          "model_stage": {"type": "string"},
+          "environment": {"type": ["string", "null"], "enum": ["dev", "test", "staging", "pre-production", "production", null]},
+          "owner_issue": {"type": "string"},
+          "stage_count": {"type": "integer", "minimum": 0},
+          "progress": {"type": "number", "minimum": 0, "maximum": 1},
+          "source_uri": {"type": ["string", "null"]},
+          "live": {"type": "boolean"}
+        }
+      },
+      "CycleRunList": {
+        "type": "object",
+        "required": ["cycles", "latest_cycle_id", "total"],
+        "properties": {
+          "cycles": {"type": "array", "items": {"$ref": "#/components/schemas/CycleRunSummary"}},
+          "latest_cycle_id": {"type": "string"},
+          "selected_cycle_id": {"type": ["string", "null"]},
+          "total": {"type": "integer", "minimum": 0}
+        }
+      },
       "CIEvidenceValidation": {
         "type": "object",
         "required": ["schema_version", "validation_id", "valid", "status", "workflow_run_id", "commit_sha", "checked_at", "input_digest", "checks", "blockers"],
@@ -525,6 +617,7 @@
         "type": "object",
         "required": ["target_environment", "target_namespace", "target", "actor", "reason", "dry_run"],
         "properties": {
+          "cycle_id": {"type": ["string", "null"]},
           "target_environment": {"type": "string", "enum": ["dev", "test", "staging", "pre-production", "production"]},
           "target_namespace": {"type": "string"},
           "target": {"$ref": "#/components/schemas/ResourceRef"},
@@ -1132,6 +1225,7 @@
         "type": "object",
         "required": ["task_type", "owner", "priority", "resource_profile", "config_payload"],
         "properties": {
+          "cycle_id": {"type": ["string", "null"]},
           "task_type": {"type": "string", "enum": ["airflow_dag_run", "mlflow_run", "kubernetes_job"]},
           "owner": {"type": "string"},
           "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
@@ -1154,9 +1248,17 @@
             "required": ["task_id", "status", "created_at", "audit"],
             "properties": {
               "task_id": {"type": "string"},
-              "status": {"type": "string", "enum": ["draft", "dry_run", "queued", "pending_confirmation", "blocked"]},
+              "status": {"type": "string", "enum": ["draft", "dry_run", "queued", "pending_confirmation", "running", "done", "failed", "cancelled", "blocked"]},
               "created_at": {"type": "string", "format": "date-time"},
               "queued_at": {"type": ["string", "null"], "format": "date-time"},
+              "dispatched_at": {"type": ["string", "null"], "format": "date-time"},
+              "finished_at": {"type": ["string", "null"], "format": "date-time"},
+              "runtime_system": {"type": ["string", "null"]},
+              "runtime_id": {"type": ["string", "null"]},
+              "runtime_url": {"type": ["string", "null"]},
+              "runtime_state": {"type": ["string", "null"]},
+              "runtime_evidence_uri": {"type": ["string", "null"]},
+              "failure_reason": {"type": ["string", "null"]},
               "audit": {
                 "type": "array",
                 "items": {"$ref": "#/components/schemas/AuditEvent"}
@@ -1164,6 +1266,14 @@
             }
           }
         ]
+      },
+      "TaskTransitionRequest": {
+        "type": "object",
+        "required": ["actor", "reason"],
+        "properties": {
+          "actor": {"type": "string"},
+          "reason": {"type": "string"}
+        }
       },
       "CommandIntentRequest": {
         "type": "object",
@@ -1229,7 +1339,7 @@
       },
       "OrchestratorConnection": {
         "type": "object",
-        "required": ["orchestrator", "mode", "control_mode", "status", "base_url"],
+        "required": ["orchestrator", "mode", "control_mode", "status", "checked_at"],
         "properties": {
           "orchestrator": {"type": "string", "enum": ["airflow", "mlflow", "kubernetes", "remote-worker"]},
           "mode": {"type": "string"},
@@ -1242,7 +1352,9 @@
             "type": "array",
             "items": {"type": "string"}
           },
-          "notes": {"type": ["string", "null"]}
+          "notes": {"type": ["string", "null"]},
+          "checked_at": {"type": "string", "format": "date-time"},
+          "blockers": {"type": "array", "items": {"type": "string"}}
         }
       },
       "MLflowRef": {

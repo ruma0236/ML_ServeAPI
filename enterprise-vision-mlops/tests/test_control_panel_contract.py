@@ -93,6 +93,10 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "observation_source" in schemas["RuntimeResource"]["properties"]
     assert "observation_status" in schemas["RuntimeResourceList"]["properties"]
     assert "/control-panel/v1/deployment-intents" in openapi["paths"]
+    assert "/control-panel/v1/cycles" in openapi["paths"]
+    assert "/control-panel/v1/tasks/{task_id}/dispatch" in openapi["paths"]
+    assert "/control-panel/v1/tasks/{task_id}/confirm" in openapi["paths"]
+    assert "/control-panel/v1/orchestrators" in openapi["paths"]
     assert "/control-panel/v1/deployment-intents/{intent_id}/queue" in openapi["paths"]
     assert "/control-panel/v1/diagnostics/latest" in openapi["paths"]
     assert "/control-panel/v1/drift-reviews/latest" in openapi["paths"]
@@ -106,6 +110,10 @@ def test_openapi_components_expose_enterprise_readiness_fields():
         schemas["DriftReviewWorkflow"]["properties"]
     )
     assert "DecisionRecord" in schemas
+    assert "CycleRunSummary" in schemas
+    assert set(schemas["CycleRunList"]["required"]) == {"cycles", "latest_cycle_id", "total"}
+    assert "cycle_id" in schemas["TaskAssignmentRequest"]["properties"]
+    assert "runtime_state" in schemas["TaskAssignment"]["allOf"][1]["properties"]
     assert set(DecisionRecordList.model_fields).issubset(
         schemas["DecisionRecordList"]["properties"]
     )
