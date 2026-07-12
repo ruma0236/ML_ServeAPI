@@ -386,7 +386,14 @@ def namespace_resource(namespace: str) -> dict[str, Any]:
 def storage_resources(namespace: str, *, read_only: bool) -> list[dict[str, Any]]:
     suffix = safe_name(namespace).removeprefix("evm-")
     volume_name = f"evm-{suffix}-large-data"
-    mode = "ReadOnlyMany" if read_only else "ReadWriteMany"
+    mode = os.getenv(
+        "EVM_LIFECYCLE_SERVING_ACCESS_MODE"
+        if read_only
+        else "EVM_LIFECYCLE_TRAINING_ACCESS_MODE",
+        "ReadOnlyMany" if read_only else "ReadWriteOnce",
+    )
+    if mode not in {"ReadWriteOnce", "ReadWriteMany", "ReadOnlyMany"}:
+        raise LifecycleKubernetesError(f"unsupported_storage_access_mode:{mode}")
     return [
         {
             "apiVersion": "v1",

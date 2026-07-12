@@ -80,8 +80,11 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     assert run.model_runtime_uri in container["command"][2]
     assert (bundle.manifest_dir / "kustomization.yaml").is_file()
     pv = json.loads((bundle.manifest_dir / "storage-pv.json").read_text(encoding="utf-8"))
+    pvc = json.loads((bundle.manifest_dir / "storage-pvc.json").read_text(encoding="utf-8"))
     assert pv["metadata"]["name"] == "evm-training-large-data"
     assert pv["spec"]["persistentVolumeReclaimPolicy"] == "Retain"
+    assert pv["spec"]["accessModes"] == ["ReadWriteOnce"]
+    assert pvc["spec"]["accessModes"] == ["ReadWriteOnce"]
 
 
 def test_training_evidence_binds_job_gpu_mlflow_and_model_digest(tmp_path, monkeypatch) -> None:
