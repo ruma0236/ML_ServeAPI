@@ -5,7 +5,10 @@ from pathlib import Path
 import pytest
 
 from evm.core.config import map_runtime_data_path
-from evm.pipelines.data_validation.run import run as run_data_validation
+from evm.pipelines.data_validation.run import (
+    resolve_dataset_version,
+    run as run_data_validation,
+)
 
 
 def test_runtime_data_path_maps_windows_host_root_to_container_mount(monkeypatch) -> None:
@@ -19,6 +22,18 @@ def test_runtime_data_path_maps_windows_host_root_to_container_mount(monkeypatch
     )
 
     assert mapped == Path("/mnt/evm-data/data/raw/industrial/visa")
+
+
+def test_configured_dataset_version_preserves_external_lineage() -> None:
+    version, source, computed = resolve_dataset_version(
+        "visa",
+        "33c87aaa14fe" + "0" * 52,
+        "visa-open-data-e35d93d5561f",
+    )
+
+    assert version == "visa-open-data-e35d93d5561f"
+    assert source == "configured"
+    assert computed == "visa-33c87aaa14fe"
 
 
 def test_data_validation_rejects_empty_input_without_overwriting_outputs(

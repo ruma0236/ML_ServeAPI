@@ -21,6 +21,18 @@ from evm.core.pipeline import (
 REQUIRED_FIELDS = ("id", "image_uri", "label", "width", "height")
 
 
+def resolve_dataset_version(
+    dataset_name: str,
+    manifest_digest: str,
+    configured_version: object | None,
+) -> tuple[str, str, str]:
+    computed_version = f"{dataset_name}-{manifest_digest[:12]}"
+    configured = str(configured_version or "").strip()
+    if configured:
+        return configured, "configured", computed_version
+    return computed_version, "manifest_digest", computed_version
+
+
 def _is_valid_record(
     record: dict[str, object],
     allowed_extensions: set[str],
@@ -91,7 +103,13 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
 
     write_jsonl(output_manifest, valid_records)
     manifest_digest = stable_record_digest(valid_records)
-    dataset_version = f"{dataset_name}-{manifest_digest[:12]}"
+    dataset_version, dataset_version_source, computed_dataset_version = (
+        resolve_dataset_version(
+            dataset_name,
+            manifest_digest,
+            cfg.get("dataset_version"),
+        )
+    )
     object_prefix = f"{dataset_name}/{dataset_version}"
     processed_parquet_info = write_parquet(processed_parquet, processed_records)
     validated_parquet_info = write_parquet(validated_parquet, valid_records)
@@ -116,6 +134,9 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     report = {
         "dataset_name": dataset_name,
         "dataset_version": dataset_version,
+        "dataset_version_source": dataset_version_source,
+        "computed_dataset_version": computed_dataset_version,
+        "manifest_digest": manifest_digest,
         "input_records": len(records),
         "valid_records": len(valid_records),
         "invalid_records": len(records) - len(valid_records),
@@ -145,6 +166,8 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     dataset_metadata = {
         "dataset_name": dataset_name,
         "dataset_version": dataset_version,
+        "dataset_version_source": dataset_version_source,
+        "computed_dataset_version": computed_dataset_version,
         "manifest_digest": manifest_digest,
         "created_at": utc_now(),
         "record_count": len(valid_records),

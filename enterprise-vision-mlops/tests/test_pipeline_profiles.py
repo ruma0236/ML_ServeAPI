@@ -108,6 +108,9 @@ def test_saved_profile_is_versioned_idempotent_and_renders_runtime_configs(
     assert len(read_profiles().profiles) == 2
     airflow = json.loads(Path(first.airflow_config_uri).read_text(encoding="utf-8"))
     model = json.loads(Path(first.model_config_uri).read_text(encoding="utf-8"))
+    assert airflow["pipelines"]["data_validation"]["dataset_version"] == (
+        profile.data.dataset_version
+    )
     assert airflow["pipelines"]["dataset_shards"]["split_seed"] == 20260706
     assert airflow["pipelines"]["dataset_shards"]["split_ratios"]["test"] == 0.2
     assert model["candidates"][0]["architecture"] == "efficientnet-b0"

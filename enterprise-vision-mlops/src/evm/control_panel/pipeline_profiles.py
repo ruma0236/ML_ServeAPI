@@ -578,6 +578,7 @@ def render_airflow_config(profile: PipelineRunProfile) -> dict[str, object]:
     )
     pipelines.setdefault("data_validation", {}).update(
         dataset_name=profile.data.dataset_name,
+        dataset_version=profile.data.dataset_version,
         input_manifest=runtime_data_uri(profile.data.source_manifest_uri),
         fail_on_empty=profile.data.fail_on_empty,
     )
