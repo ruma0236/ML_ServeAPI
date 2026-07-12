@@ -555,6 +555,7 @@ def process_deployment(
                 reason="deployment_executor_exception",
             )
             raise
+        rebuild_cycle(required_run(run.run_id))
     if intent.state != "applied":
         failed = transition_stage(
             run.run_id,
@@ -819,6 +820,13 @@ def rollback_lifecycle(
             rollback_error = (
                 f"{rollback_error}; {release_error}" if rollback_error else release_error
             )
+    try:
+        rebuild_cycle(required_run(run.run_id))
+    except Exception as exc:
+        evidence_error = f"Cycle snapshot refresh failed: {type(exc).__name__}: {exc}"
+        rollback_error = (
+            f"{rollback_error}; {evidence_error}" if rollback_error else evidence_error
+        )
     if rollback_error:
         return mark_lifecycle_rollback_failed(
             run.run_id,
