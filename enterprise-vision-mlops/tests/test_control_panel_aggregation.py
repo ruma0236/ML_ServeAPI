@@ -6,11 +6,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from evm.control_panel.aggregation import (
+    aggregate_stage_status,
     applied_product_policy,
     build_latest_cycle,
     latest_kubernetes_evidence,
     resolve_release_ref,
 )
+from evm.control_panel.schemas import PipelineStage
 
 
 def _write_json(path: Path, payload: dict | list) -> None:
@@ -27,6 +29,32 @@ def test_latest_kubernetes_evidence_scans_generic_and_legacy_roots(tmp_path: Pat
     os.utime(generic, (2, 2))
 
     assert latest_kubernetes_evidence(tmp_path / "generic", tmp_path / "legacy") == generic
+
+
+def test_cycle_status_follows_the_worst_stage() -> None:
+    stages = [
+        PipelineStage(
+            stage_id="data", name="Data", status="pass", started_at=None, artifacts=[], metrics=[]
+        ),
+        PipelineStage(
+            stage_id="readiness",
+            name="Readiness",
+            status="blocked",
+            started_at=None,
+            artifacts=[],
+            metrics=[],
+        ),
+        PipelineStage(
+            stage_id="deployment",
+            name="Deployment",
+            status="queued",
+            started_at=None,
+            artifacts=[],
+            metrics=[],
+        ),
+    ]
+
+    assert aggregate_stage_status(stages) == "blocked"
 
 
 def test_applied_production_intent_becomes_cycle_environment_policy() -> None:

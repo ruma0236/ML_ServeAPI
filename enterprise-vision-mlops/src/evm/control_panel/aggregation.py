@@ -1148,11 +1148,13 @@ def build_latest_cycle(
         ],
     )
     deployment_stage = deployment_admission_stage(ci_validation, latest_deployment)
+    final_stages = [*cycle.stages, policy_stage, deployment_stage]
     return cycle.model_copy(
         update={
+            "status": aggregate_stage_status(final_stages),
             "environment": policy_environment,
             "promotion_policy": policy_decision,
-            "stages": [*cycle.stages, policy_stage, deployment_stage],
+            "stages": final_stages,
             "artifacts": [
                 *cycle.artifacts,
                 *([policy_artifact] if policy_artifact else []),
@@ -1160,3 +1162,23 @@ def build_latest_cycle(
             ],
         }
     )
+
+
+def aggregate_stage_status(stages: list[PipelineStage]) -> State:
+    priority: dict[State, int] = {
+        "fail": 9,
+        "blocked": 8,
+        "cancelled": 7,
+        "warn": 6,
+        "running": 5,
+        "queued": 4,
+        "dry_run": 3,
+        "pending_confirmation": 3,
+        "unknown": 2,
+        "pass": 1,
+        "done": 0,
+    }
+    if not stages:
+        return "unknown"
+    status = max((stage.status for stage in stages), key=lambda item: priority[item])
+    return "pass" if status == "done" else status
