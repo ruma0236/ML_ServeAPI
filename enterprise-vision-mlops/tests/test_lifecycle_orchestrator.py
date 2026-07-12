@@ -8,6 +8,7 @@ from urllib.error import URLError
 from evm.control_panel import lifecycle_orchestrator, lifecycle_runs, operations
 from evm.control_panel.lifecycle_kubernetes import ServingBundle
 from evm.control_panel.lifecycle_orchestrator import (
+    clear_prometheus_target,
     process_artifact_readiness,
     process_lifecycle_run,
     rollback_lifecycle,
@@ -265,6 +266,16 @@ def test_prometheus_target_uses_container_reachable_host(tmp_path, monkeypatch) 
     payload = json.loads(target_path.read_text(encoding="utf-8"))
     assert payload[0]["targets"] == ["host.docker.internal:30813"]
     assert payload[0]["labels"]["lifecycle_run_id"] == run.run_id
+
+    foreign = {
+        "targets": ["host.docker.internal:30999"],
+        "labels": {"job": "evm-lifecycle-serving", "lifecycle_run_id": "other-run"},
+    }
+    target_path.write_text(json.dumps([payload[0], foreign]), encoding="utf-8")
+
+    clear_prometheus_target(run)
+
+    assert json.loads(target_path.read_text(encoding="utf-8")) == [foreign]
 
 
 def test_rollback_executor_failure_terminates_run_with_explicit_blocker(tmp_path, monkeypatch) -> None:

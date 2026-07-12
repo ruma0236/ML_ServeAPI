@@ -757,6 +757,7 @@ def process_monitoring(
         runner=runner,
         reason="staging_validation_completed",
     )
+    clear_prometheus_target(run)
     return transition_stage(
         run.run_id,
         "monitoring",
@@ -839,6 +840,7 @@ def rollback_lifecycle(
                 runner=runner,
                 reason=reason,
             )
+            clear_prometheus_target(run)
         except Exception as exc:
             release_error = f"GPU handoff release failed: {type(exc).__name__}: {exc}"
             rollback_error = (
@@ -978,12 +980,7 @@ def write_prometheus_target(run: LifecycleRun, serving: ServingBundle) -> Path:
     host, port = target.rsplit(":", 1)
     if host in {"127.0.0.1", "localhost"}:
         target = f"host.docker.internal:{port}"
-    path = Path(
-        os.getenv(
-            "EVM_PROMETHEUS_FILE_SD_PATH",
-            f"{os.getenv('EVM_HOST_DATA_ROOT', 'F:/EnterpriseMLOps_Data/enterprise-vision-mlops')}/artifacts/w7/prometheus-targets/lifecycle-serving.json",
-        )
-    )
+    path = prometheus_target_path()
     write_json(
         path,
         [
@@ -999,6 +996,35 @@ def write_prometheus_target(run: LifecycleRun, serving: ServingBundle) -> Path:
         ],
     )
     return path
+
+
+def clear_prometheus_target(run: LifecycleRun) -> Path:
+    path = prometheus_target_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = []
+    entries = payload if isinstance(payload, list) else []
+    remaining = [
+        item
+        for item in entries
+        if not (
+            isinstance(item, dict)
+            and isinstance(item.get("labels"), dict)
+            and item["labels"].get("lifecycle_run_id") == run.run_id
+        )
+    ]
+    write_json(path, remaining)
+    return path
+
+
+def prometheus_target_path() -> Path:
+    return Path(
+        os.getenv(
+            "EVM_PROMETHEUS_FILE_SD_PATH",
+            f"{os.getenv('EVM_HOST_DATA_ROOT', 'F:/EnterpriseMLOps_Data/enterprise-vision-mlops')}/artifacts/w7/prometheus-targets/lifecycle-serving.json",
+        )
+    )
 
 
 def prometheus_target_up(payload: object, endpoint: str) -> bool:
