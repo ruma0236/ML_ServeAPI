@@ -172,7 +172,7 @@ export function App() {
   }
 
   const activeView = useMemo(() => {
-    if (tab === "runs") return <LifecycleRuns />;
+    if (tab === "runs") return <LifecycleRuns onCycleContext={(cycleId) => void selectCycle(cycleId)} />;
     if (!cycle) return null;
     if (tab === "configure") return <PipelineProfileStudio cycle={cycle} />;
     if (tab === "readiness") return <DataModelReadiness cycle={cycle} />;

@@ -28,7 +28,12 @@ import type {
 } from "../api/types";
 
 
-export function LifecycleRuns() {
+interface LifecycleRunsProps {
+  onCycleContext?: (cycleId: string) => void;
+}
+
+
+export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
   const [runs, setRuns] = useState<LifecycleRun[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const selectedRef = useRef("");
@@ -49,9 +54,11 @@ export function LifecycleRuns() {
         (run) => run.run_id === selectedRef.current
       );
       if (!selectedExists) {
-        const next = runResult.value.runs[0]?.run_id || "";
+        const nextRun = runResult.value.runs[0];
+        const next = nextRun?.run_id || "";
         selectedRef.current = next;
         setSelectedId(next);
+        if (nextRun?.cycle_id) onCycleContext?.(nextRun.cycle_id);
       }
       setError("");
     } else {
@@ -81,6 +88,8 @@ export function LifecycleRuns() {
   function select(runId: string) {
     selectedRef.current = runId;
     setSelectedId(runId);
+    const run = runs.find((item) => item.run_id === runId);
+    if (run?.cycle_id) onCycleContext?.(run.cycle_id);
   }
 
   async function runAction(action: "queue" | "cancel" | "retry") {
@@ -194,6 +203,7 @@ export function LifecycleRuns() {
                 <Metadata label="Requested By" value={selected.actor} />
                 <Metadata label="Config Digest" value={selected.effective_config_digest.slice(0, 16)} />
                 <Metadata label="Source Commit" value={selected.source_commit?.slice(0, 12) || "not captured"} />
+                <Metadata label="Cycle Context" value={selected.cycle_id || "snapshot pending"} />
               </div>
               <div className="lifecycle-actions">
                 {selected.state === "dry_run" ? (

@@ -124,6 +124,7 @@ class LifecycleRun(ContractModel):
     model_config_uri: str
     model_runtime_uri: str
     artifact_root: str
+    cycle_id: str | None = None
     cycle_snapshot_uri: str | None = None
     model_matrix_uri: str | None = None
     readiness_uri: str | None = None
@@ -579,7 +580,7 @@ def read_runs() -> LifecycleRunList:
     runs: list[LifecycleRun] = []
     for path in root.glob("lifecycle-*/lifecycle_run.json"):
         try:
-            runs.append(LifecycleRun.model_validate_json(path.read_text(encoding="utf-8")))
+            runs.append(hydrate_cycle_context(LifecycleRun.model_validate_json(path.read_text(encoding="utf-8"))))
         except (OSError, ValueError):
             continue
     runs.sort(key=lambda item: (item.created_at, item.run_id), reverse=True)
@@ -591,7 +592,7 @@ def get_lifecycle_run(run_id: str) -> LifecycleRun | None:
     if not path.is_file():
         return None
     try:
-        return LifecycleRun.model_validate_json(path.read_text(encoding="utf-8"))
+        return hydrate_cycle_context(LifecycleRun.model_validate_json(path.read_text(encoding="utf-8")))
     except (OSError, ValueError):
         return None
 
@@ -887,6 +888,7 @@ def update_run_evidence(
     run_id: str,
     *,
     actor: str,
+    cycle_id: str | None = None,
     cycle_snapshot_uri: str | None = None,
     model_matrix_uri: str | None = None,
     readiness_uri: str | None = None,
@@ -896,6 +898,7 @@ def update_run_evidence(
     approver: str | None = None,
 ) -> LifecycleRun:
     def update(run: LifecycleRun) -> LifecycleRun:
+        run.cycle_id = cycle_id or run.cycle_id
         run.cycle_snapshot_uri = cycle_snapshot_uri or run.cycle_snapshot_uri
         run.model_matrix_uri = model_matrix_uri or run.model_matrix_uri
         run.readiness_uri = readiness_uri or run.readiness_uri
@@ -909,6 +912,19 @@ def update_run_evidence(
         return run
 
     return mutate_run(run_id, None, update)
+
+
+def hydrate_cycle_context(run: LifecycleRun) -> LifecycleRun:
+    if run.cycle_id or not run.cycle_snapshot_uri:
+        return run
+    path = runtime_path(run.cycle_snapshot_uri)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return run
+    if not isinstance(payload, dict) or not payload.get("cycle_id"):
+        return run
+    return run.model_copy(update={"cycle_id": str(payload["cycle_id"])})
 
 
 def mark_lifecycle_rollback(

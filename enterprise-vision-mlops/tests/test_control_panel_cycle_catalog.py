@@ -50,3 +50,16 @@ def test_catalog_filters_and_loads_historical_cycle(tmp_path):
     assert catalog.cycles[0].cycle_id == "cycle-b7-history"
     assert loaded is not None
     assert loaded.cycle_id == "cycle-b7-history"
+
+
+def test_catalog_indexes_lifecycle_cycle_snapshots(tmp_path):
+    live = example_cycle().model_copy(update={"cycle_id": "cycle-live"})
+    lifecycle = example_cycle().model_copy(update={"cycle_id": "cycle-lifecycle"})
+    path = tmp_path / "lifecycle-runs" / "lifecycle-1" / "cycle.snapshot.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(lifecycle.model_dump_json(indent=2), encoding="utf-8")
+
+    catalog = build_cycle_catalog(live, root=tmp_path)
+
+    assert [item.cycle_id for item in catalog.cycles] == ["cycle-live", "cycle-lifecycle"]
+    assert find_cycle("cycle-lifecycle", live, root=tmp_path) == lifecycle

@@ -768,6 +768,7 @@ def rebuild_cycle(run: LifecycleRun) -> CycleRun:
     update_run_evidence(
         run.run_id,
         actor="lifecycle-worker",
+        cycle_id=cycle.cycle_id,
         cycle_snapshot_uri=str(path),
         readiness_uri=(cycle.readiness_evaluation.report_uri if cycle.readiness_evaluation else None),
     )

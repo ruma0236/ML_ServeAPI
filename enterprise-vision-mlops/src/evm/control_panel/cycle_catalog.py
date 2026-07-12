@@ -16,6 +16,7 @@ CYCLE_FILENAMES = {
     "cycle-run-post-ci.json",
     "cycle_run_http.json",
     "cycle_run_final.json",
+    "cycle.snapshot.json",
 }
 
 

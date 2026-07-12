@@ -83,6 +83,15 @@ describe("Lifecycle Runs view", () => {
     expect(completed?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("100");
   });
 
+  it("synchronizes the selected run snapshot with the shared workspace", async () => {
+    const onCycleContext = vi.fn();
+    await act(async () => root.render(<LifecycleRuns onCycleContext={onCycleContext} />));
+    await flushUpdates();
+
+    expect(onCycleContext).toHaveBeenCalledWith("cycle-contract-1");
+    expect(container.textContent).toContain("cycle-contract-1");
+  });
+
   it("keeps a legacy dry-run fail closed when source provenance is missing", async () => {
     const legacy = {
       ...run,
@@ -156,6 +165,7 @@ function lifecycleRun(): LifecycleRun {
     model_config_uri: "F:/runs/1/model.json",
     model_runtime_uri: "/mnt/evm-data/runs/1/model.json",
     artifact_root: "F:/runs/1",
+    cycle_id: "cycle-contract-1",
     failure_reason: "artifact_readiness_blocked",
     blockers: ["artifact_readiness_blocked"],
     stages: stageIds.map((stageId, index) => ({

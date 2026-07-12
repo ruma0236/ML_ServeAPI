@@ -19,6 +19,7 @@ from evm.control_panel.lifecycle_runs import (
     queue_lifecycle_run,
     read_runs,
     transition_stage,
+    update_run_evidence,
 )
 from evm.control_panel.pipeline_profiles import default_profile, save_profile
 
@@ -146,6 +147,25 @@ def test_dry_run_creates_immutable_runtime_snapshot(tmp_path: Path, monkeypatch)
         assert shared_directory.is_dir()
         if os.name != "nt":
             assert shared_directory.stat().st_mode & 0o777 == 0o777
+
+
+def test_run_ledger_hydrates_cycle_context_from_persisted_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run = new_run(tmp_path, monkeypatch)
+    snapshot = Path(run.profile_snapshot_uri).parent / "cycle.snapshot.json"
+    snapshot.write_text(json.dumps({"cycle_id": "cycle-from-lifecycle"}), encoding="utf-8")
+    update_run_evidence(
+        run.run_id,
+        actor="worker",
+        cycle_snapshot_uri=str(snapshot),
+    )
+
+    hydrated = get_lifecycle_run(run.run_id)
+
+    assert hydrated is not None
+    assert hydrated.cycle_id == "cycle-from-lifecycle"
 
 
 @pytest.mark.parametrize(

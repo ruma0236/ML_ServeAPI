@@ -1971,6 +1971,7 @@
           "model_config_uri": {"type": "string"},
           "model_runtime_uri": {"type": "string"},
           "artifact_root": {"type": "string"},
+          "cycle_id": {"type": ["string", "null"]},
           "cycle_snapshot_uri": {"type": ["string", "null"]},
           "model_matrix_uri": {"type": ["string", "null"]},
           "readiness_uri": {"type": ["string", "null"]},

@@ -844,6 +844,7 @@ export interface LifecycleRun {
   model_config_uri: string;
   model_runtime_uri: string;
   artifact_root: string;
+  cycle_id?: string | null;
   cycle_snapshot_uri?: string | null;
   model_matrix_uri?: string | null;
   readiness_uri?: string | null;
