@@ -103,6 +103,14 @@ def runtime_path(value: str | Path) -> Path:
     mount_root = os.getenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data").replace("\\", "/").rstrip("/")
     if normalized.lower().startswith(host_root.lower()) and Path(host_root).exists():
         return path
+    if normalized.lower().startswith("/app/artifacts"):
+        suffix = normalized[len("/app/artifacts") :]
+        host_path = Path(f"{host_root}/artifacts{suffix}")
+        if Path(host_root).exists():
+            return host_path
+        mount_path = Path(f"{mount_root}/artifacts{suffix}")
+        if Path(mount_root).exists():
+            return mount_path
     if normalized.lower().startswith(mount_root.lower()):
         host_path = Path(f"{host_root}{normalized[len(mount_root):]}")
         if host_path.exists():

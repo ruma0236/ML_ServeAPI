@@ -55,8 +55,10 @@ class ServingBundle:
 
 
 def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
-    profile = read_json(Path(run.profile_snapshot_uri))
-    model = read_json(Path(run.model_config_uri))
+    profile_path = runtime_path(run.profile_snapshot_uri)
+    model_path = runtime_path(run.model_config_uri)
+    profile = read_json(profile_path)
+    model = read_json(model_path)
     candidate_id = selected_candidate_id(model)
     resources = object_value(profile, "resources")
     gpu_count = int(resources.get("gpu_count") or 0)
@@ -67,7 +69,7 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     image = pinned_image("EVM_LIFECYCLE_TRAINING_IMAGE", DEFAULT_TRAINING_IMAGE)
     namespace = "evm-training"
     job_name = f"evm-lifecycle-train-{short_run_id(run.run_id)}"
-    directory = Path(run.profile_snapshot_uri).parent / "kubernetes" / "training"
+    directory = profile_path.parent / "kubernetes" / "training"
     directory.mkdir(parents=True, exist_ok=True)
 
     write_json(directory / "namespace.json", namespace_resource(namespace))
@@ -142,8 +144,10 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
 
 
 def materialize_serving_bundle(run: LifecycleRun, cycle: CycleRun) -> ServingBundle:
-    profile = read_json(Path(run.profile_snapshot_uri))
-    model = read_json(Path(run.model_config_uri))
+    profile_path = runtime_path(run.profile_snapshot_uri)
+    model_path = runtime_path(run.model_config_uri)
+    profile = read_json(profile_path)
+    model = read_json(model_path)
     gates = object_value(profile, "gates")
     model_profile = object_value(profile, "model")
     environment = str(gates.get("target_environment") or "staging")
@@ -158,7 +162,7 @@ def materialize_serving_bundle(run: LifecycleRun, cycle: CycleRun) -> ServingBun
     node_port = NODE_PORTS.get(environment)
     if node_port is None:
         raise LifecycleKubernetesError(f"unsupported_target_environment:{environment}")
-    directory = Path(run.profile_snapshot_uri).parent / "kubernetes" / "serving"
+    directory = profile_path.parent / "kubernetes" / "serving"
     directory.mkdir(parents=True, exist_ok=True)
     write_json(directory / "namespace.json", namespace_resource(namespace))
     storage = storage_resources(namespace, read_only=True)
@@ -262,7 +266,7 @@ def build_training_evidence(
     *,
     runner: Runner = subprocess.run,
 ) -> tuple[dict[str, Any], Path]:
-    model = read_json(Path(run.model_config_uri))
+    model = read_json(runtime_path(run.model_config_uri))
     matrix = latest_matrix(model)
     candidate = next(
         (

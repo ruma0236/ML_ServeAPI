@@ -310,8 +310,10 @@ def process_model_evaluation(
     del runner, http_client
     run = ensure_stage_running(run, "model_evaluation", "Evaluating real model evidence")
     with run_source_environment(run):
-        cycle = build_latest_cycle(run.airflow_config_uri, run.model_config_uri)
-        report = validate_real_test_evidence(cycle, Path(run.model_config_uri))
+        airflow_path = runtime_path(run.airflow_config_uri)
+        model_path = runtime_path(run.model_config_uri)
+        cycle = build_latest_cycle(airflow_path, model_path)
+        report = validate_real_test_evidence(cycle, model_path)
         report_path = configured_evidence_path(run, "real_test_validation")
         write_json(report_path, report)
         if not report.get("valid"):
@@ -321,7 +323,7 @@ def process_model_evaluation(
                 if isinstance(item, dict)
             ]
             raise LifecycleStageBlocked("real_test_validation_failed", violations)
-        cycle = build_latest_cycle(run.airflow_config_uri, run.model_config_uri)
+        cycle = build_latest_cycle(airflow_path, model_path)
     cycle_path = configured_evidence_path(run, "cycle_snapshot")
     write_json(cycle_path, cycle.model_dump(mode="json"))
     matrix_path = model_matrix_path(run)
@@ -444,7 +446,7 @@ def process_deployment(
     serving = materialize_serving_bundle(run, cycle)
     intent = get_intent(run.deployment_intent_id) if run.deployment_intent_id else None
     if intent is None:
-        profile = read_json(Path(run.profile_snapshot_uri))
+        profile = read_json(runtime_path(run.profile_snapshot_uri))
         gates = object_value(profile, "gates")
         intent = create_deployment_intent(
             DeploymentIntentRequest(
@@ -684,7 +686,10 @@ STAGE_HANDLERS = {
 
 def rebuild_cycle(run: LifecycleRun) -> CycleRun:
     with run_source_environment(run):
-        cycle = build_latest_cycle(run.airflow_config_uri, run.model_config_uri)
+        cycle = build_latest_cycle(
+            runtime_path(run.airflow_config_uri),
+            runtime_path(run.model_config_uri),
+        )
     path = configured_evidence_path(run, "cycle_snapshot")
     write_json(path, cycle.model_dump(mode="json"))
     update_run_evidence(
@@ -799,7 +804,7 @@ def fail_stage(run: LifecycleRun, detail: str, blockers: list[str]) -> Lifecycle
 
 
 def configured_evidence_path(run: LifecycleRun, key: str) -> Path:
-    model = read_json(Path(run.model_config_uri))
+    model = read_json(runtime_path(run.model_config_uri))
     value = object_value(object_value(model, "control_plane"), "runtime_evidence").get(key)
     if not value:
         raise ValueError(f"runtime_evidence_path_missing:{key}")
@@ -807,7 +812,7 @@ def configured_evidence_path(run: LifecycleRun, key: str) -> Path:
 
 
 def model_matrix_path(run: LifecycleRun) -> Path:
-    model = read_json(Path(run.model_config_uri))
+    model = read_json(runtime_path(run.model_config_uri))
     root = runtime_path(str(object_value(model, "resources").get("artifact_root") or ""))
     return root / "latest_model_matrix.json"
 
@@ -824,7 +829,7 @@ def model_digest(cycle: CycleRun) -> str:
 
 
 def first_sample_uri(run: LifecycleRun) -> str:
-    profile = read_json(Path(run.profile_snapshot_uri))
+    profile = read_json(runtime_path(run.profile_snapshot_uri))
     source = runtime_path(str(object_value(profile, "data").get("source_manifest_uri") or ""))
     if not source.is_file():
         raise LifecycleStageBlocked("serving_sample_manifest_missing")

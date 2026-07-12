@@ -79,6 +79,17 @@ def test_runtime_path_preserves_new_write_target_when_host_root_exists(tmp_path,
     assert runtime_path(target) == target
 
 
+def test_runtime_path_maps_api_artifact_uri_to_existing_host_root(tmp_path, monkeypatch):
+    host_root = tmp_path / "evm-data"
+    host_root.mkdir()
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(host_root))
+
+    assert runtime_path("/app/artifacts/w7/lifecycle/run.json") == (
+        host_root / "artifacts" / "w7" / "lifecycle" / "run.json"
+    )
+
+
 def write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
