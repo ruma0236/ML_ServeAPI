@@ -51,6 +51,47 @@ def stable_record_digest(records: list[dict[str, Any]]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def stable_json_digest(payload: Any) -> str:
+    material = json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def shard_index_identity_digest(payload: dict[str, Any]) -> str:
+    shards = payload.get("shards")
+    shards = shards if isinstance(shards, list) else []
+    normalized_shards = [
+        {
+            key: shard.get(key)
+            for key in (
+                "shard_id",
+                "split",
+                "record_count",
+                "first_sample_id",
+                "last_sample_id",
+            )
+        }
+        for shard in shards
+        if isinstance(shard, dict)
+    ]
+    return stable_json_digest(
+        {
+            "schema_version": payload.get("schema_version"),
+            "records_per_shard": payload.get("records_per_shard"),
+            "record_count": payload.get("record_count"),
+            "shard_count": payload.get("shard_count"),
+            "split_counts": payload.get("split_counts"),
+            "label_counts": payload.get("label_counts"),
+            "label_type_counts": payload.get("label_type_counts"),
+            "shards": normalized_shards,
+        }
+    )
+
+
 def dimension_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
     widths = [int(record.get("width", 0) or 0) for record in records]
     heights = [int(record.get("height", 0) or 0) for record in records]

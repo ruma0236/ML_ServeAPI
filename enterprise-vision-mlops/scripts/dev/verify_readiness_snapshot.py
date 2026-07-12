@@ -6,7 +6,7 @@ from pathlib import Path
 
 from evm.control_panel.aggregation import build_latest_cycle
 from evm.control_panel.readiness_evaluator import runtime_path
-from evm.core.config import get_nested, load_config, resolve_path
+from evm.core.config import get_nested, load_config, map_runtime_data_path, resolve_path
 from evm.core.readiness_snapshot import read_json, write_json
 
 
@@ -23,16 +23,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     config = load_config(args.config)
-    dataset_metadata = resolve_path(
-        config,
-        str(
-            get_nested(
-                config,
-                "pipelines.data_validation.dataset_metadata",
-                "data/validated/visa/dataset_version.json",
-            )
-        ),
+    dataset_metadata_value = str(
+        get_nested(
+            config,
+            "pipelines.data_validation.dataset_metadata",
+            "data/validated/visa/dataset_version.json",
+        )
     )
+    dataset_metadata = map_runtime_data_path(dataset_metadata_value)
+    if not dataset_metadata.is_absolute():
+        dataset_metadata = resolve_path(config, dataset_metadata)
     dataset_metadata = runtime_path(dataset_metadata)
     mutable_dataset = read_json(dataset_metadata)
     cycle = build_latest_cycle(args.config)

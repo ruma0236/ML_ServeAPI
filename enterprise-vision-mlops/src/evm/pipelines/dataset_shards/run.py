@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from evm.core.config import get_nested
+from evm.core.dataset import shard_index_identity_digest
 from evm.core.image_quality import stable_split, summarize_counts
 from evm.core.pipeline import (
     build_context,
@@ -87,6 +88,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "shards": shards,
         "trace": ctx.trace.to_dict(),
     }
+    index_payload["identity_sha256"] = shard_index_identity_digest(index_payload)
     write_json(index_path, index_payload)
     write_json(ctx.run_dir / "summary.json", index_payload)
     write_markdown_report(

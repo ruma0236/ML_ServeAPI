@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from evm.core.data_intake import build_manifest_records, sample_id_for
-from evm.core.dataset import stable_record_digest
+from evm.core.dataset import shard_index_identity_digest, stable_record_digest
 
 
 def _record(*, image_uri: str, image_path: str) -> dict[str, object]:
@@ -77,3 +77,49 @@ def test_manifest_builder_uses_mapped_runtime_root_for_relative_identity(tmp_pat
     assert records[0]["metadata"]["relative_path"] == (
         "candle/Data/Images/Normal/000.JPG"
     )
+
+
+def test_shard_identity_ignores_runtime_paths_and_trace_metadata() -> None:
+    common = {
+        "schema_version": "evm.dataset_shards.v1",
+        "records_per_shard": 512,
+        "record_count": 2,
+        "shard_count": 1,
+        "split_counts": {"train": 2},
+        "label_counts": {"normal": 2},
+        "label_type_counts": {"normal": 2},
+    }
+    host = {
+        **common,
+        "input_manifest": "F:/data/quality.jsonl",
+        "output_dir": "F:/data/shards",
+        "trace": {"pipeline_run_id": "host-run"},
+        "shards": [
+            {
+                "shard_id": "train-0000",
+                "split": "train",
+                "path": "F:/data/shards/train_shard_0000.jsonl",
+                "record_count": 2,
+                "first_sample_id": "sample-1",
+                "last_sample_id": "sample-2",
+            }
+        ],
+    }
+    container = {
+        **common,
+        "input_manifest": "/mnt/evm-data/data/quality.jsonl",
+        "output_dir": "/mnt/evm-data/data/shards",
+        "trace": {"pipeline_run_id": "container-run"},
+        "shards": [
+            {
+                "shard_id": "train-0000",
+                "split": "train",
+                "path": "/mnt/evm-data/data/shards/train_shard_0000.jsonl",
+                "record_count": 2,
+                "first_sample_id": "sample-1",
+                "last_sample_id": "sample-2",
+            }
+        ],
+    }
+
+    assert shard_index_identity_digest(host) == shard_index_identity_digest(container)

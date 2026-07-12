@@ -186,9 +186,19 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
     shard_index_path = Path(str(inputs.get("shard_index", "")))
     if not shard_index_path.is_absolute():
         shard_index_path = resolve_path(config, shard_index_path)
-    shard_index_sha256 = file_sha256(shard_index_path)
-    expected_shard_index_sha256 = str(inputs.get("shard_index_sha256", "")).strip()
     shard_index, splits = load_shard_records(shard_index_path)
+    shard_index_file_sha256 = file_sha256(shard_index_path)
+    shard_index_identity_sha256 = str(shard_index.get("identity_sha256") or "")
+    expected_identity_sha256 = str(inputs.get("shard_identity_sha256", "")).strip()
+    expected_shard_index_sha256 = (
+        expected_identity_sha256
+        or str(inputs.get("shard_index_sha256", "")).strip()
+    )
+    shard_index_sha256 = (
+        shard_index_identity_sha256
+        if expected_identity_sha256
+        else shard_index_file_sha256
+    )
     split_manifest = split_manifest_snapshot(
         shard_index,
         splits,
@@ -196,6 +206,8 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         seed=execution_seed,
     )
     split_manifest["source_shard_index_sha256"] = shard_index_sha256
+    split_manifest["source_shard_file_sha256"] = shard_index_file_sha256
+    split_manifest["source_shard_identity_sha256"] = shard_index_identity_sha256
     split_manifest["expected_shard_index_sha256"] = expected_shard_index_sha256
     split_blockers = source_digest_blockers(
         shard_index_sha256,
@@ -370,6 +382,8 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         "execution_seed": execution_seed,
         "split_manifest": str(matrix_dir / "split_manifest.json"),
         "source_shard_index_sha256": shard_index_sha256,
+        "source_shard_file_sha256": shard_index_file_sha256,
+        "source_shard_identity_sha256": shard_index_identity_sha256,
         "split_blockers": split_blockers,
         "readiness_snapshot_manifest": (
             str(readiness_snapshot_path) if readiness_snapshot_path else None
