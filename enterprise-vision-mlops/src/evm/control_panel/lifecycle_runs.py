@@ -128,6 +128,7 @@ class LifecycleRun(ContractModel):
     model_matrix_uri: str | None = None
     readiness_uri: str | None = None
     real_test_validation_uri: str | None = None
+    resource_handoff_uri: str | None = None
     deployment_intent_id: str | None = None
     approver: str | None = None
     failure_reason: str | None = None
@@ -890,6 +891,7 @@ def update_run_evidence(
     model_matrix_uri: str | None = None,
     readiness_uri: str | None = None,
     real_test_validation_uri: str | None = None,
+    resource_handoff_uri: str | None = None,
     deployment_intent_id: str | None = None,
     approver: str | None = None,
 ) -> LifecycleRun:
@@ -900,6 +902,7 @@ def update_run_evidence(
         run.real_test_validation_uri = (
             real_test_validation_uri or run.real_test_validation_uri
         )
+        run.resource_handoff_uri = resource_handoff_uri or run.resource_handoff_uri
         run.deployment_intent_id = deployment_intent_id or run.deployment_intent_id
         run.approver = approver or run.approver
         run.audit.append(audit(actor, "lifecycle_evidence_updated"))

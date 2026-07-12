@@ -18,6 +18,10 @@ from evm.control_panel.deployment_intents import (
     request_approval,
 )
 from evm.control_panel.kubernetes_task_executor import execute_kubernetes_task
+from evm.control_panel.lifecycle_gpu_handoff import (
+    acquire_gpu_handoff,
+    release_gpu_handoff,
+)
 from evm.control_panel.lifecycle_kubernetes import (
     LifecycleKubernetesError,
     ServingBundle,
@@ -112,11 +116,21 @@ def process_lifecycle_run(
         ValueError,
         RuntimeError,
     ) as exc:
-        return fail_stage(
+        failed = fail_stage(
             required_run(run_id),
             str(exc) or type(exc).__name__,
             [type(exc).__name__, str(exc) or "runtime_error"],
         )
+        if run.current_stage in {"deployment", "serving_validation", "monitoring"}:
+            current = required_run(run_id)
+            if current.deployment_intent_id:
+                return rollback_lifecycle(
+                    failed,
+                    current.deployment_intent_id,
+                    runner,
+                    f"{run.current_stage}_runtime_failed",
+                )
+        return failed
 
 
 def process_data_pipeline(
@@ -519,12 +533,28 @@ def process_deployment(
             cycle=cycle,
         )
     if intent.state == "queued":
-        intent = execute_apply(
-            intent.intent_id,
-            runner=runner,
-            require_enabled=False,
-            cycle=cycle,
-        )
+        handoff = acquire_gpu_handoff(run, serving, runner=runner)
+        if handoff:
+            update_run_evidence(
+                run.run_id,
+                actor="lifecycle-worker",
+                resource_handoff_uri=str(handoff),
+            )
+        try:
+            intent = execute_apply(
+                intent.intent_id,
+                runner=runner,
+                require_enabled=False,
+                cycle=cycle,
+            )
+        except Exception:
+            release_gpu_handoff(
+                run,
+                serving,
+                runner=runner,
+                reason="deployment_executor_exception",
+            )
+            raise
     if intent.state != "applied":
         failed = transition_stage(
             run.run_id,
@@ -637,7 +667,6 @@ def process_monitoring(
     runner: Runner,
     http_client: HttpClient,
 ) -> LifecycleRun:
-    del runner
     run = ensure_stage_running(run, "monitoring", "Registering and validating Prometheus scrape")
     cycle = rebuild_cycle(run)
     serving = materialize_serving_bundle(run, cycle)
@@ -678,7 +707,31 @@ def process_monitoring(
     path = Path(run.artifact_root) / "monitoring" / "validation.json"
     write_json(path, evidence)
     if blockers:
-        raise LifecycleStageBlocked("monitoring_validation_blocked", blockers)
+        failed = transition_stage(
+            run.run_id,
+            "monitoring",
+            "failed",
+            actor="lifecycle-worker",
+            runtime_id="prometheus",
+            runtime_state="blocked",
+            evidence_uri=str(path),
+            detail="Prometheus monitoring validation failed",
+            blockers=blockers,
+        )
+        if run.deployment_intent_id:
+            return rollback_lifecycle(
+                failed,
+                run.deployment_intent_id,
+                runner,
+                "monitoring_validation_failed",
+            )
+        return failed
+    release_gpu_handoff(
+        run,
+        serving,
+        runner=runner,
+        reason="staging_validation_completed",
+    )
     return transition_stage(
         run.run_id,
         "monitoring",
@@ -733,19 +786,43 @@ def rollback_lifecycle(
         state="rolling_back",
         detail=reason,
     )
+    rollback_error = ""
+    intent = None
     try:
         intent = execute_rollback(intent_id, runner=runner, require_enabled=False)
+        if intent.state != "rolled_back":
+            rollback_error = f"Deployment intent rollback ended in {intent.state}"
     except Exception as exc:
-        return mark_lifecycle_rollback_failed(
-            run.run_id,
-            actor="lifecycle-worker",
-            detail=f"{type(exc).__name__}: {exc}",
+        rollback_error = f"{type(exc).__name__}: {exc}"
+        try:
+            intent = get_intent(intent_id)
+        except Exception:
+            intent = None
+    if intent is not None:
+        serving = ServingBundle(
+            manifest_dir=Path(intent.manifest_ref),
+            namespace=intent.target_namespace,
+            deployment_name=intent.target.name,
+            endpoint="",
+            image=intent.image_digest,
         )
-    if intent.state != "rolled_back":
+        try:
+            release_gpu_handoff(
+                run,
+                serving,
+                runner=runner,
+                reason=reason,
+            )
+        except Exception as exc:
+            release_error = f"GPU handoff release failed: {type(exc).__name__}: {exc}"
+            rollback_error = (
+                f"{rollback_error}; {release_error}" if rollback_error else release_error
+            )
+    if rollback_error:
         return mark_lifecycle_rollback_failed(
             run.run_id,
             actor="lifecycle-worker",
-            detail=f"Deployment intent rollback ended in {intent.state}",
+            detail=rollback_error,
         )
     return mark_lifecycle_rollback(
         run.run_id,

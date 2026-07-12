@@ -1975,6 +1975,7 @@
           "model_matrix_uri": {"type": ["string", "null"]},
           "readiness_uri": {"type": ["string", "null"]},
           "real_test_validation_uri": {"type": ["string", "null"]},
+          "resource_handoff_uri": {"type": ["string", "null"]},
           "deployment_intent_id": {"type": ["string", "null"]},
           "approver": {"type": ["string", "null"]},
           "failure_reason": {"type": ["string", "null"]},

@@ -255,6 +255,7 @@ export function LifecycleRuns() {
               <Evidence label="Model Config" value={selected.model_config_uri} />
               <Evidence label="Model Matrix" value={selected.model_matrix_uri} />
               <Evidence label="Readiness" value={selected.readiness_uri} />
+              <Evidence label="GPU Handoff" value={selected.resource_handoff_uri} />
               <Evidence label="Deployment Intent" value={selected.deployment_intent_id} />
               <div className="lifecycle-audit-list">
                 {selected.audit.slice().reverse().map((event, index) => (

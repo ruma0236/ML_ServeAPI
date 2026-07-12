@@ -848,6 +848,7 @@ export interface LifecycleRun {
   model_matrix_uri?: string | null;
   readiness_uri?: string | null;
   real_test_validation_uri?: string | null;
+  resource_handoff_uri?: string | null;
   deployment_intent_id?: string | null;
   approver?: string | null;
   failure_reason?: string | null;

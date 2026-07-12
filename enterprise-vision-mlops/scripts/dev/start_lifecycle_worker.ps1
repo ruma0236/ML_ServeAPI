@@ -88,6 +88,12 @@ $env:EVM_AIRFLOW_API_PASSWORD = if ($env:AIRFLOW_ADMIN_PASSWORD) { $env:AIRFLOW_
 $env:MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
 $env:EVM_PROMETHEUS_URL = "http://127.0.0.1:9090"
 $env:EVM_PROMETHEUS_FILE_SD_PATH = Join-Path $ArtifactsRoot "w7\prometheus-targets\lifecycle-serving.json"
+if (-not $env:EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED) {
+    $env:EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED = "true"
+}
+if (-not $env:EVM_LIFECYCLE_GPU_HOLDERS) {
+    $env:EVM_LIFECYCLE_GPU_HOLDERS = "evm-production/evm-b0-production"
+}
 $env:EVM_GIT_COMMIT = (git -C $ProjectRoot rev-parse HEAD).Trim()
 $env:EVM_GIT_BRANCH = (git -C $ProjectRoot branch --show-current).Trim()
 
