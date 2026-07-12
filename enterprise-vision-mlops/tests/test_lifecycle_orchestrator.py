@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import URLError
 
+import pytest
+
 from evm.control_panel import lifecycle_orchestrator, lifecycle_runs, operations
 from evm.control_panel.lifecycle_kubernetes import ServingBundle
 from evm.control_panel.lifecycle_orchestrator import (
@@ -124,6 +126,15 @@ def test_airflow_running_observation_reaches_lifecycle_stage(tmp_path, monkeypat
         [
             FakeResponse({"dag_run_id": "cp__lifecycle", "state": "queued"}),
             FakeResponse({"dag_run_id": "cp__lifecycle", "state": "running"}),
+            FakeResponse(
+                {
+                    "task_instances": [
+                        {"task_id": "intake", "state": "success"},
+                        {"task_id": "quality", "state": "running"},
+                        {"task_id": "curation", "state": None},
+                    ]
+                }
+            ),
         ]
     )
     monkeypatch.setattr(operations, "urlopen", lambda *_args, **_kwargs: next(responses))
@@ -133,7 +144,9 @@ def test_airflow_running_observation_reaches_lifecycle_stage(tmp_path, monkeypat
     assert result.state == "running"
     assert result.current_stage == "data_pipeline"
     assert result.stages[1].state == "running"
-    assert result.stages[1].runtime_state == "running"
+    assert result.stages[1].runtime_state == "running; 1/3 tasks complete"
+    assert result.stages[1].progress == pytest.approx(1 / 3)
+    assert "active: quality" in (result.stages[1].detail or "")
 
 
 def test_airflow_runtime_refreshes_after_lifecycle_stage_is_running(
@@ -144,7 +157,11 @@ def test_airflow_runtime_refreshes_after_lifecycle_stage_is_running(
         [
             FakeResponse({"dag_run_id": "cp__lifecycle", "state": "queued"}),
             FakeResponse({"dag_run_id": "cp__lifecycle", "state": "queued"}),
+            FakeResponse({"task_instances": [{"task_id": "intake", "state": None}]}),
             FakeResponse({"dag_run_id": "cp__lifecycle", "state": "running"}),
+            FakeResponse(
+                {"task_instances": [{"task_id": "intake", "state": "running"}]}
+            ),
         ]
     )
     monkeypatch.setattr(operations, "urlopen", lambda *_args, **_kwargs: next(responses))
@@ -153,9 +170,9 @@ def test_airflow_runtime_refreshes_after_lifecycle_stage_is_running(
     refreshed = process_lifecycle_run(run.run_id)
 
     assert first.stages[1].state == "running"
-    assert first.stages[1].runtime_state == "queued"
+    assert first.stages[1].runtime_state == "queued; 0/1 tasks complete"
     assert refreshed.stages[1].state == "running"
-    assert refreshed.stages[1].runtime_state == "running"
+    assert refreshed.stages[1].runtime_state == "running; 0/1 tasks complete"
     assert refreshed.version > first.version
     assert refreshed.audit[-1].event == "lifecycle_stage_runtime_updated"
 

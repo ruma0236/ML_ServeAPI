@@ -44,6 +44,7 @@ from evm.control_panel.lifecycle_runs import (
 )
 from evm.control_panel.operations import (
     TaskDispatchError,
+    airflow_task_progress,
     create_task_assignment,
     dispatch_task_assignment,
     read_tasks,
@@ -187,6 +188,21 @@ def process_data_pipeline(
         (item for item in sync_running_tasks().tasks if item.task_id == task.task_id),
         task,
     )
+    telemetry = airflow_task_progress(task) if task.status == "running" else None
+    runtime_state = task.runtime_state
+    detail = "Airflow DAG run is executing isolated data stages"
+    progress = stage.progress
+    if telemetry:
+        runtime_state = (
+            f"{task.runtime_state or 'running'}; "
+            f"{telemetry.completed}/{telemetry.total} tasks complete"
+        )
+        progress = telemetry.fraction
+        active = ", ".join(telemetry.active_task_ids[:2]) or "scheduler transition"
+        detail = (
+            f"Airflow tasks {telemetry.completed}/{telemetry.total} complete; "
+            f"active: {active}"
+        )
     if task.status == "running" and stage.state == "queued":
         run = transition_stage(
             run.run_id,
@@ -195,15 +211,18 @@ def process_data_pipeline(
             actor="lifecycle-worker",
             task_id=task.task_id,
             runtime_id=task.runtime_id,
-            runtime_state=task.runtime_state,
-            detail="Airflow DAG run is executing isolated data stages",
+            runtime_state=runtime_state,
+            progress=progress,
+            detail=detail,
         )
     elif (
         task.status == "running"
         and stage.state == "running"
         and (
-            task.runtime_state != stage.runtime_state
+            runtime_state != stage.runtime_state
             or task.runtime_id != stage.runtime_id
+            or progress != stage.progress
+            or detail != stage.detail
         )
     ):
         run = update_stage_runtime(
@@ -211,7 +230,9 @@ def process_data_pipeline(
             "data_pipeline",
             actor="lifecycle-worker",
             runtime_id=task.runtime_id,
-            runtime_state=task.runtime_state or "unknown",
+            runtime_state=runtime_state or "unknown",
+            progress=progress,
+            detail=detail,
         )
     if task.status == "done":
         current = required_run(run.run_id)

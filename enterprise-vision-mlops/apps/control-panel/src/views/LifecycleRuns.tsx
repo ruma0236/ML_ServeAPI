@@ -310,7 +310,7 @@ function LifecycleStageRow({ stage, index }: { stage: LifecycleStage; index: num
       <div className="lifecycle-stage-icon">{stageIcon(stage.state)}</div>
       <div className="lifecycle-stage-copy">
         <header><strong>{stage.label}</strong><em>{stageStateLabel(stage.state)}</em></header>
-        <span>{stage.runtime} / {stage.runtime_state || stage.detail || "Waiting for dependency"}</span>
+        <span>{stage.runtime} / {stageRuntimeSummary(stage)}</span>
         <div
           className={`lifecycle-stage-progress is-${stage.state}`}
           role="progressbar"
@@ -368,6 +368,12 @@ function stageStateLabel(state: LifecycleStageState): string {
     cancelled: "Cancelled"
   };
   return labels[state];
+}
+
+
+function stageRuntimeSummary(stage: LifecycleStage): string {
+  if (stage.stage_id === "approval" && stage.state === "completed") return "approved";
+  return stage.runtime_state || stage.detail || "Waiting for dependency";
 }
 
 

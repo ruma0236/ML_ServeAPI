@@ -83,6 +83,27 @@ describe("Lifecycle Runs view", () => {
     expect(completed?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("100");
   });
 
+  it("renders a completed legacy approval as approved", async () => {
+    const approved = {
+      ...run,
+      state: "completed" as const,
+      current_stage: null,
+      progress: 1,
+      failure_reason: null,
+      blockers: [],
+      stages: run.stages.map((stage) => stage.stage_id === "approval"
+        ? { ...stage, state: "completed" as const, progress: 1, runtime_state: "two_person_approval_required" }
+        : stage)
+    };
+    api.fetchLifecycleRuns.mockResolvedValue({ runs: [approved], total: 1 });
+    await act(async () => root.render(<LifecycleRuns />));
+    await flushUpdates();
+
+    const approval = container.querySelector('[aria-label="approval: Completed"]');
+    expect(approval?.textContent).toContain("control-plane / approved");
+    expect(approval?.textContent).not.toContain("two_person_approval_required");
+  });
+
   it("synchronizes the selected run snapshot with the shared workspace", async () => {
     const onCycleContext = vi.fn();
     await act(async () => root.render(<LifecycleRuns onCycleContext={onCycleContext} />));

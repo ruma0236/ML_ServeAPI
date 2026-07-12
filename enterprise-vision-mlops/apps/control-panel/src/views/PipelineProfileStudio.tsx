@@ -89,13 +89,16 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
   }, [profile]);
 
   const savedCurrent = saved;
-  const overallProgress = useMemo(() => {
-    if (!validation?.stages.length) return 0;
-    return Math.round(
-      validation.stages.reduce((total, stage) => total + stage.progress, 0)
-        / validation.stages.length
-        * 100
-    );
+  const validationCoverage = useMemo(() => {
+    if (!validation) return 0;
+    if (validation.executable && validation.status === "ready") return 100;
+    const checks = validation.capabilities.length + validation.stages.length;
+    if (!checks) return 0;
+    const passingCapabilities = validation.capabilities.filter(
+      (item) => item.active && item.status !== "not_wired"
+    ).length;
+    const unblockedStages = validation.stages.filter((stage) => stage.state !== "blocked").length;
+    return Math.round((passingCapabilities + unblockedStages) / checks * 100);
   }, [validation]);
 
   if (!profile) return <section className="loading-state">Loading pipeline profile</section>;
@@ -192,12 +195,12 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
         </div>
         <div className="profile-readiness">
           <div>
-            <span>Plan Progress</span>
-            <strong>{overallProgress}%</strong>
+            <span>Configuration Validity</span>
+            <strong>{validationCoverage}%</strong>
           </div>
           <StatusBadge status={validation?.status || "unknown"} />
-          <div className="profile-overall-progress" aria-label={`Plan progress ${overallProgress}%`}>
-            <b style={{ width: `${overallProgress}%` }} />
+          <div className="profile-overall-progress" aria-label={`Configuration validity ${validationCoverage}%`}>
+            <b style={{ width: `${validationCoverage}%` }} />
           </div>
         </div>
       </div>

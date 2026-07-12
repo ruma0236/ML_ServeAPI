@@ -858,18 +858,25 @@ def update_stage_runtime(
     actor: str,
     runtime_state: str,
     runtime_id: str | None = None,
+    progress: float | None = None,
+    detail: str | None = None,
 ) -> LifecycleRun:
     def update(run: LifecycleRun) -> LifecycleRun:
         index = stage_index(run, stage_id)
         stage = run.stages[index]
         previous_state = stage.runtime_state
         previous_id = stage.runtime_id
+        previous_progress = stage.progress
+        next_progress = stage.progress if progress is None else max(0.0, min(1.0, progress))
         run.stages[index] = stage.model_copy(
             update={
                 "runtime_state": runtime_state,
                 "runtime_id": runtime_id or stage.runtime_id,
+                "progress": next_progress,
+                "detail": detail or stage.detail,
             }
         )
+        run.progress = stage_progress(run.stages)
         run.audit.append(
             audit(
                 actor,
@@ -879,6 +886,8 @@ def update_stage_runtime(
                 runtime_state=runtime_state,
                 previous_runtime_id=previous_id,
                 runtime_id=runtime_id or previous_id,
+                previous_progress=previous_progress,
+                progress=next_progress,
             )
         )
         return run

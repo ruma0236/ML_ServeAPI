@@ -5,6 +5,7 @@ import os
 import time
 from base64 import b64encode
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import wraps
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,6 +44,16 @@ class TaskDispatchError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.status_code = status_code
+
+
+@dataclass(frozen=True)
+class AirflowTaskProgress:
+    completed: int
+    running: int
+    failed: int
+    total: int
+    fraction: float
+    active_task_ids: tuple[str, ...]
 
 
 def ledger_transaction(function):
@@ -433,6 +444,43 @@ def airflow_api_request_url(
             status_code=502,
         )
     return parsed
+
+
+def airflow_task_progress(task: TaskAssignment) -> AirflowTaskProgress | None:
+    if task.runtime_system != "airflow" or not task.runtime_url:
+        return None
+    try:
+        payload = airflow_api_request_url(f"{task.runtime_url.rstrip('/')}/taskInstances")
+    except TaskDispatchError:
+        return None
+    raw_instances = payload.get("task_instances")
+    if not isinstance(raw_instances, list) or not raw_instances:
+        return None
+    instances = [item for item in raw_instances if isinstance(item, dict)]
+    if not instances:
+        return None
+    terminal_states = {"success", "skipped", "removed", "failed", "upstream_failed"}
+    failed_states = {"failed", "upstream_failed"}
+    completed = sum(1 for item in instances if item.get("state") in terminal_states)
+    failed = sum(1 for item in instances if item.get("state") in failed_states)
+    running = sum(1 for item in instances if item.get("state") == "running")
+    active = tuple(
+        sorted(
+            str(item.get("task_id"))
+            for item in instances
+            if item.get("state") in {"running", "queued", "deferred", "up_for_retry"}
+            and item.get("task_id")
+        )
+    )
+    total = len(instances)
+    return AirflowTaskProgress(
+        completed=completed,
+        running=running,
+        failed=failed,
+        total=total,
+        fraction=completed / total,
+        active_task_ids=active,
+    )
 
 
 def resolve_task_status(request: TaskAssignmentRequest) -> TaskStatus:

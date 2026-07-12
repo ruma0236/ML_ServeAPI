@@ -58,6 +58,38 @@ def test_airflow_task_dispatch_and_runtime_sync(tmp_path, monkeypatch):
     assert synced.tasks[0].cycle_id == "cycle-real-1"
 
 
+def test_airflow_task_progress_uses_real_task_instances(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVM_CONTROL_PANEL_LEDGER_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        operations,
+        "urlopen",
+        lambda *_args, **_kwargs: FakeResponse({"dag_run_id": "cp__run", "state": "running"}),
+    )
+    created = operations.create_task_assignment(request())
+    dispatched = operations.dispatch_task_assignment(created.task_id)
+    monkeypatch.setattr(
+        operations,
+        "airflow_api_request_url",
+        lambda *_args, **_kwargs: {
+            "task_instances": [
+                {"task_id": "intake", "state": "success"},
+                {"task_id": "quality", "state": "running"},
+                {"task_id": "curation", "state": None},
+                {"task_id": "publish", "state": "skipped"},
+            ]
+        },
+    )
+
+    progress = operations.airflow_task_progress(dispatched)
+
+    assert progress is not None
+    assert progress.completed == 2
+    assert progress.running == 1
+    assert progress.total == 4
+    assert progress.fraction == pytest.approx(0.5)
+    assert progress.active_task_ids == ("quality",)
+
+
 def test_non_airflow_task_fails_closed(tmp_path, monkeypatch):
     monkeypatch.setenv("EVM_CONTROL_PANEL_LEDGER_ROOT", str(tmp_path))
     created = operations.create_task_assignment(request("kubernetes_job"))
