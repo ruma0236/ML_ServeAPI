@@ -26,3 +26,11 @@ def test_pipeline_container_has_project_root_markers_for_config_resolution() -> 
     assert "EVM_PIPELINE_CONFIG: /app/configs/airflow.toml" in k8s_config
     assert "configs/airflow.toml" in k8s_jobs
     assert "configs/local_visa.toml" not in k8s_jobs
+
+
+def test_control_panel_proxy_re_resolves_recreated_api_container() -> None:
+    nginx = Path("apps/control-panel/nginx.conf").read_text(encoding="utf-8")
+
+    assert "resolver 127.0.0.11 valid=5s ipv6=off;" in nginx
+    assert "set $api_upstream http://api:8000;" in nginx
+    assert "proxy_pass $api_upstream;" in nginx
