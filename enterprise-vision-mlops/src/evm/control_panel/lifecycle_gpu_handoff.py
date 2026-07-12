@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from evm.control_panel.lifecycle_kubernetes import ServingBundle
+from evm.control_panel.lifecycle_kubernetes import ServingBundle, TrainingBundle
 from evm.control_panel.lifecycle_runs import LifecycleRun
 
 
@@ -31,6 +31,10 @@ def handoff_path(run: LifecycleRun) -> Path:
     return Path(run.artifact_root) / "kubernetes" / "gpu_handoff.json"
 
 
+def training_handoff_path(run: LifecycleRun) -> Path:
+    return Path(run.artifact_root) / "kubernetes" / "training_gpu_handoff.json"
+
+
 def acquire_gpu_handoff(
     run: LifecycleRun,
     serving: ServingBundle,
@@ -46,78 +50,49 @@ def acquire_gpu_handoff(
     if existing.get("state") in {"acquiring", "releasing", "release_failed"}:
         release_gpu_handoff(run, serving, runner=runner, reason="stale_lease_recovery")
 
-    nodes = kubectl_json(runner, ["kubectl", "get", "nodes", "-o", "json"])
-    allocatable = total_gpu_allocatable(nodes)
-    if allocatable < 1:
-        raise GpuHandoffError("single_gpu_handoff_no_allocatable_gpu")
-    if allocatable > 1:
-        write_payload(
-            path,
-            base_payload(run, serving, "not_required")
-            | {"gpu_allocatable": allocatable, "reason": "multiple_gpus_available"},
-        )
+    return acquire_holders(
+        run,
+        path,
+        target={
+            "kind": "Deployment",
+            "namespace": serving.namespace,
+            "name": serving.deployment_name,
+        },
+        excluded_holder=(serving.namespace, serving.deployment_name),
+        runner=runner,
+    )
+
+
+def acquire_training_gpu_handoff(
+    run: LifecycleRun,
+    training: TrainingBundle,
+    *,
+    runner: Runner,
+) -> Path | None:
+    if not handoff_enabled():
+        return None
+    path = training_handoff_path(run)
+    existing = read_payload(path)
+    if existing.get("state") == "acquired":
         return path
-
-    holders: list[dict[str, Any]] = []
-    for namespace, deployment in configured_holders():
-        if namespace == serving.namespace and deployment == serving.deployment_name:
-            continue
-        payload = optional_deployment(runner, namespace, deployment)
-        if not payload:
-            continue
-        replicas = int(payload.get("spec", {}).get("replicas") or 0)
-        if replicas < 1:
-            continue
-        holders.append(
-            {
-                "namespace": namespace,
-                "deployment": deployment,
-                "original_replicas": replicas,
-                "selector": deployment_selector(payload),
-            }
+    if existing.get("state") in {"acquiring", "releasing", "release_failed"}:
+        release_training_gpu_handoff(
+            run,
+            training,
+            runner=runner,
+            reason="stale_lease_recovery",
         )
-
-    lease = base_payload(run, serving, "acquiring") | {
-        "gpu_allocatable": allocatable,
-        "holders": holders,
-        "commands": [],
-        "acquired_at": None,
-        "released_at": None,
-        "release_reason": None,
-        "blockers": [],
-    }
-    write_payload(path, lease)
-    if not holders:
-        lease["state"] = "not_required"
-        lease["reason"] = "no_active_configured_gpu_holder"
-        write_payload(path, lease)
-        return path
-
-    scaled: list[dict[str, Any]] = []
-    try:
-        for holder in holders:
-            scale_command = [
-                "kubectl",
-                "-n",
-                holder["namespace"],
-                "scale",
-                f"deployment/{holder['deployment']}",
-                "--replicas=0",
-            ]
-            run_checked(runner, scale_command, lease)
-            scaled.append(holder)
-            wait_for_pods_deleted(runner, holder, lease)
-    except GpuHandoffError as exc:
-        lease["blockers"].append(str(exc))
-        restore_holders(runner, scaled, lease, tolerate_failure=True)
-        lease["state"] = "acquire_failed"
-        write_payload(path, lease)
-        raise
-
-    lease["state"] = "acquired"
-    lease["acquired_at"] = utc_now()
-    write_payload(path, lease)
-    return path
+    return acquire_holders(
+        run,
+        path,
+        target={
+            "kind": "Job",
+            "namespace": training.namespace,
+            "name": training.job_name,
+        },
+        excluded_holder=None,
+        runner=runner,
+    )
 
 
 def release_gpu_handoff(
@@ -161,15 +136,130 @@ def release_gpu_handoff(
     return path
 
 
-def base_payload(run: LifecycleRun, serving: ServingBundle, state: str) -> dict[str, Any]:
+def release_training_gpu_handoff(
+    run: LifecycleRun,
+    training: TrainingBundle,
+    *,
+    runner: Runner,
+    reason: str,
+) -> Path | None:
+    del training
+    path = training_handoff_path(run)
+    if not path.is_file():
+        return None
+    lease = read_payload(path)
+    if lease.get("state") in {"released", "not_required"}:
+        return path
+    holders = lease.get("holders") if isinstance(lease.get("holders"), list) else []
+    lease["state"] = "releasing"
+    lease["release_reason"] = reason
+    lease.setdefault("commands", [])
+    lease.setdefault("blockers", [])
+    write_payload(path, lease)
+
+    try:
+        restore_holders(runner, holders, lease, tolerate_failure=False)
+    except GpuHandoffError as exc:
+        lease["state"] = "release_failed"
+        lease["released_at"] = utc_now()
+        lease["blockers"] = sorted(set([*lease["blockers"], str(exc)]))
+        write_payload(path, lease)
+        raise
+
+    lease["state"] = "released"
+    lease["released_at"] = utc_now()
+    write_payload(path, lease)
+    return path
+
+
+def acquire_holders(
+    run: LifecycleRun,
+    path: Path,
+    *,
+    target: dict[str, str],
+    excluded_holder: tuple[str, str] | None,
+    runner: Runner,
+) -> Path:
+    nodes = kubectl_json(runner, ["kubectl", "get", "nodes", "-o", "json"])
+    allocatable = total_gpu_allocatable(nodes)
+    if allocatable < 1:
+        raise GpuHandoffError("single_gpu_handoff_no_allocatable_gpu")
+    if allocatable > 1:
+        write_payload(
+            path,
+            base_payload(run, target, "not_required")
+            | {"gpu_allocatable": allocatable, "reason": "multiple_gpus_available"},
+        )
+        return path
+
+    holders: list[dict[str, Any]] = []
+    for namespace, deployment in configured_holders():
+        if excluded_holder == (namespace, deployment):
+            continue
+        payload = optional_deployment(runner, namespace, deployment)
+        if not payload:
+            continue
+        replicas = int(payload.get("spec", {}).get("replicas") or 0)
+        if replicas < 1:
+            continue
+        holders.append(
+            {
+                "namespace": namespace,
+                "deployment": deployment,
+                "original_replicas": replicas,
+                "selector": deployment_selector(payload),
+            }
+        )
+
+    lease = base_payload(run, target, "acquiring") | {
+        "gpu_allocatable": allocatable,
+        "holders": holders,
+        "commands": [],
+        "acquired_at": None,
+        "released_at": None,
+        "release_reason": None,
+        "blockers": [],
+    }
+    write_payload(path, lease)
+    if not holders:
+        lease["state"] = "not_required"
+        lease["reason"] = "no_active_configured_gpu_holder"
+        write_payload(path, lease)
+        return path
+
+    scaled: list[dict[str, Any]] = []
+    try:
+        for holder in holders:
+            scale_command = [
+                "kubectl",
+                "-n",
+                holder["namespace"],
+                "scale",
+                f"deployment/{holder['deployment']}",
+                "--replicas=0",
+            ]
+            run_checked(runner, scale_command, lease)
+            scaled.append(holder)
+            wait_for_pods_deleted(runner, holder, lease)
+    except GpuHandoffError as exc:
+        lease["blockers"].append(str(exc))
+        restore_holders(runner, scaled, lease, tolerate_failure=True)
+        lease["state"] = "acquire_failed"
+        write_payload(path, lease)
+        raise
+
+    lease["state"] = "acquired"
+    lease["acquired_at"] = utc_now()
+    write_payload(path, lease)
+    return path
+
+
+def base_payload(run: LifecycleRun, target: dict[str, str], state: str) -> dict[str, Any]:
     return {
         "schema_version": HANDOFF_SCHEMA,
         "run_id": run.run_id,
         "state": state,
-        "target": {
-            "namespace": serving.namespace,
-            "deployment": serving.deployment_name,
-        },
+        "target": target,
         "observed_at": utc_now(),
     }
 

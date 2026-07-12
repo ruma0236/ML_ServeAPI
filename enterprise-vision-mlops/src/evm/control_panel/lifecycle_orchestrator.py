@@ -20,7 +20,9 @@ from evm.control_panel.deployment_intents import (
 from evm.control_panel.kubernetes_task_executor import execute_kubernetes_task
 from evm.control_panel.lifecycle_gpu_handoff import (
     acquire_gpu_handoff,
+    acquire_training_gpu_handoff,
     release_gpu_handoff,
+    release_training_gpu_handoff,
 )
 from evm.control_panel.lifecycle_kubernetes import (
     LifecycleKubernetesError,
@@ -292,6 +294,13 @@ def process_model_training(
     if task is None:
         raise LifecycleStageBlocked("kubernetes_training_task_missing")
     if task.status in {"queued", "running"}:
+        handoff = acquire_training_gpu_handoff(run, bundle, runner=runner)
+        if handoff:
+            update_run_evidence(
+                run.run_id,
+                actor="lifecycle-worker",
+                resource_handoff_uri=str(handoff),
+            )
         if stage.state == "queued":
             run = transition_stage(
                 run.run_id,
@@ -304,7 +313,22 @@ def process_model_training(
                 evidence_uri=str(bundle.manifest_dir),
                 detail="Docker Desktop Kubernetes GPU training is executing",
             )
-        task = execute_kubernetes_task(task.task_id, runner=runner)
+        try:
+            task = execute_kubernetes_task(task.task_id, runner=runner)
+        except Exception:
+            release_training_gpu_handoff(
+                run,
+                bundle,
+                runner=runner,
+                reason="training_executor_exception",
+            )
+            raise
+        release_training_gpu_handoff(
+            run,
+            bundle,
+            runner=runner,
+            reason=f"training_task_{task.status}",
+        )
     if task.status != "done":
         raise LifecycleStageBlocked(
             f"kubernetes_training_{task.status}",

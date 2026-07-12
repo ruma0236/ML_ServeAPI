@@ -9,9 +9,11 @@ import pytest
 from evm.control_panel.lifecycle_gpu_handoff import (
     GpuHandoffError,
     acquire_gpu_handoff,
+    acquire_training_gpu_handoff,
     release_gpu_handoff,
+    release_training_gpu_handoff,
 )
-from evm.control_panel.lifecycle_kubernetes import ServingBundle
+from evm.control_panel.lifecycle_kubernetes import ServingBundle, TrainingBundle
 
 
 class FakeKubectl:
@@ -114,3 +116,43 @@ def test_failed_handoff_acquisition_restores_product(tmp_path, monkeypatch) -> N
     payload = json.loads((tmp_path / "kubernetes" / "gpu_handoff.json").read_text(encoding="utf-8"))
     assert payload["state"] == "acquire_failed"
     assert payload["blockers"]
+
+
+def test_training_handoff_releases_product_after_gpu_job(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED", "true")
+    monkeypatch.setenv("EVM_LIFECYCLE_GPU_HOLDERS", "evm-production/evm-b0-production")
+    run = SimpleNamespace(run_id="lifecycle-training-handoff", artifact_root=str(tmp_path))
+    training = TrainingBundle(
+        manifest_dir=tmp_path,
+        namespace="evm-training",
+        job_name="evm-lifecycle-train-proof",
+        candidate_id="efficientnet-b0",
+        image="training@sha256:" + "c" * 64,
+    )
+    runner = FakeKubectl()
+
+    path = acquire_training_gpu_handoff(run, training, runner=runner)
+
+    assert path is not None
+    assert path.name == "training_gpu_handoff.json"
+    assert runner.production_replicas == 0
+    acquired = json.loads(path.read_text(encoding="utf-8"))
+    assert acquired["state"] == "acquired"
+    assert acquired["target"] == {
+        "kind": "Job",
+        "name": "evm-lifecycle-train-proof",
+        "namespace": "evm-training",
+    }
+
+    release_training_gpu_handoff(
+        run,
+        training,
+        runner=runner,
+        reason="training_task_done",
+    )
+
+    released = json.loads(path.read_text(encoding="utf-8"))
+    assert released["state"] == "released"
+    assert released["release_reason"] == "training_task_done"
+    assert runner.production_replicas == 1
+    assert not any("evm-lifecycle-train-proof" in " ".join(command) for command in runner.commands)
