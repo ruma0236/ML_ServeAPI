@@ -491,7 +491,10 @@ def read_profiles() -> PipelineProfileList:
     records: list[PipelineProfileRecord] = []
     for path in root.glob("*/v*/manifest.json"):
         try:
-            records.append(PipelineProfileRecord.model_validate_json(path.read_text(encoding="utf-8")))
+            record = PipelineProfileRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            records.append(
+                record.model_copy(update={"validation": validate_profile(record.profile)})
+            )
         except (OSError, ValueError):
             continue
     records.sort(key=lambda item: (item.created_at, item.version), reverse=True)

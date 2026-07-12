@@ -111,6 +111,32 @@ def test_saved_profile_is_versioned_idempotent_and_renders_runtime_configs(
     )
 
 
+def test_saved_profile_validation_is_refreshed_without_mutating_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    configure_roots(tmp_path, monkeypatch)
+    record = save_profile(profile_with_evidence(tmp_path))
+    manifest_path = Path(record.profile_uri).with_name("manifest.json")
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["validation"].update(
+        {
+            "status": "blocked",
+            "executable": False,
+            "blockers": ["capability_not_wired:full_lifecycle_orchestrator"],
+        }
+    )
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    refreshed = read_profiles().profiles[0]
+
+    assert refreshed.validation.status == "ready"
+    assert refreshed.validation.executable is True
+    assert refreshed.validation.blockers == []
+    persisted = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert persisted["validation"]["status"] == "blocked"
+
+
 def test_data_cycle_launch_creates_guarded_task_assignment(tmp_path: Path, monkeypatch) -> None:
     configure_roots(tmp_path, monkeypatch)
     profile = profile_with_evidence(tmp_path, execution_scope="data_cycle")

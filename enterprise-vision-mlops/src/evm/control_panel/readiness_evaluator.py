@@ -101,6 +101,8 @@ def runtime_path(value: str | Path) -> Path:
         "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
     ).replace("\\", "/").rstrip("/")
     mount_root = os.getenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data").replace("\\", "/").rstrip("/")
+    if normalized.lower().startswith(host_root.lower()) and Path(host_root).exists():
+        return path
     if normalized.lower().startswith(mount_root.lower()):
         host_path = Path(f"{host_root}{normalized[len(mount_root):]}")
         if host_path.exists():

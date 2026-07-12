@@ -69,6 +69,16 @@ def test_runtime_path_maps_container_mount_to_existing_host_artifact(tmp_path, m
     assert runtime_path("/mnt/evm-data/artifacts/candidate_summary.json") == artifact
 
 
+def test_runtime_path_preserves_new_write_target_when_host_root_exists(tmp_path, monkeypatch):
+    host_root = tmp_path / "evm-data"
+    host_root.mkdir()
+    target = host_root / "artifacts" / "new-evidence.json"
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(host_root))
+
+    assert runtime_path(target) == target
+
+
 def write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

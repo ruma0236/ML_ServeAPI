@@ -223,6 +223,23 @@ def audit(actor: str, event: str, **details: str | int | float | bool | None) ->
     return AuditEvent(timestamp=utc_now(), actor=actor, event=event, details=details)
 
 
+def source_revision() -> tuple[str | None, str | None]:
+    commit = (
+        os.getenv("GIT_COMMIT")
+        or os.getenv("EVM_GIT_COMMIT")
+        or os.getenv("GITHUB_SHA")
+        or None
+    )
+    branch = (
+        os.getenv("GIT_BRANCH")
+        or os.getenv("EVM_GIT_BRANCH")
+        or os.getenv("GITHUB_HEAD_REF")
+        or os.getenv("GITHUB_REF_NAME")
+        or None
+    )
+    return commit, branch
+
+
 def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
     record = get_profile(request.profile_id, request.profile_version)
     if record is None:
@@ -248,6 +265,14 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
             "pipeline_profile_not_executable",
             ", ".join(validation.blockers) or "Pipeline profile is not executable.",
         )
+    source_commit, source_branch = source_revision()
+    if not request.dry_run and not source_commit:
+        raise LifecycleRunError(
+            "source_revision_missing",
+            "Executable LifecycleRuns require an immutable source commit. "
+            "Start the stack through start_local_stack.ps1 or set EVM_GIT_COMMIT.",
+            status_code=422,
+        )
 
     created_at = utc_now()
     run_id = f"lifecycle-{created_at.replace(':', '').replace('-', '').replace('Z', '')}-{uuid4().hex[:8]}"
@@ -271,8 +296,8 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
         profile_version=record.version,
         profile_digest=record.digest,
         effective_config_digest=snapshot["effective_config_digest"],
-        source_commit=os.getenv("GIT_COMMIT") or os.getenv("EVM_GIT_COMMIT") or None,
-        source_branch=os.getenv("GIT_BRANCH") or os.getenv("EVM_GIT_BRANCH") or None,
+        source_commit=source_commit,
+        source_branch=source_branch,
         state=state,
         version=1,
         actor=request.actor,
@@ -288,6 +313,7 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
         model_config_uri=snapshot["model_config_uri"],
         model_runtime_uri=snapshot["model_runtime_uri"],
         artifact_root=snapshot["artifact_root"],
+        blockers=[] if source_commit else ["source_revision_missing"],
         stages=stages,
         audit=[
             audit(
@@ -569,6 +595,12 @@ def queue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
             raise LifecycleRunError(
                 "pipeline_profile_not_executable",
                 ", ".join(validation.blockers) or "Pipeline profile is not executable.",
+            )
+        if not run.source_commit:
+            raise LifecycleRunError(
+                "source_revision_missing",
+                "LifecycleRun cannot be queued without an immutable source commit.",
+                status_code=422,
             )
         run.state = "queued"
         run.dry_run = False

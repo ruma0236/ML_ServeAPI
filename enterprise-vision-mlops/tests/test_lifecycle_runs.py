@@ -35,6 +35,8 @@ def configure_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(tmp_path / "data-root"))
     monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
     monkeypatch.setenv("EVM_PROJECT_ROOT", str(Path(__file__).resolve().parents[1]))
+    monkeypatch.setenv("EVM_GIT_COMMIT", "a" * 40)
+    monkeypatch.setenv("EVM_GIT_BRANCH", "test/lifecycle-runs")
 
 
 def saved_full_lifecycle_profile(tmp_path: Path):
@@ -151,6 +153,39 @@ def test_dry_run_cannot_execute_and_queue_is_version_guarded(tmp_path: Path, mon
                 actor="requester@example.com",
                 reason="Queue with stale optimistic version",
                 expected_version=2,
+            ),
+        )
+
+
+def test_missing_source_revision_is_visible_and_blocks_execution(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    configure_roots(tmp_path, monkeypatch)
+    record = saved_full_lifecycle_profile(tmp_path)
+    monkeypatch.delenv("EVM_GIT_COMMIT")
+    monkeypatch.delenv("GIT_COMMIT", raising=False)
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
+    run = create_lifecycle_run(
+        LifecycleRunRequest(
+            profile_id=record.profile_id,
+            profile_version=record.version,
+            actor="requester@example.com",
+            reason="Validate source revision fail closed behavior",
+            dry_run=True,
+        )
+    )
+
+    assert run.source_commit is None
+    assert run.blockers == ["source_revision_missing"]
+    executable_validation(monkeypatch)
+    with pytest.raises(LifecycleRunError, match="immutable source commit"):
+        queue_lifecycle_run(
+            run.run_id,
+            LifecycleActionRequest(
+                actor="requester@example.com",
+                reason="Attempt queue without source revision",
+                expected_version=run.version,
             ),
         )
 
