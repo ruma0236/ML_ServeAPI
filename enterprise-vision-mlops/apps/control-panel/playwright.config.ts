@@ -1,8 +1,15 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const configuredWorkers = Number.parseInt(
+  process.env.EVM_CONTROL_PANEL_E2E_WORKERS || "1",
+  10
+);
+
 export default defineConfig({
   testDir: "../../tests/control-panel",
   testMatch: /.*\.spec\.ts/,
+  // Live API state and F-drive evidence paths are shared across scenarios.
+  workers: configuredWorkers > 0 ? configuredWorkers : 1,
   outputDir:
     process.env.EVM_CONTROL_PANEL_TEST_OUTPUT ||
     "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/control_panel_ui/playwright",

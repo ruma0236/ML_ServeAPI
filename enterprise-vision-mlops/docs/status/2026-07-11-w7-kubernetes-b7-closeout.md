@@ -92,3 +92,14 @@ Primary evidence roots:
 - Airflow remains an external Docker Compose orchestrator controlled through
   its REST contract; W7 does not claim an in-cluster Airflow migration.
 - The Mac mini is not part of this RTX 4080 Kubernetes execution proof.
+
+## Post-closeout Stabilization
+
+The 2026-07-12 EVM-214 replay found and corrected two post-run reproducibility
+defects: runtime mount paths influenced dataset identity, and the selected B7
+readiness evaluator followed mutable latest data evidence. The full VisA host
+and Airflow-container replay now produces the same canonical dataset and shard
+identity, while model-run-scoped readiness snapshots keep the selected B7
+candidate `ready` after latest data advances. See
+`docs/status/2026-07-12-post-w7-portfolio-stabilization.md` for the incident,
+verification commands, and evidence index.
