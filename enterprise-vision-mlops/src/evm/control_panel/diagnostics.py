@@ -271,8 +271,8 @@ def build_control_panel_diagnostics(
         sources=sources,
         diagnostics=items,
         state_digest=state_digest,
-        snapshot_uri=canonical_evidence_uri(root / "latest.json"),
-        audit_uri=canonical_evidence_uri(root / "diagnostic_events.jsonl"),
+        snapshot_uri=canonical_evidence_uri(root / "latest.json") if persist else None,
+        audit_uri=canonical_evidence_uri(root / "diagnostic_events.jsonl") if persist else None,
     )
     if persist:
         try:

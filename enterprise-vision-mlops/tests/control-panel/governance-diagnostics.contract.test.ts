@@ -18,11 +18,11 @@ describe("Diagnostics and governance API contract", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ event_id: "drift-1", status: "open" }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ decisions: [] }), { status: 200 }));
 
-    await fetchControlPanelDiagnostics("http://control-panel.test");
+    await fetchControlPanelDiagnostics("cycle-selected", "http://control-panel.test");
     await fetchLatestDriftReview("http://control-panel.test");
     await fetchDecisionRecords("http://control-panel.test");
 
-    expect(fetchMock.mock.calls[0][0]).toBe("http://control-panel.test/control-panel/v1/diagnostics/latest");
+    expect(fetchMock.mock.calls[0][0]).toBe("http://control-panel.test/control-panel/v1/diagnostics/latest?cycle_id=cycle-selected");
     expect(fetchMock.mock.calls[1][0]).toBe("http://control-panel.test/control-panel/v1/drift-reviews/latest");
     expect(fetchMock.mock.calls[2][0]).toBe("http://control-panel.test/control-panel/v1/decisions");
   });

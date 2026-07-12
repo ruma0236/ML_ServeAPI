@@ -48,7 +48,10 @@ def test_governance_routes_expose_structured_diagnostics(tmp_path, monkeypatch):
     )
     resources = RuntimeResourceList(resources=[], observation_status="live")
     monkeypatch.setattr("apps.api.control_panel_governance.cycle_snapshot", lambda: cycle)
-    monkeypatch.setattr("apps.api.control_panel_governance.list_resources", lambda: resources)
+    monkeypatch.setattr(
+        "apps.api.control_panel_governance.resources_for_cycle",
+        lambda _cycle: resources,
+    )
     monkeypatch.setenv("EVM_CONTROL_PANEL_DIAGNOSTIC_ROOT", str(tmp_path))
 
     payload = latest_diagnostics().model_dump(mode="json")
@@ -57,6 +60,33 @@ def test_governance_routes_expose_structured_diagnostics(tmp_path, monkeypatch):
     assert payload["status"] == "blocked"
     assert payload["blocked_count"] > 0
     assert all(item["code"] and item["remediation"] for item in payload["diagnostics"])
+
+
+def test_diagnostics_can_be_bound_to_selected_cycle_without_overwriting_latest(
+    tmp_path, monkeypatch
+) -> None:
+    cycle = CycleRun.model_validate_json(
+        Path("contracts/control-panel/examples/cycle-run.json").read_text(encoding="utf-8")
+    )
+    selected = cycle.model_copy(update={"cycle_id": "cycle-selected-context"})
+    resources = RuntimeResourceList(resources=[], observation_status="live")
+    monkeypatch.setattr("apps.api.control_panel_governance.cycle_snapshot", lambda: cycle)
+    monkeypatch.setattr(
+        "apps.api.control_panel_governance.find_cycle",
+        lambda cycle_id, _live: selected if cycle_id == selected.cycle_id else None,
+    )
+    monkeypatch.setattr(
+        "apps.api.control_panel_governance.resources_for_cycle",
+        lambda value: resources if value.cycle_id == selected.cycle_id else None,
+    )
+    monkeypatch.setenv("EVM_CONTROL_PANEL_DIAGNOSTIC_ROOT", str(tmp_path))
+
+    payload = latest_diagnostics(selected.cycle_id)
+
+    assert payload.cycle_id == selected.cycle_id
+    assert payload.snapshot_uri is None
+    assert payload.audit_uri is None
+    assert not (tmp_path / "latest.json").exists()
 
 
 def test_drift_route_previews_without_mutating_real_state(tmp_path, monkeypatch):

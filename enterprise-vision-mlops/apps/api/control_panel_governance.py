@@ -5,8 +5,9 @@ from fastapi import APIRouter, HTTPException, Response, status
 from apps.api.control_panel import (
     cycle_snapshot,
     invalidate_cycle_cache,
-    list_resources,
+    resources_for_cycle,
 )
+from evm.control_panel.cycle_catalog import find_cycle
 from evm.control_panel.decision_registry import (
     DecisionNotFound,
     DecisionTransitionRejected,
@@ -38,8 +39,16 @@ router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-governance"]
 
 
 @router.get("/diagnostics/latest", response_model=ControlPanelDiagnostics)
-def latest_diagnostics() -> ControlPanelDiagnostics:
-    return build_control_panel_diagnostics(cycle_snapshot(), list_resources(), persist=True)
+def latest_diagnostics(cycle_id: str | None = None) -> ControlPanelDiagnostics:
+    live_cycle = cycle_snapshot()
+    cycle = find_cycle(cycle_id, live_cycle) if cycle_id else live_cycle
+    if cycle is None:
+        raise HTTPException(status_code=404, detail="diagnostic_cycle_not_found")
+    return build_control_panel_diagnostics(
+        cycle,
+        resources_for_cycle(cycle),
+        persist=cycle_id is None,
+    )
 
 
 @router.get("/drift-reviews/latest", response_model=DriftReviewWorkflow)

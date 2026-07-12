@@ -97,7 +97,7 @@ export function App() {
         selectedCycleRef.current ? fetchCycle(selectedCycleRef.current) : fetchLatestCycle(),
         fetchRuntimeResources(),
         fetchOrchestrators(),
-        fetchControlPanelDiagnostics(),
+        fetchControlPanelDiagnostics(selectedCycleRef.current || undefined),
         fetchLatestDriftReview(),
         fetchDecisionRecords()
       ]);
@@ -164,8 +164,12 @@ export function App() {
     setSelectedCycleId(cycleId);
     setLoading(true);
     try {
-      const selected = await fetchCycle(cycleId);
+      const [selected, selectedDiagnostics] = await Promise.all([
+        fetchCycle(cycleId),
+        fetchControlPanelDiagnostics(cycleId)
+      ]);
       setCycle(selected);
+      setDiagnostics(selectedDiagnostics);
       setError("");
     } catch (selectionError) {
       setError(errorMessage(selectionError));

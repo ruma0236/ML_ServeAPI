@@ -106,7 +106,19 @@ def get_cycle(cycle_id: str) -> CycleRun:
 
 @router.get("/resources", response_model=RuntimeResourceList)
 def list_resources(namespace: str | None = None, owner_issue: str | None = None) -> RuntimeResourceList:
-    cycle = cycle_snapshot()
+    return resources_for_cycle(
+        cycle_snapshot(),
+        namespace=namespace,
+        owner_issue=owner_issue,
+    )
+
+
+def resources_for_cycle(
+    cycle: CycleRun,
+    *,
+    namespace: str | None = None,
+    owner_issue: str | None = None,
+) -> RuntimeResourceList:
     resource_list = merge_runtime_resources(
         build_runtime_resources(cycle),
         load_kubernetes_resource_snapshot(),

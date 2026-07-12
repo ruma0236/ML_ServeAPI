@@ -74,9 +74,11 @@ export async function fetchCycle(cycleId: string, baseUrl = API_BASE): Promise<C
 }
 
 export async function fetchControlPanelDiagnostics(
+  cycleId?: string,
   baseUrl = API_BASE
 ): Promise<ControlPanelDiagnostics> {
-  const response = await fetch(`${baseUrl}/control-panel/v1/diagnostics/latest`, {
+  const query = cycleId ? `?cycle_id=${encodeURIComponent(cycleId)}` : "";
+  const response = await fetch(`${baseUrl}/control-panel/v1/diagnostics/latest${query}`, {
     headers: { Accept: "application/json" }
   });
   if (!response.ok) {
