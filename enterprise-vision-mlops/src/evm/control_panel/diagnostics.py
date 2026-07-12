@@ -32,7 +32,11 @@ def utc_now() -> str:
 
 
 def diagnostic_root() -> Path:
-    return runtime_path(os.getenv("EVM_CONTROL_PANEL_DIAGNOSTIC_ROOT", DEFAULT_DIAGNOSTIC_ROOT))
+    configured = os.getenv("EVM_CONTROL_PANEL_DIAGNOSTIC_ROOT", DEFAULT_DIAGNOSTIC_ROOT)
+    normalized = configured.replace("\\", "/")
+    if normalized.lower().startswith("/app/artifacts") and Path("/app/artifacts").exists():
+        return Path(configured)
+    return runtime_path(configured)
 
 
 def build_control_panel_diagnostics(
@@ -271,8 +275,58 @@ def build_control_panel_diagnostics(
         audit_uri=canonical_evidence_uri(root / "diagnostic_events.jsonl"),
     )
     if persist:
-        persist_diagnostics(report)
+        try:
+            persist_diagnostics(report)
+        except OSError as exc:
+            report = persistence_failure_report(report, exc)
     return report
+
+
+def persistence_failure_report(
+    report: ControlPanelDiagnostics,
+    error: OSError,
+) -> ControlPanelDiagnostics:
+    diagnostic = StatusDiagnostic(
+        diagnostic_id="diag-diagnostics-persistence-failed",
+        status="blocked",
+        scope="sync",
+        component="diagnostics-ledger",
+        code="diagnostics_persistence_failed",
+        summary="Runtime diagnostics were evaluated but their audit snapshot could not be persisted.",
+        remediation="Restore write access to the configured diagnostics evidence root and refresh the Control Panel.",
+        source="control-panel-diagnostics",
+        evidence_uri=report.snapshot_uri,
+        observed_at=report.generated_at,
+        details={"error_type": type(error).__name__, "error": str(error)},
+    )
+    diagnostics = deduplicate([*report.diagnostics, diagnostic])
+    digest = hashlib.sha256(
+        json.dumps(
+            {
+                "previous_state_digest": report.state_digest,
+                "diagnostics": [
+                    {
+                        key: value
+                        for key, value in item.model_dump(mode="json").items()
+                        if key != "observed_at"
+                    }
+                    for item in diagnostics
+                ],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    return report.model_copy(
+        update={
+            "status": "blocked",
+            "blocked_count": sum(item.status == "blocked" for item in diagnostics),
+            "warn_count": sum(item.status == "warn" for item in diagnostics),
+            "fail_count": sum(item.status == "fail" for item in diagnostics),
+            "diagnostics": diagnostics,
+            "state_digest": digest,
+        }
+    )
 
 
 def build_source_freshness(

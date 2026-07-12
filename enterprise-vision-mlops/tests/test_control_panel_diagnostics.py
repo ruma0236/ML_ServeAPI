@@ -96,3 +96,23 @@ def test_diagnostics_do_not_duplicate_stage_blockers_as_projected_resource_failu
 
     assert "evm-platform:Deployment:projected-api" not in resource_ids
     assert "evm-staging:Pod:live-failed-pod" in resource_ids
+
+
+def test_diagnostics_return_structured_blocker_when_persistence_fails(
+    monkeypatch,
+) -> None:
+    resources = RuntimeResourceList(resources=[], observation_status="live")
+    monkeypatch.setattr(
+        "evm.control_panel.diagnostics.persist_diagnostics",
+        lambda _report: (_ for _ in ()).throw(OSError("read-only evidence root")),
+    )
+
+    report = build_control_panel_diagnostics(load_cycle(), resources, persist=True)
+
+    assert report.status == "blocked"
+    assert any(item.code == "diagnostics_persistence_failed" for item in report.diagnostics)
+    failure = next(
+        item for item in report.diagnostics if item.code == "diagnostics_persistence_failed"
+    )
+    assert failure.details["error_type"] == "OSError"
+    assert "read-only evidence root" in failure.details["error"]
