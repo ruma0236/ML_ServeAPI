@@ -234,8 +234,8 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
             <input value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
           <div className="deployment-actions">
-            <button type="button" className="secondary-action" onClick={() => void createIntent()} disabled={busy}>
-              <Play size={16} /> Dry Run
+            <button type="button" className="secondary-action" onClick={() => void createIntent()} disabled={busy} title="Validate CI, readiness, policy, digests, and rollback evidence without applying Kubernetes changes.">
+              <Play size={16} /> Validate Deployment
             </button>
             <button type="button" className="primary-action" onClick={() => void advanceIntent()} disabled={busy || !nextAction}>
               <CheckCheck size={16} /> {actionLabel(nextAction)}

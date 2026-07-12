@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-const tabs = ["Overview", "Readiness", "Timeline", "Operate", "Gates", "Release", "Governance"];
+const tabs = ["Overview", "Configure", "Readiness", "Timeline", "Operate", "Gates", "Release", "Governance"];
 const headingsByTab: Record<string, string> = {
   Overview: "Cycle State",
+  Configure: "Pipeline Profile Studio",
   Readiness: "Data Readiness",
   Timeline: "Pipeline Timeline",
   Operate: "Task Authoring",

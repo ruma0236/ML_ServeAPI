@@ -9,6 +9,7 @@ interface StageDetailProps {
 }
 
 export function StageDetail({ stage }: StageDetailProps) {
+  const percent = stage.status === "pass" || stage.status === "done" ? 100 : Math.round(stage.progress * 100);
   return (
     <aside className="stage-detail" aria-label="Stage detail">
       <header>
@@ -18,9 +19,9 @@ export function StageDetail({ stage }: StageDetailProps) {
         </div>
         <StatusBadge status={stage.status} />
       </header>
-      <div className="detail-progress">
-        <b style={{ width: `${Math.round(stage.progress * 100)}%` }} />
-        <span>{Math.round(stage.progress * 100)}%</span>
+      <div className={`detail-progress ${stage.status === "running" ? "is-running" : ""}`}>
+        <b style={{ width: `${percent}%` }} />
+        <span>{stageStateLabel(stage.status)} / {percent}%</span>
       </div>
 
       <section className="detail-section">
@@ -106,4 +107,13 @@ export function StageDetail({ stage }: StageDetailProps) {
       </section>
     </aside>
   );
+}
+
+
+function stageStateLabel(status: PipelineStage["status"]): string {
+  if (status === "pass" || status === "done") return "Completed";
+  if (status === "running") return "In Progress";
+  if (status === "blocked" || status === "fail") return "Blocked";
+  if (status === "warn") return "Needs Review";
+  return "Not Started";
 }

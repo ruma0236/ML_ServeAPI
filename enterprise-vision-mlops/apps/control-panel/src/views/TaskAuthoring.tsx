@@ -229,9 +229,9 @@ export function TaskAuthoring({ cycle, resources, orchestrators }: TaskAuthoring
           <textarea value={configText} onChange={(event) => setConfigText(event.target.value)} spellCheck={false} />
         </label>
         <div className="ops-button-row">
-          <button type="button" className="primary-action" disabled={submitting} onClick={() => void submitTask(true)}>
+          <button type="button" className="primary-action" disabled={submitting} onClick={() => void submitTask(true)} title="Record and inspect the assignment without dispatching it.">
             <ShieldCheck size={16} />
-            Dry-run
+            Preview Task
           </button>
           <button type="button" className="secondary-action" disabled={submitting} onClick={() => void submitTask(false)}>
             <Play size={16} />

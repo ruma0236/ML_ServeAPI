@@ -108,9 +108,9 @@ export function CommandDrawer({ resources, commands, onCommandsChange }: Command
       </div>
 
       <div className="ops-button-row">
-        <button type="button" className="primary-action" disabled={submitting || !selectedResource} onClick={() => void submitCommand(true)}>
+        <button type="button" className="primary-action" disabled={submitting || !selectedResource} onClick={() => void submitCommand(true)} title="Evaluate and audit the command without mutating the target resource.">
           <ShieldCheck size={16} />
-          Dry-run
+          Preview Command
         </button>
         <button type="button" className="secondary-action" disabled={submitting || !selectedResource} onClick={() => void submitCommand(false)}>
           <CheckCheck size={16} />

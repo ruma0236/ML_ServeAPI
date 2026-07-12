@@ -25,6 +25,7 @@ export function PipelineTimeline({ cycle, resourceSnapshot }: PipelineTimelinePr
     [resources, selectedResourceId]
   );
   const summaries = summarizeStages(cycle);
+  const progress = timelineProgress(cycle.stages);
   return (
     <section className="timeline-grid" aria-label="Pipeline timeline and resources">
       <div className="panel wide">
@@ -34,6 +35,21 @@ export function PipelineTimeline({ cycle, resourceSnapshot }: PipelineTimelinePr
             <p>{cycle.airflow?.dag_id || "external-compose"}</p>
           </div>
           <Workflow />
+        </div>
+        <div className="timeline-progress-summary" aria-label={`Pipeline progress ${progress.percent}%`}>
+          <div>
+            <span>Pipeline Progress</span>
+            <strong>{progress.percent}%</strong>
+          </div>
+          <div className="timeline-progress-counts">
+            <span><i className="count-completed" /> Completed {progress.completed}</span>
+            <span><i className="count-running" /> In Progress {progress.running}</span>
+            <span><i className="count-pending" /> Not Started {progress.pending}</span>
+            <span><i className="count-blocked" /> Blocked {progress.blocked}</span>
+          </div>
+          <div className={`timeline-overall-bar ${progress.running ? "is-running" : ""}`}>
+            <b style={{ width: `${progress.percent}%` }} />
+          </div>
         </div>
         <div className="timeline-layout">
           <div className="timeline">
@@ -73,6 +89,8 @@ export function PipelineTimeline({ cycle, resourceSnapshot }: PipelineTimelinePr
 }
 
 function StageItem({ stage, selected, onSelect }: { stage: PipelineStage; selected: boolean; onSelect: () => void }) {
+  const percent = stagePercent(stage);
+  const stateLabel = stageStateLabel(stage.status);
   return (
     <button type="button" className={`stage-item stage-${stage.status} ${selected ? "selected" : ""}`} onClick={onSelect}>
       <div className="stage-rail">
@@ -84,10 +102,14 @@ function StageItem({ stage, selected, onSelect }: { stage: PipelineStage; select
             <h3>{stage.name}</h3>
             <p>{stage.stage_id}</p>
           </div>
-          <StatusBadge status={stage.status} />
+          <div className="stage-state-stack">
+            <strong>{stateLabel}</strong>
+            <StatusBadge status={stage.status} compact />
+          </div>
         </header>
-        <div className="progress-line">
-          <b style={{ width: `${Math.round(stage.progress * 100)}%` }} />
+        <div className={`progress-line ${stage.status === "running" ? "is-running" : ""}`} aria-label={`${stateLabel} ${percent}%`}>
+          <b style={{ width: `${percent}%` }} />
+          <span>{percent}%</span>
         </div>
         <div className="stage-meta">
           <span>{stage.current_step || stage.failure_reason || "closed"}</span>
@@ -97,4 +119,31 @@ function StageItem({ stage, selected, onSelect }: { stage: PipelineStage; select
       </div>
     </button>
   );
+}
+
+
+function stagePercent(stage: PipelineStage): number {
+  if (stage.status === "pass" || stage.status === "done") return 100;
+  return Math.max(0, Math.min(100, Math.round(stage.progress * 100)));
+}
+
+
+function stageStateLabel(status: PipelineStage["status"]): string {
+  if (status === "pass" || status === "done") return "Completed";
+  if (status === "running") return "In Progress";
+  if (status === "blocked" || status === "fail") return "Blocked";
+  if (status === "warn") return "Needs Review";
+  return "Not Started";
+}
+
+
+function timelineProgress(stages: PipelineStage[]) {
+  const completed = stages.filter((stage) => stage.status === "pass" || stage.status === "done").length;
+  const running = stages.filter((stage) => stage.status === "running").length;
+  const blocked = stages.filter((stage) => stage.status === "blocked" || stage.status === "fail").length;
+  const pending = Math.max(stages.length - completed - running - blocked, 0);
+  const percent = stages.length
+    ? Math.round(stages.reduce((total, stage) => total + stagePercent(stage), 0) / stages.length)
+    : 0;
+  return { completed, running, blocked, pending, percent };
 }

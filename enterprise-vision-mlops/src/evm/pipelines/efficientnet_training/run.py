@@ -61,8 +61,13 @@ def load_config(config_path: str | Path) -> dict[str, Any]:
     path = Path(config_path)
     if not path.is_absolute():
         path = Path.cwd() / path
-    with path.open("rb") as fp:
-        config = tomllib.load(fp)
+    if path.suffix.lower() == ".json":
+        config = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        with path.open("rb") as fp:
+            config = tomllib.load(fp)
+    if not isinstance(config, dict):
+        raise ValueError(f"Config root must be an object: {path}")
     config["_config_path"] = str(path.resolve())
     config["_project_root"] = str(project_root_from(path))
     return config

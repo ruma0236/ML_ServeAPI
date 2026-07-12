@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise Vision MLOps Control Panel API",
-    "version": "2026-07-12.post-w7.multi-cycle-release.v1",
-    "description": "Multi-cycle metadata and guarded mutation contract for the enterprise MLOps Control Panel, including runtime task dispatch, CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
+    "version": "2026-07-12.pipeline-profile.v1",
+    "description": "Multi-cycle metadata and guarded mutation contract for the enterprise MLOps Control Panel, including versioned human-authored pipeline profiles, runtime task dispatch, CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
   },
   "servers": [
     {
@@ -496,6 +496,74 @@
           "404": {"description": "decision not found"},
           "409": {"description": "decision version conflict"},
           "422": {"description": "decision policy rejected"}
+        }
+      }
+    },
+    "/control-panel/v1/pipeline-profiles/default": {
+      "get": {
+        "summary": "Return the schema-valid default human-authored pipeline profile.",
+        "operationId": "defaultPipelineProfile",
+        "responses": {
+          "200": {"description": "default profile", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PipelineRunProfile"}}}}
+        }
+      }
+    },
+    "/control-panel/v1/pipeline-profiles": {
+      "get": {
+        "summary": "List immutable versioned pipeline profiles.",
+        "operationId": "listPipelineProfiles",
+        "responses": {
+          "200": {"description": "profile registry", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PipelineProfileList"}}}}
+        }
+      },
+      "post": {
+        "summary": "Validate and save an immutable pipeline profile version.",
+        "operationId": "savePipelineProfile",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PipelineRunProfile"}}}},
+        "responses": {
+          "201": {"description": "profile version saved", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PipelineProfileRecord"}}}},
+          "422": {"description": "profile contract rejected"}
+        }
+      }
+    },
+    "/control-panel/v1/pipeline-profiles/validate": {
+      "post": {
+        "summary": "Validate a profile and render execution capability without runtime mutation.",
+        "operationId": "validatePipelineProfile",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PipelineRunProfile"}}}},
+        "responses": {
+          "200": {"description": "profile validation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PipelineProfileValidation"}}}},
+          "422": {"description": "profile contract rejected"}
+        }
+      }
+    },
+    "/control-panel/v1/pipeline-profiles/{profile_id}": {
+      "get": {
+        "summary": "Read an immutable profile version.",
+        "operationId": "getPipelineProfile",
+        "parameters": [
+          {"name": "profile_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "version", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1}}
+        ],
+        "responses": {
+          "200": {"description": "profile version", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PipelineProfileRecord"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/control-panel/v1/pipeline-profiles/{profile_id}/launch": {
+      "post": {
+        "summary": "Preview or queue an executable immutable profile version.",
+        "operationId": "launchPipelineProfile",
+        "parameters": [
+          {"name": "profile_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "version", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PipelineProfileLaunchRequest"}}}},
+        "responses": {
+          "202": {"description": "profile launch preview or queued task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PipelineProfileLaunch"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"description": "profile is blocked, invalid, or not executable"}
         }
       }
     }
@@ -1550,6 +1618,202 @@
           "decisions": {"type": "array", "items": {"$ref": "#/components/schemas/DecisionRecord"}},
           "status": {"$ref": "#/components/schemas/State"},
           "blockers": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "SplitPolicy": {
+        "type": "object",
+        "required": ["seed", "train", "validation", "test", "stratified", "cross_validation_enabled", "cross_validation_folds", "holdout_split", "immutable_holdout", "allow_holdout_in_training"],
+        "properties": {
+          "seed": {"type": "integer", "minimum": 1},
+          "train": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+          "validation": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+          "test": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+          "stratified": {"type": "boolean"},
+          "cross_validation_enabled": {"type": "boolean"},
+          "cross_validation_folds": {"type": "integer", "minimum": 2, "maximum": 20},
+          "holdout_split": {"type": "string", "enum": ["validation", "test"]},
+          "immutable_holdout": {"type": "boolean"},
+          "allow_holdout_in_training": {"type": "boolean"}
+        }
+      },
+      "DataProfile": {
+        "type": "object",
+        "required": ["dataset_name", "dataset_version", "source_manifest_uri", "split_manifest_uri", "split_manifest_sha256", "fail_on_empty", "fail_on_quality_error", "duplicate_severity", "dimension_severity", "max_review_samples", "records_per_shard", "split"],
+        "properties": {
+          "dataset_name": {"type": "string"},
+          "dataset_version": {"type": "string"},
+          "source_manifest_uri": {"type": "string"},
+          "split_manifest_uri": {"type": "string"},
+          "split_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Immutable identity_sha256 declared by the referenced shard/split manifest, not the physical JSON file digest."},
+          "fail_on_empty": {"type": "boolean"},
+          "fail_on_quality_error": {"type": "boolean"},
+          "duplicate_severity": {"type": "string", "enum": ["info", "warn", "error"]},
+          "dimension_severity": {"type": "string", "enum": ["info", "warn", "error"]},
+          "max_review_samples": {"type": "integer", "minimum": 0},
+          "records_per_shard": {"type": "integer", "minimum": 16, "maximum": 10000},
+          "split": {"$ref": "#/components/schemas/SplitPolicy"}
+        }
+      },
+      "ModelProfile": {
+        "type": "object",
+        "required": ["framework", "architecture", "pretrained", "freeze_backbone", "input_size", "batch_size", "epochs", "optimizer", "learning_rate", "weight_decay", "mixed_precision", "class_weighted_loss", "early_stop_metric", "early_stop_threshold", "early_stop_min_epochs", "early_stop_patience", "tuning_mode", "max_trials"],
+        "properties": {
+          "framework": {"type": "string", "const": "torch"},
+          "architecture": {"type": "string", "enum": ["efficientnet-b0", "efficientnet-b7"]},
+          "pretrained": {"type": "boolean"},
+          "freeze_backbone": {"type": "boolean"},
+          "input_size": {"type": "integer", "minimum": 64, "maximum": 1024},
+          "batch_size": {"type": "integer", "minimum": 1, "maximum": 512},
+          "epochs": {"type": "integer", "minimum": 1, "maximum": 500},
+          "optimizer": {"type": "string", "enum": ["adamw", "sgd"]},
+          "learning_rate": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "weight_decay": {"type": "number", "minimum": 0, "maximum": 1},
+          "mixed_precision": {"type": "boolean"},
+          "class_weighted_loss": {"type": "boolean"},
+          "early_stop_metric": {"type": "string", "enum": ["accuracy", "f1", "auroc"]},
+          "early_stop_threshold": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "early_stop_min_epochs": {"type": "integer", "minimum": 1},
+          "early_stop_patience": {"type": "integer", "minimum": 1, "maximum": 50},
+          "tuning_mode": {"type": "string", "enum": ["manual", "grid", "bayesian"]},
+          "max_trials": {"type": "integer", "minimum": 1, "maximum": 200}
+        }
+      },
+      "ExperimentProfile": {
+        "type": "object",
+        "required": ["mlflow_experiment_name", "primary_metric", "repeats", "ab_test_enabled", "challenger_traffic_percent"],
+        "properties": {
+          "mlflow_experiment_name": {"type": "string"},
+          "primary_metric": {"type": "string", "enum": ["accuracy", "f1", "auroc"]},
+          "repeats": {"type": "integer", "minimum": 1, "maximum": 20},
+          "ab_test_enabled": {"type": "boolean"},
+          "control_candidate_id": {"type": ["string", "null"]},
+          "challenger_candidate_id": {"type": ["string", "null"]},
+          "challenger_traffic_percent": {"type": "integer", "minimum": 1, "maximum": 99}
+        }
+      },
+      "GateProfile": {
+        "type": "object",
+        "required": ["promotion_min_accuracy", "promotion_min_f1", "promotion_min_auroc", "isolated_ct_dataset_required", "ct_dataset_split", "require_ci", "require_cd", "require_ct", "require_drift_review", "approval_policy", "target_environment", "target_namespace"],
+        "properties": {
+          "promotion_min_accuracy": {"type": "number", "minimum": 0, "maximum": 1},
+          "promotion_min_f1": {"type": "number", "minimum": 0, "maximum": 1},
+          "promotion_min_auroc": {"type": "number", "minimum": 0, "maximum": 1},
+          "isolated_ct_dataset_required": {"type": "boolean"},
+          "ct_dataset_split": {"type": "string", "enum": ["validation", "test"]},
+          "require_ci": {"type": "boolean"},
+          "require_cd": {"type": "boolean"},
+          "require_ct": {"type": "boolean"},
+          "require_drift_review": {"type": "boolean"},
+          "approval_policy": {"type": "string", "enum": ["manual", "two_person", "change_ticket"]},
+          "target_environment": {"type": "string", "enum": ["dev", "test", "staging", "pre-production", "production"]},
+          "target_namespace": {"type": "string"}
+        }
+      },
+      "ResourceProfile": {
+        "type": "object",
+        "required": ["compute_target", "gpu_count", "cpu_request", "memory_gb", "max_parallel_trials"],
+        "properties": {
+          "compute_target": {"type": "string", "enum": ["windows-rtx-4080-super", "mac-mini-m4-pro", "cpu-local"]},
+          "gpu_count": {"type": "integer", "minimum": 0, "maximum": 8},
+          "cpu_request": {"type": "integer", "minimum": 1, "maximum": 64},
+          "memory_gb": {"type": "integer", "minimum": 2, "maximum": 256},
+          "max_parallel_trials": {"type": "integer", "minimum": 1, "maximum": 16}
+        }
+      },
+      "PipelineRunProfile": {
+        "type": "object",
+        "required": ["schema_version", "profile_name", "description", "owner", "execution_scope", "base_airflow_config", "base_model_config", "data", "model", "experiment", "gates", "resources"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.pipeline_profile.v1"},
+          "profile_name": {"type": "string"},
+          "description": {"type": "string"},
+          "owner": {"type": "string"},
+          "execution_scope": {"type": "string", "enum": ["data_cycle", "full_lifecycle"]},
+          "base_airflow_config": {"type": "string"},
+          "base_model_config": {"type": "string"},
+          "data": {"$ref": "#/components/schemas/DataProfile"},
+          "model": {"$ref": "#/components/schemas/ModelProfile"},
+          "experiment": {"$ref": "#/components/schemas/ExperimentProfile"},
+          "gates": {"$ref": "#/components/schemas/GateProfile"},
+          "resources": {"$ref": "#/components/schemas/ResourceProfile"}
+        }
+      },
+      "PipelineCapability": {
+        "type": "object",
+        "required": ["capability_id", "label", "status", "active", "detail"],
+        "properties": {
+          "capability_id": {"type": "string"},
+          "label": {"type": "string"},
+          "status": {"type": "string", "enum": ["wired", "partial", "not_wired"]},
+          "active": {"type": "boolean"},
+          "detail": {"type": "string"}
+        }
+      },
+      "PipelinePlanStage": {
+        "type": "object",
+        "required": ["stage_id", "label", "runtime", "state", "progress", "detail"],
+        "properties": {
+          "stage_id": {"type": "string"},
+          "label": {"type": "string"},
+          "runtime": {"type": "string", "enum": ["airflow", "mlflow", "kubernetes", "control-plane"]},
+          "state": {"type": "string", "enum": ["not_started", "ready", "blocked"]},
+          "progress": {"type": "number", "minimum": 0, "maximum": 1},
+          "detail": {"type": "string"}
+        }
+      },
+      "PipelineProfileValidation": {
+        "type": "object",
+        "required": ["status", "valid", "executable", "checked_at", "blockers", "warnings", "capabilities", "stages"],
+        "properties": {
+          "status": {"type": "string", "enum": ["ready", "blocked"]},
+          "valid": {"type": "boolean"},
+          "executable": {"type": "boolean"},
+          "checked_at": {"type": "string"},
+          "blockers": {"type": "array", "items": {"type": "string"}},
+          "warnings": {"type": "array", "items": {"type": "string"}},
+          "capabilities": {"type": "array", "items": {"$ref": "#/components/schemas/PipelineCapability"}},
+          "stages": {"type": "array", "items": {"$ref": "#/components/schemas/PipelinePlanStage"}}
+        }
+      },
+      "PipelineProfileRecord": {
+        "type": "object",
+        "required": ["profile_id", "version", "digest", "created_at", "profile", "validation", "profile_uri", "airflow_config_uri", "airflow_runtime_uri", "model_config_uri", "model_runtime_uri"],
+        "properties": {
+          "profile_id": {"type": "string"},
+          "version": {"type": "integer", "minimum": 1},
+          "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "created_at": {"type": "string"},
+          "profile": {"$ref": "#/components/schemas/PipelineRunProfile"},
+          "validation": {"$ref": "#/components/schemas/PipelineProfileValidation"},
+          "profile_uri": {"type": "string"},
+          "airflow_config_uri": {"type": "string"},
+          "airflow_runtime_uri": {"type": "string"},
+          "model_config_uri": {"type": "string"},
+          "model_runtime_uri": {"type": "string"}
+        }
+      },
+      "PipelineProfileList": {
+        "type": "object",
+        "required": ["profiles"],
+        "properties": {"profiles": {"type": "array", "items": {"$ref": "#/components/schemas/PipelineProfileRecord"}}}
+      },
+      "PipelineProfileLaunchRequest": {
+        "type": "object",
+        "required": ["actor", "reason", "dry_run"],
+        "properties": {
+          "actor": {"type": "string"},
+          "reason": {"type": "string"},
+          "dry_run": {"type": "boolean"}
+        }
+      },
+      "PipelineProfileLaunch": {
+        "type": "object",
+        "required": ["profile_id", "version", "validation"],
+        "properties": {
+          "profile_id": {"type": "string"},
+          "version": {"type": "integer", "minimum": 1},
+          "validation": {"$ref": "#/components/schemas/PipelineProfileValidation"},
+          "task": {"anyOf": [{"$ref": "#/components/schemas/TaskAssignment"}, {"type": "null"}]}
         }
       },
       "State": {

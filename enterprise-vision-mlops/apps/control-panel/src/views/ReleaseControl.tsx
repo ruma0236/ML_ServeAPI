@@ -78,6 +78,11 @@ export function ReleaseControl({ cycle }: ReleaseControlProps) {
   const productionReady = intent?.target_environment === "production"
     && stages.every((stage) => stage.status === "pass" || stage.status === "done")
     && intent?.state === "applied";
+  const releaseProgress = Math.round(
+    stages.filter((stage) => stage.status === "pass" || stage.status === "done").length
+      / stages.length
+      * 100
+  );
 
   return (
     <section className="release-layout" aria-label="Release control">
@@ -97,6 +102,12 @@ export function ReleaseControl({ cycle }: ReleaseControlProps) {
         </div>
       </div>
 
+      <div className="release-progress-summary" aria-label={`Release progress ${releaseProgress}%`}>
+        <div><span>Release Progress</span><strong>{releaseProgress}%</strong></div>
+        <div className="release-progress-bar"><b style={{ width: `${releaseProgress}%` }} /></div>
+        <span>{stages.filter((stage) => stage.status === "pass" || stage.status === "done").length} of {stages.length} stages completed</span>
+      </div>
+
       <div className="release-flow" aria-label="Release pipeline stages">
         {stages.map((stage, index) => (
           <article key={stage.id} className={`release-stage release-${stage.status}`}>
@@ -106,6 +117,7 @@ export function ReleaseControl({ cycle }: ReleaseControlProps) {
               <strong>{stage.detail}</strong>
               {stage.evidence ? <small title={stage.evidence}>{compact(stage.evidence)}</small> : <small>No evidence linked</small>}
             </div>
+            <em className="release-state-label">{releaseStateLabel(stage.status)}</em>
             <StatusBadge status={stage.status} compact />
           </article>
         ))}
@@ -127,6 +139,15 @@ export function ReleaseControl({ cycle }: ReleaseControlProps) {
       <DeploymentIntentPanel cycle={cycle} />
     </section>
   );
+}
+
+
+function releaseStateLabel(status: State): string {
+  if (status === "pass" || status === "done") return "Completed";
+  if (status === "running") return "In Progress";
+  if (status === "queued" || status === "unknown") return "Not Started";
+  if (status === "warn") return "Needs Review";
+  return "Blocked";
 }
 
 

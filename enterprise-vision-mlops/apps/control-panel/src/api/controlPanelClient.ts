@@ -16,6 +16,12 @@ import type {
   DriftReviewTransitionRequest,
   DriftReviewWorkflow,
   OrchestratorConnectionList,
+  PipelineProfileLaunch,
+  PipelineProfileLaunchRequest,
+  PipelineProfileList,
+  PipelineProfileRecord,
+  PipelineProfileValidation,
+  PipelineRunProfile,
   PromotionPolicyDecision,
   PromotionPolicyRequest,
   ResourceRef,
@@ -318,6 +324,66 @@ export async function confirmTaskAssignment(
     throw await controlPanelError(response, "Task confirmation failed");
   }
   return (await response.json()) as TaskAssignment;
+}
+
+export async function fetchDefaultPipelineProfile(baseUrl = API_BASE): Promise<PipelineRunProfile> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/pipeline-profiles/default`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw new Error(`Default pipeline profile failed: ${response.status}`);
+  return (await response.json()) as PipelineRunProfile;
+}
+
+export async function fetchPipelineProfiles(baseUrl = API_BASE): Promise<PipelineProfileRecord[]> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/pipeline-profiles`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw new Error(`Pipeline profile list failed: ${response.status}`);
+  return ((await response.json()) as PipelineProfileList).profiles;
+}
+
+export async function validatePipelineProfile(
+  profile: PipelineRunProfile,
+  baseUrl = API_BASE
+): Promise<PipelineProfileValidation> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/pipeline-profiles/validate`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(profile)
+  });
+  if (!response.ok) throw await controlPanelError(response, "Pipeline profile validation failed");
+  return (await response.json()) as PipelineProfileValidation;
+}
+
+export async function savePipelineProfile(
+  profile: PipelineRunProfile,
+  baseUrl = API_BASE
+): Promise<PipelineProfileRecord> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/pipeline-profiles`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(profile)
+  });
+  if (!response.ok) throw await controlPanelError(response, "Pipeline profile save failed");
+  return (await response.json()) as PipelineProfileRecord;
+}
+
+export async function launchPipelineProfile(
+  profileId: string,
+  version: number,
+  request: PipelineProfileLaunchRequest,
+  baseUrl = API_BASE
+): Promise<PipelineProfileLaunch> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/pipeline-profiles/${encodeURIComponent(profileId)}/launch?version=${version}`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    }
+  );
+  if (!response.ok) throw await controlPanelError(response, "Pipeline profile launch failed");
+  return (await response.json()) as PipelineProfileLaunch;
 }
 
 export async function fetchCommandIntents(baseUrl = API_BASE): Promise<CommandIntent[]> {

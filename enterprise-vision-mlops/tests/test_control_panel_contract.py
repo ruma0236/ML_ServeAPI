@@ -24,6 +24,13 @@ from evm.control_panel.schemas import (
     PromotionPolicyRequest,
     RuntimeResourceList,
 )
+from evm.control_panel.pipeline_profiles import (
+    PipelineProfileLaunch,
+    PipelineProfileList,
+    PipelineProfileRecord,
+    PipelineProfileValidation,
+    PipelineRunProfile,
+)
 from evm.control_panel.validate_cycle_run import validate_cycle_run
 
 
@@ -103,6 +110,11 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "/control-panel/v1/drift-reviews/{event_id}/transition" in openapi["paths"]
     assert "/control-panel/v1/decisions" in openapi["paths"]
     assert "/control-panel/v1/decisions/{decision_id}/transition" in openapi["paths"]
+    assert "/control-panel/v1/pipeline-profiles/default" in openapi["paths"]
+    assert "/control-panel/v1/pipeline-profiles" in openapi["paths"]
+    assert "/control-panel/v1/pipeline-profiles/validate" in openapi["paths"]
+    assert "/control-panel/v1/pipeline-profiles/{profile_id}" in openapi["paths"]
+    assert "/control-panel/v1/pipeline-profiles/{profile_id}/launch" in openapi["paths"]
     assert set(ControlPanelDiagnostics.model_fields).issubset(
         schemas["ControlPanelDiagnostics"]["properties"]
     )
@@ -122,6 +134,21 @@ def test_openapi_components_expose_enterprise_readiness_fields():
             *schemas["DecisionRecordRequest"]["properties"],
             *schemas["DecisionRecord"]["allOf"][1]["properties"],
         }
+    )
+    assert set(PipelineRunProfile.model_fields).issubset(
+        schemas["PipelineRunProfile"]["properties"]
+    )
+    assert set(PipelineProfileValidation.model_fields).issubset(
+        schemas["PipelineProfileValidation"]["properties"]
+    )
+    assert set(PipelineProfileRecord.model_fields).issubset(
+        schemas["PipelineProfileRecord"]["properties"]
+    )
+    assert set(PipelineProfileList.model_fields).issubset(
+        schemas["PipelineProfileList"]["properties"]
+    )
+    assert set(PipelineProfileLaunch.model_fields).issubset(
+        schemas["PipelineProfileLaunch"]["properties"]
     )
 
 

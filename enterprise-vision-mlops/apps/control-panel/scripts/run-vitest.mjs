@@ -16,6 +16,7 @@ const defaultTests = [
   "tests/control-panel/kubernetes-topology.contract.test.ts",
   "tests/control-panel/live-sync.contract.test.tsx",
   "tests/control-panel/operations.contract.test.ts",
+  "tests/control-panel/pipeline-profile.contract.test.ts",
   "tests/control-panel/pipeline-timeline.contract.test.ts"
 ];
 

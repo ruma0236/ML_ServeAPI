@@ -617,6 +617,166 @@ export interface TaskTransitionRequest {
   reason: string;
 }
 
+export type PipelineCapabilityStatus = "wired" | "partial" | "not_wired";
+export type PipelineExecutionScope = "data_cycle" | "full_lifecycle";
+export type PipelinePlanState = "not_started" | "ready" | "blocked";
+
+export interface PipelineSplitPolicy {
+  seed: number;
+  train: number;
+  validation: number;
+  test: number;
+  stratified: boolean;
+  cross_validation_enabled: boolean;
+  cross_validation_folds: number;
+  holdout_split: "validation" | "test";
+  immutable_holdout: boolean;
+  allow_holdout_in_training: boolean;
+}
+
+export interface PipelineDataProfile {
+  dataset_name: string;
+  dataset_version: string;
+  source_manifest_uri: string;
+  split_manifest_uri: string;
+  split_manifest_sha256: string;
+  fail_on_empty: boolean;
+  fail_on_quality_error: boolean;
+  duplicate_severity: "info" | "warn" | "error";
+  dimension_severity: "info" | "warn" | "error";
+  max_review_samples: number;
+  records_per_shard: number;
+  split: PipelineSplitPolicy;
+}
+
+export interface PipelineModelProfile {
+  framework: "torch";
+  architecture: "efficientnet-b0" | "efficientnet-b7";
+  pretrained: boolean;
+  freeze_backbone: boolean;
+  input_size: number;
+  batch_size: number;
+  epochs: number;
+  optimizer: "adamw" | "sgd";
+  learning_rate: number;
+  weight_decay: number;
+  mixed_precision: boolean;
+  class_weighted_loss: boolean;
+  early_stop_metric: "accuracy" | "f1" | "auroc";
+  early_stop_threshold: number;
+  early_stop_min_epochs: number;
+  early_stop_patience: number;
+  tuning_mode: "manual" | "grid" | "bayesian";
+  max_trials: number;
+}
+
+export interface PipelineExperimentProfile {
+  mlflow_experiment_name: string;
+  primary_metric: "accuracy" | "f1" | "auroc";
+  repeats: number;
+  ab_test_enabled: boolean;
+  control_candidate_id?: string | null;
+  challenger_candidate_id?: string | null;
+  challenger_traffic_percent: number;
+}
+
+export interface PipelineGateProfile {
+  promotion_min_accuracy: number;
+  promotion_min_f1: number;
+  promotion_min_auroc: number;
+  isolated_ct_dataset_required: boolean;
+  ct_dataset_split: "validation" | "test";
+  require_ci: boolean;
+  require_cd: boolean;
+  require_ct: boolean;
+  require_drift_review: boolean;
+  approval_policy: "manual" | "two_person" | "change_ticket";
+  target_environment: EnvironmentTier;
+  target_namespace: string;
+}
+
+export interface PipelineResourceProfile {
+  compute_target: "windows-rtx-4080-super" | "mac-mini-m4-pro" | "cpu-local";
+  gpu_count: number;
+  cpu_request: number;
+  memory_gb: number;
+  max_parallel_trials: number;
+}
+
+export interface PipelineRunProfile {
+  schema_version: "evm.pipeline_profile.v1";
+  profile_name: string;
+  description: string;
+  owner: string;
+  execution_scope: PipelineExecutionScope;
+  base_airflow_config: string;
+  base_model_config: string;
+  data: PipelineDataProfile;
+  model: PipelineModelProfile;
+  experiment: PipelineExperimentProfile;
+  gates: PipelineGateProfile;
+  resources: PipelineResourceProfile;
+}
+
+export interface PipelineCapability {
+  capability_id: string;
+  label: string;
+  status: PipelineCapabilityStatus;
+  active: boolean;
+  detail: string;
+}
+
+export interface PipelinePlanStage {
+  stage_id: string;
+  label: string;
+  runtime: "airflow" | "mlflow" | "kubernetes" | "control-plane";
+  state: PipelinePlanState;
+  progress: number;
+  detail: string;
+}
+
+export interface PipelineProfileValidation {
+  status: "ready" | "blocked";
+  valid: boolean;
+  executable: boolean;
+  checked_at: string;
+  blockers: string[];
+  warnings: string[];
+  capabilities: PipelineCapability[];
+  stages: PipelinePlanStage[];
+}
+
+export interface PipelineProfileRecord {
+  profile_id: string;
+  version: number;
+  digest: string;
+  created_at: string;
+  profile: PipelineRunProfile;
+  validation: PipelineProfileValidation;
+  profile_uri: string;
+  airflow_config_uri: string;
+  airflow_runtime_uri: string;
+  model_config_uri: string;
+  model_runtime_uri: string;
+}
+
+export interface PipelineProfileList {
+  profiles: PipelineProfileRecord[];
+}
+
+export interface PipelineProfileLaunchRequest {
+  actor: string;
+  reason: string;
+  dry_run: boolean;
+}
+
+export interface PipelineProfileLaunch {
+  profile_id: string;
+  version: number;
+  validation: PipelineProfileValidation;
+  task?: TaskAssignment | null;
+}
+
 export interface CommandIntentRequest {
   action: CommandAction;
   target: ResourceRef;

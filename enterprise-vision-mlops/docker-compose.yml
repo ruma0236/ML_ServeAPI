@@ -252,7 +252,7 @@ services:
       MODEL_STAGE: Production
       MODEL_REGISTRY_PATH: /app/artifacts/registry/vision-baseline/latest.json
       EVM_CONTROL_PANEL_CONFIG: configs/airflow.toml
-      EVM_EFFICIENTNET_CONFIG: ${EVM_EFFICIENTNET_CONFIG:-configs/w7_efficientnet_real_test.toml}
+      EVM_EFFICIENTNET_CONFIG: ${EVM_EFFICIENTNET_CONFIG:-configs/w7_b0_expedited_production.toml}
       VLM_OBSERVABILITY_PATH: /app/artifacts/vlm/visa/observability/benchmark_report.json
       EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
       EVM_DATA_MOUNT_ROOT: /mnt/evm-data
@@ -262,6 +262,8 @@ services:
       EVM_PROMOTION_POLICY_PERSIST: "true"
       EVM_PROMOTION_POLICY_EVIDENCE_ROOT: /app/artifacts/w7/promotion_policy
       EVM_CONTROL_PANEL_LEDGER_ROOT: /app/artifacts/w7/operations
+      EVM_PIPELINE_PROFILE_ROOT: /app/artifacts/w7/pipeline_profiles
+      EVM_PIPELINE_PROFILE_RUNTIME_ROOT: /mnt/evm-data/artifacts/w7/pipeline_profiles
       EVM_CI_EVIDENCE_PATH: /app/artifacts/w7/ci/latest_ci_evidence.json
       EVM_CI_VALIDATION_REPORT_PATH: /app/artifacts/w7/ci/latest_ci_validation.json
       EVM_EXPECTED_CI_COMMIT: ${EVM_EXPECTED_CI_COMMIT:-}

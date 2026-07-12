@@ -62,6 +62,20 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def resolve_release_ref(artifacts_root: Path) -> str:
+    configured = os.getenv("GIT_COMMIT", "").strip()
+    if configured:
+        return configured
+    evidence_path = Path(
+        os.getenv(
+            "EVM_CI_EVIDENCE_PATH",
+            str(artifacts_root / "w7" / "ci" / "latest_ci_evidence.json"),
+        )
+    )
+    evidence = read_json(evidence_path)
+    return str(evidence.get("commit_sha") or "")
+
+
 def read_json_list(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -398,6 +412,7 @@ def build_latest_cycle(
     config = load_config(config_path)
     project_root = Path(str(config["_project_root"]))
     artifacts_root = resolve_path(config, get_nested(config, "paths.artifacts_root", "artifacts"))
+    release_ref = resolve_release_ref(artifacts_root)
     registry_root = resolve_path(config, get_nested(config, "paths.registry_root", "artifacts/registry"))
     model_name = str(get_nested(config, "pipelines.model_registry.model_name", "vision-baseline"))
     registry_path = Path(os.getenv("MODEL_REGISTRY_PATH", str(registry_root / model_name / "latest.json")))
@@ -799,7 +814,7 @@ def build_latest_cycle(
             ResourceRef(namespace="evm-platform", kind="Deployment", name="evm-api"),
         )
     )
-    environment_ref = build_environment_ref(blockers, os.getenv("GIT_COMMIT", ""))
+    environment_ref = build_environment_ref(blockers, release_ref)
 
     drift_state = build_drift_state(
         drift_queue=drift_queue,
@@ -1032,7 +1047,7 @@ def build_latest_cycle(
     if policy_decision is None:
         policy_decision = evaluate_cycle_promotion(cycle, persist=persist_policy)
     policy_environment = build_environment_ref(
-        release_ref=os.getenv("GIT_COMMIT", ""),
+        release_ref=release_ref,
         policy_decision=policy_decision,
     )
     policy_artifact = (

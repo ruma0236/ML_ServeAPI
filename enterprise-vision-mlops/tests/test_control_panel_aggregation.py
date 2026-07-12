@@ -9,6 +9,7 @@ from evm.control_panel.aggregation import (
     applied_product_policy,
     build_latest_cycle,
     latest_kubernetes_evidence,
+    resolve_release_ref,
 )
 
 
@@ -38,6 +39,17 @@ def test_applied_production_intent_becomes_cycle_environment_policy() -> None:
 
     assert applied_product_policy(True, deployment) is policy
     assert applied_product_policy(False, deployment) is None
+
+
+def test_release_ref_falls_back_to_immutable_ci_evidence(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("GIT_COMMIT", raising=False)
+    evidence = tmp_path / "w7" / "ci" / "latest_ci_evidence.json"
+    _write_json(evidence, {"commit_sha": "a" * 40})
+
+    assert resolve_release_ref(tmp_path) == "a" * 40
+
+    monkeypatch.setenv("GIT_COMMIT", "b" * 40)
+    assert resolve_release_ref(tmp_path) == "b" * 40
 
 
 def _write_project_files(root: Path) -> None:

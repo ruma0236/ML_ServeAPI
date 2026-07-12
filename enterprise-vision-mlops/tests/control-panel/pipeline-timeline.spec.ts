@@ -5,6 +5,8 @@ test("@w7-pipeline-timeline renders stage timeline and intermediate-result drill
   await page.getByRole("button", { name: "Timeline" }).click();
 
   await expect(page.getByRole("heading", { name: "Pipeline Timeline" })).toBeVisible();
+  await expect(page.getByLabel(/Pipeline progress/)).toBeVisible();
+  await expect(page.getByText(/Completed \d+/)).toBeVisible();
   await expect(page.getByLabel("Stage detail")).toContainText("Metrics");
   await expect(page.getByLabel("Stage detail")).toContainText("Artifacts");
   await expect(page.getByLabel("Stage detail")).toContainText("Resources");

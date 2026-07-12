@@ -29,13 +29,15 @@ import { DataModelReadiness } from "./views/DataModelReadiness";
 import { GateAndRiskPanel } from "./views/GateAndRiskPanel";
 import { GovernancePanel } from "./views/GovernancePanel";
 import { PipelineTimeline } from "./views/PipelineTimeline";
+import { PipelineProfileStudio } from "./views/PipelineProfileStudio";
 import { ReleaseControl } from "./views/ReleaseControl";
 import { TaskAuthoring } from "./views/TaskAuthoring";
 
-type TabKey = "overview" | "readiness" | "timeline" | "operate" | "gates" | "release" | "governance";
+type TabKey = "overview" | "configure" | "readiness" | "timeline" | "operate" | "gates" | "release" | "governance";
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: "overview", label: "Overview" },
+  { key: "configure", label: "Configure" },
   { key: "readiness", label: "Readiness" },
   { key: "timeline", label: "Timeline" },
   { key: "operate", label: "Operate" },
@@ -169,6 +171,7 @@ export function App() {
 
   const activeView = useMemo(() => {
     if (!cycle) return null;
+    if (tab === "configure") return <PipelineProfileStudio cycle={cycle} />;
     if (tab === "readiness") return <DataModelReadiness cycle={cycle} />;
     if (tab === "timeline") return <PipelineTimeline cycle={cycle} resourceSnapshot={resourceSnapshot} />;
     if (tab === "operate") return (

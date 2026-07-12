@@ -68,6 +68,7 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-EPIC-16` | Large-scale Data Acquisition And Cleaning Research | 2026-07-W6 | Done | source registry, scalable acquisition, dedup/quality benchmark, curation, and lakehouse ingestion research |
 | `EVM-EPIC-17` | Draft Decision And AgentOps Governance | 2026-07-W7 | Done | draft/decision registry, AgentOps reliability contract, scale-serving decision, portfolio stabilization, live diagnostics, and audited drift workflow are complete |
 | `EVM-EPIC-18` | Kubernetes Runtime And MLOps Control Panel | 2026-07-W7 | Done | Kubernetes runtime, real B7 GPU lifecycle, metadata/control API, Control Panel, resource controls, and 13/13 executable closeout completed |
+| `EVM-EPIC-19` | Human-Tunable Pipeline Control | Post-W7 | In Progress | Versioned profile control is operational; full lifecycle, CV/search, isolated CT execution, and A/B routing remain explicit follow-up work |
 
 ## Backlog
 
@@ -378,6 +379,23 @@ validation against actual `CycleRun.model_matrix` and EfficientNet evidence.
 | `EVM-238-A` | W7 real-test policy guard | Done | 2026-07-W7 | policy guard validates CycleRun real-test policy and W7 closure records; verified by `docs/status/2026-07-09-w7-real-test-policy.md` |
 | `EVM-238-B` | W7 real-test evidence validation | Done | 2026-07-W7 | validator checks actual `CycleRun.model_matrix`, four EfficientNet MLflow runs, F-drive artifacts, metrics, split manifest, GPU profile, environment report, confusion matrices, training history, model cards, and blocker reasons; report `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/real_test_evidence/evm-238-b-real-test-evidence-report.json` returned `valid=true` and `violations=[]` |
 
+### Phase 19. Human-Tunable Pipeline Control
+
+This phase turns the Control Panel from a monitoring and guarded-intent surface
+into an operator-authored pipeline control plane. Configuration is stored as an
+immutable typed profile, while runtime capabilities remain fail closed until a
+real executor is connected. Completion evidence is indexed by
+`docs/status/2026-07-12-human-tunable-pipeline-profile-control.md`.
+
+| ID | Task | Status | Target | Acceptance Criteria |
+|---|---|---|---:|---|
+| `EVM-239` | Versioned Pipeline Run Profile and Profile Studio | Done | Post-W7 | typed data/model/experiment/gate/resource profile, immutable F-drive versions and digests, API/OpenAPI contract, rendered Airflow/model configs, data-cycle preview/queue, responsive Configure UI, and fail-closed capability matrix pass 173 Python, 26 frontend, and 20 browser tests |
+| `EVM-240` | Explicit real-time lifecycle progress semantics | Done | Post-W7 | Timeline, stage detail, and Release views display Not Started, In Progress, Completed, and Blocked labels with calculated percentages, animated running bars, reduced-motion support, and desktop/mobile regression proof |
+| `EVM-241` | Dependency-aware full lifecycle profile orchestrator | Next | Post-W7 | one immutable profile snapshot coordinates Airflow data tasks, Kubernetes training, MLflow evidence, readiness, approval, deployment, monitoring, failure propagation, retry, and rollback under one run ID |
+| `EVM-242` | Cross-validation and bounded hyperparameter search executor | Planned | Post-W7 | fold fan-out/aggregation and manual/grid/Bayesian trials run with deterministic splits, MLflow parent-child lineage, GPU quotas, cancellation, comparison matrix, and reproducible seeds |
+| `EVM-243` | Isolated CT dataset snapshot and promotion enforcement | Planned | Post-W7 | immutable validation/test snapshot and digest are inaccessible to training workers; CT evaluator reads the isolated copy and promotion rejects overlap, mutation, or missing evidence |
+| `EVM-244` | A/B canary traffic router and evaluator | Planned | Post-W7 | approved control/challenger identities drive bounded traffic split, metric windows, statistical decision, audit, automatic stop conditions, and exact rollback |
+
 ## Jira Mapping
 
 Jira live sync 기준 mapping이다.
@@ -495,6 +513,13 @@ Jira live sync 기준 mapping이다.
 | `EVM-238` | `SCRUM-116` | Task | https://opop0236.atlassian.net/browse/SCRUM-116 |
 | `EVM-238-A` | `SCRUM-117` | Task | https://opop0236.atlassian.net/browse/SCRUM-117 |
 | `EVM-238-B` | `SCRUM-118` | Task | https://opop0236.atlassian.net/browse/SCRUM-118 |
+| `EVM-EPIC-19` | `SCRUM-138` | Epic | https://opop0236.atlassian.net/browse/SCRUM-138 |
+| `EVM-239` | `SCRUM-139` | Task | https://opop0236.atlassian.net/browse/SCRUM-139 |
+| `EVM-240` | `SCRUM-140` | Task | https://opop0236.atlassian.net/browse/SCRUM-140 |
+| `EVM-241` | `SCRUM-141` | Task | https://opop0236.atlassian.net/browse/SCRUM-141 |
+| `EVM-242` | `SCRUM-142` | Task | https://opop0236.atlassian.net/browse/SCRUM-142 |
+| `EVM-243` | `SCRUM-143` | Task | https://opop0236.atlassian.net/browse/SCRUM-143 |
+| `EVM-244` | `SCRUM-144` | Task | https://opop0236.atlassian.net/browse/SCRUM-144 |
 | `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |

@@ -25,7 +25,17 @@ def pipeline_command(name: str) -> str:
         "set -euo pipefail; "
         f"cd {PROJECT_ROOT} && "
         f"PYTHONPATH={PROJECT_ROOT / 'src'} "
-        f"{PYTHON_BIN} scripts/run_pipeline.py {name} --config {PIPELINE_CONFIG}"
+        f"{PYTHON_BIN} scripts/run_profile_pipeline.py {name}"
+    )
+
+
+def pipeline_config_template() -> str:
+    return (
+        "{{ dag_run.conf.get('pipeline_config_uri', '"
+        f"{PIPELINE_CONFIG}"
+        "') if dag_run else '"
+        f"{PIPELINE_CONFIG}"
+        "' }}"
     )
 
 
@@ -43,8 +53,9 @@ def pipeline_task(task_id: str, pipeline_name: str) -> BashOperator:
     return BashOperator(
         task_id=task_id,
         bash_command=pipeline_command(pipeline_name),
-        env=airflow_trace_env(),
+        env={**airflow_trace_env(), "EVM_RUN_CONFIG": pipeline_config_template()},
         append_env=True,
+        skip_on_exit_code=99,
         retries=DEFAULT_RETRIES,
         retry_delay=timedelta(minutes=DEFAULT_RETRY_DELAY_MINUTES),
         execution_timeout=timedelta(minutes=DEFAULT_TASK_TIMEOUT_MINUTES),

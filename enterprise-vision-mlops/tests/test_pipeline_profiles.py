@@ -1,0 +1,163 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from evm.control_panel.pipeline_profiles import (
+    PipelineProfileLaunchRequest,
+    default_profile,
+    launch_profile,
+    read_profiles,
+    save_profile,
+    validate_profile,
+)
+
+
+def configure_roots(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("EVM_PIPELINE_PROFILE_ROOT", str(tmp_path / "profiles"))
+    monkeypatch.setenv("EVM_PIPELINE_PROFILE_RUNTIME_ROOT", "/mnt/evm-data/test-profiles")
+    monkeypatch.setenv("EVM_CONTROL_PANEL_LEDGER_ROOT", str(tmp_path / "operations"))
+    monkeypatch.setenv(
+        "EVM_PROJECT_ROOT",
+        str(Path(__file__).resolve().parents[1]),
+    )
+
+
+def profile_with_evidence(
+    tmp_path: Path,
+    *,
+    execution_scope: str = "full_lifecycle",
+):
+    data_root = tmp_path / "data"
+    data_root.mkdir(parents=True, exist_ok=True)
+    source_manifest = data_root / "manifest.jsonl"
+    source_manifest.write_text('{"sample_id":"sample-1"}\n', encoding="utf-8")
+    split_manifest = data_root / "shard_index.json"
+    split_identity = "a" * 64
+    split_manifest.write_text(
+        json.dumps({"schema_version": "evm.dataset_shards.v1", "identity_sha256": split_identity}),
+        encoding="utf-8",
+    )
+    profile = default_profile()
+    data = profile.data.model_copy(
+        update={
+            "source_manifest_uri": str(source_manifest),
+            "split_manifest_uri": str(split_manifest),
+            "split_manifest_sha256": split_identity,
+        }
+    )
+    return profile.model_copy(update={"execution_scope": execution_scope, "data": data})
+
+
+def test_default_full_lifecycle_fails_closed_on_unwired_orchestrator(tmp_path: Path) -> None:
+    validation = validate_profile(profile_with_evidence(tmp_path))
+
+    assert validation.valid is True
+    assert validation.executable is False
+    assert validation.status == "blocked"
+    assert "capability_not_wired:full_lifecycle_orchestrator" in validation.blockers
+
+
+def test_data_cycle_profile_is_executable_but_cross_validation_is_not(tmp_path: Path) -> None:
+    data_profile = profile_with_evidence(tmp_path, execution_scope="data_cycle")
+    validation = validate_profile(data_profile)
+    assert validation.valid is True
+    assert validation.executable is True
+
+    split = data_profile.data.split.model_copy(update={"cross_validation_enabled": True})
+    data = data_profile.data.model_copy(update={"split": split})
+    cv_profile = data_profile.model_copy(update={"data": data})
+    cv_validation = validate_profile(cv_profile)
+    assert cv_validation.valid is True
+    assert cv_validation.executable is False
+    assert "capability_not_wired:cross_validation_executor" in cv_validation.blockers
+
+
+def test_saved_profile_is_versioned_idempotent_and_renders_runtime_configs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    configure_roots(tmp_path, monkeypatch)
+    profile = profile_with_evidence(tmp_path, execution_scope="data_cycle")
+
+    first = save_profile(profile)
+    repeated = save_profile(profile)
+    updated = save_profile(
+        profile.model_copy(
+            update={
+                "model": profile.model.model_copy(update={"learning_rate": 0.0002}),
+            }
+        )
+    )
+
+    assert first.version == 1
+    assert repeated.version == 1
+    assert repeated.digest == first.digest
+    assert updated.version == 2
+    assert len(read_profiles().profiles) == 2
+    airflow = json.loads(Path(first.airflow_config_uri).read_text(encoding="utf-8"))
+    model = json.loads(Path(first.model_config_uri).read_text(encoding="utf-8"))
+    assert airflow["pipelines"]["dataset_shards"]["split_seed"] == 20260712
+    assert airflow["pipelines"]["dataset_shards"]["split_ratios"]["test"] == 0.2
+    assert model["candidates"][0]["architecture"] == "efficientnet-b0"
+    assert model["candidates"][0]["early_stop_accuracy"] == 0.93
+    assert model["inputs"]["base_config"] == first.airflow_runtime_uri
+
+
+def test_data_cycle_launch_creates_guarded_task_assignment(tmp_path: Path, monkeypatch) -> None:
+    configure_roots(tmp_path, monkeypatch)
+    profile = profile_with_evidence(tmp_path, execution_scope="data_cycle")
+    record = save_profile(profile)
+
+    preview = launch_profile(
+        record,
+        PipelineProfileLaunchRequest(actor="ml-platform", dry_run=True),
+    )
+    queued = launch_profile(
+        record,
+        PipelineProfileLaunchRequest(actor="ml-platform", dry_run=False),
+    )
+
+    assert preview.task is not None
+    assert preview.task.status == "dry_run"
+    assert preview.task.config_payload["pipeline_config_uri"] == record.airflow_runtime_uri
+    assert queued.task is not None
+    assert queued.task.status == "pending_confirmation"
+    assert queued.task.approval_policy == "manual"
+
+
+def test_full_lifecycle_launch_does_not_create_task(tmp_path: Path, monkeypatch) -> None:
+    configure_roots(tmp_path, monkeypatch)
+    record = save_profile(profile_with_evidence(tmp_path))
+
+    result = launch_profile(record, PipelineProfileLaunchRequest(dry_run=False))
+
+    assert result.task is None
+    assert result.validation.executable is False
+
+
+def test_profile_validation_checks_manifest_identity_and_presence(tmp_path: Path) -> None:
+    profile = profile_with_evidence(tmp_path, execution_scope="data_cycle")
+    wrong_identity = profile.data.model_copy(update={"split_manifest_sha256": "b" * 64})
+    mismatched = validate_profile(profile.model_copy(update={"data": wrong_identity}))
+    assert mismatched.valid is False
+    assert "split_manifest_identity_mismatch" in mismatched.blockers
+
+    missing_data = profile.data.model_copy(
+        update={"source_manifest_uri": str(tmp_path / "missing.jsonl")}
+    )
+    missing = validate_profile(profile.model_copy(update={"data": missing_data}))
+    assert missing.valid is False
+    assert "source_manifest_not_found" in missing.blockers
+
+
+def test_profile_rejects_base_config_outside_allowlist(tmp_path: Path) -> None:
+    profile = profile_with_evidence(tmp_path, execution_scope="data_cycle").model_copy(
+        update={"base_airflow_config": str(tmp_path / "untrusted.toml")}
+    )
+    (tmp_path / "untrusted.toml").write_text("[project]\nname='untrusted'\n", encoding="utf-8")
+
+    validation = validate_profile(profile)
+
+    assert validation.valid is False
+    assert "airflow_base_config_not_allowed" in validation.blockers
