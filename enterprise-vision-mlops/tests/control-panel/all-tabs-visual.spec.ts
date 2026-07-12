@@ -1,12 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-const tabs = ["Overview", "Readiness", "Timeline", "Operate", "Gates"];
+const tabs = ["Overview", "Readiness", "Timeline", "Operate", "Gates", "Governance"];
 const headingsByTab: Record<string, string> = {
   Overview: "Cycle State",
   Readiness: "Data Readiness",
   Timeline: "Pipeline Timeline",
   Operate: "Task Authoring",
-  Gates: "Promotion Gate"
+  Gates: "Promotion Gate",
+  Governance: "Decision Draft"
 };
 
 test("@w7-all-tabs-visual captures every Control Panel tab for the active viewport", async ({ page }, testInfo) => {

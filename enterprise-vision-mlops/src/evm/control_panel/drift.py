@@ -109,6 +109,8 @@ def build_measured_drift_state(report: dict, event: dict) -> DriftState:
     )
     triggered_rules = [str(value) for value in report.get("triggered_rules", [])]
     review_required = report.get("decision") == "review_required"
+    review_status = str(event.get("status") or ("open" if review_required else "closed"))
+    active_review = review_required and review_status != "closed"
     data_rules = {"input_category_js"}
     prediction_rules = {
         "predicted_class_js",
@@ -146,7 +148,7 @@ def build_measured_drift_state(report: dict, event: dict) -> DriftState:
         status="warn" if review_required else "pass",
         data_drift_status=data_status,
         prediction_drift_status=prediction_status,
-        action="label_review" if review_required else "none",
+        action="label_review" if active_review else "none",
         reference_dataset_version=str(report.get("reference_dataset_version") or "") or None,
         current_dataset_version=str(report.get("current_dataset_version") or "") or None,
         drifting_columns=drifting_columns,
@@ -156,6 +158,8 @@ def build_measured_drift_state(report: dict, event: dict) -> DriftState:
         severity=severity,  # type: ignore[arg-type]
         recommended_action=(
             f"review measured drift event {event_id} through label review and approval"
+            if active_review
+            else "drift review closed; preserve evidence and continue monitoring"
             if review_required
             else "measured drift remains within policy"
         ),
@@ -163,9 +167,7 @@ def build_measured_drift_state(report: dict, event: dict) -> DriftState:
         measurement_status="measured",
         review_event_id=event_id,
         review_event_type=("review_required" if review_required else "within_policy"),
-        review_event_status=str(
-            event.get("status") or ("open" if review_required else "closed")
-        ),  # type: ignore[arg-type]
+        review_event_status=review_status,  # type: ignore[arg-type]
         model_candidate_id=str(report.get("candidate_id") or "") or None,
         reference_window_id=str(report.get("reference_window_id") or "") or None,
         current_window_id=str(report.get("current_window_id") or "") or None,

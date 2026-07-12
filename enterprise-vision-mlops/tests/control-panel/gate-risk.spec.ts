@@ -6,6 +6,8 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
 
   await expect(page.getByRole("heading", { name: "Promotion Gate" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Drift Review" })).toBeVisible();
+  await expect(page.getByLabel("Drift review workflow")).toContainText("open");
+  await expect(page.getByRole("button", { name: "Preview" })).toBeVisible();
   await expect(page.getByText("Recommended Action")).toBeVisible();
   await expect(page.getByLabel("Drift action rail").getByText("Label Review")).toBeVisible();
   await expect(page.getByText("Auto Retraining")).toBeVisible();
@@ -24,6 +26,10 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
   await expect(page.getByRole("heading", { name: "Deployment Intent" })).toBeVisible();
   await expect(page.getByLabel("Deployment admission signals")).toContainText("CI Evidence");
   await expect(page.getByLabel("Deployment admission signals")).toContainText("Environment Policy");
+
+  await page.getByLabel("Runtime diagnostics").locator("summary").first().click();
+  await expect(page.getByLabel("Control Panel synchronization sources")).toContainText("Cycle API");
+  await expect(page.getByLabel("Blocked and warning reasons")).toContainText("accuracy");
 
   const screenshotPath =
     process.env.EVM_DRIFT_CDCT_SCREENSHOT ||

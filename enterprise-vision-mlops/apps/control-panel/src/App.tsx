@@ -1,23 +1,47 @@
 import { AlertCircle, Moon, RefreshCcw, Sun } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { fetchLatestCycle, fetchRuntimeResources } from "./api/controlPanelClient";
-import type { CycleRun, RuntimeResourceList } from "./api/types";
+import {
+  fetchControlPanelDiagnostics,
+  fetchDecisionRecords,
+  fetchLatestCycle,
+  fetchLatestDriftReview,
+  fetchRuntimeResources
+} from "./api/controlPanelClient";
+import type {
+  ControlPanelDiagnostics,
+  CycleRun,
+  DecisionRecordList,
+  DriftReviewWorkflow,
+  RuntimeResourceList,
+  State
+} from "./api/types";
+import { DiagnosticsDrawer, type ClientSyncSource } from "./components/DiagnosticsDrawer";
 import { StatusBadge } from "./components/StatusBadge";
 import { CycleOverview } from "./views/CycleOverview";
 import { DataModelReadiness } from "./views/DataModelReadiness";
 import { GateAndRiskPanel } from "./views/GateAndRiskPanel";
+import { GovernancePanel } from "./views/GovernancePanel";
 import { PipelineTimeline } from "./views/PipelineTimeline";
 import { TaskAuthoring } from "./views/TaskAuthoring";
 
-type TabKey = "overview" | "readiness" | "timeline" | "operate" | "gates";
+type TabKey = "overview" | "readiness" | "timeline" | "operate" | "gates" | "governance";
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "readiness", label: "Readiness" },
   { key: "timeline", label: "Timeline" },
   { key: "operate", label: "Operate" },
-  { key: "gates", label: "Gates" }
+  { key: "gates", label: "Gates" },
+  { key: "governance", label: "Governance" }
+];
+
+const sourceDefinitions = [
+  { source_id: "cycle", label: "Cycle API" },
+  { source_id: "resources", label: "Kubernetes" },
+  { source_id: "diagnostics", label: "Diagnostics" },
+  { source_id: "drift", label: "Drift Review" },
+  { source_id: "decisions", label: "Decisions" }
 ];
 
 export function App() {
@@ -26,6 +50,12 @@ export function App() {
     resources: [],
     observation_status: "unavailable"
   });
+  const [diagnostics, setDiagnostics] = useState<ControlPanelDiagnostics | null>(null);
+  const [driftWorkflow, setDriftWorkflow] = useState<DriftReviewWorkflow | null>(null);
+  const [decisionRegistry, setDecisionRegistry] = useState<DecisionRecordList>({ decisions: [], status: "pass", blockers: [] });
+  const [syncSources, setSyncSources] = useState<ClientSyncSource[]>(
+    sourceDefinitions.map((source) => ({ ...source, status: "stale" }))
+  );
   const [tab, setTab] = useState<TabKey>("overview");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [error, setError] = useState("");
@@ -38,13 +68,42 @@ export function App() {
     refreshInFlight.current = true;
     if (!background) setLoading(true);
     try {
-      const [payload, runtimeResources] = await Promise.all([fetchLatestCycle(), fetchRuntimeResources()]);
-      setCycle(payload);
-      setResourceSnapshot(runtimeResources);
-      setError("");
-      setRefreshedAt(new Date().toLocaleTimeString());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "CycleRun request failed");
+      const results = await Promise.allSettled([
+        fetchLatestCycle(),
+        fetchRuntimeResources(),
+        fetchControlPanelDiagnostics(),
+        fetchLatestDriftReview(),
+        fetchDecisionRecords()
+      ]);
+      const synchronizedAt = new Date().toISOString();
+      setSyncSources((current) => sourceDefinitions.map((source, index) => {
+        const previous = current.find((item) => item.source_id === source.source_id);
+        const result = results[index];
+        if (result.status === "fulfilled") {
+          return { ...source, status: "live", last_success_at: synchronizedAt };
+        }
+        return {
+          ...source,
+          status: previous?.last_success_at ? "stale" : "error",
+          last_success_at: previous?.last_success_at,
+          error: errorMessage(result.reason)
+        };
+      }));
+
+      const [cycleResult, resourceResult, diagnosticsResult, driftResult, decisionsResult] = results;
+      if (cycleResult.status === "fulfilled") {
+        setCycle(cycleResult.value);
+        setError("");
+      } else {
+        setError(errorMessage(cycleResult.reason));
+      }
+      if (resourceResult.status === "fulfilled") setResourceSnapshot(resourceResult.value);
+      if (diagnosticsResult.status === "fulfilled") setDiagnostics(diagnosticsResult.value);
+      if (driftResult.status === "fulfilled") setDriftWorkflow(driftResult.value);
+      if (decisionsResult.status === "fulfilled") setDecisionRegistry(decisionsResult.value);
+      if (results.some((result) => result.status === "fulfilled")) {
+        setRefreshedAt(new Date().toLocaleTimeString());
+      }
     } finally {
       if (!background) setLoading(false);
       refreshInFlight.current = false;
@@ -62,9 +121,16 @@ export function App() {
     if (tab === "readiness") return <DataModelReadiness cycle={cycle} />;
     if (tab === "timeline") return <PipelineTimeline cycle={cycle} resourceSnapshot={resourceSnapshot} />;
     if (tab === "operate") return <TaskAuthoring cycle={cycle} resources={resourceSnapshot.resources} />;
-    if (tab === "gates") return <GateAndRiskPanel cycle={cycle} />;
+    if (tab === "gates") return <GateAndRiskPanel cycle={cycle} workflow={driftWorkflow} onRefresh={() => loadCycle(true)} />;
+    if (tab === "governance") return <GovernancePanel registry={decisionRegistry} onRefresh={() => loadCycle(true)} />;
     return <CycleOverview cycle={cycle} />;
-  }, [cycle, resourceSnapshot, tab]);
+  }, [cycle, decisionRegistry, driftWorkflow, resourceSnapshot, tab]);
+
+  const syncStatus: State = syncSources.some((source) => source.status === "error")
+    ? "blocked"
+    : syncSources.some((source) => source.status === "stale")
+      ? "warn"
+      : "pass";
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -78,6 +144,10 @@ export function App() {
           <h1>Control Panel</h1>
         </div>
         <div className="topbar-actions">
+          <div className="sync-indicator" title="Control Panel source synchronization">
+            <i className={syncStatus === "pass" ? "live" : "degraded"} />
+            <span>{syncStatus === "pass" ? "Live 5s" : "Degraded"}</span>
+          </div>
           {cycle ? <StatusBadge status={cycle.status} /> : null}
           <button
             type="button"
@@ -119,10 +189,16 @@ export function App() {
 
       {loading && !cycle ? <section className="loading-state">Loading CycleRun</section> : activeView}
 
+      <DiagnosticsDrawer diagnostics={diagnostics} clientSources={syncSources} />
+
       <footer className="footer-line">
         <span>{cycle?.cycle_id || "cycle not loaded"}</span>
         <span>{refreshedAt ? `refreshed ${refreshedAt}` : "waiting"}</span>
       </footer>
     </main>
   );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Control Panel source request failed";
 }

@@ -1,6 +1,6 @@
 import { AlertTriangle, GitPullRequestArrow } from "lucide-react";
 
-import type { CycleRun } from "../api/types";
+import type { CycleRun, DriftReviewWorkflow } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { CDCTGatePanel } from "./CDCTGatePanel";
 import { DriftReview } from "./DriftReview";
@@ -8,9 +8,11 @@ import { DeploymentIntentPanel } from "./DeploymentIntentPanel";
 
 interface GateAndRiskPanelProps {
   cycle: CycleRun;
+  workflow: DriftReviewWorkflow | null;
+  onRefresh: () => Promise<void>;
 }
 
-export function GateAndRiskPanel({ cycle }: GateAndRiskPanelProps) {
+export function GateAndRiskPanel({ cycle, workflow, onRefresh }: GateAndRiskPanelProps) {
   return (
     <section className="two-column" aria-label="Gate and risk state">
       <div className="panel">
@@ -32,7 +34,7 @@ export function GateAndRiskPanel({ cycle }: GateAndRiskPanelProps) {
         </div>
       </div>
 
-      <DriftReview cycle={cycle} />
+      <DriftReview cycle={cycle} workflow={workflow} onRefresh={onRefresh} />
       <CDCTGatePanel cycle={cycle} />
       <DeploymentIntentPanel cycle={cycle} />
     </section>

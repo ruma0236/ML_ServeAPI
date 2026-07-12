@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,6 +31,18 @@ DeploymentIntentState = Literal[
 ]
 ResourceObservationSource = Literal["cycle_projection", "kubernetes_snapshot"]
 ResourceObservationStatus = Literal["live", "stale", "projected", "unavailable"]
+DiagnosticStatus = Literal["pass", "warn", "blocked", "fail"]
+SourceSyncStatus = Literal["live", "stale", "error", "unavailable"]
+DriftReviewStatus = Literal["open", "acknowledged", "approved", "closed"]
+DecisionState = Literal["draft", "review", "approved", "rejected"]
+DecisionSubjectType = Literal[
+    "experiment",
+    "prompt_change",
+    "model_candidate",
+    "evaluation_policy",
+    "drift_review",
+    "serving_change",
+]
 
 TaskStatus = Literal["draft", "dry_run", "queued", "pending_confirmation", "blocked"]
 CommandStatus = Literal["draft", "dry_run", "pending_confirmation", "applying", "applied", "cancelled", "failed", "rolled_back"]
@@ -426,6 +438,132 @@ class DriftState(ContractModel):
     label_review_queue_uri: str | None = None
     approval_required: bool = False
     automatic_retraining: bool = False
+
+
+class SourceFreshness(ContractModel):
+    source_id: str
+    status: SourceSyncStatus
+    observed_at: str | None = None
+    age_seconds: float | None = Field(default=None, ge=0)
+    poll_interval_seconds: float | None = Field(default=None, ge=0)
+    message: str | None = None
+
+
+class StatusDiagnostic(ContractModel):
+    diagnostic_id: str
+    status: Literal["warn", "blocked", "fail"]
+    scope: Literal[
+        "cycle",
+        "stage",
+        "metric",
+        "readiness",
+        "promotion",
+        "drift",
+        "cdct",
+        "resource",
+        "sync",
+    ]
+    component: str
+    code: str
+    summary: str
+    remediation: str
+    source: str
+    evidence_uri: str | None = None
+    observed_at: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ControlPanelDiagnostics(ContractModel):
+    schema_version: Literal["evm.control_panel.diagnostics.v1"]
+    generated_at: str
+    cycle_id: str
+    status: DiagnosticStatus
+    blocked_count: int = Field(default=0, ge=0)
+    warn_count: int = Field(default=0, ge=0)
+    fail_count: int = Field(default=0, ge=0)
+    sources: list[SourceFreshness] = Field(default_factory=list)
+    diagnostics: list[StatusDiagnostic] = Field(default_factory=list)
+    state_digest: str
+    snapshot_uri: str | None = None
+    audit_uri: str | None = None
+
+
+class DriftReviewTransition(ContractModel):
+    from_status: DriftReviewStatus
+    to_status: DriftReviewStatus
+    actor: str
+    reason: str
+    timestamp: str
+
+
+class DriftReviewWorkflow(ContractModel):
+    schema_version: Literal["evm.drift_review.workflow.v1"]
+    event_id: str
+    event_type: str
+    status: DriftReviewStatus
+    candidate_id: str
+    dataset_version: str
+    triggered_rules: list[str] = Field(default_factory=list)
+    review_queue_count: int = Field(default=0, ge=0)
+    evidence_uri: str | None = None
+    label_review_queue_uri: str | None = None
+    approval_required: bool = True
+    automatic_retraining: bool = False
+    automatic_deployment: bool = False
+    automatic_promotion: bool = False
+    next_actions: list[DriftReviewStatus] = Field(default_factory=list)
+    transitions: list[DriftReviewTransition] = Field(default_factory=list)
+    updated_at: str | None = None
+    dry_run: bool = False
+    projected_status: DriftReviewStatus | None = None
+    audit_uri: str | None = None
+
+
+class DriftReviewTransitionRequest(ContractModel):
+    target_status: Literal["acknowledged", "approved", "closed"]
+    actor: str = Field(min_length=2)
+    reason: str = Field(min_length=8)
+    expected_status: DriftReviewStatus
+    dry_run: bool = True
+
+
+class DecisionTransition(ContractModel):
+    from_state: DecisionState
+    to_state: DecisionState
+    actor: str
+    reason: str
+    timestamp: str
+
+
+class DecisionRecordRequest(ContractModel):
+    subject_type: DecisionSubjectType
+    title: str = Field(min_length=4)
+    summary: str = Field(min_length=8)
+    owner: str = Field(min_length=2)
+    evidence_uris: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DecisionTransitionRequest(ContractModel):
+    target_state: DecisionState
+    actor: str = Field(min_length=2)
+    reason: str = Field(min_length=8)
+    expected_version: int = Field(ge=1)
+
+
+class DecisionRecord(DecisionRecordRequest):
+    decision_id: str
+    state: DecisionState
+    version: int = Field(ge=1)
+    created_at: str
+    updated_at: str
+    transitions: list[DecisionTransition] = Field(default_factory=list)
+
+
+class DecisionRecordList(ContractModel):
+    decisions: list[DecisionRecord] = Field(default_factory=list)
+    status: State = "pass"
+    blockers: list[str] = Field(default_factory=list)
 
 
 class CDCTGate(ContractModel):

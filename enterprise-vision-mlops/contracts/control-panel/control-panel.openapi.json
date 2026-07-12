@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise Vision MLOps Control Panel API",
-    "version": "2026-07-10.w7.measured-drift.v1",
+    "version": "2026-07-12.post-w7.diagnostics-governance.v1",
     "description": "Metadata and guarded mutation contract for the W7 enterprise MLOps Control Panel, including CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
   },
   "servers": [
@@ -355,6 +355,86 @@
         "responses": {
           "202": {"description": "deployment intent queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeploymentIntent"}}}},
           "409": {"description": "current CI, readiness, policy, or version check rejected"}
+        }
+      }
+    },
+    "/control-panel/v1/diagnostics/latest": {
+      "get": {
+        "summary": "Return structured blocked and warning causes with source freshness and evidence links.",
+        "operationId": "getControlPanelDiagnostics",
+        "responses": {
+          "200": {
+            "description": "current diagnostics snapshot",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ControlPanelDiagnostics"}}}
+          }
+        }
+      }
+    },
+    "/control-panel/v1/drift-reviews/latest": {
+      "get": {
+        "summary": "Return the latest measured drift review workflow without triggering retraining or deployment.",
+        "operationId": "getLatestDriftReview",
+        "responses": {
+          "200": {
+            "description": "latest drift review workflow",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DriftReviewWorkflow"}}}
+          },
+          "404": {"description": "drift review evidence not found"}
+        }
+      }
+    },
+    "/control-panel/v1/drift-reviews/{event_id}/transition": {
+      "post": {
+        "summary": "Preview or apply an audited drift review state transition.",
+        "operationId": "transitionDriftReview",
+        "parameters": [{"name": "event_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DriftReviewTransitionRequest"}}}
+        },
+        "responses": {
+          "200": {"description": "dry-run transition preview", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DriftReviewWorkflow"}}}},
+          "202": {"description": "transition persisted", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DriftReviewWorkflow"}}}},
+          "409": {"description": "workflow version conflict"},
+          "422": {"description": "transition policy rejected"}
+        }
+      }
+    },
+    "/control-panel/v1/decisions": {
+      "get": {
+        "summary": "List auditable lifecycle decision records.",
+        "operationId": "listDecisionRecords",
+        "responses": {
+          "200": {"description": "decision registry", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DecisionRecordList"}}}}
+        }
+      },
+      "post": {
+        "summary": "Create a draft lifecycle decision record.",
+        "operationId": "createDecisionRecord",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DecisionRecordRequest"}}}
+        },
+        "responses": {
+          "201": {"description": "draft decision created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DecisionRecord"}}}},
+          "409": {"description": "decision registry is not writable"}
+        }
+      }
+    },
+    "/control-panel/v1/decisions/{decision_id}/transition": {
+      "post": {
+        "summary": "Apply an optimistic and separation-of-duties protected decision transition.",
+        "operationId": "transitionDecisionRecord",
+        "parameters": [{"name": "decision_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DecisionTransitionRequest"}}}
+        },
+        "responses": {
+          "202": {"description": "decision transitioned", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DecisionRecord"}}}},
+          "404": {"description": "decision not found"},
+          "409": {"description": "decision version conflict"},
+          "422": {"description": "decision policy rejected"}
         }
       }
     }
@@ -1205,6 +1285,159 @@
           "unit": {"type": ["string", "null"]},
           "threshold": {"type": ["number", "null"]},
           "status": {"$ref": "#/components/schemas/State"}
+        }
+      },
+      "SourceFreshness": {
+        "type": "object",
+        "required": ["source_id", "status"],
+        "properties": {
+          "source_id": {"type": "string"},
+          "status": {"type": "string", "enum": ["live", "stale", "error", "unavailable"]},
+          "observed_at": {"type": ["string", "null"]},
+          "age_seconds": {"type": ["number", "null"], "minimum": 0},
+          "poll_interval_seconds": {"type": ["number", "null"], "minimum": 0},
+          "message": {"type": ["string", "null"]}
+        }
+      },
+      "StatusDiagnostic": {
+        "type": "object",
+        "required": ["diagnostic_id", "status", "scope", "component", "code", "summary", "remediation", "source"],
+        "properties": {
+          "diagnostic_id": {"type": "string"},
+          "status": {"type": "string", "enum": ["warn", "blocked", "fail"]},
+          "scope": {"type": "string", "enum": ["cycle", "stage", "metric", "readiness", "promotion", "drift", "cdct", "resource", "sync"]},
+          "component": {"type": "string"},
+          "code": {"type": "string"},
+          "summary": {"type": "string"},
+          "remediation": {"type": "string"},
+          "source": {"type": "string"},
+          "evidence_uri": {"type": ["string", "null"]},
+          "observed_at": {"type": ["string", "null"]},
+          "details": {"type": "object"}
+        }
+      },
+      "ControlPanelDiagnostics": {
+        "type": "object",
+        "required": ["schema_version", "generated_at", "cycle_id", "status", "state_digest"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.control_panel.diagnostics.v1"},
+          "generated_at": {"type": "string"},
+          "cycle_id": {"type": "string"},
+          "status": {"type": "string", "enum": ["pass", "warn", "blocked", "fail"]},
+          "blocked_count": {"type": "integer", "minimum": 0},
+          "warn_count": {"type": "integer", "minimum": 0},
+          "fail_count": {"type": "integer", "minimum": 0},
+          "sources": {"type": "array", "items": {"$ref": "#/components/schemas/SourceFreshness"}},
+          "diagnostics": {"type": "array", "items": {"$ref": "#/components/schemas/StatusDiagnostic"}},
+          "state_digest": {"type": "string"},
+          "snapshot_uri": {"type": ["string", "null"]},
+          "audit_uri": {"type": ["string", "null"]}
+        }
+      },
+      "DriftReviewTransition": {
+        "type": "object",
+        "required": ["from_status", "to_status", "actor", "reason", "timestamp"],
+        "properties": {
+          "from_status": {"type": "string", "enum": ["open", "acknowledged", "approved", "closed"]},
+          "to_status": {"type": "string", "enum": ["open", "acknowledged", "approved", "closed"]},
+          "actor": {"type": "string"},
+          "reason": {"type": "string"},
+          "timestamp": {"type": "string"}
+        }
+      },
+      "DriftReviewWorkflow": {
+        "type": "object",
+        "required": ["schema_version", "event_id", "event_type", "status", "candidate_id", "dataset_version"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.drift_review.workflow.v1"},
+          "event_id": {"type": "string"},
+          "event_type": {"type": "string"},
+          "status": {"type": "string", "enum": ["open", "acknowledged", "approved", "closed"]},
+          "candidate_id": {"type": "string"},
+          "dataset_version": {"type": "string"},
+          "triggered_rules": {"type": "array", "items": {"type": "string"}},
+          "review_queue_count": {"type": "integer", "minimum": 0},
+          "evidence_uri": {"type": ["string", "null"]},
+          "label_review_queue_uri": {"type": ["string", "null"]},
+          "approval_required": {"type": "boolean"},
+          "automatic_retraining": {"type": "boolean"},
+          "automatic_deployment": {"type": "boolean"},
+          "automatic_promotion": {"type": "boolean"},
+          "next_actions": {"type": "array", "items": {"type": "string", "enum": ["open", "acknowledged", "approved", "closed"]}},
+          "transitions": {"type": "array", "items": {"$ref": "#/components/schemas/DriftReviewTransition"}},
+          "updated_at": {"type": ["string", "null"]},
+          "dry_run": {"type": "boolean"},
+          "projected_status": {"type": ["string", "null"], "enum": ["open", "acknowledged", "approved", "closed", null]},
+          "audit_uri": {"type": ["string", "null"]}
+        }
+      },
+      "DriftReviewTransitionRequest": {
+        "type": "object",
+        "required": ["target_status", "actor", "reason", "expected_status"],
+        "properties": {
+          "target_status": {"type": "string", "enum": ["acknowledged", "approved", "closed"]},
+          "actor": {"type": "string", "minLength": 2},
+          "reason": {"type": "string", "minLength": 8},
+          "expected_status": {"type": "string", "enum": ["open", "acknowledged", "approved", "closed"]},
+          "dry_run": {"type": "boolean", "default": true}
+        }
+      },
+      "DecisionTransition": {
+        "type": "object",
+        "required": ["from_state", "to_state", "actor", "reason", "timestamp"],
+        "properties": {
+          "from_state": {"type": "string", "enum": ["draft", "review", "approved", "rejected"]},
+          "to_state": {"type": "string", "enum": ["draft", "review", "approved", "rejected"]},
+          "actor": {"type": "string"},
+          "reason": {"type": "string"},
+          "timestamp": {"type": "string"}
+        }
+      },
+      "DecisionRecordRequest": {
+        "type": "object",
+        "required": ["subject_type", "title", "summary", "owner"],
+        "properties": {
+          "subject_type": {"type": "string", "enum": ["experiment", "prompt_change", "model_candidate", "evaluation_policy", "drift_review", "serving_change"]},
+          "title": {"type": "string", "minLength": 4},
+          "summary": {"type": "string", "minLength": 8},
+          "owner": {"type": "string", "minLength": 2},
+          "evidence_uris": {"type": "array", "items": {"type": "string"}},
+          "metadata": {"type": "object"}
+        }
+      },
+      "DecisionTransitionRequest": {
+        "type": "object",
+        "required": ["target_state", "actor", "reason", "expected_version"],
+        "properties": {
+          "target_state": {"type": "string", "enum": ["draft", "review", "approved", "rejected"]},
+          "actor": {"type": "string", "minLength": 2},
+          "reason": {"type": "string", "minLength": 8},
+          "expected_version": {"type": "integer", "minimum": 1}
+        }
+      },
+      "DecisionRecord": {
+        "allOf": [
+          {"$ref": "#/components/schemas/DecisionRecordRequest"},
+          {
+            "type": "object",
+            "required": ["decision_id", "state", "version", "created_at", "updated_at"],
+            "properties": {
+              "decision_id": {"type": "string"},
+              "state": {"type": "string", "enum": ["draft", "review", "approved", "rejected"]},
+              "version": {"type": "integer", "minimum": 1},
+              "created_at": {"type": "string"},
+              "updated_at": {"type": "string"},
+              "transitions": {"type": "array", "items": {"$ref": "#/components/schemas/DecisionTransition"}}
+            }
+          }
+        ]
+      },
+      "DecisionRecordList": {
+        "type": "object",
+        "properties": {
+          "decisions": {"type": "array", "items": {"$ref": "#/components/schemas/DecisionRecord"}},
+          "status": {"$ref": "#/components/schemas/State"},
+          "blockers": {"type": "array", "items": {"type": "string"}}
         }
       },
       "State": {

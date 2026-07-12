@@ -401,6 +401,133 @@ export interface DriftState {
   automatic_retraining?: boolean;
 }
 
+export interface SourceFreshness {
+  source_id: string;
+  status: "live" | "stale" | "error" | "unavailable";
+  observed_at?: string | null;
+  age_seconds?: number | null;
+  poll_interval_seconds?: number | null;
+  message?: string | null;
+}
+
+export interface StatusDiagnostic {
+  diagnostic_id: string;
+  status: "warn" | "blocked" | "fail";
+  scope: "cycle" | "stage" | "metric" | "readiness" | "promotion" | "drift" | "cdct" | "resource" | "sync";
+  component: string;
+  code: string;
+  summary: string;
+  remediation: string;
+  source: string;
+  evidence_uri?: string | null;
+  observed_at?: string | null;
+  details: Record<string, unknown>;
+}
+
+export interface ControlPanelDiagnostics {
+  schema_version: "evm.control_panel.diagnostics.v1";
+  generated_at: string;
+  cycle_id: string;
+  status: "pass" | "warn" | "blocked" | "fail";
+  blocked_count: number;
+  warn_count: number;
+  fail_count: number;
+  sources: SourceFreshness[];
+  diagnostics: StatusDiagnostic[];
+  state_digest: string;
+  snapshot_uri?: string | null;
+  audit_uri?: string | null;
+}
+
+export type DriftReviewStatus = "open" | "acknowledged" | "approved" | "closed";
+
+export interface DriftReviewTransition {
+  from_status: DriftReviewStatus;
+  to_status: DriftReviewStatus;
+  actor: string;
+  reason: string;
+  timestamp: string;
+}
+
+export interface DriftReviewWorkflow {
+  schema_version: "evm.drift_review.workflow.v1";
+  event_id: string;
+  event_type: string;
+  status: DriftReviewStatus;
+  candidate_id: string;
+  dataset_version: string;
+  triggered_rules: string[];
+  review_queue_count: number;
+  evidence_uri?: string | null;
+  label_review_queue_uri?: string | null;
+  approval_required: boolean;
+  automatic_retraining: boolean;
+  automatic_deployment: boolean;
+  automatic_promotion: boolean;
+  next_actions: DriftReviewStatus[];
+  transitions: DriftReviewTransition[];
+  updated_at?: string | null;
+  dry_run: boolean;
+  projected_status?: DriftReviewStatus | null;
+  audit_uri?: string | null;
+}
+
+export interface DriftReviewTransitionRequest {
+  target_status: "acknowledged" | "approved" | "closed";
+  actor: string;
+  reason: string;
+  expected_status: DriftReviewStatus;
+  dry_run: boolean;
+}
+
+export type DecisionState = "draft" | "review" | "approved" | "rejected";
+export type DecisionSubjectType =
+  | "experiment"
+  | "prompt_change"
+  | "model_candidate"
+  | "evaluation_policy"
+  | "drift_review"
+  | "serving_change";
+
+export interface DecisionRecordRequest {
+  subject_type: DecisionSubjectType;
+  title: string;
+  summary: string;
+  owner: string;
+  evidence_uris: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface DecisionTransition {
+  from_state: DecisionState;
+  to_state: DecisionState;
+  actor: string;
+  reason: string;
+  timestamp: string;
+}
+
+export interface DecisionRecord extends DecisionRecordRequest {
+  decision_id: string;
+  state: DecisionState;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  transitions: DecisionTransition[];
+}
+
+export interface DecisionRecordList {
+  decisions: DecisionRecord[];
+  status: State;
+  blockers: string[];
+}
+
+export interface DecisionTransitionRequest {
+  target_state: DecisionState;
+  actor: string;
+  reason: string;
+  expected_version: number;
+}
+
 export interface CDCTGate {
   status: State;
   ci_status: State;

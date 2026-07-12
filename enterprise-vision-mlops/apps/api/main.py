@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from apps.api.control_panel_commands import router as control_panel_commands_router
 from apps.api.control_panel_deployments import router as control_panel_deployments_router
+from apps.api.control_panel_governance import router as control_panel_governance_router
 from apps.api.control_panel_tasks import router as control_panel_tasks_router
 from apps.api.control_panel import router as control_panel_router
 from evm.core.image_feature_model import extract_image_features, predict_with_model, resolve_image_path
@@ -142,6 +143,7 @@ app.include_router(control_panel_router)
 app.include_router(control_panel_tasks_router)
 app.include_router(control_panel_commands_router)
 app.include_router(control_panel_deployments_router)
+app.include_router(control_panel_governance_router)
 MODEL_STATE: LoadedModel | None = None
 MODEL_LOAD_ERROR = ""
 

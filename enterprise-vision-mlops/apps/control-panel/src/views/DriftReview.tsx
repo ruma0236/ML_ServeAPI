@@ -1,12 +1,15 @@
-import { BadgeCheck, FileSearch, LockKeyhole, Waves } from "lucide-react";
+import { BadgeCheck, CheckCheck, Eye, FileSearch, LockKeyhole, Waves } from "lucide-react";
 import type { ReactNode } from "react";
+import { useState } from "react";
 
-import { compactUri } from "../api/controlPanelClient";
-import type { CycleRun, DriftState, State } from "../api/types";
+import { compactUri, transitionDriftReview } from "../api/controlPanelClient";
+import type { CycleRun, DriftReviewWorkflow, DriftState, State } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 
 interface DriftReviewProps {
   cycle: CycleRun;
+  workflow: DriftReviewWorkflow | null;
+  onRefresh: () => Promise<void>;
 }
 
 const actionLabels: Record<string, string> = {
@@ -17,9 +20,39 @@ const actionLabels: Record<string, string> = {
   rollback_review: "Rollback Review"
 };
 
-export function DriftReview({ cycle }: DriftReviewProps) {
+export function DriftReview({ cycle, workflow, onRefresh }: DriftReviewProps) {
   const drift = cycle.drift;
   const measured = drift?.measurement_status === "measured";
+  const [actor, setActor] = useState("ai-infra-sre");
+  const [reason, setReason] = useState("Review measured drift evidence and label queue.");
+  const [preview, setPreview] = useState<DriftReviewWorkflow | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [workflowError, setWorkflowError] = useState("");
+  const nextStatus = workflow?.next_actions[0];
+
+  async function transition(dryRun: boolean) {
+    if (!workflow || !nextStatus) return;
+    setBusy(true);
+    setWorkflowError("");
+    try {
+      const result = await transitionDriftReview(workflow.event_id, {
+        target_status: nextStatus as "acknowledged" | "approved" | "closed",
+        actor,
+        reason,
+        expected_status: workflow.status,
+        dry_run: dryRun
+      });
+      if (dryRun) setPreview(result);
+      else {
+        setPreview(null);
+        await onRefresh();
+      }
+    } catch (error) {
+      setWorkflowError(error instanceof Error ? error.message : "drift review transition failed");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="panel drift-review-panel">
       <div className="panel-heading">
@@ -44,6 +77,29 @@ export function DriftReview({ cycle }: DriftReviewProps) {
           <DriftStateTile label="Confidence PSI" status={drift?.prediction_drift_status} value={formatMetric(drift?.confidence_psi)} />
           <DriftStateTile label="Review Queue" status={drift?.review_queue_count ? "warn" : "pass"} value={String(drift?.review_queue_count || 0)} />
           <DriftStateTile label="Auto Retraining" status={drift?.automatic_retraining ? "fail" : "pass"} value={drift?.automatic_retraining ? "enabled" : "disabled"} />
+        </div>
+
+        <div className="drift-workflow" aria-label="Drift review workflow">
+          <div className="drift-workflow-rail">
+            {(["open", "acknowledged", "approved", "closed"] as const).map((state) => (
+              <div key={state} className={workflowStateClass(workflow?.status, state)}>
+                <i />
+                <span>{state}</span>
+              </div>
+            ))}
+          </div>
+          {workflow && nextStatus ? (
+            <div className="drift-workflow-control">
+              <label><span>Actor</span><input value={actor} onChange={(event) => setActor(event.target.value)} /></label>
+              <label><span>Reason</span><input value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+              <div>
+                <button type="button" className="secondary-action" disabled={busy} onClick={() => void transition(true)}><Eye size={15} /> Preview</button>
+                <button type="button" className="primary-action" disabled={busy || preview?.projected_status !== nextStatus} onClick={() => void transition(false)}><CheckCheck size={15} /> Apply {nextStatus}</button>
+              </div>
+            </div>
+          ) : null}
+          {preview?.projected_status ? <p className="workflow-preview">Preview: {preview.status} -&gt; {preview.projected_status}</p> : null}
+          {workflowError ? <p className="policy-error" role="alert">{workflowError}</p> : null}
         </div>
 
         <dl className="detail-list drift-detail-list">
@@ -96,6 +152,13 @@ export function DriftReview({ cycle }: DriftReviewProps) {
       </div>
     </div>
   );
+}
+
+function workflowStateClass(current: string | undefined, state: string): string {
+  const order = ["open", "acknowledged", "approved", "closed"];
+  const currentIndex = order.indexOf(current || "open");
+  const stateIndex = order.indexOf(state);
+  return stateIndex < currentIndex ? "complete" : stateIndex === currentIndex ? "active" : "pending";
 }
 
 function DriftStateTile({ label, value, status }: { label: string; value: string; status: State | string | null | undefined }) {

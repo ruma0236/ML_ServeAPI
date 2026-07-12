@@ -15,8 +15,12 @@ from apps.api.control_panel import (
     invalidate_cycle_cache,
 )
 from evm.control_panel.schemas import (
+    ControlPanelDiagnostics,
     CycleRun,
+    DecisionRecord,
+    DecisionRecordList,
     DriftState,
+    DriftReviewWorkflow,
     PromotionPolicyRequest,
     RuntimeResourceList,
 )
@@ -90,6 +94,27 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "observation_status" in schemas["RuntimeResourceList"]["properties"]
     assert "/control-panel/v1/deployment-intents" in openapi["paths"]
     assert "/control-panel/v1/deployment-intents/{intent_id}/queue" in openapi["paths"]
+    assert "/control-panel/v1/diagnostics/latest" in openapi["paths"]
+    assert "/control-panel/v1/drift-reviews/latest" in openapi["paths"]
+    assert "/control-panel/v1/drift-reviews/{event_id}/transition" in openapi["paths"]
+    assert "/control-panel/v1/decisions" in openapi["paths"]
+    assert "/control-panel/v1/decisions/{decision_id}/transition" in openapi["paths"]
+    assert set(ControlPanelDiagnostics.model_fields).issubset(
+        schemas["ControlPanelDiagnostics"]["properties"]
+    )
+    assert set(DriftReviewWorkflow.model_fields).issubset(
+        schemas["DriftReviewWorkflow"]["properties"]
+    )
+    assert "DecisionRecord" in schemas
+    assert set(DecisionRecordList.model_fields).issubset(
+        schemas["DecisionRecordList"]["properties"]
+    )
+    assert set(DecisionRecord.model_fields).issubset(
+        {
+            *schemas["DecisionRecordRequest"]["properties"],
+            *schemas["DecisionRecord"]["allOf"][1]["properties"],
+        }
+    )
 
 
 def test_openapi_drift_state_covers_every_pydantic_field():

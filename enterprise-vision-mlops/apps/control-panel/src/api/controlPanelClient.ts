@@ -2,11 +2,18 @@ import type {
   CommandIntent,
   CommandIntentList,
   CommandIntentRequest,
+  ControlPanelDiagnostics,
   CycleRun,
+  DecisionRecord,
+  DecisionRecordList,
+  DecisionRecordRequest,
+  DecisionTransitionRequest,
   DeploymentIntent,
   DeploymentIntentList,
   DeploymentIntentRequest,
   DeploymentTransitionRequest,
+  DriftReviewTransitionRequest,
+  DriftReviewWorkflow,
   PromotionPolicyDecision,
   PromotionPolicyRequest,
   ResourceRef,
@@ -29,6 +36,91 @@ export async function fetchLatestCycle(baseUrl = API_BASE): Promise<CycleRun> {
     throw new Error(`CycleRun request failed: ${response.status}`);
   }
   return (await response.json()) as CycleRun;
+}
+
+export async function fetchControlPanelDiagnostics(
+  baseUrl = API_BASE
+): Promise<ControlPanelDiagnostics> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/diagnostics/latest`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`Diagnostics request failed: ${response.status}`);
+  }
+  return (await response.json()) as ControlPanelDiagnostics;
+}
+
+export async function fetchLatestDriftReview(baseUrl = API_BASE): Promise<DriftReviewWorkflow> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/drift-reviews/latest`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`Drift review request failed: ${response.status}`);
+  }
+  return (await response.json()) as DriftReviewWorkflow;
+}
+
+export async function transitionDriftReview(
+  eventId: string,
+  request: DriftReviewTransitionRequest,
+  baseUrl = API_BASE
+): Promise<DriftReviewWorkflow> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/drift-reviews/${eventId}/transition`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    }
+  );
+  if (!response.ok) {
+    throw await controlPanelError(response, "Drift review transition failed");
+  }
+  return (await response.json()) as DriftReviewWorkflow;
+}
+
+export async function fetchDecisionRecords(baseUrl = API_BASE): Promise<DecisionRecordList> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/decisions`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`Decision registry request failed: ${response.status}`);
+  }
+  return (await response.json()) as DecisionRecordList;
+}
+
+export async function createDecisionRecord(
+  request: DecisionRecordRequest,
+  baseUrl = API_BASE
+): Promise<DecisionRecord> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/decisions`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    throw await controlPanelError(response, "Decision create failed");
+  }
+  return (await response.json()) as DecisionRecord;
+}
+
+export async function transitionDecisionRecord(
+  decisionId: string,
+  request: DecisionTransitionRequest,
+  baseUrl = API_BASE
+): Promise<DecisionRecord> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/decisions/${decisionId}/transition`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    }
+  );
+  if (!response.ok) {
+    throw await controlPanelError(response, "Decision transition failed");
+  }
+  return (await response.json()) as DecisionRecord;
 }
 
 export async function evaluatePromotionPolicy(
