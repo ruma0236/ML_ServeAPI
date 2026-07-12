@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.error import URLError
 
 from evm.control_panel import lifecycle_orchestrator, lifecycle_runs, operations
 from evm.control_panel.lifecycle_kubernetes import ServingBundle
 from evm.control_panel.lifecycle_orchestrator import (
+    process_artifact_readiness,
     process_lifecycle_run,
     rollback_lifecycle,
     write_prometheus_target,
@@ -19,6 +21,7 @@ from evm.control_panel.lifecycle_runs import (
     transition_stage,
 )
 from evm.control_panel.pipeline_profiles import default_profile, save_profile
+from evm.control_panel.schemas import ArtifactReadinessEvaluation, ReadinessEvidenceCheck
 
 
 class FakeResponse:
@@ -192,6 +195,55 @@ def test_approval_stage_stops_worker_until_independent_action(tmp_path, monkeypa
     assert waiting.current_stage == "approval"
     assert unchanged.version == waiting.version
     assert unchanged.stages[7].state == "not_started"
+
+
+def test_artifact_readiness_persists_report_before_stage_completion(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = queued_run(tmp_path, monkeypatch)
+    for stage_id in ("data_pipeline", "model_training", "model_evaluation"):
+        transition_stage(run.run_id, stage_id, "running", actor="test")
+        run = transition_stage(run.run_id, stage_id, "completed", actor="test")
+    model = json.loads(Path(run.model_config_uri).read_text(encoding="utf-8"))
+    report_path = Path(model["control_plane"]["runtime_evidence"]["readiness"])
+    evaluation = ArtifactReadinessEvaluation(
+        evaluation_id="readiness-persisted",
+        decision="ready",
+        status="pass",
+        data_status="pass",
+        model_status="pass",
+        runtime_status="pass",
+        candidate_id="efficientnet-b0-test",
+        dataset_version="visa-test",
+        evaluated_at="2026-07-12T00:00:00Z",
+        input_digest="a" * 64,
+        checks=[
+            ReadinessEvidenceCheck(
+                check_id="model_artifact",
+                category="model",
+                status="pass",
+            )
+        ],
+        report_uri=str(report_path),
+    )
+    monkeypatch.setattr(
+        lifecycle_orchestrator,
+        "rebuild_cycle",
+        lambda _run: SimpleNamespace(readiness_evaluation=evaluation),
+    )
+
+    completed = process_artifact_readiness(
+        run,
+        runner=lambda *_args, **_kwargs: None,
+        http_client=lambda *_args, **_kwargs: (200, {}),
+    )
+
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert completed.stages[4].state == "completed"
+    assert completed.readiness_uri == payload["report_uri"]
+    assert completed.stages[4].evidence_uri == payload["report_uri"]
+    assert payload["evaluation_id"] == "readiness-persisted"
 
 
 def test_prometheus_target_uses_container_reachable_host(tmp_path, monkeypatch) -> None:

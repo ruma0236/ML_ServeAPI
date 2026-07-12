@@ -44,7 +44,7 @@ from evm.control_panel.operations import (
     sync_running_tasks,
 )
 from evm.control_panel.real_test_policy import validate_real_test_evidence
-from evm.control_panel.readiness_evaluator import runtime_path
+from evm.control_panel.readiness_evaluator import canonical_evidence_uri, runtime_path
 from evm.control_panel.schemas import (
     CycleRun,
     DeploymentIntentRequest,
@@ -381,10 +381,14 @@ def process_artifact_readiness(
     evaluation = cycle.readiness_evaluation
     if evaluation is None:
         raise LifecycleStageBlocked("readiness_evaluation_missing")
+    report_path = configured_evidence_path(run, "readiness")
+    report_uri = canonical_evidence_uri(report_path)
+    evaluation = evaluation.model_copy(update={"report_uri": report_uri})
+    write_json(report_path, evaluation.model_dump(mode="json"))
     update_run_evidence(
         run.run_id,
         actor="lifecycle-worker",
-        readiness_uri=evaluation.report_uri,
+        readiness_uri=report_uri,
         cycle_snapshot_uri=str(configured_evidence_path(run, "cycle_snapshot")),
     )
     if evaluation.decision != "ready":
@@ -396,7 +400,7 @@ def process_artifact_readiness(
         actor="lifecycle-worker",
         runtime_id=evaluation.evaluation_id,
         runtime_state=evaluation.decision,
-        evidence_uri=evaluation.report_uri,
+        evidence_uri=report_uri,
         detail=f"Artifact readiness passed with {len(evaluation.checks)} evidence checks",
     )
 
