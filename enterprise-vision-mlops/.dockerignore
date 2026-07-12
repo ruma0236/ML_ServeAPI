@@ -10,3 +10,8 @@ data/processed
 data/validated
 outputs
 *.log
+apps/control-panel/node_modules
+apps/control-panel/dist
+apps/control-panel/test-results
+apps/control-panel/playwright-report
+tests/control-panel/screenshots

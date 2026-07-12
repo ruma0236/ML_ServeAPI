@@ -39,3 +39,8 @@ def test_prediction_uses_the_checkpoint_anomaly_threshold() -> None:
 
     assert efficientnet_serving.prediction_for_scores(scores, 0.7) == ("normal", 0.39)
     assert efficientnet_serving.prediction_for_scores(scores, 0.6) == ("anomaly", 0.61)
+
+
+def test_serving_contract_supports_b0_and_b7_builders() -> None:
+    assert efficientnet_serving.torchvision_builder_name("efficientnet-b0") == "efficientnet_b0"
+    assert efficientnet_serving.torchvision_builder_name("efficientnet-b7") == "efficientnet_b7"

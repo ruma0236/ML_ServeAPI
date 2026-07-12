@@ -96,13 +96,22 @@ def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
+def torchvision_builder_name(architecture: str) -> str:
+    builders = {
+        "efficientnet-b0": "efficientnet_b0",
+        "efficientnet-b7": "efficientnet_b7",
+    }
+    try:
+        return builders[architecture]
+    except KeyError as exc:
+        raise ValueError(f"unsupported EfficientNet architecture: {architecture}") from exc
+
+
 def _build_model(architecture: str, class_count: int) -> Any:
     from torch import nn
     from torchvision import models
 
-    if architecture != "efficientnet-b7":
-        raise ValueError(f"serving contract only accepts efficientnet-b7, got {architecture}")
-    model = models.efficientnet_b7(weights=None)
+    model = getattr(models, torchvision_builder_name(architecture))(weights=None)
     in_features = model.classifier[-1].in_features
     model.classifier[-1] = nn.Linear(in_features, class_count)
     return model
@@ -130,7 +139,7 @@ def load_model() -> ModelRuntime:
             f"model digest mismatch: expected={EXPECTED_MODEL_SHA256} actual={actual_sha256}"
         )
     if REQUIRE_CUDA and not torch.cuda.is_available():
-        raise RuntimeError("CUDA is required by the W7 B7 serving acceptance policy")
+        raise RuntimeError("CUDA is required by the W7 EfficientNet serving policy")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=True)

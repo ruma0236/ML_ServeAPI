@@ -34,7 +34,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: serving
-          image: enterprise-vision-mlops-efficientnet-serving@sha256:073b63bb18a983ff36264068ec9addd353040e92d16c0209737a8ce0567d2d76
+          image: enterprise-vision-mlops-efficientnet-serving@sha256:d7fab66383e719cab2d90d72040cbaec6871ea99da8845a817e926c14b017d46
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
