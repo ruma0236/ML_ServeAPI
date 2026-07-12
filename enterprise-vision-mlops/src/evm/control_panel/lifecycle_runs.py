@@ -664,12 +664,14 @@ def approve_lifecycle_run(
                 "state": "completed",
                 "progress": 1.0,
                 "finished_at": now,
+                "runtime_state": "approved",
                 "detail": f"Approved by {request.approver}: {request.reason}",
                 "blockers": [],
             }
         )
         run.approver = request.approver
         run.current_stage = next_stage_id(run)
+        run.progress = stage_progress(run.stages)
         run.state = derive_run_state(run)
         run.audit.append(
             audit(

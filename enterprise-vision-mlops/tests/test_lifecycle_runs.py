@@ -308,6 +308,8 @@ def test_two_person_approval_advances_waiting_run(tmp_path: Path, monkeypatch) -
     assert approved.current_stage == "deployment"
     assert approved.approver == "release-approver@example.com"
     assert approved.stages[6].state == "completed"
+    assert approved.stages[6].runtime_state == "approved"
+    assert approved.progress == pytest.approx(0.7)
 
 
 def test_invalid_stage_transition_is_rejected(tmp_path: Path, monkeypatch) -> None:
