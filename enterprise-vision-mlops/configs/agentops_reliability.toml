@@ -1,0 +1,53 @@
+schema_version = "evm.agentops.policy.v1"
+status = "design_validated"
+runtime_scope = "post-mvp"
+
+[persistence]
+checkpointer = "postgres"
+checkpoint_every_step = true
+thread_id_required = true
+f_drive_evidence_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/agentops"
+
+[human_in_the_loop]
+required_operation_categories = ["write", "execute", "deploy"]
+allowed_decisions = ["approve", "edit", "reject"]
+separation_of_duties = true
+production_requires_named_approver = true
+
+[tool_audit]
+store_raw_arguments = false
+required_fields = ["call_id", "step_id", "tool_name", "operation_category", "status", "actor", "arguments_digest", "approval_required", "requested_at"]
+redaction_policy = "secrets-and-pii-v1"
+
+[recovery]
+max_attempts = 3
+automatic_resume_idempotent_only = true
+require_idempotency_key = true
+strategies = ["resume_checkpoint", "replay_failed_node", "manual_abort"]
+
+[safety]
+automatic_deployment = false
+automatic_model_promotion = false
+irreversible_tools_default = "reject_until_approved"
+
+[slo]
+checkpoint_write_p95_ms = 250
+interrupt_delivery_p95_seconds = 5
+recovery_success_rate_min = 0.99
+audit_completeness_rate = 1.0
+
+[[failure_scenarios]]
+id = "tool_timeout_after_side_effect"
+expected = "reconcile external state before retry"
+
+[[failure_scenarios]]
+id = "worker_restart_during_interrupt"
+expected = "restore checkpoint and preserve pending approval"
+
+[[failure_scenarios]]
+id = "duplicate_resume_command"
+expected = "deduplicate by idempotency key"
+
+[[failure_scenarios]]
+id = "approval_actor_is_requester"
+expected = "reject by separation-of-duties policy"

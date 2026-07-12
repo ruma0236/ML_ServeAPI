@@ -141,5 +141,7 @@ Primary root:
 - Full VisA processing is I/O-heavy on the F-drive. Stage-level timing and
   cache/parallel-read optimization belong in a separate performance task so
   reproducibility changes are not mixed with throughput tuning.
-- EVM-211 draft/decision registry, EVM-212 AgentOps reliability design, and
-  EVM-213 scale-serving research remain planned under EVM-EPIC-17.
+- EVM-211 to EVM-213 were subsequently completed with executable contracts and
+  explicit design/runtime boundaries. EVM-215 also added live diagnostics and
+  an audited drift workflow. See
+  `docs/status/2026-07-12-post-w7-governance-diagnostics-closeout.md`.

@@ -66,7 +66,7 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-EPIC-14` | VLM Reliability Evaluation And Portfolio Cut | 2026-07-12 | Done | current-week regression gate, rollback simulation, failure scenarios, benchmark, RCA, final portfolio evidence |
 | `EVM-EPIC-15` | Model Lifecycle And Drift Operations | 2026-07-W5 | Planned | real model lifecycle state machine, candidate promotion, drift/special-case tracking, and alert review |
 | `EVM-EPIC-16` | Large-scale Data Acquisition And Cleaning Research | 2026-07-W6 | Done | source registry, scalable acquisition, dedup/quality benchmark, curation, and lakehouse ingestion research |
-| `EVM-EPIC-17` | Draft Decision And AgentOps Governance | 2026-07-W7 | In Progress | draft/proposal registry, decision trail, AgentOps reliability design, and final portfolio hardening; EVM-214 post-W7 stabilization is complete while EVM-211 to EVM-213 remain planned |
+| `EVM-EPIC-17` | Draft Decision And AgentOps Governance | 2026-07-W7 | Done | draft/decision registry, AgentOps reliability contract, scale-serving decision, portfolio stabilization, live diagnostics, and audited drift workflow are complete |
 | `EVM-EPIC-18` | Kubernetes Runtime And MLOps Control Panel | 2026-07-W7 | Done | Kubernetes runtime, real B7 GPU lifecycle, metadata/control API, Control Panel, resource controls, and 13/13 executable closeout completed |
 
 ## Backlog
@@ -320,10 +320,11 @@ AgentOps reliability, and production-scale serving options.
 
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
-| `EVM-211` | Draft and decision registry | Planned | 2026-07-W7 | experiments, prompt changes, model candidates, and eval policies have draft/review/approved/rejected states |
-| `EVM-212` | AgentOps reliability follow-up design | Planned | 2026-07-W7 | LLM agent, LangGraph, HITL, tool-call audit, and recovery scenarios are scoped for post-MVP work |
-| `EVM-213` | Scale serving research plan | Planned | 2026-07-W7 | vLLM, Triton, KServe, Ray Serve, and Kueue are compared for the next production-serving path |
+| `EVM-211` | Draft and decision registry | Done | 2026-07-W7 | API/F-drive registry and Control Panel support draft/review/approved/rejected states, optimistic versions, evidence URIs, and independent approval; a real staging-retention decision closed as approved v3 |
+| `EVM-212` | AgentOps reliability follow-up design | Done | 2026-07-W7 | executable AgentRun contract, persistent-checkpoint/HITL/tool-audit policy, four recovery scenarios, and validator pass; runtime execution is explicitly not claimed |
+| `EVM-213` | Scale serving research plan | Done | 2026-07-W7 | role-specific vLLM/Triton/KServe/Ray Serve/Kueue decision and six-gate KServe+Triton pilot validator pass; runtime installation is explicitly not claimed |
 | `EVM-214` | July portfolio stabilization review | Done | 2026-07-W7 | post-W7 full VisA host/container replay preserves the selected B7 readiness through immutable snapshots; runtime-path-independent identity, responsive UI evidence, known gaps, and handoff risks are consolidated |
+| `EVM-215` | Control Panel diagnostics and drift review workflow | Done | 2026-07-W7 | five-source 5-second synchronization, structured blocked/warn evidence, change-only audit log, measured drift preview/acknowledgement, independent decision record, and real Kubernetes CUDA B7 inference are verified |
 
 ### Phase 18. Kubernetes Runtime And MLOps Control Panel
 
@@ -472,6 +473,7 @@ Jira live sync 기준 mapping이다.
 | `EVM-212` | `SCRUM-88` | Task | https://opop0236.atlassian.net/browse/SCRUM-88 |
 | `EVM-213` | `SCRUM-89` | Task | https://opop0236.atlassian.net/browse/SCRUM-89 |
 | `EVM-214` | `SCRUM-90` | Task | https://opop0236.atlassian.net/browse/SCRUM-90 |
+| `EVM-215` | `SCRUM-136` | Task | https://opop0236.atlassian.net/browse/SCRUM-136 |
 | `EVM-221` | `SCRUM-99` | Task | https://opop0236.atlassian.net/browse/SCRUM-99 |
 | `EVM-222` | `SCRUM-100` | Task | https://opop0236.atlassian.net/browse/SCRUM-100 |
 | `EVM-223` | `SCRUM-101` | Task | https://opop0236.atlassian.net/browse/SCRUM-101 |

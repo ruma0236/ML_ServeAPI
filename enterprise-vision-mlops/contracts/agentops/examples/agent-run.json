@@ -1,0 +1,81 @@
+{
+  "schema_version": "evm.agentops.run.v1",
+  "run_id": "agent-run-design-example",
+  "thread_id": "thread-design-example",
+  "tenant_id": "mvi-platform",
+  "environment": "staging",
+  "status": "pending_approval",
+  "agent_version": "manufacturing-agent-v0-design",
+  "graph_version": "langgraph-v0-design",
+  "model_ref": "vlm-candidate-not-deployed",
+  "input_digest": "sha256:design-input",
+  "checkpoint_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/agentops/design-example/checkpoint.json",
+  "audit_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/agentops/design-example/audit.jsonl",
+  "redaction_policy": "secrets-and-pii-v1",
+  "started_at": "2026-07-12T00:00:00Z",
+  "updated_at": "2026-07-12T00:00:05Z",
+  "steps": [
+    {
+      "step_id": "inspect-cycle",
+      "node_name": "inspect_cycle_state",
+      "status": "succeeded",
+      "attempt": 1,
+      "started_at": "2026-07-12T00:00:00Z",
+      "finished_at": "2026-07-12T00:00:02Z",
+      "checkpoint_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/agentops/design-example/checkpoints/inspect-cycle.json",
+      "input_digest": "sha256:inspect-input",
+      "output_digest": "sha256:inspect-output"
+    },
+    {
+      "step_id": "request-deployment",
+      "node_name": "request_deployment_intent",
+      "status": "pending_approval",
+      "attempt": 1,
+      "started_at": "2026-07-12T00:00:03Z",
+      "checkpoint_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/agentops/design-example/checkpoints/request-deployment.json",
+      "input_digest": "sha256:deployment-input"
+    }
+  ],
+  "tool_calls": [
+    {
+      "call_id": "tool-read-cycle",
+      "step_id": "inspect-cycle",
+      "tool_name": "read_cycle_run",
+      "operation_category": "read",
+      "side_effect_level": "none",
+      "status": "succeeded",
+      "actor": "manufacturing-agent",
+      "arguments_digest": "sha256:read-args",
+      "result_digest": "sha256:read-result",
+      "approval_required": false,
+      "requested_at": "2026-07-12T00:00:00Z",
+      "completed_at": "2026-07-12T00:00:02Z",
+      "evidence_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/agentops/design-example/tool-read-cycle.json"
+    },
+    {
+      "call_id": "tool-deploy-intent",
+      "step_id": "request-deployment",
+      "tool_name": "create_deployment_intent",
+      "operation_category": "deploy",
+      "side_effect_level": "reversible",
+      "status": "pending_approval",
+      "actor": "manufacturing-agent",
+      "arguments_digest": "sha256:deploy-args",
+      "approval_required": true,
+      "requested_at": "2026-07-12T00:00:03Z"
+    }
+  ],
+  "interrupts": [
+    {
+      "interrupt_id": "interrupt-deploy-intent",
+      "call_id": "tool-deploy-intent",
+      "status": "pending",
+      "allowed_decisions": ["approve", "edit", "reject"],
+      "requested_at": "2026-07-12T00:00:04Z",
+      "reason": "Deployment intent requires an independent human decision."
+    }
+  ],
+  "recovery_attempts": [],
+  "automatic_deployment": false,
+  "automatic_model_promotion": false
+}

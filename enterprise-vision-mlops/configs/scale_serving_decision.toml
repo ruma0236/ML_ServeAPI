@@ -1,0 +1,64 @@
+schema_version = "evm.scale_serving.decision.v1"
+decision_status = "pilot_approved"
+design_only = true
+runtime_execution_claimed = false
+current_serving_runtime = "fastapi-kubernetes"
+current_model = "efficientnet-b7"
+current_proof_must_remain_available = true
+
+[roles]
+online_control_plane = "kserve"
+vision_model_runtime = "triton"
+generative_vlm_runtime = "vllm"
+python_composition_runtime = "ray-serve"
+batch_and_training_admission = "kueue"
+
+[decision]
+selected_pilot = "kserve-triton"
+pilot_scope = "EfficientNet B7 staging canary with immutable artifact identity"
+production_cutover = "blocked_until_benchmark_and_rollback_proof"
+ray_serve_default = false
+vllm_for_efficientnet = false
+kueue_on_online_request_path = false
+
+[acceptance]
+required_phases = ["artifact_export", "protocol_conformance", "load_benchmark", "staging_canary", "failure_recovery", "rollback"]
+minimum_success_rate = 0.999
+p95_latency_regression_max = 0.10
+model_identity_match_rate = 1.0
+rollback_rto_seconds_max = 300
+
+[[candidates]]
+name = "vllm"
+role = "generative_vlm_runtime"
+current_model_fit = "no"
+adoption = "future-vlm-track"
+official_documentation = "https://docs.vllm.ai/en/stable/cli/serve/"
+
+[[candidates]]
+name = "triton"
+role = "vision_model_runtime"
+current_model_fit = "yes-after-onnx-or-tensorrt-export"
+adoption = "selected-pilot-runtime"
+official_documentation = "https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/architecture.html"
+
+[[candidates]]
+name = "kserve"
+role = "online_control_plane"
+current_model_fit = "yes"
+adoption = "selected-pilot-control-plane"
+official_documentation = "https://kserve.github.io/website/docs/concepts/resources/inferencegraph"
+
+[[candidates]]
+name = "ray-serve"
+role = "python_composition_runtime"
+current_model_fit = "conditional"
+adoption = "use-only-for-python-heavy-composition"
+official_documentation = "https://docs.ray.io/en/latest/serve/model_composition.html"
+
+[[candidates]]
+name = "kueue"
+role = "batch_and_training_admission"
+current_model_fit = "not-an-online-runtime"
+adoption = "gpu-job-quota-and-fair-sharing"
+official_documentation = "https://kueue.sigs.k8s.io/docs/concepts/"
