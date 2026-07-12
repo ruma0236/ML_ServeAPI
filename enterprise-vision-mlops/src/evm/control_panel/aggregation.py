@@ -851,6 +851,14 @@ def build_latest_cycle(
     ):
         latest_deployment = None
     if (
+        latest_deployment is not None
+        and latest_deployment.approver
+        and latest_deployment.state in {"queued", "applying", "applied"}
+    ):
+        cdct_gate = cdct_gate.model_copy(
+            update={"approved_by": latest_deployment.approver}
+        )
+    if (
         product_profile_active
         and latest_deployment is not None
         and latest_deployment.state == "applied"

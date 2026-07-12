@@ -6,16 +6,18 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
 
   await expect(page.getByRole("heading", { name: "Promotion Gate" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Drift Review" })).toBeVisible();
-  await expect(page.getByLabel("Drift review workflow")).toContainText("open");
-  await expect(page.getByRole("button", { name: "Preview" })).toBeVisible();
+  await expect(page.locator(".drift-workflow-rail .active")).toHaveText("closed");
+  await expect(page.getByRole("button", { name: "Preview" })).toHaveCount(0);
   await expect(page.getByText("Recommended Action")).toBeVisible();
+  await expect(page.getByText("measured drift remains within policy")).toBeVisible();
   await expect(page.getByLabel("Drift action rail").getByText("Label Review")).toBeVisible();
   await expect(page.getByText("Auto Retraining")).toBeVisible();
   await expect(page.getByText("disabled")).toBeVisible();
   await expect(page.getByText("Input Category JS")).toBeVisible();
   await expect(page.getByLabel("Confidence quantile comparison")).toContainText("Baseline");
-  await expect(page.getByLabel("Triggered drift rules")).toContainText("input_category_js");
+  await expect(page.getByLabel("Triggered drift rules")).toContainText("no policy threshold exceeded");
   await expect(page.getByLabel("Drift action rail")).toContainText("Approval Pending");
+  await expect(page.getByLabel("Drift action rail")).toContainText("No Auto Retrain");
   await expect(page.locator(".drift-detail-list dt").filter({ hasText: "Baseline" })).toBeVisible();
   await expect(page.locator(".drift-detail-list dt").filter({ hasText: "Current" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "CD/CT Gate" })).toBeVisible();
@@ -23,6 +25,7 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("model_evaluation");
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("drift_review");
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("promotion_gate");
+  await expect(page.locator(".cdct-detail-list")).toContainText("release-manager");
   await page.getByRole("button", { name: "Release" }).click();
   await expect(page.getByRole("heading", { name: "Release Control" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Deployment Intent" })).toBeVisible();
@@ -31,7 +34,7 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
 
   await page.getByLabel("Runtime diagnostics").locator("summary").first().click();
   await expect(page.getByLabel("Control Panel synchronization sources")).toContainText("Cycle Catalog");
-  await expect(page.getByLabel("Blocked and warning reasons")).toContainText("accuracy");
+  await expect(page.getByLabel("Blocked and warning reasons")).toContainText("No blocked or warning diagnostics");
 
   const screenshotPath =
     process.env.EVM_DRIFT_CDCT_SCREENSHOT ||

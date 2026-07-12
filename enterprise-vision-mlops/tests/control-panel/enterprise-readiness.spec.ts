@@ -14,7 +14,8 @@ test("@w7-enterprise-readiness renders service scope, readiness gates, and theme
   await expect(page.getByLabel("Artifact evidence evaluation").getByText("quality gate")).toBeVisible();
   await expect(page.getByLabel("Artifact evidence evaluation").getByText("kubernetes runtime")).toBeVisible();
   await expect(page.getByText("Owner approval")).toHaveCount(2);
-  await expect(page.getByText("owner-gated")).toBeVisible();
+  await expect(page.getByText("two-person-production-approval")).toBeVisible();
+  await expect(page.getByLabel("Approver")).toHaveValue("release-manager");
   await expect(page.getByLabel("Owner coverage").getByText("data-platform")).toBeVisible();
   await expect(page.getByLabel("Owner coverage").getByText("ml-platform")).toBeVisible();
   await expect(page.getByLabel("Enterprise readiness checklist").getByText("data-platform")).toBeVisible();
