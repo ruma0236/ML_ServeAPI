@@ -45,8 +45,12 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
   });
   const [environment, setEnvironment] = useState<EnvironmentTier>(initialEnvironment);
   const [requester, setRequester] = useState(cycle.tenant?.model_owner || "ml-platform");
-  const [approver, setApprover] = useState(cycle.tenant?.ops_owner || "ai-infra-sre");
-  const [reason, setReason] = useState("Promote verified EfficientNet B7 candidate");
+  const [approver, setApprover] = useState(
+    cycle.latest_deployment_intent?.approver || cycle.tenant?.ops_owner || "ai-infra-sre"
+  );
+  const [reason, setReason] = useState(
+    `Promote verified ${cycle.model.model_name} candidate`
+  );
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionBlockers, setActionBlockers] = useState<string[]>([]);

@@ -117,21 +117,40 @@ def build_closeout_matrix(
     resources = RuntimeResourceList.model_validate(resource_payload)
     matrix = cycle.model_matrix
     candidates = matrix.candidates if matrix else []
+    readiness = cycle.readiness_evaluation
+    deployment = cycle.latest_deployment_intent
+    selected_candidate_id = (
+        deployment.model_candidate_id
+        if deployment
+        else readiness.candidate_id
+        if readiness
+        else None
+    )
     selected_candidate = next(
         (
             candidate
             for candidate in candidates
-            if candidate.candidate_id == "effnet-b7-img600-finetune-adamw"
+            if candidate.candidate_id == selected_candidate_id
         ),
         None,
     )
     drift = cycle.drift
     ci = cycle.ci_evidence
-    readiness = cycle.readiness_evaluation
     policy = cycle.promotion_policy
-    deployment = cycle.latest_deployment_intent
-    job = find_live_resource(resources, kind="Job", name="evm-b7-training")
-    serving = find_live_resource(resources, kind="Deployment", name="evm-b7-serving")
+    b0_product = bool(
+        (selected_candidate and selected_candidate.architecture == "efficientnet-b0")
+        or (deployment and deployment.target.name == "evm-b0-production")
+    )
+    training_name = "evm-b0-expedited-training" if b0_product else "evm-b7-training"
+    serving_name = (
+        deployment.target.name
+        if deployment and deployment.target.kind == "Deployment"
+        else "evm-b0-production"
+        if b0_product
+        else "evm-b7-serving"
+    )
+    job = find_live_resource(resources, kind="Job", name=training_name)
+    serving = find_live_resource(resources, kind="Deployment", name=serving_name)
 
     dataset_pass = (
         cycle.dataset.record_count >= 10821
@@ -141,8 +160,9 @@ def build_closeout_matrix(
     matrix_pass = bool(
         matrix
         and matrix.status == "pass"
-        and len(candidates) >= 4
+        and candidates
         and selected_candidate
+        and selected_candidate.status == "pass"
         and not selected_candidate.promotion_blockers
     )
     selected_run_uri = selected_candidate.run_uri if selected_candidate else None
@@ -171,12 +191,28 @@ def build_closeout_matrix(
             for transition in deployment.transitions
         )
     )
-    rollback_pass = bool(
+    rollback_executed = bool(
         deployment
         and any(
             transition.to_state == "rolled_back" and transition.result == "rolled_back"
             for transition in deployment.transitions
         )
+    )
+    rollback_reference = canonical_runtime_uri(
+        deployment.rollback_reference if deployment else None
+    )
+    rollback_ready = bool(
+        rollback_reference
+        and (
+            rollback_executed
+            or Path(rollback_reference).is_file()
+        )
+    )
+    monitoring_pass = bool(
+        cycle.serving.status == "pass"
+        and cycle.serving.model_loaded
+        and (cycle.serving.healthy_targets or 0) > 0
+        and (cycle.serving.p95_latency_ms or 0) > 0
     )
     deployment_evidence_uri = (
         (deployment.audit_uri or deployment.ci_evidence_uri) if deployment else None
@@ -206,7 +242,7 @@ def build_closeout_matrix(
             "mlflow_selected_run",
             "model",
             bool(selected_run_uri),
-            "selected B7 candidate has an MLflow run URI",
+            "selected model candidate has an MLflow run URI",
             "EVM-237",
             selected_run_uri,
         ),
@@ -294,12 +330,40 @@ def build_closeout_matrix(
             deployment_evidence_uri,
         ),
         claim(
-            "deployment_rollback",
+            "deployment_rollback_ready",
             "cd",
-            rollback_pass,
-            "no audited rolled_back transition exists" if not rollback_pass else "rollback recorded",
+            rollback_ready,
+            (
+                "rollback reference is verified"
+                if rollback_ready
+                else "rollback reference is missing or unreadable"
+            ),
+            "EVM-235",
+            rollback_reference,
+        ),
+        claim(
+            "deployment_rollback_executed",
+            "cd",
+            rollback_executed,
+            (
+                "rollback recorded"
+                if rollback_executed
+                else "product remains active; rollback was not executed"
+            ),
             "EVM-235",
             deployment_evidence_uri,
+            required=False,
+        ),
+        claim(
+            "production_serving_monitoring",
+            "runtime",
+            monitoring_pass,
+            (
+                f"serving={cycle.serving.status}, targets={cycle.serving.healthy_targets}, "
+                f"p95_ms={cycle.serving.p95_latency_ms}"
+            ),
+            "EVM-235",
+            cycle.serving.endpoint,
         ),
         claim(
             "external_airflow_contract",

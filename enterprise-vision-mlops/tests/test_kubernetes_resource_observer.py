@@ -7,12 +7,17 @@ from pathlib import Path
 
 from apps.api.control_panel import list_resources
 from evm.control_panel.kubernetes_observer import (
+    DEFAULT_NAMESPACES,
     collect_kubernetes_snapshot,
     load_kubernetes_resource_snapshot,
     replace_with_retry,
     write_snapshot,
 )
 from evm.control_panel.schemas import CycleRun
+
+
+def test_default_observer_scope_includes_production_namespace() -> None:
+    assert "evm-production" in DEFAULT_NAMESPACES
 
 
 def fixture_runner(arguments: list[str]) -> dict:

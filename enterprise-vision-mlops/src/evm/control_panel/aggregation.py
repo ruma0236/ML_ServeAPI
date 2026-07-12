@@ -34,6 +34,7 @@ from evm.control_panel.schemas import (
 from evm.control_panel.environment import build_environment_ref
 from evm.control_panel.org_context import build_default_org_context
 from evm.control_panel.promotion_policy import evaluate_cycle_promotion
+from evm.control_panel.product_validation import product_evidence_state
 from evm.control_panel.readiness_evaluator import (
     ReadinessInputs,
     evaluate_artifact_readiness,
@@ -736,6 +737,10 @@ def build_latest_cycle(
         )
         readiness_expected_digests = readiness_snapshot.expected_digests
         readiness_snapshot_blockers = readiness_snapshot.blockers
+    kubernetes_evidence_path = latest_kubernetes_evidence(
+        artifacts_root / "w7" / "kubernetes_execution",
+        artifacts_root / "w7" / "kubernetes_b7",
+    )
     readiness_report_path = artifacts_root / "w7" / "readiness" / "latest_readiness_evaluation.json"
     readiness_result = evaluate_artifact_readiness(
         ReadinessInputs(
@@ -754,10 +759,7 @@ def build_latest_cycle(
                 / "real_test_evidence"
                 / "evm-238-b-real-test-evidence-report.json"
             ),
-            kubernetes_evidence_path=latest_kubernetes_evidence(
-                artifacts_root / "w7" / "kubernetes_execution",
-                artifacts_root / "w7" / "kubernetes_b7"
-            ),
+            kubernetes_evidence_path=kubernetes_evidence_path,
             mlflow_tracking_uri=os.getenv(
                 "MLFLOW_TRACKING_URI",
                 str(matrix_inputs.get("mlflow_tracking_uri", "http://localhost:5000")),
@@ -865,12 +867,41 @@ def build_latest_cycle(
         and latest_deployment.target_environment == "production"
     ):
         model_stage = "Production"
-    product_serving_ready = bool(
+    product_deployment_applied = bool(
         product_profile_active
         and latest_deployment is not None
         and latest_deployment.state == "applied"
         and latest_deployment.target_environment == "production"
     )
+    product_validation_path = (
+        kubernetes_evidence_path.parent / "production" / "final-product-validation.json"
+        if kubernetes_evidence_path is not None
+        else None
+    )
+    product_validation = (
+        read_json(product_validation_path)
+        if product_validation_path is not None
+        else {}
+    )
+    if product_deployment_applied and latest_deployment is not None:
+        product_serving_ready, serving_p95_latency_ms, serving_healthy_targets = (
+            product_evidence_state(
+                product_validation,
+                deployment_intent_id=latest_deployment.intent_id,
+                model_digest=latest_deployment.model_digest,
+            )
+        )
+    else:
+        product_serving_ready = False
+        serving_p95_latency_ms = None
+        serving_healthy_targets = 0
+    product_validation_artifact = (
+        existing_artifact("final_product_validation", product_validation_path)
+        if product_validation_path is not None
+        else None
+    )
+    if product_validation_artifact is not None:
+        stage_artifacts.append(product_validation_artifact)
     cycle = CycleRun(
         cycle_id=(
             f"cycle-w7-{sanitize_cycle_part(dataset_version)}-"
@@ -964,8 +995,12 @@ def build_latest_cycle(
             model_loaded=product_serving_ready if product_profile_active else bool(registry),
             model_version=model_version,
             placeholder=False if registry else None,
-            p95_latency_ms=None,
-            healthy_targets=(1 if product_serving_ready else 0) if product_profile_active else 2,
+            p95_latency_ms=(
+                serving_p95_latency_ms if product_profile_active else None
+            ),
+            healthy_targets=(
+                serving_healthy_targets if product_profile_active else 2
+            ),
         ),
         stages=stages,
         resources=[

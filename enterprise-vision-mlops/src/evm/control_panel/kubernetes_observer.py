@@ -21,7 +21,7 @@ from evm.control_panel.schemas import (
 
 
 KubectlRunner = Callable[[list[str]], dict[str, Any]]
-DEFAULT_NAMESPACES = ("evm-training", "evm-staging")
+DEFAULT_NAMESPACES = ("evm-training", "evm-staging", "evm-production")
 
 
 def utc_now() -> datetime:
@@ -120,7 +120,7 @@ def resource_from_kubernetes(
     if kind.lower() == "node":
         gpu_capacity = string_or_none(status_payload.get("capacity", {}).get("nvidia.com/gpu"))
     owner_issue = string_or_none(labels.get("evm.openai.local/owner-issue"))
-    if owner_issue is None and name.startswith("evm-b7-"):
+    if owner_issue is None and name.startswith(("evm-b0-", "evm-b7-")):
         owner_issue = "EVM-226"
     if owner_issue is None and kind.lower() == "node":
         owner_issue = "EVM-226"
@@ -311,6 +311,10 @@ def pressure_for(status: State) -> State:
 
 
 def related_stages(name: str, kind: str) -> list[str]:
+    if name == "evm-b0-expedited-training":
+        return ["EfficientNet B0 Kubernetes Training"]
+    if name == "evm-b0-production":
+        return ["EfficientNet B0 Kubernetes Serving"]
     if name == "evm-b7-training":
         return ["EfficientNet B7 Kubernetes Training"]
     if name == "evm-b7-serving":

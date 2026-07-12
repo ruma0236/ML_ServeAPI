@@ -14,6 +14,10 @@ def cycle_payload() -> dict:
     payload["dataset"]["quality_status"] = "pass"
     payload["dataset"]["storage_uri"] = "s3://validated/visa"
     payload["model_matrix"]["status"] = "pass"
+    selected_id = payload["readiness_evaluation"]["candidate_id"]
+    for candidate in payload["model_matrix"]["candidates"]:
+        if candidate["candidate_id"] == selected_id:
+            candidate["status"] = "pass"
     payload["ci_evidence"] = {
         "validation_id": "ci-test",
         "valid": True,
@@ -83,7 +87,8 @@ def test_closeout_matrix_keeps_runtime_and_deployment_gaps_blocked():
     assert "kubernetes_gpu_training" in matrix.blocker_claim_ids
     assert "kubernetes_serving_rollout" in matrix.blocker_claim_ids
     assert "deployment_apply" in matrix.blocker_claim_ids
-    assert "deployment_rollback" in matrix.blocker_claim_ids
+    assert "deployment_rollback_ready" in matrix.blocker_claim_ids
+    assert "production_serving_monitoring" in matrix.blocker_claim_ids
     assert next(item for item in matrix.claims if item.claim_id == "measured_drift_review").status == "pass"
 
 
@@ -174,9 +179,15 @@ def test_closeout_accepts_audited_apply_followed_by_exact_rollback():
     )
 
     applied = next(item for item in matrix.claims if item.claim_id == "deployment_apply")
-    rolled_back = next(item for item in matrix.claims if item.claim_id == "deployment_rollback")
+    rolled_back = next(
+        item for item in matrix.claims if item.claim_id == "deployment_rollback_executed"
+    )
+    rollback_ready = next(
+        item for item in matrix.claims if item.claim_id == "deployment_rollback_ready"
+    )
     assert applied.status == "pass"
     assert rolled_back.status == "pass"
+    assert rollback_ready.status == "pass"
     assert applied.evidence_uri == payload["latest_deployment_intent"]["audit_uri"]
 
 
