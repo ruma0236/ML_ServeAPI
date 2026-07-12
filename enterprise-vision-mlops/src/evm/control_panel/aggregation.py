@@ -24,6 +24,7 @@ from evm.control_panel.schemas import (
     ModelExperimentMatrix,
     ModelVersion,
     PipelineStage,
+    PromotionPolicyDecision,
     PromotionGate,
     RealTestPolicy,
     ResourceRef,
@@ -267,6 +268,21 @@ def latest_kubernetes_evidence(*roots: Path) -> Path | None:
     return max(candidates, key=lambda path: (path.stat().st_mtime, path.parent.name)) if candidates else None
 
 
+def applied_product_policy(
+    product_profile_active: bool,
+    deployment: DeploymentIntent | None,
+) -> PromotionPolicyDecision | None:
+    if (
+        product_profile_active
+        and deployment is not None
+        and deployment.state == "applied"
+        and deployment.target_environment == "production"
+        and deployment.promotion_policy.decision == "allow"
+    ):
+        return deployment.promotion_policy
+    return None
+
+
 def split_counts(source_model: dict[str, Any]) -> dict[str, int]:
     mapping = {
         "train": source_model.get("training_records"),
@@ -346,7 +362,7 @@ def build_model_matrix(config_path: Path, dataset_version: str) -> ModelExperime
 
     matrix_status: State = str(evidence.get("status") or ("queued" if candidates else "blocked"))  # type: ignore[assignment]
     execution_mode = str(matrix_cfg.get("execution_mode", "parallel"))
-    if execution_mode not in {"parallel", "sequential", "blocked"}:
+    if execution_mode not in {"parallel", "sequential", "single-gpu", "blocked"}:
         execution_mode = "parallel"
     return ModelExperimentMatrix(
         matrix_id=str(matrix_cfg.get("matrix_id", "w7-efficientnet-real-test-matrix")),
@@ -794,7 +810,7 @@ def build_latest_cycle(
     stages.append(
         stage(
             "drift-review",
-            "Measured B7 Drift Review",
+            "Measured Model Drift Review",
             drift_state.status,
             existing_artifact("measured_drift_report", measured_drift_report_path),
             Metric(
@@ -969,7 +985,9 @@ def build_latest_cycle(
         "true",
         "yes",
     }
-    policy_decision = evaluate_cycle_promotion(cycle, persist=persist_policy)
+    policy_decision = applied_product_policy(product_profile_active, latest_deployment)
+    if policy_decision is None:
+        policy_decision = evaluate_cycle_promotion(cycle, persist=persist_policy)
     policy_environment = build_environment_ref(
         release_ref=os.getenv("GIT_COMMIT", ""),
         policy_decision=policy_decision,

@@ -990,7 +990,7 @@
         "properties": {
           "matrix_id": {"type": "string"},
           "status": {"$ref": "#/components/schemas/State"},
-          "execution_mode": {"type": "string", "enum": ["parallel", "sequential", "blocked"]},
+          "execution_mode": {"type": "string", "enum": ["parallel", "sequential", "single-gpu", "blocked"]},
           "framework": {"type": "string", "enum": ["torch"]},
           "real_test_policy": {"$ref": "#/components/schemas/RealTestPolicy"},
           "candidates": {

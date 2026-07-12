@@ -418,7 +418,7 @@ class ModelCandidate(ContractModel):
 class ModelExperimentMatrix(ContractModel):
     matrix_id: str
     status: State
-    execution_mode: Literal["parallel", "sequential", "blocked"]
+    execution_mode: Literal["parallel", "sequential", "single-gpu", "blocked"]
     real_test_policy: RealTestPolicy
     candidates: list[ModelCandidate]
     framework: Literal["torch"] | None = "torch"

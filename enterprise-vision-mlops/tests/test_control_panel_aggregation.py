@@ -3,8 +3,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
-from evm.control_panel.aggregation import build_latest_cycle, latest_kubernetes_evidence
+from evm.control_panel.aggregation import (
+    applied_product_policy,
+    build_latest_cycle,
+    latest_kubernetes_evidence,
+)
 
 
 def _write_json(path: Path, payload: dict | list) -> None:
@@ -21,6 +26,18 @@ def test_latest_kubernetes_evidence_scans_generic_and_legacy_roots(tmp_path: Pat
     os.utime(generic, (2, 2))
 
     assert latest_kubernetes_evidence(tmp_path / "generic", tmp_path / "legacy") == generic
+
+
+def test_applied_production_intent_becomes_cycle_environment_policy() -> None:
+    policy = SimpleNamespace(decision="allow")
+    deployment = SimpleNamespace(
+        state="applied",
+        target_environment="production",
+        promotion_policy=policy,
+    )
+
+    assert applied_product_policy(True, deployment) is policy
+    assert applied_product_policy(False, deployment) is None
 
 
 def _write_project_files(root: Path) -> None:
