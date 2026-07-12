@@ -1,4 +1,4 @@
-import { ClipboardList, Gauge, GitBranch, Play, ShieldCheck } from "lucide-react";
+import { ClipboardList, Gauge, GitBranch, Play, Radio, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -47,6 +47,7 @@ export function TaskAuthoring({ cycle, resources, orchestrators }: TaskAuthoring
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [taskScope, setTaskScope] = useState<"selected" | "all">("selected");
+  const [syncedAt, setSyncedAt] = useState("");
 
   useEffect(() => {
     async function load(initial = false) {
@@ -57,6 +58,7 @@ export function TaskAuthoring({ cycle, resources, orchestrators }: TaskAuthoring
       ]);
       setTasks(taskLedger);
       setCommands(commandLedger);
+      setSyncedAt(new Date().toLocaleTimeString());
       if (initial) {
         setDefaultTask(taskTemplate);
         setTaskType(taskTemplate.task_type);
@@ -124,7 +126,7 @@ export function TaskAuthoring({ cycle, resources, orchestrators }: TaskAuthoring
       if (!dryRun && task.status === "queued" && task.task_type === "airflow_dag_run") {
         task = await dispatchTaskAssignment(task.task_id);
       }
-      setTasks([task, ...tasks.filter((item) => item.task_id !== task.task_id)]);
+      setTasks((current) => [task, ...current.filter((item) => item.task_id !== task.task_id)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "task assignment failed");
     } finally {
@@ -156,6 +158,11 @@ export function TaskAuthoring({ cycle, resources, orchestrators }: TaskAuthoring
         <div className="ops-title">
           <span className="eyebrow">W7 Operations</span>
           <h2>Task Assignment And Command Control</h2>
+          <div className="ops-live" aria-live="polite">
+            <Radio />
+            <span>Ledger Live</span>
+            <time>{syncedAt || "connecting"}</time>
+          </div>
         </div>
         <div className="ops-summary">
           {opsSummary.map((item) => (
@@ -168,7 +175,7 @@ export function TaskAuthoring({ cycle, resources, orchestrators }: TaskAuthoring
         </div>
       </div>
 
-      {error ? <section className="error-state">{error}</section> : null}
+      {error ? <section className="error-state" role="alert">{error}</section> : null}
 
       <div className="panel ops-author">
         <div className="panel-heading">
@@ -229,9 +236,9 @@ export function TaskAuthoring({ cycle, resources, orchestrators }: TaskAuthoring
           <textarea value={configText} onChange={(event) => setConfigText(event.target.value)} spellCheck={false} />
         </label>
         <div className="ops-button-row">
-          <button type="button" className="primary-action" disabled={submitting} onClick={() => void submitTask(true)} title="Record and inspect the assignment without dispatching it.">
+          <button type="button" className="primary-action" disabled={submitting} onClick={() => void submitTask(true)} title="Validate and record a dry-run assignment without dispatching it.">
             <ShieldCheck size={16} />
-            Preview Task
+            Validate Task
           </button>
           <button type="button" className="secondary-action" disabled={submitting} onClick={() => void submitTask(false)}>
             <Play size={16} />

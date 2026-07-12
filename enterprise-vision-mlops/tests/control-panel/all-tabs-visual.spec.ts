@@ -8,7 +8,7 @@ const headingsByTab: Record<string, string> = {
   Readiness: "Data Readiness",
   Timeline: "Pipeline Timeline",
   Operate: "Task Authoring",
-  Gates: "Promotion Gate",
+  Gates: "Model Metric Gate",
   Release: "Release Control",
   Governance: "Decision Draft"
 };

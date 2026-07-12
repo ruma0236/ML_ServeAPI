@@ -1,4 +1,4 @@
-import { CheckSquare, Copy, DatabaseZap, Fingerprint, GitPullRequestArrow, ShieldCheck } from "lucide-react";
+import { CheckSquare, ChevronDown, Copy, DatabaseZap, Fingerprint, GitPullRequestArrow, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ArtifactReadinessEvaluation, CycleRun, ReadinessEvidenceCheck, State } from "../api/types";
@@ -69,6 +69,7 @@ function EvidenceEvaluationPanel({ evaluation }: { evaluation: ArtifactReadiness
     );
   }
 
+  const passedChecks = evaluation.checks.filter((check) => check.status === "pass").length;
   return (
     <div className="panel readiness-panel evidence-readiness-panel" aria-label="Artifact evidence evaluation">
       <div className="panel-heading">
@@ -84,11 +85,18 @@ function EvidenceEvaluationPanel({ evaluation }: { evaluation: ArtifactReadiness
         <DecisionState label="Model" status={evaluation.model_status} value={evaluation.candidate_id} />
         <DecisionState label="Runtime" status={evaluation.runtime_status} value={`${evaluation.checks.length} checks`} />
       </div>
-      <div className="evidence-check-rows">
-        {evaluation.checks.map((check) => (
-          <EvidenceCheckRow key={check.check_id} check={check} />
-        ))}
-      </div>
+      <details className="evidence-check-disclosure">
+        <summary>
+          <span>Evidence Checks</span>
+          <strong>{passedChecks} / {evaluation.checks.length} passed</strong>
+          <ChevronDown />
+        </summary>
+        <div className="evidence-check-rows">
+          {evaluation.checks.map((check) => (
+            <EvidenceCheckRow key={check.check_id} check={check} />
+          ))}
+        </div>
+      </details>
       <div className="blocker-pills evidence-blockers">
         {(evaluation.blockers.length ? evaluation.blockers : ["no evidence blockers"]).map((blocker) => (
           <span key={blocker}>{blocker}</span>

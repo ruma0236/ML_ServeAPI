@@ -1,12 +1,13 @@
 import { Activity, CheckCircle2, ExternalLink, GitPullRequestArrow, RadioTower, ShieldAlert } from "lucide-react";
 
-import type { CycleRun, State } from "../api/types";
+import type { CycleRun, LifecycleRun, LifecycleStage, State } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { DeploymentIntentPanel } from "./DeploymentIntentPanel";
 
 
 interface ReleaseControlProps {
   cycle: CycleRun;
+  lifecycleRun?: LifecycleRun | null;
 }
 
 
@@ -19,9 +20,9 @@ interface ReleaseStage {
 }
 
 
-export function ReleaseControl({ cycle }: ReleaseControlProps) {
+export function ReleaseControl({ cycle, lifecycleRun }: ReleaseControlProps) {
   const intent = cycle.latest_deployment_intent;
-  const stages: ReleaseStage[] = [
+  const stages: ReleaseStage[] = lifecycleRun ? lifecycleReleaseStages(lifecycleRun) : [
     {
       id: "ci",
       label: "Continuous Integration",
@@ -74,10 +75,17 @@ export function ReleaseControl({ cycle }: ReleaseControlProps) {
       evidence: cycle.cdct_gate?.pipeline_run_uri
     }
   ];
-  const blockers = releaseBlockers(cycle, stages);
+  const blockers = releaseBlockers(cycle, stages, lifecycleRun);
   const productionReady = intent?.target_environment === "production"
     && stages.every((stage) => stage.status === "pass" || stage.status === "done")
     && intent?.state === "applied";
+  const targetEnvironment = intent?.target_environment || cycle.environment?.tier || "unknown";
+  const targetVerified = lifecycleRun
+    ? lifecycleRun.state === "completed"
+    : stages.every((stage) => stage.status === "pass" || stage.status === "done");
+  const outcomeStatus: State = lifecycleRun
+    ? lifecycleRunState(lifecycleRun.state)
+    : productionReady ? "pass" : "blocked";
   const releaseProgress = Math.round(
     stages.filter((stage) => stage.status === "pass" || stage.status === "done").length
       / stages.length
@@ -90,15 +98,15 @@ export function ReleaseControl({ cycle }: ReleaseControlProps) {
         <div>
           <span className="eyebrow">CI / CT / CD</span>
           <h2>Release Control</h2>
-          <p>{cycle.cycle_id}</p>
+          <p>{lifecycleRun?.run_id || cycle.cycle_id}</p>
         </div>
         <div className="release-outcome">
-          {productionReady ? <CheckCircle2 /> : <ShieldAlert />}
+          {targetVerified ? <CheckCircle2 /> : <ShieldAlert />}
           <div>
-            <span>Production</span>
-            <strong>{productionReady ? "eligible" : "blocked"}</strong>
+            <span>{targetEnvironment} target</span>
+            <strong>{targetVerified ? "verified" : lifecycleRun ? lifecycleRun.state.replaceAll("_", " ") : "blocked"}</strong>
           </div>
-          <StatusBadge status={productionReady ? "pass" : "blocked"} />
+          <StatusBadge status={outcomeStatus} />
         </div>
       </div>
 
@@ -177,12 +185,18 @@ function monitoringStatus(cycle: CycleRun): State {
 }
 
 
-function releaseBlockers(cycle: CycleRun, stages: ReleaseStage[]): string[] {
+function releaseBlockers(
+  cycle: CycleRun,
+  stages: ReleaseStage[],
+  lifecycleRun?: LifecycleRun | null
+): string[] {
   const blockers = new Set<string>([
     ...(cycle.promotion_gate?.blockers || []),
     ...(cycle.cdct_gate?.promotion_blockers || []),
-    ...(cycle.readiness_evaluation?.blockers || [])
+    ...(cycle.readiness_evaluation?.blockers || []),
+    ...(lifecycleRun?.blockers || [])
   ]);
+  if (lifecycleRun?.failure_reason) blockers.add(lifecycleRun.failure_reason);
   for (const stage of stages) {
     if (["blocked", "fail", "unknown"].includes(stage.status)) blockers.add(`${stage.id}:${stage.detail}`);
   }
@@ -191,6 +205,56 @@ function releaseBlockers(cycle: CycleRun, stages: ReleaseStage[]): string[] {
   }
   if (cycle.latest_deployment_intent?.state === "queued") blockers.add("deployment_executor_pending");
   return [...blockers];
+}
+
+
+function lifecycleReleaseStages(run: LifecycleRun): ReleaseStage[] {
+  const stage = (stageId: string) => run.stages.find((item) => item.stage_id === stageId);
+  return [
+    lifecycleReleaseStage("ci", "Continuous Integration", stage("ci_ct_gate")),
+    lifecycleReleaseStage("ct", "Continuous Test", stage("ci_ct_gate")),
+    lifecycleReleaseStage("readiness", "Artifact Readiness", stage("artifact_readiness")),
+    lifecycleReleaseStage("approval", "Promotion Approval", stage("approval")),
+    lifecycleReleaseStage("deployment", "Continuous Deployment", stage("deployment")),
+    lifecycleReleaseStage("serving", "Model Serving", stage("serving_validation")),
+    lifecycleReleaseStage("monitoring", "Production Monitoring", stage("monitoring"))
+  ];
+}
+
+
+function lifecycleReleaseStage(id: string, label: string, stage?: LifecycleStage): ReleaseStage {
+  return {
+    id,
+    label,
+    status: stage ? lifecycleStageState(stage.state) : "unknown",
+    detail: stage?.runtime_state || stage?.detail || (stage ? stage.state.replaceAll("_", " ") : "Not scheduled"),
+    evidence: stage?.evidence_uri
+  };
+}
+
+
+function lifecycleStageState(state: LifecycleStage["state"]): State {
+  if (state === "completed") return "pass";
+  if (state === "running") return "running";
+  if (state === "queued") return "queued";
+  if (state === "waiting_approval") return "warn";
+  if (state === "failed") return "fail";
+  if (state === "blocked") return "blocked";
+  if (state === "cancelled") return "cancelled";
+  if (state === "skipped") return "warn";
+  return "unknown";
+}
+
+
+function lifecycleRunState(state: LifecycleRun["state"]): State {
+  if (state === "completed") return "pass";
+  if (state === "running" || state === "rolling_back") return "running";
+  if (state === "queued" || state === "dry_run") return "queued";
+  if (state === "waiting_approval") return "warn";
+  if (state === "failed") return "fail";
+  if (state === "blocked") return "blocked";
+  if (state === "cancelled") return "cancelled";
+  return "warn";
 }
 
 

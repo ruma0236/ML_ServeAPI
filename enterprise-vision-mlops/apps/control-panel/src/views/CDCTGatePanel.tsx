@@ -14,7 +14,7 @@ export function CDCTGatePanel({ cycle }: CDCTGatePanelProps) {
     <div className="panel wide cdct-gate-panel">
       <div className="panel-heading">
         <div>
-          <h2>CD/CT Gate</h2>
+          <h2>Release Admission</h2>
           <p>{gate?.promotion_decision || "manual_review"}</p>
         </div>
         <CheckCircle2 />

@@ -1,4 +1,4 @@
-import { Workflow } from "lucide-react";
+import { ChevronDown, Workflow } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { summarizeStages } from "../api/controlPanelClient";
@@ -68,15 +68,22 @@ export function PipelineTimeline({ cycle, resourceSnapshot }: PipelineTimelinePr
             <aside className="stage-detail empty">No pipeline stages returned by CycleRun.</aside>
           )}
         </div>
-        <div className="stage-summary-strip">
-          {summaries.map((summary) => (
-            <button key={summary.stageId} type="button" onClick={() => setSelectedStageId(summary.stageId)}>
-              <strong>{summary.name}</strong>
-              <span>{summary.artifactCount} artifacts / {summary.metricCount} metrics / {summary.resourceCount} resources</span>
-              <em>{summary.blocker}</em>
-            </button>
-          ))}
-        </div>
+        <details className="stage-summary-disclosure">
+          <summary>
+            <span>Artifact And Resource Index</span>
+            <strong>{summaries.length} stages</strong>
+            <ChevronDown />
+          </summary>
+          <div className="stage-summary-strip">
+            {summaries.map((summary) => (
+              <button key={summary.stageId} type="button" onClick={() => setSelectedStageId(summary.stageId)}>
+                <strong>{summary.name}</strong>
+                <span>{summary.artifactCount} artifacts / {summary.metricCount} metrics / {summary.resourceCount} resources</span>
+                <em>{summary.blocker}</em>
+              </button>
+            ))}
+          </div>
+        </details>
       </div>
 
       <KubernetesTopology

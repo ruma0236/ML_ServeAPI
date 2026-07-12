@@ -88,7 +88,10 @@ describe("Lifecycle Runs view", () => {
     await act(async () => root.render(<LifecycleRuns onCycleContext={onCycleContext} />));
     await flushUpdates();
 
-    expect(onCycleContext).toHaveBeenCalledWith("cycle-contract-1");
+    expect(onCycleContext).toHaveBeenCalledWith(expect.objectContaining({
+      run_id: run.run_id,
+      cycle_id: "cycle-contract-1"
+    }));
     expect(container.textContent).toContain("cycle-contract-1");
   });
 

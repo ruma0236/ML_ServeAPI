@@ -29,7 +29,7 @@ import type {
 
 
 interface LifecycleRunsProps {
-  onCycleContext?: (cycleId: string) => void;
+  onCycleContext?: (run: LifecycleRun) => void;
 }
 
 
@@ -58,7 +58,7 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
         const next = nextRun?.run_id || "";
         selectedRef.current = next;
         setSelectedId(next);
-        if (nextRun?.cycle_id) onCycleContext?.(nextRun.cycle_id);
+        if (nextRun?.cycle_id) onCycleContext?.(nextRun);
       }
       setError("");
     } else {
@@ -96,7 +96,7 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
     selectedRef.current = runId;
     setSelectedId(runId);
     const run = runs.find((item) => item.run_id === runId);
-    if (run?.cycle_id) onCycleContext?.(run.cycle_id);
+    if (run?.cycle_id) onCycleContext?.(run);
   }
 
   async function runAction(action: "queue" | "cancel" | "retry") {

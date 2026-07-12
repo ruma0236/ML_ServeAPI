@@ -17,6 +17,7 @@ import type {
   CycleRunList,
   DecisionRecordList,
   DriftReviewWorkflow,
+  LifecycleRun,
   OrchestratorConnectionList,
   RuntimeResourceList,
   State
@@ -79,6 +80,7 @@ export function App() {
     sourceDefinitions.map((source) => ({ ...source, status: "stale" }))
   );
   const [tab, setTab] = useState<TabKey>("overview");
+  const [lifecycleContext, setLifecycleContext] = useState<LifecycleRun | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -156,7 +158,8 @@ export function App() {
     return () => window.clearInterval(interval);
   }, []);
 
-  async function selectCycle(cycleId: string) {
+  async function selectCycle(cycleId: string, preserveLifecycleContext = false) {
+    if (!preserveLifecycleContext) setLifecycleContext(null);
     selectedCycleRef.current = cycleId;
     setSelectedCycleId(cycleId);
     setLoading(true);
@@ -171,8 +174,13 @@ export function App() {
     }
   }
 
+  async function selectLifecycleContext(run: LifecycleRun) {
+    setLifecycleContext(run);
+    if (run.cycle_id) await selectCycle(run.cycle_id, true);
+  }
+
   const activeView = useMemo(() => {
-    if (tab === "runs") return <LifecycleRuns onCycleContext={(cycleId) => void selectCycle(cycleId)} />;
+    if (tab === "runs") return <LifecycleRuns onCycleContext={(run) => void selectLifecycleContext(run)} />;
     if (!cycle) return null;
     if (tab === "configure") return <PipelineProfileStudio cycle={cycle} />;
     if (tab === "readiness") return <DataModelReadiness cycle={cycle} />;
@@ -185,10 +193,10 @@ export function App() {
       />
     );
     if (tab === "gates") return <GateAndRiskPanel cycle={cycle} workflow={driftWorkflow} onRefresh={() => loadCycle(true)} />;
-    if (tab === "release") return <ReleaseControl cycle={cycle} />;
+    if (tab === "release") return <ReleaseControl cycle={cycle} lifecycleRun={lifecycleContext} />;
     if (tab === "governance") return <GovernancePanel registry={decisionRegistry} onRefresh={() => loadCycle(true)} />;
     return <CycleOverview cycle={cycle} />;
-  }, [cycle, decisionRegistry, driftWorkflow, orchestratorConnections, resourceSnapshot, tab]);
+  }, [cycle, decisionRegistry, driftWorkflow, lifecycleContext, orchestratorConnections, resourceSnapshot, tab]);
 
   const syncStatus: State = syncSources.some((source) => source.status === "error")
     ? "blocked"
@@ -209,6 +217,13 @@ export function App() {
         </div>
         <CycleSelector catalog={catalog} selectedCycleId={selectedCycleId} onSelect={(cycleId) => void selectCycle(cycleId)} />
         <div className="topbar-actions">
+          {lifecycleContext ? (
+            <div className={`execution-context run-context-${lifecycleContext.state}`} title={lifecycleContext.run_id}>
+              <span>Run</span>
+              <strong>{formatLifecycleState(lifecycleContext.state)}</strong>
+              <em>{Math.round(lifecycleContext.progress * 100)}%</em>
+            </div>
+          ) : null}
           <div className="sync-indicator" title="Control Panel source synchronization">
             <i className={syncStatus === "pass" ? "live" : "degraded"} />
             <span>{syncStatus === "pass" ? "Live 5s" : "Degraded"}</span>
@@ -266,4 +281,9 @@ export function App() {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Control Panel source request failed";
+}
+
+
+function formatLifecycleState(value: LifecycleRun["state"]): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }

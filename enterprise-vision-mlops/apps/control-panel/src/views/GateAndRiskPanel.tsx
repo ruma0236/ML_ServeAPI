@@ -17,7 +17,7 @@ export function GateAndRiskPanel({ cycle, workflow, onRefresh }: GateAndRiskPane
       <div className="panel">
         <div className="panel-heading">
           <div>
-            <h2>Promotion Gate</h2>
+            <h2>Model Metric Gate</h2>
             <p>{cycle.promotion_gate?.decision || "unknown"}</p>
           </div>
           <GitPullRequestArrow />

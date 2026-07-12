@@ -4,7 +4,7 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
   await page.goto("/");
   await page.getByRole("button", { name: "Gates" }).click();
 
-  await expect(page.getByRole("heading", { name: "Promotion Gate" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Model Metric Gate" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Drift Review" })).toBeVisible();
   await expect(page.locator(".drift-workflow-rail .active")).toHaveText("closed");
   await expect(page.getByRole("button", { name: "Preview" })).toHaveCount(0);
@@ -20,7 +20,7 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
   await expect(page.getByLabel("Drift action rail")).toContainText("No Auto Retrain");
   await expect(page.locator(".drift-detail-list dt").filter({ hasText: "Baseline" })).toBeVisible();
   await expect(page.locator(".drift-detail-list dt").filter({ hasText: "Current" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "CD/CT Gate" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Release Admission" })).toBeVisible();
   await expect(page.getByText("Block Reason")).toBeVisible();
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("model_evaluation");
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("drift_review");
