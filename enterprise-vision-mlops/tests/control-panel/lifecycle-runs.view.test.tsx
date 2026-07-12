@@ -68,6 +68,40 @@ describe("Lifecycle Runs view", () => {
       expect.objectContaining({ expected_version: 3 })
     );
   });
+
+  it("keeps a legacy dry-run fail closed when source provenance is missing", async () => {
+    const legacy = {
+      ...run,
+      run_id: "lifecycle-20260712T122721-4c896dd0",
+      state: "dry_run" as const,
+      dry_run: true,
+      source_commit: null,
+      source_branch: null,
+      current_stage: null,
+      progress: 0.1,
+      failure_reason: null,
+      blockers: [],
+      stages: run.stages.map((stage, index) => ({
+        ...stage,
+        state: index === 0 ? "completed" as const : "not_started" as const,
+        progress: index === 0 ? 1 : 0,
+        blockers: []
+      }))
+    };
+    api.fetchLifecycleRuns.mockResolvedValue({ runs: [legacy], total: 1 });
+    api.fetchLifecycleWorker.mockResolvedValue({ status: "online", worker_id: "worker-1" });
+
+    await act(async () => root.render(<LifecycleRuns />));
+    await flushUpdates();
+
+    expect(container.textContent).toContain("Ready to Queue");
+    expect(container.textContent).toContain("source_revision_missing");
+    const queue = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Queue Run")
+    );
+    expect(queue).toBeDefined();
+    expect(queue?.disabled).toBe(true);
+  });
 });
 
 

@@ -71,6 +71,12 @@ export function LifecycleRuns() {
     () => runs.find((run) => run.run_id === selectedId) || runs[0] || null,
     [runs, selectedId]
   );
+  const selectedBlockers = useMemo(() => {
+    if (!selected) return [];
+    const blockers = [...selected.blockers];
+    if (!selected.source_commit) blockers.push("source_revision_missing");
+    return [...new Set(blockers)];
+  }, [selected]);
 
   function select(runId: string) {
     selectedRef.current = runId;
@@ -184,14 +190,20 @@ export function LifecycleRuns() {
                 <b style={{ width: `${Math.round(selected.progress * 100)}%` }} />
               </div>
               <div className="lifecycle-metadata">
-                <Metadata label="Current Stage" value={selected.current_stage || "Terminal"} />
+                <Metadata label="Current Stage" value={currentStageLabel(selected)} />
                 <Metadata label="Requested By" value={selected.actor} />
                 <Metadata label="Config Digest" value={selected.effective_config_digest.slice(0, 16)} />
                 <Metadata label="Source Commit" value={selected.source_commit?.slice(0, 12) || "not captured"} />
               </div>
               <div className="lifecycle-actions">
                 {selected.state === "dry_run" ? (
-                  <button type="button" className="primary-action" disabled={busy || worker.status !== "online"} onClick={() => void runAction("queue")}>
+                  <button
+                    type="button"
+                    className="primary-action"
+                    disabled={busy || worker.status !== "online" || !selected.source_commit}
+                    onClick={() => void runAction("queue")}
+                    title={selected.source_commit ? "Queue this immutable lifecycle snapshot" : "Source commit is required before queueing"}
+                  >
                     <Play size={16} /> Queue Run
                   </button>
                 ) : null}
@@ -228,11 +240,11 @@ export function LifecycleRuns() {
               </div>
             </section>
 
-            {(selected.blockers.length || selected.failure_reason) ? (
+            {(selectedBlockers.length || selected.failure_reason) ? (
               <details className="panel lifecycle-failure" open>
                 <summary><FileWarning size={16} /> Blocked / Failure Evidence</summary>
                 {selected.failure_reason ? <strong>{selected.failure_reason}</strong> : null}
-                {selected.blockers.map((blocker) => <code key={blocker}>{blocker}</code>)}
+                {selectedBlockers.map((blocker) => <code key={blocker}>{blocker}</code>)}
               </details>
             ) : null}
 
@@ -348,7 +360,15 @@ function isCancellable(state: LifecycleRunState): boolean {
 
 
 function shortId(value: string): string {
-  return value.length > 24 ? `${value.slice(0, 20)}...` : value;
+  return value.length > 30 ? `${value.slice(0, 18)}...${value.slice(-8)}` : value;
+}
+
+
+function currentStageLabel(run: LifecycleRun): string {
+  if (run.current_stage) return run.current_stage.replaceAll("_", " ");
+  if (run.state === "dry_run") return "Ready to Queue";
+  if (["completed", "cancelled", "rolled_back"].includes(run.state)) return "Terminal";
+  return "Waiting for Worker";
 }
 
 
