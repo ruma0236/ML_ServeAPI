@@ -43,6 +43,8 @@ def test_expedited_production_has_probes_gpu_and_pinned_model() -> None:
     assert "readinessProbe:" in manifest
     assert "livenessProbe:" in manifest
     assert "startupProbe:" in manifest
+    assert "type: NodePort" in manifest
+    assert "nodePort: 30800" in manifest
     assert "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f" in manifest
     assert "__MODEL_SHA256_PENDING__" not in manifest
 

@@ -44,3 +44,12 @@ def test_prediction_uses_the_checkpoint_anomaly_threshold() -> None:
 def test_serving_contract_supports_b0_and_b7_builders() -> None:
     assert efficientnet_serving.torchvision_builder_name("efficientnet-b0") == "efficientnet_b0"
     assert efficientnet_serving.torchvision_builder_name("efficientnet-b7") == "efficientnet_b7"
+
+
+def test_serving_exposes_prometheus_metrics() -> None:
+    response = efficientnet_serving.metrics()
+
+    assert response.status_code == 200
+    assert b"evm_serving_model_loaded" in response.body
+    assert b"evm_serving_inference_requests_total" in response.body
+    assert b"evm_serving_inference_latency_seconds" in response.body

@@ -34,7 +34,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: serving
-          image: enterprise-vision-mlops-efficientnet-serving@sha256:d7fab66383e719cab2d90d72040cbaec6871ea99da8845a817e926c14b017d46
+          image: enterprise-vision-mlops-efficientnet-serving@sha256:910813b6ae0e16d7371034c6dd3834f6141478b0372e5f12366579d694508a1b
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
@@ -146,9 +146,11 @@ metadata:
     app.kubernetes.io/name: evm-b0-production
     app.kubernetes.io/part-of: enterprise-vision-mlops
 spec:
+  type: NodePort
   selector:
     app.kubernetes.io/name: evm-b0-production
   ports:
     - name: http
       port: 8000
       targetPort: http
+      nodePort: 30800

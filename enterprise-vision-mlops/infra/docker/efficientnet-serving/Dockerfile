@@ -22,6 +22,8 @@ RUN pip install --no-cache-dir \
       pydantic==2.10.3 \
       "uvicorn[standard]==0.32.1"
 
+RUN pip install --no-cache-dir prometheus-client==0.21.1
+
 RUN useradd --create-home --uid 10001 evm
 
 COPY pyproject.toml docker-compose.yml /app/

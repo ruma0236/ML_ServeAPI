@@ -10,7 +10,16 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    Info,
+    generate_latest,
+)
 from pydantic import BaseModel, Field
 
 from evm.core.image_feature_model import resolve_image_path
@@ -86,6 +95,29 @@ class InferenceResponse(BaseModel):
 MODEL_RUNTIME: ModelRuntime | None = None
 MODEL_LOAD_ERROR = "model_not_loaded"
 MODEL_LOCK = threading.Lock()
+SERVING_REGISTRY = CollectorRegistry()
+MODEL_LOADED = Gauge(
+    "evm_serving_model_loaded",
+    "Whether the immutable EfficientNet model is loaded and ready.",
+    registry=SERVING_REGISTRY,
+)
+MODEL_IDENTITY = Info(
+    "evm_serving_model",
+    "Identity of the active immutable EfficientNet model.",
+    registry=SERVING_REGISTRY,
+)
+INFERENCE_REQUESTS = Counter(
+    "evm_serving_inference_requests_total",
+    "Completed EfficientNet inference requests.",
+    labelnames=("prediction", "status"),
+    registry=SERVING_REGISTRY,
+)
+INFERENCE_LATENCY = Histogram(
+    "evm_serving_inference_latency_seconds",
+    "EfficientNet model forward-pass latency in seconds.",
+    buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+    registry=SERVING_REGISTRY,
+)
 
 
 def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
@@ -198,9 +230,20 @@ def refresh_model() -> ModelRuntime | None:
         try:
             MODEL_RUNTIME = load_model()
             MODEL_LOAD_ERROR = ""
+            MODEL_LOADED.set(1)
+            MODEL_IDENTITY.info(
+                {
+                    "candidate_id": MODEL_RUNTIME.candidate_id,
+                    "architecture": MODEL_RUNTIME.architecture,
+                    "dataset_version": MODEL_RUNTIME.dataset_version,
+                    "model_sha256": MODEL_RUNTIME.model_sha256,
+                    "device": str(MODEL_RUNTIME.device),
+                }
+            )
         except Exception as exc:
             MODEL_RUNTIME = None
             MODEL_LOAD_ERROR = str(exc)
+            MODEL_LOADED.set(0)
     return MODEL_RUNTIME
 
 
@@ -243,6 +286,14 @@ def metadata() -> dict[str, Any]:
     return runtime.metadata()
 
 
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(
+        content=generate_latest(SERVING_REGISTRY),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
+
 @app.post("/predict", response_model=InferenceResponse)
 def predict(payload: InferenceRequest) -> InferenceResponse:
     import torch
@@ -275,6 +326,8 @@ def predict(payload: InferenceRequest) -> InferenceResponse:
         for index, label in enumerate(runtime.class_names)
     }
     prediction, confidence = prediction_for_scores(scores, runtime.decision_threshold)
+    INFERENCE_REQUESTS.labels(prediction=prediction, status="success").inc()
+    INFERENCE_LATENCY.observe(latency_ms / 1000)
     return InferenceResponse(
         candidate_id=runtime.candidate_id,
         model_sha256=runtime.model_sha256,
