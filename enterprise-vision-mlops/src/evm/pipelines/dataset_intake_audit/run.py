@@ -129,6 +129,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
                 mask_files,
                 dataset_version=dataset_version,
                 allowed_extensions=allowed_extensions,
+                runtime_root=root,
             )
         )
 

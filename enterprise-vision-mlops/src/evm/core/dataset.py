@@ -7,14 +7,46 @@ from pathlib import Path
 from typing import Any
 
 
-VERSION_FIELDS = ("id", "image_uri", "label", "width", "height", "source")
+VERSION_FIELDS = (
+    "dataset_id",
+    "sample_id",
+    "relative_path",
+    "content_sha256",
+    "label",
+    "width",
+    "height",
+    "source",
+)
+
+
+def canonical_record_identity(record: dict[str, Any]) -> dict[str, Any]:
+    metadata = record.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    sample_id = str(record.get("sample_id") or record.get("id") or "")
+    relative_path = str(metadata.get("relative_path") or "").replace("\\", "/")
+    if not relative_path:
+        relative_path = sample_id or str(record.get("image_uri") or "").replace("\\", "/")
+    return {
+        "dataset_id": str(record.get("dataset_id") or record.get("source") or ""),
+        "sample_id": sample_id,
+        "relative_path": relative_path,
+        "content_sha256": str(record.get("content_sha256") or ""),
+        "label": record.get("label"),
+        "width": record.get("width"),
+        "height": record.get("height"),
+        "source": str(record.get("source_uri") or record.get("source") or ""),
+    }
 
 
 def stable_record_digest(records: list[dict[str, Any]]) -> str:
-    normalized = [
-        {field: record.get(field) for field in VERSION_FIELDS}
-        for record in sorted(records, key=lambda item: str(item.get("id", "")))
-    ]
+    normalized = sorted(
+        (canonical_record_identity(record) for record in records),
+        key=lambda item: (
+            str(item["dataset_id"]),
+            str(item["sample_id"]),
+            str(item["relative_path"]),
+        ),
+    )
     payload = json.dumps(normalized, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

@@ -8,8 +8,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from evm.core.config import project_root_from, resolve_path
+from evm.core.config import get_nested, map_runtime_data_path, project_root_from, resolve_path
 from evm.core.pipeline import utc_now, write_json
+from evm.core.readiness_snapshot import capture_readiness_snapshot
 from evm.core.torch_efficientnet import (
     EfficientNetCandidateConfig,
     TorchRuntimeConfig,
@@ -36,6 +37,13 @@ def file_sha256(path: Path, chunk_size: int = 1024 * 1024) -> str:
         while chunk := fp.read(chunk_size):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def runtime_config_path(config: dict[str, Any], value: str | Path) -> Path:
+    mapped = map_runtime_data_path(value)
+    if mapped.is_absolute():
+        return mapped
+    return resolve_path(config, mapped)
 
 
 def source_digest_blockers(actual: str, expected: str) -> list[str]:
@@ -160,6 +168,12 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
     )
 
     matrix_id = str(matrix_cfg.get("matrix_id", "w7-efficientnet-real-test-matrix"))
+    selected_candidate_id = str(
+        matrix_cfg.get(
+            "selected_candidate_id",
+            "effnet-b7-img600-finetune-adamw",
+        )
+    )
     execution_run_id = os.getenv("EVM_EFFICIENTNET_RUN_ID", "").strip()
     dataset_version = str(matrix_cfg.get("dataset_version", "unknown"))
     artifact_root = Path(str(resources.get("artifact_root", "artifacts/w7/efficientnet")))
@@ -188,6 +202,58 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         expected_shard_index_sha256,
     ) + validate_acceptance_split(split_manifest, acceptance)
     write_json(matrix_dir / "split_manifest.json", split_manifest)
+
+    readiness_snapshot_path: Path | None = None
+    readiness_snapshot_digest = ""
+    readiness_snapshot_blockers: list[str] = []
+    base_config_value = str(inputs.get("base_config") or "").strip()
+    if base_config_value:
+        try:
+            base_config_path = Path(base_config_value)
+            if not base_config_path.is_absolute():
+                base_config_path = project_root / base_config_path
+            base_config = load_config(base_config_path)
+            dataset_metadata_path = runtime_config_path(
+                base_config,
+                str(
+                    get_nested(
+                        base_config,
+                        "pipelines.data_validation.dataset_metadata",
+                        "data/validated/visa/dataset_version.json",
+                    )
+                ),
+            )
+            quality_report_path = runtime_config_path(
+                base_config,
+                str(
+                    get_nested(
+                        base_config,
+                        "pipelines.image_quality.report_path",
+                        "data/validated/visa/mvi_quality_report.json",
+                    )
+                ),
+            )
+            readiness_snapshot_path = capture_readiness_snapshot(
+                output_dir=candidate_root / "_readiness_inputs",
+                candidate_id=selected_candidate_id,
+                dataset_version=dataset_version,
+                expected_record_count=int(
+                    acceptance.get("min_total_records")
+                    or matrix_cfg.get("minimum_records")
+                    or 0
+                ),
+                expected_source_digest=expected_shard_index_sha256,
+                dataset_metadata_path=dataset_metadata_path,
+                quality_report_path=quality_report_path,
+                source_shard_path=shard_index_path,
+            )
+            readiness_snapshot_digest = file_sha256(readiness_snapshot_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            readiness_snapshot_blockers.append(f"readiness_snapshot_capture_failed:{exc}")
+    elif bool(matrix_cfg.get("require_readiness_snapshot", False)):
+        readiness_snapshot_blockers.append("readiness_snapshot_base_config_missing")
+    if bool(matrix_cfg.get("require_readiness_snapshot", False)):
+        split_blockers += readiness_snapshot_blockers
 
     runtime = TorchRuntimeConfig(
         seed=execution_seed,
@@ -233,20 +299,26 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
                 "created_at": utc_now(),
             }
             candidate_dir.mkdir(parents=True, exist_ok=True)
+            if readiness_snapshot_path and candidate.candidate_id == selected_candidate_id:
+                blocked["readiness_snapshot_manifest"] = str(readiness_snapshot_path)
+                blocked["readiness_snapshot_manifest_sha256"] = readiness_snapshot_digest
             write_json(candidate_dir / "candidate_summary.json", blocked)
             candidate_results.append(blocked)
             continue
         try:
-            candidate_results.append(
-                train_candidate(
-                    candidate,
-                    splits,
-                    split_manifest,
-                    acceptance,
-                    runtime,
-                    candidate_dir,
-                )
+            result = train_candidate(
+                candidate,
+                splits,
+                split_manifest,
+                acceptance,
+                runtime,
+                candidate_dir,
             )
+            if readiness_snapshot_path and candidate.candidate_id == selected_candidate_id:
+                result["readiness_snapshot_manifest"] = str(readiness_snapshot_path)
+                result["readiness_snapshot_manifest_sha256"] = readiness_snapshot_digest
+                write_json(candidate_dir / "candidate_summary.json", result)
+            candidate_results.append(result)
         except Exception as exc:
             blocked = {
                 "schema_version": "evm.w7.efficientnet_candidate.v1",
@@ -274,6 +346,9 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
                 "created_at": utc_now(),
             }
             candidate_dir.mkdir(parents=True, exist_ok=True)
+            if readiness_snapshot_path and candidate.candidate_id == selected_candidate_id:
+                blocked["readiness_snapshot_manifest"] = str(readiness_snapshot_path)
+                blocked["readiness_snapshot_manifest_sha256"] = readiness_snapshot_digest
             write_json(candidate_dir / "candidate_summary.json", blocked)
             candidate_results.append(blocked)
 
@@ -296,6 +371,11 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         "split_manifest": str(matrix_dir / "split_manifest.json"),
         "source_shard_index_sha256": shard_index_sha256,
         "split_blockers": split_blockers,
+        "readiness_snapshot_manifest": (
+            str(readiness_snapshot_path) if readiness_snapshot_path else None
+        ),
+        "readiness_snapshot_manifest_sha256": readiness_snapshot_digest or None,
+        "readiness_snapshot_blockers": readiness_snapshot_blockers,
         "candidate_count": len(merged_candidate_results),
         "configured_candidate_count": len(all_candidates_cfg),
         "candidates": merged_candidate_results,

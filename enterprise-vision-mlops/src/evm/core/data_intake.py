@@ -164,9 +164,10 @@ def build_manifest_records(
     *,
     dataset_version: str,
     allowed_extensions: set[str],
+    runtime_root: Path | None = None,
 ) -> list[dict[str, Any]]:
     dataset_id = str(dataset.get("id", "dataset"))
-    root = Path(str(dataset.get("raw_root", "")))
+    root = runtime_root or Path(str(dataset.get("raw_root", "")))
     layout = infer_dataset_layout(dataset_id, root)
     annotations = load_visa_annotations(root) if layout == "visa" else {}
     records: list[dict[str, Any]] = []

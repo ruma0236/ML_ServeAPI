@@ -89,7 +89,7 @@ required = true
     dataset_metadata = tmp_path / "dataset_version.json"
     write_json(
         dataset_metadata,
-        {"dataset_version": DATASET_VERSION, "record_count": 6},
+        {"dataset_version": DATASET_VERSION, "valid_records": 6},
     )
     quality = tmp_path / "quality_report.json"
     write_json(

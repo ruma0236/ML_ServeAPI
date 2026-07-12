@@ -4,6 +4,7 @@ framework = "torch"
 execution_mode = "exclusive_gpu_job"
 dataset_version = "visa-open-data-f1f1c9ee9922"
 rollback_registry_path = "/mnt/evm-data/artifacts/registry/efficientnet-b7/rollback.json"
+require_readiness_snapshot = true
 dataset_policy = "real_full_visa"
 mock_allowed = false
 smoke_allowed = false

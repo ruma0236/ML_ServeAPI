@@ -5,7 +5,7 @@ import json
 import os
 import tomllib
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -56,6 +56,8 @@ class ReadinessInputs:
     expected_source_digest: str
     metric_thresholds: dict[str, float]
     report_uri: str | None = None
+    expected_evidence_digests: dict[str, str] = field(default_factory=dict)
+    input_blockers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -189,6 +191,14 @@ def _missing_or_malformed(code_prefix: str, error: str | None) -> list[str]:
     return []
 
 
+def evidence_digest_blockers(path: Path, expected_digest: str, code_prefix: str) -> list[str]:
+    if not expected_digest or not path.is_file():
+        return []
+    if file_sha256(path).lower() != expected_digest.lower():
+        return [f"{code_prefix}_evidence_digest_mismatch"]
+    return []
+
+
 def check_contract(path: Path) -> ReadinessEvidenceCheck:
     blockers: list[str] = []
     payload: dict[str, Any] = {}
@@ -228,12 +238,24 @@ def check_contract(path: Path) -> ReadinessEvidenceCheck:
     )
 
 
-def check_dataset_metadata(path: Path, dataset_version: str, record_count: int) -> ReadinessEvidenceCheck:
+def check_dataset_metadata(
+    path: Path,
+    dataset_version: str,
+    record_count: int,
+    *,
+    expected_evidence_digest: str = "",
+    extra_blockers: tuple[str, ...] = (),
+) -> ReadinessEvidenceCheck:
     payload, error = read_json(path)
-    blockers = _missing_or_malformed("dataset_metadata", error)
+    blockers = _missing_or_malformed("dataset_metadata", error) + list(extra_blockers)
+    blockers += evidence_digest_blockers(
+        path,
+        expected_evidence_digest,
+        "dataset_metadata",
+    )
     loaded = error is None
     observed_version = str(payload.get("dataset_version", ""))
-    observed_count = int(payload.get("record_count") or 0)
+    observed_count = int(payload.get("record_count") or payload.get("valid_records") or 0)
     if loaded and observed_version != dataset_version:
         blockers.append("dataset_metadata_version_mismatch")
     if loaded and observed_count != record_count:
@@ -251,11 +273,20 @@ def check_source_shard(
     path: Path,
     expected_digest: str,
     expected_record_count: int,
+    *,
+    expected_evidence_digest: str = "",
 ) -> ReadinessEvidenceCheck:
     payload, error = read_json(path)
     blockers = _missing_or_malformed("source_shard_index", error)
+    blockers += evidence_digest_blockers(
+        path,
+        expected_evidence_digest,
+        "source_shard_index",
+    )
     loaded = error is None
-    actual_digest = file_sha256(path) if path.exists() and path.is_file() else ""
+    snapshot_digest = str(payload.get("source_shard_index_sha256") or "")
+    evidence_digest = file_sha256(path) if path.exists() and path.is_file() else ""
+    actual_digest = snapshot_digest or evidence_digest
     observed_count = int(payload.get("record_count") or 0)
     if loaded and expected_digest and actual_digest.lower() != expected_digest.lower():
         blockers.append("source_shard_digest_mismatch")
@@ -270,6 +301,7 @@ def check_source_shard(
             "record_count": observed_count,
             "actual_sha256": actual_digest,
             "expected_sha256": expected_digest,
+            "snapshot_sha256": evidence_digest,
         },
         blockers=blockers,
     )
@@ -313,9 +345,20 @@ def check_split_manifest(
     )
 
 
-def check_quality_gate(path: Path, dataset_version: str, record_count: int) -> ReadinessEvidenceCheck:
+def check_quality_gate(
+    path: Path,
+    dataset_version: str,
+    record_count: int,
+    *,
+    expected_evidence_digest: str = "",
+) -> ReadinessEvidenceCheck:
     payload, error = read_json(path)
     blockers = _missing_or_malformed("quality_report", error)
+    blockers += evidence_digest_blockers(
+        path,
+        expected_evidence_digest,
+        "quality_report",
+    )
     loaded = error is None
     gate = payload.get("gate_decision", {}) if isinstance(payload.get("gate_decision"), dict) else {}
     observed_status = str(payload.get("status") or gate.get("status") or "")
@@ -758,11 +801,20 @@ def evaluate_artifact_readiness(
             dataset_metadata_path,
             inputs.dataset_version,
             inputs.expected_record_count,
+            expected_evidence_digest=inputs.expected_evidence_digests.get(
+                "dataset_metadata",
+                "",
+            ),
+            extra_blockers=inputs.input_blockers,
         ),
         check_source_shard(
             source_shard_index_path,
             inputs.expected_source_digest,
             inputs.expected_record_count,
+            expected_evidence_digest=inputs.expected_evidence_digests.get(
+                "source_shard",
+                "",
+            ),
         ),
         check_split_manifest(
             split_manifest_path,
@@ -774,6 +826,10 @@ def evaluate_artifact_readiness(
             quality_report_path,
             inputs.dataset_version,
             inputs.expected_record_count,
+            expected_evidence_digest=inputs.expected_evidence_digests.get(
+                "quality_report",
+                "",
+            ),
         ),
         check_lineage(lineage_path, inputs.candidate_id, inputs.dataset_version),
         candidate_check,

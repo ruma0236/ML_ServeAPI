@@ -66,8 +66,8 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-EPIC-14` | VLM Reliability Evaluation And Portfolio Cut | 2026-07-12 | Done | current-week regression gate, rollback simulation, failure scenarios, benchmark, RCA, final portfolio evidence |
 | `EVM-EPIC-15` | Model Lifecycle And Drift Operations | 2026-07-W5 | Planned | real model lifecycle state machine, candidate promotion, drift/special-case tracking, and alert review |
 | `EVM-EPIC-16` | Large-scale Data Acquisition And Cleaning Research | 2026-07-W6 | Done | source registry, scalable acquisition, dedup/quality benchmark, curation, and lakehouse ingestion research |
-| `EVM-EPIC-17` | Draft Decision And AgentOps Governance | 2026-07-W7 | Planned | draft/proposal registry, decision trail, AgentOps reliability design, and final portfolio hardening |
-| `EVM-EPIC-18` | Kubernetes Runtime And MLOps Control Panel | 2026-07-W7 | In Progress | Kubernetes runtime foundation, metadata/control API, animated visual cycle panel, resource control, task assignment, and serving-scale handoff |
+| `EVM-EPIC-17` | Draft Decision And AgentOps Governance | 2026-07-W7 | In Progress | draft/proposal registry, decision trail, AgentOps reliability design, and final portfolio hardening; EVM-214 post-W7 stabilization is active |
+| `EVM-EPIC-18` | Kubernetes Runtime And MLOps Control Panel | 2026-07-W7 | Done | Kubernetes runtime, real B7 GPU lifecycle, metadata/control API, Control Panel, resource controls, and 13/13 executable closeout completed |
 
 ## Backlog
 
@@ -323,7 +323,7 @@ AgentOps reliability, and production-scale serving options.
 | `EVM-211` | Draft and decision registry | Planned | 2026-07-W7 | experiments, prompt changes, model candidates, and eval policies have draft/review/approved/rejected states |
 | `EVM-212` | AgentOps reliability follow-up design | Planned | 2026-07-W7 | LLM agent, LangGraph, HITL, tool-call audit, and recovery scenarios are scoped for post-MVP work |
 | `EVM-213` | Scale serving research plan | Planned | 2026-07-W7 | vLLM, Triton, KServe, Ray Serve, and Kueue are compared for the next production-serving path |
-| `EVM-214` | July portfolio stabilization review | Planned | 2026-07-W7 | final demo evidence, known gaps, post-MVP backlog, and handoff risks are consolidated |
+| `EVM-214` | July portfolio stabilization review | In Progress | 2026-07-W7 | post-W7 live replay must preserve model readiness after mutable latest data updates; dataset identity must be runtime-path independent; final demo evidence, known gaps, backlog, and handoff risks are consolidated |
 
 ### Phase 18. Kubernetes Runtime And MLOps Control Panel
 

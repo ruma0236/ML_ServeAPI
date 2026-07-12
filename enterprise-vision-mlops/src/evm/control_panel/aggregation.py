@@ -39,6 +39,7 @@ from evm.control_panel.readiness_evaluator import (
     runtime_path,
 )
 from evm.core.config import get_nested, load_config, resolve_path
+from evm.core.readiness_snapshot import load_readiness_snapshot
 
 
 DEFAULT_CONFIG_PATH = "configs/local_visa.toml"
@@ -613,13 +614,51 @@ def build_latest_cycle(
         if source_shard_index_value
         else matrix_dir / "__missing_source_shard_index__.json"
     )
+    expected_record_count = int(
+        matrix_acceptance.get("min_total_records")
+        or matrix_config.get("minimum_records")
+        or 0
+    )
+    expected_source_digest = str(matrix_inputs.get("shard_index_sha256", ""))
+    candidate_summary_payload = read_json(candidate_dir / "candidate_summary.json")
+    readiness_snapshot = load_readiness_snapshot(
+        candidate_dir.parent
+        / "_readiness_inputs"
+        / "readiness_inputs_manifest.json",
+        candidate_id=selected_candidate_id,
+        dataset_version=str(matrix_config.get("dataset_version", dataset_version)),
+        expected_record_count=expected_record_count,
+        expected_source_digest=expected_source_digest,
+        expected_manifest_digest=str(
+            candidate_summary_payload.get("readiness_snapshot_manifest_sha256")
+            or ""
+        ),
+        required=bool(matrix_config.get("require_readiness_snapshot", False)),
+    )
+    readiness_dataset_metadata_path = dataset_metadata_path
+    readiness_quality_report_path = quality_report_path
+    readiness_source_shard_path = source_shard_index_path
+    readiness_expected_digests: dict[str, str] = {}
+    readiness_snapshot_blockers: tuple[str, ...] = ()
+    if readiness_snapshot is not None:
+        readiness_dataset_metadata_path = (
+            readiness_snapshot.dataset_metadata_path or readiness_dataset_metadata_path
+        )
+        readiness_quality_report_path = (
+            readiness_snapshot.quality_report_path or readiness_quality_report_path
+        )
+        readiness_source_shard_path = (
+            readiness_snapshot.source_shard_path or readiness_source_shard_path
+        )
+        readiness_expected_digests = readiness_snapshot.expected_digests
+        readiness_snapshot_blockers = readiness_snapshot.blockers
     readiness_report_path = artifacts_root / "w7" / "readiness" / "latest_readiness_evaluation.json"
     readiness_result = evaluate_artifact_readiness(
         ReadinessInputs(
             contract_path=contract_path,
-            dataset_metadata_path=dataset_metadata_path,
-            quality_report_path=quality_report_path,
-            source_shard_index_path=source_shard_index_path,
+            dataset_metadata_path=readiness_dataset_metadata_path,
+            quality_report_path=readiness_quality_report_path,
+            source_shard_index_path=readiness_source_shard_path,
             split_manifest_path=candidate_dir / "split_manifest.json",
             lineage_path=candidate_dir / "lineage.json",
             candidate_summary_path=candidate_dir / "candidate_summary.json",
@@ -640,12 +679,8 @@ def build_latest_cycle(
             ),
             candidate_id=selected_candidate_id,
             dataset_version=str(matrix_config.get("dataset_version", dataset_version)),
-            expected_record_count=int(
-                matrix_acceptance.get("min_total_records")
-                or matrix_config.get("minimum_records")
-                or 0
-            ),
-            expected_source_digest=str(matrix_inputs.get("shard_index_sha256", "")),
+            expected_record_count=expected_record_count,
+            expected_source_digest=expected_source_digest,
             metric_thresholds={
                 name: float(matrix_acceptance[key])
                 for name, key in {
@@ -656,6 +691,8 @@ def build_latest_cycle(
                 if isinstance(matrix_acceptance.get(key), int | float)
             },
             report_uri=str(readiness_report_path),
+            expected_evidence_digests=readiness_expected_digests,
+            input_blockers=readiness_snapshot_blockers,
         ),
         org_context,
     )
