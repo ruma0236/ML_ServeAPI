@@ -140,6 +140,8 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
         (bundle.manifest_dir / "fold_manifest.json").read_text(encoding="utf-8")
     )
     assert usage_manifest["schema_version"] == "evm.training_data_usage_manifest.v1"
+    profile = json.loads(Path(run.profile_snapshot_uri).read_text(encoding="utf-8"))
+    assert usage_manifest["dataset_version"] == profile["data"]["dataset_version"]
     assert usage_manifest["development_records"] == 1
     assert usage_manifest["holdout_used_for_selection"] is False
     assert usage_manifest["ct_evidence_exposed"] is False

@@ -5,6 +5,8 @@ import json
 import stat
 from pathlib import Path
 
+import pytest
+
 from evm.control_panel import isolated_ct
 
 
@@ -191,6 +193,28 @@ def test_real_snapshot_copy_and_evaluator_pass_fail_closed_contract(tmp_path, mo
     assert evaluation.mutated is False
     assert evaluation.device == "cuda"
     assert evaluation.checks["training_mount_isolation"] == "pass"
+
+
+def test_training_view_requires_consistent_dataset_identity(tmp_path, monkeypatch):
+    _data_root, _ct_root, index, _train_record, _test_record = source_evidence(
+        tmp_path,
+        monkeypatch,
+    )
+
+    view = isolated_ct.materialize_training_data_view(
+        index,
+        lifecycle_run_id="lifecycle-training-view",
+        dataset_version="visa-test-v1",
+    )
+    usage = json.loads(view.usage_manifest_path.read_text(encoding="utf-8"))
+
+    assert usage["dataset_version"] == "visa-test-v1"
+    with pytest.raises(ValueError, match="training_data_view_dataset_identity_mismatch"):
+        isolated_ct.materialize_training_data_view(
+            index,
+            lifecycle_run_id="lifecycle-training-view-mismatch",
+            dataset_version="visa-other-v1",
+        )
 
 
 def test_snapshot_reuses_identical_holdout_across_lifecycle_runs(tmp_path, monkeypatch):

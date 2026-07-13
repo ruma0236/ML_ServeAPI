@@ -729,6 +729,7 @@ def materialize_training_data_view(
     *,
     lifecycle_run_id: str,
     holdout_split: str = "test",
+    dataset_version: str | None = None,
 ) -> TrainingDataView:
     source_index_path = runtime_path(source_shard_index_uri)
     source_index = read_json(source_index_path)
@@ -741,6 +742,7 @@ def materialize_training_data_view(
     linked_images = 0
     split_counts: dict[str, int] = {}
     usage_assignments: list[dict[str, Any]] = []
+    observed_dataset_versions: set[str] = set()
     for shard in source_index.get("shards", []):
         if not isinstance(shard, dict):
             continue
@@ -757,6 +759,9 @@ def materialize_training_data_view(
             shutil.copy2(source_shard, target_shard)
         records = read_jsonl(source_shard)
         for record in records:
+            record_dataset_version = str(record.get("dataset_version") or "").strip()
+            if record_dataset_version:
+                observed_dataset_versions.add(record_dataset_version)
             linked_images += link_training_asset(record, "image_uri", "image_path", view_root)
             if record.get("mask_uri"):
                 linked_images += link_training_asset(record, "mask_uri", None, view_root)
@@ -782,6 +787,16 @@ def materialize_training_data_view(
 
     if not development_shards or not record_count:
         raise ValueError("training_data_view_empty")
+    resolved_dataset_version = str(
+        dataset_version or source_index.get("dataset_version") or ""
+    ).strip()
+    if not resolved_dataset_version:
+        if len(observed_dataset_versions) == 1:
+            resolved_dataset_version = next(iter(observed_dataset_versions))
+        else:
+            raise ValueError("training_data_view_dataset_identity_missing")
+    if observed_dataset_versions and observed_dataset_versions != {resolved_dataset_version}:
+        raise ValueError("training_data_view_dataset_identity_mismatch")
     view_index = {
         key: value
         for key, value in source_index.items()
@@ -798,6 +813,7 @@ def materialize_training_data_view(
             "excluded_split": holdout_split,
             "ct_evidence_exposed": False,
             "source_index_sha256": file_sha256(source_index_path),
+            "dataset_version": resolved_dataset_version,
         }
     )
     view_index["identity_sha256"] = payload_sha256(view_index)
@@ -807,7 +823,7 @@ def materialize_training_data_view(
     usage_manifest = {
         "schema_version": "evm.training_data_usage_manifest.v1",
         "experiment_id": lifecycle_run_id,
-        "dataset_version": str(source_index.get("dataset_version") or "unknown"),
+        "dataset_version": resolved_dataset_version,
         "source_manifest_sha256": file_sha256(source_index_path),
         "source_identity_sha256": str(source_index.get("identity_sha256") or ""),
         "development_records": record_count,
@@ -944,6 +960,7 @@ def build_parser() -> argparse.ArgumentParser:
     view.add_argument("--source-shard-index", required=True)
     view.add_argument("--lifecycle-run-id", required=True)
     view.add_argument("--holdout-split", default="test")
+    view.add_argument("--dataset-version")
     evaluate_parser = commands.add_parser("evaluate")
     evaluate_parser.add_argument("--snapshot", required=True)
     evaluate_parser.add_argument("--fold-manifest", required=True)
@@ -974,6 +991,7 @@ def main() -> int:
             args.source_shard_index,
             lifecycle_run_id=args.lifecycle_run_id,
             holdout_split=args.holdout_split,
+            dataset_version=args.dataset_version,
         )
         payload = {
             "root": str(result.root),

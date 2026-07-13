@@ -104,6 +104,7 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
         str(data_profile.get("split_manifest_uri") or inputs.get("shard_index") or ""),
         lifecycle_run_id=run.run_id,
         holdout_split=str(split_policy.get("holdout_split") or "test"),
+        dataset_version=str(data_profile.get("dataset_version") or ""),
     )
     write_json(directory / "fold_manifest.json", read_json(training_view.usage_manifest_path))
     storage_identity = f"evm-training-{short_run_id(run.run_id)}"
