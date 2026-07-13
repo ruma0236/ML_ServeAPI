@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createLifecycleRun,
+  fetchExperimentRun,
   fetchLifecycleRuns,
   transitionLifecycleRun
 } from "../../apps/control-panel/src/api/controlPanelClient";
@@ -41,6 +42,20 @@ describe("LifecycleRun API contract", () => {
       `http://panel.test/control-panel/v1/lifecycle-runs/${run.run_id}/retry`
     );
     expect(JSON.parse(fetchMock.mock.calls[2][1].body).expected_version).toBe(3);
+  });
+
+  it("reads experiment progress and treats a missing run as no evidence", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ experiment_id: run.run_id }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "not_found" }), { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect((await fetchExperimentRun(run.run_id, "http://panel.test"))?.experiment_id).toBe(run.run_id);
+    expect(await fetchExperimentRun("missing-run", "http://panel.test")).toBeNull();
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `http://panel.test/control-panel/v1/experiment-runs/${run.run_id}`
+    );
   });
 });
 

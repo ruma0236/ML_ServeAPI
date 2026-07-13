@@ -664,6 +664,39 @@
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleApprovalRequest"}}}},
         "responses": {"202": {"description": "run approved", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "409": {"description": "requester and approver conflict or transition rejected"}}
       }
+    },
+    "/control-panel/v1/experiment-runs": {
+      "get": {
+        "summary": "List persistent bounded-search and cross-validation experiment runs.",
+        "operationId": "listExperimentRuns",
+        "parameters": [{"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}}],
+        "responses": {
+          "200": {"description": "experiment run ledger", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ExperimentRunList"}}}}
+        }
+      }
+    },
+    "/control-panel/v1/experiment-runs/{experiment_id}": {
+      "get": {
+        "summary": "Read live fold, trial, lineage, progress, and blocker evidence for one experiment run.",
+        "operationId": "getExperimentRun",
+        "parameters": [{"name": "experiment_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {
+          "200": {"description": "experiment run", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ExperimentRun"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/control-panel/v1/experiment-runs/{experiment_id}/cancel": {
+      "post": {
+        "summary": "Persist an operator cancellation request for an active experiment run.",
+        "operationId": "cancelExperimentRun",
+        "parameters": [{"name": "experiment_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ExperimentCancelRequest"}}}},
+        "responses": {
+          "202": {"description": "cancellation requested", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ExperimentRun"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
     }
   },
   "components": {
@@ -1780,9 +1813,20 @@
           "catalog_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
         }
       },
+      "HyperparameterSearchSpace": {
+        "type": "object",
+        "required": ["learning_rates", "weight_decays", "batch_sizes", "optimizers", "freeze_backbone_options"],
+        "properties": {
+          "learning_rates": {"type": "array", "minItems": 1, "items": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}},
+          "weight_decays": {"type": "array", "minItems": 1, "items": {"type": "number", "minimum": 0, "maximum": 1}},
+          "batch_sizes": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1, "maximum": 512}},
+          "optimizers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["adamw", "sgd"]}},
+          "freeze_backbone_options": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "boolean"}}
+        }
+      },
       "ModelProfile": {
         "type": "object",
-        "required": ["framework", "component_id", "component_version", "architecture", "pretrained", "freeze_backbone", "input_size", "batch_size", "epochs", "optimizer", "learning_rate", "weight_decay", "mixed_precision", "class_weighted_loss", "early_stop_metric", "early_stop_threshold", "early_stop_min_epochs", "early_stop_patience", "tuning_mode", "max_trials"],
+        "required": ["framework", "component_id", "component_version", "architecture", "pretrained", "freeze_backbone", "input_size", "batch_size", "epochs", "optimizer", "learning_rate", "weight_decay", "mixed_precision", "class_weighted_loss", "early_stop_metric", "early_stop_threshold", "early_stop_min_epochs", "early_stop_patience", "tuning_mode", "max_trials", "search_space"],
         "properties": {
           "framework": {"type": "string", "const": "torch"},
           "component_id": {"type": "string"},
@@ -1803,7 +1847,8 @@
           "early_stop_min_epochs": {"type": "integer", "minimum": 1},
           "early_stop_patience": {"type": "integer", "minimum": 1, "maximum": 50},
           "tuning_mode": {"type": "string", "enum": ["manual", "grid", "bayesian"]},
-          "max_trials": {"type": "integer", "minimum": 1, "maximum": 200}
+          "max_trials": {"type": "integer", "minimum": 1, "maximum": 200},
+          "search_space": {"$ref": "#/components/schemas/HyperparameterSearchSpace"}
         }
       },
       "ExperimentProfile": {
@@ -2089,6 +2134,90 @@
           "last_seen_at": {"type": ["string", "null"]},
           "current_run_id": {"type": ["string", "null"]},
           "message": {"type": ["string", "null"]}
+        }
+      },
+      "ExperimentFoldResult": {
+        "type": "object",
+        "required": ["repeat", "fold", "state", "seed", "train_records", "validation_records", "metrics"],
+        "properties": {
+          "repeat": {"type": "integer", "minimum": 0},
+          "fold": {"type": "integer", "minimum": 0},
+          "state": {"type": "string", "enum": ["planned", "running", "completed", "blocked", "cancelled"]},
+          "seed": {"type": "integer"},
+          "train_records": {"type": "integer", "minimum": 0},
+          "validation_records": {"type": "integer", "minimum": 0},
+          "metrics": {"type": "object", "additionalProperties": {"type": "number"}},
+          "mlflow_run_id": {"type": ["string", "null"]},
+          "artifact_uri": {"type": ["string", "null"]},
+          "blocker": {"type": ["string", "null"]}
+        }
+      },
+      "ExperimentTrialResult": {
+        "type": "object",
+        "required": ["trial_id", "state", "parameters", "folds", "aggregate_metrics"],
+        "properties": {
+          "trial_id": {"type": "string"},
+          "state": {"type": "string", "enum": ["planned", "running", "completed", "blocked", "cancelled"]},
+          "parameters": {"type": "object", "additionalProperties": true},
+          "folds": {"type": "array", "items": {"$ref": "#/components/schemas/ExperimentFoldResult"}},
+          "aggregate_metrics": {"type": "object", "additionalProperties": {"type": "number"}},
+          "score": {"type": ["number", "null"]},
+          "blocker": {"type": ["string", "null"]}
+        }
+      },
+      "ExperimentRun": {
+        "type": "object",
+        "required": ["schema_version", "experiment_id", "lifecycle_run_id", "profile_name", "profile_digest", "dataset_version", "source_manifest_sha256", "holdout_split", "holdout_sha256", "mode", "primary_metric", "seed", "folds", "repeats", "requested_trials", "total_units", "completed_units", "progress", "state", "gpu_quota", "scheduled_parallelism", "selected_parameters", "trials", "blockers", "created_at", "updated_at"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.experiment_run.v1"},
+          "experiment_id": {"type": "string"},
+          "lifecycle_run_id": {"type": "string"},
+          "profile_name": {"type": "string"},
+          "profile_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "dataset_version": {"type": "string"},
+          "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "holdout_split": {"type": "string"},
+          "holdout_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "mode": {"type": "string", "enum": ["manual", "grid", "bayesian"]},
+          "primary_metric": {"type": "string", "enum": ["accuracy", "f1", "auroc"]},
+          "seed": {"type": "integer"},
+          "folds": {"type": "integer", "minimum": 2},
+          "repeats": {"type": "integer", "minimum": 1},
+          "requested_trials": {"type": "integer", "minimum": 1},
+          "total_units": {"type": "integer", "minimum": 1},
+          "completed_units": {"type": "integer", "minimum": 0},
+          "progress": {"type": "number", "minimum": 0, "maximum": 1},
+          "state": {"type": "string", "enum": ["planned", "running", "cancelling", "cancelled", "completed", "blocked", "failed"]},
+          "gpu_quota": {"type": "integer", "minimum": 0},
+          "scheduled_parallelism": {"type": "integer", "minimum": 1},
+          "parent_mlflow_run_id": {"type": ["string", "null"]},
+          "selected_trial_id": {"type": ["string", "null"]},
+          "selected_parameters": {"type": "object", "additionalProperties": true},
+          "fold_manifest_uri": {"type": ["string", "null"]},
+          "comparison_matrix_uri": {"type": ["string", "null"]},
+          "final_model_matrix_uri": {"type": ["string", "null"]},
+          "trials": {"type": "array", "items": {"$ref": "#/components/schemas/ExperimentTrialResult"}},
+          "blockers": {"type": "array", "items": {"type": "string"}},
+          "created_at": {"type": "string"},
+          "updated_at": {"type": "string"},
+          "started_at": {"type": ["string", "null"]},
+          "finished_at": {"type": ["string", "null"]}
+        }
+      },
+      "ExperimentRunList": {
+        "type": "object",
+        "required": ["runs", "total"],
+        "properties": {
+          "runs": {"type": "array", "items": {"$ref": "#/components/schemas/ExperimentRun"}},
+          "total": {"type": "integer", "minimum": 0}
+        }
+      },
+      "ExperimentCancelRequest": {
+        "type": "object",
+        "required": ["actor", "reason"],
+        "properties": {
+          "actor": {"type": "string", "minLength": 2},
+          "reason": {"type": "string", "minLength": 8}
         }
       },
       "State": {

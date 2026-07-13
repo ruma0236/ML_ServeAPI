@@ -32,11 +32,23 @@ class MlflowRestClient:
             return payload.get("experiment_id")
         return None
 
-    def create_run(self, experiment_id: str, run_name: str) -> str | None:
+    def create_run(
+        self,
+        experiment_id: str,
+        run_name: str,
+        *,
+        tags: dict[str, str] | None = None,
+    ) -> str | None:
+        body: dict[str, Any] = {"experiment_id": experiment_id, "run_name": run_name}
+        if tags:
+            body["tags"] = [
+                {"key": key, "value": str(value)}
+                for key, value in sorted(tags.items())
+            ]
         status, payload = request_json(
             "POST",
             f"{self.tracking_uri}/api/2.0/mlflow/runs/create",
-            {"experiment_id": experiment_id, "run_name": run_name},
+            body,
         )
         if status == 200 and isinstance(payload, dict):
             return payload.get("run", {}).get("info", {}).get("run_id")

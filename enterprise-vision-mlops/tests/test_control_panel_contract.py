@@ -25,11 +25,19 @@ from evm.control_panel.schemas import (
     RuntimeResourceList,
 )
 from evm.control_panel.pipeline_profiles import (
+    HyperparameterSearchSpace,
     PipelineProfileLaunch,
     PipelineProfileList,
     PipelineProfileRecord,
     PipelineProfileValidation,
     PipelineRunProfile,
+)
+from evm.control_panel.experiment_runs import (
+    ExperimentCancelRequest,
+    ExperimentRun,
+    ExperimentRunList,
+    FoldResult,
+    TrialResult,
 )
 from evm.control_panel.lifecycle_runs import (
     LifecycleActionRequest,
@@ -134,6 +142,9 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "/control-panel/v1/lifecycle-runs/{run_id}/queue" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/retry" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/approve" in openapi["paths"]
+    assert "/control-panel/v1/experiment-runs" in openapi["paths"]
+    assert "/control-panel/v1/experiment-runs/{experiment_id}" in openapi["paths"]
+    assert "/control-panel/v1/experiment-runs/{experiment_id}/cancel" in openapi["paths"]
     assert set(ControlPanelDiagnostics.model_fields).issubset(
         schemas["ControlPanelDiagnostics"]["properties"]
     )
@@ -186,6 +197,20 @@ def test_openapi_components_expose_enterprise_readiness_fields():
         *schemas["LifecycleApprovalRequest"]["allOf"][1]["properties"],
     }
     assert set(LifecycleApprovalRequest.model_fields).issubset(approval_properties)
+    assert set(HyperparameterSearchSpace.model_fields).issubset(
+        schemas["HyperparameterSearchSpace"]["properties"]
+    )
+    assert set(FoldResult.model_fields).issubset(schemas["ExperimentFoldResult"]["properties"])
+    assert set(TrialResult.model_fields).issubset(
+        schemas["ExperimentTrialResult"]["properties"]
+    )
+    assert set(ExperimentRun.model_fields).issubset(schemas["ExperimentRun"]["properties"])
+    assert set(ExperimentRunList.model_fields).issubset(
+        schemas["ExperimentRunList"]["properties"]
+    )
+    assert set(ExperimentCancelRequest.model_fields).issubset(
+        schemas["ExperimentCancelRequest"]["properties"]
+    )
 
 
 def test_openapi_drift_state_covers_every_pydantic_field():

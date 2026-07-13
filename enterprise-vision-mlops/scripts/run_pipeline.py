@@ -24,6 +24,7 @@ PIPELINE_MODULES = {
     "vlm-observability": "evm.pipelines.vlm_observability.run",
     "train": "evm.pipelines.training.run",
     "efficientnet-training": "evm.pipelines.efficientnet_training.run",
+    "experiment-search": "evm.pipelines.experiment_search.run",
     "register-model": "evm.pipelines.model_registry.run",
     "model-lifecycle": "evm.pipelines.model_lifecycle.run",
     "drift-review": "evm.pipelines.drift_review.run",

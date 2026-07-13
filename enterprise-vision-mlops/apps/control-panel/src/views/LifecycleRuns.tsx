@@ -1,9 +1,11 @@
 import {
   Activity,
+  BarChart3,
   CheckCircle2,
   CircleDashed,
   Clock3,
   FileWarning,
+  GitBranch,
   Play,
   RefreshCcw,
   RotateCcw,
@@ -15,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   approveLifecycleRun,
+  fetchExperimentRun,
   fetchLifecycleRuns,
   fetchLifecycleWorker,
   transitionLifecycleRun
@@ -24,7 +27,8 @@ import type {
   LifecycleRunState,
   LifecycleStage,
   LifecycleStageState,
-  LifecycleWorkerState
+  LifecycleWorkerState,
+  ExperimentRun
 } from "../api/types";
 
 
@@ -38,6 +42,7 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
   const [selectedId, setSelectedId] = useState("");
   const selectedRef = useRef("");
   const [worker, setWorker] = useState<LifecycleWorkerState>({ status: "offline" });
+  const [experiment, setExperiment] = useState<ExperimentRun | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncedAt, setSyncedAt] = useState("");
@@ -48,6 +53,7 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
       fetchLifecycleRuns(),
       fetchLifecycleWorker()
     ]);
+    let experimentId = selectedRef.current;
     if (runResult.status === "fulfilled") {
       setRuns(runResult.value.runs);
       const selectedExists = runResult.value.runs.some(
@@ -56,6 +62,7 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
       if (!selectedExists) {
         const nextRun = runResult.value.runs[0];
         const next = nextRun?.run_id || "";
+        experimentId = next;
         selectedRef.current = next;
         setSelectedId(next);
         if (nextRun?.cycle_id) onCycleContext?.(nextRun);
@@ -65,6 +72,15 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
       setError(message(runResult.reason));
     }
     if (workerResult.status === "fulfilled") setWorker(workerResult.value);
+    if (experimentId) {
+      try {
+        setExperiment(await fetchExperimentRun(experimentId));
+      } catch (reason) {
+        setError(message(reason));
+      }
+    } else {
+      setExperiment(null);
+    }
     setSyncedAt(new Date().toLocaleTimeString());
   }
 
@@ -97,6 +113,7 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
     setSelectedId(runId);
     const run = runs.find((item) => item.run_id === runId);
     if (run?.cycle_id) onCycleContext?.(run);
+    void fetchExperimentRun(runId).then(setExperiment).catch((reason) => setError(message(reason)));
   }
 
   async function runAction(action: "queue" | "cancel" | "retry") {
@@ -251,6 +268,10 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
               </div>
             </section>
 
+            {experiment?.lifecycle_run_id === selected.run_id ? (
+              <ExperimentProgress run={experiment} />
+            ) : null}
+
             <section className="panel lifecycle-stage-panel">
               <div className="panel-heading">
                 <div><h2>Execution Stages</h2><p>dependency and runtime state</p></div>
@@ -293,6 +314,46 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
           </div>
         ) : null}
       </div>
+    </section>
+  );
+}
+
+
+function ExperimentProgress({ run }: { run: ExperimentRun }) {
+  const metric = `${run.primary_metric}_mean`;
+  const ranked = run.trials
+    .filter((trial) => trial.state === "completed")
+    .slice()
+    .sort((left, right) => (right.aggregate_metrics[metric] || 0) - (left.aggregate_metrics[metric] || 0));
+  return (
+    <section className={`panel experiment-progress experiment-${run.state}`} aria-label="Cross-validation and hyperparameter search progress">
+      <div className="panel-heading">
+        <div><h2>Experiment Search</h2><p>{run.mode} / {run.folds}-fold / seed {run.seed}</p></div>
+        <BarChart3 />
+      </div>
+      <div className="experiment-progress-summary">
+        <div><span>State</span><strong>{run.state.replaceAll("_", " ")}</strong></div>
+        <div><span>Units</span><strong>{run.completed_units}/{run.total_units}</strong></div>
+        <div><span>MLflow Parent</span><strong title={run.parent_mlflow_run_id || "pending"}>{run.parent_mlflow_run_id?.slice(0, 12) || "pending"}</strong></div>
+        <div><span>Selected</span><strong>{run.selected_trial_id || "pending"}</strong></div>
+      </div>
+      <div className={`experiment-progress-bar state-${run.state}`} role="progressbar" aria-label="Experiment search progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(run.progress * 100)}>
+        <b style={{ width: `${Math.round(run.progress * 100)}%` }} />
+      </div>
+      {ranked.length ? (
+        <div className="experiment-trial-matrix">
+          {ranked.slice(0, 4).map((trial, index) => (
+            <article key={trial.trial_id} className={trial.trial_id === run.selected_trial_id ? "selected" : ""}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <div><strong>{trial.trial_id}</strong><small>{trial.folds.length} fold results</small></div>
+              <em>{((trial.aggregate_metrics[metric] || 0) * 100).toFixed(2)}%</em>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="experiment-awaiting"><GitBranch size={17} /><span>Fold evidence will appear after the first completed trial.</span></div>
+      )}
+      {run.blockers.length ? <details className="experiment-blockers"><summary>{run.blockers.length} experiment blocker{run.blockers.length === 1 ? "" : "s"}</summary>{run.blockers.map((item) => <code key={item}>{item}</code>)}</details> : null}
     </section>
   );
 }

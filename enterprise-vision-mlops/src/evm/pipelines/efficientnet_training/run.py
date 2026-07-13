@@ -96,6 +96,7 @@ def candidate_config(candidate: dict[str, Any], acceptance: dict[str, Any]) -> E
         freeze_backbone=bool(candidate.get("freeze_backbone", False)),
         optimizer=str(candidate.get("optimizer", "adamw")),
         learning_rate=float(candidate.get("learning_rate", 0.0003)),
+        weight_decay=float(candidate.get("weight_decay", 0.0)),
         batch_size=int(candidate.get("batch_size", 32)),
         mixed_precision=bool(candidate.get("mixed_precision", True)),
         resource_profile=str(candidate.get("resource_profile", "gpu-unknown")),
@@ -298,6 +299,23 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
         mlflow_experiment_name=str(
             inputs.get("mlflow_experiment_name", "enterprise-vision-w7-efficientnet")
         ),
+        parent_run_id=(
+            os.getenv("EVM_MLFLOW_PARENT_RUN_ID")
+            or str(execution.get("mlflow_parent_run_id") or "")
+            or None
+        ),
+        run_tags={
+            "evm.run_role": str(
+                os.getenv("EVM_MLFLOW_RUN_ROLE")
+                or execution.get("mlflow_run_role")
+                or "candidate"
+            ),
+            "evm.lifecycle_run_id": str(
+                os.getenv("EVM_LIFECYCLE_RUN_ID")
+                or execution.get("lifecycle_run_id")
+                or ""
+            ),
+        },
     )
 
     candidate_results: list[dict[str, Any]] = []

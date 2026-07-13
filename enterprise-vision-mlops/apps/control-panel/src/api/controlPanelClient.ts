@@ -15,6 +15,7 @@ import type {
   DeploymentTransitionRequest,
   DriftReviewTransitionRequest,
   DriftReviewWorkflow,
+  ExperimentRun,
   LifecycleActionRequest,
   LifecycleApprovalRequest,
   LifecycleRun,
@@ -423,6 +424,19 @@ export async function fetchLifecycleRuns(baseUrl = API_BASE): Promise<LifecycleR
   });
   if (!response.ok) throw await controlPanelError(response, "LifecycleRun list failed");
   return (await response.json()) as LifecycleRunList;
+}
+
+export async function fetchExperimentRun(
+  experimentId: string,
+  baseUrl = API_BASE
+): Promise<ExperimentRun | null> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/experiment-runs/${encodeURIComponent(experimentId)}`,
+    { headers: { Accept: "application/json" } }
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw await controlPanelError(response, "ExperimentRun request failed");
+  return (await response.json()) as ExperimentRun;
 }
 
 export async function fetchLifecycleWorker(baseUrl = API_BASE): Promise<LifecycleWorkerState> {

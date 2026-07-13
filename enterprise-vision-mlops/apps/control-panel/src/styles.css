@@ -4765,6 +4765,7 @@ h3 {
 
 .lifecycle-run-list,
 .lifecycle-summary,
+.experiment-progress,
 .lifecycle-stage-panel,
 .lifecycle-failure,
 .lifecycle-evidence {
@@ -4913,6 +4914,77 @@ h3 {
 
 .lifecycle-actions label span { color: #63767e; font-size: 0.64rem; font-weight: 800; }
 .lifecycle-actions input { min-height: 36px; padding: 7px 9px; border: 1px solid #cbd7dc; border-radius: 6px; color: inherit; background: #fff; }
+
+.experiment-progress {
+  display: grid;
+  gap: 11px;
+}
+
+.experiment-progress-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.experiment-progress-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding-left: 8px;
+  border-left: 2px solid #c9d6da;
+}
+
+.experiment-progress-summary span { color: #6a7a80; font-size: 0.62rem; text-transform: uppercase; }
+.experiment-progress-summary strong { overflow: hidden; font-size: 0.72rem; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
+
+.experiment-progress-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e1e9ec;
+}
+
+.experiment-progress-bar b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2a8196;
+  transition: width 360ms ease;
+}
+
+.experiment-progress-bar.state-running b {
+  background-color: #267f96;
+  background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0 8px, transparent 8px 16px);
+  background-size: 24px 24px;
+  animation: progress-stripes 900ms linear infinite;
+}
+
+.experiment-progress-bar.state-completed b { background: #24845e; }
+.experiment-progress-bar.state-blocked b,
+.experiment-progress-bar.state-failed b,
+.experiment-progress-bar.state-cancelled b { background: #b74950; }
+
+.experiment-trial-matrix { display: grid; }
+
+.experiment-trial-matrix article {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  border-top: 1px solid #e0e7ea;
+}
+
+.experiment-trial-matrix article:first-child { border-top: 0; }
+.experiment-trial-matrix article > span { color: #87949a; font-size: 0.65rem; font-weight: 900; }
+.experiment-trial-matrix article > div { display: grid; min-width: 0; gap: 2px; }
+.experiment-trial-matrix strong { overflow: hidden; font-size: 0.72rem; text-overflow: ellipsis; white-space: nowrap; }
+.experiment-trial-matrix small { color: #6d7c82; font-size: 0.62rem; }
+.experiment-trial-matrix em { color: #315d6a; font-size: 0.74rem; font-style: normal; font-weight: 900; }
+.experiment-trial-matrix article.selected em { color: #237f5c; }
+.experiment-awaiting { display: flex; align-items: center; gap: 8px; min-height: 48px; color: #6d7c82; font-size: 0.7rem; }
+.experiment-blockers summary { color: #a23b44; cursor: pointer; font-size: 0.68rem; font-weight: 900; }
+.experiment-blockers code { display: block; margin-top: 4px; overflow-wrap: anywhere; color: #9f3942; font-size: 0.64rem; }
 
 .danger-action {
   display: inline-flex;
@@ -5082,6 +5154,17 @@ h3 {
   color: #9ba3a9;
 }
 
+:root[data-theme="dark"] .experiment-progress-summary span,
+:root[data-theme="dark"] .experiment-trial-matrix small,
+:root[data-theme="dark"] .experiment-awaiting { color: #9ba3a9; }
+
+:root[data-theme="dark"] .experiment-progress-summary > div,
+:root[data-theme="dark"] .experiment-trial-matrix article { border-color: #2f3439; }
+
+:root[data-theme="dark"] .experiment-progress-bar { background: #292d32; }
+:root[data-theme="dark"] .experiment-trial-matrix em { color: #68b4c4; }
+:root[data-theme="dark"] .experiment-trial-matrix article.selected em { color: #66bd91; }
+
 :root[data-theme="dark"] .worker-health,
 :root[data-theme="dark"] .lifecycle-run-rows > button:hover,
 :root[data-theme="dark"] .lifecycle-run-rows > button.active {
@@ -5126,6 +5209,7 @@ h3 {
   .worker-health { width: 100%; min-width: 0; }
   .lifecycle-run-rows { grid-template-columns: 1fr; }
   .lifecycle-metadata { grid-template-columns: 1fr; }
+  .experiment-progress-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lifecycle-stage-row { grid-template-columns: 26px 26px minmax(0, 1fr); }
   .lifecycle-stage-status { grid-column: 3; justify-items: start; text-align: left; }
   .lifecycle-stage-copy header { align-items: flex-start; flex-direction: column; }
@@ -5142,4 +5226,5 @@ h3 {
   .stage-running .lifecycle-stage-progress::after {
     animation: none;
   }
+  .experiment-progress-bar.state-running b { animation: none; }
 }

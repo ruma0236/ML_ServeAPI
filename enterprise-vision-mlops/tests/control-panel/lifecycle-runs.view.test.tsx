@@ -2,11 +2,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { LifecycleRun } from "../../apps/control-panel/src/api/types";
+import type { ExperimentRun, LifecycleRun } from "../../apps/control-panel/src/api/types";
 
 
 const api = vi.hoisted(() => ({
   fetchLifecycleRuns: vi.fn(),
+  fetchExperimentRun: vi.fn(),
   fetchLifecycleWorker: vi.fn(),
   transitionLifecycleRun: vi.fn(),
   approveLifecycleRun: vi.fn()
@@ -30,6 +31,7 @@ describe("Lifecycle Runs view", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.fetchLifecycleRuns.mockResolvedValue({ runs: [run], total: 1 });
+    api.fetchExperimentRun.mockResolvedValue(null);
     api.fetchLifecycleWorker.mockResolvedValue({
       status: "online",
       worker_id: "worker-1",
@@ -81,6 +83,23 @@ describe("Lifecycle Runs view", () => {
     expect(completed?.textContent).toContain("100%");
     expect(completed?.textContent).not.toContain("1/3");
     expect(completed?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("100");
+  });
+
+  it("renders live cross-validation progress and MLflow lineage", async () => {
+    api.fetchExperimentRun.mockResolvedValue(experimentRun());
+
+    await act(async () => root.render(<LifecycleRuns />));
+    await flushUpdates();
+
+    expect(api.fetchExperimentRun).toHaveBeenCalledWith(run.run_id);
+    expect(container.textContent).toContain("Experiment Search");
+    expect(container.textContent).toContain("grid / 2-fold / seed 20260713");
+    expect(container.textContent).toContain("2/5");
+    expect(container.textContent).toContain("mlflow-pare");
+    expect(container.textContent).toContain("trial-001");
+    expect(
+      container.querySelector('[aria-label="Experiment search progress"]')?.getAttribute("aria-valuenow")
+    ).toBe("40");
   });
 
   it("renders a completed legacy approval as approved", async () => {
@@ -221,6 +240,47 @@ function lifecycleRun(): LifecycleRun {
       blockers: index === 4 ? ["artifact_readiness_blocked"] : []
     })),
     audit: []
+  };
+}
+
+
+function experimentRun(): ExperimentRun {
+  return {
+    schema_version: "evm.experiment_run.v1",
+    experiment_id: run.run_id,
+    lifecycle_run_id: run.run_id,
+    profile_name: "w8-b0-grid",
+    profile_digest: "d".repeat(64),
+    dataset_version: "visa-open-data-e35d93d5561f",
+    source_manifest_sha256: "e".repeat(64),
+    holdout_split: "test",
+    holdout_sha256: "f".repeat(64),
+    mode: "grid",
+    primary_metric: "f1",
+    seed: 20260713,
+    folds: 2,
+    repeats: 1,
+    requested_trials: 2,
+    total_units: 5,
+    completed_units: 2,
+    progress: 0.4,
+    state: "running",
+    gpu_quota: 1,
+    scheduled_parallelism: 1,
+    parent_mlflow_run_id: "mlflow-parent-123456",
+    selected_parameters: {},
+    trials: [{
+      trial_id: "trial-001",
+      state: "completed",
+      parameters: { learning_rate: 0.0003 },
+      folds: [],
+      aggregate_metrics: { f1_mean: 0.94 },
+      score: 0.94
+    }],
+    blockers: [],
+    created_at: "2026-07-13T00:00:00Z",
+    updated_at: "2026-07-13T00:05:00Z",
+    started_at: "2026-07-13T00:00:10Z"
   };
 }
 

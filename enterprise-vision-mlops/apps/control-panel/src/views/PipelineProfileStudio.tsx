@@ -347,7 +347,14 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
                         component_id: component.component_id,
                         component_version: component.version,
                         architecture: component.architecture,
-                        input_size: component.default_input_size
+                        input_size: component.default_input_size,
+                        batch_size: component.architecture === "efficientnet-b7" ? 4 : 64,
+                        learning_rate: component.architecture === "efficientnet-b7" ? 0.0001 : 0.0003,
+                        search_space: {
+                          ...profile.model.search_space,
+                          learning_rates: component.architecture === "efficientnet-b7" ? [0.00005, 0.0001] : [0.0001, 0.0003],
+                          batch_sizes: component.architecture === "efficientnet-b7" ? [4, 8] : [32, 64]
+                        }
                       }
                     })}
                   >
@@ -375,6 +382,22 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
                 <Toggle label="Mixed Precision" checked={profile.model.mixed_precision} onChange={(value) => updateProfile({ ...profile, model: { ...profile.model, mixed_precision: value } })} />
                 <Toggle label="Class Weighted Loss" checked={profile.model.class_weighted_loss} onChange={(value) => updateProfile({ ...profile, model: { ...profile.model, class_weighted_loss: value } })} />
               </div>
+              {profile.model.tuning_mode !== "manual" || profile.data.split.cross_validation_enabled ? (
+                <>
+                  <SectionHeading icon={<SlidersHorizontal />} title="Bounded Search Space" />
+                  <div className="profile-form-grid">
+                    <NumberListField label="Learning Rates" values={profile.model.search_space.learning_rates} onChange={(values) => updateProfile({ ...profile, model: { ...profile.model, search_space: { ...profile.model.search_space, learning_rates: values } } })} />
+                    <NumberListField label="Weight Decays" values={profile.model.search_space.weight_decays} onChange={(values) => updateProfile({ ...profile, model: { ...profile.model, search_space: { ...profile.model.search_space, weight_decays: values } } })} />
+                    <IntegerListField label="Batch Sizes" values={profile.model.search_space.batch_sizes} onChange={(values) => updateProfile({ ...profile, model: { ...profile.model, search_space: { ...profile.model.search_space, batch_sizes: values } } })} />
+                  </div>
+                  <div className="toggle-row">
+                    <Toggle label="Search AdamW" checked={profile.model.search_space.optimizers.includes("adamw")} onChange={(checked) => updateProfile({ ...profile, model: { ...profile.model, search_space: { ...profile.model.search_space, optimizers: toggleOption(profile.model.search_space.optimizers, "adamw", checked) } } })} />
+                    <Toggle label="Search SGD" checked={profile.model.search_space.optimizers.includes("sgd")} onChange={(checked) => updateProfile({ ...profile, model: { ...profile.model, search_space: { ...profile.model.search_space, optimizers: toggleOption(profile.model.search_space.optimizers, "sgd", checked) } } })} />
+                    <Toggle label="Try Fine-tune" checked={profile.model.search_space.freeze_backbone_options.includes(false)} onChange={(checked) => updateProfile({ ...profile, model: { ...profile.model, search_space: { ...profile.model.search_space, freeze_backbone_options: toggleOption(profile.model.search_space.freeze_backbone_options, false, checked) } } })} />
+                    <Toggle label="Try Frozen" checked={profile.model.search_space.freeze_backbone_options.includes(true)} onChange={(checked) => updateProfile({ ...profile, model: { ...profile.model, search_space: { ...profile.model.search_space, freeze_backbone_options: toggleOption(profile.model.search_space.freeze_backbone_options, true, checked) } } })} />
+                  </div>
+                </>
+              ) : null}
               <SectionHeading icon={<Wrench />} title="Experiment And Compute" />
               <div className="profile-form-grid">
                 <TextField className="field-wide" label="MLflow Experiment" value={profile.experiment.mlflow_experiment_name} onChange={(value) => updateProfile({ ...profile, experiment: { ...profile.experiment, mlflow_experiment_name: value } })} />
@@ -427,6 +450,7 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
                 <SummaryRow label="Split" value={`${profile.data.split.seed} / ${profile.data.split.train}:${profile.data.split.validation}:${profile.data.split.test}`} />
                 <SummaryRow label="Model" value={`${profile.model.component_id} / ${profile.model.component_version}`} />
                 <SummaryRow label="Training" value={`${profile.model.epochs} epochs / batch ${profile.model.batch_size} / ${profile.model.optimizer}`} />
+                <SummaryRow label="Search" value={`${profile.model.tuning_mode} / ${profile.model.max_trials} trials / ${profile.data.split.cross_validation_enabled ? `${profile.data.split.cross_validation_folds}-fold` : "single split"}`} />
                 <SummaryRow label="Target" value={`${profile.gates.target_environment} / ${profile.gates.target_namespace}`} />
                 <SummaryRow label="Compute" value={`${profile.resources.compute_target} / GPU ${profile.resources.gpu_count}`} />
               </dl>
@@ -569,6 +593,16 @@ function NumberField({ label, value, step, onChange }: { label: string; value: n
 }
 
 
+function NumberListField({ label, values, onChange }: { label: string; values: number[]; onChange: (values: number[]) => void }) {
+  return <label><span>{label}</span><input aria-label={label} value={values.join(", ")} onChange={(event) => onChange(parseNumberList(event.target.value, false))} /></label>;
+}
+
+
+function IntegerListField({ label, values, onChange }: { label: string; values: number[]; onChange: (values: number[]) => void }) {
+  return <label><span>{label}</span><input aria-label={label} value={values.join(", ")} onChange={(event) => onChange(parseNumberList(event.target.value, true))} /></label>;
+}
+
+
 function SelectField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
   return <label><span>{label}</span><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>{options.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>;
 }
@@ -576,6 +610,23 @@ function SelectField({ label, value, options, onChange }: { label: string; value
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return <label className="profile-toggle"><input aria-label={label} type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i /><span>{label}</span></label>;
+}
+
+
+function parseNumberList(value: string, integers: boolean): number[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .map(Number)
+    .filter((item) => Number.isFinite(item))
+    .map((item) => integers ? Math.round(item) : item);
+}
+
+
+function toggleOption<T>(values: T[], option: T, checked: boolean): T[] {
+  if (checked) return values.includes(option) ? values : [...values, option];
+  return values.filter((value) => value !== option);
 }
 
 

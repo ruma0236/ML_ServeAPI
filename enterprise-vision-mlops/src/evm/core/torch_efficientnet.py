@@ -11,7 +11,7 @@ import sys
 import time
 from collections import Counter
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,8 @@ class TorchRuntimeConfig:
     pin_memory: bool
     mlflow_tracking_uri: str
     mlflow_experiment_name: str
+    parent_run_id: str | None = None
+    run_tags: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,7 @@ class EfficientNetCandidateConfig:
     mixed_precision: bool
     resource_profile: str
     epochs: int
+    weight_decay: float = 0.0
     early_stop_accuracy: float | None = None
     early_stop_min_epochs: int = 1
     class_weighted_loss: bool = True
@@ -271,7 +274,6 @@ class VisaImageDataset:
 
 
 def build_model(candidate: EfficientNetCandidateConfig, num_classes: int) -> Any:
-    import torch
     from torch import nn
     from torchvision import models
 
@@ -297,9 +299,18 @@ def build_optimizer(candidate: EfficientNetCandidateConfig, parameters: Iterable
     import torch
 
     if candidate.optimizer.lower() == "adamw":
-        return torch.optim.AdamW(parameters, lr=candidate.learning_rate)
+        return torch.optim.AdamW(
+            parameters,
+            lr=candidate.learning_rate,
+            weight_decay=candidate.weight_decay,
+        )
     if candidate.optimizer.lower() == "sgd":
-        return torch.optim.SGD(parameters, lr=candidate.learning_rate, momentum=0.9)
+        return torch.optim.SGD(
+            parameters,
+            lr=candidate.learning_rate,
+            momentum=0.9,
+            weight_decay=candidate.weight_decay,
+        )
     raise ValueError(f"unsupported optimizer: {candidate.optimizer}")
 
 
@@ -588,7 +599,10 @@ def log_mlflow_run(
     experiment_id = client.get_or_create_experiment(runtime.mlflow_experiment_name)
     if not experiment_id:
         return "blocked", "mlflow_experiment_missing"
-    run_id = client.create_run(experiment_id, candidate.candidate_id)
+    tags = dict(runtime.run_tags)
+    if runtime.parent_run_id:
+        tags["mlflow.parentRunId"] = runtime.parent_run_id
+    run_id = client.create_run(experiment_id, candidate.candidate_id, tags=tags)
     if not run_id:
         return "blocked", "mlflow_run_missing"
 
@@ -601,6 +615,7 @@ def log_mlflow_run(
         "freeze_backbone": candidate.freeze_backbone,
         "optimizer": candidate.optimizer,
         "learning_rate": candidate.learning_rate,
+        "weight_decay": candidate.weight_decay,
         "batch_size": candidate.batch_size,
         "mixed_precision": candidate.mixed_precision,
         "epochs": candidate.epochs,
@@ -799,6 +814,7 @@ def train_candidate(
             "freeze_backbone": candidate.freeze_backbone,
             "optimizer": candidate.optimizer,
             "learning_rate": candidate.learning_rate,
+            "weight_decay": candidate.weight_decay,
             "batch_size": candidate.batch_size,
             "mixed_precision": candidate.mixed_precision,
             "epochs": len(history),

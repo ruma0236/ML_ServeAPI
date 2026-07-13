@@ -110,6 +110,31 @@ def test_training_bundle_uses_blueprint_component_image_and_rejects_unpinned_ima
         materialize_training_bundle(run)
 
 
+def test_training_bundle_routes_enabled_search_to_experiment_pipeline(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = lifecycle_run(tmp_path, monkeypatch)
+    model_path = Path(run.model_config_uri)
+    model = json.loads(model_path.read_text(encoding="utf-8"))
+    model["experiment_search"]["enabled"] = True
+    write_json(model_path, model)
+
+    bundle = materialize_training_bundle(run)
+    job = json.loads((bundle.manifest_dir / "training-job.json").read_text(encoding="utf-8"))
+    container = job["spec"]["template"]["spec"]["containers"][0]
+
+    assert "evm.pipelines.experiment_search.run" in container["command"][2]
+    assert "--require-pass" in container["command"][2]
+    assert any(
+        item == {
+            "name": "EVM_EXPERIMENT_RUN_ROOT",
+            "value": "/mnt/evm-data/artifacts/w8/experiment_runs",
+        }
+        for item in container["env"]
+    )
+
+
 def test_training_evidence_binds_job_gpu_mlflow_and_model_digest(tmp_path, monkeypatch) -> None:
     run = lifecycle_run(tmp_path, monkeypatch)
     bundle = materialize_training_bundle(run)

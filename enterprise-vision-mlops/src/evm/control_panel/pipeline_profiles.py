@@ -69,6 +69,14 @@ class DataProfile(ContractModel):
     split: SplitPolicy = Field(default_factory=SplitPolicy)
 
 
+class HyperparameterSearchSpace(ContractModel):
+    learning_rates: list[float] = Field(default_factory=lambda: [0.0001, 0.0003])
+    weight_decays: list[float] = Field(default_factory=lambda: [0.0001, 0.001])
+    batch_sizes: list[int] = Field(default_factory=lambda: [32, 64])
+    optimizers: list[Literal["adamw", "sgd"]] = Field(default_factory=lambda: ["adamw"])
+    freeze_backbone_options: list[bool] = Field(default_factory=lambda: [False])
+
+
 class ModelProfile(ContractModel):
     framework: Literal["torch"] = "torch"
     component_id: str = "torchvision-efficientnet-b0"
@@ -90,6 +98,7 @@ class ModelProfile(ContractModel):
     early_stop_patience: int = Field(default=3, ge=1, le=50)
     tuning_mode: Literal["manual", "grid", "bayesian"] = "manual"
     max_trials: int = Field(default=1, ge=1, le=200)
+    search_space: HyperparameterSearchSpace = Field(default_factory=HyperparameterSearchSpace)
 
 
 class ExperimentProfile(ContractModel):
@@ -354,6 +363,37 @@ def validate_profile(profile: PipelineRunProfile) -> PipelineProfileValidation:
         blockers.append("efficientnet_gpu_required")
     if profile.resources.max_parallel_trials > profile.model.max_trials:
         warnings.append("parallel_trials_exceed_requested_trials")
+    search = profile.model.search_space
+    if not search.learning_rates or any(value <= 0 or value > 1 for value in search.learning_rates):
+        blockers.append("search_space_learning_rates_invalid")
+    if not search.weight_decays or any(value < 0 or value > 1 for value in search.weight_decays):
+        blockers.append("search_space_weight_decays_invalid")
+    if not search.batch_sizes or any(value < 1 or value > 512 for value in search.batch_sizes):
+        blockers.append("search_space_batch_sizes_invalid")
+    if not search.optimizers:
+        blockers.append("search_space_optimizers_empty")
+    if not search.freeze_backbone_options:
+        blockers.append("search_space_freeze_options_empty")
+    if profile.model.tuning_mode != "manual" and profile.model.max_trials < 2:
+        blockers.append("automated_search_requires_multiple_trials")
+    if (
+        profile.model.tuning_mode != "manual"
+        and profile.resources.max_parallel_trials > profile.resources.gpu_count
+    ):
+        blockers.append("parallel_trial_gpu_quota_exceeded")
+    if profile.model.tuning_mode == "bayesian":
+        variable_dimensions = sum(
+            len(values) > 1
+            for values in (
+                search.learning_rates,
+                search.weight_decays,
+                search.batch_sizes,
+                search.optimizers,
+                search.freeze_backbone_options,
+            )
+        )
+        if variable_dimensions == 0:
+            blockers.append("bayesian_search_space_degenerate")
     if profile.experiment.ab_test_enabled:
         if not profile.experiment.control_candidate_id or not profile.experiment.challenger_candidate_id:
             blockers.append("ab_test_candidates_required")
@@ -418,16 +458,16 @@ def capability_matrix(profile: PipelineRunProfile) -> list[PipelineCapability]:
         capability(
             "cross_validation_executor",
             "Cross-validation executor",
-            "not_wired",
+            "wired",
             profile.data.split.cross_validation_enabled,
-            "Fold policy is modeled, but no fold fan-out/aggregate runtime exists yet.",
+            "Deterministic stratified fold fan-out excludes the immutable holdout and aggregates trial evidence.",
         ),
         capability(
             "automated_tuning_executor",
             "Automated search executor",
-            "not_wired",
+            "wired",
             profile.model.tuning_mode != "manual",
-            "Manual values are wired; grid/Bayesian trial orchestration is not implemented.",
+            "Bounded grid and Optuna Bayesian trials produce MLflow parent-child lineage and a comparison matrix.",
         ),
         capability(
             "ab_traffic_router",
@@ -938,6 +978,30 @@ def render_model_config(
     config["execution"] = {
         "num_workers": max(1, min(profile.resources.cpu_request, 16)),
         "pin_memory": profile.resources.gpu_count > 0,
+    }
+    search_enabled = (
+        profile.data.split.cross_validation_enabled
+        or profile.model.tuning_mode != "manual"
+    )
+    config["experiment_search"] = {
+        "schema_version": "evm.experiment_search_config.v1",
+        "enabled": search_enabled,
+        "mode": profile.model.tuning_mode,
+        "folds": profile.data.split.cross_validation_folds,
+        "repeats": profile.experiment.repeats,
+        "seed": profile.data.split.seed,
+        "primary_metric": profile.experiment.primary_metric,
+        "max_trials": profile.model.max_trials,
+        "max_parallel_trials": profile.resources.max_parallel_trials,
+        "gpu_quota": profile.resources.gpu_count,
+        "holdout_split": profile.data.split.holdout_split,
+        "immutable_holdout": profile.data.split.immutable_holdout,
+        "allow_holdout_in_search": False,
+        "final_refit": True,
+        "artifact_root": runtime_data_uri(
+            f"{host_data_root}/artifacts/w8/experiment_runs"
+        ),
+        "search_space": profile.model.search_space.model_dump(mode="json"),
     }
     config["candidates"] = [
         {

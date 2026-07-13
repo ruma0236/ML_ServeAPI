@@ -19,8 +19,10 @@ RUN pip install --no-cache-dir \
     && pip install --no-cache-dir \
       boto3==1.35.76 \
       matplotlib==3.9.2 \
+      optuna==4.9.0 \
       pillow==12.2.0 \
-      requests==2.32.3
+      requests==2.32.3 \
+      scikit-learn==1.5.2
 
 RUN useradd --create-home --uid 10001 evm
 

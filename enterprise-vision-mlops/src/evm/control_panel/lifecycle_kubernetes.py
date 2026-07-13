@@ -72,7 +72,13 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     storage = storage_resources(namespace, read_only=False)
     write_json(directory / "storage-pv.json", storage[0])
     write_json(directory / "storage-pvc.json", storage[1])
-    command = training_command(run.model_runtime_uri)
+    experiment_search_enabled = bool(
+        object_value(model, "experiment_search").get("enabled")
+    )
+    command = training_command(
+        run.model_runtime_uri,
+        experiment_search=experiment_search_enabled,
+    )
     job = {
         "apiVersion": "batch/v1",
         "kind": "Job",
@@ -104,6 +110,10 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
                                 env("EVM_PROJECT_ROOT", "/app"),
                                 env("EVM_HOST_DATA_ROOT", host_data_root()),
                                 env("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data"),
+                                env(
+                                    "EVM_EXPERIMENT_RUN_ROOT",
+                                    "/mnt/evm-data/artifacts/w8/experiment_runs",
+                                ),
                                 env("HOME", "/tmp"),
                                 env("MPLCONFIGDIR", "/tmp/matplotlib"),
                                 env("TORCH_HOME", "/mnt/evm-data/cache/torch"),
@@ -482,7 +492,12 @@ def container_security_context() -> dict[str, Any]:
     }
 
 
-def training_command(config_uri: str) -> str:
+def training_command(config_uri: str, *, experiment_search: bool = False) -> str:
+    module = (
+        "evm.pipelines.experiment_search.run"
+        if experiment_search
+        else "evm.pipelines.efficientnet_training.run"
+    )
     return (
         'DRIVER_DIR=""; '
         'for candidate in /usr/lib/wsl/drivers/*; do '
@@ -490,7 +505,7 @@ def training_command(config_uri: str) -> str:
         'done; test -n "$DRIVER_DIR"; '
         'export LD_LIBRARY_PATH="$DRIVER_DIR:/usr/lib/wsl/lib"; '
         'export PATH="$DRIVER_DIR:/usr/lib/wsl/lib:$PATH"; '
-        f"exec python -m evm.pipelines.efficientnet_training.run {config_uri} --require-pass"
+        f"exec python -m {module} {config_uri} --require-pass"
     )
 
 

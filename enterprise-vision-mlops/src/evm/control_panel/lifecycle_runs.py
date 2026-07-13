@@ -18,6 +18,7 @@ from evm.control_panel.pipeline_profiles import (
     validate_profile,
     validate_profile_replay,
 )
+from evm.control_panel.experiment_runs import mark_cancellation_requested
 from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import AuditEvent, ContractModel
 
@@ -710,6 +711,11 @@ def cancel_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecy
                 "lifecycle_run_terminal",
                 f"LifecycleRun {run_id} is already {run.state}.",
             )
+        mark_cancellation_requested(
+            run_id,
+            actor=request.actor,
+            reason=request.reason,
+        )
         for index, stage in enumerate(run.stages):
             if stage.state in {"queued", "running", "waiting_approval", "not_started"}:
                 run.stages[index] = stage.model_copy(update={"state": "cancelled"})

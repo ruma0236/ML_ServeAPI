@@ -649,6 +649,14 @@ export interface PipelineDataProfile {
   split: PipelineSplitPolicy;
 }
 
+export interface PipelineHyperparameterSearchSpace {
+  learning_rates: number[];
+  weight_decays: number[];
+  batch_sizes: number[];
+  optimizers: Array<"adamw" | "sgd">;
+  freeze_backbone_options: boolean[];
+}
+
 export interface PipelineModelProfile {
   framework: "torch";
   component_id: string;
@@ -670,6 +678,7 @@ export interface PipelineModelProfile {
   early_stop_patience: number;
   tuning_mode: "manual" | "grid" | "bayesian";
   max_trials: number;
+  search_space: PipelineHyperparameterSearchSpace;
 }
 
 export interface ModelComponent {
@@ -921,6 +930,74 @@ export interface LifecycleWorkerState {
   last_seen_at?: string | null;
   current_run_id?: string | null;
   message?: string | null;
+}
+
+export type ExperimentRunState =
+  | "planned"
+  | "running"
+  | "cancelling"
+  | "cancelled"
+  | "completed"
+  | "blocked"
+  | "failed";
+
+export interface ExperimentFoldResult {
+  repeat: number;
+  fold: number;
+  state: "planned" | "running" | "completed" | "blocked" | "cancelled";
+  seed: number;
+  train_records: number;
+  validation_records: number;
+  metrics: Record<string, number>;
+  mlflow_run_id?: string | null;
+  artifact_uri?: string | null;
+  blocker?: string | null;
+}
+
+export interface ExperimentTrialResult {
+  trial_id: string;
+  state: "planned" | "running" | "completed" | "blocked" | "cancelled";
+  parameters: Record<string, string | number | boolean>;
+  folds: ExperimentFoldResult[];
+  aggregate_metrics: Record<string, number>;
+  score?: number | null;
+  blocker?: string | null;
+}
+
+export interface ExperimentRun {
+  schema_version: "evm.experiment_run.v1";
+  experiment_id: string;
+  lifecycle_run_id: string;
+  profile_name: string;
+  profile_digest: string;
+  dataset_version: string;
+  source_manifest_sha256: string;
+  holdout_split: string;
+  holdout_sha256: string;
+  mode: "manual" | "grid" | "bayesian";
+  primary_metric: "accuracy" | "f1" | "auroc";
+  seed: number;
+  folds: number;
+  repeats: number;
+  requested_trials: number;
+  total_units: number;
+  completed_units: number;
+  progress: number;
+  state: ExperimentRunState;
+  gpu_quota: number;
+  scheduled_parallelism: number;
+  parent_mlflow_run_id?: string | null;
+  selected_trial_id?: string | null;
+  selected_parameters: Record<string, string | number | boolean>;
+  fold_manifest_uri?: string | null;
+  comparison_matrix_uri?: string | null;
+  final_model_matrix_uri?: string | null;
+  trials: ExperimentTrialResult[];
+  blockers: string[];
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
 }
 
 export interface LifecycleRunRequest {

@@ -70,7 +70,7 @@ def test_default_full_lifecycle_is_executable_through_lifecycle_orchestrator(tmp
     assert capability.status == "wired"
 
 
-def test_data_cycle_profile_is_executable_but_cross_validation_is_not(tmp_path: Path) -> None:
+def test_data_cycle_profile_and_cross_validation_are_executable(tmp_path: Path) -> None:
     data_profile = profile_with_evidence(tmp_path, execution_scope="data_cycle")
     validation = validate_profile(data_profile)
     assert validation.valid is True
@@ -81,8 +81,27 @@ def test_data_cycle_profile_is_executable_but_cross_validation_is_not(tmp_path: 
     cv_profile = data_profile.model_copy(update={"data": data})
     cv_validation = validate_profile(cv_profile)
     assert cv_validation.valid is True
-    assert cv_validation.executable is False
-    assert "capability_not_wired:cross_validation_executor" in cv_validation.blockers
+    assert cv_validation.executable is True
+    capability = next(
+        item
+        for item in cv_validation.capabilities
+        if item.capability_id == "cross_validation_executor"
+    )
+    assert capability.status == "wired"
+    assert capability.active is True
+
+
+def test_automated_search_rejects_unbounded_parallelism(tmp_path: Path) -> None:
+    profile = profile_with_evidence(tmp_path)
+    model = profile.model.model_copy(update={"tuning_mode": "grid", "max_trials": 3})
+    resources = profile.resources.model_copy(update={"gpu_count": 1, "max_parallel_trials": 2})
+
+    validation = validate_profile(
+        profile.model_copy(update={"model": model, "resources": resources})
+    )
+
+    assert validation.executable is False
+    assert "parallel_trial_gpu_quota_exceeded" in validation.blockers
 
 
 def test_saved_profile_is_versioned_idempotent_and_renders_runtime_configs(
@@ -116,6 +135,9 @@ def test_saved_profile_is_versioned_idempotent_and_renders_runtime_configs(
     assert airflow["pipelines"]["dataset_shards"]["split_ratios"]["test"] == 0.2
     assert model["candidates"][0]["architecture"] == "efficientnet-b0"
     assert model["candidates"][0]["early_stop_accuracy"] == 0.93
+    assert model["candidates"][0]["weight_decay"] == 0.0001
+    assert model["experiment_search"]["enabled"] is False
+    assert model["experiment_search"]["search_space"]["batch_sizes"] == [32, 64]
     assert model["inputs"]["base_config"] == first.airflow_runtime_uri
     assert model["model_matrix"]["rollback_registry_path"].endswith(
         "/artifacts/registry/efficientnet-b0/rollback.json"
