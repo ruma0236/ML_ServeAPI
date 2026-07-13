@@ -17,6 +17,7 @@ from evm.control_panel.deployment_intents import (
     queue_intent,
     request_approval,
 )
+from evm.control_panel.experiment_runs import read_experiment
 from evm.control_panel.kubernetes_task_executor import execute_kubernetes_task
 from evm.control_panel.lifecycle_gpu_handoff import (
     acquire_gpu_handoff,
@@ -421,7 +422,7 @@ def process_model_training(
     if task.status != "done":
         raise LifecycleStageBlocked(
             f"kubernetes_training_{task.status}",
-            [task.failure_reason or f"kubernetes_training_{task.status}"],
+            training_failure_blockers(run, task),
         )
     evidence, evidence_path = build_training_evidence(run, task, bundle, runner=runner)
     if evidence["status"] != "pass":
@@ -442,6 +443,30 @@ def process_model_training(
             f"Real GPU training completed; MLflow run {evidence['mlflow_run_id']}"
         ),
     )
+
+
+def training_failure_blockers(
+    run: LifecycleRun,
+    task: TaskAssignment,
+) -> list[str]:
+    blockers = [task.failure_reason or f"kubernetes_training_{task.status}"]
+    experiment = read_experiment(run.run_id)
+    if experiment is not None:
+        blockers.extend(experiment.blockers)
+    try:
+        matrix_path = model_matrix_path(run)
+        matrix = read_json(matrix_path) if matrix_path.is_file() else {}
+    except (OSError, ValueError):
+        matrix = {}
+    candidates = matrix.get("candidates")
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_blockers = candidate.get("promotion_blockers")
+            if isinstance(candidate_blockers, list):
+                blockers.extend(str(item) for item in candidate_blockers if item)
+    return sorted(set(blockers))
 
 
 def process_model_evaluation(

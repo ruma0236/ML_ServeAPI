@@ -47,6 +47,10 @@ import { StatusBadge } from "../components/StatusBadge";
 
 interface PipelineProfileStudioProps {
   cycle: CycleRun;
+  profileTarget?: {
+    profileId: string;
+    version: number;
+  } | null;
 }
 
 
@@ -71,7 +75,7 @@ const namespaces: Record<EnvironmentTier, string> = {
 };
 
 
-export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
+export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileStudioProps) {
   const [profile, setProfile] = useState<PipelineRunProfile | null>(null);
   const [validation, setValidation] = useState<PipelineProfileValidation | null>(null);
   const [saved, setSaved] = useState<PipelineProfileRecord | null>(null);
@@ -93,11 +97,20 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
         fetchPipelineProfiles(),
         fetchModelComponents()
       ]);
-      defaultProfile.owner = cycle.tenant?.model_owner || defaultProfile.owner;
-      setProfile(defaultProfile);
-      setRawText(JSON.stringify(defaultProfile, null, 2));
-      const existing = history.find(
-        (item) => JSON.stringify(item.profile) === JSON.stringify(defaultProfile)
+      const targeted = profileTarget
+        ? history.find(
+            (item) => item.profile_id === profileTarget.profileId
+              && item.version === profileTarget.version
+          ) || null
+        : null;
+      const loadedProfile = targeted?.profile || defaultProfile;
+      if (!targeted) {
+        loadedProfile.owner = cycle.tenant?.model_owner || loadedProfile.owner;
+      }
+      setProfile(loadedProfile);
+      setRawText(JSON.stringify(loadedProfile, null, 2));
+      const existing = targeted || history.find(
+        (item) => JSON.stringify(item.profile) === JSON.stringify(loadedProfile)
       ) || null;
       setSaved(existing);
       setReplayValidation(
@@ -107,11 +120,11 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
       );
       setModelComponents(componentCatalog.components.filter((component) => component.status === "approved"));
       const sequence = ++validationSequence.current;
-      const result = await validatePipelineProfile(defaultProfile);
+      const result = await validatePipelineProfile(loadedProfile);
       if (sequence === validationSequence.current) setValidation(result);
     }
     void load().catch((reason) => setError(message(reason)));
-  }, [cycle.tenant?.model_owner]);
+  }, [cycle.tenant?.model_owner, profileTarget?.profileId, profileTarget?.version]);
 
   useEffect(() => {
     if (!profile) return;

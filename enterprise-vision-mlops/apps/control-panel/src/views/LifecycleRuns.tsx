@@ -5,12 +5,14 @@ import {
   CircleDashed,
   Clock3,
   FileWarning,
+  Gauge,
   GitBranch,
   Play,
   RefreshCcw,
   RotateCcw,
   ShieldCheck,
   Square,
+  Wrench,
   XCircle
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -28,16 +30,18 @@ import type {
   LifecycleStage,
   LifecycleStageState,
   LifecycleWorkerState,
-  ExperimentRun
+  ExperimentRun,
+  ExperimentTrainingTelemetry
 } from "../api/types";
 
 
 interface LifecycleRunsProps {
   onCycleContext?: (run: LifecycleRun) => void;
+  onOpenBlueprint?: (run: LifecycleRun) => void;
 }
 
 
-export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
+export function LifecycleRuns({ onCycleContext, onOpenBlueprint }: LifecycleRunsProps = {}) {
   const [runs, setRuns] = useState<LifecycleRun[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const selectedRef = useRef("");
@@ -106,7 +110,12 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
       || selected.stages.find((stage) => stage.state === "blocked" || stage.state === "failed")
       || null;
   }, [selected]);
-  const canRetry = Boolean(retryStage && retryStage.attempt < retryStage.max_attempts);
+  const qualityRevisionRequired = experiment?.quality_review?.state === "review_required";
+  const canRetry = Boolean(
+    retryStage
+    && retryStage.attempt < retryStage.max_attempts
+    && !qualityRevisionRequired
+  );
 
   function select(runId: string) {
     selectedRef.current = runId;
@@ -255,9 +264,21 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
                     className="secondary-action"
                     disabled={busy || !canRetry}
                     onClick={() => void runAction("retry")}
-                    title={canRetry ? "Retry the failed stage" : "This stage exhausted its retry policy"}
+                    title={
+                      qualityRevisionRequired
+                        ? "This quality regression requires a revised Blueprint"
+                        : canRetry
+                          ? "Retry the failed stage"
+                          : "This stage exhausted its retry policy"
+                    }
                   >
-                    <RotateCcw size={16} /> {canRetry ? "Retry Stage" : "Retry Exhausted"}
+                    <RotateCcw size={16} /> {
+                      qualityRevisionRequired
+                        ? "Blueprint Revision Required"
+                        : canRetry
+                          ? "Retry Stage"
+                          : "Retry Exhausted"
+                    }
                   </button>
                 ) : null}
                 {isCancellable(selected.state) ? (
@@ -269,7 +290,12 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
             </section>
 
             {experiment?.lifecycle_run_id === selected.run_id ? (
-              <ExperimentProgress run={experiment} />
+              <ExperimentProgress
+                run={experiment}
+                onOpenBlueprint={
+                  onOpenBlueprint ? () => onOpenBlueprint(selected) : undefined
+                }
+              />
             ) : null}
 
             <section className="panel lifecycle-stage-panel">
@@ -279,7 +305,17 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
               </div>
               <div className="lifecycle-stage-list">
                 {selected.stages.map((stage, index) => (
-                  <LifecycleStageRow key={stage.stage_id} stage={stage} index={index} />
+                  <LifecycleStageRow
+                    key={stage.stage_id}
+                    stage={stage}
+                    index={index}
+                    progressOverride={
+                      stage.stage_id === "model_training"
+                      && experiment?.lifecycle_run_id === selected.run_id
+                        ? experiment.progress
+                        : undefined
+                    }
+                  />
                 ))}
               </div>
             </section>
@@ -319,7 +355,13 @@ export function LifecycleRuns({ onCycleContext }: LifecycleRunsProps = {}) {
 }
 
 
-function ExperimentProgress({ run }: { run: ExperimentRun }) {
+function ExperimentProgress({
+  run,
+  onOpenBlueprint
+}: {
+  run: ExperimentRun;
+  onOpenBlueprint?: () => void;
+}) {
   const metric = `${run.primary_metric}_mean`;
   const ranked = run.trials
     .filter((trial) => trial.state === "completed")
@@ -340,27 +382,125 @@ function ExperimentProgress({ run }: { run: ExperimentRun }) {
       <div className={`experiment-progress-bar state-${run.state}`} role="progressbar" aria-label="Experiment search progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(run.progress * 100)}>
         <b style={{ width: `${Math.round(run.progress * 100)}%` }} />
       </div>
+      {run.training_telemetry ? <LiveTrainingTelemetry telemetry={run.training_telemetry} /> : null}
       {ranked.length ? (
         <div className="experiment-trial-matrix">
           {ranked.slice(0, 4).map((trial, index) => (
-            <article key={trial.trial_id} className={trial.trial_id === run.selected_trial_id ? "selected" : ""}>
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              <div><strong>{trial.trial_id}</strong><small>{trial.folds.length} fold results</small></div>
-              <em>{((trial.aggregate_metrics[metric] || 0) * 100).toFixed(2)}%</em>
-            </article>
+            <details key={trial.trial_id} className={trial.trial_id === run.selected_trial_id ? "selected" : ""}>
+              <summary>
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <div><strong>{trial.trial_id}</strong><small>{trial.folds.length} fold results</small></div>
+                <em>{((trial.aggregate_metrics[metric] || 0) * 100).toFixed(2)}%</em>
+              </summary>
+              <div className="experiment-trial-detail">
+                <dl>
+                  {Object.entries(trial.parameters).map(([name, value]) => (
+                    <div key={name}><dt>{name.replaceAll("_", " ")}</dt><dd>{formatExperimentValue(value)}</dd></div>
+                  ))}
+                </dl>
+                <div className="experiment-fold-list">
+                  {trial.folds.map((fold) => (
+                    <div key={`${fold.repeat}-${fold.fold}`} aria-label={`${trial.trial_id} fold ${fold.fold + 1} metrics`}>
+                      <strong>F{fold.fold + 1}</strong>
+                      <span>{fold.train_records.toLocaleString()} / {fold.validation_records.toLocaleString()} rows</span>
+                      <span>ACC {formatExperimentMetric(fold.metrics.accuracy)}</span>
+                      <span>F1 {formatExperimentMetric(fold.metrics.f1)}</span>
+                      <span>AUROC {formatExperimentMetric(fold.metrics.auroc)}</span>
+                      <code title={fold.mlflow_run_id || "MLflow run pending"}>{fold.mlflow_run_id?.slice(0, 8) || "pending"}</code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </details>
           ))}
         </div>
       ) : (
         <div className="experiment-awaiting"><GitBranch size={17} /><span>Fold evidence will appear after the first completed trial.</span></div>
       )}
+      {run.quality_review ? (
+        <section className="model-quality-review" aria-label="Model quality regression review">
+          <header>
+            <div>
+              <span>Promotion Review</span>
+              <strong>{run.quality_review.event_type.replaceAll("_", " ")}</strong>
+            </div>
+            <em>{run.quality_review.state.replaceAll("_", " ")}</em>
+          </header>
+          <div className="quality-gate-matrix">
+            {run.quality_review.failed_gates.map((gate) => {
+              const metric = gate.split(/[<>]/)[0];
+              return (
+                <div key={gate}>
+                  <span>{metric.toUpperCase()}</span>
+                  <strong>{formatExperimentMetric(run.quality_review?.observed_metrics[metric])}</strong>
+                  <small>policy {formatExperimentMetric(run.quality_review?.policy_thresholds[metric])}</small>
+                </div>
+              );
+            })}
+          </div>
+          <div className="quality-remediation">
+            <div>
+              <span>Required revision</span>
+              {run.quality_review.recommendations.map((item) => (
+                <code key={item}>{humanizeRecommendation(item)}</code>
+              ))}
+            </div>
+            {onOpenBlueprint ? (
+              <button type="button" className="secondary-action" onClick={onOpenBlueprint}>
+                <Wrench size={15} /> Tune Blueprint
+              </button>
+            ) : null}
+          </div>
+          <footer>
+            <span>Same-profile retry locked</span>
+            <code title={run.quality_review.fingerprint}>{run.quality_review.fingerprint.slice(0, 16)}</code>
+          </footer>
+        </section>
+      ) : null}
       {run.blockers.length ? <details className="experiment-blockers"><summary>{run.blockers.length} experiment blocker{run.blockers.length === 1 ? "" : "s"}</summary>{run.blockers.map((item) => <code key={item}>{item}</code>)}</details> : null}
     </section>
   );
 }
 
 
-function LifecycleStageRow({ stage, index }: { stage: LifecycleStage; index: number }) {
-  const progress = stageProgressPercent(stage);
+function LiveTrainingTelemetry({ telemetry }: { telemetry: ExperimentTrainingTelemetry }) {
+  const percent = Math.round(telemetry.unit_progress * 100);
+  const phase = telemetry.phase.replaceAll("_", " ");
+  const unit = telemetry.unit_role === "final_refit"
+    ? "Final refit"
+    : `${telemetry.trial_id || "trial"} / fold ${(telemetry.fold || 0) + 1}`;
+  return (
+    <section className="training-telemetry" aria-label="Live training step telemetry">
+      <header>
+        <div><Gauge size={16} /><strong>{unit}</strong></div>
+        <span className={`telemetry-phase phase-${telemetry.phase}`}>{phase}</span>
+        <em>{percent}%</em>
+      </header>
+      <div className="telemetry-track" role="progressbar" aria-label="Current training unit progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+        <b style={{ width: `${percent}%` }} />
+      </div>
+      <div className="telemetry-stats">
+        <div><span>Epoch</span><strong>{telemetry.epoch}/{telemetry.epochs || "-"}</strong></div>
+        <div><span>Step</span><strong>{telemetry.step}/{telemetry.steps || "-"}</strong></div>
+        <div><span>Optimizer</span><strong>{telemetry.optimizer_steps.toLocaleString()}</strong></div>
+        <div><span>Loss</span><strong>{telemetry.train_loss == null ? "-" : telemetry.train_loss.toFixed(4)}</strong></div>
+        <div><span>Val F1</span><strong>{formatExperimentMetric(telemetry.validation_metrics.f1)}</strong></div>
+      </div>
+    </section>
+  );
+}
+
+
+function LifecycleStageRow({
+  stage,
+  index,
+  progressOverride
+}: {
+  stage: LifecycleStage;
+  index: number;
+  progressOverride?: number;
+}) {
+  const progress = stageProgressPercent(stage, progressOverride);
   const timing = stageTiming(stage);
   return (
     <article
@@ -480,9 +620,27 @@ function currentStageLabel(run: LifecycleRun): string {
 }
 
 
-function stageProgressPercent(stage: LifecycleStage): number {
+function stageProgressPercent(stage: LifecycleStage, progressOverride?: number): number {
   if (stage.state === "completed") return 100;
-  return Math.max(0, Math.min(100, Math.round(stage.progress * 100)));
+  const progress = progressOverride ?? stage.progress;
+  return Math.max(0, Math.min(100, Math.round(progress * 100)));
+}
+
+
+function formatExperimentMetric(value: number | undefined): string {
+  return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "n/a";
+}
+
+
+function formatExperimentValue(value: string | number | boolean): string {
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "number" && value > 0 && value < 0.01) return value.toExponential(1);
+  return String(value);
+}
+
+
+function humanizeRecommendation(value: string): string {
+  return value.replaceAll("_", " ");
 }
 
 

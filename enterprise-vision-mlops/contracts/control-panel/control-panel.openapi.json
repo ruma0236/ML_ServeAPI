@@ -2165,6 +2165,49 @@
           "blocker": {"type": ["string", "null"]}
         }
       },
+      "TrainingTelemetry": {
+        "type": "object",
+        "required": ["unit_role", "phase", "updated_at"],
+        "properties": {
+          "unit_role": {"type": "string", "enum": ["cross_validation", "final_refit"]},
+          "phase": {"type": "string", "enum": ["preparing", "training", "validating", "final_refit", "completed"]},
+          "trial_id": {"type": ["string", "null"]},
+          "repeat": {"type": ["integer", "null"], "minimum": 0},
+          "fold": {"type": ["integer", "null"], "minimum": 0},
+          "epoch": {"type": "integer", "minimum": 0, "default": 0},
+          "epochs": {"type": "integer", "minimum": 0, "default": 0},
+          "step": {"type": "integer", "minimum": 0, "default": 0},
+          "steps": {"type": "integer", "minimum": 0, "default": 0},
+          "optimizer_steps": {"type": "integer", "minimum": 0, "default": 0},
+          "unit_progress": {"type": "number", "minimum": 0, "maximum": 1, "default": 0},
+          "train_loss": {"type": ["number", "null"]},
+          "validation_metrics": {"type": "object", "additionalProperties": {"type": "number"}},
+          "updated_at": {"type": "string"}
+        }
+      },
+      "ModelQualityReview": {
+        "type": "object",
+        "required": ["event_id", "state", "fingerprint", "source_profile_digest", "dataset_version", "candidate_id", "evidence_uri", "created_at"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.model_quality_review.v1", "default": "evm.model_quality_review.v1"},
+          "event_id": {"type": "string"},
+          "event_type": {"type": "string", "const": "model_quality_regression", "default": "model_quality_regression"},
+          "state": {"type": "string", "enum": ["review_required", "resolved"]},
+          "fingerprint": {"type": "string"},
+          "source_profile_digest": {"type": "string"},
+          "dataset_version": {"type": "string"},
+          "selected_trial_id": {"type": ["string", "null"]},
+          "selected_parameters": {"type": "object", "additionalProperties": true},
+          "candidate_id": {"type": "string"},
+          "observed_metrics": {"type": "object", "additionalProperties": {"type": "number"}},
+          "policy_thresholds": {"type": "object", "additionalProperties": {"type": "number"}},
+          "failed_gates": {"type": "array", "items": {"type": "string"}},
+          "recommendations": {"type": "array", "items": {"type": "string"}},
+          "repeat_guard": {"type": "string", "const": "block_same_profile", "default": "block_same_profile"},
+          "evidence_uri": {"type": "string"},
+          "created_at": {"type": "string"}
+        }
+      },
       "ExperimentRun": {
         "type": "object",
         "required": ["schema_version", "experiment_id", "lifecycle_run_id", "profile_name", "profile_digest", "dataset_version", "source_manifest_sha256", "holdout_split", "holdout_sha256", "mode", "primary_metric", "seed", "folds", "repeats", "requested_trials", "total_units", "completed_units", "progress", "state", "gpu_quota", "scheduled_parallelism", "selected_parameters", "trials", "blockers", "created_at", "updated_at"],
@@ -2197,6 +2240,8 @@
           "comparison_matrix_uri": {"type": ["string", "null"]},
           "final_model_matrix_uri": {"type": ["string", "null"]},
           "trials": {"type": "array", "items": {"$ref": "#/components/schemas/ExperimentTrialResult"}},
+          "training_telemetry": {"anyOf": [{"$ref": "#/components/schemas/TrainingTelemetry"}, {"type": "null"}]},
+          "quality_review": {"anyOf": [{"$ref": "#/components/schemas/ModelQualityReview"}, {"type": "null"}]},
           "blockers": {"type": "array", "items": {"type": "string"}},
           "created_at": {"type": "string"},
           "updated_at": {"type": "string"},

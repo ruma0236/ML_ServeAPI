@@ -964,6 +964,43 @@ export interface ExperimentTrialResult {
   blocker?: string | null;
 }
 
+export interface ExperimentTrainingTelemetry {
+  unit_role: "cross_validation" | "final_refit";
+  phase: "preparing" | "training" | "validating" | "final_refit" | "completed";
+  trial_id?: string | null;
+  repeat?: number | null;
+  fold?: number | null;
+  epoch: number;
+  epochs: number;
+  step: number;
+  steps: number;
+  optimizer_steps: number;
+  unit_progress: number;
+  train_loss?: number | null;
+  validation_metrics: Record<string, number>;
+  updated_at: string;
+}
+
+export interface ModelQualityReview {
+  schema_version: "evm.model_quality_review.v1";
+  event_id: string;
+  event_type: "model_quality_regression";
+  state: "review_required" | "resolved";
+  fingerprint: string;
+  source_profile_digest: string;
+  dataset_version: string;
+  selected_trial_id?: string | null;
+  selected_parameters: Record<string, string | number | boolean>;
+  candidate_id: string;
+  observed_metrics: Record<string, number>;
+  policy_thresholds: Record<string, number>;
+  failed_gates: string[];
+  recommendations: string[];
+  repeat_guard: "block_same_profile";
+  evidence_uri: string;
+  created_at: string;
+}
+
 export interface ExperimentRun {
   schema_version: "evm.experiment_run.v1";
   experiment_id: string;
@@ -993,6 +1030,8 @@ export interface ExperimentRun {
   comparison_matrix_uri?: string | null;
   final_model_matrix_uri?: string | null;
   trials: ExperimentTrialResult[];
+  training_telemetry?: ExperimentTrainingTelemetry | null;
+  quality_review?: ModelQualityReview | null;
   blockers: string[];
   created_at: string;
   updated_at: string;

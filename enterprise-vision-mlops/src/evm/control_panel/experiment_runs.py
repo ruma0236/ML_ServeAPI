@@ -23,6 +23,14 @@ ExperimentState = Literal[
     "failed",
 ]
 TrialState = Literal["planned", "running", "completed", "blocked", "cancelled"]
+TrainingPhase = Literal[
+    "preparing",
+    "training",
+    "validating",
+    "final_refit",
+    "completed",
+]
+QualityReviewState = Literal["review_required", "resolved"]
 _EXPERIMENT_LOCK = RLock()
 
 
@@ -47,6 +55,45 @@ class TrialResult(ContractModel):
     aggregate_metrics: dict[str, float] = Field(default_factory=dict)
     score: float | None = None
     blocker: str | None = None
+
+
+class TrainingTelemetry(ContractModel):
+    unit_role: Literal["cross_validation", "final_refit"]
+    phase: TrainingPhase
+    trial_id: str | None = None
+    repeat: int | None = Field(default=None, ge=0)
+    fold: int | None = Field(default=None, ge=0)
+    epoch: int = Field(default=0, ge=0)
+    epochs: int = Field(default=0, ge=0)
+    step: int = Field(default=0, ge=0)
+    steps: int = Field(default=0, ge=0)
+    optimizer_steps: int = Field(default=0, ge=0)
+    unit_progress: float = Field(default=0.0, ge=0, le=1)
+    train_loss: float | None = None
+    validation_metrics: dict[str, float] = Field(default_factory=dict)
+    updated_at: str
+
+
+class ModelQualityReview(ContractModel):
+    schema_version: Literal["evm.model_quality_review.v1"] = (
+        "evm.model_quality_review.v1"
+    )
+    event_id: str
+    event_type: Literal["model_quality_regression"] = "model_quality_regression"
+    state: QualityReviewState
+    fingerprint: str
+    source_profile_digest: str
+    dataset_version: str
+    selected_trial_id: str | None = None
+    selected_parameters: dict[str, Any] = Field(default_factory=dict)
+    candidate_id: str
+    observed_metrics: dict[str, float] = Field(default_factory=dict)
+    policy_thresholds: dict[str, float] = Field(default_factory=dict)
+    failed_gates: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    repeat_guard: Literal["block_same_profile"] = "block_same_profile"
+    evidence_uri: str
+    created_at: str
 
 
 class ExperimentRun(ContractModel):
@@ -78,6 +125,8 @@ class ExperimentRun(ContractModel):
     comparison_matrix_uri: str | None = None
     final_model_matrix_uri: str | None = None
     trials: list[TrialResult] = Field(default_factory=list)
+    training_telemetry: TrainingTelemetry | None = None
+    quality_review: ModelQualityReview | None = None
     blockers: list[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
@@ -159,6 +208,18 @@ def read_experiments(limit: int = 100) -> ExperimentRunList:
             continue
         runs.append(run)
     return ExperimentRunList(runs=runs, total=len(runs))
+
+
+def unresolved_quality_review(profile_digest: str) -> ModelQualityReview | None:
+    for run in read_experiments(limit=500).runs:
+        review = run.quality_review
+        if (
+            review is not None
+            and review.state == "review_required"
+            and review.source_profile_digest == profile_digest
+        ):
+            return review
+    return None
 
 
 def request_cancellation(

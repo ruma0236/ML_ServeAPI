@@ -14,6 +14,7 @@ from evm.control_panel.lifecycle_orchestrator import (
     process_artifact_readiness,
     process_lifecycle_run,
     rollback_lifecycle,
+    training_failure_blockers,
     write_prometheus_target,
 )
 from evm.control_panel.lifecycle_runs import (
@@ -231,6 +232,46 @@ def test_airflow_dispatch_failure_propagates_reason_to_lifecycle(tmp_path, monke
     assert result.stages[1].attempt == 1
     assert "airflow_api_unavailable" in (result.failure_reason or "")
     assert any("Airflow API is unavailable" in item for item in result.blockers)
+
+
+def test_training_failure_includes_experiment_and_metric_blockers(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    matrix_path = tmp_path / "latest_model_matrix.json"
+    matrix_path.write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {"promotion_blockers": ["f1<0.75"]},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        lifecycle_orchestrator,
+        "read_experiment",
+        lambda _run_id: SimpleNamespace(
+            blockers=["required_candidate_promotion_blocked:efficientnet-b0"]
+        ),
+    )
+    monkeypatch.setattr(
+        lifecycle_orchestrator,
+        "model_matrix_path",
+        lambda _run: matrix_path,
+    )
+
+    blockers = training_failure_blockers(
+        SimpleNamespace(run_id="lifecycle-test"),
+        SimpleNamespace(status="failed", failure_reason="kubernetes_job_failed"),
+    )
+
+    assert blockers == [
+        "f1<0.75",
+        "kubernetes_job_failed",
+        "required_candidate_promotion_blocked:efficientnet-b0",
+    ]
 
 
 def test_approval_stage_stops_worker_until_independent_action(tmp_path, monkeypatch) -> None:

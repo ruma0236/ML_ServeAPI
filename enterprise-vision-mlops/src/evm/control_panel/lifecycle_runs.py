@@ -12,13 +12,18 @@ from uuid import uuid4
 
 from pydantic import Field
 
+from evm.control_panel.experiment_runs import (
+    ModelQualityReview,
+    mark_cancellation_requested,
+    read_experiment,
+    unresolved_quality_review,
+)
 from evm.control_panel.pipeline_profiles import (
     PipelineProfileRecord,
     get_profile,
     validate_profile,
     validate_profile_replay,
 )
-from evm.control_panel.experiment_runs import mark_cancellation_requested
 from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import AuditEvent, ContractModel
 
@@ -76,6 +81,34 @@ class LifecycleActionRequest(ContractModel):
     actor: str = Field(min_length=2)
     reason: str = Field(min_length=8)
     expected_version: int = Field(ge=1)
+
+
+def reject_quality_review(review: ModelQualityReview) -> None:
+    raise LifecycleRunError(
+        "model_quality_review_unresolved",
+        "This exact Blueprint previously failed promotion quality gates. "
+        f"Revise and save a new Blueprint before retrying; event={review.event_id}, "
+        f"failed_gates={','.join(review.failed_gates)}, "
+        f"recommendations={','.join(review.recommendations)}.",
+        status_code=422,
+    )
+
+
+def reject_unresolved_quality_review(profile_digest: str) -> None:
+    review = unresolved_quality_review(profile_digest)
+    if review is not None:
+        reject_quality_review(review)
+
+
+def reject_run_quality_review(run_id: str, profile_digest: str) -> None:
+    experiment = read_experiment(run_id)
+    if (
+        experiment is not None
+        and experiment.quality_review is not None
+        and experiment.quality_review.state == "review_required"
+    ):
+        reject_quality_review(experiment.quality_review)
+    reject_unresolved_quality_review(profile_digest)
 
 
 class LifecycleApprovalRequest(LifecycleActionRequest):
@@ -269,6 +302,8 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
             "pipeline_profile_not_executable",
             ", ".join(validation.blockers) or "Pipeline profile is not executable.",
         )
+    if not request.dry_run:
+        reject_unresolved_quality_review(record.digest)
     replay_validation = validate_profile_replay(record)
     if replay_validation.status != "ready":
         raise LifecycleRunError(
@@ -634,6 +669,7 @@ def queue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
                 or "Pipeline profile replay identity is not ready.",
                 status_code=422,
             )
+        reject_unresolved_quality_review(record.digest)
         if not run.source_commit:
             raise LifecycleRunError(
                 "source_revision_missing",
@@ -738,6 +774,8 @@ def retry_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
         stage = current_or_failed_stage(run)
         if stage is None:
             raise LifecycleRunError("lifecycle_stage_not_found", "No retryable stage was found.")
+        if stage.stage_id == "model_training":
+            reject_run_quality_review(run.run_id, run.profile_digest)
         if stage.attempt >= stage.max_attempts:
             raise LifecycleRunError(
                 "lifecycle_stage_attempts_exhausted",

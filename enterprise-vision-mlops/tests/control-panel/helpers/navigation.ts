@@ -13,20 +13,38 @@ export type ControlPanelView =
   | "Governance";
 
 
-const workspaceByView: Record<ControlPanelView, "Observe" | "Design" | "Validate" | "Govern"> = {
-  Overview: "Observe",
-  Configure: "Design",
-  Runs: "Observe",
-  Readiness: "Validate",
-  Timeline: "Observe",
-  Operate: "Design",
-  Gates: "Validate",
-  Release: "Validate",
+const workspaceByView: Record<ControlPanelView, "Monitor" | "Build" | "Release" | "Govern"> = {
+  Overview: "Monitor",
+  Configure: "Build",
+  Runs: "Monitor",
+  Readiness: "Release",
+  Timeline: "Monitor",
+  Operate: "Build",
+  Gates: "Release",
+  Release: "Release",
   Governance: "Govern"
 };
 
 
+const labelByView: Record<ControlPanelView, string> = {
+  Overview: "Command Center",
+  Configure: "Blueprint",
+  Runs: "Runs",
+  Readiness: "Readiness",
+  Timeline: "Pipeline",
+  Operate: "Task Studio",
+  Gates: "Quality & Drift",
+  Release: "Promotion",
+  Governance: "Audit"
+};
+
+
+export function controlPanelViewLabel(view: ControlPanelView): string {
+  return labelByView[view];
+}
+
+
 export async function openControlPanelView(page: Page, view: ControlPanelView): Promise<void> {
   await page.getByRole("button", { name: workspaceByView[view], exact: true }).click();
-  await page.getByRole("button", { name: view, exact: true }).click();
+  await page.getByRole("button", { name: labelByView[view], exact: true }).click();
 }

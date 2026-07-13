@@ -136,6 +136,7 @@ def write_search_config(tmp_path: Path) -> Path:
         },
         "control_plane": {
             "profile_name": "test-search-profile",
+            "profile_digest": "f" * 64,
             "model": {"tuning_mode": "grid", "max_trials": 2},
             "data": {"split": {"cross_validation_folds": 2, "holdout_split": "test"}},
             "experiment": {"primary_metric": "f1", "repeats": 1},
@@ -170,17 +171,42 @@ def test_grid_search_seals_holdout_and_parent_child_lineage(tmp_path: Path, monk
         runtimes.append(runtime)
         artifact_dir.mkdir(parents=True, exist_ok=True)
         score = 0.91 if candidate.learning_rate == 0.0003 else 0.82
+        assert runtime.progress_callback is not None
+        runtime.progress_callback(
+            {
+                "phase": "training",
+                "epoch": 1,
+                "epochs": 2,
+                "step": 3,
+                "steps": 6,
+                "optimizer_steps": 3,
+                "train_loss": 0.2,
+                "unit_progress": 0.25,
+            }
+        )
         return {
             "status": "pass",
             "metrics": {"accuracy": score, "f1": score, "auroc": score},
             "mlflow_run_id": f"child-{len(runtimes)}",
         }
 
-    def final_trainer(path):
+    def final_trainer(path, *, progress_callback=None):
         config = json.loads(Path(path).read_text(encoding="utf-8"))
         candidate = config["candidates"][0]
         artifact_dir = tmp_path / "final-candidate"
         artifact_dir.mkdir(parents=True, exist_ok=True)
+        assert progress_callback is not None
+        progress_callback(
+            {
+                "phase": "completed",
+                "epoch": 1,
+                "epochs": 1,
+                "step": 6,
+                "steps": 6,
+                "optimizer_steps": 6,
+                "unit_progress": 1.0,
+            }
+        )
         return {
             "status": "pass",
             "candidates": [
@@ -205,10 +231,14 @@ def test_grid_search_seals_holdout_and_parent_child_lineage(tmp_path: Path, monk
     assert result["state"] == "completed"
     assert result["completed_units"] == result["total_units"] == 5
     assert result["selected_parameters"]["learning_rate"] == 0.0003
+    assert result["profile_digest"] == "f" * 64
     assert len(result["trials"]) == 2
     assert len(runtimes) == 4
     assert all(runtime.parent_run_id == "parent-run-1" for runtime in runtimes)
     assert all(runtime.run_tags["evm.holdout_used"] == "false" for runtime in runtimes)
+    assert result["training_telemetry"]["unit_role"] == "final_refit"
+    assert result["training_telemetry"]["phase"] == "completed"
+    assert result["training_telemetry"]["step"] == 6
     manifest = json.loads(Path(result["fold_manifest_uri"]).read_text(encoding="utf-8"))
     assert manifest["holdout_used_for_selection"] is False
     assert manifest["development_records"] == 10
@@ -252,3 +282,55 @@ def test_experiment_cancellation_is_persistent(tmp_path: Path, monkeypatch) -> N
     assert updated is not None and updated.state == "cancelling"
     assert cancellation_requested(run.experiment_id) is True
     assert read_experiment(run.experiment_id).state == "cancelling"
+
+
+def test_quality_regression_creates_repeat_guard_evidence(tmp_path: Path) -> None:
+    now = utc_now()
+    state = ExperimentRun(
+        experiment_id="experiment-quality-review",
+        lifecycle_run_id="experiment-quality-review",
+        profile_name="quality-review-profile",
+        profile_digest="a" * 64,
+        dataset_version="visa-v1",
+        source_manifest_sha256="b" * 64,
+        holdout_split="test",
+        holdout_sha256="c" * 64,
+        mode="grid",
+        primary_metric="f1",
+        seed=17,
+        folds=2,
+        repeats=1,
+        requested_trials=1,
+        total_units=3,
+        state="running",
+        gpu_quota=1,
+        scheduled_parallelism=1,
+        selected_trial_id="trial-001",
+        selected_parameters={"learning_rate": 0.0003, "freeze_backbone": True},
+        created_at=now,
+        updated_at=now,
+    )
+    matrix = {
+        "candidates": [
+            {
+                "candidate_id": "efficientnet-b0-test",
+                "metrics": {"accuracy": 0.876, "f1": 0.462, "auroc": 0.863},
+                "promotion_blockers": ["f1<0.75"],
+            }
+        ]
+    }
+
+    review = experiment_search.build_quality_review(
+        state,
+        matrix,
+        candidate_id="efficientnet-b0-test",
+        root=tmp_path,
+    )
+
+    assert review is not None
+    assert review.state == "review_required"
+    assert review.observed_metrics["f1"] == 0.462
+    assert review.policy_thresholds["f1"] == 0.75
+    assert "unfreeze_backbone" in review.recommendations
+    assert review.repeat_guard == "block_same_profile"
+    assert (tmp_path / "model_quality_review.json").is_file()

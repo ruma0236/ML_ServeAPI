@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { openControlPanelView, type ControlPanelView } from "./helpers/navigation";
+import {
+  controlPanelViewLabel,
+  openControlPanelView,
+  type ControlPanelView
+} from "./helpers/navigation";
 
 const tabs: ControlPanelView[] = ["Overview", "Configure", "Runs", "Readiness", "Timeline", "Operate", "Gates", "Release", "Governance"];
 const headingsByTab: Record<string, string> = {
@@ -26,7 +30,9 @@ test("@w7-all-tabs-visual captures every Control Panel tab for the active viewpo
 
   for (const tab of tabs) {
     await openControlPanelView(page, tab);
-    await expect(page.getByRole("button", { name: tab })).toHaveClass(/active/);
+    await expect(
+      page.getByRole("button", { name: controlPanelViewLabel(tab), exact: true })
+    ).toHaveClass(/active/);
     await expect(page.getByRole("heading", { name: headingsByTab[tab] })).toBeVisible();
     if (tab === "Operate") {
       await expect(page.locator(".json-editor textarea")).not.toHaveValue("");

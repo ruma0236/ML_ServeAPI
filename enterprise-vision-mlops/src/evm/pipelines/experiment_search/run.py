@@ -4,6 +4,7 @@ import hashlib
 import itertools
 import json
 import os
+import re
 import statistics
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
@@ -13,6 +14,8 @@ from typing import Any
 from evm.control_panel.experiment_runs import (
     ExperimentRun,
     FoldResult,
+    ModelQualityReview,
+    TrainingTelemetry,
     TrialResult,
     cancellation_requested,
     experiment_dir,
@@ -52,6 +55,14 @@ Trainer = Callable[
     dict[str, Any],
 ]
 MlflowFactory = Callable[[str], MlflowRestClient]
+FinalTrainer = Callable[..., dict[str, Any]]
+
+
+_PROMOTION_GATE_PATTERN = re.compile(
+    r"^(?P<metric>[A-Za-z][A-Za-z0-9_]*)"
+    r"(?P<operator><=|>=|<|>)"
+    r"(?P<threshold>-?(?:\d+(?:\.\d*)?|\.\d+))$"
+)
 
 
 class ExperimentCancelled(RuntimeError):
@@ -66,6 +77,138 @@ def canonical_sha256(payload: Any) -> str:
         ensure_ascii=False,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def update_training_telemetry(
+    state: ExperimentRun,
+    payload: dict[str, Any],
+    *,
+    unit_role: str,
+    trial_id: str | None = None,
+    repeat: int | None = None,
+    fold: int | None = None,
+) -> None:
+    unit_progress = max(0.0, min(1.0, float(payload.get("unit_progress") or 0.0)))
+    validation_metrics = {
+        str(key): float(value)
+        for key, value in object_value(payload, "validation_metrics").items()
+        if isinstance(value, int | float)
+    }
+    state.training_telemetry = TrainingTelemetry(
+        unit_role=unit_role,  # type: ignore[arg-type]
+        phase=str(payload.get("phase") or "preparing"),  # type: ignore[arg-type]
+        trial_id=trial_id,
+        repeat=repeat,
+        fold=fold,
+        epoch=max(0, int(payload.get("epoch") or 0)),
+        epochs=max(0, int(payload.get("epochs") or 0)),
+        step=max(0, int(payload.get("step") or 0)),
+        steps=max(0, int(payload.get("steps") or 0)),
+        optimizer_steps=max(0, int(payload.get("optimizer_steps") or 0)),
+        unit_progress=unit_progress,
+        train_loss=(
+            float(payload["train_loss"])
+            if isinstance(payload.get("train_loss"), int | float)
+            else None
+        ),
+        validation_metrics=validation_metrics,
+        updated_at=utc_now(),
+    )
+    state.progress = min(
+        1.0,
+        (state.completed_units + unit_progress) / state.total_units,
+    )
+    write_experiment(state)
+
+
+def build_quality_review(
+    state: ExperimentRun,
+    final_matrix: dict[str, Any],
+    *,
+    candidate_id: str,
+    root: Path,
+) -> ModelQualityReview | None:
+    candidate = next(
+        (
+            item
+            for item in final_matrix.get("candidates", [])
+            if isinstance(item, dict) and str(item.get("candidate_id")) == candidate_id
+        ),
+        None,
+    )
+    if not isinstance(candidate, dict):
+        return None
+    failed_gates = sorted(
+        str(item)
+        for item in candidate.get("promotion_blockers", [])
+        if str(item).strip()
+    )
+    if not failed_gates:
+        return None
+    observed_metrics = {
+        str(key): float(value)
+        for key, value in object_value(candidate, "metrics").items()
+        if isinstance(value, int | float)
+    }
+    thresholds: dict[str, float] = {}
+    failed_metrics: set[str] = set()
+    for gate in failed_gates:
+        match = _PROMOTION_GATE_PATTERN.fullmatch(gate)
+        if match is None:
+            continue
+        metric = match.group("metric")
+        failed_metrics.add(metric)
+        thresholds[metric] = float(match.group("threshold"))
+    recommendations = quality_recommendations(failed_metrics)
+    fingerprint = canonical_sha256(
+        {
+            "profile_digest": state.profile_digest,
+            "dataset_version": state.dataset_version,
+            "source_manifest_sha256": state.source_manifest_sha256,
+            "selected_trial_id": state.selected_trial_id,
+            "selected_parameters": state.selected_parameters,
+            "candidate_id": candidate_id,
+            "failed_gates": failed_gates,
+        }
+    )
+    review_path = root / "model_quality_review.json"
+    review = ModelQualityReview(
+        event_id=f"model-quality-{fingerprint[:16]}",
+        state="review_required",
+        fingerprint=fingerprint,
+        source_profile_digest=state.profile_digest,
+        dataset_version=state.dataset_version,
+        selected_trial_id=state.selected_trial_id,
+        selected_parameters=state.selected_parameters,
+        candidate_id=candidate_id,
+        observed_metrics=observed_metrics,
+        policy_thresholds=thresholds,
+        failed_gates=failed_gates,
+        recommendations=recommendations,
+        evidence_uri=str(review_path),
+        created_at=utc_now(),
+    )
+    write_json(review_path, review.model_dump(mode="json"))
+    return review
+
+
+def quality_recommendations(failed_metrics: set[str]) -> list[str]:
+    recommendations = ["revise_blueprint_before_retry"]
+    if failed_metrics.intersection({"f1", "precision", "recall"}):
+        recommendations.extend(
+            [
+                "unfreeze_backbone",
+                "tune_class_balance_or_focal_loss",
+                "recalibrate_decision_threshold",
+            ]
+        )
+    if failed_metrics.intersection({"accuracy", "f1", "auroc"}):
+        recommendations.extend(
+            ["expand_learning_rate_search", "increase_epoch_budget"]
+        )
+    if "latency_p95_ms" in failed_metrics:
+        recommendations.append("profile_inference_optimization")
+    return list(dict.fromkeys(recommendations))
 
 
 def record_id(record: dict[str, Any]) -> str:
@@ -180,7 +323,7 @@ def run(
     *,
     trainer: Trainer = train_candidate,
     mlflow_factory: MlflowFactory = MlflowRestClient,
-    final_trainer: Callable[[str | Path], dict[str, Any]] = run_final_training,
+    final_trainer: FinalTrainer = run_final_training,
 ) -> dict[str, Any]:
     config = load_config(config_path)
     search = object_value(config, "experiment_search")
@@ -270,7 +413,9 @@ def run(
         experiment_id=experiment_id,
         lifecycle_run_id=experiment_id,
         profile_name=str(control_plane.get("profile_name") or "unknown-profile"),
-        profile_digest=canonical_sha256(control_plane),
+        profile_digest=str(
+            control_plane.get("profile_digest") or canonical_sha256(control_plane)
+        ),
         dataset_version=str(matrix.get("dataset_version") or "unknown"),
         source_manifest_sha256=actual_source_sha,
         holdout_split=holdout_split,
@@ -460,7 +605,20 @@ def run(
             state.completed_units += 1
             state.progress = min(1.0, state.completed_units / state.total_units)
             if blockers:
-                state.blockers = blockers
+                state.quality_review = build_quality_review(
+                    state,
+                    final_matrix,
+                    candidate_id=str(base_candidate["candidate_id"]),
+                    root=root,
+                )
+                review_blocker = (
+                    f"model_quality_review_required:{state.quality_review.fingerprint}"
+                    if state.quality_review is not None
+                    else None
+                )
+                state.blockers = sorted(
+                    set([*blockers, *([review_blocker] if review_blocker else [])])
+                )
                 state.state = "blocked"
             else:
                 state.state = "completed"
@@ -565,6 +723,17 @@ def execute_trial(
                 }
             )
             fold_dir = root / "trials" / trial_id / f"repeat-{repeat + 1}" / f"fold-{fold + 1}"
+
+            def report_fold_progress(payload: dict[str, Any]) -> None:
+                update_training_telemetry(
+                    state,
+                    payload,
+                    unit_role="cross_validation",
+                    trial_id=trial_id,
+                    repeat=repeat,
+                    fold=fold,
+                )
+
             runtime = TorchRuntimeConfig(
                 seed=fold_seed,
                 require_cuda=True,
@@ -585,6 +754,7 @@ def execute_trial(
                     "evm.fold": str(fold),
                     "evm.holdout_used": "false",
                 },
+                progress_callback=report_fold_progress,
             )
             try:
                 summary = trainer(
@@ -649,7 +819,7 @@ def execute_final_refit(
     selected: TrialResult,
     state: ExperimentRun,
     root: Path,
-    final_trainer: Callable[[str | Path], dict[str, Any]],
+    final_trainer: FinalTrainer,
 ) -> dict[str, Any]:
     derived = {
         key: value
@@ -675,13 +845,33 @@ def execute_final_refit(
     derived["execution"] = execution
     path = root / "selected_final_refit.runtime.json"
     write_json(path, derived)
+
+    def report_final_progress(payload: dict[str, Any]) -> None:
+        update_training_telemetry(
+            state,
+            payload,
+            unit_role="final_refit",
+            trial_id=selected.trial_id,
+        )
+
+    report_final_progress(
+        {
+            "phase": "final_refit",
+            "epoch": 0,
+            "epochs": 0,
+            "step": 0,
+            "steps": 0,
+            "optimizer_steps": 0,
+            "unit_progress": 0.0,
+        }
+    )
     with temporary_environment(
         EVM_EFFICIENTNET_RUN_ID=state.lifecycle_run_id,
         EVM_EFFICIENTNET_CANDIDATES=str(base_candidate["candidate_id"]),
         EVM_MLFLOW_PARENT_RUN_ID=state.parent_mlflow_run_id or "",
         EVM_MLFLOW_RUN_ROLE="selected_final_refit",
     ):
-        matrix = final_trainer(path)
+        matrix = final_trainer(path, progress_callback=report_final_progress)
     comparison_uri = str(root / "comparison_matrix.json")
     for candidate in matrix.get("candidates", []):
         if not isinstance(candidate, dict) or candidate.get("candidate_id") != base_candidate["candidate_id"]:

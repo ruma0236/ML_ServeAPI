@@ -97,9 +97,97 @@ describe("Lifecycle Runs view", () => {
     expect(container.textContent).toContain("2/5");
     expect(container.textContent).toContain("mlflow-pare");
     expect(container.textContent).toContain("trial-001");
+    expect(container.textContent).toContain("learning rate");
+    expect(container.textContent).toContain("F1 94.0%");
     expect(
       container.querySelector('[aria-label="Experiment search progress"]')?.getAttribute("aria-valuenow")
     ).toBe("40");
+  });
+
+  it("uses experiment units for the active model-training stage progress", async () => {
+    const training = {
+      ...run,
+      state: "running" as const,
+      current_stage: "model_training",
+      progress: 0.2,
+      failure_reason: null,
+      blockers: [],
+      stages: run.stages.map((stage) => stage.stage_id === "model_training"
+        ? { ...stage, state: "running" as const, progress: 0 }
+        : stage)
+    };
+    api.fetchLifecycleRuns.mockResolvedValue({ runs: [training], total: 1 });
+    api.fetchExperimentRun.mockResolvedValue(experimentRun());
+
+    await act(async () => root.render(<LifecycleRuns />));
+    await flushUpdates();
+
+    const progress = container.querySelector(
+      '[role="progressbar"][aria-label="model training progress"]'
+    );
+    expect(progress?.getAttribute("aria-valuenow")).toBe("40");
+    expect(progress?.getAttribute("aria-valuetext")).toBe("In Progress, 40%");
+  });
+
+  it("shows live epoch telemetry and requires a Blueprint revision after quality regression", async () => {
+    const onOpenBlueprint = vi.fn();
+    api.fetchExperimentRun.mockResolvedValue({
+      ...experimentRun(),
+      state: "blocked",
+      training_telemetry: {
+        unit_role: "cross_validation",
+        phase: "training",
+        trial_id: "trial-002",
+        repeat: 0,
+        fold: 1,
+        epoch: 3,
+        epochs: 6,
+        step: 51,
+        steps: 102,
+        optimizer_steps: 255,
+        unit_progress: 0.42,
+        train_loss: 0.1842,
+        validation_metrics: { f1: 0.462 },
+        updated_at: "2026-07-13T00:04:00Z"
+      },
+      quality_review: {
+        schema_version: "evm.model_quality_review.v1",
+        event_id: "model-quality-1234",
+        event_type: "model_quality_regression",
+        state: "review_required",
+        fingerprint: "a".repeat(64),
+        source_profile_digest: "d".repeat(64),
+        dataset_version: "visa-open-data-e35d93d5561f",
+        selected_trial_id: "trial-001",
+        selected_parameters: { learning_rate: 0.0003 },
+        candidate_id: "efficientnet-b0",
+        observed_metrics: { f1: 0.462 },
+        policy_thresholds: { f1: 0.75 },
+        failed_gates: ["f1<0.75"],
+        recommendations: ["unfreeze_backbone", "expand_learning_rate_search"],
+        repeat_guard: "block_same_profile",
+        evidence_uri: "F:/evidence/model_quality_review.json",
+        created_at: "2026-07-13T00:05:00Z"
+      }
+    });
+
+    await act(async () => root.render(<LifecycleRuns onOpenBlueprint={onOpenBlueprint} />));
+    await flushUpdates();
+
+    expect(container.textContent).toContain("Epoch3/6");
+    expect(container.textContent).toContain("Step51/102");
+    expect(container.textContent).toContain("model quality regression");
+    expect(container.textContent).toContain("46.2%");
+    expect(container.textContent).toContain("policy 75.0%");
+    const retry = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Blueprint Revision Required")
+    );
+    expect(retry?.disabled).toBe(true);
+    const tune = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Tune Blueprint")
+    );
+    await act(async () => tune?.click());
+    expect(onOpenBlueprint).toHaveBeenCalledOnce();
   });
 
   it("renders a completed legacy approval as approved", async () => {
@@ -273,7 +361,16 @@ function experimentRun(): ExperimentRun {
       trial_id: "trial-001",
       state: "completed",
       parameters: { learning_rate: 0.0003 },
-      folds: [],
+      folds: [{
+        repeat: 0,
+        fold: 0,
+        state: "completed",
+        seed: 20260713,
+        train_records: 4320,
+        validation_records: 4320,
+        metrics: { accuracy: 0.95, f1: 0.94, auroc: 0.97 },
+        mlflow_run_id: "child-run-123456"
+      }],
       aggregate_metrics: { f1_mean: 0.94 },
       score: 0.94
     }],

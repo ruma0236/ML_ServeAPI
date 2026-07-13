@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -31,6 +32,7 @@ def configure_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "/mnt/evm-data/test-profiles",
     )
     monkeypatch.setenv("EVM_LIFECYCLE_RUN_ROOT", str(tmp_path / "lifecycle-runs"))
+    monkeypatch.setenv("EVM_EXPERIMENT_RUN_ROOT", str(tmp_path / "experiments"))
     monkeypatch.setenv(
         "EVM_LIFECYCLE_RUNTIME_ROOT",
         "/mnt/evm-data/test-lifecycle-runs",
@@ -200,6 +202,64 @@ def test_dry_run_cannot_execute_and_queue_is_version_guarded(tmp_path: Path, mon
                 expected_version=2,
             ),
         )
+
+
+def test_queue_requires_blueprint_revision_after_quality_regression(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run = new_run(tmp_path, monkeypatch)
+    executable_validation(monkeypatch)
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "unresolved_quality_review",
+        lambda _digest: SimpleNamespace(
+            event_id="model-quality-1234",
+            failed_gates=["f1<0.75"],
+            recommendations=["unfreeze_backbone", "expand_learning_rate_search"],
+        ),
+    )
+
+    with pytest.raises(LifecycleRunError) as exc_info:
+        queue_lifecycle_run(
+            run.run_id,
+            LifecycleActionRequest(
+                actor="requester@example.com",
+                reason="Retry unchanged quality-regressed Blueprint",
+                expected_version=run.version,
+            ),
+        )
+
+    assert exc_info.value.code == "model_quality_review_unresolved"
+    assert "Revise and save a new Blueprint" in str(exc_info.value)
+    assert "f1<0.75" in str(exc_info.value)
+
+
+def test_retry_guard_uses_run_quality_review_when_legacy_digest_differs(
+    monkeypatch,
+) -> None:
+    review = SimpleNamespace(
+        state="review_required",
+        event_id="model-quality-legacy-digest",
+        failed_gates=["f1<0.75"],
+        recommendations=["revise_blueprint_before_retry"],
+    )
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "read_experiment",
+        lambda _run_id: SimpleNamespace(quality_review=review),
+    )
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "unresolved_quality_review",
+        lambda _profile_digest: None,
+    )
+
+    with pytest.raises(LifecycleRunError) as exc_info:
+        lifecycle_runs.reject_run_quality_review("legacy-run", "different-profile-digest")
+
+    assert exc_info.value.code == "model_quality_review_unresolved"
+    assert "model-quality-legacy-digest" in str(exc_info.value)
 
 
 def test_missing_source_revision_is_visible_and_blocks_execution(

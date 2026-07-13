@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -42,6 +42,7 @@ class TorchRuntimeConfig:
     mlflow_experiment_name: str
     parent_run_id: str | None = None
     run_tags: dict[str, str] = field(default_factory=dict)
+    progress_callback: Callable[[dict[str, Any]], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -693,6 +694,23 @@ def train_candidate(
         pin_memory=runtime.pin_memory,
     )
 
+    def report_progress(payload: dict[str, Any]) -> None:
+        if runtime.progress_callback is not None:
+            runtime.progress_callback(payload)
+
+    steps_per_epoch = len(train_loader)
+    report_progress(
+        {
+            "phase": "preparing",
+            "epoch": 0,
+            "epochs": candidate.epochs,
+            "step": 0,
+            "steps": steps_per_epoch,
+            "optimizer_steps": 0,
+            "unit_progress": 0.0,
+        }
+    )
+
     model = build_model(candidate, len(CLASS_NAMES)).to(device)
     trainable_parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
     optimizer = build_optimizer(candidate, trainable_parameters)
@@ -710,7 +728,8 @@ def train_candidate(
     for epoch in range(1, candidate.epochs + 1):
         model.train()
         losses: list[float] = []
-        for images, targets in train_loader:
+        progress_interval = max(1, steps_per_epoch // 20)
+        for step, (images, targets) in enumerate(train_loader, start=1):
             images = images.to(device, non_blocking=True)
             targets = targets.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
@@ -721,7 +740,37 @@ def train_candidate(
             scaler.step(optimizer)
             scaler.update()
             optimizer_step_count += 1
-            losses.append(float(loss.detach().cpu().item()))
+            step_loss = float(loss.detach().cpu().item())
+            losses.append(step_loss)
+            if step == 1 or step == steps_per_epoch or step % progress_interval == 0:
+                report_progress(
+                    {
+                        "phase": "training",
+                        "epoch": epoch,
+                        "epochs": candidate.epochs,
+                        "step": step,
+                        "steps": steps_per_epoch,
+                        "optimizer_steps": optimizer_step_count,
+                        "train_loss": step_loss,
+                        "unit_progress": min(
+                            0.99,
+                            ((epoch - 1) + (step / max(steps_per_epoch, 1)) * 0.85)
+                            / candidate.epochs,
+                        ),
+                    }
+                )
+        report_progress(
+            {
+                "phase": "validating",
+                "epoch": epoch,
+                "epochs": candidate.epochs,
+                "step": steps_per_epoch,
+                "steps": steps_per_epoch,
+                "optimizer_steps": optimizer_step_count,
+                "train_loss": statistics.mean(losses) if losses else 0.0,
+                "unit_progress": min(0.99, ((epoch - 1) + 0.9) / candidate.epochs),
+            }
+        )
         validation_metrics = evaluate(model, validation_loader, device)
         history.append(
             {
@@ -732,6 +781,22 @@ def train_candidate(
                     key: validation_metrics[key]
                     for key in ("accuracy", "precision", "recall", "f1", "auroc", "latency_p95_ms")
                 },
+            }
+        )
+        report_progress(
+            {
+                "phase": "validating",
+                "epoch": epoch,
+                "epochs": candidate.epochs,
+                "step": steps_per_epoch,
+                "steps": steps_per_epoch,
+                "optimizer_steps": optimizer_step_count,
+                "train_loss": statistics.mean(losses) if losses else 0.0,
+                "validation_metrics": {
+                    key: float(validation_metrics[key])
+                    for key in ("accuracy", "f1", "auroc")
+                },
+                "unit_progress": epoch / candidate.epochs,
             }
         )
         if early_stop_reached(
@@ -870,5 +935,16 @@ def train_candidate(
             "artifact_uri": str(candidate_dir),
             "created_at": summary["created_at"],
         },
+    )
+    report_progress(
+        {
+            "phase": "completed",
+            "epoch": len(history),
+            "epochs": candidate.epochs,
+            "step": steps_per_epoch,
+            "steps": steps_per_epoch,
+            "optimizer_steps": optimizer_step_count,
+            "unit_progress": 1.0,
+        }
     )
     return summary

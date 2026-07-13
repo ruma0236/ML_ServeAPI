@@ -57,38 +57,38 @@ const workspaces: Array<{
 }> = [
   {
     key: "observe",
-    label: "Observe",
+    label: "Monitor",
     icon: Activity,
     views: [
-      { key: "overview", label: "Overview" },
+      { key: "overview", label: "Command Center" },
       { key: "runs", label: "Runs" },
-      { key: "timeline", label: "Timeline" }
+      { key: "timeline", label: "Pipeline" }
     ]
   },
   {
     key: "design",
-    label: "Design",
+    label: "Build",
     icon: SlidersHorizontal,
     views: [
-      { key: "configure", label: "Configure" },
-      { key: "operate", label: "Operate" }
+      { key: "configure", label: "Blueprint" },
+      { key: "operate", label: "Task Studio" }
     ]
   },
   {
     key: "validate",
-    label: "Validate",
+    label: "Release",
     icon: ShieldCheck,
     views: [
       { key: "readiness", label: "Readiness" },
-      { key: "gates", label: "Gates" },
-      { key: "release", label: "Release" }
+      { key: "gates", label: "Quality & Drift" },
+      { key: "release", label: "Promotion" }
     ]
   },
   {
     key: "govern",
     label: "Govern",
     icon: BookOpenCheck,
-    views: [{ key: "governance", label: "Governance" }]
+    views: [{ key: "governance", label: "Audit" }]
   }
 ];
 
@@ -131,6 +131,10 @@ export function App() {
   );
   const [tab, setTab] = useState<TabKey>(() => restoredTab());
   const [lifecycleContext, setLifecycleContext] = useState<LifecycleRun | null>(null);
+  const [blueprintTarget, setBlueprintTarget] = useState<{
+    profileId: string;
+    version: number;
+  } | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -264,9 +268,19 @@ export function App() {
   }
 
   const activeView = useMemo(() => {
-    if (tab === "runs") return <LifecycleRuns onCycleContext={(run) => void selectLifecycleContext(run)} />;
+    if (tab === "runs") return (
+      <LifecycleRuns
+        onCycleContext={(run) => void selectLifecycleContext(run)}
+        onOpenBlueprint={(run) => {
+          setBlueprintTarget({ profileId: run.profile_id, version: run.profile_version });
+          selectTab("configure");
+        }}
+      />
+    );
     if (!cycle) return null;
-    if (tab === "configure") return <PipelineProfileStudio cycle={cycle} />;
+    if (tab === "configure") return (
+      <PipelineProfileStudio cycle={cycle} profileTarget={blueprintTarget} />
+    );
     if (tab === "readiness") return <DataModelReadiness cycle={cycle} />;
     if (tab === "timeline") return <PipelineTimeline cycle={cycle} resourceSnapshot={resourceSnapshot} />;
     if (tab === "operate") return (
@@ -280,7 +294,7 @@ export function App() {
     if (tab === "release") return <ReleaseControl cycle={cycle} lifecycleRun={lifecycleContext} />;
     if (tab === "governance") return <GovernancePanel cycle={cycle} lifecycleRun={lifecycleContext} registry={decisionRegistry} onRefresh={() => loadCycle(true, true)} />;
     return <CycleOverview cycle={cycle} />;
-  }, [cycle, decisionRegistry, driftWorkflow, lifecycleContext, orchestratorConnections, resourceSnapshot, tab]);
+  }, [blueprintTarget, cycle, decisionRegistry, driftWorkflow, lifecycleContext, orchestratorConnections, resourceSnapshot, tab]);
 
   const syncStatus: State = syncSources.some((source) => source.status === "error")
     ? "blocked"

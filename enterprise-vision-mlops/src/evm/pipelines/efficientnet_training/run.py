@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -179,7 +179,11 @@ def required_candidate_blockers(summary: dict[str, Any]) -> list[str]:
     return blockers
 
 
-def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str, Any]:
+def run(
+    config_path: str = "configs/w7_efficientnet_real_test.toml",
+    *,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     config = load_config(config_path)
     project_root = Path(str(config["_project_root"]))
     matrix_cfg = config.get("model_matrix", {})
@@ -316,6 +320,7 @@ def run(config_path: str = "configs/w7_efficientnet_real_test.toml") -> dict[str
                 or ""
             ),
         },
+        progress_callback=progress_callback,
     )
 
     candidate_results: list[dict[str, Any]] = []
