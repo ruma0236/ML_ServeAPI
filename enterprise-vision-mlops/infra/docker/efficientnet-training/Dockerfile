@@ -2,14 +2,10 @@ FROM python:3.11-slim
 
 ARG TORCH_VERSION=2.13.0+cu126
 ARG TORCHVISION_VERSION=0.28.0+cu126
-ARG SOURCE_REVISION=unknown
-
-LABEL org.opencontainers.image.revision="${SOURCE_REVISION}"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/src \
-    EVM_IMAGE_SOURCE_REVISION=${SOURCE_REVISION}
+    PYTHONPATH=/app/src
 
 WORKDIR /app
 
@@ -19,8 +15,9 @@ RUN apt-get update \
 
 RUN pip install --no-cache-dir \
       --index-url https://download.pytorch.org/whl/cu126 \
-      "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" \
-    && pip install --no-cache-dir \
+      "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}"
+
+RUN pip install --no-cache-dir \
       boto3==1.35.76 \
       matplotlib==3.9.2 \
       optuna==4.9.0 \
@@ -28,6 +25,10 @@ RUN pip install --no-cache-dir \
       pydantic==2.10.3 \
       requests==2.32.3 \
       scikit-learn==1.5.2
+
+ARG SOURCE_REVISION=unknown
+LABEL org.opencontainers.image.revision="${SOURCE_REVISION}"
+ENV EVM_IMAGE_SOURCE_REVISION=${SOURCE_REVISION}
 
 RUN useradd --create-home --uid 10001 evm
 
