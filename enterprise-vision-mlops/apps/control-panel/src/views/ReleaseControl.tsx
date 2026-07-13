@@ -54,7 +54,7 @@ export function ReleaseControl({ cycle, lifecycleRun }: ReleaseControlProps) {
     },
     {
       id: "deployment",
-      label: "Continuous Deployment",
+      label: targetEnvironment === "production" ? "Continuous Deployment" : "Target Deployment",
       status: deploymentStatus(intent?.state),
       detail: intent?.state || "No deployment intent",
       evidence: intent?.audit_uri
@@ -68,7 +68,7 @@ export function ReleaseControl({ cycle, lifecycleRun }: ReleaseControlProps) {
     },
     {
       id: "monitoring",
-      label: "Production Monitoring",
+      label: targetEnvironment === "production" ? "Production Monitoring" : "Target Monitoring",
       status: monitoringStatus(cycle),
       detail: cycle.serving.p95_latency_ms == null
         ? "Latency evidence unavailable"

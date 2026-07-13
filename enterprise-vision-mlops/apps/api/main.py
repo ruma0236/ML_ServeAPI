@@ -2,6 +2,7 @@ import json
 import os
 import threading
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -141,7 +142,13 @@ class PredictResponse(BaseModel):
     registry_path: str
 
 
-app = FastAPI(title=APP_NAME, version="0.1.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    refresh_model_state()
+    yield
+
+
+app = FastAPI(title=APP_NAME, version="0.1.0", lifespan=lifespan)
 app.include_router(control_panel_router)
 app.include_router(control_panel_tasks_router)
 app.include_router(control_panel_commands_router)
@@ -317,11 +324,6 @@ def refresh_vlm_observability_state() -> None:
         VLM_QUALITY_ERROR_COUNT.set(float(dataset_quality.get("error_count", 0) or 0))
     if isinstance(audit, dict):
         VLM_AUDIT_EVENT_COUNT.set(float(audit.get("event_count", 0) or 0))
-
-
-@app.on_event("startup")
-def startup_load_model() -> None:
-    refresh_model_state()
 
 
 @app.get("/health")

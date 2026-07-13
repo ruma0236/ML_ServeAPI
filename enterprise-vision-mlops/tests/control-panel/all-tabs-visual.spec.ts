@@ -29,6 +29,20 @@ test("@w7-all-tabs-visual captures every Control Panel tab for the active viewpo
     if (tab === "Operate") {
       await expect(page.locator(".json-editor textarea")).not.toHaveValue("");
     }
+    if (tab === "Runs") {
+      await expect(page.getByText("Host Worker").locator("..").getByText("Online")).toBeVisible();
+      await expect(
+        page.getByRole("button", {
+          name: /standard-b0-operator-validation \/ v1 .* Completed 100%/
+        })
+      ).toBeVisible();
+    }
+
+    const documentOverflow = await page.evaluate(
+      () => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth
+    );
+    expect(documentOverflow, `${tab} must not overflow the viewport horizontally`).toBeLessThanOrEqual(1);
+
     await page.waitForTimeout(250);
     await page.screenshot({
       path: `${evidenceDir}/${testInfo.project.name}-${tab.toLowerCase()}.png`,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import importlib
+import inspect
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from evm.core.torch_efficientnet import (
     load_shard_records,
     optimal_f1_threshold,
     predictions_at_threshold,
+    train_candidate,
 )
 from evm.pipelines.efficientnet_training.run import (
     candidate_artifact_root,
@@ -77,6 +79,14 @@ def test_expedited_early_stop_requires_minimum_epoch_and_accuracy() -> None:
     assert early_stop_reached(candidate, epoch=1, validation_accuracy=0.95) is False
     assert early_stop_reached(candidate, epoch=2, validation_accuracy=0.92) is False
     assert early_stop_reached(candidate, epoch=2, validation_accuracy=0.93) is True
+
+
+def test_training_uses_current_torch_amp_api() -> None:
+    source = inspect.getsource(train_candidate)
+
+    assert "torch.cuda.amp" not in source
+    assert "torch.amp.GradScaler" in source
+    assert "torch.amp.autocast" in source
 
 
 def _write_json(path: Path, payload: dict | list) -> None:

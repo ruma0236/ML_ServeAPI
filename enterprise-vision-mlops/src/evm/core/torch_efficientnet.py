@@ -639,7 +639,6 @@ def train_candidate(
 ) -> dict[str, Any]:
     import torch
     from torch import nn
-    from torch.cuda.amp import GradScaler, autocast
     from torch.utils.data import DataLoader
 
     if runtime.require_cuda and not torch.cuda.is_available():
@@ -685,7 +684,8 @@ def train_candidate(
     criterion = nn.CrossEntropyLoss(
         weight=class_weights(splits["train"], device) if candidate.class_weighted_loss else None
     )
-    scaler = GradScaler(enabled=candidate.mixed_precision and device.type == "cuda")
+    amp_enabled = candidate.mixed_precision and device.type == "cuda"
+    scaler = torch.amp.GradScaler(device.type, enabled=amp_enabled)
 
     history: list[dict[str, Any]] = []
     optimizer_step_count = 0
@@ -699,7 +699,7 @@ def train_candidate(
             images = images.to(device, non_blocking=True)
             targets = targets.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            with autocast(enabled=candidate.mixed_precision and device.type == "cuda"):
+            with torch.amp.autocast(device.type, enabled=amp_enabled):
                 logits = model(images)
                 loss = criterion(logits, targets)
             scaler.scale(loss).backward()

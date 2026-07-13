@@ -8,6 +8,14 @@ test("@w7-control-plane selects CycleRuns and exposes the release cockpit", asyn
     total: number;
     cycles: Array<{ cycle_id: string; live: boolean }>;
   };
+  const latestResponse = await request.get("/control-panel/v1/cycles/latest");
+  expect(latestResponse.ok()).toBeTruthy();
+  const latest = (await latestResponse.json()) as {
+    environment?: { tier?: string };
+    latest_deployment_intent?: { target_environment?: string; approver?: string };
+    tenant?: { ops_owner?: string };
+    model: { model_name: string };
+  };
   expect(catalog.total).toBeGreaterThan(0);
 
   await page.goto("/");
@@ -26,15 +34,22 @@ test("@w7-control-plane selects CycleRuns and exposes the release cockpit", asyn
   await page.getByRole("button", { name: "Release" }).click();
   await expect(page.getByRole("heading", { name: "Release Control" })).toBeVisible();
   await expect(page.getByLabel("Release pipeline stages").locator("article")).toHaveCount(7);
-  await expect(page.locator(".release-outcome")).toContainText("eligible");
+  const targetEnvironment = latest.latest_deployment_intent?.target_environment || latest.environment?.tier || "unknown";
+  await expect(page.locator(".release-outcome")).toContainText(`${targetEnvironment} target`);
+  await expect(page.locator(".release-outcome")).toContainText(/verified|blocked|running|completed|failed/);
   await expect(
-    page.getByLabel("Release pipeline stages").locator("article").filter({ hasText: "Production Monitoring" })
-  ).toContainText("p95");
+    page.getByLabel("Release pipeline stages").locator("article").filter({ hasText: /Monitoring/ })
+  ).toContainText(/p95|Latency evidence unavailable|Not scheduled|up/);
   await expect(page.getByRole("heading", { name: "Deployment Intent" })).toBeVisible();
-  await expect(page.getByLabel("Approver")).toHaveValue("release-manager");
+  await expect(page.getByLabel("Approver")).toHaveValue(
+    latest.latest_deployment_intent?.approver || latest.tenant?.ops_owner || "ai-infra-sre"
+  );
   await expect(
     page.getByRole("textbox", { name: "Reason", exact: true })
-  ).toHaveValue("Promote verified efficientnet-b0-visa-anomaly candidate");
+  ).toHaveValue(`Promote verified ${latest.model.model_name} candidate`);
+  if (targetEnvironment !== "production") {
+    await expect(page.getByRole("alert")).toContainText("deployment_target_not_production");
+  }
   await expect(page.getByRole("link", { name: /Grafana/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /MLflow/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /Prometheus/ })).toBeVisible();

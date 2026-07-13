@@ -11,11 +11,10 @@ test("@w7-enterprise-readiness renders service scope, readiness gates, and theme
   await expect(page.getByRole("heading", { name: "Data Pipeline Checklist" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Model Pipeline Checklist" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Artifact Evidence Decision" })).toBeVisible();
+  await page.getByLabel("Artifact evidence evaluation").locator("summary").click();
   await expect(page.getByLabel("Artifact evidence evaluation").getByText("quality gate")).toBeVisible();
   await expect(page.getByLabel("Artifact evidence evaluation").getByText("kubernetes runtime")).toBeVisible();
   await expect(page.getByText("Owner approval")).toHaveCount(2);
-  await expect(page.getByText("two-person-production-approval")).toBeVisible();
-  await expect(page.getByLabel("Approver")).toHaveValue("release-manager");
   await expect(page.getByLabel("Owner coverage").getByText("data-platform")).toBeVisible();
   await expect(page.getByLabel("Owner coverage").getByText("ml-platform")).toBeVisible();
   await expect(page.getByLabel("Enterprise readiness checklist").getByText("data-platform")).toBeVisible();
@@ -23,6 +22,7 @@ test("@w7-enterprise-readiness renders service scope, readiness gates, and theme
 
   await page.getByLabel("Target environment").selectOption("production");
   await expect(page.getByLabel("Target namespace")).toHaveValue("evm-production");
+  await page.getByLabel("Enterprise service scope").getByText("Approver", { exact: true }).locator("..").getByRole("textbox").fill("release-manager-ui-test");
   await expect(page.getByLabel("Promotion policy decision").getByText("production", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Promotion policy decision").getByText("two-person-production-approval")).toBeVisible();
   await expect(page.getByLabel("Promotion policy checks").getByText("approval", { exact: true })).toBeVisible();
