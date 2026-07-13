@@ -35,8 +35,10 @@ from evm.control_panel.lifecycle_kubernetes import (
     materialize_training_bundle,
 )
 from evm.control_panel.lifecycle_runs import (
+    LifecycleApprovalRequest,
     LifecycleRun,
     LifecycleRunError,
+    approve_lifecycle_run,
     get_lifecycle_run,
     lifecycle_root,
     mark_lifecycle_rollback,
@@ -711,13 +713,47 @@ def process_approval(
     http_client: HttpClient,
 ) -> LifecycleRun:
     del runner, http_client
-    return transition_stage(
+    profile = read_json(runtime_path(run.profile_snapshot_uri))
+    gates = object_value(profile, "gates")
+    policy = str(gates.get("approval_policy") or "two_person")
+    environment = str(gates.get("target_environment") or "staging")
+    if policy == "automated_non_production" and environment in {
+        "pre-production",
+        "production",
+    }:
+        raise LifecycleStageBlocked(
+            "automated_approval_not_allowed_for_protected_environment"
+        )
+    waiting = transition_stage(
         run.run_id,
         "approval",
         "waiting_approval",
         actor="lifecycle-worker",
-        runtime_state="two_person_approval_required",
-        detail="Automated gates passed; independent release approval is required",
+        runtime_state=(
+            "policy_service_account_approval"
+            if policy == "automated_non_production"
+            else "two_person_approval_required"
+        ),
+        detail=(
+            f"Automated gates passed; {environment} policy approval is eligible"
+            if policy == "automated_non_production"
+            else "Automated gates passed; independent release approval is required"
+        ),
+    )
+    if policy != "automated_non_production":
+        return waiting
+    approver = "release-policy-bot@local"
+    return approve_lifecycle_run(
+        waiting.run_id,
+        LifecycleApprovalRequest(
+            actor=approver,
+            approver=approver,
+            reason=(
+                f"All immutable CI, CT, readiness, and policy gates passed for "
+                f"non-production environment {environment}"
+            ),
+            expected_version=waiting.version,
+        ),
     )
 
 
@@ -1311,3 +1347,4 @@ def write_json(path: Path, payload: object) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(path)
+    approve_lifecycle_run,

@@ -1995,7 +1995,7 @@
           "require_cd": {"type": "boolean"},
           "require_ct": {"type": "boolean"},
           "require_drift_review": {"type": "boolean"},
-          "approval_policy": {"type": "string", "enum": ["manual", "two_person", "change_ticket"]},
+          "approval_policy": {"type": "string", "enum": ["manual", "two_person", "change_ticket", "automated_non_production"]},
           "target_environment": {"type": "string", "enum": ["dev", "test", "staging", "pre-production", "production"]},
           "target_namespace": {"type": "string"}
         }

@@ -104,6 +104,26 @@ def test_automated_search_rejects_unbounded_parallelism(tmp_path: Path) -> None:
     assert "parallel_trial_gpu_quota_exceeded" in validation.blockers
 
 
+def test_automated_approval_is_limited_to_non_protected_environments(tmp_path: Path) -> None:
+    profile = profile_with_evidence(tmp_path)
+    staging_gates = profile.gates.model_copy(
+        update={"approval_policy": "automated_non_production"}
+    )
+    staging = validate_profile(profile.model_copy(update={"gates": staging_gates}))
+
+    protected_gates = staging_gates.model_copy(
+        update={"target_environment": "pre-production"}
+    )
+    protected = validate_profile(profile.model_copy(update={"gates": protected_gates}))
+
+    assert staging.executable is True
+    assert protected.executable is False
+    assert (
+        "automated_approval_not_allowed_for_protected_environment"
+        in protected.blockers
+    )
+
+
 def test_saved_profile_is_versioned_idempotent_and_renders_runtime_configs(
     tmp_path: Path,
     monkeypatch,

@@ -787,7 +787,7 @@ export interface PipelineGateProfile {
   require_cd: boolean;
   require_ct: boolean;
   require_drift_review: boolean;
-  approval_policy: "manual" | "two_person" | "change_ticket";
+  approval_policy: "manual" | "two_person" | "change_ticket" | "automated_non_production";
   target_environment: EnvironmentTier;
   target_namespace: string;
 }

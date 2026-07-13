@@ -13,6 +13,7 @@ from evm.control_panel.lifecycle_orchestrator import (
     LifecycleStageBlocked,
     clear_prometheus_target,
     process_artifact_readiness,
+    process_approval,
     process_ci_ct_gate,
     process_lifecycle_run,
     rollback_lifecycle,
@@ -50,7 +51,12 @@ class FakeResponse:
         return json.dumps(self.payload).encode("utf-8")
 
 
-def queued_run(tmp_path: Path, monkeypatch):
+def queued_run(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    approval_policy: str = "two_person",
+):
     project = Path(__file__).resolve().parents[1]
     data_root = tmp_path / "d"
     source = data_root / "manifest.jsonl"
@@ -69,6 +75,13 @@ def queued_run(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("EVM_CONTROL_PANEL_LEDGER_ROOT", str(tmp_path / "o"))
     monkeypatch.setenv("GIT_COMMIT", "1" * 40)
     profile = default_profile().model_copy(update={"profile_name": "orchestrator-test"})
+    profile = profile.model_copy(
+        update={
+            "gates": profile.gates.model_copy(
+                update={"approval_policy": approval_policy}
+            )
+        }
+    )
     profile = profile.model_copy(
         update={
             "data": profile.data.model_copy(
@@ -301,6 +314,40 @@ def test_approval_stage_stops_worker_until_independent_action(tmp_path, monkeypa
     assert waiting.current_stage == "approval"
     assert unchanged.version == waiting.version
     assert unchanged.stages[7].state == "not_started"
+
+
+def test_staging_policy_approval_advances_without_human_action(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = queued_run(
+        tmp_path,
+        monkeypatch,
+        approval_policy="automated_non_production",
+    )
+    for stage_id in (
+        "data_pipeline",
+        "model_training",
+        "model_evaluation",
+        "artifact_readiness",
+        "ci_ct_gate",
+    ):
+        transition_stage(run.run_id, stage_id, "running", actor="test")
+        run = transition_stage(run.run_id, stage_id, "completed", actor="test")
+
+    approved = process_approval(
+        run,
+        runner=lambda *_args, **_kwargs: None,
+        http_client=lambda *_args, **_kwargs: (200, {}),
+    )
+
+    approval = next(item for item in approved.stages if item.stage_id == "approval")
+    assert approval.state == "completed"
+    assert approval.runtime_state == "approved"
+    assert approved.approver == "release-policy-bot@local"
+    assert approved.current_stage == "deployment"
+    assert approved.state == "queued"
+    assert approved.audit[-1].event == "lifecycle_run_approved"
 
 
 def test_artifact_readiness_persists_report_before_stage_completion(

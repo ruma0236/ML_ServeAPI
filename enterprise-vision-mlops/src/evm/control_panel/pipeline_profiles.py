@@ -121,7 +121,12 @@ class GateProfile(ContractModel):
     require_cd: bool = True
     require_ct: bool = True
     require_drift_review: bool = True
-    approval_policy: Literal["manual", "two_person", "change_ticket"] = "two_person"
+    approval_policy: Literal[
+        "manual",
+        "two_person",
+        "change_ticket",
+        "automated_non_production",
+    ] = "two_person"
     target_environment: Literal["dev", "test", "staging", "pre-production", "production"] = "staging"
     target_namespace: str = "evm-staging"
 
@@ -401,6 +406,11 @@ def validate_profile(profile: PipelineRunProfile) -> PipelineProfileValidation:
             blockers.append("ab_test_candidates_must_differ")
     if profile.gates.target_environment == "production" and profile.gates.approval_policy != "two_person":
         blockers.append("production_requires_two_person_approval")
+    if (
+        profile.gates.approval_policy == "automated_non_production"
+        and profile.gates.target_environment in {"pre-production", "production"}
+    ):
+        blockers.append("automated_approval_not_allowed_for_protected_environment")
 
     capabilities = capability_matrix(profile)
     required_capability_blockers = [
