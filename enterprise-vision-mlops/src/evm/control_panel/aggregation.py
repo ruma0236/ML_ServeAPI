@@ -698,6 +698,7 @@ def build_latest_cycle(
     org_context = build_default_org_context()
     contract_path = project_root / "domain_packs/manufacturing_visual_inspection/data_contract.toml"
     matrix_id = str(matrix_config.get("matrix_id", "w7-efficientnet-real-test-matrix"))
+    matrix_evidence = model_matrix_evidence(efficientnet_config, matrix_id)
     matrix_artifact_root = runtime_path(
         str(matrix_resources.get("artifact_root", artifacts_root / "w7" / "efficientnet"))
     )
@@ -730,6 +731,56 @@ def build_latest_cycle(
         or ""
     )
     candidate_summary_payload = read_json(candidate_dir / "candidate_summary.json")
+    candidate_split_payload = read_json(candidate_dir / "split_manifest.json")
+    profile_data = (
+        control_plane.get("data", {})
+        if isinstance(control_plane.get("data"), dict)
+        else {}
+    )
+    profile_split = (
+        profile_data.get("split", {})
+        if isinstance(profile_data.get("split"), dict)
+        else {}
+    )
+    profile_gates = (
+        control_plane.get("gates", {})
+        if isinstance(control_plane.get("gates"), dict)
+        else {}
+    )
+    isolated_training_view = bool(
+        profile_split.get("immutable_holdout")
+        and not profile_split.get("allow_holdout_in_training", False)
+        and profile_gates.get("isolated_ct_dataset_required")
+    )
+    readiness_source_record_count = expected_record_count
+    readiness_source_digest = expected_source_digest
+    split_evidence_scope = "full_dataset"
+    excluded_training_split: str | None = None
+    readiness_scope_blockers: list[str] = []
+    if isolated_training_view:
+        split_evidence_scope = "isolated_development_view"
+        excluded_training_split = str(
+            profile_split.get("holdout_split")
+            or profile_gates.get("ct_dataset_split")
+            or ""
+        ) or None
+        readiness_source_record_count = int(
+            candidate_split_payload.get("record_count") or 0
+        )
+        readiness_source_digest = str(
+            matrix_evidence.get("source_shard_identity_sha256")
+            or matrix_evidence.get("source_shard_index_sha256")
+            or candidate_summary_payload.get("source_shard_index_sha256")
+            or ""
+        )
+        if readiness_source_record_count <= 0:
+            readiness_scope_blockers.append(
+                "isolated_training_view_record_count_missing"
+            )
+        if not readiness_source_digest:
+            readiness_scope_blockers.append(
+                "isolated_training_view_source_digest_missing"
+            )
     if managed_candidate_active:
         model_name = str(product_config.get("model_name") or selected_candidate_id)
         model_version = str(
@@ -760,7 +811,8 @@ def build_latest_cycle(
         candidate_id=selected_candidate_id,
         dataset_version=str(matrix_config.get("dataset_version", dataset_version)),
         expected_record_count=expected_record_count,
-        expected_source_digest=expected_source_digest,
+        expected_source_record_count=readiness_source_record_count,
+        expected_source_digest=readiness_source_digest,
         expected_manifest_digest=str(
             candidate_summary_payload.get("readiness_snapshot_manifest_sha256")
             or ""
@@ -771,7 +823,7 @@ def build_latest_cycle(
     readiness_quality_report_path = quality_report_path
     readiness_source_shard_path = source_shard_index_path
     readiness_expected_digests: dict[str, str] = {}
-    readiness_snapshot_blockers: tuple[str, ...] = ()
+    readiness_snapshot_blockers: tuple[str, ...] = tuple(readiness_scope_blockers)
     if readiness_snapshot is not None:
         readiness_dataset_metadata_path = (
             readiness_snapshot.dataset_metadata_path or readiness_dataset_metadata_path
@@ -783,7 +835,11 @@ def build_latest_cycle(
             readiness_snapshot.source_shard_path or readiness_source_shard_path
         )
         readiness_expected_digests = readiness_snapshot.expected_digests
-        readiness_snapshot_blockers = readiness_snapshot.blockers
+        readiness_snapshot_blockers = tuple(
+            sorted(
+                set(readiness_scope_blockers).union(readiness_snapshot.blockers)
+            )
+        )
     configured_kubernetes_evidence = str(runtime_evidence.get("kubernetes") or "")
     kubernetes_evidence_path = (
         runtime_path(configured_kubernetes_evidence)
@@ -830,7 +886,10 @@ def build_latest_cycle(
             candidate_id=selected_candidate_id,
             dataset_version=str(matrix_config.get("dataset_version", dataset_version)),
             expected_record_count=expected_record_count,
-            expected_source_digest=expected_source_digest,
+            expected_source_record_count=readiness_source_record_count,
+            expected_source_digest=readiness_source_digest,
+            split_evidence_scope=split_evidence_scope,
+            excluded_training_split=excluded_training_split,
             metric_thresholds={
                 name: float(matrix_acceptance[key])
                 for name, key in {

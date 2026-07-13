@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from evm.control_panel.schemas import (
     ArtifactReadinessEvaluation,
@@ -55,6 +55,11 @@ class ReadinessInputs:
     expected_record_count: int
     expected_source_digest: str
     metric_thresholds: dict[str, float]
+    expected_source_record_count: int | None = None
+    split_evidence_scope: Literal[
+        "full_dataset", "isolated_development_view"
+    ] = "full_dataset"
+    excluded_training_split: str | None = None
     report_uri: str | None = None
     expected_evidence_digests: dict[str, str] = field(default_factory=dict)
     input_blockers: tuple[str, ...] = ()
@@ -293,6 +298,7 @@ def check_source_shard(
     expected_record_count: int,
     *,
     expected_evidence_digest: str = "",
+    evidence_scope: str = "full_dataset",
 ) -> ReadinessEvidenceCheck:
     payload, error = read_json(path)
     blockers = _missing_or_malformed("source_shard_index", error)
@@ -324,6 +330,7 @@ def check_source_shard(
             "actual_sha256": actual_digest,
             "expected_sha256": expected_digest,
             "snapshot_sha256": evidence_digest,
+            "evidence_scope": evidence_scope,
         },
         blockers=blockers,
     )
@@ -334,6 +341,9 @@ def check_split_manifest(
     dataset_version: str,
     expected_record_count: int,
     expected_source_digest: str,
+    *,
+    evidence_scope: str = "full_dataset",
+    excluded_training_split: str | None = None,
 ) -> ReadinessEvidenceCheck:
     payload, error = read_json(path)
     blockers = _missing_or_malformed("split_manifest", error)
@@ -349,6 +359,11 @@ def check_split_manifest(
         blockers.append("split_record_count_mismatch")
     if loaded and split_total != observed_count:
         blockers.append("split_count_sum_mismatch")
+    excluded_count = 0
+    if loaded and excluded_training_split:
+        excluded_count = int(split_counts.get(excluded_training_split) or 0)
+        if excluded_count != 0:
+            blockers.append("split_excluded_training_split_present")
     if loaded and not source_digest:
         blockers.append("split_source_digest_missing")
     elif loaded and expected_source_digest and source_digest.lower() != expected_source_digest.lower():
@@ -362,6 +377,9 @@ def check_split_manifest(
             "record_count": observed_count,
             "split_total": split_total,
             "source_shard_index_sha256": source_digest,
+            "evidence_scope": evidence_scope,
+            "excluded_training_split": excluded_training_split or "",
+            "excluded_training_split_count": excluded_count,
         },
         blockers=blockers,
     )
@@ -798,6 +816,11 @@ def evaluate_artifact_readiness(
     kubernetes_evidence_path = (
         runtime_path(inputs.kubernetes_evidence_path) if inputs.kubernetes_evidence_path else None
     )
+    expected_source_record_count = (
+        inputs.expected_record_count
+        if inputs.expected_source_record_count is None
+        else inputs.expected_source_record_count
+    )
 
     candidate_check, candidate = check_candidate_summary(
         candidate_summary_path,
@@ -832,17 +855,20 @@ def evaluate_artifact_readiness(
         check_source_shard(
             source_shard_index_path,
             inputs.expected_source_digest,
-            inputs.expected_record_count,
+            expected_source_record_count,
             expected_evidence_digest=inputs.expected_evidence_digests.get(
                 "source_shard",
                 "",
             ),
+            evidence_scope=inputs.split_evidence_scope,
         ),
         check_split_manifest(
             split_manifest_path,
             inputs.dataset_version,
-            inputs.expected_record_count,
+            expected_source_record_count,
             inputs.expected_source_digest,
+            evidence_scope=inputs.split_evidence_scope,
+            excluded_training_split=inputs.excluded_training_split,
         ),
         check_quality_gate(
             quality_report_path,

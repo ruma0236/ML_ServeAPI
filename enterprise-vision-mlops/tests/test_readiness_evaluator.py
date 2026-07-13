@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from evm.control_panel import readiness_evaluator
@@ -311,6 +312,101 @@ def test_artifact_readiness_returns_ready_only_when_all_content_agrees(tmp_path:
     assert result.data_pipeline.blockers == []
     assert result.experiment_pipeline.promotion_ready is True
     assert validate_evaluation(result.evaluation)["valid"] is True
+
+
+def test_artifact_readiness_accepts_isolated_development_training_view(
+    tmp_path: Path,
+) -> None:
+    inputs, mlflow_payload = build_fixture(tmp_path)
+    source = tmp_path / "development-shard-index.json"
+    write_json(
+        source,
+        {
+            "schema_version": "evm.training_dataset_shards.v1",
+            "record_count": 4,
+            "identity_sha256": "7" * 64,
+        },
+    )
+    write_json(
+        inputs.split_manifest_path,
+        {
+            "schema_version": "evm.w7.efficientnet_split_manifest.v1",
+            "dataset_version": DATASET_VERSION,
+            "record_count": 4,
+            "split_counts": {"train": 2, "validation": 2, "test": 0},
+            "source_shard_index_sha256": "7" * 64,
+        },
+    )
+    isolated_inputs = replace(
+        inputs,
+        source_shard_index_path=source,
+        expected_source_digest="7" * 64,
+        expected_source_record_count=4,
+        split_evidence_scope="isolated_development_view",
+        excluded_training_split="test",
+    )
+
+    result = evaluate_artifact_readiness(
+        isolated_inputs,
+        build_default_org_context(),
+        mlflow_loader=lambda _uri, _run_id: (200, mlflow_payload),
+    )
+
+    assert result.evaluation.decision == "ready"
+    source_check = next(
+        check
+        for check in result.evaluation.checks
+        if check.check_id == "source_shard_index"
+    )
+    split_check = next(
+        check
+        for check in result.evaluation.checks
+        if check.check_id == "split_manifest"
+    )
+    assert source_check.observed["evidence_scope"] == "isolated_development_view"
+    assert split_check.observed["excluded_training_split_count"] == 0
+
+
+def test_artifact_readiness_blocks_holdout_exposed_to_training_view(
+    tmp_path: Path,
+) -> None:
+    inputs, mlflow_payload = build_fixture(tmp_path)
+    source = tmp_path / "leaking-development-shard-index.json"
+    write_json(
+        source,
+        {
+            "schema_version": "evm.training_dataset_shards.v1",
+            "record_count": 5,
+            "identity_sha256": "8" * 64,
+        },
+    )
+    write_json(
+        inputs.split_manifest_path,
+        {
+            "schema_version": "evm.w7.efficientnet_split_manifest.v1",
+            "dataset_version": DATASET_VERSION,
+            "record_count": 5,
+            "split_counts": {"train": 2, "validation": 2, "test": 1},
+            "source_shard_index_sha256": "8" * 64,
+        },
+    )
+    isolated_inputs = replace(
+        inputs,
+        source_shard_index_path=source,
+        expected_source_digest="8" * 64,
+        expected_source_record_count=5,
+        split_evidence_scope="isolated_development_view",
+        excluded_training_split="test",
+    )
+
+    result = evaluate_artifact_readiness(
+        isolated_inputs,
+        build_default_org_context(),
+        mlflow_loader=lambda _uri, _run_id: (200, mlflow_payload),
+    )
+
+    assert result.evaluation.decision == "blocked"
+    assert "split_excluded_training_split_present" in result.evaluation.blockers
 
 
 def test_artifact_readiness_blocks_stale_empty_quality_with_deterministic_id(tmp_path: Path):
