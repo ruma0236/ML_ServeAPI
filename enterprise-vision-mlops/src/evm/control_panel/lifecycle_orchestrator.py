@@ -167,6 +167,8 @@ def process_data_pipeline(
                     "pipeline_profile_version": run.profile_version,
                     "profile_digest": run.profile_digest,
                     "effective_config_digest": run.effective_config_digest,
+                    "source_commit": run.source_commit,
+                    "source_branch": run.source_branch,
                     "pipeline_config_uri": run.airflow_runtime_uri,
                     "pipeline_stage_scope": "data",
                 },

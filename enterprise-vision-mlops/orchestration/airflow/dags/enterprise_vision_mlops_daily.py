@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -39,6 +40,18 @@ def pipeline_config_template() -> str:
     )
 
 
+def dag_conf_template(key: str, fallback: str = "") -> str:
+    key_literal = json.dumps(key)
+    fallback_literal = json.dumps(fallback)
+    return (
+        "{{ dag_run.conf.get("
+        f"{key_literal}, {fallback_literal}"
+        ") if dag_run else "
+        f"{fallback_literal}"
+        " }}"
+    )
+
+
 def airflow_trace_env() -> dict[str, str]:
     return {
         "EVM_TRACE_ID": "{{ dag.dag_id }}__{{ run_id }}",
@@ -46,6 +59,12 @@ def airflow_trace_env() -> dict[str, str]:
         "EVM_AIRFLOW_DAG_RUN_ID": "{{ run_id }}",
         "EVM_AIRFLOW_TASK_ID": "{{ task.task_id }}",
         "EVM_AIRFLOW_TRY_NUMBER": "{{ ti.try_number }}",
+        "EVM_GIT_COMMIT": dag_conf_template(
+            "source_commit", os.environ.get("EVM_GIT_COMMIT", "")
+        ),
+        "EVM_GIT_BRANCH": dag_conf_template(
+            "source_branch", os.environ.get("EVM_GIT_BRANCH", "")
+        ),
     }
 
 

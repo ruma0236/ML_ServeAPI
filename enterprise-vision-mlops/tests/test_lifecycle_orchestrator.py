@@ -141,6 +141,8 @@ def test_airflow_success_advances_lifecycle_to_model_training(tmp_path, monkeypa
     assert tasks[0].cycle_id == run.run_id
     assert tasks[0].status == "done"
     assert tasks[0].config_payload["pipeline_stage_scope"] == "data"
+    assert tasks[0].config_payload["source_commit"] == run.source_commit
+    assert tasks[0].config_payload["source_branch"] == run.source_branch
     assert result.stages[1].evidence_uri.endswith("provenance-validation.json")
 
 
