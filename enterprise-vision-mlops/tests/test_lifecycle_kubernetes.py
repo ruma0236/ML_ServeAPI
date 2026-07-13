@@ -104,7 +104,7 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     container = job["spec"]["template"]["spec"]["containers"][0]
     assert bundle.namespace == "evm-training"
     assert container["image"].endswith(
-        "@sha256:1114d63f4d2ee8d3526e1370b53f6de3610ee54e5903ad0e0e5fea668a50d65b"
+        "@sha256:7be69f814a4e650273794cff0e9e74e84e745f3eb9e22857f238956433009188"
     )
     assert container["resources"]["requests"] == {
         "cpu": "6",
@@ -190,6 +190,11 @@ def test_training_image_installs_experiment_runtime_dependencies() -> None:
         "/app/configs/w7_efficientnet_kubernetes.toml"
     ) in dockerfile
     assert "COPY configs /app/configs" not in dockerfile
+    build_script = Path("scripts/dev/build_efficientnet_training_image.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "docker build --provenance=false" in build_script
+    assert "catalog_repo_digest" in build_script
 
 
 def test_training_evidence_binds_job_gpu_mlflow_and_model_digest(tmp_path, monkeypatch) -> None:

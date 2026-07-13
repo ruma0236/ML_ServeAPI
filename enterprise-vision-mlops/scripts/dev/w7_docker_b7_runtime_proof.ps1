@@ -68,7 +68,7 @@ try {
     if ($BuildImages) {
         & docker build -f infra/docker/efficientnet-serving/Dockerfile -t $ServingImage .
         if ($LASTEXITCODE -ne 0) { throw "Serving image build failed" }
-        & docker build -f infra/docker/efficientnet-training/Dockerfile -t $TrainingImage .
+        & docker build --provenance=false -f infra/docker/efficientnet-training/Dockerfile -t $TrainingImage .
         if ($LASTEXITCODE -ne 0) { throw "Training image build failed" }
     }
     & docker image inspect $ServingImage 1>$null
