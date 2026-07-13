@@ -100,6 +100,7 @@ def queued_run(tmp_path: Path, monkeypatch):
 
 def test_airflow_success_advances_lifecycle_to_model_training(tmp_path, monkeypatch) -> None:
     run = queued_run(tmp_path, monkeypatch)
+    write_data_provenance(run)
     responses = iter(
         [
             FakeResponse({"dag_run_id": "cp__lifecycle", "state": "queued"}),
@@ -118,6 +119,44 @@ def test_airflow_success_advances_lifecycle_to_model_training(tmp_path, monkeypa
     assert tasks[0].cycle_id == run.run_id
     assert tasks[0].status == "done"
     assert tasks[0].config_payload["pipeline_stage_scope"] == "data"
+    assert result.stages[1].evidence_uri.endswith("provenance-validation.json")
+
+
+def test_airflow_success_blocks_when_source_commit_does_not_match(tmp_path, monkeypatch) -> None:
+    run = queued_run(tmp_path, monkeypatch)
+    write_data_provenance(run, commit="2" * 40)
+    responses = iter(
+        [
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "queued"}),
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "success"}),
+        ]
+    )
+    monkeypatch.setattr(operations, "urlopen", lambda *_args, **_kwargs: next(responses))
+
+    result = process_lifecycle_run(run.run_id)
+
+    assert result.state == "blocked"
+    assert result.current_stage == "data_pipeline"
+    assert result.stages[1].state == "blocked"
+    assert any(item.startswith("data_source_commit_mismatch:") for item in result.blockers)
+    report = json.loads(
+        (Path(run.artifact_root) / "data" / "provenance-validation.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert report["status"] == "blocked"
+
+
+def write_data_provenance(run, *, commit: str | None = None) -> None:
+    trace = {
+        "trace_id": "enterprise_vision_mlops_daily__cp__lifecycle",
+        "git_commit": commit or run.source_commit,
+        "git_branch": run.source_branch,
+    }
+    for relative in lifecycle_orchestrator.DATA_PIPELINE_PROVENANCE_FILES:
+        path = Path(run.artifact_root) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"trace": trace}), encoding="utf-8")
 
 
 def test_airflow_running_observation_reaches_lifecycle_stage(tmp_path, monkeypatch) -> None:

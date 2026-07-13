@@ -135,6 +135,15 @@ def test_training_bundle_routes_enabled_search_to_experiment_pipeline(
     )
 
 
+def test_training_image_installs_experiment_runtime_dependencies() -> None:
+    dockerfile = Path("infra/docker/efficientnet-training/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert "optuna==4.9.0" in dockerfile
+    assert "pydantic==2.10.3" in dockerfile
+
+
 def test_training_evidence_binds_job_gpu_mlflow_and_model_digest(tmp_path, monkeypatch) -> None:
     run = lifecycle_run(tmp_path, monkeypatch)
     bundle = materialize_training_bundle(run)

@@ -246,6 +246,7 @@ def process_data_pipeline(
                 runtime_id=task.runtime_id,
                 runtime_state=task.runtime_state,
             )
+        provenance_path = validate_data_pipeline_provenance(current)
         return transition_stage(
             current.run_id,
             "data_pipeline",
@@ -254,8 +255,8 @@ def process_data_pipeline(
             task_id=task.task_id,
             runtime_id=task.runtime_id,
             runtime_state=task.runtime_state,
-            evidence_uri=task.runtime_url,
-            detail="Airflow data pipeline completed",
+            evidence_uri=str(provenance_path),
+            detail="Airflow data pipeline completed with source provenance verified",
         )
     if task.status in {"failed", "blocked", "cancelled"}:
         raise LifecycleStageBlocked(
@@ -263,6 +264,73 @@ def process_data_pipeline(
             [task.failure_reason or f"airflow_task_{task.status}"],
         )
     return required_run(run.run_id)
+
+
+DATA_PIPELINE_PROVENANCE_FILES = (
+    "data/intake/source_registry.json",
+    "data/validated/dataset_version.json",
+    "data/quality/quality_report.json",
+    "data/shards/shard_index.json",
+    "data/curation/curation_state.json",
+)
+
+
+def validate_data_pipeline_provenance(run: LifecycleRun) -> Path:
+    expected_commit = str(run.source_commit or "").strip()
+    expected_branch = str(run.source_branch or "").strip()
+    observations: list[dict[str, str]] = []
+    blockers: list[str] = []
+    root = Path(run.artifact_root)
+    for relative in DATA_PIPELINE_PROVENANCE_FILES:
+        evidence_path = root / relative
+        if not evidence_path.is_file():
+            blockers.append(f"data_provenance_evidence_missing:{relative}")
+            continue
+        try:
+            payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            blockers.append(f"data_provenance_evidence_invalid:{relative}")
+            continue
+        trace = payload.get("trace") if isinstance(payload, dict) else None
+        if not isinstance(trace, dict):
+            blockers.append(f"data_provenance_trace_missing:{relative}")
+            continue
+        actual_commit = str(trace.get("git_commit") or "").strip()
+        actual_branch = str(trace.get("git_branch") or "").strip()
+        observations.append(
+            {
+                "evidence_uri": str(evidence_path),
+                "git_commit": actual_commit,
+                "git_branch": actual_branch,
+                "trace_id": str(trace.get("trace_id") or ""),
+            }
+        )
+        if not expected_commit or actual_commit != expected_commit:
+            blockers.append(f"data_source_commit_mismatch:{relative}")
+        if expected_branch and actual_branch != expected_branch:
+            blockers.append(f"data_source_branch_mismatch:{relative}")
+
+    report_path = root / "data" / "provenance-validation.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "evm.data_pipeline_provenance.v1",
+                "run_id": run.run_id,
+                "status": "pass" if not blockers else "blocked",
+                "expected_commit": expected_commit,
+                "expected_branch": expected_branch,
+                "observations": observations,
+                "blockers": sorted(set(blockers)),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    if blockers:
+        raise LifecycleStageBlocked("data_pipeline_provenance_failed", blockers)
+    return report_path
 
 
 def process_model_training(

@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir \
       matplotlib==3.9.2 \
       optuna==4.9.0 \
       pillow==12.2.0 \
+      pydantic==2.10.3 \
       requests==2.32.3 \
       scikit-learn==1.5.2
 
