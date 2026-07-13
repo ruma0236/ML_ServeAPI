@@ -1,0 +1,45 @@
+{
+  "schema_version": "evm.scenario_intake.v1",
+  "scenario": {
+    "scenario_id": "manufacturing-visual-inspection",
+    "display_name": "Manufacturing Visual Inspection",
+    "department": "Manufacturing Quality",
+    "business_outcome": "Detect production defects and promote an approved anomaly classifier with isolated CT evidence.",
+    "modality": "image",
+    "intake_supported": false,
+    "profile_template": "efficientnet-b0-visa",
+    "model_component_id": "torchvision-efficientnet-b0",
+    "model_readiness": "verified",
+    "deployment_readiness": "verified",
+    "platform_blockers": []
+  },
+  "dataset": {
+    "dataset_id": "visa",
+    "dataset_name": "VisA",
+    "dataset_version": "visa-open-data-e35d93d5561f",
+    "source_url": "https://registry.opendata.aws/visa/",
+    "source_revision": "visa-open-data-e35d93d5561f",
+    "license_id": "CC-BY-4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "usage_policy": "portfolio-and-commercial-use-with-attribution",
+    "output_root": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa",
+    "manifest_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/mvi_quality_manifest.jsonl",
+    "split_manifest_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/shards/shard_index.json"
+  },
+  "preprocessing": {
+    "recipe_id": "mvi_open_dataset_etl_recipe_v1",
+    "version": "2026.07",
+    "steps": [
+      {"transform_id": "normalize_local_paths", "parameters": {}},
+      {"transform_id": "compute_content_hash", "parameters": {"algorithm": "sha256"}},
+      {"transform_id": "read_image_header", "parameters": {}},
+      {"transform_id": "build_quality_manifest", "parameters": {}}
+    ]
+  },
+  "acquisition": {
+    "parser": "existing_manifest",
+    "max_records": 0,
+    "source_files": []
+  },
+  "split_policy": {"seed": 20260706, "train": 0.6, "validation": 0.2, "test": 0.2}
+}

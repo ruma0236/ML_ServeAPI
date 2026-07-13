@@ -7,9 +7,10 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, compact = false }: StatusBadgeProps) {
+  const label = typeof status === "string" ? status.replaceAll("_", " ") : status;
   return (
     <span className={`status-badge status-${statusTone(status)} ${compact ? "status-compact" : ""}`}>
-      {status || "unknown"}
+      {label || "unknown"}
     </span>
   );
 }

@@ -542,6 +542,29 @@
         }
       }
     },
+    "/control-panel/v1/scenarios": {
+      "get": {
+        "summary": "List approved enterprise use cases with separate data, model, and deployment readiness.",
+        "operationId": "listEnterpriseScenarios",
+        "responses": {
+          "200": {"description": "versioned enterprise scenario catalog", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EnterpriseScenarioCatalog"}}}},
+          "500": {"description": "scenario registry is invalid"}
+        }
+      }
+    },
+    "/control-panel/v1/scenarios/{scenario_id}/intake": {
+      "post": {
+        "summary": "Validate or dispatch governed acquisition and preprocessing for an approved scenario.",
+        "operationId": "launchScenarioIntake",
+        "parameters": [{"name": "scenario_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScenarioIntakeLaunchRequest"}}}},
+        "responses": {
+          "202": {"description": "dry-run or dispatched Airflow task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskAssignment"}}}},
+          "404": {"description": "scenario not found"},
+          "409": {"description": "scenario intake is unavailable or dispatch was rejected"}
+        }
+      }
+    },
     "/control-panel/v1/pipeline-profiles/default": {
       "get": {
         "summary": "Return the schema-valid default human-authored pipeline profile.",
@@ -1932,6 +1955,92 @@
           "catalog_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
         }
       },
+      "ScenarioTransform": {
+        "type": "object",
+        "required": ["transform_id", "parameters"],
+        "properties": {
+          "transform_id": {"type": "string"},
+          "parameters": {"type": "object", "additionalProperties": true}
+        }
+      },
+      "ScenarioDataset": {
+        "type": "object",
+        "required": ["dataset_id", "dataset_name", "dataset_version", "source_url", "source_revision", "license_id", "license_url", "usage_policy", "manifest_uri", "split_manifest_uri", "source_size_bytes"],
+        "properties": {
+          "dataset_id": {"type": "string"},
+          "dataset_name": {"type": "string"},
+          "dataset_version": {"type": "string"},
+          "source_url": {"type": "string", "format": "uri"},
+          "source_revision": {"type": "string"},
+          "license_id": {"type": "string"},
+          "license_url": {"type": "string", "format": "uri"},
+          "usage_policy": {"type": "string"},
+          "manifest_uri": {"type": "string"},
+          "split_manifest_uri": {"type": "string"},
+          "source_size_bytes": {"type": "integer", "minimum": 0}
+        }
+      },
+      "ScenarioIntakeState": {
+        "type": "object",
+        "required": ["status", "phase", "progress", "records_processed", "records_output", "blockers", "warnings"],
+        "properties": {
+          "status": {"type": "string"},
+          "phase": {"type": "string"},
+          "progress": {"type": "number", "minimum": 0, "maximum": 1},
+          "records_processed": {"type": "integer", "minimum": 0},
+          "records_output": {"type": "integer", "minimum": 0},
+          "updated_at": {"type": ["string", "null"]},
+          "blockers": {"type": "array", "items": {"type": "string"}},
+          "warnings": {"type": "array", "items": {"type": "string"}},
+          "quality_status": {"type": ["string", "null"]},
+          "quality_report_uri": {"type": ["string", "null"]},
+          "source_registry_uri": {"type": ["string", "null"]}
+        }
+      },
+      "EnterpriseScenario": {
+        "type": "object",
+        "required": ["scenario_id", "display_name", "department", "business_outcome", "modality", "readiness", "data_readiness", "model_readiness", "deployment_readiness", "intake_supported", "dataset", "recipe_id", "recipe_version", "transforms", "blockers", "config_uri", "runtime_config_uri"],
+        "properties": {
+          "scenario_id": {"type": "string"},
+          "display_name": {"type": "string"},
+          "department": {"type": "string"},
+          "business_outcome": {"type": "string"},
+          "modality": {"type": "string", "enum": ["image", "text", "image_text"]},
+          "readiness": {"type": "string", "enum": ["verified_full_lifecycle", "data_ready", "intake_ready", "running", "blocked"]},
+          "data_readiness": {"type": "string", "enum": ["verified", "ready", "review_required", "running", "failed", "not_started"]},
+          "model_readiness": {"type": "string", "enum": ["verified", "not_implemented", "blocked"]},
+          "deployment_readiness": {"type": "string", "enum": ["verified", "not_implemented", "blocked"]},
+          "intake_supported": {"type": "boolean"},
+          "profile_template": {"oneOf": [{"$ref": "#/components/schemas/PipelineRunProfile"}, {"type": "null"}]},
+          "model_component_id": {"type": ["string", "null"]},
+          "dataset": {"$ref": "#/components/schemas/ScenarioDataset"},
+          "recipe_id": {"type": "string"},
+          "recipe_version": {"type": "string"},
+          "transforms": {"type": "array", "items": {"$ref": "#/components/schemas/ScenarioTransform"}},
+          "blockers": {"type": "array", "items": {"type": "string"}},
+          "intake_state": {"oneOf": [{"$ref": "#/components/schemas/ScenarioIntakeState"}, {"type": "null"}]},
+          "config_uri": {"type": "string"},
+          "runtime_config_uri": {"type": "string"}
+        }
+      },
+      "EnterpriseScenarioCatalog": {
+        "type": "object",
+        "required": ["schema_version", "catalog_digest", "scenarios"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.enterprise_scenario_catalog.v1"},
+          "catalog_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "scenarios": {"type": "array", "items": {"$ref": "#/components/schemas/EnterpriseScenario"}}
+        }
+      },
+      "ScenarioIntakeLaunchRequest": {
+        "type": "object",
+        "required": ["actor", "reason", "dry_run"],
+        "properties": {
+          "actor": {"type": "string"},
+          "reason": {"type": "string"},
+          "dry_run": {"type": "boolean"}
+        }
+      },
       "HyperparameterSearchSpace": {
         "type": "object",
         "required": ["learning_rates", "weight_decays", "batch_sizes", "optimizers", "freeze_backbone_options"],
@@ -2221,6 +2330,7 @@
           "model_runtime_uri": {"type": "string"},
           "artifact_root": {"type": "string"},
           "cycle_id": {"type": ["string", "null"]},
+          "experiment_id": {"type": ["string", "null"]},
           "cycle_snapshot_uri": {"type": ["string", "null"]},
           "model_matrix_uri": {"type": ["string", "null"]},
           "readiness_uri": {"type": ["string", "null"]},

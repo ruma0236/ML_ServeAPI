@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 PIPELINE_MODULES = {
+    "scenario-intake": "evm.pipelines.scenario_intake.run",
     "domain-pack-check": "evm.pipelines.domain_pack_check.run",
     "dataset-intake-audit": "evm.pipelines.dataset_intake_audit.run",
     "object-store-bootstrap": "evm.pipelines.object_storage_bootstrap.run",

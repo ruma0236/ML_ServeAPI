@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 PIPELINES = {
+    "scenario-intake",
     "dataset-intake-audit",
     "domain-pack-check",
     "object-store-bootstrap",

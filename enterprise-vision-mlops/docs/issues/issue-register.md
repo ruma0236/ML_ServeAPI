@@ -70,6 +70,7 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-EPIC-18` | Kubernetes Runtime And MLOps Control Panel | 2026-07-W7 | Done | Kubernetes runtime, real B7 GPU lifecycle, metadata/control API, Control Panel, resource controls, and 13/13 executable closeout completed |
 | `EVM-EPIC-19` | Human-Tunable Pipeline Control | Post-W7 | In Progress | Versioned profile control, dependency-aware lifecycle orchestration, CV/search, and isolated CT promotion enforcement are operational; A/B canary routing remains the explicit follow-up boundary |
 | `EVM-EPIC-20` | Operator-Centered Reproducible Control Plane | 2026-07-W8 | Done | purpose-based operator workspaces, focused animated lifecycle views, immutable Run Blueprints, approved model-component onboarding, and deterministic user-scenario replay completed with desktop/mobile and F-drive evidence |
+| `EVM-EPIC-21` | Multi-Domain Governed MLOps Evidence | Post-W8 | In Progress | governed scenario catalog, real multi-domain intake, operator-launched Airflow execution, and portfolio evidence are complete; text/VLM runtime, tenancy, and production resilience remain explicit follow-up work |
 
 ## Backlog
 
@@ -414,6 +415,25 @@ Goal:
 | `EVM-249` | Deterministic operator-scenario replay and evidence validator | Done | 2026-07-W8 | desktop/mobile automation and an in-app browser scenario saved `w8-operator-replay-20260713` v1, sealed 11/11 profile/data/config/catalog/image identities, created dry run `lifecycle-20260713T063058-7d46b7bb`, and persisted all evidence under the F-drive |
 | `EVM-250` | Model-quality regression remediation and live training telemetry | Done | 2026-07-W8 | under-threshold candidates now emit a typed `review_required` quality event with observed/policy metrics, deterministic failure fingerprint, remediation actions, and a same-profile repeat guard; real B0 evidence was backfilled as `model-quality-d47f18f1175d15c7`, the UI routes directly to the failed Blueprint, and operator edits produced replay-sealed v4 plus dry run `lifecycle-20260713T083700-d1555735`; batch/epoch/validation telemetry is persisted by immutable trainer image `sha256:1114d63f...` and rendered every 3 seconds in Runs |
 
+### Phase 21. Multi-Domain Governed MLOps Evidence
+
+Goal:
+
+- Let an operator discover, validate, and launch approved department scenarios without shell access.
+- Prove immutable real-data intake and policy-driven preprocessing for image, text, instruction, and image-text datasets.
+- Preserve an honest boundary between data readiness and model/deployment readiness.
+
+| ID | Task | Status | Due | Acceptance Criteria |
+|---|---|---|---:|---|
+| `EVM-251` | Governed enterprise scenario catalog and intake registry | Done | 2026-07-W8 | Control Panel exposes four approved scenarios with separate data/model/deploy readiness; immutable source identity and an allowlisted preprocessing registry reject arbitrary transform execution |
+| `EVM-252` | Real multi-domain intake and quality evidence | Done | 2026-07-W8 | F-drive evidence contains VisA 10,821, BANKING77 13,071, Dolly 14,942, and ScienceQA image subset 512 records with source revisions/hashes, split manifests, deduplication, leakage/PII policy, and image extraction/header validation |
+| `EVM-253` | Operator-only Airflow intake launch and live reconciliation | Done | 2026-07-W8 | Control Panel launch reaches a real Airflow task instance, reconciles queued/running to terminal state, persists artifacts, and no future-dated DAG start date can create an empty successful run |
+| `EVM-254` | Evidence validator and first enterprise portfolio draft | Done | 2026-07-W8 | fail-closed validator writes a hash-addressed F-drive record and the Korean portfolio draft distinguishes the proven CV staging lifecycle from data-only NLP/LLM/VLM adapters and material enterprise gaps |
+| `EVM-255` | BANKING77 text training/serving lifecycle | Planned | Post-W8 | real text training, MLflow evaluation, isolated CT, promotion, Kubernetes serving, monitored rollback, and operator-only inference evidence |
+| `EVM-256` | VLM evaluation and governed serving adapter | Planned | Post-W8 | pinned VLM runtime, ScienceQA-style evaluation, safety/quality gates, GPU profile, model card, serving probe, and controlled promotion evidence |
+| `EVM-257` | Multi-tenant SSO, RBAC, quotas, and secrets | Planned | Post-W8 | team tenancy, least-privilege authorization, namespace/resource quotas, secret rotation, audited approval, and negative isolation tests |
+| `EVM-258` | HA/DR, load, chaos, SLO, and GitOps proof | Planned | Post-W8 | backup/restore, fault injection, load evidence, error-budget alerts, GitOps reconciliation, rollback, and disaster-recovery proof |
+
 ## Jira Mapping
 
 Jira live sync 기준 mapping이다.
@@ -545,6 +565,15 @@ Jira live sync 기준 mapping이다.
 | `EVM-248` | `SCRUM-153` | Task | https://opop0236.atlassian.net/browse/SCRUM-153 |
 | `EVM-249` | `SCRUM-154` | Task | https://opop0236.atlassian.net/browse/SCRUM-154 |
 | `EVM-250` | `SCRUM-155` | Task | https://opop0236.atlassian.net/browse/SCRUM-155 |
+| `EVM-EPIC-21` | `SCRUM-156` | Epic | https://opop0236.atlassian.net/browse/SCRUM-156 |
+| `EVM-251` | `SCRUM-157` | Task | https://opop0236.atlassian.net/browse/SCRUM-157 |
+| `EVM-252` | `SCRUM-158` | Task | https://opop0236.atlassian.net/browse/SCRUM-158 |
+| `EVM-253` | `SCRUM-159` | Task | https://opop0236.atlassian.net/browse/SCRUM-159 |
+| `EVM-254` | `SCRUM-160` | Task | https://opop0236.atlassian.net/browse/SCRUM-160 |
+| `EVM-255` | `SCRUM-161` | Task | https://opop0236.atlassian.net/browse/SCRUM-161 |
+| `EVM-256` | `SCRUM-162` | Task | https://opop0236.atlassian.net/browse/SCRUM-162 |
+| `EVM-257` | `SCRUM-163` | Task | https://opop0236.atlassian.net/browse/SCRUM-163 |
+| `EVM-258` | `SCRUM-164` | Task | https://opop0236.atlassian.net/browse/SCRUM-164 |
 | `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |

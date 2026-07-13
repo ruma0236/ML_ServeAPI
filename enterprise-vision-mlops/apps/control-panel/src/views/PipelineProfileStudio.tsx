@@ -43,6 +43,7 @@ import type {
 } from "../api/types";
 import { LifecycleFlow, planLifecycleItems } from "../components/LifecycleFlow";
 import { StatusBadge } from "../components/StatusBadge";
+import { EnterpriseScenarioCatalog } from "./EnterpriseScenarioCatalog";
 
 
 interface PipelineProfileStudioProps {
@@ -318,6 +319,11 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
                 <button type="button" className={profile.execution_scope === "data_cycle" ? "active" : ""} onClick={() => updateProfile({ ...profile, execution_scope: "data_cycle" })}>Data Cycle</button>
                 <button type="button" className={profile.execution_scope === "full_lifecycle" ? "active" : ""} onClick={() => updateProfile({ ...profile, execution_scope: "full_lifecycle" })}>Full Lifecycle</button>
               </div>
+              <SectionHeading icon={<Database />} title="Enterprise Scenario" />
+              <EnterpriseScenarioCatalog
+                owner={profile.owner}
+                onApplyProfile={(template) => updateProfile({ ...template, owner: profile.owner })}
+              />
             </div>
           ) : null}
 

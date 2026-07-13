@@ -85,6 +85,18 @@ describe("Lifecycle Runs view", () => {
     expect(completed?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("100");
   });
 
+  it("does not poll an ExperimentRun for a lifecycle without experiment search", async () => {
+    api.fetchLifecycleRuns.mockResolvedValue({
+      runs: [{ ...run, experiment_id: null }],
+      total: 1
+    });
+
+    await act(async () => root.render(<LifecycleRuns />));
+    await flushUpdates();
+
+    expect(api.fetchExperimentRun).not.toHaveBeenCalled();
+  });
+
   it("renders live cross-validation progress and MLflow lineage", async () => {
     api.fetchExperimentRun.mockResolvedValue(experimentRun());
 
@@ -315,6 +327,7 @@ function lifecycleRun(): LifecycleRun {
     model_runtime_uri: "/mnt/evm-data/runs/1/model.json",
     artifact_root: "F:/runs/1",
     cycle_id: "cycle-contract-1",
+    experiment_id: "lifecycle-contract-1",
     failure_reason: "artifact_readiness_blocked",
     blockers: ["artifact_readiness_blocked"],
     stages: stageIds.map((stageId, index) => ({

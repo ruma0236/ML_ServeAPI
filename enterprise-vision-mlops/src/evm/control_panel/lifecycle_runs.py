@@ -162,6 +162,7 @@ class LifecycleRun(ContractModel):
     model_runtime_uri: str
     artifact_root: str
     cycle_id: str | None = None
+    experiment_id: str | None = None
     cycle_snapshot_uri: str | None = None
     model_matrix_uri: str | None = None
     readiness_uri: str | None = None
@@ -995,16 +996,21 @@ def update_run_evidence(
 
 
 def hydrate_cycle_context(run: LifecycleRun) -> LifecycleRun:
-    if run.cycle_id or not run.cycle_snapshot_uri:
-        return run
-    path = runtime_path(run.cycle_snapshot_uri)
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return run
-    if not isinstance(payload, dict) or not payload.get("cycle_id"):
-        return run
-    return run.model_copy(update={"cycle_id": str(payload["cycle_id"])})
+    updates: dict[str, str] = {}
+    if not run.cycle_id and run.cycle_snapshot_uri:
+        path = runtime_path(run.cycle_snapshot_uri)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            payload = None
+        if isinstance(payload, dict) and payload.get("cycle_id"):
+            updates["cycle_id"] = str(payload["cycle_id"])
+    if not run.experiment_id:
+        from evm.control_panel.experiment_runs import experiment_path
+
+        if experiment_path(run.run_id).is_file():
+            updates["experiment_id"] = run.run_id
+    return run.model_copy(update=updates) if updates else run
 
 
 def mark_lifecycle_rollback(

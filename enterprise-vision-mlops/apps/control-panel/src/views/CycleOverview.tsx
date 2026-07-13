@@ -54,10 +54,13 @@ export function CycleOverview({ cycle }: CycleOverviewProps) {
       <div className="panel">
         <div className="panel-heading">
           <div>
-            <h2>Serving</h2>
+            <h2>Live Serving</h2>
             <p>{cycle.serving.endpoint}</p>
           </div>
-          <RadioTower />
+          <div className="panel-heading-actions">
+            <StatusBadge status={cycle.serving.status} />
+            <RadioTower />
+          </div>
         </div>
         <dl className="dense-list">
           <Row label="Loaded" value={cycle.serving.model_loaded ? "true" : "false"} />

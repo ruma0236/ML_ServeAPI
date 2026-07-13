@@ -94,6 +94,8 @@ export interface OrchestratorConnection {
   notes?: string | null;
   checked_at: string;
   blockers: string[];
+  warnings: string[];
+  quality_status?: string | null;
 }
 
 export interface OrchestratorConnectionList {
@@ -767,6 +769,82 @@ export interface ModelComponentCatalog {
   catalog_digest: string;
 }
 
+export type ScenarioModality = "image" | "text" | "image_text";
+export type ScenarioReadiness =
+  | "verified_full_lifecycle"
+  | "data_ready"
+  | "intake_ready"
+  | "running"
+  | "blocked";
+
+export interface ScenarioTransform {
+  transform_id: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface ScenarioDataset {
+  dataset_id: string;
+  dataset_name: string;
+  dataset_version: string;
+  source_url: string;
+  source_revision: string;
+  license_id: string;
+  license_url: string;
+  usage_policy: string;
+  manifest_uri: string;
+  split_manifest_uri: string;
+  source_size_bytes: number;
+}
+
+export interface ScenarioIntakeState {
+  status: string;
+  phase: string;
+  progress: number;
+  records_processed: number;
+  records_output: number;
+  updated_at?: string | null;
+  blockers: string[];
+  warnings: string[];
+  quality_status?: string | null;
+  quality_report_uri?: string | null;
+  source_registry_uri?: string | null;
+}
+
+export interface EnterpriseScenario {
+  scenario_id: string;
+  display_name: string;
+  department: string;
+  business_outcome: string;
+  modality: ScenarioModality;
+  readiness: ScenarioReadiness;
+  data_readiness: "verified" | "ready" | "review_required" | "running" | "failed" | "not_started";
+  model_readiness: "verified" | "not_implemented" | "blocked";
+  deployment_readiness: "verified" | "not_implemented" | "blocked";
+  intake_supported: boolean;
+  profile_template?: PipelineRunProfile | null;
+  model_component_id?: string | null;
+  dataset: ScenarioDataset;
+  recipe_id: string;
+  recipe_version: string;
+  transforms: ScenarioTransform[];
+  blockers: string[];
+  intake_state?: ScenarioIntakeState | null;
+  config_uri: string;
+  runtime_config_uri: string;
+}
+
+export interface EnterpriseScenarioCatalog {
+  schema_version: "evm.enterprise_scenario_catalog.v1";
+  catalog_digest: string;
+  scenarios: EnterpriseScenario[];
+}
+
+export interface ScenarioIntakeLaunchRequest {
+  actor: string;
+  reason: string;
+  dry_run: boolean;
+}
+
 export interface PipelineExperimentProfile {
   mlflow_experiment_name: string;
   primary_metric: "accuracy" | "f1" | "auroc";
@@ -968,6 +1046,7 @@ export interface LifecycleRun {
   model_runtime_uri: string;
   artifact_root: string;
   cycle_id?: string | null;
+  experiment_id?: string | null;
   cycle_snapshot_uri?: string | null;
   model_matrix_uri?: string | null;
   readiness_uri?: string | null;

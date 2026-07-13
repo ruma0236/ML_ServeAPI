@@ -15,6 +15,7 @@ import type {
   DeploymentTransitionRequest,
   DriftReviewTransitionRequest,
   DriftReviewWorkflow,
+  EnterpriseScenarioCatalog,
   ExperimentRun,
   LifecycleActionRequest,
   LifecycleApprovalRequest,
@@ -37,6 +38,7 @@ import type {
   RuntimeResource,
   RuntimeResourceList,
   State,
+  ScenarioIntakeLaunchRequest,
   TaskAssignment,
   TaskAssignmentList,
   TaskAssignmentRequest,
@@ -353,6 +355,33 @@ export async function fetchModelComponents(baseUrl = API_BASE): Promise<ModelCom
   return (await response.json()) as ModelComponentCatalog;
 }
 
+export async function fetchEnterpriseScenarios(
+  baseUrl = API_BASE
+): Promise<EnterpriseScenarioCatalog> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/scenarios`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw await controlPanelError(response, "Enterprise scenario catalog failed");
+  return (await response.json()) as EnterpriseScenarioCatalog;
+}
+
+export async function launchScenarioIntake(
+  scenarioId: string,
+  request: ScenarioIntakeLaunchRequest,
+  baseUrl = API_BASE
+): Promise<TaskAssignment> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/scenarios/${encodeURIComponent(scenarioId)}/intake`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    }
+  );
+  if (!response.ok) throw await controlPanelError(response, "Scenario intake launch failed");
+  return (await response.json()) as TaskAssignment;
+}
+
 export async function fetchPipelineProfiles(baseUrl = API_BASE): Promise<PipelineProfileRecord[]> {
   const response = await fetch(`${baseUrl}/control-panel/v1/pipeline-profiles`, {
     headers: { Accept: "application/json" }
@@ -629,9 +658,9 @@ function resourceKey(resource: ResourceRef): string {
 }
 
 export function statusTone(status: State | string | null | undefined): "good" | "warn" | "bad" | "idle" | "run" {
-  if (status === "pass" || status === "done") return "good";
-  if (status === "warn") return "warn";
-  if (status === "fail" || status === "blocked" || status === "cancelled") return "bad";
+  if (status === "pass" || status === "done" || status === "verified" || status === "ready" || status === "data_ready" || status === "verified_full_lifecycle") return "good";
+  if (status === "warn" || status === "review_required" || status === "intake_ready" || status === "not_implemented") return "warn";
+  if (status === "fail" || status === "failed" || status === "blocked" || status === "cancelled") return "bad";
   if (status === "running" || status === "queued" || status === "dry_run" || status === "pending_confirmation") return "run";
   return "idle";
 }

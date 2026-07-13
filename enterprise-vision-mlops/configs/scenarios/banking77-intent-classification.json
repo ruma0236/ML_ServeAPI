@@ -1,0 +1,74 @@
+{
+  "schema_version": "evm.scenario_intake.v1",
+  "scenario": {
+    "scenario_id": "banking77-intent-classification",
+    "display_name": "Banking Intent Routing",
+    "department": "Customer Operations",
+    "business_outcome": "Route customer requests to 77 banking service intents with an immutable evaluation split.",
+    "modality": "text",
+    "intake_supported": true,
+    "profile_template": null,
+    "model_component_id": null,
+    "model_readiness": "not_implemented",
+    "deployment_readiness": "not_implemented",
+    "platform_blockers": [
+      "text_training_adapter_not_implemented",
+      "text_serving_adapter_not_implemented"
+    ]
+  },
+  "dataset": {
+    "dataset_id": "banking77",
+    "dataset_name": "BANKING77",
+    "dataset_version": "banking77-57ec275d8078",
+    "source_url": "https://github.com/PolyAI-LDN/task-specific-datasets/tree/master/banking_data",
+    "source_revision": "57ec275d8078af65b7731c2a98be812d844a6d6b",
+    "license_id": "CC-BY-4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "usage_policy": "portfolio-and-commercial-use-with-attribution",
+    "output_root": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenarios/banking77-intent-classification/banking77-57ec275d8078",
+    "manifest_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenarios/banking77-intent-classification/banking77-57ec275d8078/processed/normalized_manifest.jsonl",
+    "split_manifest_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenarios/banking77-intent-classification/banking77-57ec275d8078/evidence/split_manifest.json"
+  },
+  "preprocessing": {
+    "recipe_id": "banking_intent_text_v1",
+    "version": "1.0.0",
+    "steps": [
+      {"transform_id": "normalize_unicode_nfc", "parameters": {}},
+      {"transform_id": "collapse_whitespace", "parameters": {}},
+      {"transform_id": "enforce_text_length", "parameters": {"min_chars": 2, "max_chars": 2048}},
+      {"transform_id": "deduplicate_content_prefer_holdout", "parameters": {"holdout_order": ["test", "validation", "train"]}},
+      {"transform_id": "scan_pii_patterns", "parameters": {"mode": "report_only"}}
+    ]
+  },
+  "acquisition": {
+    "parser": "banking77_csv",
+    "max_records": 0,
+    "source_files": [
+      {
+        "file_id": "categories",
+        "role": "label_schema",
+        "relative_path": "categories.json",
+        "url": "https://raw.githubusercontent.com/PolyAI-LDN/task-specific-datasets/57ec275d8078af65b7731c2a98be812d844a6d6b/banking_data/categories.json",
+        "sha256": "53261da888122daf2d120d925458631d9619e15d82e56052e7a42e535ce32b63",
+        "size_bytes": 2036
+      },
+      {
+        "file_id": "train",
+        "role": "train",
+        "relative_path": "train.csv",
+        "url": "https://raw.githubusercontent.com/PolyAI-LDN/task-specific-datasets/57ec275d8078af65b7731c2a98be812d844a6d6b/banking_data/train.csv",
+        "sha256": "b06e26ac675513959a63135f11b94ea7786ed02da65db93a5650d8838cbc664b",
+        "size_bytes": 839073
+      },
+      {
+        "file_id": "test",
+        "role": "test",
+        "relative_path": "test.csv",
+        "url": "https://raw.githubusercontent.com/PolyAI-LDN/task-specific-datasets/57ec275d8078af65b7731c2a98be812d844a6d6b/banking_data/test.csv",
+        "sha256": "d12d6e3bc4c3103966ae786dc435913c0c563dfa328f5a3646d0e62cfeeb474d",
+        "size_bytes": 239961
+      }
+    ]
+  },
+  "split_policy": {"seed": 20260714, "train": 0.72, "validation": 0.08, "test": 0.2}
+}

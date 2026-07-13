@@ -1,0 +1,58 @@
+{
+  "schema_version": "evm.scenario_intake.v1",
+  "scenario": {
+    "scenario_id": "dolly-instruction-tuning",
+    "display_name": "Internal Assistant Instruction Data",
+    "department": "Enterprise Knowledge AI",
+    "business_outcome": "Prepare governed instruction-response records for bounded LLM adaptation and offline safety evaluation.",
+    "modality": "text",
+    "intake_supported": true,
+    "profile_template": null,
+    "model_component_id": null,
+    "model_readiness": "not_implemented",
+    "deployment_readiness": "not_implemented",
+    "platform_blockers": [
+      "llm_finetuning_adapter_not_implemented",
+      "llm_evaluation_and_serving_adapter_not_implemented"
+    ]
+  },
+  "dataset": {
+    "dataset_id": "databricks-dolly-15k",
+    "dataset_name": "Databricks Dolly 15K",
+    "dataset_version": "dolly-15k-bdd27f4d94b9",
+    "source_url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k",
+    "source_revision": "bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a",
+    "license_id": "CC-BY-SA-3.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+    "usage_policy": "portfolio-and-commercial-use-with-attribution-and-share-alike",
+    "output_root": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenarios/dolly-instruction-tuning/dolly-15k-bdd27f4d94b9",
+    "manifest_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenarios/dolly-instruction-tuning/dolly-15k-bdd27f4d94b9/processed/normalized_manifest.jsonl",
+    "split_manifest_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenarios/dolly-instruction-tuning/dolly-15k-bdd27f4d94b9/evidence/split_manifest.json"
+  },
+  "preprocessing": {
+    "recipe_id": "instruction_response_text_v1",
+    "version": "1.0.0",
+    "steps": [
+      {"transform_id": "normalize_unicode_nfc", "parameters": {}},
+      {"transform_id": "collapse_whitespace", "parameters": {}},
+      {"transform_id": "enforce_text_length", "parameters": {"min_chars": 4, "max_chars": 16384}},
+      {"transform_id": "deduplicate_content_prefer_holdout", "parameters": {"holdout_order": ["test", "validation", "train"]}},
+      {"transform_id": "scan_pii_patterns", "parameters": {"mode": "review_required"}}
+    ]
+  },
+  "acquisition": {
+    "parser": "dolly_jsonl",
+    "max_records": 0,
+    "source_files": [
+      {
+        "file_id": "instruction_records",
+        "role": "source",
+        "relative_path": "databricks-dolly-15k.jsonl",
+        "url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a/databricks-dolly-15k.jsonl?download=true",
+        "sha256": "2df9083338b4abd6bceb5635764dab5d833b393b55759dffb0959b6fcbf794ec",
+        "size_bytes": 13085339
+      }
+    ]
+  },
+  "split_policy": {"seed": 20260714, "train": 0.8, "validation": 0.1, "test": 0.1}
+}

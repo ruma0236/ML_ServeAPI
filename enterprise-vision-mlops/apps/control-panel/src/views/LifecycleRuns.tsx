@@ -57,20 +57,26 @@ export function LifecycleRuns({ onCycleContext, onOpenBlueprint }: LifecycleRuns
       fetchLifecycleRuns(),
       fetchLifecycleWorker()
     ]);
-    let experimentId = selectedRef.current;
+    let experimentId = "";
     if (runResult.status === "fulfilled") {
       setRuns(runResult.value.runs);
       const selectedExists = runResult.value.runs.some(
         (run) => run.run_id === selectedRef.current
       );
+      let experimentRun: LifecycleRun | undefined;
       if (!selectedExists) {
         const nextRun = runResult.value.runs[0];
         const next = nextRun?.run_id || "";
-        experimentId = next;
+        experimentRun = nextRun;
         selectedRef.current = next;
         setSelectedId(next);
         if (nextRun?.cycle_id) onCycleContext?.(nextRun);
+      } else {
+        experimentRun = runResult.value.runs.find(
+          (run) => run.run_id === selectedRef.current
+        );
       }
+      experimentId = experimentRun?.experiment_id || "";
       setError("");
     } else {
       setError(message(runResult.reason));
@@ -122,7 +128,13 @@ export function LifecycleRuns({ onCycleContext, onOpenBlueprint }: LifecycleRuns
     setSelectedId(runId);
     const run = runs.find((item) => item.run_id === runId);
     if (run?.cycle_id) onCycleContext?.(run);
-    void fetchExperimentRun(runId).then(setExperiment).catch((reason) => setError(message(reason)));
+    if (run?.experiment_id) {
+      void fetchExperimentRun(run.experiment_id)
+        .then(setExperiment)
+        .catch((reason) => setError(message(reason)));
+    } else {
+      setExperiment(null);
+    }
   }
 
   async function runAction(action: "queue" | "cancel" | "retry") {

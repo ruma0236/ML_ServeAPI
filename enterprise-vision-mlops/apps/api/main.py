@@ -20,6 +20,7 @@ from apps.api.control_panel_governance import router as control_panel_governance
 from apps.api.control_panel_lifecycle import router as control_panel_lifecycle_router
 from apps.api.control_panel_orchestrators import router as control_panel_orchestrators_router
 from apps.api.control_panel_profiles import router as control_panel_profiles_router
+from apps.api.control_panel_scenarios import router as control_panel_scenarios_router
 from apps.api.control_panel_tasks import router as control_panel_tasks_router
 from apps.api.control_panel import router as control_panel_router
 from evm.core.image_feature_model import extract_image_features, predict_with_model, resolve_image_path
@@ -166,6 +167,7 @@ app.include_router(control_panel_governance_router)
 app.include_router(control_panel_lifecycle_router)
 app.include_router(control_panel_orchestrators_router)
 app.include_router(control_panel_profiles_router)
+app.include_router(control_panel_scenarios_router)
 MODEL_STATE: LoadedModel | None = None
 MODEL_LOAD_ERROR = ""
 

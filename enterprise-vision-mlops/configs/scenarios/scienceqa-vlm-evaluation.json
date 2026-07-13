@@ -1,0 +1,58 @@
+{
+  "schema_version": "evm.scenario_intake.v1",
+  "scenario": {
+    "scenario_id": "scienceqa-vlm-evaluation",
+    "display_name": "Multimodal Knowledge Evaluation",
+    "department": "AI Research Enablement",
+    "business_outcome": "Evaluate image-and-text reasoning with immutable questions, choices, answers, and visual evidence.",
+    "modality": "image_text",
+    "intake_supported": true,
+    "profile_template": null,
+    "model_component_id": null,
+    "model_readiness": "not_implemented",
+    "deployment_readiness": "not_implemented",
+    "platform_blockers": [
+      "real_vlm_runtime_adapter_not_implemented",
+      "vlm_serving_and_safety_gate_not_implemented"
+    ]
+  },
+  "dataset": {
+    "dataset_id": "scienceqa-img",
+    "dataset_name": "ScienceQA Image Subset",
+    "dataset_version": "scienceqa-img-69dd4d6b6737-test-512",
+    "source_url": "https://github.com/lupantech/ScienceQA",
+    "source_revision": "69dd4d6b67373d38f96a5badd5d24d0eb5bcdc50",
+    "license_id": "CC-BY-NC-SA-4.0",
+    "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+    "usage_policy": "non-commercial-portfolio-and-research-only",
+    "output_root": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenarios/scienceqa-vlm-evaluation/scienceqa-img-69dd4d6b6737-test-512",
+    "manifest_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenarios/scienceqa-vlm-evaluation/scienceqa-img-69dd4d6b6737-test-512/processed/normalized_manifest.jsonl",
+    "split_manifest_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenarios/scienceqa-vlm-evaluation/scienceqa-img-69dd4d6b6737-test-512/evidence/split_manifest.json"
+  },
+  "preprocessing": {
+    "recipe_id": "multimodal_qa_eval_v1",
+    "version": "1.0.0",
+    "steps": [
+      {"transform_id": "normalize_unicode_nfc", "parameters": {}},
+      {"transform_id": "collapse_whitespace", "parameters": {}},
+      {"transform_id": "extract_embedded_image", "parameters": {"require_image": true}},
+      {"transform_id": "validate_image_header", "parameters": {}},
+      {"transform_id": "enforce_text_length", "parameters": {"min_chars": 2, "max_chars": 8192}}
+    ]
+  },
+  "acquisition": {
+    "parser": "scienceqa_parquet",
+    "max_records": 512,
+    "source_files": [
+      {
+        "file_id": "test_with_images",
+        "role": "test",
+        "relative_path": "ScienceQA-IMG-test.parquet",
+        "url": "https://huggingface.co/datasets/lmms-lab/ScienceQA/resolve/69dd4d6b67373d38f96a5badd5d24d0eb5bcdc50/ScienceQA-IMG/test-00000-of-00001.parquet?download=true",
+        "sha256": "1f9729818b577d70325a0e59f488f6eeda74c827caddd56b75ccf3e36ed45064",
+        "size_bytes": 130143301
+      }
+    ]
+  },
+  "split_policy": {"seed": 20260714, "train": 0.0, "validation": 0.0, "test": 1.0}
+}
