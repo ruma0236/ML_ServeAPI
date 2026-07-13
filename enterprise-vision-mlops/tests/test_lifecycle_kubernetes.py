@@ -73,7 +73,7 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     container = job["spec"]["template"]["spec"]["containers"][0]
     assert bundle.namespace == "evm-training"
     assert container["image"].endswith(
-        "@sha256:1cf58fe365adb1a14f080bcfc06518a48c57b4a39e396db00850a1455e4704fc"
+        "@sha256:00d477060c30950adae214c2629574860e701d833532e0efeca4c48ff06da63c"
     )
     assert container["resources"]["requests"] == {
         "cpu": "6",

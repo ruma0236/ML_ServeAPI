@@ -12,8 +12,8 @@
       "runtime_adapter": "efficientnet",
       "default_input_size": 224,
       "supported_input_sizes": [224],
-      "source_revision": "c41b805d6f42182d34a4595a065815977526f5ba",
-      "training_image": "enterprise-vision-mlops-efficientnet-training@sha256:1cf58fe365adb1a14f080bcfc06518a48c57b4a39e396db00850a1455e4704fc",
+      "source_revision": "82117cbc452eaf3aa6b3be1f776b3c2efee87f4a",
+      "training_image": "enterprise-vision-mlops-efficientnet-training@sha256:00d477060c30950adae214c2629574860e701d833532e0efeca4c48ff06da63c",
       "serving_image": "enterprise-vision-mlops-efficientnet-serving@sha256:910813b6ae0e16d7371034c6dd3834f6141478b0372e5f12366579d694508a1b"
     },
     {
@@ -27,8 +27,8 @@
       "runtime_adapter": "efficientnet",
       "default_input_size": 600,
       "supported_input_sizes": [600],
-      "source_revision": "c41b805d6f42182d34a4595a065815977526f5ba",
-      "training_image": "enterprise-vision-mlops-efficientnet-training@sha256:1cf58fe365adb1a14f080bcfc06518a48c57b4a39e396db00850a1455e4704fc",
+      "source_revision": "82117cbc452eaf3aa6b3be1f776b3c2efee87f4a",
+      "training_image": "enterprise-vision-mlops-efficientnet-training@sha256:00d477060c30950adae214c2629574860e701d833532e0efeca4c48ff06da63c",
       "serving_image": "enterprise-vision-mlops-efficientnet-serving@sha256:910813b6ae0e16d7371034c6dd3834f6141478b0372e5f12366579d694508a1b"
     }
   ]
