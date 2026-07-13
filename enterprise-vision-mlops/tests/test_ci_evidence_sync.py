@@ -7,7 +7,10 @@ from pathlib import Path
 from urllib.request import Request
 
 from evm.control_panel.cdct import atomic_write_json, with_ci_bundle_digest
-from evm.control_panel.ci_evidence_sync import synchronize_ci_evidence
+from evm.control_panel.ci_evidence_sync import (
+    CrossHostAuthorizationStrippingRedirectHandler,
+    synchronize_ci_evidence,
+)
 
 
 COMMIT = "a" * 40
@@ -113,6 +116,47 @@ def configure_paths(tmp_path: Path, monkeypatch) -> Path:
         str(evidence.with_name("latest_ci_validation.json")),
     )
     return evidence
+
+
+def test_cross_host_redirect_strips_github_authorization() -> None:
+    handler = CrossHostAuthorizationStrippingRedirectHandler()
+    request = Request(
+        "https://api.github.com/repos/example/actions/artifacts/1/zip",
+        headers={"Authorization": "Bearer secret", "Accept": "application/zip"},
+    )
+
+    redirected = handler.redirect_request(
+        request,
+        None,
+        302,
+        "Found",
+        {},
+        "https://results.blob.core.windows.net/artifact.zip?sig=example",
+    )
+
+    assert redirected is not None
+    assert redirected.get_header("Authorization") is None
+    assert redirected.get_header("Accept") == "application/zip"
+
+
+def test_same_host_redirect_retains_authorization() -> None:
+    handler = CrossHostAuthorizationStrippingRedirectHandler()
+    request = Request(
+        "https://api.github.com/repos/example/actions/artifacts/1/zip",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    redirected = handler.redirect_request(
+        request,
+        None,
+        302,
+        "Found",
+        {},
+        "https://api.github.com/repos/example/actions/artifacts/1/archive",
+    )
+
+    assert redirected is not None
+    assert redirected.get_header("Authorization") == "Bearer secret"
 
 
 def test_sync_downloads_exact_successful_ci_artifact(tmp_path, monkeypatch) -> None:

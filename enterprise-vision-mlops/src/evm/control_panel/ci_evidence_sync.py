@@ -9,8 +9,8 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable, Literal
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from evm.control_panel.cdct import (
     DEFAULT_CI_REPOSITORY,
@@ -24,6 +24,34 @@ from evm.control_panel.schemas import CIEvidenceBundle, CIEvidenceValidation
 
 OpenUrl = Callable[..., object]
 CredentialRunner = Callable[..., subprocess.CompletedProcess[str]]
+
+
+class CrossHostAuthorizationStrippingRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        request: Request,
+        fp: object,
+        code: int,
+        message: str,
+        headers: object,
+        new_url: str,
+    ) -> Request | None:
+        redirected = super().redirect_request(
+            request,
+            fp,  # type: ignore[arg-type]
+            code,
+            message,
+            headers,  # type: ignore[arg-type]
+            new_url,
+        )
+        if redirected is None:
+            return None
+        source_host = (urlsplit(request.full_url).hostname or "").lower()
+        target_host = (urlsplit(new_url).hostname or "").lower()
+        if source_host != target_host:
+            redirected.remove_header("Authorization")
+            redirected.remove_header("Proxy-Authorization")
+        return redirected
 
 
 @dataclass(frozen=True)
@@ -273,7 +301,13 @@ def request_json(url: str, headers: dict[str, str], opener: OpenUrl) -> dict[str
 
 def request_bytes(url: str, headers: dict[str, str], opener: OpenUrl) -> bytes:
     request = Request(url, headers=headers)
-    with opener(request, timeout=30) as response:
+    if opener is urlopen:
+        response_context = build_opener(
+            CrossHostAuthorizationStrippingRedirectHandler()
+        ).open(request, timeout=30)
+    else:
+        response_context = opener(request, timeout=30)
+    with response_context as response:
         payload = response.read(2_000_001)
     if len(payload) > 2_000_000:
         raise ValueError("github_response_size_limit_exceeded")
