@@ -9,10 +9,49 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $CatalogPath = Join-Path $ProjectRoot "configs\model_components.json"
 $Dockerfile = Join-Path $ProjectRoot "infra\docker\efficientnet-training\Dockerfile"
 
+function Preserve-CatalogImage {
+    param([string]$Image)
+
+    if (-not $Image -or $Image -notmatch "^(?<repository>.+)@sha256:(?<digest>[0-9a-f]{64})$") {
+        throw "Catalog image is not pinned by RepoDigest: $Image"
+    }
+    $repository = $Matches.repository
+    $shortDigest = $Matches.digest.Substring(0, 12)
+    & docker image inspect $Image *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Catalog image is not present locally and cannot be retained: $Image"
+        return
+    }
+    $retentionTag = "${repository}:retained-$shortDigest"
+    & docker tag $Image $retentionTag
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to retain catalog image as $retentionTag"
+    }
+    Write-Host "Retained $Image as $retentionTag"
+}
+
 Push-Location $ProjectRoot
 try {
     $sourceRevision = (git rev-parse HEAD).Trim()
+    $catalog = Get-Content -LiteralPath $CatalogPath -Raw | ConvertFrom-Json
+    $expectedTrainingImages = @(
+        @($catalog.components | ForEach-Object { $_.training_image }) |
+            Sort-Object -Unique
+    )
+    $expectedServingImages = @(
+        @($catalog.components | ForEach-Object { $_.serving_image }) |
+            Sort-Object -Unique
+    )
+    $expectedRevisions = @(
+        @($catalog.components | ForEach-Object { $_.source_revision }) |
+            Sort-Object -Unique
+    )
+    if ($expectedTrainingImages.Count -ne 1 -or $expectedServingImages.Count -ne 1 -or $expectedRevisions.Count -ne 1) {
+        throw "Model catalog runtime identities are inconsistent."
+    }
     if (-not $SkipBuild) {
+        Preserve-CatalogImage -Image $expectedTrainingImages[0]
+        Preserve-CatalogImage -Image $expectedServingImages[0]
         & docker build --provenance=false --build-arg "SOURCE_REVISION=$sourceRevision" -f $Dockerfile -t $TrainingImage .
         if ($LASTEXITCODE -ne 0) {
             throw "EfficientNet training image build failed."
@@ -39,23 +78,6 @@ try {
     }
     $trainingRevision = $trainingInspection[0].Config.Labels.'org.opencontainers.image.revision'
     $servingRevision = $servingInspection[0].Config.Labels.'org.opencontainers.image.revision'
-
-    $catalog = Get-Content -LiteralPath $CatalogPath -Raw | ConvertFrom-Json
-    $expectedTrainingImages = @(
-        @($catalog.components | ForEach-Object { $_.training_image }) |
-            Sort-Object -Unique
-    )
-    $expectedServingImages = @(
-        @($catalog.components | ForEach-Object { $_.serving_image }) |
-            Sort-Object -Unique
-    )
-    $expectedRevisions = @(
-        @($catalog.components | ForEach-Object { $_.source_revision }) |
-            Sort-Object -Unique
-    )
-    if ($expectedTrainingImages.Count -ne 1 -or $expectedServingImages.Count -ne 1 -or $expectedRevisions.Count -ne 1) {
-        throw "Model catalog runtime identities are inconsistent."
-    }
 
     $status = if (
         $trainingRepoDigest -eq $expectedTrainingImages[0] -and

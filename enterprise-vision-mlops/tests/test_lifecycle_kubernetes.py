@@ -371,6 +371,8 @@ def test_training_image_installs_experiment_runtime_dependencies() -> None:
     assert "SOURCE_REVISION=$sourceRevision" in build_script
     assert "catalog_training_repo_digest" in build_script
     assert "catalog_serving_repo_digest" in build_script
+    assert "Preserve-CatalogImage" in build_script
+    assert ":retained-$shortDigest" in build_script
 
 
 def test_training_evidence_binds_job_gpu_mlflow_and_model_digest(tmp_path, monkeypatch) -> None:
