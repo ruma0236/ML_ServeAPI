@@ -145,6 +145,16 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     assert usage_manifest["ct_evidence_exposed"] is False
     assert len(usage_manifest["assignments"]) == 1
     assert (bundle.manifest_dir / "kustomization.yaml").is_file()
+    storage_class = json.loads(
+        (bundle.manifest_dir / "storage-class.json").read_text(encoding="utf-8")
+    )
+    assert storage_class["kind"] == "StorageClass"
+    assert storage_class["metadata"]["name"] == "evm-local-hostpath"
+    assert storage_class["provisioner"] == "kubernetes.io/no-provisioner"
+    assert storage_class["volumeBindingMode"] == "Immediate"
+    assert "storage-class.json" in (
+        bundle.manifest_dir / "kustomization.yaml"
+    ).read_text(encoding="utf-8")
     pv = json.loads((bundle.manifest_dir / "storage-pv.json").read_text(encoding="utf-8"))
     pvc = json.loads((bundle.manifest_dir / "storage-pvc.json").read_text(encoding="utf-8"))
     storage_suffix = bundle.job_name.removeprefix("evm-lifecycle-train-")

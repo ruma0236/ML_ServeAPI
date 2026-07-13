@@ -110,6 +110,7 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     claim_name = f"{storage_identity}-pvc"
 
     write_json(directory / "namespace.json", namespace_resource(namespace))
+    write_json(directory / "storage-class.json", storage_class_resource())
     storage = storage_resources(
         namespace,
         read_only=True,
@@ -218,7 +219,13 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     write_json(directory / "training-job.json", job)
     write_kustomization(
         directory,
-        ["namespace.json", "storage-pv.json", "storage-pvc.json", "training-job.json"],
+        [
+            "namespace.json",
+            "storage-class.json",
+            "storage-pv.json",
+            "storage-pvc.json",
+            "training-job.json",
+        ],
     )
     return TrainingBundle(
         directory,
@@ -804,6 +811,20 @@ def storage_resources(
             },
         },
     ]
+
+
+def storage_class_resource() -> dict[str, Any]:
+    return {
+        "apiVersion": "storage.k8s.io/v1",
+        "kind": "StorageClass",
+        "metadata": {
+            "name": "evm-local-hostpath",
+            "labels": {"app.kubernetes.io/part-of": "enterprise-vision-mlops"},
+        },
+        "provisioner": "kubernetes.io/no-provisioner",
+        "reclaimPolicy": "Retain",
+        "volumeBindingMode": "Immediate",
+    }
 
 
 def common_volumes(claim_name: str = "evm-large-data") -> list[dict[str, Any]]:

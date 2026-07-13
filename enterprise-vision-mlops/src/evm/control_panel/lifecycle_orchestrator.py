@@ -462,6 +462,9 @@ def process_model_training(
             runner=runner,
             reason=f"training_task_{task.status}",
         )
+    current = required_run(run.run_id)
+    if task.status == "cancelled" and current.state == "cancelled":
+        return current
     if task.status != "done":
         raise LifecycleStageBlocked(
             f"kubernetes_training_{task.status}",
@@ -740,6 +743,9 @@ def process_ci_ct_gate(
                 runner=runner,
                 reason="ct_evaluation_finished",
             )
+    current = required_run(run.run_id)
+    if task.status == "cancelled" and current.state == "cancelled":
+        return current
     if task.status != "done":
         raise LifecycleStageBlocked(
             f"kubernetes_ct_{task.status}",

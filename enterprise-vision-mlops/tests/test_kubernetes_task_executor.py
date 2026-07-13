@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
+import evm.control_panel.kubernetes_task_executor as kubernetes_task_executor
 from evm.control_panel.kubernetes_task_executor import execute_kubernetes_task
 from evm.control_panel.operations import create_task_assignment
 from evm.control_panel.schemas import TaskAssignmentRequest
@@ -107,6 +109,51 @@ def test_host_bridge_streams_allowlisted_training_progress(tmp_path, monkeypatch
 
     assert result.status == "done"
     assert observed == [{"phase": "training", "epoch": 2, "unit_progress": 0.5}]
+
+
+def test_host_bridge_cancels_job_storage_and_task_when_lifecycle_is_cancelled(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    manifest_dir = project / "infra" / "kubernetes" / "expedited"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "kustomization.yaml").write_text("resources: []\n", encoding="utf-8")
+    (manifest_dir / "storage-pvc.json").write_text(
+        json.dumps({"metadata": {"name": "training-pvc"}}), encoding="utf-8"
+    )
+    (manifest_dir / "storage-pv.json").write_text(
+        json.dumps({"metadata": {"name": "training-pv"}}), encoding="utf-8"
+    )
+    monkeypatch.setenv("EVM_PROJECT_ROOT", str(project))
+    monkeypatch.setenv("EVM_CONTROL_PANEL_LEDGER_ROOT", str(tmp_path / "ledger"))
+    monkeypatch.setattr(
+        kubernetes_task_executor,
+        "get_lifecycle_run",
+        lambda _run_id: SimpleNamespace(state="cancelled"),
+    )
+    task_request = request().model_copy(deep=True)
+    task_request.config_payload["lifecycle_run_id"] = "lifecycle-cancelled-1"
+    task = create_task_assignment(task_request)
+    calls: list[list[str]] = []
+
+    def runner(command, **_kwargs):
+        calls.append(command)
+        if command[1:3] == ["config", "current-context"]:
+            return completed(command, "docker-desktop\n")
+        return completed(command, "ok\n")
+
+    result = execute_kubernetes_task(task.task_id, runner=runner)
+
+    assert result.status == "cancelled"
+    assert result.runtime_state == "cancelled"
+    assert any(command[1:4] == ["delete", "job", "evm-b0-expedited-training"] for command in calls)
+    assert any(command[1:4] == ["delete", "pvc", "training-pvc"] for command in calls)
+    assert any(command[1:4] == ["delete", "pv", "training-pv"] for command in calls)
+    execution = json.loads(
+        (Path(result.runtime_evidence_uri or "") / "execution.json").read_text(encoding="utf-8")
+    )
+    assert execution["status"] == "cancelled"
+    assert execution["cleanup_errors"] == []
 
 
 def test_host_bridge_records_failed_job(tmp_path, monkeypatch):

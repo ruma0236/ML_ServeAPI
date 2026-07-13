@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
 from typing import Callable
 
+from evm.control_panel.lifecycle_runs import get_lifecycle_run
 from evm.control_panel.operations import read_tasks, update_task_runtime
 from evm.control_panel.schemas import TaskAssignment
 
@@ -17,6 +19,10 @@ ProgressCallback = Callable[[dict[str, object]], None]
 
 
 class KubernetesTaskExecutionError(RuntimeError):
+    pass
+
+
+class KubernetesTaskCancellationRequested(RuntimeError):
     pass
 
 
@@ -87,11 +93,14 @@ def wait_for_job(
     command_log: list[dict[str, object]],
     progress_path: Path | None = None,
     progress_callback: ProgressCallback | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> None:
     deadline = time.monotonic() + timeout_seconds
     command = ["kubectl", "get", "job", job_name, "-n", namespace, "-o", "json"]
     previous_progress = ""
     while True:
+        if cancel_requested is not None and cancel_requested():
+            raise KubernetesTaskCancellationRequested("kubernetes_task_cancelled")
         result = run_command(runner, command, timeout=30)
         command_log.append(result_payload(result, command))
         if result.returncode != 0:
@@ -145,6 +154,7 @@ def execute_kubernetes_task(
     job_name = str(task.config_payload.get("job_name") or "").strip()
     timeout_seconds = int(task.config_payload.get("timeout_seconds") or 3600)
     progress_path = resolve_progress_path(task.config_payload.get("progress_path"))
+    lifecycle_run_id = str(task.config_payload.get("lifecycle_run_id") or "").strip()
     if not namespace or not job_name:
         raise KubernetesTaskExecutionError("kubernetes_target_missing")
 
@@ -201,6 +211,11 @@ def execute_kubernetes_task(
             command_log=command_log,
             progress_path=progress_path,
             progress_callback=progress_callback,
+            cancel_requested=(
+                lambda: lifecycle_is_cancelled(lifecycle_run_id)
+                if lifecycle_run_id
+                else False
+            ),
         )
         logs = run_command(
             runner,
@@ -226,6 +241,34 @@ def execute_kubernetes_task(
         if completed is None:
             raise KubernetesTaskExecutionError("task_not_found_after_completion")
         return completed
+    except KubernetesTaskCancellationRequested:
+        cleanup_errors = cancel_kubernetes_resources(
+            runner,
+            namespace=namespace,
+            job_name=job_name,
+            manifest_dir=manifest_dir,
+            command_log=command_log,
+        )
+        write_json(
+            evidence_dir / "execution.json",
+            {
+                "status": "cancelled",
+                "cleanup_errors": cleanup_errors,
+                "commands": command_log,
+            },
+        )
+        cancelled = update_task_runtime(
+            task_id,
+            actor="host-kubectl-bridge",
+            event="kubernetes_task_cancelled",
+            status="cancelled",
+            runtime_state=("cancelled" if not cleanup_errors else "cancellation_cleanup_failed"),
+            runtime_evidence_uri=evidence_uri,
+            failure_reason=";".join(cleanup_errors) or None,
+        )
+        if cancelled is None:
+            raise KubernetesTaskExecutionError("task_not_found_after_cancellation")
+        return cancelled
     except Exception as exc:
         diagnostic_reason = collect_failure_diagnostics(
             runner,
@@ -276,6 +319,60 @@ def execute_kubernetes_task(
         if failed is None:
             raise KubernetesTaskExecutionError("task_not_found_after_failure") from exc
         return failed
+
+
+def lifecycle_is_cancelled(run_id: str) -> bool:
+    run = get_lifecycle_run(run_id)
+    return run is not None and run.state == "cancelled"
+
+
+def cancel_kubernetes_resources(
+    runner: Runner,
+    *,
+    namespace: str,
+    job_name: str,
+    manifest_dir: Path,
+    command_log: list[dict[str, object]],
+) -> list[str]:
+    commands = [
+        [
+            "kubectl",
+            "delete",
+            "job",
+            job_name,
+            "-n",
+            namespace,
+            "--ignore-not-found=true",
+            "--wait=true",
+            "--timeout=120s",
+        ]
+    ]
+    for filename, kind, namespaced in (
+        ("storage-pvc.json", "pvc", True),
+        ("storage-pv.json", "pv", False),
+    ):
+        path = manifest_dir / filename
+        if not path.is_file():
+            continue
+        try:
+            resource = json.loads(path.read_text(encoding="utf-8"))
+            name = str(resource.get("metadata", {}).get("name") or "")
+        except (OSError, AttributeError, json.JSONDecodeError):
+            name = ""
+        if not re.fullmatch(r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?", name):
+            continue
+        command = ["kubectl", "delete", kind, name]
+        if namespaced:
+            command.extend(["-n", namespace])
+        command.extend(["--ignore-not-found=true", "--wait=true", "--timeout=120s"])
+        commands.append(command)
+    errors: list[str] = []
+    for command in commands:
+        result = run_command(runner, command, timeout=150)
+        command_log.append(result_payload(result, command))
+        if result.returncode != 0:
+            errors.append(f"kubernetes_cancel_cleanup_failed:{command[2]}:{command[3]}")
+    return errors
 
 
 def collect_failure_diagnostics(
