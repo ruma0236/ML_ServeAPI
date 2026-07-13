@@ -1,0 +1,35 @@
+{
+  "schema_version": "evm.model_component_catalog.v1",
+  "components": [
+    {
+      "component_id": "torchvision-efficientnet-b0",
+      "version": "1.0.0",
+      "display_name": "EfficientNet-B0",
+      "status": "approved",
+      "framework": "torch",
+      "architecture": "efficientnet-b0",
+      "backbone": "torchvision.models.efficientnet_b0",
+      "runtime_adapter": "efficientnet",
+      "default_input_size": 224,
+      "supported_input_sizes": [224],
+      "source_revision": "3400d6ab81ccf1011b2e655b1e506f5ee98c4c35",
+      "training_image": "enterprise-vision-mlops-efficientnet-training@sha256:5792957ad75e0fc78955a7577a7e6d2fff17c9d1e0ae391aceef83acf2cbedac",
+      "serving_image": "enterprise-vision-mlops-efficientnet-serving@sha256:910813b6ae0e16d7371034c6dd3834f6141478b0372e5f12366579d694508a1b"
+    },
+    {
+      "component_id": "torchvision-efficientnet-b7",
+      "version": "1.0.0",
+      "display_name": "EfficientNet-B7",
+      "status": "approved",
+      "framework": "torch",
+      "architecture": "efficientnet-b7",
+      "backbone": "torchvision.models.efficientnet_b7",
+      "runtime_adapter": "efficientnet",
+      "default_input_size": 600,
+      "supported_input_sizes": [600],
+      "source_revision": "3400d6ab81ccf1011b2e655b1e506f5ee98c4c35",
+      "training_image": "enterprise-vision-mlops-efficientnet-training@sha256:5792957ad75e0fc78955a7577a7e6d2fff17c9d1e0ae391aceef83acf2cbedac",
+      "serving_image": "enterprise-vision-mlops-efficientnet-serving@sha256:910813b6ae0e16d7371034c6dd3834f6141478b0372e5f12366579d694508a1b"
+    }
+  ]
+}

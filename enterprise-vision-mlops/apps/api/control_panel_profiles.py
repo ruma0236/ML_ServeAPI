@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from evm.control_panel.model_components import ModelComponentCatalog, read_model_components
 from evm.control_panel.pipeline_profiles import (
     PipelineProfileLaunch,
     PipelineProfileLaunchRequest,
     PipelineProfileList,
     PipelineProfileRecord,
+    PipelineProfileReplayValidation,
     PipelineProfileValidation,
     PipelineRunProfile,
     default_profile,
@@ -15,10 +17,16 @@ from evm.control_panel.pipeline_profiles import (
     read_profiles,
     save_profile,
     validate_profile,
+    validate_profile_replay,
 )
 
 
 router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-pipeline-profiles"])
+
+
+@router.get("/model-components", response_model=ModelComponentCatalog)
+def list_model_components() -> ModelComponentCatalog:
+    return read_model_components()
 
 
 @router.get("/pipeline-profiles/default", response_model=PipelineRunProfile)
@@ -40,6 +48,23 @@ def read_pipeline_profile(profile_id: str, version: int | None = None) -> Pipeli
             detail={"error": "pipeline_profile_not_found", "profile_id": profile_id},
         )
     return record
+
+
+@router.get(
+    "/pipeline-profiles/{profile_id}/replay-validation",
+    response_model=PipelineProfileReplayValidation,
+)
+def validate_pipeline_profile_replay(
+    profile_id: str,
+    version: int | None = None,
+) -> PipelineProfileReplayValidation:
+    record = get_profile(profile_id, version)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "pipeline_profile_not_found", "profile_id": profile_id},
+        )
+    return validate_profile_replay(record)
 
 
 @router.post("/pipeline-profiles/validate", response_model=PipelineProfileValidation)

@@ -651,7 +651,9 @@ export interface PipelineDataProfile {
 
 export interface PipelineModelProfile {
   framework: "torch";
-  architecture: "efficientnet-b0" | "efficientnet-b7";
+  component_id: string;
+  component_version: string;
+  architecture: string;
   pretrained: boolean;
   freeze_backbone: boolean;
   input_size: number;
@@ -668,6 +670,28 @@ export interface PipelineModelProfile {
   early_stop_patience: number;
   tuning_mode: "manual" | "grid" | "bayesian";
   max_trials: number;
+}
+
+export interface ModelComponent {
+  component_id: string;
+  version: string;
+  display_name: string;
+  status: "approved" | "deprecated" | "blocked";
+  framework: "torch";
+  architecture: string;
+  backbone: string;
+  runtime_adapter: string;
+  default_input_size: number;
+  supported_input_sizes: number[];
+  source_revision: string;
+  training_image: string;
+  serving_image: string;
+}
+
+export interface ModelComponentCatalog {
+  schema_version: "evm.model_component_catalog.v1";
+  components: ModelComponent[];
+  catalog_digest: string;
 }
 
 export interface PipelineExperimentProfile {
@@ -758,6 +782,32 @@ export interface PipelineProfileRecord {
   airflow_runtime_uri: string;
   model_config_uri: string;
   model_runtime_uri: string;
+  profile_snapshot_sha256: string;
+  source_manifest_sha256: string;
+  split_manifest_file_sha256: string;
+  airflow_config_sha256: string;
+  model_config_sha256: string;
+  model_component_catalog_sha256: string;
+  reproducibility_digest: string;
+}
+
+export interface PipelineReplayCheck {
+  check_id: string;
+  status: "pass" | "fail";
+  expected: string;
+  observed: string;
+  evidence_uri: string;
+}
+
+export interface PipelineProfileReplayValidation {
+  schema_version: "evm.pipeline_profile_replay_validation.v1";
+  profile_id: string;
+  version: number;
+  status: "ready" | "blocked";
+  reproducibility_digest: string;
+  checked_at: string;
+  checks: PipelineReplayCheck[];
+  blockers: string[];
 }
 
 export interface PipelineProfileList {

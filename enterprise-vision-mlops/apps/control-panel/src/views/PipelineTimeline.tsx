@@ -1,4 +1,4 @@
-import { ChevronDown, Workflow } from "lucide-react";
+import { Boxes, ChevronDown, Workflow } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { summarizeStages } from "../api/controlPanelClient";
@@ -14,6 +14,7 @@ interface PipelineTimelineProps {
 
 export function PipelineTimeline({ cycle, resourceSnapshot }: PipelineTimelineProps) {
   const resources = resourceSnapshot.resources;
+  const [mode, setMode] = useState<"pipeline" | "infrastructure">("pipeline");
   const [selectedStageId, setSelectedStageId] = useState(cycle.stages[0]?.stage_id || "");
   const [selectedResourceId, setSelectedResourceId] = useState(resources[0]?.resource_id || "");
   const selectedStage = useMemo(
@@ -27,8 +28,17 @@ export function PipelineTimeline({ cycle, resourceSnapshot }: PipelineTimelinePr
   const summaries = summarizeStages(cycle);
   const progress = timelineProgress(cycle.stages);
   return (
-    <section className="timeline-grid" aria-label="Pipeline timeline and resources">
-      <div className="panel wide">
+    <section className="timeline-shell" aria-label="Pipeline timeline and resources">
+      <nav className="view-mode-nav" aria-label="Timeline content">
+        <button type="button" className={mode === "pipeline" ? "active" : ""} onClick={() => setMode("pipeline")}>
+          <Workflow size={16} /> Pipeline Flow
+        </button>
+        <button type="button" className={mode === "infrastructure" ? "active" : ""} onClick={() => setMode("infrastructure")}>
+          <Boxes size={16} /> Infrastructure
+        </button>
+      </nav>
+      {mode === "pipeline" ? (
+        <div className="panel wide">
         <div className="panel-heading">
           <div>
             <h2>Pipeline Timeline</h2>
@@ -84,13 +94,14 @@ export function PipelineTimeline({ cycle, resourceSnapshot }: PipelineTimelinePr
             ))}
           </div>
         </details>
-      </div>
-
-      <KubernetesTopology
-        snapshot={resourceSnapshot}
-        selectedResource={selectedResource}
-        onSelectResource={(resource) => setSelectedResourceId(resource.resource_id)}
-      />
+        </div>
+      ) : (
+        <KubernetesTopology
+          snapshot={resourceSnapshot}
+          selectedResource={selectedResource}
+          onSelectResource={(resource) => setSelectedResourceId(resource.resource_id)}
+        />
+      )}
     </section>
   );
 }

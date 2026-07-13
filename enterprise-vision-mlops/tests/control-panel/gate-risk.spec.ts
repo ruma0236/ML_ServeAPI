@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 
+import { openControlPanelView } from "./helpers/navigation";
+
 test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", async ({ page }, testInfo) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Gates" }).click();
+  await openControlPanelView(page, "Gates");
 
   await expect(page.getByRole("heading", { name: "Model Metric Gate" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Drift Review" })).toBeVisible();
@@ -27,7 +29,7 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
   await expect(page.getByLabel("CD/CT check matrix")).toContainText("promotion_gate");
   await expect(page.locator(".cdct-detail-list")).toContainText("Approved By");
   await expect(page.locator(".cdct-detail-list").getByText(/pending|[a-z0-9._-]+/).last()).toBeVisible();
-  await page.getByRole("button", { name: "Release" }).click();
+  await openControlPanelView(page, "Release");
   await expect(page.getByRole("heading", { name: "Release Control" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Deployment Intent" })).toBeVisible();
   await expect(page.getByLabel("Deployment admission signals")).toContainText("CI Evidence");

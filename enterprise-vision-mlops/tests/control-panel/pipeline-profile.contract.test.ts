@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchDefaultPipelineProfile,
+  fetchModelComponents,
+  fetchPipelineProfileReplayValidation,
   launchPipelineProfile,
   savePipelineProfile,
   validatePipelineProfile
@@ -48,6 +50,8 @@ const profile = {
   },
   model: {
     framework: "torch",
+    component_id: "torchvision-efficientnet-b0",
+    component_version: "1.0.0",
     architecture: "efficientnet-b0",
     pretrained: true,
     freeze_backbone: false,
@@ -126,7 +130,14 @@ describe("pipeline profile API bindings", () => {
       airflow_config_uri: "F:/profiles/v1/airflow.runtime.json",
       airflow_runtime_uri: "/mnt/evm-data/profiles/v1/airflow.runtime.json",
       model_config_uri: "F:/profiles/v1/model.runtime.json",
-      model_runtime_uri: "/mnt/evm-data/profiles/v1/model.runtime.json"
+      model_runtime_uri: "/mnt/evm-data/profiles/v1/model.runtime.json",
+      profile_snapshot_sha256: "c".repeat(64),
+      source_manifest_sha256: "d".repeat(64),
+      split_manifest_file_sha256: "e".repeat(64),
+      airflow_config_sha256: "f".repeat(64),
+      model_config_sha256: "1".repeat(64),
+      model_component_catalog_sha256: "2".repeat(64),
+      reproducibility_digest: "3".repeat(64)
     };
     const launch = { profile_id: record.profile_id, version: 1, validation, task: null };
     const fetchMock = vi
@@ -143,6 +154,49 @@ describe("pipeline profile API bindings", () => {
     expect((await launchPipelineProfile(record.profile_id, 1, { actor: "ml-platform", reason: "test", dry_run: true }, "http://control-panel.test")).profile_id).toBe(record.profile_id);
     expect(fetchMock.mock.calls[3][0]).toBe(
       "http://control-panel.test/control-panel/v1/pipeline-profiles/contract-profile/launch?version=1"
+    );
+  });
+
+  it("loads the governed model catalog and deterministic replay evidence", async () => {
+    const catalog = {
+      schema_version: "evm.model_component_catalog.v1",
+      catalog_digest: "a".repeat(64),
+      components: [{
+        component_id: "torchvision-efficientnet-b0",
+        version: "1.0.0",
+        display_name: "EfficientNet-B0",
+        status: "approved",
+        framework: "torch",
+        architecture: "efficientnet-b0",
+        backbone: "torchvision.models.efficientnet_b0",
+        runtime_adapter: "efficientnet",
+        default_input_size: 224,
+        supported_input_sizes: [224],
+        source_revision: "b".repeat(40),
+        training_image: `trainer@sha256:${"c".repeat(64)}`,
+        serving_image: `serving@sha256:${"d".repeat(64)}`
+      }]
+    };
+    const replay = {
+      schema_version: "evm.pipeline_profile_replay_validation.v1",
+      profile_id: "contract-profile",
+      version: 1,
+      status: "ready",
+      reproducibility_digest: "e".repeat(64),
+      checked_at: "2026-07-13T00:00:00Z",
+      checks: [],
+      blockers: []
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(catalog), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(replay), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect((await fetchModelComponents("http://control-panel.test")).components[0].status).toBe("approved");
+    expect((await fetchPipelineProfileReplayValidation("contract-profile", 1, "http://control-panel.test")).status).toBe("ready");
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "http://control-panel.test/control-panel/v1/pipeline-profiles/contract-profile/replay-validation?version=1"
     );
   });
 });

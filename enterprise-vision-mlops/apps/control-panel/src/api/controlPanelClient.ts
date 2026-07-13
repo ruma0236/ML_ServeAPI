@@ -21,11 +21,13 @@ import type {
   LifecycleRunList,
   LifecycleRunRequest,
   LifecycleWorkerState,
+  ModelComponentCatalog,
   OrchestratorConnectionList,
   PipelineProfileLaunch,
   PipelineProfileLaunchRequest,
   PipelineProfileList,
   PipelineProfileRecord,
+  PipelineProfileReplayValidation,
   PipelineProfileValidation,
   PipelineRunProfile,
   PromotionPolicyDecision,
@@ -342,12 +344,33 @@ export async function fetchDefaultPipelineProfile(baseUrl = API_BASE): Promise<P
   return (await response.json()) as PipelineRunProfile;
 }
 
+export async function fetchModelComponents(baseUrl = API_BASE): Promise<ModelComponentCatalog> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/model-components`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw new Error(`Model component catalog failed: ${response.status}`);
+  return (await response.json()) as ModelComponentCatalog;
+}
+
 export async function fetchPipelineProfiles(baseUrl = API_BASE): Promise<PipelineProfileRecord[]> {
   const response = await fetch(`${baseUrl}/control-panel/v1/pipeline-profiles`, {
     headers: { Accept: "application/json" }
   });
   if (!response.ok) throw new Error(`Pipeline profile list failed: ${response.status}`);
   return ((await response.json()) as PipelineProfileList).profiles;
+}
+
+export async function fetchPipelineProfileReplayValidation(
+  profileId: string,
+  version: number,
+  baseUrl = API_BASE
+): Promise<PipelineProfileReplayValidation> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/pipeline-profiles/${encodeURIComponent(profileId)}/replay-validation?version=${version}`,
+    { headers: { Accept: "application/json" } }
+  );
+  if (!response.ok) throw await controlPanelError(response, "Pipeline profile replay validation failed");
+  return (await response.json()) as PipelineProfileReplayValidation;
 }
 
 export async function validatePipelineProfile(

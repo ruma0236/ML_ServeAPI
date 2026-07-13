@@ -1,9 +1,10 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import { Activity, Boxes, Database, GitBranch, RadioTower, ServerCog } from "lucide-react";
+import { Activity, Boxes, Database, GitBranch, RadioTower, ServerCog, Workflow } from "lucide-react";
 
 import { formatNumber, summarizeCycle } from "../api/controlPanelClient";
 import type { CycleRun } from "../api/types";
+import { cycleLifecycleItems, LifecycleFlow } from "../components/LifecycleFlow";
 import { StatusBadge } from "../components/StatusBadge";
 
 interface CycleOverviewProps {
@@ -12,8 +13,7 @@ interface CycleOverviewProps {
 
 export function CycleOverview({ cycle }: CycleOverviewProps) {
   const summary = summarizeCycle(cycle);
-  const visibleStages = cycle.stages.slice(0, 9);
-  const nodeCount = Math.max(visibleStages.length, 1);
+  const lifecycleItems = cycleLifecycleItems(cycle.stages);
 
   return (
     <section className="overview-grid" aria-label="Cycle overview">
@@ -24,31 +24,15 @@ export function CycleOverview({ cycle }: CycleOverviewProps) {
         <MetricTile icon={<Boxes />} label="Artifacts" value={String(summary.artifactCount)} status={summary.blockedStages ? "blocked" : "pass"} />
       </div>
 
-      <div className="panel cycle-card">
+      <div className="panel lifecycle-overview-panel">
         <div className="panel-heading">
           <div>
-            <h2>Cycle State</h2>
+            <h2>Lifecycle State</h2>
             <p>{cycle.owner_issue}</p>
           </div>
-          <StatusBadge status={cycle.status} />
+          <div className="panel-heading-actions"><StatusBadge status={cycle.status} /><Workflow /></div>
         </div>
-        <div className="cycle-ring" aria-label={`Current cycle status ${cycle.status}`}>
-          <div className="ring-sweep" aria-hidden="true" />
-          <div className="ring-core">
-            <span>{summary.stageCount}</span>
-            <small>stages</small>
-          </div>
-          {visibleStages.map((stage, index) => (
-            <span
-              key={stage.stage_id}
-              className="ring-node-anchor"
-              style={{ "--angle": `${index * (360 / nodeCount)}deg` } as CSSProperties}
-              title={`${stage.name}: ${stage.status}`}
-            >
-              <span className={`ring-node node-${stage.status}`} />
-            </span>
-          ))}
-        </div>
+        <LifecycleFlow items={lifecycleItems} label={`Current lifecycle status ${cycle.status}`} />
       </div>
 
       <div className="panel">

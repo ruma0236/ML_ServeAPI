@@ -125,6 +125,8 @@ def week_from_phase(phase: str | None) -> str | None:
         return "W6"
     if "phase 17" in normalized or "agentops" in normalized:
         return "W7"
+    if "phase 20" in normalized or "operator-centered reproducible" in normalized:
+        return "W8"
     return None
 
 
@@ -413,6 +415,7 @@ def sprint_goal(week: str) -> str:
         "W5": "Real model lifecycle, serving, drift, and remote validation",
         "W6": "Accelerated data platform and Kubernetes runtime foundation",
         "W7": "Animated enterprise Control Panel, Kubernetes smoke proof, task/resource control, and serving-scale handoff",
+        "W8": "Operator-centered reproducible Control Plane with purpose-based UX, immutable Run Blueprints, deterministic replay, and guarded experiment execution",
     }
     return goals.get(week, "Enterprise MLOps weekly execution")
 
@@ -562,7 +565,28 @@ def search_issue(config: JiraConfig, item: JiraItem) -> dict[str, Any] | None:
         {"jql": jql, "maxResults": 1, "fields": ["summary", "status", "labels"]},
     )
     issues = result.get("issues") or result.get("values") or []
-    return issues[0] if issues else None
+    if issues:
+        return issues[0]
+
+    # Older issues were created before source-id labels were standardized. The
+    # exact generated summary is a stable fallback and prevents duplicate Jira
+    # work items when those records are brought under automated synchronization.
+    summary = f"[{item.source_id}] {item.summary}".replace('"', '\\"')
+    fallback = jira_request(
+        config,
+        "POST",
+        "/rest/api/3/search/jql",
+        {
+            "jql": f'project = "{config.project_key}" AND summary ~ "\\\"{summary}\\\"" ORDER BY created ASC',
+            "maxResults": 10,
+            "fields": ["summary", "status", "labels"],
+        },
+    )
+    candidates = fallback.get("issues") or fallback.get("values") or []
+    return next(
+        (candidate for candidate in candidates if candidate.get("fields", {}).get("summary") == summary),
+        None,
+    )
 
 
 def create_or_update_issue(
@@ -698,7 +722,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Print planned Jira payload summary.")
     parser.add_argument("--include-done", action="store_true", help="Include already completed baseline items.")
     parser.add_argument("--include-deferred", action="store_true", help="Include post-July deferred items.")
-    parser.add_argument("--sync-sprints", action="store_true", help="Create or reuse W0-W5 Jira sprints.")
+    parser.add_argument("--sync-sprints", action="store_true", help="Create or reuse Jira sprints from the weekly schedule.")
     parser.add_argument("--assign-sprints", action="store_true", help="Move weekly tasks into the matching Jira sprint.")
     parser.add_argument("--transition-statuses", action="store_true", help="Transition Jira issues based on Markdown status when possible.")
     parser.add_argument(

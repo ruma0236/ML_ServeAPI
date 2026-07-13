@@ -16,6 +16,7 @@ from evm.control_panel.pipeline_profiles import (
     PipelineProfileRecord,
     get_profile,
     validate_profile,
+    validate_profile_replay,
 )
 from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import AuditEvent, ContractModel
@@ -266,6 +267,14 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
         raise LifecycleRunError(
             "pipeline_profile_not_executable",
             ", ".join(validation.blockers) or "Pipeline profile is not executable.",
+        )
+    replay_validation = validate_profile_replay(record)
+    if replay_validation.status != "ready":
+        raise LifecycleRunError(
+            "pipeline_profile_replay_blocked",
+            ", ".join(replay_validation.blockers)
+            or "Pipeline profile replay identity is not ready.",
+            status_code=422,
         )
     source_commit, source_branch = source_revision()
     if not request.dry_run and not source_commit:
@@ -615,6 +624,14 @@ def queue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
             raise LifecycleRunError(
                 "pipeline_profile_not_executable",
                 ", ".join(validation.blockers) or "Pipeline profile is not executable.",
+            )
+        replay_validation = validate_profile_replay(record)
+        if replay_validation.status != "ready":
+            raise LifecycleRunError(
+                "pipeline_profile_replay_blocked",
+                ", ".join(replay_validation.blockers)
+                or "Pipeline profile replay identity is not ready.",
+                status_code=422,
             )
         if not run.source_commit:
             raise LifecycleRunError(

@@ -12,6 +12,13 @@ from typing import Literal
 
 from pydantic import Field
 
+from evm.control_panel.model_components import (
+    component_contract_blockers,
+    get_model_component,
+    model_component_catalog_path,
+    pinned_image as model_component_image_is_pinned,
+    read_model_components,
+)
 from evm.control_panel.operations import create_task_assignment
 from evm.control_panel.schemas import (
     ContractModel,
@@ -64,7 +71,9 @@ class DataProfile(ContractModel):
 
 class ModelProfile(ContractModel):
     framework: Literal["torch"] = "torch"
-    architecture: Literal["efficientnet-b0", "efficientnet-b7"] = "efficientnet-b0"
+    component_id: str = "torchvision-efficientnet-b0"
+    component_version: str = "1.0.0"
+    architecture: str = "efficientnet-b0"
     pretrained: bool = True
     freeze_backbone: bool = False
     input_size: int = Field(default=224, ge=64, le=1024)
@@ -161,6 +170,27 @@ class PipelineProfileValidation(ContractModel):
     stages: list[PipelinePlanStage] = Field(default_factory=list)
 
 
+class PipelineReplayCheck(ContractModel):
+    check_id: str
+    status: Literal["pass", "fail"]
+    expected: str = ""
+    observed: str = ""
+    evidence_uri: str = ""
+
+
+class PipelineProfileReplayValidation(ContractModel):
+    schema_version: Literal["evm.pipeline_profile_replay_validation.v1"] = (
+        "evm.pipeline_profile_replay_validation.v1"
+    )
+    profile_id: str
+    version: int = Field(ge=1)
+    status: Literal["ready", "blocked"]
+    reproducibility_digest: str
+    checked_at: str
+    checks: list[PipelineReplayCheck] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+
+
 class PipelineProfileRecord(ContractModel):
     profile_id: str
     version: int = Field(ge=1)
@@ -173,6 +203,13 @@ class PipelineProfileRecord(ContractModel):
     airflow_runtime_uri: str
     model_config_uri: str
     model_runtime_uri: str
+    profile_snapshot_sha256: str = ""
+    source_manifest_sha256: str = ""
+    split_manifest_file_sha256: str = ""
+    airflow_config_sha256: str = ""
+    model_config_sha256: str = ""
+    model_component_catalog_sha256: str = ""
+    reproducibility_digest: str = ""
 
 
 class PipelineProfileList(ContractModel):
@@ -293,6 +330,20 @@ def validate_profile(profile: PipelineRunProfile) -> PipelineProfileValidation:
             blockers.append("ct_split_must_match_holdout_split")
     if profile.model.early_stop_min_epochs > profile.model.epochs:
         blockers.append("early_stop_min_epochs_exceeds_epochs")
+    component = get_model_component(
+        profile.model.component_id,
+        profile.model.component_version,
+    )
+    if component is None:
+        blockers.append("model_component_not_registered")
+    else:
+        blockers.extend(component_contract_blockers(component))
+        if component.framework != profile.model.framework:
+            blockers.append("model_component_framework_mismatch")
+        if component.architecture != profile.model.architecture:
+            blockers.append("model_component_architecture_mismatch")
+        if profile.model.input_size not in component.supported_input_sizes:
+            blockers.append("model_component_input_size_not_supported")
     if profile.model.early_stop_threshold < profile.gates.promotion_min_accuracy:
         warnings.append("early_stop_threshold_below_promotion_accuracy")
     if profile.model.architecture == "efficientnet-b0" and profile.model.input_size != 224:
@@ -423,24 +474,25 @@ def build_plan(profile: PipelineRunProfile, blockers: list[str]) -> list[Pipelin
     cv_active = profile.data.split.cross_validation_enabled
     ab_active = profile.experiment.ab_test_enabled
     full = profile.execution_scope == "full_lifecycle"
+    active_state = "blocked" if blocked else "ready"
     stages = [
-        ("profile", "Validate and snapshot profile", "control-plane", "ready", 0.0, "Schema, policy, and capability preflight."),
-        ("intake", "Data intake and contract", "airflow", "ready", 0.0, profile.data.dataset_version),
-        ("quality", "Validation and quality gates", "airflow", "ready", 0.0, "Fail-closed validation and image quality policy."),
-        ("split", "Split and holdout isolation", "airflow", "ready", 0.0, profile.data.split.holdout_split),
+        ("profile", "Validate and snapshot profile", "control-plane", active_state, 0.0, "Schema, policy, and capability preflight."),
+        ("intake", "Data intake and contract", "airflow", active_state, 0.0, profile.data.dataset_version),
+        ("quality", "Validation and quality gates", "airflow", active_state, 0.0, "Fail-closed validation and image quality policy."),
+        ("split", "Split and holdout isolation", "airflow", active_state, 0.0, profile.data.split.holdout_split),
         (
             "cross_validation",
             "Cross-validation folds",
             "kubernetes",
-            "blocked" if cv_active else "not_started",
+            active_state if cv_active else "not_started",
             0.0,
             f"{profile.data.split.cross_validation_folds} folds" if cv_active else "Disabled",
         ),
-        ("training", "Model training and MLflow", "kubernetes", "blocked" if full else "not_started", 0.0, profile.model.architecture),
-        ("evaluation", "Evaluation and readiness", "mlflow", "blocked" if full else "not_started", 0.0, profile.experiment.primary_metric),
-        ("ab_test", "A/B validation", "kubernetes", "blocked" if ab_active else "not_started", 0.0, "Enabled" if ab_active else "Disabled"),
-        ("cdct", "CI / CT / CD gates", "control-plane", "blocked" if full else "not_started", 0.0, profile.gates.target_environment),
-        ("release", "Approval and deployment", "kubernetes", "blocked" if full else "not_started", 0.0, profile.gates.target_namespace),
+        ("training", "Model training and MLflow", "kubernetes", active_state if full else "not_started", 0.0, profile.model.architecture),
+        ("evaluation", "Evaluation and readiness", "mlflow", active_state if full else "not_started", 0.0, profile.experiment.primary_metric),
+        ("ab_test", "A/B validation", "kubernetes", active_state if ab_active else "not_started", 0.0, "Enabled" if ab_active else "Disabled"),
+        ("cdct", "CI / CT / CD gates", "control-plane", active_state if full else "not_started", 0.0, profile.gates.target_environment),
+        ("release", "Approval and deployment", "kubernetes", active_state if full else "not_started", 0.0, profile.gates.target_namespace),
     ]
     if not blocked:
         stages[0] = ("profile", "Validate and snapshot profile", "control-plane", "ready", 1.0, "Dry-run validation passed.")
@@ -470,7 +522,7 @@ def save_profile(profile: PipelineRunProfile) -> PipelineProfileRecord:
             (item for item in read_profiles().profiles if item.profile_id == profile_id and item.digest == digest),
             None,
         )
-        if existing:
+        if existing and existing.reproducibility_digest:
             return existing
         versions = [item.version for item in read_profiles().profiles if item.profile_id == profile_id]
         version = max(versions, default=0) + 1
@@ -482,12 +534,35 @@ def save_profile(profile: PipelineRunProfile) -> PipelineProfileRecord:
         model_path = directory / "model.runtime.json"
         airflow_runtime_uri = f"{runtime_root()}/{profile_id}/v{version}/airflow.runtime.json"
         model_runtime_uri = f"{runtime_root()}/{profile_id}/v{version}/model.runtime.json"
+        airflow_config = render_airflow_config(profile)
+        model_config = render_model_config(
+            profile,
+            profile_id,
+            version,
+            airflow_runtime_uri,
+        )
         write_json(profile_path, profile.model_dump(mode="json"))
         write_json(validation_path, validation.model_dump(mode="json"))
-        write_json(airflow_path, render_airflow_config(profile))
-        write_json(
-            model_path,
-            render_model_config(profile, profile_id, version, airflow_runtime_uri),
+        write_json(airflow_path, airflow_config)
+        write_json(model_path, model_config)
+        source_manifest = resolve_data_path(profile.data.source_manifest_uri)
+        split_manifest = resolve_data_path(profile.data.split_manifest_uri)
+        if source_manifest is None or split_manifest is None:
+            raise ValueError("pipeline profile evidence disappeared during snapshot")
+        profile_snapshot_sha256 = file_digest(profile_path)
+        source_manifest_sha256 = file_digest(source_manifest)
+        split_manifest_file_sha256 = file_digest(split_manifest)
+        airflow_config_sha256 = file_digest(airflow_path)
+        model_config_sha256 = file_digest(model_path)
+        model_component_catalog_sha256 = read_model_components().catalog_digest
+        reproducibility_digest = replay_identity_digest(
+            profile_digest_value=digest,
+            profile_snapshot_sha256=profile_snapshot_sha256,
+            source_manifest_sha256=source_manifest_sha256,
+            split_manifest_file_sha256=split_manifest_file_sha256,
+            airflow_config_sha256=airflow_config_sha256,
+            model_config_sha256=model_config_sha256,
+            model_component_catalog_sha256=model_component_catalog_sha256,
         )
         created_at = utc_now()
         record = PipelineProfileRecord(
@@ -502,6 +577,13 @@ def save_profile(profile: PipelineRunProfile) -> PipelineProfileRecord:
             airflow_runtime_uri=airflow_runtime_uri,
             model_config_uri=str(model_path),
             model_runtime_uri=model_runtime_uri,
+            profile_snapshot_sha256=profile_snapshot_sha256,
+            source_manifest_sha256=source_manifest_sha256,
+            split_manifest_file_sha256=split_manifest_file_sha256,
+            airflow_config_sha256=airflow_config_sha256,
+            model_config_sha256=model_config_sha256,
+            model_component_catalog_sha256=model_component_catalog_sha256,
+            reproducibility_digest=reproducibility_digest,
         )
         write_json(directory / "manifest.json", record.model_dump(mode="json"))
         return record
@@ -531,11 +613,202 @@ def get_profile(profile_id: str, version: int | None = None) -> PipelineProfileR
     return max(matches, key=lambda item: item.version, default=None)
 
 
+def validate_profile_replay(
+    record: PipelineProfileRecord,
+) -> PipelineProfileReplayValidation:
+    checks: list[PipelineReplayCheck] = []
+    blockers: list[str] = []
+
+    def add_check(
+        check_id: str,
+        expected: str,
+        observed: str,
+        evidence_uri: str,
+    ) -> None:
+        passed = bool(expected) and expected == observed
+        checks.append(
+            PipelineReplayCheck(
+                check_id=check_id,
+                status="pass" if passed else "fail",
+                expected=expected,
+                observed=observed,
+                evidence_uri=evidence_uri,
+            )
+        )
+        if not passed:
+            blockers.append(
+                f"replay_identity_not_recorded:{check_id}"
+                if not expected
+                else f"replay_identity_mismatch:{check_id}"
+            )
+
+    profile_contract_digest = profile_digest(record.profile)
+    add_check(
+        "profile_contract",
+        record.digest,
+        profile_contract_digest,
+        record.profile_uri,
+    )
+    observed_profile_snapshot = observed_file_digest(Path(record.profile_uri))
+    observed_source_manifest = observed_file_digest(
+        resolve_data_path(record.profile.data.source_manifest_uri)
+    )
+    observed_split_manifest = observed_file_digest(
+        resolve_data_path(record.profile.data.split_manifest_uri)
+    )
+    observed_airflow_config = observed_file_digest(Path(record.airflow_config_uri))
+    observed_model_config = observed_file_digest(Path(record.model_config_uri))
+    try:
+        observed_catalog = read_model_components().catalog_digest
+    except (OSError, ValueError, json.JSONDecodeError):
+        observed_catalog = ""
+    add_check(
+        "profile_snapshot",
+        record.profile_snapshot_sha256,
+        observed_profile_snapshot,
+        record.profile_uri,
+    )
+    add_check(
+        "source_manifest",
+        record.source_manifest_sha256,
+        observed_source_manifest,
+        record.profile.data.source_manifest_uri,
+    )
+    add_check(
+        "split_manifest_file",
+        record.split_manifest_file_sha256,
+        observed_split_manifest,
+        record.profile.data.split_manifest_uri,
+    )
+    add_check(
+        "airflow_runtime_config",
+        record.airflow_config_sha256,
+        observed_airflow_config,
+        record.airflow_config_uri,
+    )
+    add_check(
+        "model_runtime_config",
+        record.model_config_sha256,
+        observed_model_config,
+        record.model_config_uri,
+    )
+    add_check(
+        "model_component_catalog",
+        record.model_component_catalog_sha256,
+        observed_catalog,
+        str(model_component_catalog_path()),
+    )
+
+    model_config = read_json_if_present(Path(record.model_config_uri))
+    model_matrix = model_config.get("model_matrix", {})
+    candidates = model_config.get("candidates", [])
+    selected_id = (
+        str(model_matrix.get("selected_candidate_id") or "")
+        if isinstance(model_matrix, dict)
+        else ""
+    )
+    selected = next(
+        (
+            item
+            for item in candidates
+            if isinstance(item, dict) and str(item.get("candidate_id") or "") == selected_id
+        ),
+        {},
+    ) if isinstance(candidates, list) else {}
+    expected_component = (
+        f"{record.profile.model.component_id}@{record.profile.model.component_version}:"
+        f"{record.profile.model.architecture}"
+    )
+    observed_component = (
+        f"{selected.get('component_id', '')}@{selected.get('component_version', '')}:"
+        f"{selected.get('architecture', '')}"
+    )
+    add_check(
+        "model_component_identity",
+        expected_component,
+        observed_component,
+        record.model_config_uri,
+    )
+    expected_policy = "mock=false;smoke=false;real_dataset=true;real_training=true"
+    observed_policy = (
+        f"mock={str(model_matrix.get('mock_allowed')).lower()};"
+        f"smoke={str(model_matrix.get('smoke_allowed')).lower()};"
+        f"real_dataset={str(model_matrix.get('requires_real_dataset')).lower()};"
+        f"real_training={str(model_matrix.get('requires_real_training')).lower()}"
+        if isinstance(model_matrix, dict)
+        else ""
+    )
+    add_check(
+        "real_execution_policy",
+        expected_policy,
+        observed_policy,
+        record.model_config_uri,
+    )
+    expected_images = "training=pinned;serving=pinned"
+    observed_images = (
+        "training="
+        + (
+            "pinned"
+            if model_component_image_is_pinned(str(selected.get("training_image") or ""))
+            else "unpinned"
+        )
+        + ";serving="
+        + (
+            "pinned"
+            if model_component_image_is_pinned(str(selected.get("serving_image") or ""))
+            else "unpinned"
+        )
+    )
+    add_check(
+        "container_image_pinning",
+        expected_images,
+        observed_images,
+        record.model_config_uri,
+    )
+
+    observed_reproducibility_digest = replay_identity_digest(
+        profile_digest_value=profile_contract_digest,
+        profile_snapshot_sha256=observed_profile_snapshot,
+        source_manifest_sha256=observed_source_manifest,
+        split_manifest_file_sha256=observed_split_manifest,
+        airflow_config_sha256=observed_airflow_config,
+        model_config_sha256=observed_model_config,
+        model_component_catalog_sha256=observed_catalog,
+    )
+    add_check(
+        "reproducibility_digest",
+        record.reproducibility_digest,
+        observed_reproducibility_digest,
+        str(Path(record.profile_uri).with_name("manifest.json")),
+    )
+    return PipelineProfileReplayValidation(
+        profile_id=record.profile_id,
+        version=record.version,
+        status="ready" if not blockers else "blocked",
+        reproducibility_digest=observed_reproducibility_digest,
+        checked_at=utc_now(),
+        checks=checks,
+        blockers=unique(blockers),
+    )
+
+
 def launch_profile(
     record: PipelineProfileRecord,
     request: PipelineProfileLaunchRequest,
 ) -> PipelineProfileLaunch:
     validation = validate_profile(record.profile)
+    replay_validation = validate_profile_replay(record)
+    if replay_validation.status != "ready":
+        validation = validation.model_copy(
+            update={
+                "status": "blocked",
+                "executable": False,
+                "blockers": unique(
+                    validation.blockers
+                    + [f"replay:{item}" for item in replay_validation.blockers]
+                ),
+            }
+        )
     if record.profile.execution_scope != "data_cycle" or not validation.executable:
         return PipelineProfileLaunch(
             profile_id=record.profile_id,
@@ -625,6 +898,12 @@ def render_model_config(
     airflow_runtime_uri: str,
 ) -> dict[str, object]:
     config = load_toml(profile.base_model_config)
+    component = get_model_component(
+        profile.model.component_id,
+        profile.model.component_version,
+    )
+    if component is None:
+        raise ValueError("model_component_not_registered")
     candidate_id = f"{profile.model.architecture}-profile-{profile_id}-v{version}"
     host_data_root = os.getenv(
         "EVM_HOST_DATA_ROOT",
@@ -664,7 +943,12 @@ def render_model_config(
         {
             "candidate_id": candidate_id,
             "architecture": profile.model.architecture,
-            "backbone": f"torchvision.models.{profile.model.architecture.replace('-', '_')}",
+            "backbone": component.backbone,
+            "component_id": component.component_id,
+            "component_version": component.version,
+            "component_source_revision": component.source_revision,
+            "training_image": component.training_image,
+            "serving_image": component.serving_image,
             "input_size": profile.model.input_size,
             "pretrained": profile.model.pretrained,
             "freeze_backbone": profile.model.freeze_backbone,
@@ -755,6 +1039,60 @@ def profile_digest(profile: PipelineRunProfile) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def replay_identity_digest(
+    *,
+    profile_digest_value: str,
+    profile_snapshot_sha256: str,
+    source_manifest_sha256: str,
+    split_manifest_file_sha256: str,
+    airflow_config_sha256: str,
+    model_config_sha256: str,
+    model_component_catalog_sha256: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "airflow_config_sha256": airflow_config_sha256,
+            "model_component_catalog_sha256": model_component_catalog_sha256,
+            "model_config_sha256": model_config_sha256,
+            "profile_digest": profile_digest_value,
+            "profile_snapshot_sha256": profile_snapshot_sha256,
+            "source_manifest_sha256": source_manifest_sha256,
+            "split_manifest_file_sha256": split_manifest_file_sha256,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def observed_file_digest(path: Path | None) -> str:
+    if path is None or not path.is_file():
+        return ""
+    try:
+        return file_digest(path)
+    except OSError:
+        return ""
+
+
+def read_json_if_present(path: Path) -> dict[str, object]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def slug(value: str) -> str:

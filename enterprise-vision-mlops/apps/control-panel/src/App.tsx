@@ -1,4 +1,14 @@
-import { AlertCircle, Moon, RefreshCcw, Sun } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  BookOpenCheck,
+  Moon,
+  RefreshCcw,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sun,
+  type LucideIcon
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -37,18 +47,52 @@ import { ReleaseControl } from "./views/ReleaseControl";
 import { TaskAuthoring } from "./views/TaskAuthoring";
 
 type TabKey = "overview" | "configure" | "runs" | "readiness" | "timeline" | "operate" | "gates" | "release" | "governance";
+type WorkspaceKey = "observe" | "design" | "validate" | "govern";
 
-const tabs: Array<{ key: TabKey; label: string }> = [
-  { key: "overview", label: "Overview" },
-  { key: "configure", label: "Configure" },
-  { key: "runs", label: "Runs" },
-  { key: "readiness", label: "Readiness" },
-  { key: "timeline", label: "Timeline" },
-  { key: "operate", label: "Operate" },
-  { key: "gates", label: "Gates" },
-  { key: "release", label: "Release" },
-  { key: "governance", label: "Governance" }
+const workspaces: Array<{
+  key: WorkspaceKey;
+  label: string;
+  icon: LucideIcon;
+  views: Array<{ key: TabKey; label: string }>;
+}> = [
+  {
+    key: "observe",
+    label: "Observe",
+    icon: Activity,
+    views: [
+      { key: "overview", label: "Overview" },
+      { key: "runs", label: "Runs" },
+      { key: "timeline", label: "Timeline" }
+    ]
+  },
+  {
+    key: "design",
+    label: "Design",
+    icon: SlidersHorizontal,
+    views: [
+      { key: "configure", label: "Configure" },
+      { key: "operate", label: "Operate" }
+    ]
+  },
+  {
+    key: "validate",
+    label: "Validate",
+    icon: ShieldCheck,
+    views: [
+      { key: "readiness", label: "Readiness" },
+      { key: "gates", label: "Gates" },
+      { key: "release", label: "Release" }
+    ]
+  },
+  {
+    key: "govern",
+    label: "Govern",
+    icon: BookOpenCheck,
+    views: [{ key: "governance", label: "Governance" }]
+  }
 ];
+
+const tabs = workspaces.flatMap((workspace) => workspace.views);
 
 const sourceDefinitions = [
   { source_id: "catalog", label: "Cycle Catalog" },
@@ -243,6 +287,12 @@ export function App() {
     : syncSources.some((source) => source.status === "stale")
       ? "warn"
       : "pass";
+  const activeWorkspace = workspaceForTab(tab);
+
+  function selectTab(nextTab: TabKey) {
+    setTab(nextTab);
+    writeLocalValue(SELECTED_TAB_KEY, nextTab);
+  }
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -284,21 +334,39 @@ export function App() {
         </div>
       </header>
 
-      <nav className="tabbar" aria-label="Control Panel views">
-        {tabs.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            className={item.key === tab ? "active" : ""}
-            onClick={() => {
-              setTab(item.key);
-              writeLocalValue(SELECTED_TAB_KEY, item.key);
-            }}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      <section className="navigation-shell">
+        <nav className="workspace-nav" aria-label="Control Panel workspaces">
+          {workspaces.map((workspace) => {
+            const Icon = workspace.icon;
+            return (
+              <button
+                key={workspace.key}
+                type="button"
+                className={workspace.key === activeWorkspace.key ? "active" : ""}
+                onClick={() => selectTab(workspace.views[0].key)}
+                aria-pressed={workspace.key === activeWorkspace.key}
+                aria-label={workspace.label}
+              >
+                <Icon size={17} />
+                <span>{workspace.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <nav className="view-nav" aria-label="Control Panel views">
+          {activeWorkspace.views.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={item.key === tab ? "active" : ""}
+              onClick={() => selectTab(item.key)}
+              aria-label={item.label}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </section>
 
       {error ? (
         <section className="error-state" role="alert">
@@ -349,6 +417,11 @@ function removeLocalValue(key: string): void {
 function restoredTab(): TabKey {
   const value = readLocalValue(SELECTED_TAB_KEY);
   return tabs.some((item) => item.key === value) ? value as TabKey : "overview";
+}
+
+
+function workspaceForTab(tab: TabKey) {
+  return workspaces.find((workspace) => workspace.views.some((view) => view.key === tab)) || workspaces[0];
 }
 
 function errorMessage(error: unknown): string {

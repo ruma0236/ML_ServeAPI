@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-const tabs = ["Overview", "Configure", "Runs", "Readiness", "Timeline", "Operate", "Gates", "Release", "Governance"];
+import { openControlPanelView, type ControlPanelView } from "./helpers/navigation";
+
+const tabs: ControlPanelView[] = ["Overview", "Configure", "Runs", "Readiness", "Timeline", "Operate", "Gates", "Release", "Governance"];
 const headingsByTab: Record<string, string> = {
-  Overview: "Cycle State",
-  Configure: "Pipeline Profile Studio",
+  Overview: "Lifecycle State",
+  Configure: "Run Blueprint Studio",
   Runs: "Lifecycle Runs",
   Readiness: "Data Readiness",
   Timeline: "Pipeline Timeline",
@@ -16,14 +18,14 @@ const headingsByTab: Record<string, string> = {
 test("@w7-all-tabs-visual captures every Control Panel tab for the active viewport", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Control Panel" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Cycle State" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Lifecycle State" })).toBeVisible();
 
   const evidenceDir =
     process.env.EVM_W7_ALL_TABS_EVIDENCE_DIR ||
     "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/all_tabs_visual/latest";
 
   for (const tab of tabs) {
-    await page.getByRole("button", { name: tab }).click();
+    await openControlPanelView(page, tab);
     await expect(page.getByRole("button", { name: tab })).toHaveClass(/active/);
     await expect(page.getByRole("heading", { name: headingsByTab[tab] })).toBeVisible();
     if (tab === "Operate") {

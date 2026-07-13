@@ -1,13 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+import { openControlPanelView } from "./helpers/navigation";
+
 test("@w7-enterprise-readiness renders service scope, readiness gates, and theme controls", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Control Panel" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Readiness" }).click();
+  await openControlPanelView(page, "Readiness");
   await expect(page.getByRole("heading", { name: "Enterprise Scope" })).toBeVisible();
   await expect(page.getByText("Owner Coverage")).toBeVisible();
   await expect(page.getByText("Promotion Decision")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Data Readiness" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Model Readiness" })).toBeVisible();
+  await expect(page.getByLabel("Owner coverage").getByText("data-platform")).toBeVisible();
+  await expect(page.getByLabel("Owner coverage").getByText("ml-platform")).toBeVisible();
+
+  await page.getByRole("button", { name: "Evidence Detail", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Data Pipeline Checklist" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Model Pipeline Checklist" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Artifact Evidence Decision" })).toBeVisible();
@@ -15,11 +23,10 @@ test("@w7-enterprise-readiness renders service scope, readiness gates, and theme
   await expect(page.getByLabel("Artifact evidence evaluation").getByText("quality gate")).toBeVisible();
   await expect(page.getByLabel("Artifact evidence evaluation").getByText("kubernetes runtime")).toBeVisible();
   await expect(page.getByText("Owner approval")).toHaveCount(2);
-  await expect(page.getByLabel("Owner coverage").getByText("data-platform")).toBeVisible();
-  await expect(page.getByLabel("Owner coverage").getByText("ml-platform")).toBeVisible();
   await expect(page.getByLabel("Enterprise readiness checklist").getByText("data-platform")).toBeVisible();
   await expect(page.getByLabel("Enterprise readiness checklist").getByText("ml-platform")).toBeVisible();
 
+  await page.getByRole("button", { name: "Decision Summary", exact: true }).click();
   await page.getByLabel("Target environment").selectOption("production");
   await expect(page.getByLabel("Target namespace")).toHaveValue("evm-production");
   await page.getByLabel("Enterprise service scope").getByText("Approver", { exact: true }).locator("..").getByRole("textbox").fill("release-manager-ui-test");

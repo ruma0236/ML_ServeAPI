@@ -69,6 +69,7 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-EPIC-17` | Draft Decision And AgentOps Governance | 2026-07-W7 | Done | draft/decision registry, AgentOps reliability contract, scale-serving decision, portfolio stabilization, live diagnostics, and audited drift workflow are complete |
 | `EVM-EPIC-18` | Kubernetes Runtime And MLOps Control Panel | 2026-07-W7 | Done | Kubernetes runtime, real B7 GPU lifecycle, metadata/control API, Control Panel, resource controls, and 13/13 executable closeout completed |
 | `EVM-EPIC-19` | Human-Tunable Pipeline Control | Post-W7 | In Progress | Versioned profile control is operational and dependency-aware lifecycle orchestration is in live-proof validation; CV/search, isolated CT execution, and A/B routing remain explicit follow-up work |
+| `EVM-EPIC-20` | Operator-Centered Reproducible Control Plane | 2026-07-W8 | Done | purpose-based operator workspaces, focused animated lifecycle views, immutable Run Blueprints, approved model-component onboarding, and deterministic user-scenario replay completed with desktop/mobile and F-drive evidence |
 
 ## Backlog
 
@@ -392,9 +393,25 @@ real executor is connected. Completion evidence is indexed by
 | `EVM-239` | Versioned Pipeline Run Profile and Profile Studio | Done | Post-W7 | typed data/model/experiment/gate/resource profile, immutable F-drive versions and digests, API/OpenAPI contract, rendered Airflow/model configs, data-cycle preview/queue, responsive Configure UI, and fail-closed capability matrix pass 173 Python, 26 frontend, and 20 browser tests |
 | `EVM-240` | Explicit real-time lifecycle progress semantics | Done | Post-W7 | Timeline, stage detail, and Release views display Not Started, In Progress, Completed, and Blocked labels with calculated percentages, animated running bars, reduced-motion support, and desktop/mobile regression proof |
 | `EVM-241` | Dependency-aware full lifecycle profile orchestrator | Done | Post-W7 | run `lifecycle-20260712T164133-1e8bf477` completed 10/10 real stages with VisA, CUDA EfficientNet-B0, MLflow `ca742ba3784d4861a58b8a92f30eb2ab`, readiness, CI/CT, independent approval, Kubernetes staging validation, and monitoring; all nine Control Panel tabs passed manual desktop/mobile audit, Product is restored 1/1, CI `29219088931` and Deployment Admission `29219114314` passed, and the final review is `docs/status/2026-07-13-evm-241-control-panel-manual-ux-system-audit.md` |
-| `EVM-242` | Cross-validation and bounded hyperparameter search executor | Planned | Post-W7 | fold fan-out/aggregation and manual/grid/Bayesian trials run with deterministic splits, MLflow parent-child lineage, GPU quotas, cancellation, comparison matrix, and reproducible seeds |
-| `EVM-243` | Isolated CT dataset snapshot and promotion enforcement | Planned | Post-W7 | immutable validation/test snapshot and digest are inaccessible to training workers; CT evaluator reads the isolated copy and promotion rejects overlap, mutation, or missing evidence |
-| `EVM-244` | A/B canary traffic router and evaluator | Planned | Post-W7 | approved control/challenger identities drive bounded traffic split, metric windows, statistical decision, audit, automatic stop conditions, and exact rollback |
+| `EVM-242` | Cross-validation and bounded hyperparameter search executor | Planned | 2026-07-W8 | fold fan-out/aggregation and manual/grid/Bayesian trials run with deterministic splits, MLflow parent-child lineage, GPU quotas, cancellation, comparison matrix, and reproducible seeds |
+| `EVM-243` | Isolated CT dataset snapshot and promotion enforcement | Planned | 2026-07-W8 | immutable validation/test snapshot and digest are inaccessible to training workers; CT evaluator reads the isolated copy and promotion rejects overlap, mutation, or missing evidence |
+| `EVM-244` | A/B canary traffic router and evaluator | Planned | 2026-07-W8 | approved control/challenger identities drive bounded traffic split, metric windows, statistical decision, audit, automatic stop conditions, and exact rollback |
+
+### Phase 20. Operator-Centered Reproducible Control Plane
+
+Goal:
+
+- Reduce the Control Panel to purpose-based operator workspaces and progressively disclosed evidence.
+- Let an operator define data identity, split policy, model, training parameters, gates, and resources as one immutable Run Blueprint.
+- Prove that a saved Blueprint digest can reproduce the same rendered configs, execution plan, and evidence references.
+
+| ID | Task | Status | Due | Acceptance Criteria |
+|---|---|---|---:|---|
+| `EVM-245` | Purpose-based Control Panel information architecture | Done | 2026-07-W8 | nine flat tabs are grouped under Observe, Design, Validate, and Govern; Readiness and Timeline use focused summary/evidence and pipeline/infrastructure modes; persisted navigation and every existing view pass desktop/mobile browser regression |
+| `EVM-246` | Guided immutable Run Blueprint studio | Done | 2026-07-W8 | five guided steps configure dataset identity and manifests, deterministic split, approved Torch model, hyperparameters, experiment policy, resources, gates, and environment; saving writes a versioned profile and exact Airflow/model runtime configs |
+| `EVM-247` | Focused animated lifecycle visualization | Done | 2026-07-W8 | Overview and Blueprint review use an accessible animated Data-to-Observe process map driven by real CycleRun/profile state with pending, ready, running, completed, review, and blocked semantics plus reduced-motion support |
+| `EVM-248` | Approved model-component registry and onboarding contract | Done | 2026-07-W8 | versioned approved B0/B7 components expose pinned source and training/serving images; UI selection drives rendered config and actual K8s Job/Deployment images; unregistered, mismatched, mutable, or unpinned components fail closed |
+| `EVM-249` | Deterministic operator-scenario replay and evidence validator | Done | 2026-07-W8 | desktop/mobile automation and an in-app browser scenario saved `w8-operator-replay-20260713` v1, sealed 11/11 profile/data/config/catalog/image identities, created dry run `lifecycle-20260713T063058-7d46b7bb`, and persisted all evidence under the F-drive |
 
 ## Jira Mapping
 
@@ -520,6 +537,12 @@ Jira live sync 기준 mapping이다.
 | `EVM-242` | `SCRUM-142` | Task | https://opop0236.atlassian.net/browse/SCRUM-142 |
 | `EVM-243` | `SCRUM-143` | Task | https://opop0236.atlassian.net/browse/SCRUM-143 |
 | `EVM-244` | `SCRUM-144` | Task | https://opop0236.atlassian.net/browse/SCRUM-144 |
+| `EVM-EPIC-20` | `SCRUM-146` | Epic | https://opop0236.atlassian.net/browse/SCRUM-146 |
+| `EVM-245` | `SCRUM-150` | Task | https://opop0236.atlassian.net/browse/SCRUM-150 |
+| `EVM-246` | `SCRUM-151` | Task | https://opop0236.atlassian.net/browse/SCRUM-151 |
+| `EVM-247` | `SCRUM-152` | Task | https://opop0236.atlassian.net/browse/SCRUM-152 |
+| `EVM-248` | `SCRUM-153` | Task | https://opop0236.atlassian.net/browse/SCRUM-153 |
+| `EVM-249` | `SCRUM-154` | Task | https://opop0236.atlassian.net/browse/SCRUM-154 |
 | `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |

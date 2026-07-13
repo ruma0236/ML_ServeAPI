@@ -550,6 +550,43 @@ h3 {
   grid-template-columns: 1fr;
 }
 
+.timeline-shell,
+.readiness-shell {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.view-mode-nav {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: 4px;
+  width: fit-content;
+  padding: 4px;
+  border: 1px solid #d9e3e6;
+  border-radius: 8px;
+  background: #f5f8f9;
+}
+
+.view-mode-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 12px;
+  color: #50636b;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.view-mode-nav button:hover { color: #17333d; background: #e9f0f2; }
+.view-mode-nav button.active { color: #fff; background: #1c596a; }
+
 .ops-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
@@ -4153,6 +4190,505 @@ h3 {
 @media (prefers-reduced-motion: reduce) {
   .is-running b,
   .stage-running .stage-rail i {
+    animation: none;
+  }
+}
+
+/* W8 operator workspaces and reproducible Blueprint surface */
+.navigation-shell {
+  display: grid;
+  grid-template-columns: minmax(390px, 0.75fr) minmax(320px, 1.25fr);
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.workspace-nav,
+.view-nav {
+  display: flex;
+  min-width: 0;
+  padding: 5px;
+  border: 1px solid #d8e0e4;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.workspace-nav {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.view-nav {
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.workspace-nav button,
+.view-nav button {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 6px;
+  color: #53656d;
+  background: transparent;
+  cursor: pointer;
+}
+
+.workspace-nav button {
+  min-height: 42px;
+  padding: 7px 9px;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.view-nav button {
+  min-height: 34px;
+  padding: 7px 13px;
+  white-space: nowrap;
+}
+
+.workspace-nav button:hover,
+.view-nav button:hover {
+  color: #174b5b;
+  background: #f0f5f6;
+}
+
+.workspace-nav button.active {
+  color: #fff;
+  background: #1c596a;
+}
+
+.view-nav button.active {
+  color: #10232b;
+  background: #e6eff2;
+  font-weight: 800;
+}
+
+.lifecycle-overview-panel {
+  grid-column: 1 / -1;
+}
+
+.overview-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panel-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.panel-heading-actions > svg {
+  color: #527782;
+}
+
+.lifecycle-flow {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(104px, 1fr));
+  min-width: 0;
+  padding: 24px 8px 8px;
+  overflow-x: auto;
+}
+
+.lifecycle-flow-phase {
+  position: relative;
+  display: grid;
+  min-width: 104px;
+  justify-items: center;
+  padding: 0 8px;
+  text-align: center;
+}
+
+.lifecycle-flow-node {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 2px solid #b7c5ca;
+  border-radius: 50%;
+  color: #66777e;
+  background: #fff;
+  transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+}
+
+.lifecycle-flow-copy {
+  display: grid;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.lifecycle-flow-copy strong {
+  font-size: 0.76rem;
+}
+
+.lifecycle-flow-copy span {
+  color: #6d7b81;
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.lifecycle-flow-progress {
+  width: min(76px, 90%);
+  height: 4px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4eaed;
+}
+
+.lifecycle-flow-progress b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #8c9aa0;
+  transition: width 360ms ease;
+}
+
+.lifecycle-flow-connector {
+  position: absolute;
+  z-index: 0;
+  top: 20px;
+  left: calc(50% + 25px);
+  width: calc(100% - 50px);
+  height: 2px;
+  overflow: hidden;
+  background: #d5dee1;
+}
+
+.lifecycle-flow-connector i {
+  position: absolute;
+  top: 0;
+  left: -36%;
+  width: 36%;
+  height: 100%;
+  background: #2c8197;
+}
+
+.flow-ready .lifecycle-flow-node { border-color: #5d8fa0; color: #1f6a7d; background: #eef7f9; }
+.flow-running .lifecycle-flow-node { border-color: #2c8197; color: #1d7188; background: #e8f5f8; }
+.flow-completed .lifecycle-flow-node { border-color: #39876a; color: #257254; background: #eaf5ef; }
+.flow-review .lifecycle-flow-node { border-color: #b9852e; color: #916515; background: #fff7e5; }
+.flow-blocked .lifecycle-flow-node { border-color: #b9565c; color: #a33f46; background: #fff0f1; }
+.flow-ready .lifecycle-flow-progress b,
+.flow-running .lifecycle-flow-progress b { background: #2c8197; }
+.flow-completed .lifecycle-flow-progress b { background: #39876a; }
+.flow-review .lifecycle-flow-progress b { background: #b9852e; }
+.flow-blocked .lifecycle-flow-progress b { background: #b9565c; }
+.flow-running .lifecycle-flow-node > i {
+  position: absolute;
+  inset: -7px;
+  border: 1px solid rgba(44, 129, 151, 0.6);
+  border-radius: 50%;
+  animation: blueprint-node-pulse 1.8s ease-out infinite;
+}
+.flow-running .lifecycle-flow-connector i { animation: blueprint-connector-flow 1.8s linear infinite; }
+
+.blueprint-step-nav {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #d8e0e4;
+  border-radius: 8px;
+  background: #d8e0e4;
+}
+
+.blueprint-step-nav button {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  min-height: 50px;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 0;
+  color: #65747a;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.blueprint-step-nav button > span {
+  color: #8a979c;
+  font-family: Consolas, monospace;
+  font-size: 0.64rem;
+  font-weight: 900;
+}
+
+.blueprint-step-nav button > strong {
+  overflow: hidden;
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+}
+
+.blueprint-step-nav button.visited { color: #2b7559; }
+.blueprint-step-nav button.active { color: #fff; background: #1c596a; }
+.blueprint-step-nav button.active > span { color: #b8dce5; }
+
+.blueprint-step-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid #e2eaed;
+}
+
+.blueprint-step-heading span {
+  color: #6b7a80;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.blueprint-step-heading h3 {
+  margin-top: 2px;
+  font-size: 1rem;
+}
+
+.blueprint-step-content {
+  min-height: 370px;
+  padding-top: 9px;
+  animation: blueprint-step-enter 180ms ease-out;
+}
+
+.profile-form-grid .field-wide {
+  grid-column: 1 / -1;
+}
+
+.blueprint-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #dce5e8;
+  border-radius: 6px;
+  background: #dce5e8;
+}
+
+.blueprint-review-grid > div {
+  min-width: 0;
+  padding: 10px;
+  background: #fbfdfe;
+}
+
+.blueprint-review-grid dt {
+  color: #6e7d83;
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.blueprint-review-grid dd {
+  margin: 3px 0 0;
+  overflow: hidden;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replay-verification {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #d8e3e6;
+  border-left: 3px solid #80959d;
+  border-radius: 6px;
+  background: #f8fbfc;
+}
+
+.replay-verification[data-status="ready"] { border-left-color: #2f8a64; }
+.replay-verification[data-status="blocked"] { border-left-color: #b44e58; }
+.replay-verification > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 8px;
+}
+.replay-verification > div > span:last-child {
+  grid-column: 2;
+  overflow: hidden;
+  color: #66777e;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.67rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replay-verification > div > strong { min-width: 0; font-size: 0.76rem; }
+.replay-verification details { border-top: 1px solid #dfe7e9; padding-top: 8px; }
+.replay-verification summary { cursor: pointer; color: #52676f; font-size: 0.7rem; font-weight: 800; }
+.replay-verification ul { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+.replay-verification li { display: flex; justify-content: space-between; gap: 12px; font-size: 0.68rem; text-transform: capitalize; }
+.replay-verification li strong { color: #b04b54; font-size: 0.62rem; text-transform: uppercase; }
+.replay-verification li[data-status="pass"] strong { color: #287454; }
+
+.blueprint-flow-panel .lifecycle-flow {
+  grid-template-columns: repeat(3, minmax(78px, 1fr));
+  gap: 18px 0;
+  padding: 12px 0 0;
+  overflow: visible;
+}
+
+.blueprint-flow-panel .lifecycle-flow-phase {
+  min-width: 0;
+  padding: 0 3px;
+}
+
+.blueprint-flow-panel .lifecycle-flow-node {
+  width: 36px;
+  height: 36px;
+}
+
+.blueprint-flow-panel .lifecycle-flow-connector { top: 17px; left: calc(50% + 21px); width: calc(100% - 42px); }
+.blueprint-flow-panel .lifecycle-flow-phase:nth-child(3) .lifecycle-flow-connector { display: none; }
+.blueprint-flow-panel .lifecycle-flow-copy strong { font-size: 0.69rem; }
+.blueprint-flow-panel .lifecycle-flow-copy span { font-size: 0.58rem; }
+.blueprint-flow-panel .lifecycle-flow-progress { width: min(60px, 90%); }
+
+.capability-disclosure {
+  padding: 0;
+}
+
+.capability-disclosure summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.capability-disclosure summary::-webkit-details-marker { display: none; }
+.capability-disclosure summary > span { display: inline-flex; align-items: center; gap: 7px; font-size: 0.77rem; font-weight: 800; }
+.capability-disclosure summary > strong { color: #53666e; font-size: 0.72rem; }
+.capability-disclosure .capability-list { padding: 0 12px 10px; border-top: 1px solid #e2eaed; }
+
+.profile-launch {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-launch > div:first-child { grid-column: 1 / -1; }
+.profile-launch button { justify-content: center; }
+
+@keyframes blueprint-node-pulse {
+  0% { opacity: 0.9; transform: scale(0.82); }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+
+@keyframes blueprint-connector-flow {
+  to { left: 100%; }
+}
+
+@keyframes blueprint-step-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+:root[data-theme="dark"] .workspace-nav,
+:root[data-theme="dark"] .view-nav,
+:root[data-theme="dark"] .blueprint-step-nav,
+:root[data-theme="dark"] .view-mode-nav {
+  border-color: #2d3136;
+  background: #17191d;
+}
+
+:root[data-theme="dark"] .workspace-nav button,
+:root[data-theme="dark"] .view-nav button,
+:root[data-theme="dark"] .view-mode-nav button { color: #a7b0b5; }
+:root[data-theme="dark"] .workspace-nav button:hover,
+:root[data-theme="dark"] .view-nav button:hover,
+:root[data-theme="dark"] .view-mode-nav button:hover { color: #edf1f3; background: #20242a; }
+:root[data-theme="dark"] .workspace-nav button.active { color: #fff; background: #245f70; }
+:root[data-theme="dark"] .view-nav button.active { color: #fff; background: #2b3036; }
+:root[data-theme="dark"] .view-mode-nav button.active { color: #fff; background: #245f70; }
+
+:root[data-theme="dark"] .lifecycle-flow-node {
+  border-color: #464d54;
+  color: #9da6ac;
+  background: #111317;
+}
+
+:root[data-theme="dark"] .lifecycle-flow-copy span,
+:root[data-theme="dark"] .blueprint-step-heading span,
+:root[data-theme="dark"] .blueprint-review-grid dt { color: #9da6ad; }
+:root[data-theme="dark"] .lifecycle-flow-progress { background: #292d32; }
+:root[data-theme="dark"] .lifecycle-flow-connector { background: #343a40; }
+:root[data-theme="dark"] .flow-ready .lifecycle-flow-node { border-color: #54869a; color: #78b4c6; background: #10191d; }
+:root[data-theme="dark"] .flow-running .lifecycle-flow-node { border-color: #4b9db2; color: #7bc3d4; background: #101b20; }
+:root[data-theme="dark"] .flow-completed .lifecycle-flow-node { border-color: #438868; color: #72be96; background: #101916; }
+:root[data-theme="dark"] .flow-review .lifecycle-flow-node { border-color: #9a772f; color: #d4ae5b; background: #1c180f; }
+:root[data-theme="dark"] .flow-blocked .lifecycle-flow-node { border-color: #9f4f56; color: #dd777f; background: #201214; }
+
+:root[data-theme="dark"] .blueprint-step-nav button { color: #9da6ad; background: #111317; }
+:root[data-theme="dark"] .blueprint-step-nav button.visited { color: #6fbd94; }
+:root[data-theme="dark"] .blueprint-step-nav button.active { color: #fff; background: #245f70; }
+:root[data-theme="dark"] .blueprint-step-heading,
+:root[data-theme="dark"] .capability-disclosure .capability-list { border-color: #2f3338; }
+:root[data-theme="dark"] .blueprint-review-grid { border-color: #30353b; background: #30353b; }
+:root[data-theme="dark"] .blueprint-review-grid > div { background: #111317; }
+:root[data-theme="dark"] .capability-disclosure summary > strong { color: #aeb6bb; }
+:root[data-theme="dark"] .replay-verification { border-color: #30353b; background: #111317; }
+:root[data-theme="dark"] .replay-verification > div > span:last-child,
+:root[data-theme="dark"] .replay-verification summary { color: #9da6ad; }
+:root[data-theme="dark"] .replay-verification details { border-color: #30353b; }
+
+@media (max-width: 980px) {
+  .navigation-shell { grid-template-columns: 1fr; }
+  .profile-workspace { grid-template-columns: 1fr; }
+  .profile-inspector { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .blueprint-flow-panel,
+  .profile-launch { grid-column: auto; }
+  .capability-disclosure { grid-column: 1 / -1; }
+}
+
+@media (max-width: 760px) {
+  .shell { width: min(100% - 20px, 1480px); padding-top: 10px; }
+  .view-mode-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .view-mode-nav button { min-width: 0; padding-inline: 7px; }
+  .workspace-nav button { min-height: 44px; padding: 6px 4px; gap: 4px; }
+  .workspace-nav button span { font-size: 0.68rem; }
+  .view-nav { justify-content: flex-start; }
+  .blueprint-step-nav { grid-template-columns: repeat(5, minmax(54px, 1fr)); }
+  .blueprint-step-nav button { grid-template-columns: 1fr; justify-items: center; gap: 2px; padding: 6px 3px; text-align: center; }
+  .blueprint-step-nav button > span { display: none; }
+  .blueprint-step-nav button > strong { font-size: 0.64rem; }
+  .profile-inspector { grid-template-columns: 1fr; }
+  .capability-disclosure,
+  .profile-launch { grid-column: 1; }
+  .blueprint-step-content { min-height: 0; }
+  .lifecycle-overview-panel .lifecycle-flow {
+    grid-template-columns: repeat(3, minmax(78px, 1fr));
+    gap: 22px 0;
+    overflow: visible;
+  }
+  .lifecycle-overview-panel .lifecycle-flow-phase {
+    min-width: 0;
+    padding: 0 3px;
+  }
+  .lifecycle-overview-panel .lifecycle-flow-phase:nth-child(3) .lifecycle-flow-connector { display: none; }
+}
+
+@media (max-width: 520px) {
+  .workspace-nav button { min-height: 48px; flex-direction: column; gap: 1px; }
+  .workspace-nav button span { display: block; font-size: 0.6rem; }
+  .blueprint-review-grid { grid-template-columns: 1fr; }
+  .profile-launch { grid-template-columns: 1fr; }
+  .profile-launch > div:first-child { grid-column: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-running .lifecycle-flow-node > i,
+  .flow-running .lifecycle-flow-connector i,
+  .blueprint-step-content {
     animation: none;
   }
 }

@@ -60,6 +60,7 @@ week range for each week label.
 | W5 | 2026-07-13 ~ 2026-07-19 | Model lifecycle, drift, and draft governance | lifecycle state machine, drift/special-case tracking, draft registry |
 | W6 | 2026-07-10 ~ 2026-07-12 | Accelerated data platform + Kubernetes foundation | curation/lakehouse plan, Kubernetes resource map, metadata API contract |
 | W7 | 2026-07-13 ~ 2026-07-15 | Accelerated Control Panel + runtime hardening | animated Kubernetes/pipeline/resource control UI, Kubernetes real execution proof, serving-scale handoff |
+| W8 | 2026-07-13 ~ 2026-07-15 | Operator-centered reproducible Control Plane | purpose-based workspace navigation, guided immutable Run Blueprint, focused animated lifecycle views, deterministic replay evidence, and guarded CV/HPO, CT, and A/B execution |
 
 ## 4. W0: 2026-06-22 ~ 2026-06-28
 

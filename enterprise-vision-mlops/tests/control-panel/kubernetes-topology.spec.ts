@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { openControlPanelView } from "./helpers/navigation";
+
 test("@w7-kubernetes-topology renders API-backed resource topology and drilldown", async ({ page, request }, testInfo) => {
   const resourceResponse = await request.get("http://127.0.0.1:8000/control-panel/v1/resources");
   expect(resourceResponse.ok()).toBe(true);
@@ -10,7 +12,8 @@ test("@w7-kubernetes-topology renders API-backed resource topology and drilldown
   expect(trainingResource).toBeTruthy();
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Timeline" }).click();
+  await openControlPanelView(page, "Timeline");
+  await page.getByRole("button", { name: "Infrastructure", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Kubernetes Resource Topology" })).toBeVisible();
   await expect(page.getByText("evm-training").first()).toBeVisible();

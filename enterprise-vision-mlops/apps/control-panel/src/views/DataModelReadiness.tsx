@@ -1,4 +1,5 @@
-import { Cpu, DatabaseZap, GitCommitVertical, ShieldCheck } from "lucide-react";
+import { Cpu, DatabaseZap, Fingerprint, GitCommitVertical, LayoutDashboard, ShieldCheck } from "lucide-react";
+import { useState } from "react";
 
 import { formatNumber } from "../api/controlPanelClient";
 import type { CycleRun } from "../api/types";
@@ -11,13 +12,24 @@ interface DataModelReadinessProps {
 }
 
 export function DataModelReadiness({ cycle }: DataModelReadinessProps) {
+  const [mode, setMode] = useState<"summary" | "evidence">("summary");
   const splitEntries = Object.entries(cycle.dataset.split || {});
   return (
-    <section className="two-column" aria-label="Data and model readiness">
-      <ServiceScopeFilters cycle={cycle} />
-      <ReadinessChecklist cycle={cycle} />
+    <section className="readiness-shell" aria-label="Data and model readiness">
+      <nav className="view-mode-nav" aria-label="Readiness content">
+        <button type="button" className={mode === "summary" ? "active" : ""} onClick={() => setMode("summary")}>
+          <LayoutDashboard size={16} /> Decision Summary
+        </button>
+        <button type="button" className={mode === "evidence" ? "active" : ""} onClick={() => setMode("evidence")}>
+          <Fingerprint size={16} /> Evidence Detail
+        </button>
+      </nav>
 
-      <div className="panel">
+      {mode === "summary" ? (
+        <section className="two-column readiness-mode" aria-label="Readiness decision summary">
+          <ServiceScopeFilters cycle={cycle} />
+
+          <div className="panel">
         <div className="panel-heading">
           <div>
             <h2>Data Readiness</h2>
@@ -45,9 +57,9 @@ export function DataModelReadiness({ cycle }: DataModelReadinessProps) {
             </div>
           ))}
         </div>
-      </div>
+          </div>
 
-      <div className="panel">
+          <div className="panel">
         <div className="panel-heading">
           <div>
             <h2>Model Readiness</h2>
@@ -78,9 +90,9 @@ export function DataModelReadiness({ cycle }: DataModelReadinessProps) {
             </div>
           ))}
         </div>
-      </div>
+          </div>
 
-      <div className="panel wide">
+          <div className="panel wide">
         <div className="panel-heading">
           <div>
             <h2>Real-Test Policy</h2>
@@ -94,7 +106,11 @@ export function DataModelReadiness({ cycle }: DataModelReadinessProps) {
           <Policy label="dataset" value={cycle.model_matrix?.real_test_policy.requires_real_dataset ? "required" : "optional"} ok={cycle.model_matrix?.real_test_policy.requires_real_dataset === true} />
           <Policy label="training" value={cycle.model_matrix?.real_test_policy.requires_real_training ? "required" : "optional"} ok={cycle.model_matrix?.real_test_policy.requires_real_training === true} />
         </div>
-      </div>
+          </div>
+        </section>
+      ) : (
+        <ReadinessChecklist cycle={cycle} />
+      )}
     </section>
   );
 }

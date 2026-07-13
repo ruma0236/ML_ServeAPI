@@ -15,14 +15,6 @@ from evm.control_panel.schemas import CycleRun, TaskAssignment
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
-DEFAULT_TRAINING_IMAGE = (
-    "enterprise-vision-mlops-efficientnet-training@"
-    "sha256:5792957ad75e0fc78955a7577a7e6d2fff17c9d1e0ae391aceef83acf2cbedac"
-)
-DEFAULT_SERVING_IMAGE = (
-    "enterprise-vision-mlops-efficientnet-serving@"
-    "sha256:910813b6ae0e16d7371034c6dd3834f6141478b0372e5f12366579d694508a1b"
-)
 NODE_PORTS = {
     "dev": 30811,
     "test": 30812,
@@ -59,14 +51,18 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     model_path = runtime_path(run.model_config_uri)
     profile = read_json(profile_path)
     model = read_json(model_path)
-    candidate_id = selected_candidate_id(model)
+    candidate = selected_candidate(model)
+    candidate_id = str(candidate["candidate_id"])
     resources = object_value(profile, "resources")
     gpu_count = int(resources.get("gpu_count") or 0)
     if gpu_count < 1:
         raise LifecycleKubernetesError("efficientnet_training_requires_gpu")
     cpu_request = int(resources.get("cpu_request") or 1)
     memory_gb = int(resources.get("memory_gb") or 2)
-    image = pinned_image("EVM_LIFECYCLE_TRAINING_IMAGE", DEFAULT_TRAINING_IMAGE)
+    image = pinned_image(
+        "EVM_LIFECYCLE_TRAINING_IMAGE",
+        str(candidate.get("training_image") or ""),
+    )
     namespace = "evm-training"
     job_name = f"evm-lifecycle-train-{short_run_id(run.run_id)}"
     directory = profile_path.parent / "kubernetes" / "training"
@@ -154,11 +150,17 @@ def materialize_serving_bundle(run: LifecycleRun, cycle: CycleRun) -> ServingBun
     namespace = str(gates.get("target_namespace") or "evm-staging")
     architecture = str(model_profile.get("architecture") or "efficientnet-b0")
     candidate_id, artifact_uri, digest, dataset_version = cycle_model_identity(cycle)
+    candidate = selected_candidate(model)
+    if str(candidate["candidate_id"]) != candidate_id:
+        raise LifecycleKubernetesError("selected_candidate_cycle_mismatch")
     deployment_name = str(
         object_value(model, "product").get("target_deployment")
         or lifecycle_deployment_name(architecture, environment)
     )
-    image = pinned_image("EVM_LIFECYCLE_SERVING_IMAGE", DEFAULT_SERVING_IMAGE)
+    image = pinned_image(
+        "EVM_LIFECYCLE_SERVING_IMAGE",
+        str(candidate.get("serving_image") or ""),
+    )
     node_port = NODE_PORTS.get(environment)
     if node_port is None:
         raise LifecycleKubernetesError(f"unsupported_target_environment:{environment}")
@@ -267,6 +269,7 @@ def build_training_evidence(
     runner: Runner = subprocess.run,
 ) -> tuple[dict[str, Any], Path]:
     model = read_json(runtime_path(run.model_config_uri))
+    configured_candidate = selected_candidate(model)
     matrix = latest_matrix(model)
     candidate = next(
         (
@@ -319,7 +322,8 @@ def build_training_evidence(
         "gpu_allocatable": str(gpu_allocatable),
         "training_image_digest": bundle.image,
         "serving_image_digest": pinned_image(
-            "EVM_LIFECYCLE_SERVING_IMAGE", DEFAULT_SERVING_IMAGE
+            "EVM_LIFECYCLE_SERVING_IMAGE",
+            str(configured_candidate.get("serving_image") or ""),
         ),
         "namespace": bundle.namespace,
         "job_name": bundle.job_name,
@@ -347,6 +351,24 @@ def selected_candidate_id(model: dict[str, Any]) -> str:
     if not candidate_id:
         raise LifecycleKubernetesError("selected_candidate_id_missing")
     return candidate_id
+
+
+def selected_candidate(model: dict[str, Any]) -> dict[str, Any]:
+    candidate_id = selected_candidate_id(model)
+    candidates = model.get("candidates")
+    if not isinstance(candidates, list):
+        raise LifecycleKubernetesError("model_candidates_missing")
+    candidate = next(
+        (
+            item
+            for item in candidates
+            if isinstance(item, dict) and str(item.get("candidate_id") or "") == candidate_id
+        ),
+        None,
+    )
+    if candidate is None:
+        raise LifecycleKubernetesError("selected_candidate_definition_missing")
+    return candidate
 
 
 def latest_matrix(model: dict[str, Any]) -> dict[str, Any]:

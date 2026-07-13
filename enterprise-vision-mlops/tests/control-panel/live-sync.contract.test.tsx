@@ -161,6 +161,11 @@ describe("Control Panel source synchronization", () => {
     await flushUpdates();
     expect(container.textContent).toContain("Degraded");
 
+    const govern = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Govern"
+    );
+    expect(govern).toBeDefined();
+    await act(async () => govern?.click());
     const governance = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent === "Governance"
     );

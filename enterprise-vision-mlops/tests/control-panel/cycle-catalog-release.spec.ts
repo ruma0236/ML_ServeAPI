@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { openControlPanelView } from "./helpers/navigation";
+
 test("@w7-control-plane selects CycleRuns and exposes the release cockpit", async ({ page, request }) => {
   const response = await request.get("/control-panel/v1/cycles?limit=100");
   expect(response.ok()).toBeTruthy();
@@ -31,7 +33,7 @@ test("@w7-control-plane selects CycleRuns and exposes the release cockpit", asyn
     await expect(page.locator(".footer-line")).toContainText(catalog.latest_cycle_id);
   }
 
-  await page.getByRole("button", { name: "Release" }).click();
+  await openControlPanelView(page, "Release");
   await expect(page.getByRole("heading", { name: "Release Control" })).toBeVisible();
   await expect(page.getByLabel("Release pipeline stages").locator("article")).toHaveCount(7);
   const targetEnvironment = latest.latest_deployment_intent?.target_environment || latest.environment?.tier || "unknown";

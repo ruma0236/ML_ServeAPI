@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 
+import { openControlPanelView } from "./helpers/navigation";
+
 test("@post-w7-governance renders the decision registry without mutating it", async ({ page }, testInfo) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Governance" }).click();
+  await openControlPanelView(page, "Governance");
 
   await expect(page.getByRole("heading", { name: "Decision Draft" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Decision Registry" })).toBeVisible();

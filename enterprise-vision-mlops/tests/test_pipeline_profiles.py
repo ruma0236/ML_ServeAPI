@@ -10,6 +10,7 @@ from evm.control_panel.pipeline_profiles import (
     read_profiles,
     save_profile,
     validate_profile,
+    validate_profile_replay,
 )
 
 
@@ -119,6 +120,35 @@ def test_saved_profile_is_versioned_idempotent_and_renders_runtime_configs(
     assert model["model_matrix"]["rollback_registry_path"].endswith(
         "/artifacts/registry/efficientnet-b0/rollback.json"
     )
+    assert len(first.profile_snapshot_sha256) == 64
+    assert len(first.source_manifest_sha256) == 64
+    assert len(first.split_manifest_file_sha256) == 64
+    assert len(first.airflow_config_sha256) == 64
+    assert len(first.model_config_sha256) == 64
+    assert len(first.model_component_catalog_sha256) == 64
+    assert len(first.reproducibility_digest) == 64
+    replay = validate_profile_replay(first)
+    assert replay.status == "ready"
+    assert replay.blockers == []
+    assert all(check.status == "pass" for check in replay.checks)
+
+
+def test_replay_validation_blocks_tampered_runtime_config(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    configure_roots(tmp_path, monkeypatch)
+    record = save_profile(profile_with_evidence(tmp_path))
+    model_path = Path(record.model_config_uri)
+    model = json.loads(model_path.read_text(encoding="utf-8"))
+    model["candidates"][0]["batch_size"] = 1
+    model_path.write_text(json.dumps(model), encoding="utf-8")
+
+    replay = validate_profile_replay(record)
+
+    assert replay.status == "blocked"
+    assert "replay_identity_mismatch:model_runtime_config" in replay.blockers
+    assert "replay_identity_mismatch:reproducibility_digest" in replay.blockers
 
 
 def test_saved_profile_validation_is_refreshed_without_mutating_snapshot(

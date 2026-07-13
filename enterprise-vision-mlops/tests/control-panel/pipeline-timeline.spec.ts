@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 
+import { openControlPanelView } from "./helpers/navigation";
+
 test("@w7-pipeline-timeline renders stage timeline and intermediate-result drilldown", async ({ page }, testInfo) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Timeline" }).click();
+  await openControlPanelView(page, "Timeline");
 
   await expect(page.getByRole("heading", { name: "Pipeline Timeline" })).toBeVisible();
   await expect(page.getByLabel(/Pipeline progress/)).toBeVisible();

@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 
+import { openControlPanelView } from "./helpers/navigation";
+
 test("@w7-operations creates guarded tasks and command intents", async ({ page }, testInfo) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Operate" }).click();
+  await openControlPanelView(page, "Operate");
 
   await expect(page.getByRole("heading", { name: "Task Assignment And Command Control" })).toBeVisible();
   await expect(page.getByText("external-compose").first()).toBeVisible();

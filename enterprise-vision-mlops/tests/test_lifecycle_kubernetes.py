@@ -5,7 +5,10 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from evm.control_panel.lifecycle_kubernetes import (
+    LifecycleKubernetesError,
     build_training_evidence,
     materialize_training_bundle,
 )
@@ -85,6 +88,26 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     assert pv["spec"]["persistentVolumeReclaimPolicy"] == "Retain"
     assert pv["spec"]["accessModes"] == ["ReadWriteOnce"]
     assert pvc["spec"]["accessModes"] == ["ReadWriteOnce"]
+
+
+def test_training_bundle_uses_blueprint_component_image_and_rejects_unpinned_image(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = lifecycle_run(tmp_path, monkeypatch)
+    model_path = Path(run.model_config_uri)
+    model = json.loads(model_path.read_text(encoding="utf-8"))
+    selected = model["candidates"][0]
+    selected["training_image"] = "registry.example/evm-trainer@sha256:" + "d" * 64
+    write_json(model_path, model)
+
+    bundle = materialize_training_bundle(run)
+
+    assert bundle.image == selected["training_image"]
+    selected["training_image"] = "registry.example/evm-trainer:latest"
+    write_json(model_path, model)
+    with pytest.raises(LifecycleKubernetesError, match="container_image_not_pinned"):
+        materialize_training_bundle(run)
 
 
 def test_training_evidence_binds_job_gpu_mlflow_and_model_digest(tmp_path, monkeypatch) -> None:
