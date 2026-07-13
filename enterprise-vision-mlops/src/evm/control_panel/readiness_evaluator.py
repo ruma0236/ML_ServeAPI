@@ -90,6 +90,10 @@ def payload_sha256(payload: Any) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def application_artifacts_available() -> bool:
+    return Path("/app/artifacts").exists()
+
+
 def runtime_path(value: str | Path) -> Path:
     path = Path(value)
     normalized = str(value).replace("\\", "/")
@@ -101,6 +105,8 @@ def runtime_path(value: str | Path) -> Path:
     if normalized.lower().startswith(host_root.lower()) and Path(host_root).exists():
         return path
     if normalized.lower().startswith("/app/artifacts"):
+        if application_artifacts_available():
+            return path
         suffix = normalized[len("/app/artifacts") :]
         host_path = Path(f"{host_root}/artifacts{suffix}")
         if Path(host_root).exists():

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from evm.control_panel import readiness_evaluator
 from evm.control_panel.org_context import build_default_org_context
 from evm.control_panel.readiness_evaluator import (
     ReadinessInputs,
@@ -88,6 +89,17 @@ def test_runtime_path_maps_api_artifact_uri_to_existing_host_root(tmp_path, monk
     assert runtime_path("/app/artifacts/w7/lifecycle/run.json") == (
         host_root / "artifacts" / "w7" / "lifecycle" / "run.json"
     )
+
+
+def test_runtime_path_prefers_writable_application_artifact_mount(monkeypatch):
+    target = Path("/app/artifacts/w7/ci/latest_ci_validation.json")
+    monkeypatch.setattr(
+        readiness_evaluator,
+        "application_artifacts_available",
+        lambda: True,
+    )
+
+    assert runtime_path(target) == target
 
 
 def write_json(path: Path, payload: object) -> None:
