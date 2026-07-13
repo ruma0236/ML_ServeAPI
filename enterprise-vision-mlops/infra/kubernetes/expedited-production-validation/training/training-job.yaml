@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: trainer
-          image: enterprise-vision-mlops-efficientnet-training@sha256:91564f146763e43ec354a5a03606d00a886e7147cd578cc72a1560c3fbc56b94
+          image: enterprise-vision-mlops-efficientnet-training@sha256:098fed87af346d67ac0bf5d891a087f08a7aade9bf4cd429f2986a425224d8d4
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh

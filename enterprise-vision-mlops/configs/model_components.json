@@ -12,9 +12,9 @@
       "runtime_adapter": "efficientnet",
       "default_input_size": 224,
       "supported_input_sizes": [224],
-      "source_revision": "64ab9bf8f4be9736723e5cfa6027c55b82c852bb",
-      "training_image": "enterprise-vision-mlops-efficientnet-training@sha256:91564f146763e43ec354a5a03606d00a886e7147cd578cc72a1560c3fbc56b94",
-      "serving_image": "enterprise-vision-mlops-efficientnet-serving@sha256:aaab4971405a40f14839ef154a2f0a45caf42b82fab8aaea8f5c6df19ffc2d7c"
+      "source_revision": "3b7dde35910414434563afc46e0ca9aeb9ec6352",
+      "training_image": "enterprise-vision-mlops-efficientnet-training@sha256:098fed87af346d67ac0bf5d891a087f08a7aade9bf4cd429f2986a425224d8d4",
+      "serving_image": "enterprise-vision-mlops-efficientnet-serving@sha256:227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a"
     },
     {
       "component_id": "torchvision-efficientnet-b7",
@@ -27,9 +27,9 @@
       "runtime_adapter": "efficientnet",
       "default_input_size": 600,
       "supported_input_sizes": [600],
-      "source_revision": "64ab9bf8f4be9736723e5cfa6027c55b82c852bb",
-      "training_image": "enterprise-vision-mlops-efficientnet-training@sha256:91564f146763e43ec354a5a03606d00a886e7147cd578cc72a1560c3fbc56b94",
-      "serving_image": "enterprise-vision-mlops-efficientnet-serving@sha256:aaab4971405a40f14839ef154a2f0a45caf42b82fab8aaea8f5c6df19ffc2d7c"
+      "source_revision": "3b7dde35910414434563afc46e0ca9aeb9ec6352",
+      "training_image": "enterprise-vision-mlops-efficientnet-training@sha256:098fed87af346d67ac0bf5d891a087f08a7aade9bf4cd429f2986a425224d8d4",
+      "serving_image": "enterprise-vision-mlops-efficientnet-serving@sha256:227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a"
     }
   ]
 }

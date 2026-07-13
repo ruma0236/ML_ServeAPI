@@ -115,7 +115,7 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     container = job["spec"]["template"]["spec"]["containers"][0]
     assert bundle.namespace == "evm-training"
     assert container["image"].endswith(
-        "@sha256:91564f146763e43ec354a5a03606d00a886e7147cd578cc72a1560c3fbc56b94"
+        "@sha256:098fed87af346d67ac0bf5d891a087f08a7aade9bf4cd429f2986a425224d8d4"
     )
     assert container["resources"]["requests"] == {
         "cpu": "6",
@@ -188,7 +188,7 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
         item
         == {
             "name": "EVM_EXPECTED_COMPONENT_SOURCE_REVISION",
-            "value": "64ab9bf8f4be9736723e5cfa6027c55b82c852bb",
+            "value": "3b7dde35910414434563afc46e0ca9aeb9ec6352",
         }
         for item in container["env"]
     )
