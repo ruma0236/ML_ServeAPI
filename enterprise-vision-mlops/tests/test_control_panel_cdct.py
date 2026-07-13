@@ -7,7 +7,7 @@ from evm.control_panel.cdct import (
     with_ci_bundle_digest,
     load_ci_evidence,
 )
-from evm.control_panel.schemas import DriftState
+from evm.control_panel.schemas import CTEvaluation, DriftState
 
 
 def _drift(action: str = "none") -> DriftState:
@@ -50,6 +50,32 @@ def _ci_evidence():
     return validate_ci_evidence(bundle, expected_commit="a" * 40)
 
 
+def _ct_evidence() -> CTEvaluation:
+    return CTEvaluation(
+        evaluation_id="ct-eval-pass",
+        lifecycle_run_id="lifecycle-test",
+        snapshot_id="ct-snapshot-test",
+        candidate_id="efficientnet-b0-test",
+        dataset_version="visa-open-data-test",
+        status="pass",
+        decision="pass",
+        evaluated_at="2026-07-13T10:00:00Z",
+        snapshot_digest="e" * 64,
+        expected_manifest_sha256="f" * 64,
+        observed_manifest_sha256="f" * 64,
+        expected_records_sha256="1" * 64,
+        observed_records_sha256="1" * 64,
+        ct_record_count=2181,
+        training_record_count=8640,
+        overlap_count=0,
+        mutated=False,
+        training_mount_isolated=True,
+        checks={"training_ct_overlap": "pass", "gpu_model_evaluation": "pass"},
+        snapshot_uri="F:/EnterpriseMLOps_CT/snapshots/test/snapshot.json",
+        report_uri="F:/EnterpriseMLOps_CT/evaluations/test/ct_evaluation.json",
+    )
+
+
 def test_cdct_gate_separates_required_ci_cd_ct_checks():
     gate = build_cdct_gate(
         promotion_blockers=[],
@@ -57,6 +83,7 @@ def test_cdct_gate_separates_required_ci_cd_ct_checks():
         quality_status="pass",
         pipeline_run_uri="https://github.com/ruma0236/ML_ServeAPI/actions",
         ci_evidence=_ci_evidence(),
+        ct_evaluation=_ct_evidence(),
         readiness_status="pass",
     )
 
@@ -66,6 +93,23 @@ def test_cdct_gate_separates_required_ci_cd_ct_checks():
     assert gate.ct_status == "pass"
     assert gate.promotion_decision == "allow"
     assert gate.failed_checks == []
+    assert gate.ct_evaluation_id == "ct-eval-pass"
+
+
+def test_cdct_gate_fails_closed_without_isolated_ct_evidence():
+    gate = build_cdct_gate(
+        promotion_blockers=[],
+        drift=_drift("none"),
+        quality_status="pass",
+        pipeline_run_uri="https://github.com/ruma0236/ML_ServeAPI/actions",
+        ci_evidence=_ci_evidence(),
+        readiness_status="pass",
+    )
+
+    assert gate.ct_status == "blocked"
+    assert gate.promotion_decision == "block"
+    assert "isolated_ct_evaluation" in gate.failed_checks
+    assert "ct_evaluation_missing" in gate.promotion_blockers
 
 
 def test_cdct_gate_blocks_promotion_on_model_and_drift_failures():

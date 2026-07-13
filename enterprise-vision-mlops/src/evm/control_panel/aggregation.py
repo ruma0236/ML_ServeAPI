@@ -32,6 +32,11 @@ from evm.control_panel.schemas import (
     State,
 )
 from evm.control_panel.environment import build_environment_ref
+from evm.control_panel.isolated_ct import (
+    ct_runtime_path,
+    load_ct_evaluation,
+    load_ct_snapshot,
+)
 from evm.control_panel.org_context import build_default_org_context
 from evm.control_panel.promotion_policy import evaluate_cycle_promotion
 from evm.control_panel.product_validation import product_evidence_state
@@ -881,6 +886,57 @@ def build_latest_cycle(
             ResourceRef(namespace="evm-platform", kind="Deployment", name="evm-api"),
         )
     )
+    lifecycle_run_id = str(control_plane.get("lifecycle_run_id") or "")
+    ct_snapshot = load_ct_snapshot(os.getenv("EVM_CT_SNAPSHOT_PATH") or None)
+    ct_evaluation = load_ct_evaluation(os.getenv("EVM_CT_EVALUATION_PATH") or None)
+    if ct_snapshot is not None and ct_snapshot.dataset_version != dataset_version:
+        ct_snapshot = None
+    if ct_evaluation is not None and (
+        ct_evaluation.dataset_version != dataset_version
+        or ct_evaluation.candidate_id != selected_candidate_id
+        or (lifecycle_run_id and ct_evaluation.lifecycle_run_id != lifecycle_run_id)
+    ):
+        ct_evaluation = None
+    if ct_snapshot is not None:
+        ct_snapshot_artifact = existing_artifact(
+            "isolated_ct_snapshot",
+            ct_runtime_path(ct_snapshot.snapshot_uri),
+        )
+        if ct_snapshot_artifact is not None:
+            stage_artifacts.append(ct_snapshot_artifact)
+    if ct_evaluation is not None and ct_evaluation.report_uri:
+        ct_evaluation_artifact = existing_artifact(
+            "isolated_ct_evaluation",
+            ct_runtime_path(ct_evaluation.report_uri),
+        )
+        if ct_evaluation_artifact is not None:
+            stage_artifacts.append(ct_evaluation_artifact)
+    ct_status: State = ct_evaluation.status if ct_evaluation is not None else "blocked"
+    stages.append(
+        stage(
+            "isolated-ct",
+            "Isolated Continuous Test",
+            ct_status,
+            (
+                existing_artifact(
+                    "isolated_ct_evaluation",
+                    ct_runtime_path(ct_evaluation.report_uri),
+                )
+                if ct_evaluation is not None and ct_evaluation.report_uri
+                else None
+            ),
+            Metric(
+                name="ct_record_count",
+                value=float(ct_evaluation.ct_record_count if ct_evaluation else 0),
+                status=ct_status,
+            ),
+            ResourceRef(
+                namespace="evm-validation",
+                kind="Job",
+                name="evm-ct-evaluator",
+            ),
+        )
+    )
     ci_report_path = Path(
         os.getenv(
             "EVM_CI_VALIDATION_REPORT_PATH",
@@ -902,10 +958,10 @@ def build_latest_cycle(
         pipeline_run_uri="https://github.com/ruma0236/ML_ServeAPI/actions",
         gate_report_uri=str(lifecycle_dashboard_path) if lifecycle_dashboard_path.exists() else None,
         ci_evidence=ci_validation,
+        ct_evaluation=ct_evaluation,
         readiness_status=readiness_result.evaluation.status,
     )
     latest_deployment = latest_intent()
-    lifecycle_run_id = str(control_plane.get("lifecycle_run_id") or "")
     if managed_candidate_active and (
         latest_deployment is None
         or latest_deployment.model_candidate_id != selected_candidate_id
@@ -1046,6 +1102,8 @@ def build_latest_cycle(
         ),
         drift=drift_state,
         cdct_gate=cdct_gate,
+        ct_snapshot=ct_snapshot,
+        ct_evaluation=ct_evaluation,
         serving=ServingState(
             status=(
                 "pass" if product_serving_ready else "blocked"

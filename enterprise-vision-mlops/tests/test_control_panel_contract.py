@@ -16,6 +16,8 @@ from apps.api.control_panel import (
 )
 from evm.control_panel.schemas import (
     ControlPanelDiagnostics,
+    CTDatasetSnapshot,
+    CTEvaluation,
     CycleRun,
     DecisionRecord,
     DecisionRecordList,
@@ -49,6 +51,14 @@ from evm.control_panel.lifecycle_runs import (
     LifecycleWorkerState,
 )
 from evm.control_panel.validate_cycle_run import validate_cycle_run
+
+
+def schema_properties(schema: dict) -> dict:
+    properties = dict(schema.get("properties") or {})
+    for item in schema.get("allOf") or []:
+        if isinstance(item, dict):
+            properties.update(schema_properties(item))
+    return properties
 
 
 def test_cycle_run_example_conforms_to_pydantic_and_openapi_component():
@@ -111,6 +121,14 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "promotion_decision" in schemas["CDCTGate"]["properties"]
     assert "block_reason" in schemas["CDCTGate"]["properties"]
     assert "ci_evidence" in schemas["CycleRun"]["properties"]
+    assert "ct_snapshot" in schemas["CycleRun"]["properties"]
+    assert "ct_evaluation" in schemas["CycleRun"]["properties"]
+    assert set(CTDatasetSnapshot.model_fields).issubset(
+        schemas["CTDatasetSnapshot"]["properties"]
+    )
+    assert set(CTEvaluation.model_fields).issubset(
+        schemas["CTEvaluation"]["properties"]
+    )
     assert "latest_deployment_intent" in schemas["CycleRun"]["properties"]
     assert "DeploymentIntent" in schemas
     assert "CIEvidenceValidation" in schemas
@@ -123,6 +141,9 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "/control-panel/v1/orchestrators" in openapi["paths"]
     assert "/control-panel/v1/deployment-intents/{intent_id}/queue" in openapi["paths"]
     assert "/control-panel/v1/diagnostics/latest" in openapi["paths"]
+    assert "/control-panel/v1/ct/snapshots" in openapi["paths"]
+    assert "/control-panel/v1/ct/snapshots/latest" in openapi["paths"]
+    assert "/control-panel/v1/ct/evaluations/latest" in openapi["paths"]
     assert "/control-panel/v1/drift-reviews/latest" in openapi["paths"]
     assert "/control-panel/v1/drift-reviews/{event_id}/transition" in openapi["paths"]
     assert "/control-panel/v1/decisions" in openapi["paths"]
@@ -155,14 +176,14 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "CycleRunSummary" in schemas
     assert set(schemas["CycleRunList"]["required"]) == {"cycles", "latest_cycle_id", "total"}
     assert "cycle_id" in schemas["TaskAssignmentRequest"]["properties"]
-    assert "runtime_state" in schemas["TaskAssignment"]["allOf"][1]["properties"]
+    assert "runtime_state" in schema_properties(schemas["TaskAssignment"])
     assert set(DecisionRecordList.model_fields).issubset(
         schemas["DecisionRecordList"]["properties"]
     )
     assert set(DecisionRecord.model_fields).issubset(
         {
-            *schemas["DecisionRecordRequest"]["properties"],
-            *schemas["DecisionRecord"]["allOf"][1]["properties"],
+            *schema_properties(schemas["DecisionRecordRequest"]),
+            *schema_properties(schemas["DecisionRecord"]),
         }
     )
     assert set(PipelineRunProfile.model_fields).issubset(
@@ -193,16 +214,16 @@ def test_openapi_components_expose_enterprise_readiness_fields():
         schemas["LifecycleActionRequest"]["properties"]
     )
     approval_properties = {
-        *schemas["LifecycleActionRequest"]["properties"],
-        *schemas["LifecycleApprovalRequest"]["allOf"][1]["properties"],
+        *schema_properties(schemas["LifecycleActionRequest"]),
+        *schema_properties(schemas["LifecycleApprovalRequest"]),
     }
     assert set(LifecycleApprovalRequest.model_fields).issubset(approval_properties)
     assert set(HyperparameterSearchSpace.model_fields).issubset(
         schemas["HyperparameterSearchSpace"]["properties"]
     )
-    assert set(FoldResult.model_fields).issubset(schemas["ExperimentFoldResult"]["properties"])
+    assert set(FoldResult.model_fields).issubset(schemas["FoldResult"]["properties"])
     assert set(TrialResult.model_fields).issubset(
-        schemas["ExperimentTrialResult"]["properties"]
+        schemas["TrialResult"]["properties"]
     )
     assert set(ExperimentRun.model_fields).issubset(schemas["ExperimentRun"]["properties"])
     assert set(ExperimentRunList.model_fields).issubset(

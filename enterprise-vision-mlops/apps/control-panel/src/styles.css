@@ -1719,6 +1719,42 @@ h3 {
   background: #fafcfd;
 }
 
+.ct-evidence-strip {
+  display: grid;
+  grid-template-columns: auto repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px 2px;
+  border-top: 1px solid #dde6e9;
+  border-bottom: 1px solid #dde6e9;
+}
+
+.ct-evidence-strip > svg {
+  width: 20px;
+  height: 20px;
+  color: #286f59;
+}
+
+.ct-evidence-strip > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ct-evidence-strip span {
+  color: #60727a;
+  font-size: 0.72rem;
+}
+
+.ct-evidence-strip strong {
+  overflow: hidden;
+  color: #17252a;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .drift-detail-list,
 .cdct-detail-list {
   padding: 10px;
@@ -2903,6 +2939,7 @@ h3 {
 :root[data-theme="dark"] .drift-action-card span,
 :root[data-theme="dark"] .cdct-decision-card span,
 :root[data-theme="dark"] .cdct-status-strip span,
+:root[data-theme="dark"] .ct-evidence-strip span,
 :root[data-theme="dark"] .drift-state-grid span,
 :root[data-theme="dark"] .drift-confidence-comparison span,
 :root[data-theme="dark"] .cdct-check-row span,
@@ -2967,6 +3004,7 @@ h3 {
 :root[data-theme="dark"] .evidence-check-row strong,
 :root[data-theme="dark"] .drift-action-card strong,
 :root[data-theme="dark"] .cdct-decision-card strong,
+:root[data-theme="dark"] .ct-evidence-strip strong,
 :root[data-theme="dark"] .drift-state-grid strong,
 :root[data-theme="dark"] .drift-confidence-comparison strong,
 :root[data-theme="dark"] .result-copy,
@@ -3002,6 +3040,7 @@ h3 {
 :root[data-theme="dark"] .cdct-decision-card,
 :root[data-theme="dark"] .drift-state-grid div,
 :root[data-theme="dark"] .cdct-status-strip div,
+:root[data-theme="dark"] .ct-evidence-strip,
 :root[data-theme="dark"] .drift-detail-list,
 :root[data-theme="dark"] .drift-confidence-comparison,
 :root[data-theme="dark"] .cdct-detail-list,
@@ -3015,6 +3054,11 @@ h3 {
 :root[data-theme="dark"] .empty-ledger {
   border-color: #2f3338;
   background: #141518;
+}
+
+:root[data-theme="dark"] .ct-evidence-strip {
+  border-color: #2f3338;
+  background: transparent;
 }
 
 :root[data-theme="dark"] .drift-confidence-comparison header {
@@ -3304,8 +3348,13 @@ h3 {
   .ops-summary,
   .drift-state-grid,
   .cdct-status-strip,
+  .ct-evidence-strip,
   .cdct-check-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ct-evidence-strip > svg {
+    display: none;
   }
 
   .stage-detail,
@@ -3431,6 +3480,7 @@ h3 {
 
   .drift-state-grid,
   .cdct-status-strip,
+  .ct-evidence-strip,
   .cdct-check-grid {
     grid-template-columns: 1fr;
   }

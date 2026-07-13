@@ -105,7 +105,11 @@ class ExperimentRun(ContractModel):
     dataset_version: str
     source_manifest_sha256: str
     holdout_split: str
-    holdout_sha256: str
+    holdout_sha256: str = ""
+    holdout_access_policy: Literal["isolated_control_plane_only"] = (
+        "isolated_control_plane_only"
+    )
+    ct_evidence_exposed: bool = False
     mode: Literal["manual", "grid", "bayesian"]
     primary_metric: Literal["accuracy", "f1", "auroc"]
     seed: int

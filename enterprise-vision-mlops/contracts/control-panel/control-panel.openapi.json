@@ -431,6 +431,40 @@
         }
       }
     },
+    "/control-panel/v1/ct/snapshots": {
+      "post": {
+        "summary": "Create an immutable, training-isolated CT dataset snapshot.",
+        "operationId": "createIsolatedCTSnapshot",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CTSnapshotCreateRequest"}}}
+        },
+        "responses": {
+          "201": {"description": "immutable CT snapshot created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CTDatasetSnapshot"}}}},
+          "422": {"description": "snapshot source or isolation policy rejected"}
+        }
+      }
+    },
+    "/control-panel/v1/ct/snapshots/latest": {
+      "get": {
+        "summary": "Return the latest immutable CT dataset snapshot.",
+        "operationId": "getLatestCTSnapshot",
+        "responses": {
+          "200": {"description": "latest CT snapshot", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CTDatasetSnapshot"}}}},
+          "404": {"description": "CT snapshot not found"}
+        }
+      }
+    },
+    "/control-panel/v1/ct/evaluations/latest": {
+      "get": {
+        "summary": "Return the latest isolated CT model evaluation.",
+        "operationId": "getLatestCTEvaluation",
+        "responses": {
+          "200": {"description": "latest CT evaluation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CTEvaluation"}}}},
+          "404": {"description": "CT evaluation not found"}
+        }
+      }
+    },
     "/control-panel/v1/drift-reviews/latest": {
       "get": {
         "summary": "Return the latest measured drift review workflow without triggering retraining or deployment.",
@@ -748,6 +782,8 @@
           "promotion_gate": {"$ref": "#/components/schemas/PromotionGate"},
           "drift": {"$ref": "#/components/schemas/DriftState"},
           "cdct_gate": {"$ref": "#/components/schemas/CDCTGate"},
+          "ct_snapshot": {"anyOf": [{"$ref": "#/components/schemas/CTDatasetSnapshot"}, {"type": "null"}]},
+          "ct_evaluation": {"anyOf": [{"$ref": "#/components/schemas/CTEvaluation"}, {"type": "null"}]},
           "serving": {"$ref": "#/components/schemas/ServingState"},
           "stages": {
             "type": "array",
@@ -1344,7 +1380,11 @@
           "verification_summary": {
             "type": "object",
             "additionalProperties": {"$ref": "#/components/schemas/State"}
-          }
+          },
+          "ct_snapshot_id": {"type": ["string", "null"]},
+          "ct_snapshot_digest": {"type": ["string", "null"]},
+          "ct_evaluation_id": {"type": ["string", "null"]},
+          "ct_evidence_uri": {"type": ["string", "null"]}
         }
       },
       "ServingState": {
@@ -1691,6 +1731,84 @@
           "reason": {"type": "string", "minLength": 8},
           "expected_status": {"type": "string", "enum": ["open", "acknowledged", "approved", "closed"]},
           "dry_run": {"type": "boolean", "default": true}
+        }
+      },
+      "CTSnapshotCreateRequest": {
+        "type": "object",
+        "required": ["source_shard_index_uri", "lifecycle_run_id", "profile_id", "profile_version", "profile_digest"],
+        "properties": {
+          "source_shard_index_uri": {"type": "string"},
+          "lifecycle_run_id": {"type": "string"},
+          "profile_id": {"type": "string"},
+          "profile_version": {"type": "integer", "minimum": 1},
+          "profile_digest": {"type": "string"},
+          "split": {"type": "string", "enum": ["validation", "test"], "default": "test"}
+        }
+      },
+      "CTDatasetSnapshot": {
+        "type": "object",
+        "required": ["snapshot_id", "lifecycle_run_id", "profile_id", "profile_version", "profile_digest", "dataset_version", "split", "record_count", "byte_count", "records_sha256", "source_index_uri", "source_index_sha256", "source_identity_sha256", "manifest_uri", "manifest_sha256", "snapshot_uri", "snapshot_digest", "isolation_root", "immutable", "training_mount_isolated", "status", "created_at"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.ct_dataset_snapshot.v1", "default": "evm.ct_dataset_snapshot.v1"},
+          "snapshot_id": {"type": "string"},
+          "lifecycle_run_id": {"type": "string"},
+          "profile_id": {"type": "string"},
+          "profile_version": {"type": "integer", "minimum": 1},
+          "profile_digest": {"type": "string"},
+          "dataset_version": {"type": "string"},
+          "split": {"type": "string", "enum": ["validation", "test"]},
+          "record_count": {"type": "integer", "minimum": 1},
+          "byte_count": {"type": "integer", "minimum": 1},
+          "records_sha256": {"type": "string"},
+          "source_index_uri": {"type": "string"},
+          "source_index_sha256": {"type": "string"},
+          "source_identity_sha256": {"type": "string"},
+          "manifest_uri": {"type": "string"},
+          "manifest_sha256": {"type": "string"},
+          "snapshot_uri": {"type": "string"},
+          "snapshot_digest": {"type": "string"},
+          "isolation_root": {"type": "string"},
+          "immutable": {"type": "boolean"},
+          "training_mount_isolated": {"type": "boolean"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "blockers": {"type": "array", "items": {"type": "string"}},
+          "created_at": {"type": "string"}
+        }
+      },
+      "CTEvaluation": {
+        "type": "object",
+        "required": ["evaluation_id", "lifecycle_run_id", "snapshot_id", "candidate_id", "dataset_version", "status", "decision", "evaluated_at", "snapshot_digest", "expected_manifest_sha256", "observed_manifest_sha256", "expected_records_sha256", "observed_records_sha256", "ct_record_count", "training_record_count", "overlap_count", "mutated", "training_mount_isolated", "snapshot_uri"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.ct_evaluation.v1", "default": "evm.ct_evaluation.v1"},
+          "evaluation_id": {"type": "string"},
+          "lifecycle_run_id": {"type": "string"},
+          "snapshot_id": {"type": "string"},
+          "candidate_id": {"type": "string"},
+          "dataset_version": {"type": "string"},
+          "status": {"$ref": "#/components/schemas/State"},
+          "decision": {"type": "string", "enum": ["pass", "block"]},
+          "evaluated_at": {"type": "string"},
+          "snapshot_digest": {"type": "string"},
+          "expected_manifest_sha256": {"type": "string"},
+          "observed_manifest_sha256": {"type": "string"},
+          "expected_records_sha256": {"type": "string"},
+          "observed_records_sha256": {"type": "string"},
+          "ct_record_count": {"type": "integer", "minimum": 0},
+          "training_record_count": {"type": "integer", "minimum": 0},
+          "overlap_count": {"type": "integer", "minimum": 0},
+          "mutated": {"type": "boolean"},
+          "training_mount_isolated": {"type": "boolean"},
+          "model_artifact_uri": {"type": ["string", "null"]},
+          "model_sha256": {"type": ["string", "null"]},
+          "device": {"type": ["string", "null"]},
+          "metrics": {"type": "object", "additionalProperties": {"type": "number"}},
+          "metric_thresholds": {"type": "object", "additionalProperties": {"type": "number"}},
+          "checks": {"type": "object", "additionalProperties": {"$ref": "#/components/schemas/State"}},
+          "blockers": {"type": "array", "items": {"type": "string"}},
+          "snapshot_uri": {"type": "string"},
+          "fold_manifest_uri": {"type": ["string", "null"]},
+          "training_job_manifest_uri": {"type": ["string", "null"]},
+          "report_uri": {"type": ["string", "null"]}
         }
       },
       "DecisionTransition": {
@@ -2106,6 +2224,8 @@
           "model_matrix_uri": {"type": ["string", "null"]},
           "readiness_uri": {"type": ["string", "null"]},
           "real_test_validation_uri": {"type": ["string", "null"]},
+          "ct_snapshot_uri": {"type": ["string", "null"]},
+          "ct_evaluation_uri": {"type": ["string", "null"]},
           "resource_handoff_uri": {"type": ["string", "null"]},
           "deployment_intent_id": {"type": ["string", "null"]},
           "approver": {"type": ["string", "null"]},
@@ -2136,7 +2256,7 @@
           "message": {"type": ["string", "null"]}
         }
       },
-      "ExperimentFoldResult": {
+      "FoldResult": {
         "type": "object",
         "required": ["repeat", "fold", "state", "seed", "train_records", "validation_records", "metrics"],
         "properties": {
@@ -2152,14 +2272,14 @@
           "blocker": {"type": ["string", "null"]}
         }
       },
-      "ExperimentTrialResult": {
+      "TrialResult": {
         "type": "object",
         "required": ["trial_id", "state", "parameters", "folds", "aggregate_metrics"],
         "properties": {
           "trial_id": {"type": "string"},
           "state": {"type": "string", "enum": ["planned", "running", "completed", "blocked", "cancelled"]},
           "parameters": {"type": "object", "additionalProperties": true},
-          "folds": {"type": "array", "items": {"$ref": "#/components/schemas/ExperimentFoldResult"}},
+          "folds": {"type": "array", "items": {"$ref": "#/components/schemas/FoldResult"}},
           "aggregate_metrics": {"type": "object", "additionalProperties": {"type": "number"}},
           "score": {"type": ["number", "null"]},
           "blocker": {"type": ["string", "null"]}
@@ -2210,7 +2330,7 @@
       },
       "ExperimentRun": {
         "type": "object",
-        "required": ["schema_version", "experiment_id", "lifecycle_run_id", "profile_name", "profile_digest", "dataset_version", "source_manifest_sha256", "holdout_split", "holdout_sha256", "mode", "primary_metric", "seed", "folds", "repeats", "requested_trials", "total_units", "completed_units", "progress", "state", "gpu_quota", "scheduled_parallelism", "selected_parameters", "trials", "blockers", "created_at", "updated_at"],
+        "required": ["schema_version", "experiment_id", "lifecycle_run_id", "profile_name", "profile_digest", "dataset_version", "source_manifest_sha256", "holdout_split", "mode", "primary_metric", "seed", "folds", "repeats", "requested_trials", "total_units", "completed_units", "progress", "state", "gpu_quota", "scheduled_parallelism", "selected_parameters", "trials", "blockers", "created_at", "updated_at"],
         "properties": {
           "schema_version": {"type": "string", "const": "evm.experiment_run.v1"},
           "experiment_id": {"type": "string"},
@@ -2220,7 +2340,9 @@
           "dataset_version": {"type": "string"},
           "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "holdout_split": {"type": "string"},
-          "holdout_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "holdout_sha256": {"type": "string", "default": ""},
+          "holdout_access_policy": {"type": "string", "const": "isolated_control_plane_only", "default": "isolated_control_plane_only"},
+          "ct_evidence_exposed": {"type": "boolean", "default": false},
           "mode": {"type": "string", "enum": ["manual", "grid", "bayesian"]},
           "primary_metric": {"type": "string", "enum": ["accuracy", "f1", "auroc"]},
           "seed": {"type": "integer"},
@@ -2239,7 +2361,7 @@
           "fold_manifest_uri": {"type": ["string", "null"]},
           "comparison_matrix_uri": {"type": ["string", "null"]},
           "final_model_matrix_uri": {"type": ["string", "null"]},
-          "trials": {"type": "array", "items": {"$ref": "#/components/schemas/ExperimentTrialResult"}},
+          "trials": {"type": "array", "items": {"$ref": "#/components/schemas/TrialResult"}},
           "training_telemetry": {"anyOf": [{"$ref": "#/components/schemas/TrainingTelemetry"}, {"type": "null"}]},
           "quality_review": {"anyOf": [{"$ref": "#/components/schemas/ModelQualityReview"}, {"type": "null"}]},
           "blockers": {"type": "array", "items": {"type": "string"}},

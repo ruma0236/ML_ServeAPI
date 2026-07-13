@@ -256,6 +256,10 @@ services:
       VLM_OBSERVABILITY_PATH: /app/artifacts/vlm/visa/observability/benchmark_report.json
       EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
       EVM_DATA_MOUNT_ROOT: /mnt/evm-data
+      EVM_HOST_CT_ROOT: ${EVM_HOST_CT_ROOT:-F:/EnterpriseMLOps_CT/enterprise-vision-mlops}
+      EVM_CT_MOUNT_ROOT: /mnt/evm-ct
+      EVM_CT_SNAPSHOT_PATH: /mnt/evm-ct/snapshots/latest.json
+      EVM_CT_EVALUATION_PATH: /mnt/evm-ct/evaluations/latest.json
       EVM_TARGET_ENVIRONMENT: staging
       EVM_TARGET_NAMESPACE: evm-staging
       EVM_PROMOTION_REQUESTER: ml-platform
@@ -292,6 +296,7 @@ services:
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/w8:/app/artifacts/w8
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/governance:/app/artifacts/governance
       - ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}:/mnt/evm-data:ro
+      - ${EVM_HOST_CT_ROOT:-F:/EnterpriseMLOps_CT/enterprise-vision-mlops}:/mnt/evm-ct
     depends_on:
       mlflow:
         condition: service_healthy

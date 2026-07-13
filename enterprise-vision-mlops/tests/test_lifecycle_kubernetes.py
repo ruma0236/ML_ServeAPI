@@ -28,10 +28,41 @@ def lifecycle_run(tmp_path: Path, monkeypatch):
     data_root = tmp_path / "evm-data"
     source = data_root / "data" / "quality.jsonl"
     shard = data_root / "data" / "shard_index.json"
+    train_shard = data_root / "data" / "train.jsonl"
+    image = data_root / "data" / "raw" / "sample-1.png"
     source.parent.mkdir(parents=True, exist_ok=True)
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(b"real-image-bytes")
     source.write_text('{"sample_id":"sample-1"}\n', encoding="utf-8")
+    train_shard.write_text(
+        json.dumps(
+            {
+                "sample_id": "sample-1",
+                "image_uri": "/mnt/evm-data/data/raw/sample-1.png",
+                "image_path": "/mnt/evm-data/data/raw/sample-1.png",
+                "label_type": "normal",
+                "split": "train",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     identity = "a" * 64
-    write_json(shard, {"schema_version": "evm.dataset_shards.v1", "identity_sha256": identity})
+    write_json(
+        shard,
+        {
+            "schema_version": "evm.dataset_shards.v1",
+            "identity_sha256": identity,
+            "shards": [
+                {
+                    "shard_id": "train-0000",
+                    "split": "train",
+                    "path": str(train_shard),
+                    "record_count": 1,
+                }
+            ],
+        },
+    )
     monkeypatch.setenv("EVM_PROJECT_ROOT", str(project))
     monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(data_root))
     monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
@@ -86,8 +117,20 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     pvc = json.loads((bundle.manifest_dir / "storage-pvc.json").read_text(encoding="utf-8"))
     assert pv["metadata"]["name"] == "evm-training-large-data"
     assert pv["spec"]["persistentVolumeReclaimPolicy"] == "Retain"
-    assert pv["spec"]["accessModes"] == ["ReadWriteOnce"]
-    assert pvc["spec"]["accessModes"] == ["ReadWriteOnce"]
+    assert pv["spec"]["accessModes"] == ["ReadOnlyMany"]
+    assert pvc["spec"]["accessModes"] == ["ReadOnlyMany"]
+    assert "training_views" in pv["spec"]["hostPath"]["path"]
+    assert any(
+        item == {
+            "name": "EVM_TRAINING_DATA_SCOPE",
+            "value": "development-only",
+        }
+        for item in container["env"]
+    )
+    data_mount = next(
+        item for item in container["volumeMounts"] if item["name"] == "large-data"
+    )
+    assert data_mount["readOnly"] is True
 
 
 def test_training_bundle_uses_blueprint_component_image_and_rejects_unpinned_image(

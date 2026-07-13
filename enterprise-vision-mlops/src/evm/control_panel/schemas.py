@@ -596,6 +596,75 @@ class DecisionRecordList(ContractModel):
     blockers: list[str] = Field(default_factory=list)
 
 
+class CTDatasetSnapshot(ContractModel):
+    schema_version: Literal["evm.ct_dataset_snapshot.v1"] = "evm.ct_dataset_snapshot.v1"
+    snapshot_id: str
+    lifecycle_run_id: str
+    profile_id: str
+    profile_version: int = Field(ge=1)
+    profile_digest: str
+    dataset_version: str
+    split: Literal["validation", "test"]
+    record_count: int = Field(ge=1)
+    byte_count: int = Field(ge=1)
+    records_sha256: str
+    source_index_uri: str
+    source_index_sha256: str
+    source_identity_sha256: str
+    manifest_uri: str
+    manifest_sha256: str
+    snapshot_uri: str
+    snapshot_digest: str
+    isolation_root: str
+    immutable: bool
+    training_mount_isolated: bool
+    status: State
+    blockers: list[str] = Field(default_factory=list)
+    created_at: str
+
+
+class CTSnapshotCreateRequest(ContractModel):
+    source_shard_index_uri: str
+    lifecycle_run_id: str
+    profile_id: str
+    profile_version: int = Field(ge=1)
+    profile_digest: str
+    split: Literal["validation", "test"] = "test"
+
+
+class CTEvaluation(ContractModel):
+    schema_version: Literal["evm.ct_evaluation.v1"] = "evm.ct_evaluation.v1"
+    evaluation_id: str
+    lifecycle_run_id: str
+    snapshot_id: str
+    candidate_id: str
+    dataset_version: str
+    status: State
+    decision: Literal["pass", "block"]
+    evaluated_at: str
+    snapshot_digest: str
+    expected_manifest_sha256: str
+    observed_manifest_sha256: str
+    expected_records_sha256: str
+    observed_records_sha256: str
+    ct_record_count: int = Field(ge=0)
+    training_record_count: int = Field(ge=0)
+    overlap_count: int = Field(ge=0)
+    mutated: bool
+    training_mount_isolated: bool
+    model_artifact_uri: str | None = None
+    model_sha256: str | None = None
+    device: str | None = None
+    metrics: dict[str, float] = Field(default_factory=dict)
+    metric_thresholds: dict[str, float] = Field(default_factory=dict)
+    checks: dict[str, State] = Field(default_factory=dict)
+    blockers: list[str] = Field(default_factory=list)
+    snapshot_uri: str
+    fold_manifest_uri: str | None = None
+    training_job_manifest_uri: str | None = None
+    report_uri: str | None = None
+
+
 class CDCTGate(ContractModel):
     status: State
     ci_status: State
@@ -612,6 +681,10 @@ class CDCTGate(ContractModel):
     promotion_decision: Literal["allow", "block", "manual_review"] = "manual_review"
     block_reason: str | None = None
     verification_summary: dict[str, State] = Field(default_factory=dict)
+    ct_snapshot_id: str | None = None
+    ct_snapshot_digest: str | None = None
+    ct_evaluation_id: str | None = None
+    ct_evidence_uri: str | None = None
 
 
 class TaskAssignmentRequest(ContractModel):
@@ -800,6 +873,8 @@ class CycleRun(ContractModel):
     promotion_gate: PromotionGate | None = None
     drift: DriftState | None = None
     cdct_gate: CDCTGate | None = None
+    ct_snapshot: CTDatasetSnapshot | None = None
+    ct_evaluation: CTEvaluation | None = None
     artifacts: list[ArtifactRef] = Field(default_factory=list)
 
 
@@ -822,7 +897,7 @@ class CycleRunSummary(ContractModel):
 
 
 class CycleRunList(ContractModel):
-    cycles: list[CycleRunSummary] = Field(default_factory=list)
+    cycles: list[CycleRunSummary]
     latest_cycle_id: str
     selected_cycle_id: str | None = None
     total: int = Field(ge=0)

@@ -13,6 +13,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, ge
 from pydantic import BaseModel, Field
 
 from apps.api.control_panel_commands import router as control_panel_commands_router
+from apps.api.control_panel_ct import router as control_panel_ct_router
 from apps.api.control_panel_deployments import router as control_panel_deployments_router
 from apps.api.control_panel_experiments import router as control_panel_experiments_router
 from apps.api.control_panel_governance import router as control_panel_governance_router
@@ -149,10 +150,16 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title=APP_NAME, version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title=APP_NAME,
+    version="0.1.0",
+    lifespan=lifespan,
+    separate_input_output_schemas=False,
+)
 app.include_router(control_panel_router)
 app.include_router(control_panel_tasks_router)
 app.include_router(control_panel_commands_router)
+app.include_router(control_panel_ct_router)
 app.include_router(control_panel_deployments_router)
 app.include_router(control_panel_experiments_router)
 app.include_router(control_panel_governance_router)

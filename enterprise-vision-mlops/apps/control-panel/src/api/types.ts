@@ -574,6 +574,70 @@ export interface CDCTGate {
   promotion_decision?: "allow" | "block" | "manual_review";
   block_reason?: string | null;
   verification_summary?: Record<string, State>;
+  ct_snapshot_id?: string | null;
+  ct_snapshot_digest?: string | null;
+  ct_evaluation_id?: string | null;
+  ct_evidence_uri?: string | null;
+}
+
+export interface CTDatasetSnapshot {
+  schema_version: "evm.ct_dataset_snapshot.v1";
+  snapshot_id: string;
+  lifecycle_run_id: string;
+  profile_id: string;
+  profile_version: number;
+  profile_digest: string;
+  dataset_version: string;
+  split: "validation" | "test";
+  record_count: number;
+  byte_count: number;
+  records_sha256: string;
+  source_index_uri: string;
+  source_index_sha256: string;
+  source_identity_sha256: string;
+  manifest_uri: string;
+  manifest_sha256: string;
+  snapshot_uri: string;
+  snapshot_digest: string;
+  isolation_root: string;
+  immutable: boolean;
+  training_mount_isolated: boolean;
+  status: State;
+  blockers: string[];
+  created_at: string;
+}
+
+export interface CTEvaluation {
+  schema_version: "evm.ct_evaluation.v1";
+  evaluation_id: string;
+  lifecycle_run_id: string;
+  snapshot_id: string;
+  candidate_id: string;
+  dataset_version: string;
+  status: State;
+  decision: "pass" | "block";
+  evaluated_at: string;
+  snapshot_digest: string;
+  expected_manifest_sha256: string;
+  observed_manifest_sha256: string;
+  expected_records_sha256: string;
+  observed_records_sha256: string;
+  ct_record_count: number;
+  training_record_count: number;
+  overlap_count: number;
+  mutated: boolean;
+  training_mount_isolated: boolean;
+  model_artifact_uri?: string | null;
+  model_sha256?: string | null;
+  device?: string | null;
+  metrics: Record<string, number>;
+  metric_thresholds: Record<string, number>;
+  checks: Record<string, State>;
+  blockers: string[];
+  snapshot_uri: string;
+  fold_manifest_uri?: string | null;
+  training_job_manifest_uri?: string | null;
+  report_uri?: string | null;
 }
 
 export interface TaskAssignmentRequest {
@@ -1163,6 +1227,8 @@ export interface CycleRun {
   promotion_gate?: PromotionGate | null;
   drift?: DriftState | null;
   cdct_gate?: CDCTGate | null;
+  ct_snapshot?: CTDatasetSnapshot | null;
+  ct_evaluation?: CTEvaluation | null;
   serving: ServingState;
   stages: PipelineStage[];
   resources: ResourceRef[];

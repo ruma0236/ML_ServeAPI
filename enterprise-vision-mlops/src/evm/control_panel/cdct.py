@@ -16,6 +16,7 @@ from evm.control_panel.schemas import (
     CDCTGate,
     CIEvidenceBundle,
     CIEvidenceValidation,
+    CTEvaluation,
     DriftState,
     State,
 )
@@ -31,6 +32,7 @@ REQUIRED_CHECKS = [
     "data_quality",
     "model_evaluation",
     "artifact_readiness",
+    "isolated_ct_evaluation",
     "drift_review",
     "promotion_gate",
 ]
@@ -198,6 +200,7 @@ def build_cdct_gate(
     pipeline_run_uri: str,
     gate_report_uri: str | None = None,
     ci_evidence: CIEvidenceValidation | None = None,
+    ct_evaluation: CTEvaluation | None = None,
     readiness_status: State = "unknown",
 ) -> CDCTGate:
     ci_validation = ci_evidence or missing_ci_validation(
@@ -211,8 +214,15 @@ def build_cdct_gate(
         for check in ("docker_compose_config", "kustomize_render", "image_digest")
     )
     cd_status: State = "pass" if cd_ready else "blocked"
+    ct_evidence_ready = bool(
+        ct_evaluation is not None
+        and ct_evaluation.decision == "pass"
+        and ct_evaluation.status == "pass"
+        and not ct_evaluation.blockers
+    )
     ct_ready = (
-        quality_status in {"pass", "done"}
+        ct_evidence_ready
+        and quality_status in {"pass", "done"}
         and readiness_status in {"pass", "done"}
         and not promotion_blockers
         and drift.action == "none"
@@ -230,6 +240,7 @@ def build_cdct_gate(
         "artifact_readiness": (
             "pass" if readiness_status in {"pass", "done"} else "blocked"
         ),
+        "isolated_ct_evaluation": "pass" if ct_evidence_ready else "blocked",
         "drift_review": "pass" if drift.action == "none" else "blocked",
         "promotion_gate": "blocked" if promotion_blockers else "pass",
     }
@@ -238,7 +249,14 @@ def build_cdct_gate(
     ]
     passed_checks = [check for check in REQUIRED_CHECKS if check not in failed_checks]
     gate_blocked = bool(failed_checks or ci_validation.blockers or promotion_blockers)
-    blockers = sorted(set([*promotion_blockers, *ci_validation.blockers]))
+    ct_blockers = (
+        list(ct_evaluation.blockers)
+        if ct_evaluation is not None
+        else ["ct_evaluation_missing"]
+    )
+    blockers = sorted(
+        set([*promotion_blockers, *ci_validation.blockers, *ct_blockers])
+    )
     return CDCTGate(
         status="blocked" if gate_blocked else "pass",
         ci_status=ci_status,
@@ -254,6 +272,10 @@ def build_cdct_gate(
         promotion_decision="block" if gate_blocked else "allow",
         block_reason=block_reason(failed_checks, blockers),
         verification_summary=verification_summary,
+        ct_snapshot_id=ct_evaluation.snapshot_id if ct_evaluation else None,
+        ct_snapshot_digest=ct_evaluation.snapshot_digest if ct_evaluation else None,
+        ct_evaluation_id=ct_evaluation.evaluation_id if ct_evaluation else None,
+        ct_evidence_uri=ct_evaluation.report_uri if ct_evaluation else None,
     )
 
 

@@ -381,20 +381,26 @@ def run(
     shard_index, splits = load_shard_records(shard_index_path)
     actual_source_sha = str(shard_index.get("identity_sha256") or file_sha256(shard_index_path))
     expected_source_sha = str(
-        inputs.get("shard_identity_sha256")
+        os.getenv("EVM_TRAINING_VIEW_IDENTITY")
+        or inputs.get("shard_identity_sha256")
         or inputs.get("shard_index_sha256")
         or ""
     )
     source_blockers = source_digest_blockers(actual_source_sha, expected_source_sha)
+    exposed_holdout_shards = [
+        str(shard.get("shard_id") or "unknown")
+        for shard in shard_index.get("shards", [])
+        if isinstance(shard, dict) and str(shard.get("split") or "") == holdout_split
+    ]
+    if exposed_holdout_shards:
+        source_blockers.append("experiment_search_ct_shard_exposed")
+    if str(shard_index.get("training_data_scope") or "") != "development-only":
+        source_blockers.append("experiment_search_development_view_required")
+    if shard_index.get("ct_evidence_exposed") is not False:
+        source_blockers.append("experiment_search_ct_exposure_contract_missing")
     development_records = [*splits["train"], *splits["validation"]]
-    holdout_records = list(splits[holdout_split])
-    overlap = {record_id(record) for record in development_records}.intersection(
-        record_id(record) for record in holdout_records
-    )
-    if overlap:
-        source_blockers.append("experiment_search_holdout_overlap")
-    if not development_records or not holdout_records:
-        source_blockers.append("experiment_search_split_empty")
+    if not development_records:
+        source_blockers.append("experiment_search_development_split_empty")
     if source_blockers:
         raise ValueError(",".join(source_blockers))
 
@@ -419,7 +425,9 @@ def run(
         dataset_version=str(matrix.get("dataset_version") or "unknown"),
         source_manifest_sha256=actual_source_sha,
         holdout_split=holdout_split,
-        holdout_sha256=records_sha256(holdout_records),
+        holdout_sha256="",
+        holdout_access_policy="isolated_control_plane_only",
+        ct_evidence_exposed=False,
         mode=mode,  # type: ignore[arg-type]
         primary_metric=primary_metric,  # type: ignore[arg-type]
         seed=seed,
@@ -490,10 +498,10 @@ def run(
             "dataset_version": state.dataset_version,
             "source_manifest_sha256": actual_source_sha,
             "development_records": len(development_records),
-            "holdout_records": len(holdout_records),
             "holdout_split": holdout_split,
-            "holdout_sha256": state.holdout_sha256,
+            "holdout_access_policy": "isolated_control_plane_only",
             "holdout_used_for_selection": False,
+            "ct_evidence_exposed": False,
             "folds": folds,
             "repeats": repeats,
             "seed": seed,
@@ -718,8 +726,9 @@ def execute_trial(
                     "role": "development_cross_validation",
                     "source_manifest_sha256": state.source_manifest_sha256,
                     "fold_assignment_sha256": fold_manifest["assignment_sha256"],
-                    "immutable_holdout_sha256": state.holdout_sha256,
                     "immutable_holdout_used": False,
+                    "holdout_access_policy": "isolated_control_plane_only",
+                    "ct_evidence_exposed": False,
                 }
             )
             fold_dir = root / "trials" / trial_id / f"repeat-{repeat + 1}" / f"fold-{fold + 1}"
@@ -840,6 +849,8 @@ def execute_final_refit(
             "mlflow_parent_run_id": state.parent_mlflow_run_id,
             "mlflow_run_role": "selected_final_refit",
             "lifecycle_run_id": state.lifecycle_run_id,
+            "evaluation_split": "validation",
+            "training_data_scope": "development-only",
         }
     )
     derived["execution"] = execution
@@ -885,8 +896,9 @@ def execute_final_refit(
                 "cv_metrics": selected.aggregate_metrics,
                 "comparison_matrix_uri": comparison_uri,
                 "parent_mlflow_run_id": state.parent_mlflow_run_id,
-                "selection_holdout_sha256": state.holdout_sha256,
                 "selection_holdout_used": False,
+                "holdout_access_policy": "isolated_control_plane_only",
+                "ct_evidence_exposed": False,
             }
         )
         candidate_artifact_uri = str(candidate.get("artifact_uri") or "").strip()
@@ -899,8 +911,9 @@ def execute_final_refit(
             "search_mode": state.mode,
             "selected_trial_id": selected.trial_id,
             "comparison_matrix_uri": comparison_uri,
-            "selection_holdout_sha256": state.holdout_sha256,
             "selection_holdout_used": False,
+            "holdout_access_policy": "isolated_control_plane_only",
+            "ct_evidence_exposed": False,
         }
     )
     resources = object_value(config, "resources")
@@ -918,8 +931,9 @@ def write_comparison_matrix(state: ExperimentRun, root: Path) -> None:
         "profile_digest": state.profile_digest,
         "dataset_version": state.dataset_version,
         "source_manifest_sha256": state.source_manifest_sha256,
-        "holdout_sha256": state.holdout_sha256,
         "holdout_used_for_selection": False,
+        "holdout_access_policy": "isolated_control_plane_only",
+        "ct_evidence_exposed": False,
         "mode": state.mode,
         "primary_metric": state.primary_metric,
         "seed": state.seed,
@@ -943,8 +957,9 @@ def log_parent_params(
         "profile_digest": state.profile_digest,
         "dataset_version": state.dataset_version,
         "source_manifest_sha256": state.source_manifest_sha256,
-        "holdout_sha256": state.holdout_sha256,
         "holdout_used_for_selection": False,
+        "holdout_access_policy": "isolated_control_plane_only",
+        "ct_evidence_exposed": False,
         "mode": state.mode,
         "folds": state.folds,
         "repeats": state.repeats,

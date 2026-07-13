@@ -1,6 +1,6 @@
-import { CheckCircle2, FileCheck2, GitPullRequestArrow, ShieldAlert } from "lucide-react";
+import { CheckCircle2, DatabaseZap, FileCheck2, GitPullRequestArrow, ShieldAlert } from "lucide-react";
 
-import { compactUri } from "../api/controlPanelClient";
+import { compactUri, formatNumber } from "../api/controlPanelClient";
 import type { CDCTGate, CycleRun, State } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -28,6 +28,15 @@ export function CDCTGatePanel({ cycle }: CDCTGatePanelProps) {
           <GateStatus label="Promote" status={gate?.status} />
         </div>
 
+        <div className="ct-evidence-strip" aria-label="Isolated continuous test evidence">
+          <DatabaseZap />
+          <EvidenceValue label="Snapshot" value={gate?.ct_snapshot_id || "missing"} />
+          <EvidenceValue label="Evaluation" value={gate?.ct_evaluation_id || "missing"} />
+          <EvidenceValue label="CT Records" value={formatNumber(cycle.ct_evaluation?.ct_record_count)} />
+          <EvidenceValue label="Overlap" value={formatNumber(cycle.ct_evaluation?.overlap_count)} />
+          <EvidenceValue label="Device" value={cycle.ct_evaluation?.device || "pending"} />
+        </div>
+
         <div className="cdct-decision-card">
           <ShieldAlert />
           <div>
@@ -45,7 +54,9 @@ export function CDCTGatePanel({ cycle }: CDCTGatePanelProps) {
         <dl className="detail-list cdct-detail-list">
           <Row label="Trigger" value={gate?.ct_trigger || "manual"} />
           <Row label="Pipeline" value={compactUri(gate?.pipeline_run_uri)} />
-          <Row label="Report" value={compactUri(gate?.gate_report_uri)} />
+          <Row label="CI Report" value={compactUri(gate?.gate_report_uri)} />
+          <Row label="CT Report" value={compactUri(gate?.ct_evidence_uri)} />
+          <Row label="CT Digest" value={compactUri(gate?.ct_snapshot_digest)} />
           <Row label="Approved By" value={gate?.approved_by || "pending"} />
         </dl>
 
@@ -55,6 +66,15 @@ export function CDCTGatePanel({ cycle }: CDCTGatePanelProps) {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EvidenceValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong title={value}>{value}</strong>
     </div>
   );
 }

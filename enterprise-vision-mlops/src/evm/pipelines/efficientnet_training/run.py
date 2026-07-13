@@ -216,7 +216,10 @@ def run(
     shard_index, splits = load_shard_records(shard_index_path)
     shard_index_file_sha256 = file_sha256(shard_index_path)
     shard_index_identity_sha256 = str(shard_index.get("identity_sha256") or "")
-    expected_identity_sha256 = str(inputs.get("shard_identity_sha256", "")).strip()
+    expected_identity_sha256 = str(
+        os.getenv("EVM_TRAINING_VIEW_IDENTITY")
+        or inputs.get("shard_identity_sha256", "")
+    ).strip()
     expected_shard_index_sha256 = (
         expected_identity_sha256
         or str(inputs.get("shard_index_sha256", "")).strip()
@@ -236,10 +239,19 @@ def run(
     split_manifest["source_shard_file_sha256"] = shard_index_file_sha256
     split_manifest["source_shard_identity_sha256"] = shard_index_identity_sha256
     split_manifest["expected_shard_index_sha256"] = expected_shard_index_sha256
+    split_acceptance = dict(acceptance)
+    evaluation_split = str(execution.get("evaluation_split") or "test")
+    if str(shard_index.get("training_data_scope") or "") == "development-only":
+        split_acceptance["min_total_records"] = len(splits["train"]) + len(
+            splits["validation"]
+        )
+        split_acceptance["min_test_images"] = 0
+        if evaluation_split != "validation":
+            evaluation_split = "validation"
     split_blockers = source_digest_blockers(
         shard_index_sha256,
         expected_shard_index_sha256,
-    ) + validate_acceptance_split(split_manifest, acceptance)
+    ) + validate_acceptance_split(split_manifest, split_acceptance)
     write_json(matrix_dir / "split_manifest.json", split_manifest)
 
     readiness_snapshot_path: Path | None = None
@@ -303,6 +315,7 @@ def run(
         mlflow_experiment_name=str(
             inputs.get("mlflow_experiment_name", "enterprise-vision-w7-efficientnet")
         ),
+        evaluation_split=evaluation_split,
         parent_run_id=(
             os.getenv("EVM_MLFLOW_PARENT_RUN_ID")
             or str(execution.get("mlflow_parent_run_id") or "")

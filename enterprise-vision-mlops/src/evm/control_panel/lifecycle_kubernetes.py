@@ -10,8 +10,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from evm.control_panel.lifecycle_runs import LifecycleRun, lifecycle_deployment_name
+from evm.control_panel.isolated_ct import (
+    ct_runtime_path,
+    docker_desktop_path,
+    host_ct_root,
+    materialize_training_data_view,
+)
 from evm.control_panel.readiness_evaluator import file_sha256, runtime_path
-from evm.control_panel.schemas import CycleRun, TaskAssignment
+from evm.control_panel.schemas import CTDatasetSnapshot, CycleRun, TaskAssignment
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -46,6 +52,19 @@ class ServingBundle:
     image: str
 
 
+@dataclass(frozen=True)
+class CTBundle:
+    manifest_dir: Path
+    namespace: str
+    job_name: str
+    candidate_id: str
+    candidate_summary_path: Path
+    model_artifact_path: Path
+    fold_manifest_path: Path
+    training_job_manifest_path: Path
+    image: str
+
+
 def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     profile_path = runtime_path(run.profile_snapshot_uri)
     model_path = runtime_path(run.model_config_uri)
@@ -67,9 +86,21 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     job_name = f"evm-lifecycle-train-{short_run_id(run.run_id)}"
     directory = profile_path.parent / "kubernetes" / "training"
     directory.mkdir(parents=True, exist_ok=True)
+    inputs = object_value(model, "inputs")
+    data_profile = object_value(profile, "data")
+    split_policy = object_value(data_profile, "split")
+    training_view = materialize_training_data_view(
+        str(data_profile.get("split_manifest_uri") or inputs.get("shard_index") or ""),
+        lifecycle_run_id=run.run_id,
+        holdout_split=str(split_policy.get("holdout_split") or "test"),
+    )
 
     write_json(directory / "namespace.json", namespace_resource(namespace))
-    storage = storage_resources(namespace, read_only=False)
+    storage = storage_resources(
+        namespace,
+        read_only=True,
+        host_path=docker_desktop_path(training_view.root),
+    )
     write_json(directory / "storage-pv.json", storage[0])
     write_json(directory / "storage-pvc.json", storage[1])
     experiment_search_enabled = bool(
@@ -110,6 +141,11 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
                                 env("EVM_PROJECT_ROOT", "/app"),
                                 env("EVM_HOST_DATA_ROOT", host_data_root()),
                                 env("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data"),
+                                env("EVM_TRAINING_DATA_SCOPE", "development-only"),
+                                env(
+                                    "EVM_TRAINING_VIEW_IDENTITY",
+                                    training_view.identity_sha256,
+                                ),
                                 env(
                                     "EVM_EXPERIMENT_RUN_ROOT",
                                     "/mnt/evm-data/artifacts/w8/experiment_runs",
@@ -133,10 +169,10 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
                                 },
                             },
                             "securityContext": container_security_context(),
-                            "volumeMounts": common_volume_mounts(read_only_data=False),
+                            "volumeMounts": training_volume_mounts(),
                         }
                     ],
-                    "volumes": common_volumes(),
+                    "volumes": training_volumes(),
                 },
             },
         },
@@ -147,6 +183,212 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
         ["namespace.json", "storage-pv.json", "storage-pvc.json", "training-job.json"],
     )
     return TrainingBundle(directory, namespace, job_name, candidate_id, image)
+
+
+def materialize_ct_bundle(
+    run: LifecycleRun,
+    snapshot: CTDatasetSnapshot,
+) -> CTBundle:
+    profile_path = runtime_path(run.profile_snapshot_uri)
+    model = read_json(runtime_path(run.model_config_uri))
+    candidate = selected_candidate(model)
+    candidate_id = str(candidate["candidate_id"])
+    matrix = latest_matrix(model)
+    result = next(
+        (
+            item
+            for item in matrix.get("candidates", [])
+            if isinstance(item, dict) and str(item.get("candidate_id") or "") == candidate_id
+        ),
+        None,
+    )
+    if not isinstance(result, dict):
+        raise LifecycleKubernetesError("ct_candidate_evidence_missing")
+    candidate_dir = runtime_path(str(result.get("artifact_uri") or ""))
+    candidate_summary_path = candidate_dir / "candidate_summary.json"
+    summary = read_json(candidate_summary_path)
+    model_artifact_path = runtime_path(str(summary.get("model_artifact") or ""))
+    if not candidate_summary_path.is_file() or not model_artifact_path.is_file():
+        raise LifecycleKubernetesError("ct_model_evidence_missing")
+    experiment_root = runtime_path(
+        os.getenv(
+            "EVM_EXPERIMENT_RUN_ROOT",
+            "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w8/experiment_runs",
+        )
+    )
+    fold_manifest_path = experiment_root / run.run_id / "fold_manifest.json"
+    training_job_manifest_path = (
+        profile_path.parent / "kubernetes" / "training" / "training-job.json"
+    )
+    if not fold_manifest_path.is_file() or not training_job_manifest_path.is_file():
+        raise LifecycleKubernetesError("ct_training_isolation_evidence_missing")
+
+    image = pinned_image(
+        "EVM_LIFECYCLE_TRAINING_IMAGE",
+        str(candidate.get("training_image") or ""),
+    )
+    namespace = "evm-validation"
+    job_name = f"evm-lifecycle-ct-{short_run_id(run.run_id)}"
+    directory = profile_path.parent / "kubernetes" / "ct"
+    directory.mkdir(parents=True, exist_ok=True)
+    evaluation_root = host_ct_root() / "evaluations"
+    evaluation_root.mkdir(parents=True, exist_ok=True)
+    snapshot_root = ct_runtime_path(snapshot.isolation_root)
+    acceptance = object_value(model, "acceptance")
+    threshold_args = " ".join(
+        f"--threshold {name}={float(acceptance[key])}"
+        for name, key in (
+            ("accuracy", "promotion_min_accuracy"),
+            ("f1", "promotion_min_f1"),
+            ("auroc", "promotion_min_auroc"),
+        )
+        if isinstance(acceptance.get(key), int | float)
+    )
+    command = ct_evaluation_command(snapshot.snapshot_id, threshold_args)
+    job = {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": job_name,
+            "namespace": namespace,
+            "labels": lifecycle_labels(run, candidate_id),
+        },
+        "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": int(
+                os.getenv("EVM_LIFECYCLE_CT_TIMEOUT_SECONDS", "1800")
+            ),
+            "template": {
+                "metadata": {"labels": lifecycle_labels(run, candidate_id)},
+                "spec": {
+                    "restartPolicy": "Never",
+                    "terminationGracePeriodSeconds": 30,
+                    "securityContext": pod_security_context(),
+                    "containers": [
+                        {
+                            "name": "ct-evaluator",
+                            "image": image,
+                            "imagePullPolicy": "IfNotPresent",
+                            "command": ["/bin/sh", "-ec", command],
+                            "env": [
+                                env("EVM_LIFECYCLE_RUN_ID", run.run_id),
+                                env("EVM_HOST_CT_ROOT", "/mnt/evm-ct"),
+                                env("EVM_CT_MOUNT_ROOT", "/mnt/evm-ct"),
+                                env("HOME", "/tmp"),
+                                env("MPLCONFIGDIR", "/tmp/matplotlib"),
+                                env("NVIDIA_VISIBLE_DEVICES", "all"),
+                                env("NVIDIA_DRIVER_CAPABILITIES", "compute,utility"),
+                            ],
+                            "resources": {
+                                "requests": {
+                                    "cpu": "2",
+                                    "memory": "4Gi",
+                                    "nvidia.com/gpu": "1",
+                                },
+                                "limits": {
+                                    "cpu": "4",
+                                    "memory": "8Gi",
+                                    "nvidia.com/gpu": "1",
+                                },
+                            },
+                            "securityContext": container_security_context(),
+                            "volumeMounts": [
+                                {
+                                    "name": "ct-snapshot",
+                                    "mountPath": (
+                                        f"/mnt/evm-ct/snapshots/{snapshot.snapshot_id}"
+                                    ),
+                                    "readOnly": True,
+                                },
+                                {
+                                    "name": "ct-evaluations",
+                                    "mountPath": "/mnt/evm-ct/evaluations",
+                                    "readOnly": False,
+                                },
+                                {"name": "model", "mountPath": "/mnt/model", "readOnly": True},
+                                {
+                                    "name": "fold-evidence",
+                                    "mountPath": "/mnt/evidence/fold",
+                                    "readOnly": True,
+                                },
+                                {
+                                    "name": "training-evidence",
+                                    "mountPath": "/mnt/evidence/training",
+                                    "readOnly": True,
+                                },
+                                {
+                                    "name": "wsl-lib",
+                                    "mountPath": "/usr/lib/wsl/lib",
+                                    "readOnly": True,
+                                },
+                                {
+                                    "name": "wsl-drivers",
+                                    "mountPath": "/usr/lib/wsl/drivers",
+                                    "readOnly": True,
+                                },
+                                {"name": "dshm", "mountPath": "/dev/shm"},
+                                {"name": "tmp", "mountPath": "/tmp"},
+                            ],
+                        }
+                    ],
+                    "volumes": [
+                        {
+                            "name": "ct-snapshot",
+                            "hostPath": {
+                                "path": docker_desktop_path(snapshot_root),
+                                "type": "Directory",
+                            },
+                        },
+                        {
+                            "name": "ct-evaluations",
+                            "hostPath": {
+                                "path": docker_desktop_path(evaluation_root),
+                                "type": "Directory",
+                            },
+                        },
+                        {
+                            "name": "model",
+                            "hostPath": {
+                                "path": docker_desktop_path(candidate_dir),
+                                "type": "Directory",
+                            },
+                        },
+                        {
+                            "name": "fold-evidence",
+                            "hostPath": {
+                                "path": docker_desktop_path(fold_manifest_path.parent),
+                                "type": "Directory",
+                            },
+                        },
+                        {
+                            "name": "training-evidence",
+                            "hostPath": {
+                                "path": docker_desktop_path(training_job_manifest_path.parent),
+                                "type": "Directory",
+                            },
+                        },
+                        *common_volumes()[:2],
+                        {"name": "dshm", "emptyDir": {"medium": "Memory", "sizeLimit": "2Gi"}},
+                        {"name": "tmp", "emptyDir": {}},
+                    ],
+                },
+            },
+        },
+    }
+    write_json(directory / "namespace.json", namespace_resource(namespace))
+    write_json(directory / "ct-job.json", job)
+    write_kustomization(directory, ["namespace.json", "ct-job.json"])
+    return CTBundle(
+        manifest_dir=directory,
+        namespace=namespace,
+        job_name=job_name,
+        candidate_id=candidate_id,
+        candidate_summary_path=candidate_summary_path,
+        model_artifact_path=model_artifact_path,
+        fold_manifest_path=fold_manifest_path,
+        training_job_manifest_path=training_job_manifest_path,
+        image=image,
+    )
 
 
 def materialize_serving_bundle(run: LifecycleRun, cycle: CycleRun) -> ServingBundle:
@@ -415,7 +657,12 @@ def namespace_resource(namespace: str) -> dict[str, Any]:
     }
 
 
-def storage_resources(namespace: str, *, read_only: bool) -> list[dict[str, Any]]:
+def storage_resources(
+    namespace: str,
+    *,
+    read_only: bool,
+    host_path: str | None = None,
+) -> list[dict[str, Any]]:
     suffix = safe_name(namespace).removeprefix("evm-")
     volume_name = f"evm-{suffix}-large-data"
     mode = os.getenv(
@@ -437,7 +684,10 @@ def storage_resources(namespace: str, *, read_only: bool) -> list[dict[str, Any]
                 "persistentVolumeReclaimPolicy": "Retain",
                 "storageClassName": "evm-local-hostpath",
                 "claimRef": {"namespace": namespace, "name": "evm-large-data"},
-                "hostPath": {"path": docker_desktop_data_path(), "type": "Directory"},
+                "hostPath": {
+                    "path": host_path or docker_desktop_data_path(),
+                    "type": "Directory",
+                },
             },
         },
         {
@@ -474,6 +724,42 @@ def common_volume_mounts(*, read_only_data: bool) -> list[dict[str, Any]]:
     ]
 
 
+def training_volumes() -> list[dict[str, Any]]:
+    return [
+        *common_volumes(),
+        {
+            "name": "training-artifacts",
+            "hostPath": {
+                "path": docker_desktop_path(Path(host_data_root()) / "artifacts"),
+                "type": "Directory",
+            },
+        },
+        {
+            "name": "training-cache",
+            "hostPath": {
+                "path": docker_desktop_path(Path(host_data_root()) / "cache"),
+                "type": "DirectoryOrCreate",
+            },
+        },
+    ]
+
+
+def training_volume_mounts() -> list[dict[str, Any]]:
+    return [
+        *common_volume_mounts(read_only_data=True),
+        {
+            "name": "training-artifacts",
+            "mountPath": "/mnt/evm-data/artifacts",
+            "readOnly": False,
+        },
+        {
+            "name": "training-cache",
+            "mountPath": "/mnt/evm-data/cache",
+            "readOnly": False,
+        },
+    ]
+
+
 def pod_security_context() -> dict[str, Any]:
     return {
         "runAsNonRoot": True,
@@ -506,6 +792,24 @@ def training_command(config_uri: str, *, experiment_search: bool = False) -> str
         'export LD_LIBRARY_PATH="$DRIVER_DIR:/usr/lib/wsl/lib"; '
         'export PATH="$DRIVER_DIR:/usr/lib/wsl/lib:$PATH"; '
         f"exec python -m {module} {config_uri} --require-pass"
+    )
+
+
+def ct_evaluation_command(snapshot_id: str, threshold_args: str) -> str:
+    thresholds = f" {threshold_args.strip()}" if threshold_args.strip() else ""
+    return (
+        'DRIVER_DIR=""; '
+        "for candidate in /usr/lib/wsl/drivers/*; do "
+        'if [ -f "$candidate/libcuda.so.1.1" ]; then DRIVER_DIR="$candidate"; break; fi; '
+        'done; test -n "$DRIVER_DIR"; '
+        'export LD_LIBRARY_PATH="$DRIVER_DIR:/usr/lib/wsl/lib"; '
+        'export PATH="$DRIVER_DIR:/usr/lib/wsl/lib:$PATH"; '
+        "exec python -m evm.control_panel.isolated_ct evaluate "
+        f"--snapshot /mnt/evm-ct/snapshots/{snapshot_id}/snapshot.json "
+        "--fold-manifest /mnt/evidence/fold/fold_manifest.json "
+        "--training-job-manifest /mnt/evidence/training/training-job.json "
+        "--candidate-summary /mnt/model/candidate_summary.json "
+        f"--model-artifact /mnt/model/model.pt{thresholds}"
     )
 
 

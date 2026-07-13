@@ -164,6 +164,8 @@ class LifecycleRun(ContractModel):
     model_matrix_uri: str | None = None
     readiness_uri: str | None = None
     real_test_validation_uri: str | None = None
+    ct_snapshot_uri: str | None = None
+    ct_evaluation_uri: str | None = None
     resource_handoff_uri: str | None = None
     deployment_intent_id: str | None = None
     approver: str | None = None
@@ -965,6 +967,8 @@ def update_run_evidence(
     model_matrix_uri: str | None = None,
     readiness_uri: str | None = None,
     real_test_validation_uri: str | None = None,
+    ct_snapshot_uri: str | None = None,
+    ct_evaluation_uri: str | None = None,
     resource_handoff_uri: str | None = None,
     deployment_intent_id: str | None = None,
     approver: str | None = None,
@@ -977,6 +981,8 @@ def update_run_evidence(
         run.real_test_validation_uri = (
             real_test_validation_uri or run.real_test_validation_uri
         )
+        run.ct_snapshot_uri = ct_snapshot_uri or run.ct_snapshot_uri
+        run.ct_evaluation_uri = ct_evaluation_uri or run.ct_evaluation_uri
         run.resource_handoff_uri = resource_handoff_uri or run.resource_handoff_uri
         run.deployment_intent_id = deployment_intent_id or run.deployment_intent_id
         run.approver = approver or run.approver

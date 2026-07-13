@@ -47,7 +47,7 @@ def write_search_config(tmp_path: Path) -> Path:
     shard_root = tmp_path / "shards"
     shard_root.mkdir(parents=True)
     shards = []
-    for split, count in (("train", 6), ("validation", 4), ("test", 2)):
+    for split, count in (("train", 6), ("validation", 4)):
         path = shard_root / f"{split}.jsonl"
         records = [
             {
@@ -68,6 +68,9 @@ def write_search_config(tmp_path: Path) -> Path:
             {
                 "schema_version": "evm.dataset_shards.v1",
                 "identity_sha256": "a" * 64,
+                "training_data_scope": "development-only",
+                "excluded_split": "test",
+                "ct_evidence_exposed": False,
                 "shards": shards,
             }
         ),
@@ -242,7 +245,10 @@ def test_grid_search_seals_holdout_and_parent_child_lineage(tmp_path: Path, monk
     manifest = json.loads(Path(result["fold_manifest_uri"]).read_text(encoding="utf-8"))
     assert manifest["holdout_used_for_selection"] is False
     assert manifest["development_records"] == 10
-    assert manifest["holdout_records"] == 2
+    assert manifest["holdout_access_policy"] == "isolated_control_plane_only"
+    assert manifest["ct_evidence_exposed"] is False
+    assert "holdout_records" not in manifest
+    assert "holdout_sha256" not in manifest
     assert len(manifest["assignments"]) == 10
 
 

@@ -18,6 +18,7 @@ from evm.control_panel.deployment_intents import (
     request_approval,
 )
 from evm.control_panel.experiment_runs import read_experiment
+from evm.control_panel.isolated_ct import create_ct_snapshot, load_ct_evaluation
 from evm.control_panel.kubernetes_task_executor import execute_kubernetes_task
 from evm.control_panel.lifecycle_gpu_handoff import (
     acquire_gpu_handoff,
@@ -29,6 +30,7 @@ from evm.control_panel.lifecycle_kubernetes import (
     LifecycleKubernetesError,
     ServingBundle,
     build_training_evidence,
+    materialize_ct_bundle,
     materialize_serving_bundle,
     materialize_training_bundle,
 )
@@ -563,13 +565,126 @@ def process_ci_ct_gate(
     runner: Runner,
     http_client: HttpClient,
 ) -> LifecycleRun:
-    del runner, http_client
-    run = ensure_stage_running(run, "ci_ct_gate", "Validating CI and continuous test evidence")
+    del http_client
     if not run.source_commit or len(run.source_commit) != 40:
         raise LifecycleStageBlocked("lifecycle_source_commit_missing")
+    ci_preflight = rebuild_cycle(run).ci_evidence
+    if ci_preflight is None or not ci_preflight.valid:
+        raise LifecycleStageBlocked(
+            "ci_evidence_blocked",
+            ci_preflight.blockers if ci_preflight is not None else ["ci_evidence_missing"],
+        )
+    profile = read_json(runtime_path(run.profile_snapshot_uri))
+    model = read_json(runtime_path(run.model_config_uri))
+    data_profile = object_value(profile, "data")
+    split_profile = object_value(data_profile, "split")
+    source_shard_index = str(data_profile.get("split_manifest_uri") or "")
+    if not source_shard_index:
+        source_shard_index = str(object_value(model, "inputs").get("shard_index") or "")
+    snapshot = create_ct_snapshot(
+        source_shard_index,
+        lifecycle_run_id=run.run_id,
+        profile_id=run.profile_id,
+        profile_version=run.profile_version,
+        profile_digest=run.profile_digest,
+        split=str(split_profile.get("holdout_split") or "test"),
+    )
+    if snapshot.status != "pass" or not snapshot.training_mount_isolated:
+        raise LifecycleStageBlocked("ct_snapshot_blocked", snapshot.blockers)
+    bundle = materialize_ct_bundle(run, snapshot)
+    stage = stage_for(run, "ci_ct_gate")
+    task = task_for(stage.task_id)
+    if stage.state == "not_started":
+        task = create_task_assignment(
+            TaskAssignmentRequest(
+                cycle_id=run.run_id,
+                task_type="kubernetes_job",
+                owner=run.actor,
+                priority="high",
+                resource_profile="docker-desktop-gpu-ct",
+                requester_team="ml-platform",
+                approval_policy="auto",
+                config_payload={
+                    "adapter": "host-kubectl-bridge",
+                    "manifest_dir": str(bundle.manifest_dir),
+                    "namespace": bundle.namespace,
+                    "job_name": bundle.job_name,
+                    "timeout_seconds": int(
+                        os.getenv("EVM_LIFECYCLE_CT_TIMEOUT_SECONDS", "1800")
+                    ),
+                    "delete_existing": True,
+                    "lifecycle_run_id": run.run_id,
+                    "evaluation_role": "isolated_ct",
+                },
+                dry_run=False,
+            )
+        )
+        run = transition_stage(
+            run.run_id,
+            "ci_ct_gate",
+            "queued",
+            actor="lifecycle-worker",
+            task_id=task.task_id,
+            runtime_id=f"{bundle.namespace}/job/{bundle.job_name}",
+            runtime_state=task.status,
+            evidence_uri=str(bundle.manifest_dir),
+            detail="Isolated CT GPU evaluation queued after verified CI evidence",
+        )
+        stage = stage_for(run, "ci_ct_gate")
+    if task is None:
+        raise LifecycleStageBlocked("ct_kubernetes_task_missing")
+    if task.status in {"queued", "running"}:
+        handoff = acquire_training_gpu_handoff(run, bundle, runner=runner)
+        if handoff:
+            update_run_evidence(
+                run.run_id,
+                actor="lifecycle-worker",
+                resource_handoff_uri=str(handoff),
+            )
+        if stage.state == "queued":
+            run = transition_stage(
+                run.run_id,
+                "ci_ct_gate",
+                "running",
+                actor="lifecycle-worker",
+                task_id=task.task_id,
+                runtime_id=f"{bundle.namespace}/job/{bundle.job_name}",
+                runtime_state="applying" if task.status == "queued" else task.runtime_state,
+                evidence_uri=str(bundle.manifest_dir),
+                detail="Isolated CT snapshot is being evaluated on the real GPU",
+            )
+        try:
+            task = execute_kubernetes_task(task.task_id, runner=runner)
+        finally:
+            release_training_gpu_handoff(
+                run,
+                bundle,
+                runner=runner,
+                reason="ct_evaluation_finished",
+            )
+    if task.status != "done":
+        raise LifecycleStageBlocked(
+            f"kubernetes_ct_{task.status}",
+            [task.failure_reason or f"kubernetes_ct_{task.status}"],
+        )
+    evaluation = load_ct_evaluation()
+    if evaluation is None:
+        raise LifecycleStageBlocked("ct_evaluation_missing")
+    if evaluation.lifecycle_run_id != run.run_id:
+        raise LifecycleStageBlocked("ct_evaluation_run_mismatch")
+    if evaluation.candidate_id != bundle.candidate_id:
+        raise LifecycleStageBlocked("ct_evaluation_candidate_mismatch")
+    update_run_evidence(
+        run.run_id,
+        actor="lifecycle-worker",
+        ct_snapshot_uri=snapshot.snapshot_uri,
+        ct_evaluation_uri=evaluation.report_uri,
+    )
     cycle = rebuild_cycle(run)
     gate = cycle.cdct_gate
-    if not cycle.ci_evidence.valid or gate.status != "pass":
+    if cycle.ci_evidence is None or not cycle.ci_evidence.valid or gate is None:
+        raise LifecycleStageBlocked("ci_ct_gate_evidence_missing")
+    if gate.status != "pass":
         raise LifecycleStageBlocked(
             "ci_ct_gate_blocked",
             [*cycle.ci_evidence.blockers, *gate.failed_checks, *gate.promotion_blockers],
@@ -579,10 +694,13 @@ def process_ci_ct_gate(
         "ci_ct_gate",
         "completed",
         actor="lifecycle-worker",
+        task_id=task.task_id,
         runtime_id=cycle.ci_evidence.workflow_run_id,
         runtime_state="success",
-        evidence_uri=cycle.ci_evidence.source_uri,
-        detail="CI evidence and isolated CT admission passed",
+        evidence_uri=evaluation.report_uri,
+        detail=(
+            f"CI and isolated CT passed on {evaluation.ct_record_count} real records"
+        ),
     )
 
 

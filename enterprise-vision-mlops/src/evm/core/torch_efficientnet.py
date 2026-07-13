@@ -40,6 +40,7 @@ class TorchRuntimeConfig:
     pin_memory: bool
     mlflow_tracking_uri: str
     mlflow_experiment_name: str
+    evaluation_split: str = "test"
     parent_run_id: str | None = None
     run_tags: dict[str, str] = field(default_factory=dict)
     progress_callback: Callable[[dict[str, Any]], None] | None = None
@@ -668,7 +669,12 @@ def train_candidate(
 
     train_dataset = VisaImageDataset(splits["train"], candidate.input_size)
     validation_dataset = VisaImageDataset(splits["validation"], candidate.input_size)
-    test_dataset = VisaImageDataset(splits["test"], candidate.input_size)
+    if runtime.evaluation_split not in {"validation", "test"}:
+        raise ValueError(f"unsupported_evaluation_split:{runtime.evaluation_split}")
+    evaluation_records = splits.get(runtime.evaluation_split, [])
+    if not evaluation_records:
+        raise ValueError(f"evaluation_split_empty:{runtime.evaluation_split}")
+    evaluation_dataset = VisaImageDataset(evaluation_records, candidate.input_size)
     generator = torch.Generator()
     generator.manual_seed(runtime.seed)
     train_loader = DataLoader(
@@ -686,8 +692,8 @@ def train_candidate(
         num_workers=runtime.num_workers,
         pin_memory=runtime.pin_memory,
     )
-    test_loader = DataLoader(
-        test_dataset,
+    evaluation_loader = DataLoader(
+        evaluation_dataset,
         batch_size=candidate.batch_size,
         shuffle=False,
         num_workers=runtime.num_workers,
@@ -824,15 +830,15 @@ def train_candidate(
     threshold_calibration["validation_auroc"] = float(
         validation_calibrated_metrics["auroc"]
     )
-    test_metrics = metrics_from_outputs(
-        collect_inference_outputs(model, test_loader, device),
+    evaluation_metrics = metrics_from_outputs(
+        collect_inference_outputs(model, evaluation_loader, device),
         decision_threshold,
     )
     duration_seconds = round(time.perf_counter() - started_at, 3)
     profile = gpu_profile(device)
     environment = environment_report(device)
     metrics = {
-        key: float(test_metrics[key])
+        key: float(evaluation_metrics[key])
         for key in ("accuracy", "precision", "recall", "f1", "auroc", "latency_p95_ms")
     }
     metrics["gpu_memory_peak_mb"] = float(profile.get("cuda_memory_peak_mb", 0.0))
@@ -855,8 +861,14 @@ def train_candidate(
         model_path,
     )
     write_json(candidate_dir / "training_history.json", history)
-    write_json(candidate_dir / "confusion_matrix.json", test_metrics["confusion_matrix"])
-    save_confusion_png(test_metrics["confusion_matrix"], candidate_dir / "confusion_matrix.png")
+    write_json(
+        candidate_dir / "confusion_matrix.json",
+        evaluation_metrics["confusion_matrix"],
+    )
+    save_confusion_png(
+        evaluation_metrics["confusion_matrix"],
+        candidate_dir / "confusion_matrix.png",
+    )
     write_json(candidate_dir / "threshold_calibration.json", threshold_calibration)
     write_json(candidate_dir / "gpu_profile.json", profile)
     write_json(candidate_dir / "environment_report.json", environment)
@@ -892,9 +904,10 @@ def train_candidate(
             "seed": runtime.seed,
         },
         "metrics": metrics,
+        "evaluation_split": runtime.evaluation_split,
         "decision_threshold": decision_threshold,
         "threshold_calibration": threshold_calibration,
-        "per_class": test_metrics["per_class"],
+        "per_class": evaluation_metrics["per_class"],
         "promotion_blockers": blockers,
         "artifact_uri": str(candidate_dir),
         "model_artifact": str(model_path),

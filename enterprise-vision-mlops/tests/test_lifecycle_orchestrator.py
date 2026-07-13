@@ -8,10 +8,12 @@ from urllib.error import URLError
 import pytest
 
 from evm.control_panel import lifecycle_orchestrator, lifecycle_runs, operations
-from evm.control_panel.lifecycle_kubernetes import ServingBundle
+from evm.control_panel.lifecycle_kubernetes import CTBundle, ServingBundle
 from evm.control_panel.lifecycle_orchestrator import (
+    LifecycleStageBlocked,
     clear_prometheus_target,
     process_artifact_readiness,
+    process_ci_ct_gate,
     process_lifecycle_run,
     rollback_lifecycle,
     training_failure_blockers,
@@ -25,7 +27,13 @@ from evm.control_panel.lifecycle_runs import (
     transition_stage,
 )
 from evm.control_panel.pipeline_profiles import default_profile, save_profile
-from evm.control_panel.schemas import ArtifactReadinessEvaluation, ReadinessEvidenceCheck
+from evm.control_panel.schemas import (
+    ArtifactReadinessEvaluation,
+    CDCTGate,
+    CTDatasetSnapshot,
+    CTEvaluation,
+    ReadinessEvidenceCheck,
+)
 
 
 class FakeResponse:
@@ -342,6 +350,173 @@ def test_artifact_readiness_persists_report_before_stage_completion(
     assert completed.readiness_uri == payload["report_uri"]
     assert completed.stages[4].evidence_uri == payload["report_uri"]
     assert payload["evaluation_id"] == "readiness-persisted"
+
+
+def ct_ready_run(tmp_path: Path, monkeypatch):
+    run = queued_run(tmp_path, monkeypatch)
+    for stage_id in (
+        "data_pipeline",
+        "model_training",
+        "model_evaluation",
+        "artifact_readiness",
+    ):
+        transition_stage(run.run_id, stage_id, "running", actor="test")
+        run = transition_stage(run.run_id, stage_id, "completed", actor="test")
+    return run
+
+
+def ct_snapshot(run, tmp_path: Path) -> CTDatasetSnapshot:
+    root = tmp_path / "ct" / "snapshots" / "snapshot-test"
+    root.mkdir(parents=True, exist_ok=True)
+    return CTDatasetSnapshot(
+        snapshot_id="snapshot-test",
+        lifecycle_run_id=run.run_id,
+        profile_id=run.profile_id,
+        profile_version=run.profile_version,
+        profile_digest=run.profile_digest,
+        dataset_version="visa-test",
+        split="test",
+        record_count=2,
+        byte_count=100,
+        records_sha256="2" * 64,
+        source_index_uri="F:/source/shard_index.json",
+        source_index_sha256="3" * 64,
+        source_identity_sha256="4" * 64,
+        manifest_uri=str(root / "manifest.jsonl"),
+        manifest_sha256="5" * 64,
+        snapshot_uri=str(root / "snapshot.json"),
+        snapshot_digest="6" * 64,
+        isolation_root=str(root),
+        immutable=True,
+        training_mount_isolated=True,
+        status="pass",
+        blockers=[],
+        created_at="2026-07-13T00:00:00Z",
+    )
+
+
+def ct_evaluation(run, snapshot: CTDatasetSnapshot, tmp_path: Path) -> CTEvaluation:
+    return CTEvaluation(
+        evaluation_id="ct-eval-test",
+        lifecycle_run_id=run.run_id,
+        snapshot_id=snapshot.snapshot_id,
+        candidate_id="efficientnet-b0-test",
+        dataset_version=snapshot.dataset_version,
+        status="pass",
+        decision="pass",
+        evaluated_at="2026-07-13T00:10:00Z",
+        snapshot_digest=snapshot.snapshot_digest,
+        expected_manifest_sha256=snapshot.manifest_sha256,
+        observed_manifest_sha256=snapshot.manifest_sha256,
+        expected_records_sha256=snapshot.records_sha256,
+        observed_records_sha256=snapshot.records_sha256,
+        ct_record_count=2,
+        training_record_count=4,
+        overlap_count=0,
+        mutated=False,
+        training_mount_isolated=True,
+        model_artifact_uri=str(tmp_path / "model.pt"),
+        model_sha256="7" * 64,
+        device="cuda:0",
+        metrics={"accuracy": 0.95},
+        metric_thresholds={"accuracy": 0.93},
+        checks={"record_overlap": "pass", "snapshot_integrity": "pass"},
+        blockers=[],
+        snapshot_uri=snapshot.snapshot_uri,
+        report_uri=str(tmp_path / "ct-evaluation.json"),
+    )
+
+
+def install_ct_runtime_stubs(run, tmp_path: Path, monkeypatch):
+    snapshot = ct_snapshot(run, tmp_path)
+    evaluation = ct_evaluation(run, snapshot, tmp_path)
+    bundle = CTBundle(
+        manifest_dir=tmp_path / "kubernetes" / "ct",
+        namespace="evm-validation",
+        job_name="evm-ct-test",
+        candidate_id=evaluation.candidate_id,
+        candidate_summary_path=tmp_path / "candidate_summary.json",
+        model_artifact_path=tmp_path / "model.pt",
+        fold_manifest_path=tmp_path / "fold_manifest.json",
+        training_job_manifest_path=tmp_path / "training-job.json",
+        image="training@sha256:" + "8" * 64,
+    )
+    bundle.manifest_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(lifecycle_orchestrator, "create_ct_snapshot", lambda *_args, **_kwargs: snapshot)
+    monkeypatch.setattr(lifecycle_orchestrator, "materialize_ct_bundle", lambda *_args, **_kwargs: bundle)
+    monkeypatch.setattr(lifecycle_orchestrator, "acquire_training_gpu_handoff", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(lifecycle_orchestrator, "release_training_gpu_handoff", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        lifecycle_orchestrator,
+        "execute_kubernetes_task",
+        lambda task_id, **_kwargs: lifecycle_orchestrator.task_for(task_id).model_copy(
+            update={"status": "done", "runtime_state": "complete"}
+        ),
+    )
+    return snapshot, evaluation
+
+
+def test_ci_ct_gate_requires_ci_and_isolated_ct_before_completion(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = ct_ready_run(tmp_path, monkeypatch)
+    snapshot, evaluation = install_ct_runtime_stubs(run, tmp_path, monkeypatch)
+    ci = SimpleNamespace(valid=True, blockers=[], workflow_run_id="gha-123")
+    gate = CDCTGate(
+        status="pass",
+        ci_status="pass",
+        cd_status="pass",
+        ct_status="pass",
+        required_checks=["ci_evidence", "isolated_ct_evaluation"],
+        passed_checks=["ci_evidence", "isolated_ct_evaluation"],
+        promotion_decision="allow",
+        ct_snapshot_id=snapshot.snapshot_id,
+        ct_evaluation_id=evaluation.evaluation_id,
+    )
+    cycles = iter(
+        [
+            SimpleNamespace(ci_evidence=ci),
+            SimpleNamespace(ci_evidence=ci, cdct_gate=gate),
+        ]
+    )
+    monkeypatch.setattr(lifecycle_orchestrator, "rebuild_cycle", lambda _run: next(cycles))
+    monkeypatch.setattr(lifecycle_orchestrator, "load_ct_evaluation", lambda: evaluation)
+
+    completed = process_ci_ct_gate(
+        run,
+        runner=lambda *_args, **_kwargs: None,
+        http_client=lambda *_args, **_kwargs: (200, {}),
+    )
+
+    stage = next(item for item in completed.stages if item.stage_id == "ci_ct_gate")
+    assert stage.state == "completed"
+    assert stage.evidence_uri == evaluation.report_uri
+    assert completed.ct_snapshot_uri == snapshot.snapshot_uri
+    assert completed.ct_evaluation_uri == evaluation.report_uri
+
+
+def test_ci_ct_gate_fails_closed_when_gpu_job_produces_no_evaluation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = ct_ready_run(tmp_path, monkeypatch)
+    install_ct_runtime_stubs(run, tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        lifecycle_orchestrator,
+        "rebuild_cycle",
+        lambda _run: SimpleNamespace(
+            ci_evidence=SimpleNamespace(valid=True, blockers=[], workflow_run_id="gha-123")
+        ),
+    )
+    monkeypatch.setattr(lifecycle_orchestrator, "load_ct_evaluation", lambda: None)
+
+    with pytest.raises(LifecycleStageBlocked, match="ct_evaluation_missing"):
+        process_ci_ct_gate(
+            run,
+            runner=lambda *_args, **_kwargs: None,
+            http_client=lambda *_args, **_kwargs: (200, {}),
+        )
 
 
 def test_prometheus_target_uses_container_reachable_host(tmp_path, monkeypatch) -> None:
