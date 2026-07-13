@@ -229,6 +229,7 @@ export function App() {
     if (!runId) return;
     void fetchLifecycleRun(runId)
       .then(async (run) => {
+        if (readLocalValue(SELECTED_RUN_KEY) !== runId) return;
         setLifecycleContext(run);
         if (run.cycle_id && run.cycle_id !== selectedCycleRef.current) {
           await selectCycle(run.cycle_id, true);

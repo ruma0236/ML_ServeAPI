@@ -98,6 +98,52 @@ def test_diagnostics_do_not_duplicate_stage_blockers_as_projected_resource_failu
     assert "evm-staging:Pod:live-failed-pod" in resource_ids
 
 
+def test_diagnostics_expire_old_terminal_jobs_but_keep_recent_failures(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("EVM_CONTROL_PANEL_DIAGNOSTIC_ROOT", str(tmp_path))
+    monkeypatch.setenv("EVM_CONTROL_PANEL_TERMINAL_RESOURCE_DIAGNOSTIC_TTL_SECONDS", "3600")
+    monkeypatch.setattr(
+        "evm.control_panel.diagnostics.utc_now",
+        lambda: "2026-07-13T12:00:00Z",
+    )
+    resources = RuntimeResourceList.model_validate(
+        {
+            "observation_status": "live",
+            "resources": [
+                {
+                    "resource_id": "evm-training:Job:old-failure",
+                    "namespace": "evm-training",
+                    "kind": "Job",
+                    "name": "old-failure",
+                    "node_pool": "docker-desktop",
+                    "status": "fail",
+                    "last_transition_time": "2026-07-13T10:00:00Z",
+                    "observation_source": "kubernetes_snapshot",
+                },
+                {
+                    "resource_id": "evm-training:Job:recent-failure",
+                    "namespace": "evm-training",
+                    "kind": "Job",
+                    "name": "recent-failure",
+                    "node_pool": "docker-desktop",
+                    "status": "fail",
+                    "last_transition_time": "2026-07-13T11:30:00Z",
+                    "observation_source": "kubernetes_snapshot",
+                },
+            ],
+        }
+    )
+
+    report = build_control_panel_diagnostics(load_cycle(), resources)
+    resource_ids = {
+        item.component for item in report.diagnostics if item.scope == "resource"
+    }
+
+    assert "evm-training:Job:old-failure" not in resource_ids
+    assert "evm-training:Job:recent-failure" in resource_ids
+
+
 def test_diagnostics_return_structured_blocker_when_persistence_fails(
     monkeypatch,
 ) -> None:

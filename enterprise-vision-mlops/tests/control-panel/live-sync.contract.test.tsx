@@ -9,6 +9,7 @@ import type {
   CycleRunList,
   DecisionRecordList,
   DriftReviewWorkflow,
+  LifecycleRun,
   OrchestratorConnectionList,
   RuntimeResourceList
 } from "../../apps/control-panel/src/api/types";
@@ -21,7 +22,11 @@ const api = vi.hoisted(() => ({
   fetchRuntimeResources: vi.fn(),
   fetchControlPanelDiagnostics: vi.fn(),
   fetchLatestDriftReview: vi.fn(),
-  fetchDecisionRecords: vi.fn()
+  fetchDecisionRecords: vi.fn(),
+  fetchExperimentRun: vi.fn(),
+  fetchLifecycleRun: vi.fn(),
+  fetchLifecycleRuns: vi.fn(),
+  fetchLifecycleWorker: vi.fn()
 }));
 
 vi.mock("../../apps/control-panel/src/api/controlPanelClient", async (importOriginal) => ({
@@ -137,6 +142,9 @@ describe("Control Panel source synchronization", () => {
     api.fetchControlPanelDiagnostics.mockResolvedValue(diagnostics);
     api.fetchLatestDriftReview.mockResolvedValue(drift);
     api.fetchDecisionRecords.mockResolvedValue(decisions);
+    api.fetchExperimentRun.mockResolvedValue(null);
+    api.fetchLifecycleRuns.mockResolvedValue({ runs: [], total: 0 });
+    api.fetchLifecycleWorker.mockResolvedValue({ status: "online", worker_id: "worker-1" });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -175,10 +183,89 @@ describe("Control Panel source synchronization", () => {
     expect(container.textContent).not.toContain("API unavailable");
     expect(localStorage.getItem("evm.control-panel.selected-tab")).toBe("governance");
   });
+
+  it("does not let a stale restored run overwrite the latest Runs selection", async () => {
+    const staleRun = lifecycleRun("lifecycle-old", "cycle-old");
+    const latestRun = lifecycleRun("lifecycle-new", exampleCycle.cycle_id);
+    let resolveRestoredRun: ((run: LifecycleRun) => void) | undefined;
+    api.fetchLifecycleRun.mockReturnValue(new Promise<LifecycleRun>((resolve) => {
+      resolveRestoredRun = resolve;
+    }));
+    api.fetchLifecycleRuns.mockResolvedValue({ runs: [latestRun], total: 1 });
+    localStorage.setItem("evm.control-panel.selected-tab", "runs");
+    localStorage.setItem("evm.control-panel.selected-run", staleRun.run_id);
+
+    await act(async () => root.render(<App />));
+    await flushUpdates();
+    expect(localStorage.getItem("evm.control-panel.selected-run")).toBe(latestRun.run_id);
+
+    await act(async () => resolveRestoredRun?.(staleRun));
+    await flushUpdates();
+    const release = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Release"
+    );
+    await act(async () => release?.click());
+    const promotion = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Promotion"
+    );
+    await act(async () => promotion?.click());
+
+    expect(container.textContent).toContain(latestRun.run_id);
+    expect(container.textContent).not.toContain(staleRun.run_id);
+  });
 });
 
 async function flushUpdates(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+}
+
+
+function lifecycleRun(runId: string, cycleId: string): LifecycleRun {
+  const stageIds = [
+    "profile_snapshot",
+    "data_pipeline",
+    "model_training",
+    "model_evaluation",
+    "artifact_readiness",
+    "ci_ct_gate",
+    "approval",
+    "deployment",
+    "serving_validation",
+    "monitoring"
+  ];
+  return {
+    schema_version: "evm.lifecycle_run.v1",
+    run_id: runId,
+    profile_id: "standard-b0-manual-tuning",
+    profile_version: 6,
+    profile_digest: "a".repeat(64),
+    effective_config_digest: "b".repeat(64),
+    source_commit: "c".repeat(40),
+    source_branch: "codex/mac-mini-worker",
+    reason: "Lifecycle context test",
+    actor: "ml-platform",
+    state: "completed",
+    current_stage: null,
+    progress: 1,
+    dry_run: false,
+    cycle_id: cycleId,
+    blockers: [],
+    failure_reason: null,
+    stages: stageIds.map((stageId) => ({
+      stage_id: stageId,
+      label: stageId.replaceAll("_", " "),
+      runtime: stageId === "data_pipeline" ? "airflow" : "control-plane",
+      state: "completed" as const,
+      progress: 1,
+      attempt: 1,
+      max_attempts: 1,
+      blockers: []
+    })),
+    audit: [],
+    version: 1,
+    created_at: "2026-07-13T00:00:00Z",
+    updated_at: "2026-07-13T00:10:00Z"
+  };
 }

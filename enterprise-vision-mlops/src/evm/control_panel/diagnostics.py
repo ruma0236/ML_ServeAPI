@@ -24,6 +24,7 @@ DEFAULT_DIAGNOSTIC_ROOT = (
     "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/"
     "artifacts/w7/control_panel_diagnostics"
 )
+DEFAULT_TERMINAL_RESOURCE_DIAGNOSTIC_TTL_SECONDS = 3600
 _DIAGNOSTIC_LOCK = RLock()
 
 
@@ -212,6 +213,8 @@ def build_control_panel_diagnostics(
     for resource in resources.resources:
         if resource.observation_source != "kubernetes_snapshot":
             continue
+        if not resource_diagnostic_is_current(resource, generated_at):
+            continue
         resource_status = resource.status
         if resource_status not in {"warn", "blocked", "fail"} and resource.pressure == "warn":
             resource_status = "warn"
@@ -280,6 +283,31 @@ def build_control_panel_diagnostics(
         except OSError as exc:
             report = persistence_failure_report(report, exc)
     return report
+
+
+def resource_diagnostic_is_current(resource: Any, generated_at: str) -> bool:
+    if str(resource.kind).lower() not in {"job", "pod"}:
+        return True
+    if resource.status not in {"blocked", "fail"}:
+        return True
+    transition = resource.last_transition_time
+    if not transition:
+        return True
+    try:
+        observed = datetime.fromisoformat(str(transition).replace("Z", "+00:00"))
+        generated = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+        ttl = max(
+            0,
+            int(
+                os.getenv(
+                    "EVM_CONTROL_PANEL_TERMINAL_RESOURCE_DIAGNOSTIC_TTL_SECONDS",
+                    str(DEFAULT_TERMINAL_RESOURCE_DIAGNOSTIC_TTL_SECONDS),
+                )
+            ),
+        )
+    except (TypeError, ValueError):
+        return True
+    return max(0.0, (generated - observed).total_seconds()) <= ttl
 
 
 def persistence_failure_report(
