@@ -73,6 +73,7 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     model = read_json(model_path)
     candidate = selected_candidate(model)
     candidate_id = str(candidate["candidate_id"])
+    component_revision = component_source_revision(candidate)
     resources = object_value(profile, "resources")
     gpu_count = int(resources.get("gpu_count") or 0)
     if gpu_count < 1:
@@ -159,6 +160,10 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
                             "command": ["/bin/sh", "-ec", command],
                             "env": [
                                 env("EVM_LIFECYCLE_RUN_ID", run.run_id),
+                                env(
+                                    "EVM_EXPECTED_COMPONENT_SOURCE_REVISION",
+                                    component_revision,
+                                ),
                                 env("EVM_EFFICIENTNET_CANDIDATES", candidate_id),
                                 env("EVM_PROJECT_ROOT", "/app"),
                                 env("EVM_HOST_DATA_ROOT", host_data_root()),
@@ -262,6 +267,7 @@ def materialize_ct_bundle(
     model = read_json(runtime_path(run.model_config_uri))
     candidate = selected_candidate(model)
     candidate_id = str(candidate["candidate_id"])
+    component_revision = component_source_revision(candidate)
     matrix = latest_matrix(model)
     result = next(
         (
@@ -341,6 +347,10 @@ def materialize_ct_bundle(
                             "command": ["/bin/sh", "-ec", command],
                             "env": [
                                 env("EVM_LIFECYCLE_RUN_ID", run.run_id),
+                                env(
+                                    "EVM_EXPECTED_COMPONENT_SOURCE_REVISION",
+                                    component_revision,
+                                ),
                                 env("EVM_HOST_CT_ROOT", "/mnt/evm-ct"),
                                 env("EVM_CT_MOUNT_ROOT", "/mnt/evm-ct"),
                                 env("HOME", "/tmp"),
@@ -472,6 +482,7 @@ def materialize_serving_bundle(run: LifecycleRun, cycle: CycleRun) -> ServingBun
     architecture = str(model_profile.get("architecture") or "efficientnet-b0")
     candidate_id, artifact_uri, digest, dataset_version = cycle_model_identity(cycle)
     candidate = selected_candidate(model)
+    component_revision = component_source_revision(candidate)
     if str(candidate["candidate_id"]) != candidate_id:
         raise LifecycleKubernetesError("selected_candidate_cycle_mismatch")
     deployment_name = str(
@@ -523,6 +534,10 @@ def materialize_serving_bundle(run: LifecycleRun, cycle: CycleRun) -> ServingBun
                             "ports": [{"name": "http", "containerPort": 8000}],
                             "env": [
                                 env("APP_NAME", deployment_name),
+                                env(
+                                    "EVM_EXPECTED_COMPONENT_SOURCE_REVISION",
+                                    component_revision,
+                                ),
                                 env("EVM_MODEL_PATH", model_mount_path(artifact_uri)),
                                 env("EVM_MODEL_SHA256", digest),
                                 env("EVM_MODEL_CANDIDATE_ID", candidate_id),
@@ -860,6 +875,8 @@ def training_command(config_uri: str, *, experiment_search: bool = False) -> str
         else "evm.pipelines.efficientnet_training.run"
     )
     return (
+        runtime_revision_preflight()
+        +
         'DRIVER_DIR=""; '
         'for candidate in /usr/lib/wsl/drivers/*; do '
         'if [ -f "$candidate/libcuda.so.1.1" ]; then DRIVER_DIR="$candidate"; break; fi; '
@@ -873,6 +890,8 @@ def training_command(config_uri: str, *, experiment_search: bool = False) -> str
 def ct_evaluation_command(snapshot_id: str, threshold_args: str) -> str:
     thresholds = f" {threshold_args.strip()}" if threshold_args.strip() else ""
     return (
+        runtime_revision_preflight()
+        +
         'DRIVER_DIR=""; '
         "for candidate in /usr/lib/wsl/drivers/*; do "
         'if [ -f "$candidate/libcuda.so.1.1" ]; then DRIVER_DIR="$candidate"; break; fi; '
@@ -890,6 +909,8 @@ def ct_evaluation_command(snapshot_id: str, threshold_args: str) -> str:
 
 def serving_command() -> str:
     return (
+        runtime_revision_preflight()
+        +
         'DRIVER_DIR=""; '
         'for candidate in /usr/lib/wsl/drivers/*; do '
         'if [ -f "$candidate/libcuda.so.1.1" ]; then DRIVER_DIR="$candidate"; break; fi; '
@@ -898,6 +919,25 @@ def serving_command() -> str:
         'export PATH="$DRIVER_DIR:/usr/lib/wsl/lib:$PATH"; '
         "exec uvicorn apps.api.efficientnet_serving:app --host 0.0.0.0 --port 8000"
     )
+
+
+def runtime_revision_preflight() -> str:
+    return (
+        'if [ -z "${EVM_IMAGE_SOURCE_REVISION:-}" ]; then '
+        'echo "image_source_revision_missing" >&2; exit 42; fi; '
+        'if [ "$EVM_IMAGE_SOURCE_REVISION" != '
+        '"$EVM_EXPECTED_COMPONENT_SOURCE_REVISION" ]; then '
+        'echo "component_source_revision_mismatch:'
+        'expected=$EVM_EXPECTED_COMPONENT_SOURCE_REVISION,'
+        'image=$EVM_IMAGE_SOURCE_REVISION" >&2; exit 42; fi; '
+    )
+
+
+def component_source_revision(candidate: dict[str, Any]) -> str:
+    revision = str(candidate.get("component_source_revision") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise LifecycleKubernetesError("component_source_revision_not_pinned")
+    return revision
 
 
 def lifecycle_labels(run: LifecycleRun, candidate_id: str) -> dict[str, str]:

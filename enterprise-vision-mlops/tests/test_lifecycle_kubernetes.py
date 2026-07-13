@@ -10,7 +10,10 @@ import pytest
 from evm.control_panel.lifecycle_kubernetes import (
     LifecycleKubernetesError,
     build_training_evidence,
+    ct_evaluation_command,
     materialize_training_bundle,
+    serving_command,
+    training_command,
 )
 from evm.control_panel.lifecycle_runs import LifecycleRunRequest, create_lifecycle_run
 from evm.control_panel.operations import create_task_assignment, update_task_runtime
@@ -171,6 +174,15 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
         item["name"] == "EVM_TRAINING_RUNTIME_CONFIG_SHA256" and len(item["value"]) == 64
         for item in container["env"]
     )
+    assert any(
+        item
+        == {
+            "name": "EVM_EXPECTED_COMPONENT_SOURCE_REVISION",
+            "value": "82117cbc452eaf3aa6b3be1f776b3c2efee87f4a",
+        }
+        for item in container["env"]
+    )
+    assert "component_source_revision_mismatch" in container["command"][2]
     data_mount = next(
         item for item in container["volumeMounts"] if item["name"] == "large-data"
     )
@@ -222,6 +234,19 @@ def test_training_bundle_routes_enabled_search_to_experiment_pipeline(
     )
 
 
+def test_runtime_commands_fail_closed_on_component_image_revision_skew() -> None:
+    commands = [
+        training_command("/mnt/evm-data/config.json", experiment_search=True),
+        ct_evaluation_command("snapshot-1", "--threshold f1=0.3"),
+        serving_command(),
+    ]
+
+    for command in commands:
+        assert "EVM_IMAGE_SOURCE_REVISION" in command
+        assert "EVM_EXPECTED_COMPONENT_SOURCE_REVISION" in command
+        assert "component_source_revision_mismatch" in command
+
+
 def test_training_bundle_rejects_lifecycle_shard_identity_drift(
     tmp_path,
     monkeypatch,
@@ -252,11 +277,20 @@ def test_training_image_installs_experiment_runtime_dependencies() -> None:
         "/app/configs/w7_efficientnet_kubernetes.toml"
     ) in dockerfile
     assert "COPY configs /app/configs" not in dockerfile
+    assert 'org.opencontainers.image.revision="${SOURCE_REVISION}"' in dockerfile
+    assert "EVM_IMAGE_SOURCE_REVISION=${SOURCE_REVISION}" in dockerfile
+    serving_dockerfile = Path("infra/docker/efficientnet-serving/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    assert 'org.opencontainers.image.revision="${SOURCE_REVISION}"' in serving_dockerfile
+    assert "EVM_IMAGE_SOURCE_REVISION=${SOURCE_REVISION}" in serving_dockerfile
     build_script = Path("scripts/dev/build_efficientnet_training_image.ps1").read_text(
         encoding="utf-8"
     )
     assert "docker build --provenance=false" in build_script
-    assert "catalog_repo_digest" in build_script
+    assert "SOURCE_REVISION=$sourceRevision" in build_script
+    assert "catalog_training_repo_digest" in build_script
+    assert "catalog_serving_repo_digest" in build_script
 
 
 def test_training_evidence_binds_job_gpu_mlflow_and_model_digest(tmp_path, monkeypatch) -> None:
