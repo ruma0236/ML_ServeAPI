@@ -1760,6 +1760,7 @@
           "record_count": {"type": "integer", "minimum": 1},
           "byte_count": {"type": "integer", "minimum": 1},
           "records_sha256": {"type": "string"},
+          "source_records_sha256": {"type": ["string", "null"], "default": null},
           "source_index_uri": {"type": "string"},
           "source_index_sha256": {"type": "string"},
           "source_identity_sha256": {"type": "string"},

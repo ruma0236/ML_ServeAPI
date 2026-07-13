@@ -194,6 +194,21 @@ def records_sha256(records: list[dict[str, Any]]) -> str:
     return payload_sha256(sorted(record_id(record) for record in records))
 
 
+def source_records_sha256_from_snapshot(records: list[dict[str, Any]]) -> str:
+    identities = [str(record.get("ct_record_id") or "") for record in records]
+    if not identities or any(not identity for identity in identities):
+        return ""
+    return payload_sha256(sorted(identities))
+
+
+def snapshot_digest_material(snapshot: CTDatasetSnapshot) -> dict[str, Any]:
+    return snapshot.model_dump(
+        mode="json",
+        exclude={"snapshot_digest"},
+        exclude_none=True,
+    )
+
+
 def resolve_data_path(value: str, *, image_path: str | None = None) -> Path:
     raw_value = image_path or value
     normalized = raw_value.replace("\\", "/")
@@ -255,7 +270,28 @@ def create_ct_snapshot(
     snapshot_path = snapshot_root / "snapshot.json"
     if snapshot_path.exists():
         existing = CTDatasetSnapshot.model_validate(read_json(snapshot_path))
-        if existing.records_sha256 != source_records_digest:
+        existing_manifest_path = ct_runtime_path(existing.manifest_uri)
+        existing_records = (
+            read_jsonl(existing_manifest_path) if existing_manifest_path.exists() else []
+        )
+        existing_source_digest = (
+            existing.source_records_sha256
+            or source_records_sha256_from_snapshot(existing_records)
+        )
+        snapshot_integrity_valid = (
+            existing.snapshot_id == snapshot_id
+            and existing.dataset_version == dataset_version
+            and existing.split == split
+            and existing.record_count == len(source_records)
+            and existing_source_digest == source_records_digest
+            and bool(existing_records)
+            and len(existing_records) == existing.record_count
+            and records_sha256(existing_records) == existing.records_sha256
+            and file_sha256(existing_manifest_path) == existing.manifest_sha256
+            and payload_sha256(snapshot_digest_material(existing))
+            == existing.snapshot_digest
+        )
+        if not snapshot_integrity_valid:
             raise ValueError("ct_snapshot_identity_collision")
         atomic_write_json(
             host_ct_root() / "snapshots" / "latest.json",
@@ -329,6 +365,7 @@ def create_ct_snapshot(
         "record_count": len(snapshot_records),
         "byte_count": byte_count,
         "records_sha256": records_sha256(snapshot_records),
+        "source_records_sha256": source_records_digest,
         "source_index_uri": str(source_index_path),
         "source_index_sha256": source_index_sha256,
         "source_identity_sha256": str(source_index.get("identity_sha256") or ""),
@@ -402,7 +439,7 @@ def evaluate_ct_snapshot(
     checks: dict[str, State] = {}
     blockers: list[str] = []
 
-    snapshot_material = snapshot.model_dump(mode="json", exclude={"snapshot_digest"})
+    snapshot_material = snapshot_digest_material(snapshot)
     checks["snapshot_digest"] = state(
         snapshot.snapshot_digest == payload_sha256(snapshot_material)
     )

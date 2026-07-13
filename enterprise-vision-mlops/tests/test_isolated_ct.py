@@ -191,6 +191,63 @@ def test_real_snapshot_copy_and_evaluator_pass_fail_closed_contract(tmp_path, mo
     assert evaluation.checks["training_mount_isolation"] == "pass"
 
 
+def test_snapshot_reuses_identical_holdout_across_lifecycle_runs(tmp_path, monkeypatch):
+    _data_root, _ct_root, index, _train_record, _test_record = source_evidence(
+        tmp_path,
+        monkeypatch,
+    )
+    first = isolated_ct.create_ct_snapshot(
+        index,
+        lifecycle_run_id="lifecycle-run-first",
+        profile_id="profile-test",
+        profile_version=1,
+        profile_digest="b" * 64,
+    )
+
+    second = isolated_ct.create_ct_snapshot(
+        index,
+        lifecycle_run_id="lifecycle-run-second",
+        profile_id="profile-test",
+        profile_version=2,
+        profile_digest="c" * 64,
+    )
+
+    assert second.snapshot_id == first.snapshot_id
+    assert second.snapshot_uri == first.snapshot_uri
+    assert second.source_records_sha256 == first.source_records_sha256
+    assert second.snapshot_digest == first.snapshot_digest
+
+
+def test_snapshot_reuse_fails_closed_when_manifest_was_mutated(tmp_path, monkeypatch):
+    _data_root, _ct_root, index, _train_record, _test_record = source_evidence(
+        tmp_path,
+        monkeypatch,
+    )
+    snapshot = isolated_ct.create_ct_snapshot(
+        index,
+        lifecycle_run_id="lifecycle-run-first",
+        profile_id="profile-test",
+        profile_version=1,
+        profile_digest="b" * 64,
+    )
+    manifest = Path(snapshot.manifest_uri)
+    manifest.chmod(stat.S_IWRITE | stat.S_IREAD)
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+    try:
+        isolated_ct.create_ct_snapshot(
+            index,
+            lifecycle_run_id="lifecycle-run-second",
+            profile_id="profile-test",
+            profile_version=2,
+            profile_digest="c" * 64,
+        )
+    except ValueError as exc:
+        assert str(exc) == "ct_snapshot_identity_collision"
+    else:
+        raise AssertionError("mutated CT snapshot must not be reused")
+
+
 def test_evaluator_blocks_training_overlap(tmp_path, monkeypatch):
     _data_root, _ct_root, index, train_record, _test_record = source_evidence(
         tmp_path,

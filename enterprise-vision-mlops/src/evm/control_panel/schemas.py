@@ -608,6 +608,7 @@ class CTDatasetSnapshot(ContractModel):
     record_count: int = Field(ge=1)
     byte_count: int = Field(ge=1)
     records_sha256: str
+    source_records_sha256: str | None = None
     source_index_uri: str
     source_index_sha256: str
     source_identity_sha256: str
