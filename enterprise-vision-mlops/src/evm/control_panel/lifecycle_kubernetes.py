@@ -94,12 +94,17 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
         lifecycle_run_id=run.run_id,
         holdout_split=str(split_policy.get("holdout_split") or "test"),
     )
+    storage_identity = f"evm-training-{short_run_id(run.run_id)}"
+    volume_name = f"{storage_identity}-pv"
+    claim_name = f"{storage_identity}-pvc"
 
     write_json(directory / "namespace.json", namespace_resource(namespace))
     storage = storage_resources(
         namespace,
         read_only=True,
         host_path=docker_desktop_path(training_view.root),
+        volume_name=volume_name,
+        claim_name=claim_name,
     )
     write_json(directory / "storage-pv.json", storage[0])
     write_json(directory / "storage-pvc.json", storage[1])
@@ -172,7 +177,7 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
                             "volumeMounts": training_volume_mounts(),
                         }
                     ],
-                    "volumes": training_volumes(),
+                    "volumes": training_volumes(claim_name),
                 },
             },
         },
@@ -662,9 +667,11 @@ def storage_resources(
     *,
     read_only: bool,
     host_path: str | None = None,
+    volume_name: str | None = None,
+    claim_name: str = "evm-large-data",
 ) -> list[dict[str, Any]]:
     suffix = safe_name(namespace).removeprefix("evm-")
-    volume_name = f"evm-{suffix}-large-data"
+    selected_volume_name = volume_name or f"evm-{suffix}-large-data"
     mode = os.getenv(
         "EVM_LIFECYCLE_SERVING_ACCESS_MODE"
         if read_only
@@ -677,13 +684,13 @@ def storage_resources(
         {
             "apiVersion": "v1",
             "kind": "PersistentVolume",
-            "metadata": {"name": volume_name},
+            "metadata": {"name": selected_volume_name},
             "spec": {
                 "capacity": {"storage": "1Ti"},
                 "accessModes": [mode],
                 "persistentVolumeReclaimPolicy": "Retain",
                 "storageClassName": "evm-local-hostpath",
-                "claimRef": {"namespace": namespace, "name": "evm-large-data"},
+                "claimRef": {"namespace": namespace, "name": claim_name},
                 "hostPath": {
                     "path": host_path or docker_desktop_data_path(),
                     "type": "Directory",
@@ -693,22 +700,22 @@ def storage_resources(
         {
             "apiVersion": "v1",
             "kind": "PersistentVolumeClaim",
-            "metadata": {"name": "evm-large-data", "namespace": namespace},
+            "metadata": {"name": claim_name, "namespace": namespace},
             "spec": {
                 "accessModes": [mode],
                 "resources": {"requests": {"storage": "1Ti"}},
                 "storageClassName": "evm-local-hostpath",
-                "volumeName": volume_name,
+                "volumeName": selected_volume_name,
             },
         },
     ]
 
 
-def common_volumes() -> list[dict[str, Any]]:
+def common_volumes(claim_name: str = "evm-large-data") -> list[dict[str, Any]]:
     return [
         {"name": "wsl-lib", "hostPath": {"path": "/usr/lib/wsl/lib", "type": "Directory"}},
         {"name": "wsl-drivers", "hostPath": {"path": "/usr/lib/wsl/drivers", "type": "Directory"}},
-        {"name": "large-data", "persistentVolumeClaim": {"claimName": "evm-large-data"}},
+        {"name": "large-data", "persistentVolumeClaim": {"claimName": claim_name}},
         {"name": "dshm", "emptyDir": {"medium": "Memory", "sizeLimit": "2Gi"}},
         {"name": "tmp", "emptyDir": {}},
     ]
@@ -724,9 +731,9 @@ def common_volume_mounts(*, read_only_data: bool) -> list[dict[str, Any]]:
     ]
 
 
-def training_volumes() -> list[dict[str, Any]]:
+def training_volumes(claim_name: str) -> list[dict[str, Any]]:
     return [
-        *common_volumes(),
+        *common_volumes(claim_name),
         {
             "name": "training-artifacts",
             "hostPath": {

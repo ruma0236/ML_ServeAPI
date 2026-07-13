@@ -115,11 +115,21 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     assert (bundle.manifest_dir / "kustomization.yaml").is_file()
     pv = json.loads((bundle.manifest_dir / "storage-pv.json").read_text(encoding="utf-8"))
     pvc = json.loads((bundle.manifest_dir / "storage-pvc.json").read_text(encoding="utf-8"))
-    assert pv["metadata"]["name"] == "evm-training-large-data"
+    storage_suffix = bundle.job_name.removeprefix("evm-lifecycle-train-")
+    expected_pv = f"evm-training-{storage_suffix}-pv"
+    expected_pvc = f"evm-training-{storage_suffix}-pvc"
+    assert pv["metadata"]["name"] == expected_pv
+    assert pv["spec"]["claimRef"]["name"] == expected_pvc
     assert pv["spec"]["persistentVolumeReclaimPolicy"] == "Retain"
     assert pv["spec"]["accessModes"] == ["ReadOnlyMany"]
+    assert pvc["metadata"]["name"] == expected_pvc
+    assert pvc["spec"]["volumeName"] == expected_pv
     assert pvc["spec"]["accessModes"] == ["ReadOnlyMany"]
     assert "training_views" in pv["spec"]["hostPath"]["path"]
+    data_volume = next(
+        item for item in job["spec"]["template"]["spec"]["volumes"] if item["name"] == "large-data"
+    )
+    assert data_volume["persistentVolumeClaim"]["claimName"] == expected_pvc
     assert any(
         item == {
             "name": "EVM_TRAINING_DATA_SCOPE",
