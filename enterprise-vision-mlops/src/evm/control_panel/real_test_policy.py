@@ -310,18 +310,117 @@ def validate_real_test_evidence(
         "validation": int(acceptance.get("min_validation_images", 0)),
         "test": int(acceptance.get("min_test_images", 0)),
     }
-    if int(split_manifest.get("record_count") or 0) < split_requirements["record_count"]:
-        violations.append({"code": "split_record_count_too_small", "required": split_requirements["record_count"]})
-    for split_name in ("train", "validation", "test"):
-        if int(split_counts.get(split_name) or 0) < split_requirements[split_name]:
+    training_view = config.get("training_view", {})
+    if not isinstance(training_view, dict):
+        training_view = {}
+    control_plane = config.get("control_plane", {})
+    if not isinstance(control_plane, dict):
+        control_plane = {}
+    profile_data = control_plane.get("data", {})
+    if not isinstance(profile_data, dict):
+        profile_data = {}
+    profile_split = profile_data.get("split", {})
+    if not isinstance(profile_split, dict):
+        profile_split = {}
+    profile_gates = control_plane.get("gates", {})
+    if not isinstance(profile_gates, dict):
+        profile_gates = {}
+    excluded_split = str(
+        training_view.get("excluded_split")
+        or profile_split.get("holdout_split")
+        or ""
+    ).strip()
+    explicit_isolated_view = bool(
+        training_view.get("training_data_scope") == "development-only"
+        and training_view.get("ct_evidence_exposed") is False
+    )
+    profile_isolated_view = bool(
+        profile_split.get("immutable_holdout") is True
+        and profile_split.get("allow_holdout_in_training") is False
+        and profile_gates.get("isolated_ct_dataset_required") is True
+        and profile_gates.get("ct_dataset_split") == excluded_split
+    )
+    isolated_training_view = bool(
+        (explicit_isolated_view or profile_isolated_view)
+        and excluded_split in {"train", "validation", "test"}
+    )
+
+    if isolated_training_view:
+        source_record_count = int(cycle.dataset.record_count or 0)
+        if source_record_count < split_requirements["record_count"]:
             violations.append(
                 {
-                    "code": "split_count_too_small",
-                    "split": split_name,
-                    "required": split_requirements[split_name],
-                    "actual": split_counts.get(split_name),
+                    "code": "source_record_count_too_small",
+                    "required": split_requirements["record_count"],
+                    "actual": source_record_count,
                 }
             )
+        expected_development_records = sum(
+            split_requirements[split_name]
+            for split_name in ("train", "validation", "test")
+            if split_name != excluded_split
+        )
+        development_record_count = int(split_manifest.get("record_count") or 0)
+        if development_record_count < expected_development_records:
+            violations.append(
+                {
+                    "code": "development_split_record_count_too_small",
+                    "required": expected_development_records,
+                    "actual": development_record_count,
+                }
+            )
+        configured_training_records = training_view.get("record_count")
+        if (
+            configured_training_records is not None
+            and int(configured_training_records) != development_record_count
+        ):
+            violations.append(
+                {
+                    "code": "training_view_record_count_mismatch",
+                    "expected": int(configured_training_records),
+                    "actual": development_record_count,
+                }
+            )
+        for split_name in ("train", "validation", "test"):
+            actual = int(split_counts.get(split_name) or 0)
+            if split_name == excluded_split:
+                if actual != 0:
+                    violations.append(
+                        {
+                            "code": "isolated_holdout_exposed_to_training",
+                            "split": split_name,
+                            "expected": 0,
+                            "actual": actual,
+                        }
+                    )
+                continue
+            if actual < split_requirements[split_name]:
+                violations.append(
+                    {
+                        "code": "split_count_too_small",
+                        "split": split_name,
+                        "required": split_requirements[split_name],
+                        "actual": actual,
+                    }
+                )
+    else:
+        if int(split_manifest.get("record_count") or 0) < split_requirements["record_count"]:
+            violations.append(
+                {
+                    "code": "split_record_count_too_small",
+                    "required": split_requirements["record_count"],
+                }
+            )
+        for split_name in ("train", "validation", "test"):
+            if int(split_counts.get(split_name) or 0) < split_requirements[split_name]:
+                violations.append(
+                    {
+                        "code": "split_count_too_small",
+                        "split": split_name,
+                        "required": split_requirements[split_name],
+                        "actual": split_counts.get(split_name),
+                    }
+                )
 
     for candidate_id, candidate_cfg in candidate_cfg_by_id.items():
         cycle_candidate = cycle_candidates.get(candidate_id)
@@ -442,6 +541,10 @@ def validate_real_test_evidence(
         "matrix_path": str(matrix_path),
         "configured_candidate_count": configured_count,
         "checked_candidate_count": len(checked_candidates),
+        "split_evidence_scope": (
+            "isolated_development_view" if isolated_training_view else "complete_dataset"
+        ),
+        "excluded_training_split": excluded_split if isolated_training_view else None,
         "split_manifest": split_manifest,
         "checked_candidates": checked_candidates,
         "violations": violations,

@@ -243,6 +243,110 @@ def test_real_test_evidence_validation_maps_container_artifact_paths(tmp_path, m
     assert report["violations"] == []
 
 
+def test_real_test_evidence_validation_accepts_isolated_training_view(tmp_path):
+    _write_project_files(tmp_path)
+    artifact_root = tmp_path / "artifacts/w7/efficientnet"
+    config = _write_config(tmp_path, artifact_root)
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write(
+            """
+
+[training_view]
+training_data_scope = "development-only"
+excluded_split = "test"
+record_count = 8640
+ct_evidence_exposed = false
+"""
+        )
+    candidate_dir = _write_candidate_artifacts(artifact_root)
+    development_split = {
+        "record_count": 8640,
+        "split_counts": {"train": 6504, "validation": 2136, "test": 0},
+    }
+    _write_json(candidate_dir / "split_manifest.json", development_split)
+    matrix_path = artifact_root / "latest_model_matrix.json"
+    matrix_payload = json.loads(matrix_path.read_text(encoding="utf-8"))
+    matrix_split_path = Path(matrix_payload["split_manifest"])
+    _write_json(matrix_split_path, development_split)
+
+    report = validate_real_test_evidence(_cycle(candidate_dir), config)
+
+    assert report["valid"] is True
+    assert report["split_evidence_scope"] == "isolated_development_view"
+    assert report["excluded_training_split"] == "test"
+    assert report["violations"] == []
+
+
+def test_real_test_evidence_validation_rejects_holdout_in_training_view(tmp_path):
+    _write_project_files(tmp_path)
+    artifact_root = tmp_path / "artifacts/w7/efficientnet"
+    config = _write_config(tmp_path, artifact_root)
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write(
+            """
+
+[training_view]
+training_data_scope = "development-only"
+excluded_split = "test"
+record_count = 8640
+ct_evidence_exposed = false
+"""
+        )
+    candidate_dir = _write_candidate_artifacts(artifact_root)
+    exposed_split = {
+        "record_count": 8640,
+        "split_counts": {"train": 6504, "validation": 2135, "test": 1},
+    }
+    _write_json(candidate_dir / "split_manifest.json", exposed_split)
+    matrix_path = artifact_root / "latest_model_matrix.json"
+    matrix_payload = json.loads(matrix_path.read_text(encoding="utf-8"))
+    _write_json(Path(matrix_payload["split_manifest"]), exposed_split)
+
+    report = validate_real_test_evidence(_cycle(candidate_dir), config)
+
+    assert report["valid"] is False
+    assert any(
+        item["code"] == "isolated_holdout_exposed_to_training"
+        for item in report["violations"]
+    )
+
+
+def test_real_test_evidence_validation_infers_profile_holdout_contract(tmp_path):
+    _write_project_files(tmp_path)
+    artifact_root = tmp_path / "artifacts/w7/efficientnet"
+    config = _write_config(tmp_path, artifact_root)
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write(
+            """
+
+[control_plane.data.split]
+holdout_split = "test"
+immutable_holdout = true
+allow_holdout_in_training = false
+
+[control_plane.gates]
+isolated_ct_dataset_required = true
+ct_dataset_split = "test"
+"""
+        )
+    candidate_dir = _write_candidate_artifacts(artifact_root)
+    development_split = {
+        "record_count": 8640,
+        "split_counts": {"train": 6504, "validation": 2136, "test": 0},
+    }
+    _write_json(candidate_dir / "split_manifest.json", development_split)
+    matrix_path = artifact_root / "latest_model_matrix.json"
+    matrix_payload = json.loads(matrix_path.read_text(encoding="utf-8"))
+    _write_json(Path(matrix_payload["split_manifest"]), development_split)
+
+    report = validate_real_test_evidence(_cycle(candidate_dir), config)
+
+    assert report["valid"] is True
+    assert report["split_evidence_scope"] == "isolated_development_view"
+    assert report["excluded_training_split"] == "test"
+    assert report["violations"] == []
+
+
 def test_real_test_evidence_validation_blocks_missing_artifact(tmp_path):
     _write_project_files(tmp_path)
     artifact_root = tmp_path / "artifacts/w7/efficientnet"
