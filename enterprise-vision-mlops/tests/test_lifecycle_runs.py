@@ -318,3 +318,26 @@ def test_invalid_stage_transition_is_rejected(tmp_path: Path, monkeypatch) -> No
 
     with pytest.raises(LifecycleRunError, match="cannot transition from running to queued"):
         transition_stage(run.run_id, "data_pipeline", "queued", actor="worker")
+
+
+def test_atomic_json_write_retries_transient_windows_permission_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    target = tmp_path / "worker.json"
+    original_replace = Path.replace
+    attempts = 0
+
+    def flaky_replace(path: Path, destination: Path):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError("transient sharing violation")
+        return original_replace(path, destination)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+
+    lifecycle_runs.atomic_write_json(target, {"status": "online"})
+
+    assert attempts == 3
+    assert json.loads(target.read_text(encoding="utf-8")) == {"status": "online"}
+    assert not list(tmp_path.glob("*.tmp"))

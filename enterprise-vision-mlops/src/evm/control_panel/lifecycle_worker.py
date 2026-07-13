@@ -30,16 +30,29 @@ def heartbeat_loop(context: WorkerContext, lock: threading.Lock, interval: float
             if context.stop:
                 return
             current_run_id = context.current_run_id
-        write_worker_state(
-            LifecycleWorkerState(
-                status="online",
-                worker_id=context.worker_id,
-                pid=os.getpid(),
-                started_at=context.started_at,
-                last_seen_at=utc_now(),
-                current_run_id=current_run_id,
+        try:
+            write_worker_state(
+                LifecycleWorkerState(
+                    status="online",
+                    worker_id=context.worker_id,
+                    pid=os.getpid(),
+                    started_at=context.started_at,
+                    last_seen_at=utc_now(),
+                    current_run_id=current_run_id,
+                )
             )
-        )
+        except OSError as exc:
+            print(
+                json.dumps(
+                    {
+                        "worker_id": context.worker_id,
+                        "heartbeat_error": str(exc),
+                        "error_type": type(exc).__name__,
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
         time.sleep(interval)
 
 
