@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from evm.control_panel.aggregation import build_latest_cycle
+from evm.control_panel.ci_evidence_sync import synchronize_ci_evidence
 from evm.control_panel.deployment_executor import execute_apply, execute_rollback
 from evm.control_panel.deployment_intents import (
     approve_intent,
@@ -574,10 +575,47 @@ def process_ci_ct_gate(
         raise LifecycleStageBlocked("lifecycle_source_commit_missing")
     ci_preflight = rebuild_cycle(run).ci_evidence
     if ci_preflight is None or not ci_preflight.valid:
-        raise LifecycleStageBlocked(
-            "ci_evidence_blocked",
-            ci_preflight.blockers if ci_preflight is not None else ["ci_evidence_missing"],
+        synchronization = synchronize_ci_evidence(
+            run.source_commit,
+            run.source_branch or "",
         )
+        sync_report = Path(run.artifact_root) / "ci" / "ci-evidence-sync.json"
+        write_json(
+            sync_report,
+            {
+                "schema_version": "evm.lifecycle_ci_evidence_sync.v1",
+                "lifecycle_run_id": run.run_id,
+                "source_commit": run.source_commit,
+                "source_branch": run.source_branch,
+                "status": synchronization.status,
+                "message": synchronization.message,
+                "workflow_run_id": synchronization.workflow_run_id,
+                "workflow_url": synchronization.workflow_url,
+                "evidence_uri": synchronization.evidence_uri,
+                "synchronized": synchronization.synchronized,
+                "blockers": synchronization.blockers,
+                "validation": (
+                    synchronization.validation.model_dump(mode="json")
+                    if synchronization.validation is not None
+                    else None
+                ),
+            },
+        )
+        if synchronization.status == "pending":
+            return required_run(run.run_id)
+        if synchronization.status == "blocked":
+            raise LifecycleStageBlocked(
+                "ci_evidence_sync_blocked",
+                synchronization.blockers or ["ci_evidence_sync_blocked"],
+            )
+        ci_preflight = rebuild_cycle(run).ci_evidence
+        if ci_preflight is None or not ci_preflight.valid:
+            raise LifecycleStageBlocked(
+                "ci_evidence_blocked",
+                ci_preflight.blockers
+                if ci_preflight is not None
+                else ["ci_evidence_missing"],
+            )
     profile = read_json(runtime_path(run.profile_snapshot_uri))
     model = read_json(runtime_path(run.model_config_uri))
     data_profile = object_value(profile, "data")
