@@ -91,70 +91,82 @@ export function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshedAt, setRefreshedAt] = useState("");
-  const refreshInFlight = useRef(false);
+  const activeRefresh = useRef<Promise<void> | null>(null);
 
-  async function loadCycle(background = false) {
-    if (refreshInFlight.current) return;
-    refreshInFlight.current = true;
-    if (!background) setLoading(true);
+  async function loadCycle(background = false, queueAfterActive = false): Promise<void> {
+    if (activeRefresh.current) {
+      if (queueAfterActive) {
+        await activeRefresh.current;
+        return loadCycle(background, false);
+      }
+      return activeRefresh.current;
+    }
+    const operation = (async () => {
+      if (!background) setLoading(true);
+      try {
+        const results = await Promise.allSettled([
+          fetchCycles(),
+          selectedCycleRef.current ? fetchCycle(selectedCycleRef.current) : fetchLatestCycle(),
+          fetchRuntimeResources(),
+          fetchOrchestrators(),
+          fetchControlPanelDiagnostics(selectedCycleRef.current || undefined),
+          fetchLatestDriftReview(),
+          fetchDecisionRecords()
+        ]);
+        const synchronizedAt = new Date().toISOString();
+        setSyncSources((current) => sourceDefinitions.map((source, index) => {
+          const previous = current.find((item) => item.source_id === source.source_id);
+          const result = results[index];
+          if (result.status === "fulfilled") {
+            return { ...source, status: "live", last_success_at: synchronizedAt };
+          }
+          return {
+            ...source,
+            status: previous?.last_success_at ? "stale" : "error",
+            last_success_at: previous?.last_success_at,
+            error: errorMessage(result.reason)
+          };
+        }));
+
+        const [
+          catalogResult,
+          cycleResult,
+          resourceResult,
+          orchestratorResult,
+          diagnosticsResult,
+          driftResult,
+          decisionsResult
+        ] = results;
+        if (catalogResult.status === "fulfilled") {
+          setCatalog(catalogResult.value);
+          if (!selectedCycleRef.current) {
+            selectedCycleRef.current = catalogResult.value.latest_cycle_id;
+            setSelectedCycleId(catalogResult.value.latest_cycle_id);
+          }
+        }
+        if (cycleResult.status === "fulfilled") {
+          setCycle(cycleResult.value);
+          setError("");
+        } else {
+          setError(errorMessage(cycleResult.reason));
+        }
+        if (resourceResult.status === "fulfilled") setResourceSnapshot(resourceResult.value);
+        if (orchestratorResult.status === "fulfilled") setOrchestratorConnections(orchestratorResult.value);
+        if (diagnosticsResult.status === "fulfilled") setDiagnostics(diagnosticsResult.value);
+        if (driftResult.status === "fulfilled") setDriftWorkflow(driftResult.value);
+        if (decisionsResult.status === "fulfilled") setDecisionRegistry(decisionsResult.value);
+        if (results.some((result) => result.status === "fulfilled")) {
+          setRefreshedAt(new Date().toLocaleTimeString());
+        }
+      } finally {
+        if (!background) setLoading(false);
+      }
+    })();
+    activeRefresh.current = operation;
     try {
-      const results = await Promise.allSettled([
-        fetchCycles(),
-        selectedCycleRef.current ? fetchCycle(selectedCycleRef.current) : fetchLatestCycle(),
-        fetchRuntimeResources(),
-        fetchOrchestrators(),
-        fetchControlPanelDiagnostics(selectedCycleRef.current || undefined),
-        fetchLatestDriftReview(),
-        fetchDecisionRecords()
-      ]);
-      const synchronizedAt = new Date().toISOString();
-      setSyncSources((current) => sourceDefinitions.map((source, index) => {
-        const previous = current.find((item) => item.source_id === source.source_id);
-        const result = results[index];
-        if (result.status === "fulfilled") {
-          return { ...source, status: "live", last_success_at: synchronizedAt };
-        }
-        return {
-          ...source,
-          status: previous?.last_success_at ? "stale" : "error",
-          last_success_at: previous?.last_success_at,
-          error: errorMessage(result.reason)
-        };
-      }));
-
-      const [
-        catalogResult,
-        cycleResult,
-        resourceResult,
-        orchestratorResult,
-        diagnosticsResult,
-        driftResult,
-        decisionsResult
-      ] = results;
-      if (catalogResult.status === "fulfilled") {
-        setCatalog(catalogResult.value);
-        if (!selectedCycleRef.current) {
-          selectedCycleRef.current = catalogResult.value.latest_cycle_id;
-          setSelectedCycleId(catalogResult.value.latest_cycle_id);
-        }
-      }
-      if (cycleResult.status === "fulfilled") {
-        setCycle(cycleResult.value);
-        setError("");
-      } else {
-        setError(errorMessage(cycleResult.reason));
-      }
-      if (resourceResult.status === "fulfilled") setResourceSnapshot(resourceResult.value);
-      if (orchestratorResult.status === "fulfilled") setOrchestratorConnections(orchestratorResult.value);
-      if (diagnosticsResult.status === "fulfilled") setDiagnostics(diagnosticsResult.value);
-      if (driftResult.status === "fulfilled") setDriftWorkflow(driftResult.value);
-      if (decisionsResult.status === "fulfilled") setDecisionRegistry(decisionsResult.value);
-      if (results.some((result) => result.status === "fulfilled")) {
-        setRefreshedAt(new Date().toLocaleTimeString());
-      }
+      await operation;
     } finally {
-      if (!background) setLoading(false);
-      refreshInFlight.current = false;
+      if (activeRefresh.current === operation) activeRefresh.current = null;
     }
   }
 
@@ -220,9 +232,9 @@ export function App() {
         orchestrators={orchestratorConnections.orchestrators}
       />
     );
-    if (tab === "gates") return <GateAndRiskPanel cycle={cycle} workflow={driftWorkflow} onRefresh={() => loadCycle(true)} />;
+    if (tab === "gates") return <GateAndRiskPanel cycle={cycle} workflow={driftWorkflow} onRefresh={() => loadCycle(true, true)} />;
     if (tab === "release") return <ReleaseControl cycle={cycle} lifecycleRun={lifecycleContext} />;
-    if (tab === "governance") return <GovernancePanel cycle={cycle} lifecycleRun={lifecycleContext} registry={decisionRegistry} onRefresh={() => loadCycle(true)} />;
+    if (tab === "governance") return <GovernancePanel cycle={cycle} lifecycleRun={lifecycleContext} registry={decisionRegistry} onRefresh={() => loadCycle(true, true)} />;
     return <CycleOverview cycle={cycle} />;
   }, [cycle, decisionRegistry, driftWorkflow, lifecycleContext, orchestratorConnections, resourceSnapshot, tab]);
 
@@ -266,7 +278,7 @@ export function App() {
           >
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <button type="button" className="icon-button" onClick={() => void loadCycle()} aria-label="Refresh cycle">
+          <button type="button" className="icon-button" onClick={() => void loadCycle(false, true)} aria-label="Refresh cycle">
             <RefreshCcw size={18} />
           </button>
         </div>
