@@ -173,6 +173,31 @@ def test_replay_validation_blocks_tampered_runtime_config(
     assert "replay_identity_mismatch:reproducibility_digest" in replay.blockers
 
 
+def test_same_profile_creates_new_version_when_component_catalog_changes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    configure_roots(tmp_path, monkeypatch)
+    source_catalog = Path(__file__).resolve().parents[1] / "configs" / "model_components.json"
+    catalog_path = tmp_path / "model_components.json"
+    catalog_path.write_bytes(source_catalog.read_bytes())
+    monkeypatch.setenv("EVM_MODEL_COMPONENT_CATALOG", str(catalog_path))
+    profile = profile_with_evidence(tmp_path)
+
+    first = save_profile(profile)
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    catalog["components"][0]["source_revision"] = "b" * 40
+    catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+    second = save_profile(profile)
+
+    assert second.version == 2
+    assert second.digest == first.digest
+    assert second.model_component_catalog_sha256 != first.model_component_catalog_sha256
+    assert second.reproducibility_digest != first.reproducibility_digest
+    assert validate_profile_replay(first).status == "blocked"
+    assert validate_profile_replay(second).status == "ready"
+
+
 def test_saved_profile_validation_is_refreshed_without_mutating_snapshot(
     tmp_path: Path,
     monkeypatch,

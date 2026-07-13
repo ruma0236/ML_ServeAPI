@@ -563,7 +563,9 @@ def save_profile(profile: PipelineRunProfile) -> PipelineProfileRecord:
             None,
         )
         if existing and existing.reproducibility_digest:
-            return existing
+            replay = validate_profile_replay(existing)
+            if replay.status == "ready":
+                return existing
         versions = [item.version for item in read_profiles().profiles if item.profile_id == profile_id]
         version = max(versions, default=0) + 1
         directory = profile_root() / profile_id / f"v{version}"
