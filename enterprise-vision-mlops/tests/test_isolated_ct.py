@@ -183,6 +183,8 @@ def test_real_snapshot_copy_and_evaluator_pass_fail_closed_contract(tmp_path, mo
     assert snapshot.training_mount_isolated is True
     assert Path(snapshot.manifest_uri).is_file()
     assert ct_root.as_posix() in snapshot.snapshot_uri
+    snapshot_record = json.loads(Path(snapshot.manifest_uri).read_text().splitlines()[0])
+    assert isolated_ct.record_id(snapshot_record) == isolated_ct.record_id(_test_record)
     assert evaluation.status == "pass"
     assert evaluation.decision == "pass"
     assert evaluation.overlap_count == 0

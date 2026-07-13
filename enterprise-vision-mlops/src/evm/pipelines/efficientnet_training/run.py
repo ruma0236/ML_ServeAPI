@@ -31,6 +31,26 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def progress_file_callback(path: Path) -> Callable[[dict[str, Any]], None]:
+    def report(payload: dict[str, Any]) -> None:
+        progress = {
+            "schema_version": "evm.training_progress.v1",
+            "lifecycle_run_id": os.getenv("EVM_LIFECYCLE_RUN_ID", "").strip(),
+            **payload,
+            "updated_at": utc_now(),
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(f"{path.suffix}.tmp")
+        write_json(temporary, progress)
+        temporary.replace(path)
+        print(
+            json.dumps({"event": "training_progress", **progress}, ensure_ascii=False),
+            flush=True,
+        )
+
+    return report
+
+
 def file_sha256(path: Path, chunk_size: int = 1024 * 1024) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fp:
@@ -474,7 +494,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     require_pass = "--require-pass" in arguments
     positional = [argument for argument in arguments if not argument.startswith("--")]
     config_path = positional[0] if positional else "configs/w7_efficientnet_real_test.toml"
-    summary = run(config_path)
+    progress_path = os.getenv("EVM_TRAINING_PROGRESS_PATH", "").strip()
+    summary = (
+        run(config_path, progress_callback=progress_file_callback(Path(progress_path)))
+        if progress_path
+        else run(config_path)
+    )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     if require_pass and (blockers := required_candidate_blockers(summary)):
         print(json.dumps({"require_pass_blockers": blockers}), file=sys.stderr)

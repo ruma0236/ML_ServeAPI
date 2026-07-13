@@ -69,6 +69,46 @@ def test_host_bridge_executes_allowlisted_kustomize_job(tmp_path, monkeypatch):
     assert any(command[1:3] == ["get", "job"] for command in calls)
 
 
+def test_host_bridge_streams_allowlisted_training_progress(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    manifest_dir = project / "infra" / "kubernetes" / "expedited"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "kustomization.yaml").write_text("resources: []\n", encoding="utf-8")
+    lifecycle_root = tmp_path / "lifecycle-runs"
+    progress_path = lifecycle_root / "run-1" / "training-progress.json"
+    progress_path.parent.mkdir(parents=True)
+    progress_path.write_text(
+        json.dumps({"phase": "training", "epoch": 2, "unit_progress": 0.5}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EVM_PROJECT_ROOT", str(project))
+    monkeypatch.setenv("EVM_LIFECYCLE_RUN_ROOT", str(lifecycle_root))
+    monkeypatch.setenv("EVM_CONTROL_PANEL_LEDGER_ROOT", str(tmp_path / "ledger"))
+    task_request = request().model_copy(deep=True)
+    task_request.config_payload["progress_path"] = str(progress_path)
+    task = create_task_assignment(task_request)
+    observed: list[dict[str, object]] = []
+
+    def runner(command, **_kwargs):
+        if command[1:3] == ["config", "current-context"]:
+            return completed(command, "docker-desktop\n")
+        if command[1:3] == ["get", "job"]:
+            return completed(
+                command,
+                json.dumps({"status": {"conditions": [{"type": "Complete", "status": "True"}]}}),
+            )
+        return completed(command, "ok\n")
+
+    result = execute_kubernetes_task(
+        task.task_id,
+        runner=runner,
+        progress_callback=observed.append,
+    )
+
+    assert result.status == "done"
+    assert observed == [{"phase": "training", "epoch": 2, "unit_progress": 0.5}]
+
+
 def test_host_bridge_records_failed_job(tmp_path, monkeypatch):
     project = tmp_path / "project"
     manifest_dir = project / "infra" / "kubernetes" / "expedited"

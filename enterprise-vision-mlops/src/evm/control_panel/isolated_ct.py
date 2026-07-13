@@ -28,6 +28,7 @@ class TrainingDataView:
     root: Path
     shard_index_path: Path
     manifest_path: Path
+    usage_manifest_path: Path
     record_count: int
     linked_image_count: int
     identity_sha256: str
@@ -166,6 +167,13 @@ def immutable_file(path: Path) -> None:
 
 
 def record_id(record: dict[str, Any]) -> str:
+    ct_identity = str(record.get("ct_record_id") or "")
+    if ct_identity:
+        return ct_identity
+    return digest_record_id(record)
+
+
+def digest_record_id(record: dict[str, Any]) -> str:
     source = next(
         (
             str(record.get(key) or "")
@@ -191,7 +199,7 @@ def record_id(record: dict[str, Any]) -> str:
 
 
 def records_sha256(records: list[dict[str, Any]]) -> str:
-    return payload_sha256(sorted(record_id(record) for record in records))
+    return payload_sha256(sorted(digest_record_id(record) for record in records))
 
 
 def source_records_sha256_from_snapshot(records: list[dict[str, Any]]) -> str:
@@ -732,6 +740,7 @@ def materialize_training_data_view(
     record_count = 0
     linked_images = 0
     split_counts: dict[str, int] = {}
+    usage_assignments: list[dict[str, Any]] = []
     for shard in source_index.get("shards", []):
         if not isinstance(shard, dict):
             continue
@@ -751,6 +760,20 @@ def materialize_training_data_view(
             linked_images += link_training_asset(record, "image_uri", "image_path", view_root)
             if record.get("mask_uri"):
                 linked_images += link_training_asset(record, "mask_uri", None, view_root)
+            usage_assignments.append(
+                {
+                    "record_id": record_id(record),
+                    "label": (
+                        "normal"
+                        if str(record.get("label_type") or record.get("label") or "").lower()
+                        == "normal"
+                        else "anomaly"
+                    ),
+                    "split": split,
+                    "repeat": 0,
+                    "fold": 0,
+                }
+            )
         copied = dict(shard)
         copied["record_count"] = len(records)
         development_shards.append(copied)
@@ -779,6 +802,26 @@ def materialize_training_data_view(
     )
     view_index["identity_sha256"] = payload_sha256(view_index)
     atomic_write_json(target_index_path, view_index)
+    usage_assignments.sort(key=lambda item: str(item["record_id"]))
+    usage_manifest_path = view_root / "fold_manifest.json"
+    usage_manifest = {
+        "schema_version": "evm.training_data_usage_manifest.v1",
+        "experiment_id": lifecycle_run_id,
+        "dataset_version": str(source_index.get("dataset_version") or "unknown"),
+        "source_manifest_sha256": file_sha256(source_index_path),
+        "source_identity_sha256": str(source_index.get("identity_sha256") or ""),
+        "development_records": record_count,
+        "holdout_split": holdout_split,
+        "holdout_access_policy": "isolated_control_plane_only",
+        "holdout_used_for_selection": False,
+        "ct_evidence_exposed": False,
+        "assignment_role": "training_and_validation_usage",
+        "folds": 1,
+        "repeats": 1,
+        "assignments": usage_assignments,
+    }
+    usage_manifest["assignment_sha256"] = payload_sha256(usage_assignments)
+    atomic_write_json(usage_manifest_path, usage_manifest)
     manifest_path = view_root / "training_data_view.json"
     manifest = {
         "schema_version": TRAINING_VIEW_SCHEMA,
@@ -788,6 +831,8 @@ def materialize_training_data_view(
         "record_count": record_count,
         "linked_image_count": linked_images,
         "identity_sha256": view_index["identity_sha256"],
+        "usage_manifest_uri": str(usage_manifest_path),
+        "usage_manifest_sha256": file_sha256(usage_manifest_path),
         "training_data_scope": "development-only",
         "excluded_split": holdout_split,
         "ct_evidence_exposed": False,
@@ -798,6 +843,7 @@ def materialize_training_data_view(
         root=view_root,
         shard_index_path=target_index_path,
         manifest_path=manifest_path,
+        usage_manifest_path=usage_manifest_path,
         record_count=record_count,
         linked_image_count=linked_images,
         identity_sha256=str(view_index["identity_sha256"]),

@@ -372,6 +372,7 @@ def process_model_training(
                     ),
                     "delete_existing": True,
                     "lifecycle_run_id": run.run_id,
+                    "progress_path": str(bundle.progress_path or ""),
                 },
                 dry_run=False,
             )
@@ -410,8 +411,43 @@ def process_model_training(
                 evidence_uri=str(bundle.manifest_dir),
                 detail="Docker Desktop Kubernetes GPU training is executing",
             )
+
+        def report_training_progress(payload: dict[str, object]) -> None:
+            def integer(key: str) -> int:
+                try:
+                    return int(payload.get(key) or 0)
+                except (TypeError, ValueError):
+                    return 0
+
+            try:
+                progress = min(float(payload.get("unit_progress") or 0.0), 0.99)
+            except (TypeError, ValueError):
+                progress = 0.0
+            phase = str(payload.get("phase") or "training").replace("_", " ")
+            epoch = integer("epoch")
+            epochs = integer("epochs")
+            step = integer("step")
+            steps = integer("steps")
+            update_stage_runtime(
+                run.run_id,
+                "model_training",
+                actor="lifecycle-worker",
+                runtime_id=f"{bundle.namespace}/job/{bundle.job_name}",
+                runtime_state=(
+                    f"{phase}; epoch {epoch}/{epochs}; step {step}/{steps}"
+                ),
+                progress=progress,
+                detail=(
+                    f"GPU training {phase}: epoch {epoch}/{epochs}, "
+                    f"step {step}/{steps}"
+                ),
+            )
         try:
-            task = execute_kubernetes_task(task.task_id, runner=runner)
+            task = execute_kubernetes_task(
+                task.task_id,
+                runner=runner,
+                progress_callback=report_training_progress,
+            )
         except Exception:
             release_training_gpu_handoff(
                 run,

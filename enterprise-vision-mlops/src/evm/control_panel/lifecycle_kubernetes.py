@@ -42,6 +42,7 @@ class TrainingBundle:
     job_name: str
     candidate_id: str
     image: str
+    progress_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,7 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
         lifecycle_run_id=run.run_id,
         holdout_split=str(split_policy.get("holdout_split") or "test"),
     )
+    write_json(directory / "fold_manifest.json", read_json(training_view.usage_manifest_path))
     storage_identity = f"evm-training-{short_run_id(run.run_id)}"
     volume_name = f"{storage_identity}-pv"
     claim_name = f"{storage_identity}-pvc"
@@ -133,6 +135,7 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
         training_config_uri,
         experiment_search=experiment_search_enabled,
     )
+    progress_path = Path(run.artifact_root) / "training-progress.json"
     job = {
         "apiVersion": "batch/v1",
         "kind": "Job",
@@ -178,6 +181,10 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
                                     file_sha256(training_config_path),
                                 ),
                                 env(
+                                    "EVM_TRAINING_PROGRESS_PATH",
+                                    model_mount_path(str(progress_path)),
+                                ),
+                                env(
                                     "EVM_EXPERIMENT_RUN_ROOT",
                                     "/mnt/evm-data/artifacts/w8/experiment_runs",
                                 ),
@@ -213,7 +220,14 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
         directory,
         ["namespace.json", "storage-pv.json", "storage-pvc.json", "training-job.json"],
     )
-    return TrainingBundle(directory, namespace, job_name, candidate_id, image)
+    return TrainingBundle(
+        directory,
+        namespace,
+        job_name,
+        candidate_id,
+        image,
+        progress_path,
+    )
 
 
 def isolated_training_config(
@@ -295,6 +309,8 @@ def materialize_ct_bundle(
     training_job_manifest_path = (
         profile_path.parent / "kubernetes" / "training" / "training-job.json"
     )
+    if not fold_manifest_path.is_file():
+        fold_manifest_path = training_job_manifest_path.parent / "fold_manifest.json"
     if not fold_manifest_path.is_file() or not training_job_manifest_path.is_file():
         raise LifecycleKubernetesError("ct_training_isolation_evidence_missing")
 

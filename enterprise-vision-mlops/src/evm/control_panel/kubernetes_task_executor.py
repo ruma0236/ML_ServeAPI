@@ -13,6 +13,7 @@ from evm.control_panel.schemas import TaskAssignment
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
+ProgressCallback = Callable[[dict[str, object]], None]
 
 
 class KubernetesTaskExecutionError(RuntimeError):
@@ -44,6 +45,22 @@ def resolve_manifest_dir(value: object) -> Path:
     return candidate
 
 
+def resolve_progress_path(value: object) -> Path | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw).resolve()
+    lifecycle_root = Path(
+        os.getenv(
+            "EVM_LIFECYCLE_RUN_ROOT",
+            "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/lifecycle_runs",
+        )
+    ).resolve()
+    if not candidate.is_relative_to(lifecycle_root):
+        raise KubernetesTaskExecutionError("kubernetes_progress_path_not_allowed")
+    return candidate
+
+
 def run_command(
     runner: Runner,
     command: list[str],
@@ -68,9 +85,12 @@ def wait_for_job(
     job_name: str,
     timeout_seconds: int,
     command_log: list[dict[str, object]],
+    progress_path: Path | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> None:
     deadline = time.monotonic() + timeout_seconds
     command = ["kubectl", "get", "job", job_name, "-n", namespace, "-o", "json"]
+    previous_progress = ""
     while True:
         result = run_command(runner, command, timeout=30)
         command_log.append(result_payload(result, command))
@@ -85,6 +105,16 @@ def wait_for_job(
             for item in payload.get("status", {}).get("conditions", [])
             if isinstance(item, dict)
         }
+        if progress_path is not None and progress_callback is not None:
+            try:
+                serialized_progress = progress_path.read_text(encoding="utf-8")
+                if serialized_progress != previous_progress:
+                    progress = json.loads(serialized_progress)
+                    if isinstance(progress, dict):
+                        progress_callback(progress)
+                        previous_progress = serialized_progress
+            except (OSError, json.JSONDecodeError):
+                pass
         if conditions.get("Complete") == "True":
             return
         if conditions.get("Failed") == "True":
@@ -98,6 +128,7 @@ def execute_kubernetes_task(
     task_id: str,
     *,
     runner: Runner = subprocess.run,
+    progress_callback: ProgressCallback | None = None,
 ) -> TaskAssignment:
     task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
     if task is None:
@@ -113,6 +144,7 @@ def execute_kubernetes_task(
     namespace = str(task.config_payload.get("namespace") or "").strip()
     job_name = str(task.config_payload.get("job_name") or "").strip()
     timeout_seconds = int(task.config_payload.get("timeout_seconds") or 3600)
+    progress_path = resolve_progress_path(task.config_payload.get("progress_path"))
     if not namespace or not job_name:
         raise KubernetesTaskExecutionError("kubernetes_target_missing")
 
@@ -167,6 +199,8 @@ def execute_kubernetes_task(
             job_name=job_name,
             timeout_seconds=timeout_seconds,
             command_log=command_log,
+            progress_path=progress_path,
+            progress_callback=progress_callback,
         )
         logs = run_command(
             runner,

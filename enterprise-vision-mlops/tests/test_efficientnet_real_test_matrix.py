@@ -20,6 +20,7 @@ from evm.pipelines.efficientnet_training.run import (
     candidate_artifact_root,
     matrix_status,
     merge_candidate_results,
+    progress_file_callback,
     required_candidate_blockers,
     runtime_config_path,
     run,
@@ -121,6 +122,31 @@ def test_cli_main_uses_the_explicit_kubernetes_config(monkeypatch, capsys) -> No
 
     assert calls == ["/app/configs/w7_efficientnet_kubernetes.toml"]
     assert json.loads(capsys.readouterr().out) == {"status": "pass"}
+
+
+def test_progress_file_callback_publishes_atomic_training_telemetry(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    path = tmp_path / "training-progress.json"
+    monkeypatch.setenv("EVM_LIFECYCLE_RUN_ID", "lifecycle-real-1")
+
+    progress_file_callback(path)(
+        {
+            "phase": "training",
+            "epoch": 2,
+            "epochs": 4,
+            "step": 8,
+            "steps": 16,
+            "unit_progress": 0.5,
+        }
+    )
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "evm.training_progress.v1"
+    assert payload["lifecycle_run_id"] == "lifecycle-real-1"
+    assert payload["unit_progress"] == 0.5
+    assert not path.with_suffix(".json.tmp").exists()
+    assert '"event": "training_progress"' in capsys.readouterr().out
 
 
 def test_cli_require_pass_fails_a_blocked_selected_candidate(monkeypatch, capsys) -> None:

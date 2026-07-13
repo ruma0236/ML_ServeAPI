@@ -11,6 +11,7 @@ from evm.control_panel.lifecycle_kubernetes import (
     LifecycleKubernetesError,
     build_training_evidence,
     ct_evaluation_command,
+    materialize_ct_bundle,
     materialize_training_bundle,
     serving_command,
     training_command,
@@ -18,7 +19,7 @@ from evm.control_panel.lifecycle_kubernetes import (
 from evm.control_panel.lifecycle_runs import LifecycleRunRequest, create_lifecycle_run
 from evm.control_panel.operations import create_task_assignment, update_task_runtime
 from evm.control_panel.pipeline_profiles import default_profile, save_profile
-from evm.control_panel.schemas import TaskAssignmentRequest
+from evm.control_panel.schemas import CTDatasetSnapshot, TaskAssignmentRequest
 
 
 def write_json(path: Path, payload: object) -> None:
@@ -134,6 +135,15 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     assert training_config["inputs"]["training_data_scope"] == "development-only"
     assert training_config["inputs"]["ct_evidence_exposed"] is False
     assert training_config["training_view"]["excluded_split"] == "test"
+    assert bundle.progress_path == Path(run.artifact_root) / "training-progress.json"
+    usage_manifest = json.loads(
+        (bundle.manifest_dir / "fold_manifest.json").read_text(encoding="utf-8")
+    )
+    assert usage_manifest["schema_version"] == "evm.training_data_usage_manifest.v1"
+    assert usage_manifest["development_records"] == 1
+    assert usage_manifest["holdout_used_for_selection"] is False
+    assert usage_manifest["ct_evidence_exposed"] is False
+    assert len(usage_manifest["assignments"]) == 1
     assert (bundle.manifest_dir / "kustomization.yaml").is_file()
     pv = json.loads((bundle.manifest_dir / "storage-pv.json").read_text(encoding="utf-8"))
     pvc = json.loads((bundle.manifest_dir / "storage-pvc.json").read_text(encoding="utf-8"))
@@ -189,6 +199,71 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     assert data_mount["readOnly"] is True
 
 
+def test_ct_bundle_uses_manual_training_usage_manifest(tmp_path, monkeypatch) -> None:
+    run = lifecycle_run(tmp_path, monkeypatch)
+    training_bundle = materialize_training_bundle(run)
+    model = json.loads(Path(run.model_config_uri).read_text(encoding="utf-8"))
+    artifact_root = Path(model["resources"]["artifact_root"])
+    candidate_id = model["model_matrix"]["selected_candidate_id"]
+    candidate_dir = artifact_root / run.run_id / candidate_id
+    model_artifact = candidate_dir / "model.pt"
+    model_artifact.parent.mkdir(parents=True, exist_ok=True)
+    model_artifact.write_bytes(b"real-torch-checkpoint")
+    write_json(
+        candidate_dir / "candidate_summary.json",
+        {
+            "candidate_id": candidate_id,
+            "dataset_version": "visa-open-data-e35d93d5561f",
+            "status": "pass",
+            "model_artifact": str(model_artifact),
+        },
+    )
+    write_json(
+        artifact_root / "latest_model_matrix.json",
+        {
+            "status": "pass",
+            "candidates": [
+                {"candidate_id": candidate_id, "artifact_uri": str(candidate_dir)}
+            ],
+        },
+    )
+    ct_root = tmp_path / "evm-ct"
+    snapshot_root = ct_root / "snapshots" / "snapshot-test"
+    snapshot_root.mkdir(parents=True)
+    monkeypatch.setenv("EVM_HOST_CT_ROOT", str(ct_root))
+    snapshot = CTDatasetSnapshot(
+        snapshot_id="snapshot-test",
+        lifecycle_run_id=run.run_id,
+        profile_id=run.profile_id,
+        profile_version=run.profile_version,
+        profile_digest=run.profile_digest,
+        dataset_version="visa-open-data-e35d93d5561f",
+        split="test",
+        record_count=1,
+        byte_count=10,
+        records_sha256="1" * 64,
+        source_records_sha256="2" * 64,
+        source_index_uri="F:/source/shard_index.json",
+        source_index_sha256="3" * 64,
+        source_identity_sha256="4" * 64,
+        manifest_uri=str(snapshot_root / "holdout_manifest.jsonl"),
+        manifest_sha256="5" * 64,
+        snapshot_uri=str(snapshot_root / "snapshot.json"),
+        snapshot_digest="6" * 64,
+        isolation_root=str(snapshot_root),
+        immutable=True,
+        training_mount_isolated=True,
+        status="pass",
+        created_at="2026-07-13T00:00:00Z",
+    )
+
+    bundle = materialize_ct_bundle(run, snapshot)
+
+    assert bundle.fold_manifest_path == training_bundle.manifest_dir / "fold_manifest.json"
+    assert bundle.training_job_manifest_path == training_bundle.manifest_dir / "training-job.json"
+    assert (bundle.manifest_dir / "ct-job.json").is_file()
+
+
 def test_training_bundle_uses_blueprint_component_image_and_rejects_unpinned_image(
     tmp_path,
     monkeypatch,
@@ -222,6 +297,11 @@ def test_training_bundle_routes_enabled_search_to_experiment_pipeline(
     bundle = materialize_training_bundle(run)
     job = json.loads((bundle.manifest_dir / "training-job.json").read_text(encoding="utf-8"))
     container = job["spec"]["template"]["spec"]["containers"][0]
+    assert any(
+        item["name"] == "EVM_TRAINING_PROGRESS_PATH"
+        and item["value"].endswith(f"/{run.run_id}/training-progress.json")
+        for item in container["env"]
+    )
 
     assert "evm.pipelines.experiment_search.run" in container["command"][2]
     assert "--require-pass" in container["command"][2]
