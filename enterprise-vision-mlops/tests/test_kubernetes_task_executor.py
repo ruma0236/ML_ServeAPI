@@ -86,6 +86,32 @@ def test_host_bridge_records_failed_job(tmp_path, monkeypatch):
                 command,
                 json.dumps({"status": {"conditions": [{"type": "Failed", "status": "True"}]}}),
             )
+        if command[1:3] == ["get", "pods"]:
+            return completed(
+                command,
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "status": {
+                                    "containerStatuses": [
+                                        {
+                                            "state": {
+                                                "waiting": {
+                                                    "reason": "CreateContainerError",
+                                                    "message": "read-only mount conflict",
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                ),
+            )
+        if command[1] == "describe":
+            return completed(command, "mount setup failed\n")
         if command[1] == "logs":
             return completed(command, "training failed\n")
         return completed(command, "ok\n")
@@ -94,4 +120,8 @@ def test_host_bridge_records_failed_job(tmp_path, monkeypatch):
 
     assert result.status == "failed"
     assert result.runtime_state == "failed"
-    assert result.failure_reason == "kubernetes_job_failed"
+    assert result.failure_reason == "kubernetes_job_failed:CreateContainerError"
+    evidence = Path(result.runtime_evidence_uri or "")
+    assert "mount setup failed" in (evidence / "diagnostics.log").read_text(encoding="utf-8")
+    execution = json.loads((evidence / "execution.json").read_text(encoding="utf-8"))
+    assert execution["diagnostic_reason"] == "CreateContainerError"

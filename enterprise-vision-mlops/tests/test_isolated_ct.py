@@ -116,7 +116,7 @@ def evaluation_evidence(
                                 "volumeMounts": [
                                     {
                                         "name": "large-data",
-                                        "mountPath": "/mnt/evm-data",
+                                        "mountPath": "/mnt/evm-data/data",
                                         "readOnly": True,
                                     }
                                 ],

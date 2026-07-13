@@ -102,7 +102,7 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     storage = storage_resources(
         namespace,
         read_only=True,
-        host_path=docker_desktop_path(training_view.root),
+        host_path=docker_desktop_path(training_view.root / "data"),
         volume_name=volume_name,
         claim_name=claim_name,
     )
@@ -753,7 +753,11 @@ def training_volumes(claim_name: str) -> list[dict[str, Any]]:
 
 def training_volume_mounts() -> list[dict[str, Any]]:
     return [
-        *common_volume_mounts(read_only_data=True),
+        {"name": "wsl-lib", "mountPath": "/usr/lib/wsl/lib", "readOnly": True},
+        {"name": "wsl-drivers", "mountPath": "/usr/lib/wsl/drivers", "readOnly": True},
+        {"name": "large-data", "mountPath": "/mnt/evm-data/data", "readOnly": True},
+        {"name": "dshm", "mountPath": "/dev/shm"},
+        {"name": "tmp", "mountPath": "/tmp"},
         {
             "name": "training-artifacts",
             "mountPath": "/mnt/evm-data/artifacts",

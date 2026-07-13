@@ -674,7 +674,7 @@ def training_job_isolated(
         return False
     return (
         '"evm_training_data_scope", "value": "development-only"' in serialized
-        and '"mountpath": "/mnt/evm-data", "name": "large-data", "readonly": true'
+        and '"mountpath": "/mnt/evm-data/data", "name": "large-data", "readonly": true'
         in serialized
     )
 

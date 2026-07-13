@@ -126,10 +126,21 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
     assert pvc["spec"]["volumeName"] == expected_pv
     assert pvc["spec"]["accessModes"] == ["ReadOnlyMany"]
     assert "training_views" in pv["spec"]["hostPath"]["path"]
+    assert pv["spec"]["hostPath"]["path"].endswith("/data")
     data_volume = next(
         item for item in job["spec"]["template"]["spec"]["volumes"] if item["name"] == "large-data"
     )
     assert data_volume["persistentVolumeClaim"]["claimName"] == expected_pvc
+    data_mount = next(
+        item
+        for item in job["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
+        if item["name"] == "large-data"
+    )
+    assert data_mount == {
+        "name": "large-data",
+        "mountPath": "/mnt/evm-data/data",
+        "readOnly": True,
+    }
     assert any(
         item == {
             "name": "EVM_TRAINING_DATA_SCOPE",

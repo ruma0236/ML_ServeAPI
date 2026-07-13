@@ -193,6 +193,13 @@ def execute_kubernetes_task(
             raise KubernetesTaskExecutionError("task_not_found_after_completion")
         return completed
     except Exception as exc:
+        diagnostic_reason = collect_failure_diagnostics(
+            runner,
+            namespace=namespace,
+            job_name=job_name,
+            command_log=command_log,
+            evidence_dir=evidence_dir,
+        )
         try:
             logs = run_command(
                 runner,
@@ -211,9 +218,17 @@ def execute_kubernetes_task(
             )
         except Exception as log_exc:
             command_log.append({"command": ["kubectl", "logs"], "error": str(log_exc)})
+        failure_reason = str(exc)
+        if diagnostic_reason:
+            failure_reason = f"{failure_reason}:{diagnostic_reason}"
         write_json(
             evidence_dir / "execution.json",
-            {"status": "failed", "error": str(exc), "commands": command_log},
+            {
+                "status": "failed",
+                "error": str(exc),
+                "diagnostic_reason": diagnostic_reason,
+                "commands": command_log,
+            },
         )
         failed = update_task_runtime(
             task_id,
@@ -222,11 +237,85 @@ def execute_kubernetes_task(
             status="failed",
             runtime_state="failed",
             runtime_evidence_uri=evidence_uri,
-            failure_reason=str(exc),
+            failure_reason=failure_reason,
         )
         if failed is None:
             raise KubernetesTaskExecutionError("task_not_found_after_failure") from exc
         return failed
+
+
+def collect_failure_diagnostics(
+    runner: Runner,
+    *,
+    namespace: str,
+    job_name: str,
+    command_log: list[dict[str, object]],
+    evidence_dir: Path,
+) -> str | None:
+    selector = f"job-name={job_name}"
+    commands = [
+        ["kubectl", "describe", "job", job_name, "-n", namespace],
+        ["kubectl", "get", "pods", "-n", namespace, "-l", selector, "-o", "json"],
+        ["kubectl", "describe", "pods", "-n", namespace, "-l", selector],
+    ]
+    outputs: list[str] = []
+    pod_payload: dict[str, object] = {}
+    for command in commands:
+        try:
+            result = run_command(runner, command, timeout=120)
+            command_log.append(result_payload(result, command))
+            outputs.append(f"$ {' '.join(command)}\n{result.stdout}{result.stderr}")
+            if command[1:3] == ["get", "pods"] and result.returncode == 0:
+                try:
+                    candidate = json.loads(result.stdout)
+                    if isinstance(candidate, dict):
+                        pod_payload = candidate
+                except json.JSONDecodeError:
+                    pass
+        except Exception as diagnostic_exc:
+            command_log.append({"command": command, "error": str(diagnostic_exc)})
+            outputs.append(f"$ {' '.join(command)}\n{diagnostic_exc}")
+    (evidence_dir / "diagnostics.log").write_text(
+        "\n\n".join(outputs),
+        encoding="utf-8",
+    )
+    return pod_failure_reason(pod_payload)
+
+
+def pod_failure_reason(payload: dict[str, object]) -> str | None:
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        status = item.get("status")
+        if not isinstance(status, dict):
+            continue
+        for key in ("initContainerStatuses", "containerStatuses"):
+            statuses = status.get(key)
+            if not isinstance(statuses, list):
+                continue
+            for container_status in statuses:
+                if not isinstance(container_status, dict):
+                    continue
+                state = container_status.get("state")
+                if not isinstance(state, dict):
+                    continue
+                for phase in ("waiting", "terminated"):
+                    detail = state.get(phase)
+                    if isinstance(detail, dict) and detail.get("reason"):
+                        return str(detail["reason"])
+        conditions = status.get("conditions")
+        if isinstance(conditions, list):
+            for condition in conditions:
+                if (
+                    isinstance(condition, dict)
+                    and condition.get("status") == "False"
+                    and condition.get("reason")
+                ):
+                    return str(condition["reason"])
+    return None
 
 
 def result_payload(
