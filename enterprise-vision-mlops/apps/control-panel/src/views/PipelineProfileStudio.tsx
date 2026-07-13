@@ -17,7 +17,7 @@ import {
   Wrench,
   type LucideIcon
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createLifecycleRun,
@@ -84,6 +84,7 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
   const [error, setError] = useState("");
   const [rawOpen, setRawOpen] = useState(false);
   const [rawText, setRawText] = useState("");
+  const validationSequence = useRef(0);
 
   useEffect(() => {
     async function load() {
@@ -105,17 +106,24 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
           : null
       );
       setModelComponents(componentCatalog.components.filter((component) => component.status === "approved"));
-      setValidation(await validatePipelineProfile(defaultProfile));
+      const sequence = ++validationSequence.current;
+      const result = await validatePipelineProfile(defaultProfile);
+      if (sequence === validationSequence.current) setValidation(result);
     }
     void load().catch((reason) => setError(message(reason)));
   }, [cycle.tenant?.model_owner]);
 
   useEffect(() => {
     if (!profile) return;
+    const sequence = ++validationSequence.current;
     const timer = window.setTimeout(() => {
       void validatePipelineProfile(profile)
-        .then(setValidation)
-        .catch((reason) => setError(message(reason)));
+        .then((result) => {
+          if (sequence === validationSequence.current) setValidation(result);
+        })
+        .catch((reason) => {
+          if (sequence === validationSequence.current) setError(message(reason));
+        });
     }, 350);
     return () => window.clearTimeout(timer);
   }, [profile]);
@@ -144,16 +152,19 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
     setTask(null);
     setLifecycleRun(null);
     setError("");
+    setValidation(null);
     setProfile(next);
   }
 
   async function validateNow() {
     setBusy(true);
     setError("");
+    const sequence = ++validationSequence.current;
     try {
-      setValidation(await validatePipelineProfile(activeProfile));
+      const result = await validatePipelineProfile(activeProfile);
+      if (sequence === validationSequence.current) setValidation(result);
     } catch (reason) {
-      setError(message(reason));
+      if (sequence === validationSequence.current) setError(message(reason));
     } finally {
       setBusy(false);
     }
@@ -162,10 +173,11 @@ export function PipelineProfileStudio({ cycle }: PipelineProfileStudioProps) {
   async function saveVersion() {
     setBusy(true);
     setError("");
+    const sequence = ++validationSequence.current;
     try {
       const record = await savePipelineProfile(activeProfile);
       setSaved(record);
-      setValidation(record.validation);
+      if (sequence === validationSequence.current) setValidation(record.validation);
       setReplayValidation(
         await fetchPipelineProfileReplayValidation(record.profile_id, record.version)
       );
