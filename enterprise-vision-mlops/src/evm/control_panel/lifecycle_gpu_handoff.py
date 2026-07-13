@@ -193,6 +193,7 @@ def acquire_holders(
         return path
 
     holders: list[dict[str, Any]] = []
+    holder_blockers: list[str] = []
     for namespace, deployment in configured_holders():
         if excluded_holder == (namespace, deployment):
             continue
@@ -202,14 +203,25 @@ def acquire_holders(
         replicas = int(payload.get("spec", {}).get("replicas") or 0)
         if replicas < 1:
             continue
-        holders.append(
-            {
-                "namespace": namespace,
-                "deployment": deployment,
-                "original_replicas": replicas,
-                "selector": deployment_selector(payload),
-            }
-        )
+        images = deployment_images(payload)
+        holder = {
+            "namespace": namespace,
+            "deployment": deployment,
+            "original_replicas": replicas,
+            "selector": deployment_selector(payload),
+            "images": images,
+        }
+        holders.append(holder)
+        available = int(payload.get("status", {}).get("availableReplicas") or 0)
+        if available < replicas:
+            holder_blockers.append(
+                f"gpu_handoff_holder_not_ready:{namespace}/{deployment}"
+            )
+        for image in images:
+            if local_image_required(image) and not node_has_image(nodes, image):
+                holder_blockers.append(
+                    f"gpu_handoff_holder_image_unavailable:{namespace}/{deployment}:{image}"
+                )
 
     lease = base_payload(run, target, "acquiring") | {
         "gpu_allocatable": allocatable,
@@ -221,6 +233,11 @@ def acquire_holders(
         "blockers": [],
     }
     write_payload(path, lease)
+    if holder_blockers:
+        lease["state"] = "acquire_failed"
+        lease["blockers"] = sorted(set(holder_blockers))
+        write_payload(path, lease)
+        raise GpuHandoffError(";".join(lease["blockers"]))
     if not holders:
         lease["state"] = "not_required"
         lease["reason"] = "no_active_configured_gpu_holder"
@@ -323,6 +340,39 @@ def deployment_selector(payload: dict[str, Any]) -> str:
     if not isinstance(labels, dict):
         return ""
     return ",".join(f"{key}={value}" for key, value in sorted(labels.items()))
+
+
+def deployment_images(payload: dict[str, Any]) -> list[str]:
+    containers = (
+        payload.get("spec", {})
+        .get("template", {})
+        .get("spec", {})
+        .get("containers", [])
+    )
+    if not isinstance(containers, list):
+        return []
+    return sorted(
+        {
+            str(container.get("image") or "")
+            for container in containers
+            if isinstance(container, dict) and container.get("image")
+        }
+    )
+
+
+def local_image_required(image: str) -> bool:
+    prefix = os.getenv("EVM_LIFECYCLE_LOCAL_IMAGE_PREFIX", "enterprise-vision-mlops-")
+    return image.startswith(prefix) and "@sha256:" in image
+
+
+def node_has_image(nodes: dict[str, Any], image: str) -> bool:
+    for node in nodes.get("items", []):
+        if not isinstance(node, dict):
+            continue
+        for item in node.get("status", {}).get("images", []):
+            if isinstance(item, dict) and image in item.get("names", []):
+                return True
+    return False
 
 
 def wait_for_pods_deleted(runner: Runner, holder: dict[str, Any], lease: dict[str, Any]) -> None:

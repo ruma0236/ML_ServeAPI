@@ -40,6 +40,14 @@ spec:
             - /bin/sh
             - -ec
             - |
+              if [ -z "${EVM_IMAGE_SOURCE_REVISION:-}" ]; then
+                echo "image_source_revision_missing" >&2
+                exit 42
+              fi
+              if [ "$EVM_IMAGE_SOURCE_REVISION" != "$EVM_EXPECTED_COMPONENT_SOURCE_REVISION" ]; then
+                echo "component_source_revision_mismatch:expected=$EVM_EXPECTED_COMPONENT_SOURCE_REVISION,image=$EVM_IMAGE_SOURCE_REVISION" >&2
+                exit 42
+              fi
               DRIVER_DIR=""
               for candidate in /usr/lib/wsl/drivers/*; do
                 if [ -f "$candidate/libcuda.so.1.1" ]; then
@@ -57,6 +65,8 @@ spec:
           env:
             - name: APP_NAME
               value: evm-b0-production
+            - name: EVM_EXPECTED_COMPONENT_SOURCE_REVISION
+              value: 64ab9bf8f4be9736723e5cfa6027c55b82c852bb
             - name: EVM_MODEL_PATH
               value: /mnt/evm-data/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/model.pt
             - name: EVM_MODEL_SHA256
