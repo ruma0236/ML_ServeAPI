@@ -85,7 +85,7 @@ def lifecycle_run(tmp_path: Path, monkeypatch):
         }
     )
     record = save_profile(profile)
-    return create_lifecycle_run(
+    run = create_lifecycle_run(
         LifecycleRunRequest(
             profile_id=record.profile_id,
             profile_version=record.version,
@@ -94,6 +94,13 @@ def lifecycle_run(tmp_path: Path, monkeypatch):
             dry_run=True,
         )
     )
+    model = json.loads(Path(run.model_config_uri).read_text(encoding="utf-8"))
+    lifecycle_index = Path(
+        str(model["inputs"]["shard_index"]).replace("/mnt/evm-data", str(data_root))
+    )
+    lifecycle_index.parent.mkdir(parents=True, exist_ok=True)
+    lifecycle_index.write_bytes(shard.read_bytes())
+    return run
 
 
 def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, monkeypatch) -> None:
@@ -111,7 +118,19 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
         "memory": "16Gi",
         "nvidia.com/gpu": "1",
     }
-    assert run.model_runtime_uri in container["command"][2]
+    assert "/kubernetes/training/training.runtime.json" in container["command"][2]
+    training_config = json.loads(
+        (bundle.manifest_dir / "training.runtime.json").read_text(encoding="utf-8")
+    )
+    assert training_config["inputs"]["shard_index"] == "/mnt/evm-data/data/shard_index.json"
+    assert (
+        training_config["inputs"]["shard_identity_sha256"]
+        == training_config["training_view"]["identity_sha256"]
+    )
+    assert training_config["inputs"]["lifecycle_shard_identity_sha256"] == "a" * 64
+    assert training_config["inputs"]["training_data_scope"] == "development-only"
+    assert training_config["inputs"]["ct_evidence_exposed"] is False
+    assert training_config["training_view"]["excluded_split"] == "test"
     assert (bundle.manifest_dir / "kustomization.yaml").is_file()
     pv = json.loads((bundle.manifest_dir / "storage-pv.json").read_text(encoding="utf-8"))
     pvc = json.loads((bundle.manifest_dir / "storage-pvc.json").read_text(encoding="utf-8"))
@@ -146,6 +165,10 @@ def test_training_bundle_renders_profile_resources_and_pinned_image(tmp_path, mo
             "name": "EVM_TRAINING_DATA_SCOPE",
             "value": "development-only",
         }
+        for item in container["env"]
+    )
+    assert any(
+        item["name"] == "EVM_TRAINING_RUNTIME_CONFIG_SHA256" and len(item["value"]) == 64
         for item in container["env"]
     )
     data_mount = next(
@@ -197,6 +220,24 @@ def test_training_bundle_routes_enabled_search_to_experiment_pipeline(
         }
         for item in container["env"]
     )
+
+
+def test_training_bundle_rejects_lifecycle_shard_identity_drift(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = lifecycle_run(tmp_path, monkeypatch)
+    model = json.loads(Path(run.model_config_uri).read_text(encoding="utf-8"))
+    data_root = Path(str(tmp_path / "evm-data"))
+    lifecycle_index = Path(
+        str(model["inputs"]["shard_index"]).replace("/mnt/evm-data", str(data_root))
+    )
+    payload = json.loads(lifecycle_index.read_text(encoding="utf-8"))
+    payload["identity_sha256"] = "b" * 64
+    write_json(lifecycle_index, payload)
+
+    with pytest.raises(LifecycleKubernetesError, match="lifecycle_shard_identity_mismatch"):
+        materialize_training_bundle(run)
 
 
 def test_training_image_installs_experiment_runtime_dependencies() -> None:

@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from evm.control_panel.lifecycle_runs import LifecycleRun, lifecycle_deployment_name
 from evm.control_panel.isolated_ct import (
+    TrainingDataView,
     ct_runtime_path,
     docker_desktop_path,
     host_ct_root,
@@ -89,6 +90,13 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     inputs = object_value(model, "inputs")
     data_profile = object_value(profile, "data")
     split_policy = object_value(data_profile, "split")
+    lifecycle_shard_index = runtime_path(str(inputs.get("shard_index") or ""))
+    lifecycle_shard_identity = str(
+        read_json(lifecycle_shard_index).get("identity_sha256") or ""
+    )
+    expected_shard_identity = str(data_profile.get("split_manifest_sha256") or "")
+    if not lifecycle_shard_identity or lifecycle_shard_identity != expected_shard_identity:
+        raise LifecycleKubernetesError("lifecycle_shard_identity_mismatch")
     training_view = materialize_training_data_view(
         str(data_profile.get("split_manifest_uri") or inputs.get("shard_index") or ""),
         lifecycle_run_id=run.run_id,
@@ -108,11 +116,20 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
     )
     write_json(directory / "storage-pv.json", storage[0])
     write_json(directory / "storage-pvc.json", storage[1])
+    training_config_path = directory / "training.runtime.json"
+    training_config = isolated_training_config(
+        model,
+        training_view,
+        lifecycle_shard_index=lifecycle_shard_index,
+        lifecycle_shard_identity=lifecycle_shard_identity,
+    )
+    write_json(training_config_path, training_config)
+    training_config_uri = model_mount_path(str(training_config_path))
     experiment_search_enabled = bool(
         object_value(model, "experiment_search").get("enabled")
     )
     command = training_command(
-        run.model_runtime_uri,
+        training_config_uri,
         experiment_search=experiment_search_enabled,
     )
     job = {
@@ -152,6 +169,10 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
                                     training_view.identity_sha256,
                                 ),
                                 env(
+                                    "EVM_TRAINING_RUNTIME_CONFIG_SHA256",
+                                    file_sha256(training_config_path),
+                                ),
+                                env(
                                     "EVM_EXPERIMENT_RUN_ROOT",
                                     "/mnt/evm-data/artifacts/w8/experiment_runs",
                                 ),
@@ -188,6 +209,49 @@ def materialize_training_bundle(run: LifecycleRun) -> TrainingBundle:
         ["namespace.json", "storage-pv.json", "storage-pvc.json", "training-job.json"],
     )
     return TrainingBundle(directory, namespace, job_name, candidate_id, image)
+
+
+def isolated_training_config(
+    model: dict[str, Any],
+    training_view: TrainingDataView,
+    *,
+    lifecycle_shard_index: Path,
+    lifecycle_shard_identity: str,
+) -> dict[str, Any]:
+    data_root = (training_view.root / "data").resolve()
+    try:
+        relative_index = training_view.shard_index_path.resolve().relative_to(data_root)
+    except ValueError as exc:
+        raise LifecycleKubernetesError("training_view_index_outside_data_scope") from exc
+    runtime_index = f"/mnt/evm-data/data/{relative_index.as_posix()}"
+    training_model = json.loads(json.dumps(model))
+    training_inputs = training_model.setdefault("inputs", {})
+    if not isinstance(training_inputs, dict):
+        raise LifecycleKubernetesError("model_inputs_invalid")
+    training_inputs.update(
+        {
+            "shard_index": runtime_index,
+            "shard_identity_sha256": training_view.identity_sha256,
+            "shard_index_sha256": file_sha256(training_view.shard_index_path),
+            "lifecycle_shard_index": str(lifecycle_shard_index),
+            "lifecycle_shard_identity_sha256": lifecycle_shard_identity,
+            "training_data_scope": "development-only",
+            "excluded_split": "test",
+            "ct_evidence_exposed": False,
+        }
+    )
+    training_model["training_view"] = {
+        "schema_version": "evm.training_runtime_view.v1",
+        "root": "/mnt/evm-data/data",
+        "shard_index": runtime_index,
+        "identity_sha256": training_view.identity_sha256,
+        "record_count": training_view.record_count,
+        "linked_image_count": training_view.linked_image_count,
+        "training_data_scope": "development-only",
+        "excluded_split": "test",
+        "ct_evidence_exposed": False,
+    }
+    return training_model
 
 
 def materialize_ct_bundle(
