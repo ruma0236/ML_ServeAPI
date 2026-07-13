@@ -293,6 +293,9 @@ def run(
                     or matrix_cfg.get("minimum_records")
                     or 0
                 ),
+                expected_source_record_count=int(
+                    split_acceptance.get("min_total_records") or 0
+                ),
                 expected_source_digest=expected_shard_index_sha256,
                 dataset_metadata_path=dataset_metadata_path,
                 quality_report_path=quality_report_path,

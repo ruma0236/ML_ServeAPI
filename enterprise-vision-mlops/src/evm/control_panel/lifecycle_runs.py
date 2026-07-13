@@ -14,6 +14,7 @@ from pydantic import Field
 
 from evm.control_panel.experiment_runs import (
     ModelQualityReview,
+    is_metric_quality_review,
     mark_cancellation_requested,
     read_experiment,
     unresolved_quality_review,
@@ -106,6 +107,7 @@ def reject_run_quality_review(run_id: str, profile_digest: str) -> None:
         experiment is not None
         and experiment.quality_review is not None
         and experiment.quality_review.state == "review_required"
+        and is_metric_quality_review(experiment.quality_review)
     ):
         reject_quality_review(experiment.quality_review)
     reject_unresolved_quality_review(profile_digest)

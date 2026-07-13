@@ -102,6 +102,7 @@ def _validate_source_identity(
     shard_payload: dict[str, Any],
     dataset_version: str,
     expected_record_count: int,
+    expected_source_record_count: int,
     expected_source_digest: str,
 ) -> list[str]:
     blockers: list[str] = []
@@ -115,7 +116,7 @@ def _validate_source_identity(
         blockers.append("readiness_snapshot_quality_record_count_mismatch")
     if str(quality_payload.get("status") or "") != "pass":
         blockers.append("readiness_snapshot_quality_not_passing")
-    if evidence_record_count(shard_payload) != expected_record_count:
+    if evidence_record_count(shard_payload) != expected_source_record_count:
         blockers.append("readiness_snapshot_source_record_count_mismatch")
     observed_source_digest, _ = source_shard_digest(shard_path, shard_payload)
     if observed_source_digest.lower() != expected_source_digest.lower():
@@ -129,11 +130,17 @@ def capture_readiness_snapshot(
     candidate_id: str,
     dataset_version: str,
     expected_record_count: int,
+    expected_source_record_count: int | None = None,
     expected_source_digest: str,
     dataset_metadata_path: str | Path,
     quality_report_path: str | Path,
     source_shard_path: str | Path,
 ) -> Path:
+    source_record_count = (
+        expected_record_count
+        if expected_source_record_count is None
+        else expected_source_record_count
+    )
     sources = {
         "dataset_metadata": runtime_path(dataset_metadata_path),
         "quality_report": runtime_path(quality_report_path),
@@ -153,6 +160,7 @@ def capture_readiness_snapshot(
         shard_payload=shard_payload,
         dataset_version=dataset_version,
         expected_record_count=expected_record_count,
+        expected_source_record_count=source_record_count,
         expected_source_digest=expected_source_digest,
     )
     if blockers:
@@ -170,6 +178,13 @@ def capture_readiness_snapshot(
             and existing.get("candidate_id") == candidate_id
             and existing.get("dataset_version") == dataset_version
             and int(existing.get("record_count") or 0) == expected_record_count
+            and int(
+                existing.get("source_record_count")
+                if existing.get("source_record_count") is not None
+                else existing.get("record_count")
+                or 0
+            )
+            == source_record_count
             and str(existing.get("source_shard_index_sha256") or "").lower()
             == expected_source_digest.lower()
         )
@@ -221,6 +236,7 @@ def capture_readiness_snapshot(
             "candidate_id": candidate_id,
             "dataset_version": dataset_version,
             "record_count": expected_record_count,
+            "source_record_count": source_record_count,
             "source_shard_index_sha256": expected_source_digest,
             "created_at": utc_now(),
             "sources": source_entries,
@@ -236,6 +252,7 @@ def load_readiness_snapshot(
     dataset_version: str,
     expected_record_count: int,
     expected_source_digest: str,
+    expected_source_record_count: int | None = None,
     expected_manifest_digest: str = "",
     required: bool = False,
 ) -> ReadinessEvidenceSelection | None:
@@ -273,6 +290,15 @@ def load_readiness_snapshot(
         blockers.append("readiness_snapshot_dataset_version_mismatch")
     if int(payload.get("record_count") or 0) != expected_record_count:
         blockers.append("readiness_snapshot_record_count_mismatch")
+    if expected_source_record_count is not None:
+        observed_source_record_count = int(
+            payload.get("source_record_count")
+            if payload.get("source_record_count") is not None
+            else payload.get("record_count")
+            or 0
+        )
+        if observed_source_record_count != expected_source_record_count:
+            blockers.append("readiness_snapshot_source_record_count_mismatch")
     if str(payload.get("source_shard_index_sha256") or "").lower() != (
         expected_source_digest.lower()
     ):

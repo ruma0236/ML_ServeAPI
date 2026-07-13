@@ -4,7 +4,6 @@ import hashlib
 import itertools
 import json
 import os
-import re
 import statistics
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
@@ -19,6 +18,8 @@ from evm.control_panel.experiment_runs import (
     TrialResult,
     cancellation_requested,
     experiment_dir,
+    metric_quality_gates,
+    parse_metric_quality_gate,
     utc_now,
     write_experiment,
 )
@@ -56,13 +57,6 @@ Trainer = Callable[
 ]
 MlflowFactory = Callable[[str], MlflowRestClient]
 FinalTrainer = Callable[..., dict[str, Any]]
-
-
-_PROMOTION_GATE_PATTERN = re.compile(
-    r"^(?P<metric>[A-Za-z][A-Za-z0-9_]*)"
-    r"(?P<operator><=|>=|<|>)"
-    r"(?P<threshold>-?(?:\d+(?:\.\d*)?|\.\d+))$"
-)
 
 
 class ExperimentCancelled(RuntimeError):
@@ -138,11 +132,7 @@ def build_quality_review(
     )
     if not isinstance(candidate, dict):
         return None
-    failed_gates = sorted(
-        str(item)
-        for item in candidate.get("promotion_blockers", [])
-        if str(item).strip()
-    )
+    failed_gates = metric_quality_gates(candidate.get("promotion_blockers", []))
     if not failed_gates:
         return None
     observed_metrics = {
@@ -153,12 +143,12 @@ def build_quality_review(
     thresholds: dict[str, float] = {}
     failed_metrics: set[str] = set()
     for gate in failed_gates:
-        match = _PROMOTION_GATE_PATTERN.fullmatch(gate)
-        if match is None:
+        parsed = parse_metric_quality_gate(gate)
+        if parsed is None:
             continue
-        metric = match.group("metric")
+        metric, threshold = parsed
         failed_metrics.add(metric)
-        thresholds[metric] = float(match.group("threshold"))
+        thresholds[metric] = threshold
     recommendations = quality_recommendations(failed_metrics)
     fingerprint = canonical_sha256(
         {

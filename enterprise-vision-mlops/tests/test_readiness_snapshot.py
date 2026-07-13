@@ -22,7 +22,12 @@ def write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def source_files(tmp_path: Path, *, split_snapshot: bool) -> tuple[Path, Path, Path]:
+def source_files(
+    tmp_path: Path,
+    *,
+    split_snapshot: bool,
+    source_record_count: int = 6,
+) -> tuple[Path, Path, Path]:
     dataset = tmp_path / "sources" / "dataset-summary.json"
     quality = tmp_path / "sources" / "quality-summary.json"
     source = tmp_path / "sources" / "source.json"
@@ -43,7 +48,7 @@ def source_files(tmp_path: Path, *, split_snapshot: bool) -> tuple[Path, Path, P
     )
     source_payload: dict[str, object] = {
         "schema_version": "evm.w7.efficientnet_split_manifest.v1",
-        "record_count": 6,
+        "record_count": source_record_count,
         "source_shard_index_sha256": SOURCE_DIGEST,
     }
     if not split_snapshot:
@@ -122,6 +127,56 @@ def test_snapshot_survives_mutation_of_original_latest_sources(tmp_path: Path) -
     assert selection.expected_digests["source_shard"] == file_sha256(
         selection.source_shard_path
     )
+
+
+def test_snapshot_tracks_full_dataset_and_training_view_counts_separately(
+    tmp_path: Path,
+) -> None:
+    dataset, quality, source = source_files(
+        tmp_path,
+        split_snapshot=True,
+        source_record_count=4,
+    )
+    manifest = capture_readiness_snapshot(
+        output_dir=tmp_path / "candidate-run" / "_readiness_inputs",
+        candidate_id=CANDIDATE_ID,
+        dataset_version=DATASET_VERSION,
+        expected_record_count=6,
+        expected_source_record_count=4,
+        expected_source_digest=SOURCE_DIGEST,
+        dataset_metadata_path=dataset,
+        quality_report_path=quality,
+        source_shard_path=source,
+    )
+    payload = read_json(manifest)
+
+    assert payload["record_count"] == 6
+    assert payload["source_record_count"] == 4
+    selection = load_readiness_snapshot(
+        manifest,
+        candidate_id=CANDIDATE_ID,
+        dataset_version=DATASET_VERSION,
+        expected_record_count=6,
+        expected_source_record_count=4,
+        expected_source_digest=SOURCE_DIGEST,
+        expected_manifest_digest=file_sha256(manifest),
+        required=True,
+    )
+    assert selection is not None
+    assert selection.blockers == ()
+
+    mismatch = load_readiness_snapshot(
+        manifest,
+        candidate_id=CANDIDATE_ID,
+        dataset_version=DATASET_VERSION,
+        expected_record_count=6,
+        expected_source_record_count=5,
+        expected_source_digest=SOURCE_DIGEST,
+        expected_manifest_digest=file_sha256(manifest),
+        required=True,
+    )
+    assert mismatch is not None
+    assert "readiness_snapshot_source_record_count_mismatch" in mismatch.blockers
 
 
 def test_snapshot_loader_blocks_tampered_copied_evidence(tmp_path: Path) -> None:

@@ -32,6 +32,30 @@ TrainingPhase = Literal[
 ]
 QualityReviewState = Literal["review_required", "resolved"]
 _EXPERIMENT_LOCK = RLock()
+_PROMOTION_GATE_PATTERN = re.compile(
+    r"^(?P<metric>[A-Za-z][A-Za-z0-9_]*)"
+    r"(?P<operator><=|>=|<|>)"
+    r"(?P<threshold>-?(?:\d+(?:\.\d*)?|\.\d+))$"
+)
+
+
+def parse_metric_quality_gate(value: object) -> tuple[str, float] | None:
+    match = _PROMOTION_GATE_PATTERN.fullmatch(str(value).strip())
+    if match is None:
+        return None
+    return match.group("metric"), float(match.group("threshold"))
+
+
+def metric_quality_gates(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return sorted(
+        {
+            str(value).strip()
+            for value in values
+            if parse_metric_quality_gate(value) is not None
+        }
+    )
 
 
 class FoldResult(ContractModel):
@@ -94,6 +118,10 @@ class ModelQualityReview(ContractModel):
     repeat_guard: Literal["block_same_profile"] = "block_same_profile"
     evidence_uri: str
     created_at: str
+
+
+def is_metric_quality_review(review: ModelQualityReview) -> bool:
+    return bool(metric_quality_gates(review.failed_gates))
 
 
 class ExperimentRun(ContractModel):
@@ -221,6 +249,7 @@ def unresolved_quality_review(profile_digest: str) -> ModelQualityReview | None:
             review is not None
             and review.state == "review_required"
             and review.source_profile_digest == profile_digest
+            and is_metric_quality_review(review)
         ):
             return review
     return None

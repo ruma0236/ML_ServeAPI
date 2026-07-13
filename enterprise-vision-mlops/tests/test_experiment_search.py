@@ -5,9 +5,11 @@ from pathlib import Path
 
 from evm.control_panel.experiment_runs import (
     ExperimentRun,
+    ModelQualityReview,
     cancellation_requested,
     read_experiment,
     request_cancellation,
+    unresolved_quality_review,
     utc_now,
     write_experiment,
 )
@@ -340,3 +342,93 @@ def test_quality_regression_creates_repeat_guard_evidence(tmp_path: Path) -> Non
     assert "unfreeze_backbone" in review.recommendations
     assert review.repeat_guard == "block_same_profile"
     assert (tmp_path / "model_quality_review.json").is_file()
+
+
+def test_operational_blocker_does_not_create_quality_regression(tmp_path: Path) -> None:
+    now = utc_now()
+    state = ExperimentRun(
+        experiment_id="experiment-readiness-failure",
+        lifecycle_run_id="experiment-readiness-failure",
+        profile_name="readiness-profile",
+        profile_digest="d" * 64,
+        dataset_version="visa-v1",
+        source_manifest_sha256="e" * 64,
+        holdout_split="test",
+        holdout_sha256="f" * 64,
+        mode="manual",
+        primary_metric="f1",
+        seed=17,
+        folds=2,
+        repeats=1,
+        requested_trials=1,
+        total_units=3,
+        state="running",
+        gpu_quota=1,
+        scheduled_parallelism=1,
+        created_at=now,
+        updated_at=now,
+    )
+    review = experiment_search.build_quality_review(
+        state,
+        {
+            "candidates": [
+                {
+                    "candidate_id": "efficientnet-b0-test",
+                    "promotion_blockers": [
+                        "readiness_snapshot_capture_failed:source_record_count_mismatch"
+                    ],
+                }
+            ]
+        },
+        candidate_id="efficientnet-b0-test",
+        root=tmp_path,
+    )
+
+    assert review is None
+    assert not (tmp_path / "model_quality_review.json").exists()
+
+
+def test_historical_non_metric_review_does_not_lock_blueprint(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EVM_EXPERIMENT_RUN_ROOT", str(tmp_path / "experiments"))
+    now = utc_now()
+    profile_digest = "9" * 64
+    review = ModelQualityReview(
+        event_id="model-quality-operational-failure",
+        state="review_required",
+        fingerprint="8" * 64,
+        source_profile_digest=profile_digest,
+        dataset_version="visa-v1",
+        candidate_id="efficientnet-b0-test",
+        failed_gates=["readiness_snapshot_capture_failed:source_count_mismatch"],
+        evidence_uri=str(tmp_path / "model_quality_review.json"),
+        created_at=now,
+    )
+    run = ExperimentRun(
+        experiment_id="experiment-historical-operational-review",
+        lifecycle_run_id="experiment-historical-operational-review",
+        profile_name="historical-profile",
+        profile_digest=profile_digest,
+        dataset_version="visa-v1",
+        source_manifest_sha256="7" * 64,
+        holdout_split="test",
+        holdout_sha256="6" * 64,
+        mode="manual",
+        primary_metric="f1",
+        seed=17,
+        folds=2,
+        repeats=1,
+        requested_trials=1,
+        total_units=3,
+        state="blocked",
+        gpu_quota=1,
+        scheduled_parallelism=1,
+        quality_review=review,
+        created_at=now,
+        updated_at=now,
+    )
+    write_experiment(run)
+
+    assert unresolved_quality_review(profile_digest) is None
