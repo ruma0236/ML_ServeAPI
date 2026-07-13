@@ -268,10 +268,15 @@ def test_ct_bundle_uses_manual_training_usage_manifest(tmp_path, monkeypatch) ->
     )
 
     bundle = materialize_ct_bundle(run, snapshot)
+    job = json.loads((bundle.manifest_dir / "ct-job.json").read_text(encoding="utf-8"))
+    container = job["spec"]["template"]["spec"]["containers"][0]
+    environment = {item["name"]: item["value"] for item in container["env"]}
 
     assert bundle.fold_manifest_path == training_bundle.manifest_dir / "fold_manifest.json"
     assert bundle.training_job_manifest_path == training_bundle.manifest_dir / "training-job.json"
     assert (bundle.manifest_dir / "ct-job.json").is_file()
+    assert environment["EVM_HOST_CT_ROOT"] == str(ct_root).replace("\\", "/")
+    assert environment["EVM_CT_MOUNT_ROOT"] == "/mnt/evm-ct"
 
 
 def test_training_bundle_uses_blueprint_component_image_and_rejects_unpinned_image(

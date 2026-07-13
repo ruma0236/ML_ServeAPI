@@ -12,6 +12,7 @@ from typing import Any, Callable
 from evm.control_panel.lifecycle_runs import LifecycleRun, lifecycle_deployment_name
 from evm.control_panel.isolated_ct import (
     TrainingDataView,
+    configured_host_ct_root,
     ct_runtime_path,
     docker_desktop_path,
     host_ct_root,
@@ -374,7 +375,10 @@ def materialize_ct_bundle(
                                     "EVM_EXPECTED_COMPONENT_SOURCE_REVISION",
                                     component_revision,
                                 ),
-                                env("EVM_HOST_CT_ROOT", "/mnt/evm-ct"),
+                                env(
+                                    "EVM_HOST_CT_ROOT",
+                                    str(configured_host_ct_root()).replace("\\", "/"),
+                                ),
                                 env("EVM_CT_MOUNT_ROOT", "/mnt/evm-ct"),
                                 env("HOME", "/tmp"),
                                 env("MPLCONFIGDIR", "/tmp/matplotlib"),
