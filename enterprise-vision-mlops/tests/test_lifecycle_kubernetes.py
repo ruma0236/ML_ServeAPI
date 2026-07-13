@@ -185,6 +185,11 @@ def test_training_image_installs_experiment_runtime_dependencies() -> None:
 
     assert "optuna==4.9.0" in dockerfile
     assert "pydantic==2.10.3" in dockerfile
+    assert (
+        "COPY configs/w7_efficientnet_kubernetes.toml "
+        "/app/configs/w7_efficientnet_kubernetes.toml"
+    ) in dockerfile
+    assert "COPY configs /app/configs" not in dockerfile
 
 
 def test_training_evidence_binds_job_gpu_mlflow_and_model_digest(tmp_path, monkeypatch) -> None:

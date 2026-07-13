@@ -29,7 +29,7 @@ RUN useradd --create-home --uid 10001 evm
 
 COPY pyproject.toml docker-compose.yml /app/
 COPY src /app/src
-COPY configs /app/configs
+COPY configs/w7_efficientnet_kubernetes.toml /app/configs/w7_efficientnet_kubernetes.toml
 
 USER 10001:10001
 
