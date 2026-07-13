@@ -792,8 +792,10 @@ def link_training_asset(
 
 def docker_desktop_path(path: Path) -> str:
     normalized = str(path.resolve()).replace("\\", "/")
+    if normalized.startswith("/"):
+        return normalized
     if len(normalized) < 3 or normalized[1:3] != ":/":
-        raise ValueError(f"windows_absolute_path_required:{normalized}")
+        raise ValueError(f"absolute_host_path_required:{normalized}")
     drive = normalized[0].lower()
     return f"/run/desktop/mnt/host/{drive}/{normalized[3:]}"
 

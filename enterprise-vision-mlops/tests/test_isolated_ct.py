@@ -293,3 +293,8 @@ def test_runtime_roots_use_container_mounts_when_windows_paths_are_unavailable(
     assert isolated_ct.canonical_ct_uri(ct_mount / "snapshots" / "a.json") == (
         "Z:/missing/evm-ct/snapshots/a.json"
     )
+    converted = isolated_ct.docker_desktop_path(data_mount)
+    if data_mount.drive:
+        assert converted.startswith("/run/desktop/mnt/host/")
+    else:
+        assert converted == str(data_mount).replace("\\", "/")
