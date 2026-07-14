@@ -32,13 +32,20 @@ test("@pipeline-profile validates effective and unsupported tuning paths", async
   await expect(studio.getByText(/11\/11 identities sealed/)).toBeVisible();
   await expect(studio.getByRole("button", { name: "Queue Data Cycle" })).toBeEnabled();
   await studio.getByRole("button", { name: "Create Dry Run", exact: true }).click();
-  await expect(studio.locator(".profile-task")).toContainText("dry_run");
+  await expect(studio.locator(".profile-task")).toContainText("dry run");
 
   await studio.getByRole("button", { name: "Data", exact: true }).click();
   await studio.getByText("Cross-validation", { exact: true }).click();
   await expect(studio.getByLabel("Cross-validation")).toBeChecked();
-  await expect(studio.getByText("capability_not_wired:cross_validation_executor")).toBeVisible();
+  await expect(
+    studio.locator(".capability-list article").filter({ hasText: "Cross-validation executor" })
+  ).toContainText("wired");
+  await expect(studio.getByText("capability_not_wired:cross_validation_executor")).toHaveCount(0);
   await expect(studio.getByRole("button", { name: "Queue Data Cycle" })).toBeDisabled();
+  await studio.getByRole("button", { name: "Review", exact: true }).click();
+  await studio.getByRole("button", { name: "Save Version", exact: true }).click();
+  await expect(studio.locator(".replay-verification")).toHaveAttribute("data-status", "ready");
+  await expect(studio.getByRole("button", { name: "Queue Data Cycle" })).toBeEnabled();
 
   await studio.getByRole("button", { name: "Config Document", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Pipeline profile JSON document" })).toBeVisible();

@@ -114,6 +114,7 @@ describe("Control Panel source synchronization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    window.history.replaceState({}, "", "/");
     const catalog: CycleRunList = {
       cycles: [{
         cycle_id: exampleCycle.cycle_id,
@@ -167,7 +168,7 @@ describe("Control Panel source synchronization", () => {
     expect(refresh).not.toBeNull();
     await act(async () => refresh?.click());
     await flushUpdates();
-    expect(container.textContent).toContain("Degraded");
+    expect(container.textContent).toContain("Partial");
 
     const govern = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent === "Govern"
@@ -181,26 +182,28 @@ describe("Control Panel source synchronization", () => {
     await act(async () => governance?.click());
     expect(container.textContent).toContain("Retain verified B7 rollback in staging");
     expect(container.textContent).not.toContain("API unavailable");
-    expect(localStorage.getItem("evm.control-panel.selected-tab")).toBe("governance");
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("governance");
+    expect(localStorage.getItem("evm.control-panel.selected-tab")).toBeNull();
   });
 
-  it("does not let a stale restored run overwrite the latest Runs selection", async () => {
+  it("ignores legacy origin-scoped state and keeps the newest Runs context in the URL", async () => {
     const staleRun = lifecycleRun("lifecycle-old", "cycle-old");
     const latestRun = lifecycleRun("lifecycle-new", exampleCycle.cycle_id);
-    let resolveRestoredRun: ((run: LifecycleRun) => void) | undefined;
-    api.fetchLifecycleRun.mockReturnValue(new Promise<LifecycleRun>((resolve) => {
-      resolveRestoredRun = resolve;
-    }));
     api.fetchLifecycleRuns.mockResolvedValue({ runs: [latestRun], total: 1 });
-    localStorage.setItem("evm.control-panel.selected-tab", "runs");
+    window.history.replaceState({}, "", "/?view=runs");
+    localStorage.setItem("evm.control-panel.selected-cycle", staleRun.cycle_id);
     localStorage.setItem("evm.control-panel.selected-run", staleRun.run_id);
+    localStorage.setItem("evm.control-panel.selected-tab", "release");
 
     await act(async () => root.render(<App />));
     await flushUpdates();
-    expect(localStorage.getItem("evm.control-panel.selected-run")).toBe(latestRun.run_id);
+    expect(api.fetchLifecycleRun).not.toHaveBeenCalled();
+    expect(new URLSearchParams(window.location.search).get("run")).toBe(latestRun.run_id);
+    expect(new URLSearchParams(window.location.search).get("cycle")).toBe(latestRun.cycle_id);
+    expect(localStorage.getItem("evm.control-panel.selected-run")).toBeNull();
+    expect(localStorage.getItem("evm.control-panel.selected-cycle")).toBeNull();
+    expect(localStorage.getItem("evm.control-panel.selected-tab")).toBeNull();
 
-    await act(async () => resolveRestoredRun?.(staleRun));
-    await flushUpdates();
     const release = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent === "Release"
     );
@@ -212,6 +215,110 @@ describe("Control Panel source synchronization", () => {
 
     expect(container.textContent).toContain(latestRun.run_id);
     expect(container.textContent).not.toContain(staleRun.run_id);
+  });
+
+  it("shows Connecting during the first request instead of reporting a false degradation", async () => {
+    let resolveLatest: ((cycle: CycleRun) => void) | undefined;
+    api.fetchLatestCycle.mockReturnValue(new Promise<CycleRun>((resolve) => {
+      resolveLatest = resolve;
+    }));
+
+    await act(async () => root.render(<App />));
+    await flushUpdates();
+    expect(container.textContent).toContain("Connecting");
+    expect(container.textContent).toContain("Synchronizing CycleRun");
+    expect(container.textContent).not.toContain("Degraded");
+    expect(container.textContent).not.toContain("Unavailable");
+
+    await act(async () => resolveLatest?.(exampleCycle as CycleRun));
+    await flushUpdates();
+    expect(container.textContent).toContain("Live 5s");
+    expect(container.textContent).toContain("LIVE DATA");
+  });
+
+  it("uses a shareable historical URL and clears it when returning to LIVE", async () => {
+    const historical = {
+      ...(exampleCycle as CycleRun),
+      cycle_id: "cycle-historical-001",
+      started_at: "2026-07-10T00:00:00Z"
+    };
+    const catalog = await api.fetchCycles();
+    api.fetchCycles.mockResolvedValue({
+      ...catalog,
+      total: 2,
+      cycles: [
+        { ...catalog.cycles[0], cycle_id: historical.cycle_id, live: false },
+        catalog.cycles[0]
+      ]
+    });
+    api.fetchCycle.mockImplementation((cycleId: string) => Promise.resolve(
+      cycleId === historical.cycle_id ? historical : exampleCycle as CycleRun
+    ));
+    window.history.replaceState({}, "", `/?cycle=${historical.cycle_id}`);
+
+    await act(async () => root.render(<App />));
+    await flushUpdates();
+    expect(api.fetchCycle).toHaveBeenCalledWith(historical.cycle_id);
+    expect(container.textContent).toContain("HISTORICAL SNAPSHOT");
+    expect(container.textContent).toContain("Return to Live");
+    expect(new URLSearchParams(window.location.search).get("cycle")).toBe(historical.cycle_id);
+
+    const returnToLive = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Return to Live")
+    );
+    await act(async () => returnToLive?.click());
+    await flushUpdates();
+    expect(new URLSearchParams(window.location.search).has("cycle")).toBe(false);
+    expect(container.textContent).toContain("LIVE DATA");
+    expect(container.textContent).not.toContain("HISTORICAL SNAPSHOT");
+  });
+
+  it("does not let a late historical refresh overwrite a newer LIVE selection", async () => {
+    const historical = {
+      ...(exampleCycle as CycleRun),
+      cycle_id: "cycle-historical-race",
+      status: "pass" as const
+    };
+    const catalog = await api.fetchCycles();
+    api.fetchCycles.mockResolvedValue({
+      ...catalog,
+      total: 2,
+      cycles: [
+        { ...catalog.cycles[0], cycle_id: historical.cycle_id, status: "pass", live: false },
+        catalog.cycles[0]
+      ]
+    });
+    let historicalRequests = 0;
+    let resolveLateHistorical: ((cycle: CycleRun) => void) | undefined;
+    api.fetchCycle.mockImplementation((cycleId: string) => {
+      if (cycleId !== historical.cycle_id) return Promise.resolve(exampleCycle as CycleRun);
+      historicalRequests += 1;
+      if (historicalRequests === 1) return Promise.resolve(historical);
+      return new Promise<CycleRun>((resolve) => {
+        resolveLateHistorical = resolve;
+      });
+    });
+    window.history.replaceState({}, "", `/?cycle=${historical.cycle_id}`);
+
+    await act(async () => root.render(<App />));
+    await flushUpdates();
+    expect(container.querySelector(".footer-line")?.textContent).toContain(historical.cycle_id);
+
+    const refresh = container.querySelector<HTMLButtonElement>('button[aria-label="Refresh cycle"]');
+    await act(async () => refresh?.click());
+    await flushUpdates();
+    const returnToLive = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Return to Live")
+    );
+    await act(async () => returnToLive?.click());
+    await flushUpdates();
+    expect(container.querySelector(".footer-line")?.textContent).toContain(exampleCycle.cycle_id);
+
+    await act(async () => resolveLateHistorical?.(historical));
+    await flushUpdates();
+    expect(container.querySelector(".footer-line")?.textContent).toContain(exampleCycle.cycle_id);
+    expect(container.querySelector(".footer-line")?.textContent).not.toContain(historical.cycle_id);
+    expect(new URLSearchParams(window.location.search).has("cycle")).toBe(false);
   });
 });
 

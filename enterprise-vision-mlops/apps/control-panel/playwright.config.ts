@@ -8,6 +8,7 @@ const configuredWorkers = Number.parseInt(
 export default defineConfig({
   testDir: "../../tests/control-panel",
   testMatch: /.*\.spec\.ts/,
+  globalSetup: "../../tests/control-panel/global-setup.ts",
   // Live API state and F-drive evidence paths are shared across scenarios.
   workers: configuredWorkers > 0 ? configuredWorkers : 1,
   outputDir:

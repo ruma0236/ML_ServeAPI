@@ -11,17 +11,17 @@ test("@w7-operations creates guarded tasks and command intents", async ({ page }
   await expect(page.getByRole("heading", { name: "Task Authoring" })).toBeVisible();
 
   await page.getByRole("button", { name: "Validate Task", exact: true }).click();
-  await expect(page.getByText("dry_run").first()).toBeVisible();
+  await expect(page.getByText("dry run", { exact: true }).first()).toBeVisible();
 
   await page.locator("label").filter({ hasText: "Approval" }).getByRole("combobox").selectOption("manual");
   await page.getByRole("button", { name: "Queue Intent", exact: true }).click();
-  await expect(page.getByText("pending_confirmation").first()).toBeVisible();
+  await expect(page.getByText("pending confirmation", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Preview Command", exact: true }).click();
   const focusedCommand = page.locator('[data-focused-command="true"]');
   await expect(focusedCommand).toContainText("command_intent_created");
   await focusedCommand.getByRole("button", { name: "Confirm", exact: true }).click();
-  await expect(focusedCommand).toContainText("pending_confirmation");
+  await expect(focusedCommand).toContainText("pending confirmation");
   await focusedCommand.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(focusedCommand).toContainText("cancelled");
 

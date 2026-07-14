@@ -30,8 +30,7 @@ import type {
   DriftReviewWorkflow,
   LifecycleRun,
   OrchestratorConnectionList,
-  RuntimeResourceList,
-  State
+  RuntimeResourceList
 } from "./api/types";
 import { DiagnosticsDrawer, type ClientSyncSource } from "./components/DiagnosticsDrawer";
 import { CycleSelector } from "./components/CycleSelector";
@@ -104,16 +103,26 @@ const sourceDefinitions = [
   { source_id: "decisions", label: "Decisions" }
 ];
 
-const SELECTED_CYCLE_KEY = "evm.control-panel.selected-cycle";
-const SELECTED_RUN_KEY = "evm.control-panel.selected-run";
-const SELECTED_TAB_KEY = "evm.control-panel.selected-tab";
+const LEGACY_VIEW_KEYS = [
+  "evm.control-panel.selected-cycle",
+  "evm.control-panel.selected-run",
+  "evm.control-panel.selected-tab"
+];
+
+interface ViewLocation {
+  cycleId: string;
+  runId: string;
+  tab: TabKey;
+}
+
+type SyncMode = "connecting" | "live" | "partial" | "unavailable";
 
 export function App() {
-  const restoredCycleId = readLocalValue(SELECTED_CYCLE_KEY);
+  const [initialLocation] = useState<ViewLocation>(readViewLocation);
   const [cycle, setCycle] = useState<CycleRun | null>(null);
   const [catalog, setCatalog] = useState<CycleRunList | null>(null);
-  const [selectedCycleId, setSelectedCycleId] = useState(restoredCycleId);
-  const selectedCycleRef = useRef(restoredCycleId);
+  const [selectedCycleId, setSelectedCycleId] = useState(initialLocation.cycleId);
+  const selectedCycleRef = useRef(initialLocation.cycleId);
   const [resourceSnapshot, setResourceSnapshot] = useState<RuntimeResourceList>({
     resources: [],
     observation_status: "unavailable"
@@ -129,7 +138,7 @@ export function App() {
   const [syncSources, setSyncSources] = useState<ClientSyncSource[]>(
     sourceDefinitions.map((source) => ({ ...source, status: "stale" }))
   );
-  const [tab, setTab] = useState<TabKey>(() => restoredTab());
+  const [tab, setTab] = useState<TabKey>(initialLocation.tab);
   const [lifecycleContext, setLifecycleContext] = useState<LifecycleRun | null>(null);
   const [blueprintTarget, setBlueprintTarget] = useState<{
     profileId: string;
@@ -138,8 +147,10 @@ export function App() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [initialSyncComplete, setInitialSyncComplete] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState("");
   const activeRefresh = useRef<Promise<void> | null>(null);
+  const selectionVersion = useRef(0);
 
   async function loadCycle(background = false, queueAfterActive = false): Promise<void> {
     if (activeRefresh.current) {
@@ -151,19 +162,25 @@ export function App() {
     }
     const operation = (async () => {
       if (!background) setLoading(true);
+      const requestSelectionVersion = selectionVersion.current;
+      const requestedCycleId = selectedCycleRef.current;
       try {
         const results = await Promise.allSettled([
           fetchCycles(),
-          selectedCycleRef.current ? fetchCycle(selectedCycleRef.current) : fetchLatestCycle(),
+          requestedCycleId ? fetchCycle(requestedCycleId) : fetchLatestCycle(),
           fetchRuntimeResources(),
           fetchOrchestrators(),
-          fetchControlPanelDiagnostics(selectedCycleRef.current || undefined),
+          fetchControlPanelDiagnostics(requestedCycleId || undefined),
           fetchLatestDriftReview(),
           fetchDecisionRecords()
         ]);
         const synchronizedAt = new Date().toISOString();
+        const selectionRequestIsCurrent = requestSelectionVersion === selectionVersion.current;
         setSyncSources((current) => sourceDefinitions.map((source, index) => {
           const previous = current.find((item) => item.source_id === source.source_id);
+          if (["cycle", "diagnostics"].includes(source.source_id) && !selectionRequestIsCurrent) {
+            return previous || { ...source, status: "stale" };
+          }
           const result = results[index];
           if (result.status === "fulfilled") {
             return { ...source, status: "live", last_success_at: synchronizedAt };
@@ -192,22 +209,31 @@ export function App() {
             setSelectedCycleId(catalogResult.value.latest_cycle_id);
           }
         }
-        if (cycleResult.status === "fulfilled") {
+        if (cycleResult.status === "fulfilled" && selectionRequestIsCurrent) {
           setCycle(cycleResult.value);
+          if (!selectedCycleRef.current) {
+            selectedCycleRef.current = cycleResult.value.cycle_id;
+            setSelectedCycleId(cycleResult.value.cycle_id);
+          }
           setError("");
-        } else {
+        } else if (cycleResult.status === "rejected" && selectionRequestIsCurrent) {
           setError(errorMessage(cycleResult.reason));
         }
         if (resourceResult.status === "fulfilled") setResourceSnapshot(resourceResult.value);
         if (orchestratorResult.status === "fulfilled") setOrchestratorConnections(orchestratorResult.value);
-        if (diagnosticsResult.status === "fulfilled") setDiagnostics(diagnosticsResult.value);
+        if (diagnosticsResult.status === "fulfilled" && selectionRequestIsCurrent) {
+          setDiagnostics(diagnosticsResult.value);
+        }
         if (driftResult.status === "fulfilled") setDriftWorkflow(driftResult.value);
         if (decisionsResult.status === "fulfilled") setDecisionRegistry(decisionsResult.value);
         if (results.some((result) => result.status === "fulfilled")) {
           setRefreshedAt(new Date().toLocaleTimeString());
         }
       } finally {
-        if (!background) setLoading(false);
+        if (!background && requestSelectionVersion === selectionVersion.current) {
+          setLoading(false);
+        }
+        setInitialSyncComplete(true);
       }
     })();
     activeRefresh.current = operation;
@@ -219,53 +245,80 @@ export function App() {
   }
 
   useEffect(() => {
+    LEGACY_VIEW_KEYS.forEach(removeLocalValue);
     void loadCycle();
     const interval = window.setInterval(() => void loadCycle(true), 5000);
     return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    const runId = readLocalValue(SELECTED_RUN_KEY);
+    const runId = initialLocation.runId;
     if (!runId) return;
     void fetchLifecycleRun(runId)
       .then(async (run) => {
-        if (readLocalValue(SELECTED_RUN_KEY) !== runId) return;
         setLifecycleContext(run);
         if (run.cycle_id && run.cycle_id !== selectedCycleRef.current) {
-          await selectCycle(run.cycle_id, true);
+          await selectCycle(run.cycle_id, true, run.run_id);
         }
       })
-      .catch(() => removeLocalValue(SELECTED_RUN_KEY));
+      .catch(() => writeViewLocation({ runId: "" }));
   }, []);
 
-  async function selectCycle(cycleId: string, preserveLifecycleContext = false) {
+  async function selectCycle(
+    cycleId: string,
+    preserveLifecycleContext = false,
+    runId = ""
+  ) {
     if (!preserveLifecycleContext) {
       setLifecycleContext(null);
-      removeLocalValue(SELECTED_RUN_KEY);
     }
     selectedCycleRef.current = cycleId;
     setSelectedCycleId(cycleId);
-    writeLocalValue(SELECTED_CYCLE_KEY, cycleId);
+    const requestSelectionVersion = ++selectionVersion.current;
+    const selectedSummary = catalog?.cycles.find((item) => item.cycle_id === cycleId);
+    const liveSelection = Boolean(selectedSummary?.live || cycleId === catalog?.latest_cycle_id);
+    writeViewLocation({
+      cycleId: liveSelection && !runId ? "" : cycleId,
+      runId: preserveLifecycleContext ? runId : ""
+    });
     setLoading(true);
     try {
       const [selected, selectedDiagnostics] = await Promise.all([
         fetchCycle(cycleId),
         fetchControlPanelDiagnostics(cycleId)
       ]);
+      if (requestSelectionVersion !== selectionVersion.current) return;
       setCycle(selected);
       setDiagnostics(selectedDiagnostics);
       setError("");
     } catch (selectionError) {
-      setError(errorMessage(selectionError));
+      if (requestSelectionVersion === selectionVersion.current) {
+        setError(errorMessage(selectionError));
+      }
     } finally {
-      setLoading(false);
+      if (requestSelectionVersion === selectionVersion.current) setLoading(false);
     }
   }
 
   async function selectLifecycleContext(run: LifecycleRun) {
     setLifecycleContext(run);
-    writeLocalValue(SELECTED_RUN_KEY, run.run_id);
-    if (run.cycle_id) await selectCycle(run.cycle_id, true);
+    if (run.cycle_id) await selectCycle(run.cycle_id, true, run.run_id);
+  }
+
+  async function returnToLive() {
+    const liveCycleId = catalog?.cycles.find((item) => item.live)?.cycle_id
+      || catalog?.latest_cycle_id
+      || "";
+    if (liveCycleId) {
+      await selectCycle(liveCycleId);
+      return;
+    }
+    setLifecycleContext(null);
+    selectionVersion.current += 1;
+    selectedCycleRef.current = "";
+    setSelectedCycleId("");
+    writeViewLocation({ cycleId: "", runId: "" });
+    await loadCycle(false, true);
   }
 
   const activeView = useMemo(() => {
@@ -297,16 +350,28 @@ export function App() {
     return <CycleOverview cycle={cycle} />;
   }, [blueprintTarget, cycle, decisionRegistry, driftWorkflow, lifecycleContext, orchestratorConnections, resourceSnapshot, tab]);
 
-  const syncStatus: State = syncSources.some((source) => source.status === "error")
-    ? "blocked"
-    : syncSources.some((source) => source.status === "stale")
-      ? "warn"
-      : "pass";
+  const criticalSyncError = syncSources.some(
+    (source) => ["catalog", "cycle"].includes(source.source_id) && source.status === "error"
+  );
+  const syncMode: SyncMode = loading
+    ? "connecting"
+    : criticalSyncError
+      ? "unavailable"
+      : syncSources.some((source) => source.status === "error" || source.status === "stale")
+        ? "partial"
+        : "live";
+  const syncLabel = syncMode === "connecting"
+    ? initialSyncComplete ? "Refreshing" : "Connecting"
+    : syncMode === "live"
+      ? "Live 5s"
+      : syncMode === "partial"
+        ? "Partial"
+        : "Unavailable";
   const activeWorkspace = workspaceForTab(tab);
 
   function selectTab(nextTab: TabKey) {
     setTab(nextTab);
-    writeLocalValue(SELECTED_TAB_KEY, nextTab);
+    writeViewLocation({ tab: nextTab === "overview" ? "" : nextTab });
   }
 
   useEffect(() => {
@@ -320,7 +385,13 @@ export function App() {
           <span className="eyebrow">Enterprise Vision MLOps</span>
           <h1>Control Panel</h1>
         </div>
-        <CycleSelector catalog={catalog} selectedCycleId={selectedCycleId} onSelect={(cycleId) => void selectCycle(cycleId)} />
+        <CycleSelector
+          catalog={catalog}
+          selectedCycleId={selectedCycleId}
+          loading={loading}
+          onSelect={(cycleId) => void selectCycle(cycleId)}
+          onReturnLive={() => void returnToLive()}
+        />
         <div className="topbar-actions">
           {lifecycleContext ? (
             <div className={`execution-context run-context-${lifecycleContext.state}`} title={lifecycleContext.run_id}>
@@ -330,8 +401,8 @@ export function App() {
             </div>
           ) : null}
           <div className="sync-indicator" title="Control Panel source synchronization">
-            <i className={syncStatus === "pass" ? "live" : "degraded"} />
-            <span>{syncStatus === "pass" ? "Live 5s" : "Degraded"}</span>
+            <i className={syncMode} />
+            <span>{syncLabel}</span>
           </div>
           {cycle ? <StatusBadge status={cycle.status} /> : null}
           <button
@@ -390,10 +461,24 @@ export function App() {
             <strong>API unavailable</strong>
             <span>{error}</span>
           </div>
+          <button
+            type="button"
+            className="retry-action"
+            onClick={() => void loadCycle(false, true)}
+            disabled={loading}
+          >
+            <RefreshCcw size={15} />
+            Retry
+          </button>
         </section>
       ) : null}
 
-      {loading && !cycle ? <section className="loading-state">Loading CycleRun</section> : activeView}
+      {loading && !cycle ? (
+        <section className="loading-state" aria-live="polite">
+          <i aria-hidden="true" />
+          <span>Synchronizing CycleRun</span>
+        </section>
+      ) : activeView}
 
       <DiagnosticsDrawer diagnostics={diagnostics} clientSources={syncSources} />
 
@@ -405,22 +490,6 @@ export function App() {
   );
 }
 
-function readLocalValue(key: string): string {
-  try {
-    return window.localStorage.getItem(key) || "";
-  } catch {
-    return "";
-  }
-}
-
-function writeLocalValue(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Browser storage is an ergonomic enhancement, not a runtime dependency.
-  }
-}
-
 function removeLocalValue(key: string): void {
   try {
     window.localStorage.removeItem(key);
@@ -429,9 +498,41 @@ function removeLocalValue(key: string): void {
   }
 }
 
-function restoredTab(): TabKey {
-  const value = readLocalValue(SELECTED_TAB_KEY);
-  return tabs.some((item) => item.key === value) ? value as TabKey : "overview";
+function readViewLocation(): ViewLocation {
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get("view") || "";
+  return {
+    cycleId: params.get("cycle") || "",
+    runId: params.get("run") || "",
+    tab: tabs.some((item) => item.key === view) ? view as TabKey : "overview"
+  };
+}
+
+function writeViewLocation(update: {
+  cycleId?: string;
+  runId?: string;
+  tab?: string;
+}): void {
+  const params = new URLSearchParams(window.location.search);
+  updateLocationParameter(params, "cycle", update.cycleId);
+  updateLocationParameter(params, "run", update.runId);
+  updateLocationParameter(params, "view", update.tab);
+  const query = params.toString();
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
+  );
+}
+
+function updateLocationParameter(
+  params: URLSearchParams,
+  key: string,
+  value: string | undefined
+): void {
+  if (value === undefined) return;
+  if (value) params.set(key, value);
+  else params.delete(key);
 }
 
 

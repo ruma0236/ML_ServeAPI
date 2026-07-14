@@ -19,7 +19,7 @@ test("@w7-kubernetes-topology renders API-backed resource topology and drilldown
   await expect(page.getByText("evm-training").first()).toBeVisible();
   await expect(page.getByText("SERVICE").first()).toBeVisible();
   await expect(page.getByText("PERSISTENTVOLUMECLAIM").first()).toBeVisible();
-  await expect(page.locator(".observation-state")).toContainText("live");
+  await expect(page.locator(".observation-state > span")).toContainText(/live \d+s/);
 
   const trainingButton = page.getByRole("button", {
     name: `${trainingResource.kind} ${trainingResource.name} ${trainingResource.status}`,

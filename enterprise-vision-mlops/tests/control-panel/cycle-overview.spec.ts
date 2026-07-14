@@ -27,6 +27,7 @@ test("renders live CycleRun overview and captures evidence", async ({ page }) =>
 
   await openControlPanelView(page, "Timeline");
   await expect(page.getByRole("heading", { name: "Pipeline Timeline" })).toBeVisible();
+  await page.getByRole("button", { name: "Infrastructure", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Kubernetes Resource Topology" })).toBeVisible();
   await page.waitForTimeout(1000);
 

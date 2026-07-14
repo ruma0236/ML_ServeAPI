@@ -20,17 +20,33 @@ test("@w7-control-plane selects CycleRuns and exposes the release cockpit", asyn
   };
   expect(catalog.total).toBeGreaterThan(0);
 
+  await page.addInitScript(() => {
+    localStorage.setItem("evm.control-panel.selected-cycle", "stale-origin-cycle");
+    localStorage.setItem("evm.control-panel.selected-run", "stale-origin-run");
+    localStorage.setItem("evm.control-panel.selected-tab", "release");
+  });
   await page.goto("/");
   const selector = page.getByLabel("CycleRun selector").getByRole("combobox");
   await expect(selector).toHaveValue(catalog.latest_cycle_id);
   await expect(selector.locator("option")).toHaveCount(catalog.total);
+  await expect(page.getByText("LIVE DATA", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  expect(await page.evaluate(() => ({
+    cycle: localStorage.getItem("evm.control-panel.selected-cycle"),
+    run: localStorage.getItem("evm.control-panel.selected-run"),
+    tab: localStorage.getItem("evm.control-panel.selected-tab")
+  }))).toEqual({ cycle: null, run: null, tab: null });
 
   if (catalog.cycles.length > 1) {
     const historical = catalog.cycles.find((cycle) => !cycle.live) || catalog.cycles[1];
     await selector.selectOption(historical.cycle_id);
     await expect(page.locator(".footer-line")).toContainText(historical.cycle_id);
-    await selector.selectOption(catalog.latest_cycle_id);
+    await expect(page.getByText("HISTORICAL SNAPSHOT", { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`cycle=${encodeURIComponent(historical.cycle_id)}`));
+    await page.getByRole("button", { name: "Return to Live" }).click();
     await expect(page.locator(".footer-line")).toContainText(catalog.latest_cycle_id);
+    await expect(page.getByText("LIVE DATA", { exact: true })).toBeVisible();
+    await expect(page).not.toHaveURL(/(?:\?|&)cycle=/);
   }
 
   await openControlPanelView(page, "Release");
