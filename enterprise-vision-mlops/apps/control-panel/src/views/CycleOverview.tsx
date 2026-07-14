@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { fetchDeploymentIntents, fetchLifecycleRuns } from "../api/controlPanelClient";
 import type {
+  ComputeTelemetry,
   CycleRun,
   DeploymentIntentList,
   LifecycleRun,
@@ -64,6 +65,7 @@ export function CycleOverview({ cycle, resourceSnapshot, onOpenRuns, onOpenDeplo
     [ledger.intents, resourceSnapshot.resources]
   );
   const compute = useMemo(() => summarizeComputeResources(resourceSnapshot.resources), [resourceSnapshot.resources]);
+  const telemetry = useMemo(() => summarizeComputeTelemetry(resourceSnapshot.compute_telemetry), [resourceSnapshot.compute_telemetry]);
   const attention = attentionRuns.length + deployments.attention;
 
   return (
@@ -76,7 +78,7 @@ export function CycleOverview({ cycle, resourceSnapshot, onOpenRuns, onOpenDeplo
       <div className="operations-kpis" aria-label="Live operations summary">
         <OperationMetric icon={<GitBranch />} label="Pipelines in flight" value={activeRuns.length} tone={activeRuns.length ? "run" : "idle"} />
         <OperationMetric icon={<Server />} label="Serving models" value={deployments.active} tone="good" />
-        <OperationMetric icon={<Cpu />} label="GPU allocated" value={`${compute.gpuAllocated} / ${compute.gpuCapacity || "-"}`} tone={compute.gpuAllocated > compute.gpuCapacity ? "bad" : "good"} />
+        <OperationMetric icon={<Cpu />} label="GPU load" value={formatPercent(telemetry.gpuUtilizationPercent)} tone={telemetry.status === "live" ? "run" : "bad"} />
         <OperationMetric icon={<TriangleAlert />} label="Needs attention" value={attention} tone={attention ? "bad" : "good"} />
       </div>
 
@@ -90,17 +92,21 @@ export function CycleOverview({ cycle, resourceSnapshot, onOpenRuns, onOpenDeplo
           </div>
         </section>
 
-        <section className="operations-panel compute-panel" aria-label="Compute capacity">
-          <PanelHeading icon={<Cpu />} title="Compute" meta={resourceSnapshot.cluster_context || "cluster unavailable"} />
+        <section className="operations-panel compute-panel" aria-label="Compute utilization">
+          <PanelHeading icon={<Cpu />} title="Compute Utilization" meta={`Host telemetry / ${telemetry.status}`} />
           <div className="compute-visual">
-            <CapacityRing label="GPU" value={compute.gpuAllocated} total={compute.gpuCapacity} />
-            <CapacityRing label="Ready workloads" value={compute.readyWorkloads} total={compute.totalWorkloads} />
+            <UtilizationRing label="CPU" percent={telemetry.cpuUtilizationPercent} detail="Host total" />
+            <UtilizationRing label="RAM" percent={telemetry.memoryUtilizationPercent} detail={formatBytePair(telemetry.memoryUsedBytes, telemetry.memoryTotalBytes)} />
+            <UtilizationRing label="GPU" percent={telemetry.gpuUtilizationPercent} detail={telemetry.acceleratorCount ? `${telemetry.acceleratorCount} device${telemetry.acceleratorCount === 1 ? "" : "s"}` : "Unavailable"} />
+            <UtilizationRing label="VRAM" percent={telemetry.gpuMemoryUtilizationPercent} detail={formatMibPair(telemetry.gpuMemoryUsedMib, telemetry.gpuMemoryTotalMib)} />
           </div>
           <div className="compute-status-list">
-            <span><i className="status-good" />Nodes ready<strong>{compute.readyNodes} / {compute.totalNodes}</strong></span>
-            <span><i className={compute.failedWorkloads ? "status-bad" : "status-good"} />Failed workloads<strong>{compute.failedWorkloads}</strong></span>
-            <span><i className="status-idle" />CPU / memory usage<strong>Exporter required</strong></span>
+            <span><i className={telemetry.status === "live" ? "status-good" : "status-bad"} />Telemetry<strong>{formatTelemetryAge(telemetry.observedAt)}</strong></span>
+            <span><i className="status-good" />GPU allocation<strong>{compute.gpuAllocated} / {compute.gpuCapacity || "-"}</strong></span>
+            <span><i className="status-idle" />{telemetry.acceleratorName}<strong>{formatTemperature(telemetry.gpuTemperatureC)}</strong></span>
+            <span><i className="status-idle" />Power draw<strong>{formatPower(telemetry.gpuPowerDrawW, telemetry.gpuPowerLimitW)}</strong></span>
           </div>
+          {telemetry.status !== "live" ? <div className="compute-telemetry-warning">{resourceSnapshot.compute_telemetry?.message || "Real-time host telemetry is unavailable."}</div> : null}
         </section>
 
         <section className="operations-panel deployment-fleet-panel" aria-label="Deployment fleet">
@@ -143,9 +149,9 @@ function PipelineRow({ run }: { run: LifecycleRun }) {
   );
 }
 
-function CapacityRing({ label, value, total }: { label: string; value: number; total: number }) {
-  const ratio = total > 0 ? Math.min(100, Math.round(value / total * 100)) : 0;
-  return <div className="capacity-ring" style={{ "--capacity": `${ratio}%` } as React.CSSProperties}><div><strong>{value}<small>/{total || "-"}</small></strong><span>{label}</span></div></div>;
+function UtilizationRing({ label, percent, detail }: { label: string; percent: number | null; detail: string }) {
+  const ratio = percent === null ? 0 : Math.max(0, Math.min(100, percent));
+  return <div className={`capacity-ring ${percent === null ? "is-unavailable" : ""}`} style={{ "--capacity": `${ratio}%` } as React.CSSProperties}><div><strong>{percent === null ? "--" : `${percent.toFixed(1)}%`}</strong><span>{label}</span><small>{detail}</small></div></div>;
 }
 
 function EmptyState({ text }: { text: string }) {
@@ -181,9 +187,98 @@ export function summarizeComputeResources(resources: RuntimeResource[]) {
   };
 }
 
+export function summarizeComputeTelemetry(telemetry: ComputeTelemetry | null | undefined) {
+  const live = telemetry?.status === "live";
+  const accelerators = live ? telemetry.accelerators : [];
+  const gpuUtilizationValues = accelerators
+    .map((accelerator) => accelerator.utilization_percent)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const memoryUsedValues = accelerators
+    .map((accelerator) => accelerator.memory_used_mib)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const memoryTotalValues = accelerators
+    .map((accelerator) => accelerator.memory_total_mib)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const temperatureValues = accelerators
+    .map((accelerator) => accelerator.temperature_c)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const powerDrawValues = accelerators
+    .map((accelerator) => accelerator.power_draw_w)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const powerLimitValues = accelerators
+    .map((accelerator) => accelerator.power_limit_w)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const gpuMemoryUsedMib = sumOrNull(memoryUsedValues);
+  const gpuMemoryTotalMib = sumOrNull(memoryTotalValues);
+  return {
+    status: telemetry?.status || "unavailable",
+    observedAt: telemetry?.observed_at || null,
+    cpuUtilizationPercent: live ? finiteOrNull(telemetry.cpu_utilization_percent) : null,
+    memoryUtilizationPercent: live ? finiteOrNull(telemetry.memory_utilization_percent) : null,
+    memoryUsedBytes: live ? finiteOrNull(telemetry.memory_used_bytes) : null,
+    memoryTotalBytes: live ? finiteOrNull(telemetry.memory_total_bytes) : null,
+    gpuUtilizationPercent: averageOrNull(gpuUtilizationValues),
+    gpuMemoryUsedMib,
+    gpuMemoryTotalMib,
+    gpuMemoryUtilizationPercent: gpuMemoryUsedMib !== null && gpuMemoryTotalMib
+      ? gpuMemoryUsedMib / gpuMemoryTotalMib * 100
+      : null,
+    gpuTemperatureC: temperatureValues.length ? Math.max(...temperatureValues) : null,
+    gpuPowerDrawW: sumOrNull(powerDrawValues),
+    gpuPowerLimitW: sumOrNull(powerLimitValues),
+    acceleratorCount: accelerators.length,
+    acceleratorName: accelerators.length === 1
+      ? accelerators[0].name
+      : accelerators.length > 1 ? `${accelerators.length} GPUs` : "GPU telemetry"
+  };
+}
+
 function numericResource(value: string | null | undefined): number {
   const match = value?.match(/\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : 0;
+}
+
+function finiteOrNull(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function sumOrNull(values: number[]): number | null {
+  return values.length ? values.reduce((total, value) => total + value, 0) : null;
+}
+
+function averageOrNull(values: number[]): number | null {
+  const total = sumOrNull(values);
+  return total === null ? null : total / values.length;
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? "--" : `${value.toFixed(1)}%`;
+}
+
+function formatBytePair(used: number | null, total: number | null): string {
+  if (used === null || total === null || total <= 0) return "Unavailable";
+  return `${(used / 1_073_741_824).toFixed(1)} / ${(total / 1_073_741_824).toFixed(1)} GiB`;
+}
+
+function formatMibPair(used: number | null, total: number | null): string {
+  if (used === null || total === null || total <= 0) return "Unavailable";
+  return `${(used / 1024).toFixed(1)} / ${(total / 1024).toFixed(1)} GiB`;
+}
+
+function formatTelemetryAge(observedAt: string | null): string {
+  if (!observedAt) return "Unavailable";
+  const timestamp = new Date(observedAt).getTime();
+  if (!Number.isFinite(timestamp)) return "Unavailable";
+  return `${Math.max(0, (Date.now() - timestamp) / 1000).toFixed(1)}s ago`;
+}
+
+function formatTemperature(value: number | null): string {
+  return value === null ? "Unavailable" : `${value.toFixed(0)} C`;
+}
+
+function formatPower(draw: number | null, limit: number | null): string {
+  if (draw === null) return "Unavailable";
+  return limit === null ? `${draw.toFixed(1)} W` : `${draw.toFixed(1)} / ${limit.toFixed(0)} W`;
 }
 
 function runBadge(state: LifecycleRunState): State {

@@ -15,6 +15,8 @@ from apps.api.control_panel import (
     invalidate_cycle_cache,
 )
 from evm.control_panel.schemas import (
+    AcceleratorTelemetry,
+    ComputeTelemetry,
     ControlPanelDiagnostics,
     CTDatasetSnapshot,
     CTEvaluation,
@@ -141,6 +143,9 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "CIEvidenceValidation" in schemas
     assert "observation_source" in schemas["RuntimeResource"]["properties"]
     assert "observation_status" in schemas["RuntimeResourceList"]["properties"]
+    assert "compute_telemetry" in schemas["RuntimeResourceList"]["properties"]
+    assert set(ComputeTelemetry.model_fields).issubset(schemas["ComputeTelemetry"]["properties"])
+    assert set(AcceleratorTelemetry.model_fields).issubset(schemas["AcceleratorTelemetry"]["properties"])
     assert "/control-panel/v1/deployment-intents" in openapi["paths"]
     assert "/control-panel/v1/cycles" in openapi["paths"]
     assert "/control-panel/v1/tasks/{task_id}/dispatch" in openapi["paths"]

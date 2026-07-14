@@ -10,7 +10,13 @@ test("renders fleet-wide live operations and captures evidence", async ({ page }
   await expect(page.getByRole("navigation", { name: "Control Panel workspaces" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Control Panel views" })).toBeVisible();
   await expect(page.getByLabel("Pipeline activity")).toBeVisible();
-  await expect(page.getByLabel("Compute capacity")).toBeVisible();
+  const compute = page.getByLabel("Compute utilization");
+  await expect(compute).toBeVisible();
+  await expect(compute).toContainText("Host telemetry / live");
+  await expect(compute).toContainText("NVIDIA GeForce RTX 4080 SUPER");
+  await expect(compute.locator(".capacity-ring strong")).toHaveCount(4);
+  const utilizationValues = await compute.locator(".capacity-ring strong").allTextContents();
+  expect(utilizationValues.every((value) => /^\d+(?:\.\d+)?%$/.test(value.trim()))).toBe(true);
   await expect(page.getByLabel("Deployment fleet")).toBeVisible();
 
   await openControlPanelView(page, "Readiness");

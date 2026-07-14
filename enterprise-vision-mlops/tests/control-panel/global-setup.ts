@@ -9,6 +9,11 @@ interface ResourceState {
   observation_status?: string;
   snapshot_age_seconds?: number | null;
   observation_message?: string | null;
+  compute_telemetry?: {
+    status?: string;
+    cpu_utilization_percent?: number | null;
+    accelerators?: Array<{ utilization_percent?: number | null }>;
+  } | null;
 }
 
 export default async function globalSetup(): Promise<void> {
@@ -28,7 +33,13 @@ export default async function globalSetup(): Promise<void> {
       }
       worker = await workerResponse.json() as WorkerState;
       resources = await resourceResponse.json() as ResourceState;
-      if (worker.status === "online" && resources.observation_status === "live") return;
+      if (
+        worker.status === "online"
+        && resources.observation_status === "live"
+        && resources.compute_telemetry?.status === "live"
+        && resources.compute_telemetry.cpu_utilization_percent != null
+        && resources.compute_telemetry.accelerators?.some((item) => item.utilization_percent != null)
+      ) return;
       lastError = runtimeSummary(worker, resources);
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
@@ -54,6 +65,7 @@ function runtimeSummary(worker: WorkerState, resources: ResourceState): string {
     `worker_message=${worker.message || "none"}`,
     `kubernetes=${resources.observation_status || "unknown"}`,
     `snapshot_age=${age}`,
+    `telemetry=${resources.compute_telemetry?.status || "unknown"}`,
     `kubernetes_message=${resources.observation_message || "none"}`
   ].join(" ");
 }

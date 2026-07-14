@@ -157,6 +157,17 @@ export function App() {
   const activeRefresh = useRef<Promise<void> | null>(null);
   const selectionVersion = useRef(0);
 
+  function applyResourceSnapshot(next: RuntimeResourceList) {
+    setResourceSnapshot((current) => {
+      const currentObserved = Date.parse(current.observed_at || "");
+      const nextObserved = Date.parse(next.observed_at || "");
+      if (Number.isFinite(currentObserved) && Number.isFinite(nextObserved) && nextObserved < currentObserved) {
+        return current;
+      }
+      return next;
+    });
+  }
+
   async function loadCycle(background = false, queueAfterActive = false): Promise<void> {
     if (activeRefresh.current) {
       if (queueAfterActive) {
@@ -224,7 +235,7 @@ export function App() {
         } else if (cycleResult.status === "rejected" && selectionRequestIsCurrent) {
           setError(errorMessage(cycleResult.reason));
         }
-        if (resourceResult.status === "fulfilled") setResourceSnapshot(resourceResult.value);
+        if (resourceResult.status === "fulfilled") applyResourceSnapshot(resourceResult.value);
         if (orchestratorResult.status === "fulfilled") setOrchestratorConnections(orchestratorResult.value);
         if (diagnosticsResult.status === "fulfilled" && selectionRequestIsCurrent) {
           setDiagnostics(diagnosticsResult.value);
@@ -254,6 +265,37 @@ export function App() {
     void loadCycle();
     const interval = window.setInterval(() => void loadCycle(true), 5000);
     return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshResourcesOnly() {
+      try {
+        const next = await fetchRuntimeResources();
+        if (cancelled) return;
+        applyResourceSnapshot(next);
+        const synchronizedAt = new Date().toISOString();
+        setSyncSources((current) => current.map((source) => source.source_id === "resources"
+          ? { ...source, status: "live", last_success_at: synchronizedAt, error: undefined }
+          : source));
+      } catch (resourceError) {
+        if (cancelled) return;
+        setSyncSources((current) => current.map((source) => source.source_id === "resources"
+          ? {
+              ...source,
+              status: source.last_success_at ? "stale" : "error",
+              error: errorMessage(resourceError)
+            }
+          : source));
+      }
+    }
+
+    void refreshResourcesOnly();
+    const interval = window.setInterval(() => void refreshResourcesOnly(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {

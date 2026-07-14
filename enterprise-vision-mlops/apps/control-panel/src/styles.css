@@ -6880,8 +6880,14 @@ h3 {
 .operations-pipeline-progress > div i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 300ms ease; }
 .pipeline-running .operations-pipeline-progress > div i { background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.2) 0 6px, transparent 6px 12px); background-size: 18px 18px; animation: progress-stripes 900ms linear infinite; }
 
+@property --capacity {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
 .compute-visual { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 18px 18px 12px; }
-.capacity-ring { --capacity: 0%; display: grid; width: min(116px, 100%); aspect-ratio: 1; place-self: center; place-items: center; border-radius: 50%; background: conic-gradient(var(--accent) var(--capacity), var(--line) 0); }
+.capacity-ring { --capacity: 0%; display: grid; width: min(116px, 100%); aspect-ratio: 1; place-self: center; place-items: center; border-radius: 50%; background: conic-gradient(var(--accent) var(--capacity), var(--line) 0); transition: --capacity 650ms ease, opacity 200ms ease; }
 .capacity-ring::before { content: ""; grid-area: 1 / 1; width: 78%; aspect-ratio: 1; border-radius: 50%; background: var(--surface); }
 .capacity-ring > div { z-index: 1; grid-area: 1 / 1; text-align: center; }
 .capacity-ring strong,
@@ -6889,6 +6895,8 @@ h3 {
 .capacity-ring strong { font-family: var(--mono); font-size: 19px; }
 .capacity-ring strong small { color: var(--text-muted); font-size: 10px; }
 .capacity-ring span { margin-top: 3px; color: var(--text-muted); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.capacity-ring > div > small { display: block; max-width: 88px; margin-top: 3px; overflow: hidden; color: var(--text-muted); font-family: var(--mono); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.capacity-ring.is-unavailable { opacity: .52; }
 .compute-status-list { display: grid; padding: 0 13px 12px; }
 .compute-status-list span { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 29px; color: var(--text-muted); font-size: 9px; }
 .compute-status-list span i { width: 6px; height: 6px; border-radius: 50%; }
@@ -6896,6 +6904,7 @@ h3 {
 .status-good { background: var(--success); }
 .status-bad { background: var(--danger); }
 .status-idle { background: var(--text-muted); }
+.compute-telemetry-warning { margin: 0 13px 12px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line)); border-radius: 5px; color: var(--text-muted); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); font-size: 9px; line-height: 1.45; }
 
 .operations-deployment {
   display: grid;

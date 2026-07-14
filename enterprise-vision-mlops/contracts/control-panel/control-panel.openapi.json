@@ -1606,6 +1606,41 @@
           "gpu_capacity": {"type": ["string", "null"]}
         }
       },
+      "AcceleratorTelemetry": {
+        "type": "object",
+        "required": ["index", "vendor", "name"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 0},
+          "vendor": {"type": "string", "enum": ["nvidia"]},
+          "name": {"type": "string"},
+          "uuid": {"type": ["string", "null"]},
+          "utilization_percent": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+          "memory_used_mib": {"type": ["number", "null"], "minimum": 0},
+          "memory_total_mib": {"type": ["number", "null"], "minimum": 0},
+          "temperature_c": {"type": ["number", "null"]},
+          "power_draw_w": {"type": ["number", "null"], "minimum": 0},
+          "power_limit_w": {"type": ["number", "null"], "minimum": 0}
+        }
+      },
+      "ComputeTelemetry": {
+        "type": "object",
+        "required": ["schema_version", "source", "status", "observed_at", "accelerators"],
+        "properties": {
+          "schema_version": {"type": "string", "enum": ["evm.compute_telemetry.v1"]},
+          "source": {"type": "string", "enum": ["host_probe"]},
+          "status": {"type": "string", "enum": ["live", "stale", "unavailable"]},
+          "observed_at": {"type": "string", "format": "date-time"},
+          "cpu_utilization_percent": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+          "memory_utilization_percent": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+          "memory_used_bytes": {"type": ["integer", "null"], "minimum": 0},
+          "memory_total_bytes": {"type": ["integer", "null"], "minimum": 0},
+          "accelerators": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/AcceleratorTelemetry"}
+          },
+          "message": {"type": ["string", "null"]}
+        }
+      },
       "RuntimeResourceList": {
         "type": "object",
         "required": ["resources", "observation_status"],
@@ -1622,7 +1657,13 @@
           "snapshot_age_seconds": {"type": ["number", "null"], "minimum": 0},
           "cluster_context": {"type": ["string", "null"]},
           "snapshot_uri": {"type": ["string", "null"]},
-          "observation_message": {"type": ["string", "null"]}
+          "observation_message": {"type": ["string", "null"]},
+          "compute_telemetry": {
+            "anyOf": [
+              {"$ref": "#/components/schemas/ComputeTelemetry"},
+              {"type": "null"}
+            ]
+          }
         }
       },
       "TaskAssignmentRequest": {

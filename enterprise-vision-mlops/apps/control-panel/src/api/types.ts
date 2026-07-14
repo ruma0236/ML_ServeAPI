@@ -72,6 +72,32 @@ export interface RuntimeResource {
   gpu_capacity?: string | null;
 }
 
+export interface AcceleratorTelemetry {
+  index: number;
+  vendor: "nvidia";
+  name: string;
+  uuid?: string | null;
+  utilization_percent?: number | null;
+  memory_used_mib?: number | null;
+  memory_total_mib?: number | null;
+  temperature_c?: number | null;
+  power_draw_w?: number | null;
+  power_limit_w?: number | null;
+}
+
+export interface ComputeTelemetry {
+  schema_version: "evm.compute_telemetry.v1";
+  source: "host_probe";
+  status: "live" | "stale" | "unavailable";
+  observed_at: string;
+  cpu_utilization_percent?: number | null;
+  memory_utilization_percent?: number | null;
+  memory_used_bytes?: number | null;
+  memory_total_bytes?: number | null;
+  accelerators: AcceleratorTelemetry[];
+  message?: string | null;
+}
+
 export interface RuntimeResourceList {
   resources: RuntimeResource[];
   observation_status: "live" | "stale" | "projected" | "unavailable";
@@ -80,6 +106,7 @@ export interface RuntimeResourceList {
   cluster_context?: string | null;
   snapshot_uri?: string | null;
   observation_message?: string | null;
+  compute_telemetry?: ComputeTelemetry | null;
 }
 
 export interface OrchestratorConnection {

@@ -31,6 +31,7 @@ DeploymentIntentState = Literal[
 ]
 ResourceObservationSource = Literal["cycle_projection", "kubernetes_snapshot"]
 ResourceObservationStatus = Literal["live", "stale", "projected", "unavailable"]
+TelemetryObservationStatus = Literal["live", "stale", "unavailable"]
 DiagnosticStatus = Literal["pass", "warn", "blocked", "fail"]
 SourceSyncStatus = Literal["live", "stale", "error", "unavailable"]
 DriftReviewStatus = Literal["open", "acknowledged", "approved", "closed"]
@@ -131,6 +132,32 @@ class RuntimeResource(ContractModel):
     gpu_capacity: str | None = None
 
 
+class AcceleratorTelemetry(ContractModel):
+    index: int = Field(ge=0)
+    vendor: Literal["nvidia"] = "nvidia"
+    name: str
+    uuid: str | None = None
+    utilization_percent: float | None = Field(default=None, ge=0, le=100)
+    memory_used_mib: float | None = Field(default=None, ge=0)
+    memory_total_mib: float | None = Field(default=None, ge=0)
+    temperature_c: float | None = None
+    power_draw_w: float | None = Field(default=None, ge=0)
+    power_limit_w: float | None = Field(default=None, ge=0)
+
+
+class ComputeTelemetry(ContractModel):
+    schema_version: Literal["evm.compute_telemetry.v1"] = "evm.compute_telemetry.v1"
+    source: Literal["host_probe"] = "host_probe"
+    status: TelemetryObservationStatus
+    observed_at: str
+    cpu_utilization_percent: float | None = Field(default=None, ge=0, le=100)
+    memory_utilization_percent: float | None = Field(default=None, ge=0, le=100)
+    memory_used_bytes: int | None = Field(default=None, ge=0)
+    memory_total_bytes: int | None = Field(default=None, ge=0)
+    accelerators: list[AcceleratorTelemetry] = Field(default_factory=list)
+    message: str | None = None
+
+
 class RuntimeResourceList(ContractModel):
     resources: list[RuntimeResource]
     observation_status: ResourceObservationStatus = "unavailable"
@@ -139,6 +166,7 @@ class RuntimeResourceList(ContractModel):
     cluster_context: str | None = None
     snapshot_uri: str | None = None
     observation_message: str | None = None
+    compute_telemetry: ComputeTelemetry | None = None
 
 
 class KubernetesResourceSnapshot(ContractModel):
@@ -149,6 +177,7 @@ class KubernetesResourceSnapshot(ContractModel):
     resource_status: State
     message: str | None = None
     resources: list[RuntimeResource] = Field(default_factory=list)
+    compute_telemetry: ComputeTelemetry | None = None
 
 
 class AuditEvent(ContractModel):

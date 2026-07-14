@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import ctypes
 import hashlib
 import json
 import os
@@ -13,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from evm.control_panel.schemas import (
+    AcceleratorTelemetry,
+    ComputeTelemetry,
     KubernetesResourceSnapshot,
     RuntimeResource,
     RuntimeResourceList,
@@ -21,6 +25,7 @@ from evm.control_panel.schemas import (
 
 
 KubectlRunner = Callable[[list[str]], dict[str, Any]]
+TextCommandRunner = Callable[[list[str]], str]
 DEFAULT_NAMESPACES = ("evm-training", "evm-staging", "evm-production")
 
 
@@ -47,12 +52,181 @@ def run_kubectl_json(arguments: list[str], *, kubectl: str = "kubectl") -> dict[
     return json.loads(completed.stdout)
 
 
+def run_text_command(arguments: list[str]) -> str:
+    completed = subprocess.run(
+        arguments,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=5,
+    )
+    return completed.stdout
+
+
+def collect_host_compute_telemetry(
+    *,
+    now: datetime | None = None,
+    gpu_runner: TextCommandRunner = run_text_command,
+    cpu_sampler: Callable[[], float | None] | None = None,
+    memory_reader: Callable[[], tuple[int, int] | None] | None = None,
+) -> ComputeTelemetry:
+    observed_at = isoformat_z(now or utc_now())
+    errors: list[str] = []
+    cpu_percent: float | None = None
+    memory_used: int | None = None
+    memory_total: int | None = None
+    accelerators: list[AcceleratorTelemetry] = []
+
+    try:
+        cpu_percent = (cpu_sampler or sample_cpu_utilization)()
+    except (OSError, ValueError) as exc:
+        errors.append(f"cpu:{sanitize_error(exc)}")
+    try:
+        memory = (memory_reader or read_memory_usage)()
+        if memory is not None:
+            memory_used, memory_total = memory
+    except (OSError, ValueError) as exc:
+        errors.append(f"memory:{sanitize_error(exc)}")
+    try:
+        accelerators = collect_nvidia_telemetry(gpu_runner=gpu_runner)
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        errors.append(f"gpu:{sanitize_error(exc)}")
+
+    memory_percent = None
+    if memory_used is not None and memory_total:
+        memory_percent = round(max(0.0, min(100.0, memory_used / memory_total * 100)), 2)
+    available = cpu_percent is not None or memory_total is not None or bool(accelerators)
+    if available:
+        message = "Host CPU, memory, and accelerator telemetry collected."
+        if errors:
+            message = f"Partial host telemetry: {'; '.join(errors)}"
+    else:
+        message = f"Host telemetry unavailable: {'; '.join(errors)}" if errors else "Host telemetry unavailable."
+    return ComputeTelemetry(
+        status="live" if available else "unavailable",
+        observed_at=observed_at,
+        cpu_utilization_percent=round(cpu_percent, 2) if cpu_percent is not None else None,
+        memory_utilization_percent=memory_percent,
+        memory_used_bytes=memory_used,
+        memory_total_bytes=memory_total,
+        accelerators=accelerators,
+        message=message,
+    )
+
+
+def collect_nvidia_telemetry(*, gpu_runner: TextCommandRunner = run_text_command) -> list[AcceleratorTelemetry]:
+    output = gpu_runner(
+        [
+            "nvidia-smi",
+            "--query-gpu=index,name,uuid,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit",
+            "--format=csv,noheader,nounits",
+        ]
+    )
+    accelerators: list[AcceleratorTelemetry] = []
+    for row in csv.reader(output.splitlines(), skipinitialspace=True):
+        if not row:
+            continue
+        if len(row) != 9:
+            raise ValueError(f"nvidia_smi_field_count:{len(row)}")
+        accelerators.append(
+            AcceleratorTelemetry(
+                index=int(row[0].strip()),
+                name=row[1].strip(),
+                uuid=string_or_none(row[2].strip()),
+                utilization_percent=optional_float(row[3]),
+                memory_used_mib=optional_float(row[4]),
+                memory_total_mib=optional_float(row[5]),
+                temperature_c=optional_float(row[6]),
+                power_draw_w=optional_float(row[7]),
+                power_limit_w=optional_float(row[8]),
+            )
+        )
+    return accelerators
+
+
+def optional_float(value: str) -> float | None:
+    normalized = value.strip()
+    if not normalized or normalized.lower() in {"n/a", "na", "not supported", "[not supported]"}:
+        return None
+    return float(normalized)
+
+
+def sample_cpu_utilization(*, interval_seconds: float = 0.1) -> float | None:
+    first = read_cpu_times()
+    if first is None:
+        return None
+    time.sleep(max(0.01, interval_seconds))
+    second = read_cpu_times()
+    if second is None:
+        return None
+    idle_delta = second[0] - first[0]
+    total_delta = second[1] - first[1]
+    if total_delta <= 0:
+        return None
+    return max(0.0, min(100.0, (1.0 - idle_delta / total_delta) * 100.0))
+
+
+def read_cpu_times() -> tuple[int, int] | None:
+    if os.name == "nt":
+        idle = ctypes.c_ulonglong()
+        kernel = ctypes.c_ulonglong()
+        user = ctypes.c_ulonglong()
+        if not ctypes.windll.kernel32.GetSystemTimes(  # type: ignore[attr-defined]
+            ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)
+        ):
+            raise OSError("GetSystemTimes failed")
+        return idle.value, kernel.value + user.value
+    if sys.platform.startswith("linux"):
+        values = [int(value) for value in Path("/proc/stat").read_text(encoding="ascii").splitlines()[0].split()[1:]]
+        if len(values) < 4:
+            return None
+        idle = values[3] + (values[4] if len(values) > 4 else 0)
+        return idle, sum(values)
+    return None
+
+
+def read_memory_usage() -> tuple[int, int] | None:
+    if os.name == "nt":
+        class MemoryStatusEx(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        status = MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(status)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
+            raise OSError("GlobalMemoryStatusEx failed")
+        return status.ullTotalPhys - status.ullAvailPhys, status.ullTotalPhys
+    if sys.platform.startswith("linux"):
+        fields: dict[str, int] = {}
+        for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
+            name, value = line.split(":", 1)
+            fields[name] = int(value.strip().split()[0]) * 1024
+        total = fields.get("MemTotal")
+        available = fields.get("MemAvailable")
+        if total is None or available is None:
+            return None
+        return total - available, total
+    return None
+
+
 def collect_kubernetes_snapshot(
     *,
     namespaces: Iterable[str] = DEFAULT_NAMESPACES,
     cluster_context: str = "docker-desktop",
     runner: KubectlRunner = run_kubectl_json,
     now: datetime | None = None,
+    compute_telemetry: ComputeTelemetry | None = None,
 ) -> KubernetesResourceSnapshot:
     observed = now or utc_now()
     observed_at = isoformat_z(observed)
@@ -89,6 +263,7 @@ def collect_kubernetes_snapshot(
             resource_status="fail",
             message=sanitize_error(exc),
             resources=[],
+            compute_telemetry=compute_telemetry,
         )
 
     status = aggregate_resource_status(resource.status for resource in resources)
@@ -100,6 +275,7 @@ def collect_kubernetes_snapshot(
         resource_status=status,
         message=f"Observed {len(resources)} sanitized Kubernetes resources.",
         resources=resources,
+        compute_telemetry=compute_telemetry,
     )
 
 
@@ -385,6 +561,9 @@ def snapshot_state_digest(payload: dict[str, Any]) -> str:
         {key: value for key, value in resource.items() if key != "observed_at"}
         for resource in payload.get("resources", [])
     ]
+    telemetry = canonical.get("compute_telemetry")
+    if isinstance(telemetry, dict):
+        telemetry.pop("observed_at", None)
     return hashlib.sha256(json.dumps(canonical, sort_keys=True).encode("utf-8")).hexdigest()
 
 
@@ -442,6 +621,9 @@ def load_kubernetes_resource_snapshot(
         resource.model_copy(update={"observation_status": observation_status})
         for resource in snapshot.resources
     ]
+    telemetry = snapshot.compute_telemetry
+    if telemetry is not None and age_seconds > stale_limit:
+        telemetry = telemetry.model_copy(update={"status": "stale"})
     return RuntimeResourceList(
         resources=resources,
         observation_status=observation_status,
@@ -450,6 +632,7 @@ def load_kubernetes_resource_snapshot(
         cluster_context=snapshot.cluster_context,
         snapshot_uri=str(source_path),
         observation_message=snapshot.message,
+        compute_telemetry=telemetry,
     )
 
 
@@ -477,9 +660,14 @@ def observer_loop(
     max_history: int,
 ) -> None:
     while True:
+        iteration_started = time.monotonic()
+        observed = utc_now()
+        compute_telemetry = collect_host_compute_telemetry(now=observed)
         snapshot = collect_kubernetes_snapshot(
             namespaces=namespaces,
             cluster_context=cluster_context,
+            now=observed,
+            compute_telemetry=compute_telemetry,
         )
         try:
             write_snapshot(snapshot, output_path, history_root=history_root, max_history=max_history)
@@ -487,7 +675,8 @@ def observer_loop(
             print(f"Kubernetes observer snapshot write failed: {sanitize_error(exc)}", file=sys.stderr)
         if interval_seconds <= 0:
             return
-        time.sleep(interval_seconds)
+        elapsed = time.monotonic() - iteration_started
+        time.sleep(max(0.0, interval_seconds - elapsed))
 
 
 def build_parser() -> argparse.ArgumentParser:

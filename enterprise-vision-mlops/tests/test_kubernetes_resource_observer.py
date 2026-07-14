@@ -8,12 +8,14 @@ from pathlib import Path
 from apps.api.control_panel import list_resources
 from evm.control_panel.kubernetes_observer import (
     DEFAULT_NAMESPACES,
+    collect_host_compute_telemetry,
     collect_kubernetes_snapshot,
+    collect_nvidia_telemetry,
     load_kubernetes_resource_snapshot,
     replace_with_retry,
     write_snapshot,
 )
-from evm.control_panel.schemas import CycleRun
+from evm.control_panel.schemas import ComputeTelemetry, CycleRun
 
 
 def test_default_observer_scope_includes_production_namespace() -> None:
@@ -23,6 +25,39 @@ def test_default_observer_scope_includes_production_namespace() -> None:
 def test_local_observer_launcher_keeps_production_namespace() -> None:
     launcher = Path("scripts/dev/start_kubernetes_observer.ps1").read_text(encoding="utf-8")
     assert "evm-training,evm-staging,evm-production" in launcher
+
+
+def test_host_telemetry_parses_cpu_memory_and_nvidia_metrics() -> None:
+    telemetry = collect_host_compute_telemetry(
+        now=datetime(2026, 7, 14, 5, 30, tzinfo=timezone.utc),
+        cpu_sampler=lambda: 42.25,
+        memory_reader=lambda: (32 * 1024**3, 64 * 1024**3),
+        gpu_runner=lambda _: (
+            "0, NVIDIA GeForce RTX 4080 SUPER, GPU-test, 71, 4096, 16376, 56, 188.5, 320\n"
+        ),
+    )
+
+    assert telemetry.status == "live"
+    assert telemetry.cpu_utilization_percent == 42.25
+    assert telemetry.memory_utilization_percent == 50.0
+    assert telemetry.memory_used_bytes == 32 * 1024**3
+    assert len(telemetry.accelerators) == 1
+    gpu = telemetry.accelerators[0]
+    assert gpu.name == "NVIDIA GeForce RTX 4080 SUPER"
+    assert gpu.utilization_percent == 71
+    assert gpu.memory_used_mib == 4096
+    assert gpu.temperature_c == 56
+    assert gpu.power_draw_w == 188.5
+
+
+def test_nvidia_parser_accepts_unavailable_optional_measurements() -> None:
+    accelerators = collect_nvidia_telemetry(
+        gpu_runner=lambda _: "0, NVIDIA GPU, GPU-test, 0, 128, 1024, N/A, [Not Supported], N/A\n"
+    )
+
+    assert accelerators[0].utilization_percent == 0
+    assert accelerators[0].temperature_c is None
+    assert accelerators[0].power_draw_w is None
 
 
 def fixture_runner(arguments: list[str]) -> dict:
@@ -138,6 +173,12 @@ def test_snapshot_loader_marks_old_observations_stale(tmp_path: Path) -> None:
         namespaces=("evm-training", "evm-staging"),
         runner=fixture_runner,
         now=observed_at,
+        compute_telemetry=ComputeTelemetry(
+            status="live",
+            observed_at="2026-07-10T11:00:00Z",
+            cpu_utilization_percent=25,
+            memory_utilization_percent=50,
+        ),
     )
     path = tmp_path / "latest.json"
     write_snapshot(snapshot, path)
@@ -151,6 +192,8 @@ def test_snapshot_loader_marks_old_observations_stale(tmp_path: Path) -> None:
     assert loaded.observation_status == "stale"
     assert loaded.snapshot_age_seconds == 16
     assert all(resource.observation_status == "stale" for resource in loaded.resources)
+    assert loaded.compute_telemetry is not None
+    assert loaded.compute_telemetry.status == "stale"
 
 
 def test_resource_route_overlays_live_kubernetes_snapshot(tmp_path: Path, monkeypatch) -> None:
@@ -159,6 +202,12 @@ def test_resource_route_overlays_live_kubernetes_snapshot(tmp_path: Path, monkey
         namespaces=("evm-training", "evm-staging"),
         runner=fixture_runner,
         now=observed_at,
+        compute_telemetry=ComputeTelemetry(
+            status="live",
+            observed_at=observed_at.isoformat().replace("+00:00", "Z"),
+            cpu_utilization_percent=33,
+            memory_utilization_percent=44,
+        ),
     )
     path = tmp_path / "latest.json"
     write_snapshot(snapshot, path)
@@ -173,6 +222,8 @@ def test_resource_route_overlays_live_kubernetes_snapshot(tmp_path: Path, monkey
 
     assert payload.observation_status == "live"
     assert payload.cluster_context == "docker-desktop"
+    assert payload.compute_telemetry is not None
+    assert payload.compute_telemetry.cpu_utilization_percent == 33
     assert resources["evm-training:Job:evm-b7-training"].status == "fail"
     assert resources["evm-training:Job:evm-b7-training"].observation_source == "kubernetes_snapshot"
     assert resources["evm-platform:Deployment:evm-api"].observation_status == "projected"
