@@ -14,31 +14,31 @@ export type ControlPanelView =
   | "Governance";
 
 
-const workspaceByView: Record<ControlPanelView, "Monitor" | "Build" | "Release" | "Govern"> = {
-  Overview: "Monitor",
+const workspaceByView: Record<ControlPanelView, "Overview" | "Build" | "Deploy" | "Govern"> = {
+  Overview: "Overview",
   Configure: "Build",
   Stages: "Build",
-  Runs: "Monitor",
-  Readiness: "Release",
-  Timeline: "Monitor",
+  Runs: "Overview",
+  Readiness: "Deploy",
+  Timeline: "Overview",
   Operate: "Build",
-  Gates: "Release",
-  Release: "Release",
+  Gates: "Deploy",
+  Release: "Deploy",
   Governance: "Govern"
 };
 
 
 const labelByView: Record<ControlPanelView, string> = {
-  Overview: "Command Center",
-  Configure: "Blueprint",
-  Stages: "Stages",
+  Overview: "Operations",
+  Configure: "Pipeline Studio",
+  Stages: "Handoffs",
   Runs: "Runs",
   Readiness: "Readiness",
-  Timeline: "Pipeline",
-  Operate: "Task Studio",
+  Timeline: "Resources",
+  Operate: "Runtime Tasks",
   Gates: "Quality & Drift",
-  Release: "Promotion",
-  Governance: "Audit"
+  Release: "Models",
+  Governance: "Decisions"
 };
 
 

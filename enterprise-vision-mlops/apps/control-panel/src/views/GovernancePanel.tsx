@@ -1,4 +1,4 @@
-import { CheckCheck, FileClock, GitPullRequestArrow, Plus, RotateCcw, X } from "lucide-react";
+import { CheckCheck, ChevronRight, FileClock, GitPullRequestArrow, Plus, RotateCcw, X } from "lucide-react";
 import { useState } from "react";
 
 import { compactUri, createDecisionRecord, transitionDecisionRecord } from "../api/controlPanelClient";
@@ -92,27 +92,9 @@ export function GovernancePanel({ cycle, lifecycleRun, registry, onRefresh }: Go
 
   return (
     <section className="governance-layout" aria-label="Decision governance">
-      <div className="panel governance-author">
-        <div className="panel-heading">
-          <div><h2>Decision Draft</h2><p>EVM-211</p></div>
-          <FileClock />
-        </div>
-        <div className="governance-context" aria-label="Decision evidence context">
-          <span>Cycle</span><strong title={cycle.cycle_id}>{compactUri(cycle.cycle_id)}</strong>
-          <span>Run</span><strong title={lifecycleRun?.run_id || ""}>{lifecycleRun?.run_id || "No run selected"}</strong>
-        </div>
-        <div className="governance-form">
-          <label><span>Subject</span><select value={subjectType} onChange={(event) => setSubjectType(event.target.value as DecisionSubjectType)}>{subjectTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label><span>Owner</span><input value={owner} onChange={(event) => setOwner(event.target.value)} /></label>
-          <label className="governance-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-          <label className="governance-wide"><span>Summary</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} /></label>
-          <button type="button" className="primary-action" onClick={() => void createDraft()} disabled={busy}><Plus size={16} /> Create Draft</button>
-        </div>
-      </div>
-
       <div className="panel governance-registry">
         <div className="panel-heading">
-          <div><h2>Decision Registry</h2><p>{registry.decisions.length} records</p></div>
+          <div><h2>Decision Queue</h2><p>{registry.decisions.length} governed changes</p></div>
           <StatusBadge status={registry.status} />
         </div>
         <div className="governance-actor-row">
@@ -127,7 +109,16 @@ export function GovernancePanel({ cycle, lifecycleRun, registry, onRefresh }: Go
                 <StatusBadge status={decisionTone(record.state)} compact />
               </header>
               <p>{record.summary}</p>
-              <small title={String(record.metadata.cycle_id || "")}>{record.evidence_uris.length} evidence / {compactUri(String(record.metadata.cycle_id || "unbound cycle"))}</small>
+              <dl className="decision-summary-grid">
+                <div><dt>Outcome</dt><dd>{decisionOutcome(record)}</dd></div>
+                <div><dt>Impact</dt><dd>{decisionImpact(record)}</dd></div>
+                <div><dt>Next action</dt><dd>{decisionNextAction(record)}</dd></div>
+              </dl>
+              <details className="decision-evidence">
+                <summary><span>{record.evidence_uris.length} linked evidence</span><ChevronRight size={14} /></summary>
+                <small title={String(record.metadata.cycle_id || "")}>Cycle {compactUri(String(record.metadata.cycle_id || "unbound cycle"))}</small>
+                {record.evidence_uris.map((uri) => <code key={uri} title={uri}>{compactUri(uri)}</code>)}
+              </details>
               <div className="decision-actions">{decisionActions(record).map((action) => (
                 <button key={action.state} type="button" className="secondary-action" disabled={busy} onClick={() => void transition(record, action.state)}>{action.icon}{action.label}</button>
               ))}</div>
@@ -137,8 +128,54 @@ export function GovernancePanel({ cycle, lifecycleRun, registry, onRefresh }: Go
         </div>
         {[...registry.blockers, ...(error ? [error] : [])].length ? <div className="policy-error" role="alert">{[...registry.blockers, error].filter(Boolean).join(", ")}</div> : null}
       </div>
+
+      <details className="panel governance-author">
+        <summary className="governance-author-summary">
+          <span><FileClock size={18} /><strong>New Decision</strong><small>Record a reviewed model, data, policy, or serving change</small></span>
+          <Plus size={18} />
+        </summary>
+        <div className="governance-author-body">
+          <div className="governance-context" aria-label="Decision evidence context">
+            <span>Cycle</span><strong title={cycle.cycle_id}>{compactUri(cycle.cycle_id)}</strong>
+            <span>Run</span><strong title={lifecycleRun?.run_id || ""}>{lifecycleRun?.run_id || "No run selected"}</strong>
+          </div>
+          <div className="governance-form">
+            <label><span>Subject</span><select value={subjectType} onChange={(event) => setSubjectType(event.target.value as DecisionSubjectType)}>{subjectTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label><span>Owner</span><input value={owner} onChange={(event) => setOwner(event.target.value)} /></label>
+            <label className="governance-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+            <label className="governance-wide"><span>Summary</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} /></label>
+            <button type="button" className="primary-action" onClick={() => void createDraft()} disabled={busy}><Plus size={16} /> Create Draft</button>
+          </div>
+        </div>
+      </details>
     </section>
   );
+}
+
+function decisionOutcome(record: DecisionRecord): string {
+  if (record.state === "approved") return "Approved and immutable";
+  if (record.state === "rejected") return "Rejected with audit history";
+  if (record.state === "review") return "Awaiting reviewer decision";
+  return "Draft, no runtime impact";
+}
+
+function decisionImpact(record: DecisionRecord): string {
+  const labels: Record<DecisionSubjectType, string> = {
+    experiment: "Experiment configuration",
+    prompt_change: "Prompt behavior",
+    model_candidate: "Model promotion",
+    evaluation_policy: "Quality and gate policy",
+    drift_review: "Drift response",
+    serving_change: "Serving runtime"
+  };
+  return labels[record.subject_type];
+}
+
+function decisionNextAction(record: DecisionRecord): string {
+  if (record.state === "draft") return "Submit for review";
+  if (record.state === "review") return "Approve or reject";
+  if (record.state === "rejected") return "Revise and reopen";
+  return "Monitor linked runtime evidence";
 }
 
 function decisionTone(state: DecisionState): string {

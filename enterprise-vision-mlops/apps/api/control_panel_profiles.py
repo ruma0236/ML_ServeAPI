@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from evm.control_panel.model_components import ModelComponentCatalog, read_model_components
+from evm.control_panel.model_components import (
+    ModelComponentCatalog,
+    ModelComponentRegistration,
+    ModelComponentRegistrationRequest,
+    read_model_components,
+    register_model_component,
+)
 from evm.control_panel.pipeline_profiles import (
     PipelineProfileLaunch,
     PipelineProfileLaunchRequest,
@@ -27,6 +33,23 @@ router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-pipeline-pro
 @router.get("/model-components", response_model=ModelComponentCatalog)
 def list_model_components() -> ModelComponentCatalog:
     return read_model_components()
+
+
+@router.post(
+    "/model-components",
+    response_model=ModelComponentRegistration,
+    status_code=201,
+)
+def create_model_component(
+    request: ModelComponentRegistrationRequest,
+) -> ModelComponentRegistration:
+    try:
+        return register_model_component(request)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "model_component_invalid", "message": str(exc)},
+        ) from exc
 
 
 @router.get("/pipeline-profiles/default", response_model=PipelineRunProfile)

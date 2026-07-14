@@ -1,6 +1,7 @@
 param(
     [int]$IntervalSeconds = 5,
     [string]$PythonPath = $env:EVM_PYTHON_PATH,
+    [string]$Namespaces = $env:EVM_KUBERNETES_NAMESPACES,
     [switch]$Restart
 )
 
@@ -64,6 +65,11 @@ if (-not $python) {
     throw "No Python runtime with the project dependencies was found. Set EVM_PYTHON_PATH."
 }
 $env:PYTHONPATH = Join-Path $ProjectRoot "src"
+$observerNamespaces = if ($Namespaces) {
+    $Namespaces
+} else {
+    "evm-training,evm-staging,evm-production"
+}
 $arguments = @(
     "-m",
     "evm.control_panel.kubernetes_observer",
@@ -71,7 +77,7 @@ $arguments = @(
     "--history-root", $HistoryRoot,
     "--interval-seconds", [string]$IntervalSeconds,
     "--cluster-context", "docker-desktop",
-    "--namespaces", "evm-training,evm-staging"
+    "--namespaces", $observerNamespaces
 )
 
 $startArguments = @{

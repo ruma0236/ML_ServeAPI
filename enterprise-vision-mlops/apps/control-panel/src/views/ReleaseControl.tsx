@@ -1,14 +1,18 @@
 import { Activity, CheckCircle2, ExternalLink, GitPullRequestArrow, RadioTower, ShieldAlert } from "lucide-react";
 
-import type { CycleRun, LifecycleRun, LifecycleStage, State } from "../api/types";
+import type { CycleRun, LifecycleRun, LifecycleStage, ModelCandidateSelection, RuntimeResourceList, State } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
+import { DeploymentInventory } from "./DeploymentInventory";
 import { DeploymentIntentPanel } from "./DeploymentIntentPanel";
+import { PromotionCandidateQueue } from "./PromotionCandidateQueue";
 
 
 interface ReleaseControlProps {
   cycle: CycleRun;
   lifecycleRun?: LifecycleRun | null;
   modelSelectionId?: string;
+  resourceSnapshot: RuntimeResourceList;
+  onPromote: (selection: ModelCandidateSelection) => void;
 }
 
 
@@ -21,7 +25,7 @@ interface ReleaseStage {
 }
 
 
-export function ReleaseControl({ cycle, lifecycleRun, modelSelectionId }: ReleaseControlProps) {
+export function ReleaseControl({ cycle, lifecycleRun, modelSelectionId, resourceSnapshot, onPromote }: ReleaseControlProps) {
   const intent = cycle.latest_deployment_intent;
   const targetEnvironment = intent?.target_environment || cycle.environment?.tier || "unknown";
   const stages: ReleaseStage[] = lifecycleRun ? lifecycleReleaseStages(lifecycleRun, targetEnvironment) : [
@@ -95,57 +99,76 @@ export function ReleaseControl({ cycle, lifecycleRun, modelSelectionId }: Releas
 
   return (
     <section className="release-layout" aria-label="Release control">
-      <div className="release-header">
-        <div>
-          <span className="eyebrow">CI / CT / CD</span>
-          <h2>Release Control</h2>
-          <p>{lifecycleRun?.run_id || cycle.cycle_id}</p>
-        </div>
-        <div className="release-outcome">
-          {targetVerified ? <CheckCircle2 /> : <ShieldAlert />}
-          <div>
-            <span>{targetEnvironment} target</span>
-            <strong>{targetVerified ? "verified" : lifecycleRun ? lifecycleRun.state.replaceAll("_", " ") : "blocked"}</strong>
-          </div>
-          <StatusBadge status={outcomeStatus} />
-        </div>
-      </div>
+      <DeploymentInventory resourceSnapshot={resourceSnapshot} />
+      <PromotionCandidateQueue actor={cycle.tenant?.model_owner || "ml-platform-operator"} onPromote={onPromote} />
 
-      <div className="release-progress-summary" aria-label={`Target verification progress ${releaseProgress}%`}>
-        <div><span>{targetEnvironment === "production" ? "Production Release" : "Target Verification"}</span><strong>{releaseProgress}%</strong></div>
-        <div className="release-progress-bar"><b style={{ width: `${releaseProgress}%` }} /></div>
-        <span>{stages.filter((stage) => stage.status === "pass" || stage.status === "done").length} of {stages.length} stages completed</span>
-      </div>
-
-      <div className="release-flow" aria-label="Release pipeline stages">
-        {stages.map((stage, index) => (
-          <article key={stage.id} className={`release-stage release-${stage.status}`}>
-            <div className="release-stage-index">{String(index + 1).padStart(2, "0")}</div>
+      <details className="release-disclosure">
+        <summary>
+          <span><strong>Selected release evidence</strong><small>{lifecycleRun?.run_id || cycle.cycle_id}</small></span>
+          <span><b>{releaseProgress}%</b><StatusBadge status={outcomeStatus} compact /></span>
+        </summary>
+        <div className="release-disclosure-content">
+          <div className="release-header">
             <div>
-              <span>{stage.label}</span>
-              <strong>{stage.detail}</strong>
-              {stage.evidence ? <small title={stage.evidence}>{compact(stage.evidence)}</small> : <small>No evidence linked</small>}
+              <span className="eyebrow">CI / CT / CD</span>
+              <h2>Release Control</h2>
+              <p>{lifecycleRun?.run_id || cycle.cycle_id}</p>
             </div>
-            <em className="release-state-label">{releaseStateLabel(stage.status)}</em>
-            <StatusBadge status={stage.status} compact />
-          </article>
-        ))}
-      </div>
+            <div className="release-outcome">
+              {targetVerified ? <CheckCircle2 /> : <ShieldAlert />}
+              <div>
+                <span>{targetEnvironment} target</span>
+                <strong>{targetVerified ? "verified" : lifecycleRun ? lifecycleRun.state.replaceAll("_", " ") : "blocked"}</strong>
+              </div>
+              <StatusBadge status={outcomeStatus} />
+            </div>
+          </div>
 
-      <div className="release-monitor-grid">
-        <MonitorLink icon={<Activity />} label="Grafana" href={serviceUrl("grafana")} detail="control-plane dashboards and alerts" />
-        <MonitorLink icon={<GitPullRequestArrow />} label="MLflow" href={serviceUrl("mlflow")} detail="runs and model registry" />
-        <MonitorLink icon={<RadioTower />} label="Prometheus" href={serviceUrl("prometheus")} detail="lifecycle metrics in PromQL" />
-      </div>
+          <div className="release-progress-summary" aria-label={`Target verification progress ${releaseProgress}%`}>
+            <div><span>{targetEnvironment === "production" ? "Production Release" : "Target Verification"}</span><strong>{releaseProgress}%</strong></div>
+            <div className="release-progress-bar"><b style={{ width: `${releaseProgress}%` }} /></div>
+            <span>{stages.filter((stage) => stage.status === "pass" || stage.status === "done").length} of {stages.length} stages completed</span>
+          </div>
 
-      {blockers.length ? (
-        <div className="release-blockers" role="alert">
-          <strong>{targetEnvironment === "production" ? "Release blockers" : "Production promotion blockers"}</strong>
-          <div>{blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}</div>
+          <div className="release-flow" aria-label="Release pipeline stages">
+            {stages.map((stage, index) => (
+              <article key={stage.id} className={`release-stage release-${stage.status}`}>
+                <div className="release-stage-index">{String(index + 1).padStart(2, "0")}</div>
+                <div>
+                  <span>{stage.label}</span>
+                  <strong>{stage.detail}</strong>
+                  {stage.evidence ? <small title={stage.evidence}>{compact(stage.evidence)}</small> : <small>No evidence linked</small>}
+                </div>
+                <em className="release-state-label">{releaseStateLabel(stage.status)}</em>
+                <StatusBadge status={stage.status} compact />
+              </article>
+            ))}
+          </div>
+
+          <div className="release-monitor-grid">
+            <MonitorLink icon={<Activity />} label="Grafana" href={serviceUrl("grafana")} detail="control-plane dashboards and alerts" />
+            <MonitorLink icon={<GitPullRequestArrow />} label="MLflow" href={serviceUrl("mlflow")} detail="runs and model registry" />
+            <MonitorLink icon={<RadioTower />} label="Prometheus" href={serviceUrl("prometheus")} detail="lifecycle metrics in PromQL" />
+          </div>
+
+          {blockers.length ? (
+            <div className="release-blockers" role="alert">
+              <strong>{targetEnvironment === "production" ? "Release blockers" : "Production promotion blockers"}</strong>
+              <div>{blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}</div>
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      </details>
 
-      <DeploymentIntentPanel cycle={cycle} modelSelectionId={modelSelectionId} />
+      <details className="release-disclosure release-promotion-disclosure">
+        <summary>
+          <span><strong>Promotion workflow</strong><small>Validate, approve, queue, and apply a selected model</small></span>
+          <StatusBadge status={deploymentStatus(intent?.state)} compact />
+        </summary>
+        <div className="release-disclosure-content">
+          <DeploymentIntentPanel cycle={cycle} modelSelectionId={modelSelectionId} />
+        </div>
+      </details>
     </section>
   );
 }

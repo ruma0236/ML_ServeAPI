@@ -161,7 +161,9 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "/control-panel/v1/pipeline-profiles/{profile_id}" in openapi["paths"]
     assert "/control-panel/v1/pipeline-profiles/{profile_id}/launch" in openapi["paths"]
     assert "/control-panel/v1/pipeline-profiles/{profile_id}/replay-validation" in openapi["paths"]
+    assert "/control-panel/v1/model-components" in openapi["paths"]
     assert "ModelComponentCatalog" in schemas
+    assert "ModelComponentRegistration" in schemas
     assert "PipelineProfileReplayValidation" in schemas
     assert "reproducibility_digest" in schemas["PipelineProfileRecord"]["properties"]
     assert "/control-panel/v1/lifecycle-runs" in openapi["paths"]

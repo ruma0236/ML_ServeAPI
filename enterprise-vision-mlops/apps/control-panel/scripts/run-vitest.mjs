@@ -9,6 +9,7 @@ const vitestEntry = path.join(appRoot, "node_modules", "vitest", "vitest.mjs");
 const requestedTests = process.argv.slice(2).filter((arg) => arg !== "--run");
 const defaultTests = [
   "tests/control-panel/cycle-overview.contract.test.ts",
+  "tests/control-panel/deployment-inventory.view.test.ts",
   "tests/control-panel/deployment-intent.contract.test.ts",
   "tests/control-panel/enterprise-readiness.contract.test.ts",
   "tests/control-panel/gate-risk.contract.test.ts",
@@ -17,6 +18,7 @@ const defaultTests = [
   "tests/control-panel/lifecycle-runs.contract.test.tsx",
   "tests/control-panel/lifecycle-runs.view.test.tsx",
   "tests/control-panel/live-sync.contract.test.tsx",
+  "tests/control-panel/operations-overview.view.test.ts",
   "tests/control-panel/operations.contract.test.ts",
   "tests/control-panel/pipeline-profile.contract.test.ts",
   "tests/control-panel/pipeline-timeline.contract.test.ts",

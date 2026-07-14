@@ -770,6 +770,22 @@ export interface ModelComponentCatalog {
   catalog_digest: string;
 }
 
+export interface ModelComponentRegistrationRequest {
+  component: ModelComponent;
+  actor: string;
+  reason: string;
+}
+
+export interface ModelComponentRegistration {
+  schema_version: "evm.model_component_registration.v1";
+  component: ModelComponent;
+  actor: string;
+  reason: string;
+  registered_at: string;
+  registry_uri: string;
+  catalog_digest: string;
+}
+
 export type ScenarioModality = "image" | "text" | "image_text";
 export type ScenarioReadiness =
   | "verified_full_lifecycle"

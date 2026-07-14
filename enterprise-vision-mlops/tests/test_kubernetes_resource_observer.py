@@ -20,6 +20,11 @@ def test_default_observer_scope_includes_production_namespace() -> None:
     assert "evm-production" in DEFAULT_NAMESPACES
 
 
+def test_local_observer_launcher_keeps_production_namespace() -> None:
+    launcher = Path("scripts/dev/start_kubernetes_observer.ps1").read_text(encoding="utf-8")
+    assert "evm-training,evm-staging,evm-production" in launcher
+
+
 def fixture_runner(arguments: list[str]) -> dict:
     if "nodes" in arguments:
         return {

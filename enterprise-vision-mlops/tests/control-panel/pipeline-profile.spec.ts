@@ -13,11 +13,12 @@ test("@pipeline-profile validates effective and unsupported tuning paths", async
   await expect(studio.getByRole("button", { name: "Queue Full Lifecycle" })).toBeDisabled();
 
   await studio.getByRole("button", { name: "Training", exact: true }).click();
-  await expect(studio.getByRole("button", { name: "EfficientNet-B0" })).toBeVisible();
-  await expect(studio.getByRole("button", { name: "EfficientNet-B7" })).toBeVisible();
-  await studio.getByRole("button", { name: "EfficientNet-B7" }).click();
+  await expect(studio.getByRole("button", { name: "Component Catalog" })).toHaveClass(/active/);
+  await expect(studio.getByRole("button", { name: "EfficientNet-B0", exact: true })).toBeVisible();
+  await expect(studio.getByRole("button", { name: "EfficientNet-B7", exact: true })).toBeVisible();
+  await studio.getByRole("button", { name: "EfficientNet-B7", exact: true }).click();
   await expect(studio.getByLabel("Input Size")).toHaveValue("600");
-  await studio.getByRole("button", { name: "EfficientNet-B0" }).click();
+  await studio.getByRole("button", { name: "EfficientNet-B0", exact: true }).click();
   await expect(studio.getByLabel("Input Size")).toHaveValue("224");
 
   await studio.getByRole("button", { name: "Intent", exact: true }).click();
@@ -35,6 +36,8 @@ test("@pipeline-profile validates effective and unsupported tuning paths", async
   await expect(studio.locator(".profile-task")).toContainText("dry run");
 
   await studio.getByRole("button", { name: "Data", exact: true }).click();
+  await expect(studio.getByRole("button", { name: "Custom Manifest" })).toHaveClass(/active/);
+  await expect(studio.getByLabel("Source Manifest URI")).not.toHaveValue("");
   await studio.getByText("Cross-validation", { exact: true }).click();
   await expect(studio.getByLabel("Cross-validation")).toBeChecked();
   await expect(

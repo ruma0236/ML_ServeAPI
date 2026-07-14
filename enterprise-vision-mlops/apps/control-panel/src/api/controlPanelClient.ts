@@ -27,6 +27,8 @@ import type {
   ModelCandidateSelection,
   ModelCandidateSelectionRequest,
   ModelComponentCatalog,
+  ModelComponentRegistration,
+  ModelComponentRegistrationRequest,
   OrchestratorConnectionList,
   PipelineProfileLaunch,
   PipelineProfileLaunchRequest,
@@ -357,6 +359,19 @@ export async function fetchModelComponents(baseUrl = API_BASE): Promise<ModelCom
   });
   if (!response.ok) throw new Error(`Model component catalog failed: ${response.status}`);
   return (await response.json()) as ModelComponentCatalog;
+}
+
+export async function registerModelComponent(
+  request: ModelComponentRegistrationRequest,
+  baseUrl = API_BASE
+): Promise<ModelComponentRegistration> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/model-components`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) throw await controlPanelError(response, "Model component registration failed");
+  return (await response.json()) as ModelComponentRegistration;
 }
 
 export async function fetchEnterpriseScenarios(

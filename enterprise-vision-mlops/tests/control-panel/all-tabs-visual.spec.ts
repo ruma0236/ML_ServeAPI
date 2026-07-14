@@ -8,7 +8,7 @@ import {
 
 const tabs: ControlPanelView[] = ["Overview", "Configure", "Stages", "Runs", "Readiness", "Timeline", "Operate", "Gates", "Release", "Governance"];
 const headingsByTab: Record<string, string> = {
-  Overview: "Lifecycle State",
+  Overview: "Live Operations",
   Configure: "Run Blueprint Studio",
   Stages: "Stage Workbench",
   Runs: "Lifecycle Runs",
@@ -16,14 +16,14 @@ const headingsByTab: Record<string, string> = {
   Timeline: "Pipeline Timeline",
   Operate: "Task Authoring",
   Gates: "Model Metric Gate",
-  Release: "Release Control",
-  Governance: "Decision Draft"
+  Release: "Deployed Models",
+  Governance: "Decision Queue"
 };
 
 test("@w7-all-tabs-visual captures every Control Panel tab for the active viewport", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Control Panel" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Lifecycle State" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Live Operations" })).toBeVisible();
 
   const evidenceDir =
     process.env.EVM_W7_ALL_TABS_EVIDENCE_DIR ||

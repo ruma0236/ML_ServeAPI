@@ -26,6 +26,7 @@ import {
   fetchPipelineProfileReplayValidation,
   fetchPipelineProfiles,
   launchPipelineProfile,
+  registerModelComponent,
   savePipelineProfile,
   validatePipelineProfile
 } from "../api/controlPanelClient";
@@ -85,6 +86,11 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
   const [lifecycleRun, setLifecycleRun] = useState<LifecycleRun | null>(null);
   const [executionMode, setExecutionMode] = useState<"automatic" | "stepwise">("automatic");
   const [modelComponents, setModelComponents] = useState<ModelComponent[]>([]);
+  const [dataSourceMode, setDataSourceMode] = useState<"catalog" | "custom">("custom");
+  const [modelSourceMode, setModelSourceMode] = useState<"catalog" | "custom">("catalog");
+  const [customComponent, setCustomComponent] = useState<ModelComponent>(() => customComponentTemplate());
+  const [componentReason, setComponentReason] = useState("Register an immutable custom component for non-production lifecycle testing.");
+  const [registeredComponent, setRegisteredComponent] = useState<ModelComponent | null>(null);
   const [activeStep, setActiveStep] = useState<BlueprintStep>("intent");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -169,6 +175,46 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
     setError("");
     setValidation(null);
     setProfile(next);
+  }
+
+  function selectModelComponent(component: ModelComponent) {
+    updateProfile({
+      ...activeProfile,
+      model: {
+        ...activeProfile.model,
+        component_id: component.component_id,
+        component_version: component.version,
+        architecture: component.architecture,
+        input_size: component.default_input_size,
+        batch_size: component.architecture === "efficientnet-b7" ? 4 : 64,
+        learning_rate: component.architecture === "efficientnet-b7" ? 0.0001 : 0.0003,
+        search_space: {
+          ...activeProfile.model.search_space,
+          learning_rates: component.architecture === "efficientnet-b7" ? [0.00005, 0.0001] : [0.0001, 0.0003],
+          batch_sizes: component.architecture === "efficientnet-b7" ? [4, 8] : [32, 64]
+        }
+      }
+    });
+  }
+
+  async function registerCustomComponent() {
+    setBusy(true);
+    setError("");
+    try {
+      const registration = await registerModelComponent({
+        component: customComponent,
+        actor: activeProfile.owner,
+        reason: componentReason
+      });
+      setModelComponents((current) => [...current, registration.component]);
+      setRegisteredComponent(registration.component);
+      setModelSourceMode("catalog");
+      selectModelComponent(registration.component);
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function validateNow() {
@@ -321,24 +367,33 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
                 <button type="button" className={profile.execution_scope === "data_cycle" ? "active" : ""} onClick={() => updateProfile({ ...profile, execution_scope: "data_cycle" })}>Data Cycle</button>
                 <button type="button" className={profile.execution_scope === "full_lifecycle" ? "active" : ""} onClick={() => updateProfile({ ...profile, execution_scope: "full_lifecycle" })}>Full Lifecycle</button>
               </div>
-              <SectionHeading icon={<Database />} title="Enterprise Scenario" />
-              <EnterpriseScenarioCatalog
-                owner={profile.owner}
-                onApplyProfile={(template) => updateProfile({ ...template, owner: profile.owner })}
-              />
             </div>
           ) : null}
 
           {activeStep === "data" ? (
             <div className="blueprint-step-content" data-step="data">
-              <SectionHeading icon={<Database />} title="Dataset Identity" />
-              <div className="profile-form-grid">
-                <TextField label="Dataset" value={profile.data.dataset_name} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, dataset_name: value } })} />
-                <TextField label="Dataset Version" value={profile.data.dataset_version} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, dataset_version: value } })} />
-                <TextField className="field-wide" label="Source Manifest URI" value={profile.data.source_manifest_uri} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, source_manifest_uri: value } })} />
-                <TextField className="field-wide" label="Split Manifest URI" value={profile.data.split_manifest_uri} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, split_manifest_uri: value } })} />
-                <TextField className="field-wide" label="Split Manifest SHA-256" value={profile.data.split_manifest_sha256} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, split_manifest_sha256: value } })} />
+              <SectionHeading icon={<Database />} title="Dataset Source" />
+              <div className="segmented-control source-mode-control" aria-label="Dataset source mode">
+                <button type="button" className={dataSourceMode === "catalog" ? "active" : ""} onClick={() => setDataSourceMode("catalog")}>Scenario Catalog</button>
+                <button type="button" className={dataSourceMode === "custom" ? "active" : ""} onClick={() => setDataSourceMode("custom")}>Custom Manifest</button>
               </div>
+              {dataSourceMode === "catalog" ? (
+                <EnterpriseScenarioCatalog
+                  owner={profile.owner}
+                  onApplyProfile={(template) => {
+                    updateProfile({ ...template, owner: profile.owner });
+                    setDataSourceMode("custom");
+                  }}
+                />
+              ) : (
+                <div className="profile-form-grid custom-source-form">
+                  <TextField label="Dataset" value={profile.data.dataset_name} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, dataset_name: value } })} />
+                  <TextField label="Dataset Version" value={profile.data.dataset_version} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, dataset_version: value } })} />
+                  <TextField className="field-wide" label="Source Manifest URI" value={profile.data.source_manifest_uri} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, source_manifest_uri: value } })} />
+                  <TextField className="field-wide" label="Split Manifest URI" value={profile.data.split_manifest_uri} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, split_manifest_uri: value } })} />
+                  <TextField className="field-wide" label="Split Manifest SHA-256" value={profile.data.split_manifest_sha256} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, split_manifest_sha256: value } })} />
+                </div>
+              )}
               <SectionHeading icon={<ShieldCheck />} title="Deterministic Split" />
               <div className="profile-form-grid">
                 <NumberField label="Split Seed" value={profile.data.split.seed} step={1} onChange={(value) => updateProfile({ ...profile, data: { ...profile.data, split: { ...profile.data.split, seed: value } } })} />
@@ -366,35 +421,51 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
 
           {activeStep === "training" ? (
             <div className="blueprint-step-content" data-step="training">
-              <SectionHeading icon={<FlaskConical />} title="Approved Model Component" />
-              <div className="segmented-control model-component-control" aria-label="Model component">
-                {modelComponents.map((component) => (
-                  <button
-                    type="button"
-                    key={`${component.component_id}:${component.version}`}
-                    className={profile.model.component_id === component.component_id && profile.model.component_version === component.version ? "active" : ""}
-                    onClick={() => updateProfile({
-                      ...profile,
-                      model: {
-                        ...profile.model,
-                        component_id: component.component_id,
-                        component_version: component.version,
-                        architecture: component.architecture,
-                        input_size: component.default_input_size,
-                        batch_size: component.architecture === "efficientnet-b7" ? 4 : 64,
-                        learning_rate: component.architecture === "efficientnet-b7" ? 0.0001 : 0.0003,
-                        search_space: {
-                          ...profile.model.search_space,
-                          learning_rates: component.architecture === "efficientnet-b7" ? [0.00005, 0.0001] : [0.0001, 0.0003],
-                          batch_sizes: component.architecture === "efficientnet-b7" ? [4, 8] : [32, 64]
-                        }
-                      }
-                    })}
-                  >
-                    {component.display_name}
-                  </button>
-                ))}
+              <SectionHeading icon={<FlaskConical />} title="Model Source" />
+              <div className="segmented-control source-mode-control" aria-label="Model source mode">
+                <button type="button" className={modelSourceMode === "catalog" ? "active" : ""} onClick={() => setModelSourceMode("catalog")}>Component Catalog</button>
+                <button type="button" className={modelSourceMode === "custom" ? "active" : ""} onClick={() => setModelSourceMode("custom")}>Custom Component</button>
               </div>
+              {modelSourceMode === "catalog" ? (
+                <div className="segmented-control model-component-control" aria-label="Model component">
+                  {modelComponents.map((component) => (
+                    <button
+                      type="button"
+                      key={`${component.component_id}:${component.version}`}
+                      className={profile.model.component_id === component.component_id && profile.model.component_version === component.version ? "active" : ""}
+                      onClick={() => selectModelComponent(component)}
+                    >
+                      {component.display_name}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="custom-component-contract" aria-label="Custom model component contract">
+                  <div className="component-contract-state">
+                    <span>Runtime adapter</span><strong>EfficientNet</strong>
+                    <span>Identity</span><strong>Immutable version</strong>
+                    <span>Images</span><strong>SHA-256 pinned</strong>
+                  </div>
+                  <div className="profile-form-grid">
+                    <TextField label="Component ID" value={customComponent.component_id} onChange={(value) => setCustomComponent({ ...customComponent, component_id: value })} />
+                    <TextField label="Component Version" value={customComponent.version} onChange={(value) => setCustomComponent({ ...customComponent, version: value })} />
+                    <TextField className="field-wide" label="Display Name" value={customComponent.display_name} onChange={(value) => setCustomComponent({ ...customComponent, display_name: value })} />
+                    <SelectField label="Architecture" value={customComponent.architecture} options={["efficientnet-b0", "efficientnet-b7"]} onChange={(value) => setCustomComponent(componentArchitecture(customComponent, value))} />
+                    <NumberField label="Input Size" value={customComponent.default_input_size} step={8} onChange={(value) => setCustomComponent({ ...customComponent, default_input_size: value, supported_input_sizes: [value] })} />
+                    <TextField className="field-wide" label="Backbone" value={customComponent.backbone} onChange={(value) => setCustomComponent({ ...customComponent, backbone: value })} />
+                    <TextField className="field-wide" label="Source Commit SHA" value={customComponent.source_revision} onChange={(value) => setCustomComponent({ ...customComponent, source_revision: value })} />
+                    <TextField className="field-wide" label="Training Image Digest" value={customComponent.training_image} onChange={(value) => setCustomComponent({ ...customComponent, training_image: value })} />
+                    <TextField className="field-wide" label="Serving Image Digest" value={customComponent.serving_image} onChange={(value) => setCustomComponent({ ...customComponent, serving_image: value })} />
+                    <TextField className="field-wide" label="Registration Reason" value={componentReason} onChange={setComponentReason} />
+                  </div>
+                  <div className="custom-component-actions">
+                    {registeredComponent ? <StatusBadge status="pass" /> : <StatusBadge status="not_registered" />}
+                    <button type="button" className="secondary-action" disabled={busy} onClick={() => void registerCustomComponent()}>
+                      <Save size={16} /> Register Test Component
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="profile-form-grid">
                 <NumberField label="Input Size" value={profile.model.input_size} step={8} onChange={(value) => updateProfile({ ...profile, model: { ...profile.model, input_size: value } })} />
                 <NumberField label="Batch Size" value={profile.model.batch_size} step={8} onChange={(value) => updateProfile({ ...profile, model: { ...profile.model, batch_size: value } })} />
@@ -676,6 +747,38 @@ function parseNumberList(value: string, integers: boolean): number[] {
 function toggleOption<T>(values: T[], option: T, checked: boolean): T[] {
   if (checked) return values.includes(option) ? values : [...values, option];
   return values.filter((value) => value !== option);
+}
+
+
+function customComponentTemplate(): ModelComponent {
+  return {
+    component_id: "custom-efficientnet-b0",
+    version: "0.1.0",
+    display_name: "Custom EfficientNet-B0",
+    status: "approved",
+    framework: "torch",
+    architecture: "efficientnet-b0",
+    backbone: "torchvision.models.efficientnet_b0",
+    runtime_adapter: "efficientnet",
+    default_input_size: 224,
+    supported_input_sizes: [224],
+    source_revision: "",
+    training_image: "",
+    serving_image: ""
+  };
+}
+
+
+function componentArchitecture(component: ModelComponent, architecture: string): ModelComponent {
+  const b7 = architecture === "efficientnet-b7";
+  const inputSize = b7 ? 600 : 224;
+  return {
+    ...component,
+    architecture,
+    backbone: b7 ? "torchvision.models.efficientnet_b7" : "torchvision.models.efficientnet_b0",
+    default_input_size: inputSize,
+    supported_input_sizes: [inputSize]
+  };
 }
 
 

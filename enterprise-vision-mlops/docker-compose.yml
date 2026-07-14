@@ -271,6 +271,7 @@ services:
       EVM_LIFECYCLE_RUN_ROOT: /app/artifacts/w7/lifecycle_runs
       EVM_LIFECYCLE_RUNTIME_ROOT: /mnt/evm-data/artifacts/w7/lifecycle_runs
       EVM_EXPERIMENT_RUN_ROOT: /app/artifacts/w8/experiment_runs
+      EVM_MODEL_COMPONENT_REGISTRY_ROOT: /app/artifacts/w8/model_components
       EVM_CI_EVIDENCE_PATH: /app/artifacts/w7/ci/latest_ci_evidence.json
       EVM_CI_VALIDATION_REPORT_PATH: /app/artifacts/w7/ci/latest_ci_validation.json
       EVM_EXPECTED_CI_COMMIT: ${EVM_EXPECTED_CI_COMMIT:-}

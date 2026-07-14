@@ -30,7 +30,10 @@ test("@w7-drift-cdct renders drift review and CD/CT promotion gate details", asy
   await expect(page.locator(".cdct-detail-list")).toContainText("Approved By");
   await expect(page.locator(".cdct-detail-list").getByText(/pending|[a-z0-9._-]+/).last()).toBeVisible();
   await openControlPanelView(page, "Release");
+  await expect(page.getByRole("heading", { name: "Deployed Models" })).toBeVisible();
+  await page.getByText("Selected release evidence", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Release Control" })).toBeVisible();
+  await page.getByText("Promotion workflow", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Deployment Intent" })).toBeVisible();
   await expect(page.getByLabel("Deployment admission signals")).toContainText("CI Evidence");
   await expect(page.getByLabel("Deployment admission signals")).toContainText("Environment Policy");

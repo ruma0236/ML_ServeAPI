@@ -7,15 +7,16 @@ test("@w7-enterprise-readiness renders service scope, readiness gates, and theme
   await expect(page.getByRole("heading", { name: "Control Panel" })).toBeVisible();
 
   await openControlPanelView(page, "Readiness");
+  await expect(page.getByText(/Ready for promotion|Review required/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Data Readiness" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Model Readiness" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Technical Evidence", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Enterprise Scope" })).toBeVisible();
   await expect(page.getByText("Owner Coverage")).toBeVisible();
   await expect(page.getByText("Promotion Decision")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Data Readiness" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Model Readiness" })).toBeVisible();
   await expect(page.getByLabel("Owner coverage").getByText("data-platform")).toBeVisible();
   await expect(page.getByLabel("Owner coverage").getByText("ml-platform")).toBeVisible();
-
-  await page.getByRole("button", { name: "Evidence Detail", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Data Pipeline Checklist" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Model Pipeline Checklist" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Artifact Evidence Decision" })).toBeVisible();
@@ -26,13 +27,13 @@ test("@w7-enterprise-readiness renders service scope, readiness gates, and theme
   await expect(page.getByLabel("Enterprise readiness checklist").getByText("data-platform")).toBeVisible();
   await expect(page.getByLabel("Enterprise readiness checklist").getByText("ml-platform")).toBeVisible();
 
-  await page.getByRole("button", { name: "Decision Summary", exact: true }).click();
   await page.getByLabel("Target environment").selectOption("production");
   await expect(page.getByLabel("Target namespace")).toHaveValue("evm-production");
   await page.getByLabel("Enterprise service scope").getByText("Approver", { exact: true }).locator("..").getByRole("textbox").fill("release-manager-ui-test");
   await expect(page.getByLabel("Promotion policy decision").getByText("production", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Promotion policy decision").getByText("two-person-production-approval")).toBeVisible();
   await expect(page.getByLabel("Promotion policy checks").getByText("approval", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Release Decision", exact: true }).click();
 
   await expect(page.locator(":root")).toHaveAttribute("data-theme", "dark");
   await page.getByRole("button", { name: "Toggle theme" }).click();

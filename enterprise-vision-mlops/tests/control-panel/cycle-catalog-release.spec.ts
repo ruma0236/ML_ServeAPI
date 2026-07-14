@@ -50,6 +50,9 @@ test("@w7-control-plane selects CycleRuns and exposes the release cockpit", asyn
   }
 
   await openControlPanelView(page, "Release");
+  await expect(page.getByRole("heading", { name: "Deployed Models" })).toBeVisible();
+  await expect(page.getByLabel("Deployed model inventory").locator("details.deployment-target")).not.toHaveCount(0);
+  await page.getByText("Selected release evidence", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Release Control" })).toBeVisible();
   await expect(page.getByLabel("Release pipeline stages").locator("article")).toHaveCount(7);
   const targetEnvironment = latest.latest_deployment_intent?.target_environment || latest.environment?.tier || "unknown";
@@ -58,6 +61,7 @@ test("@w7-control-plane selects CycleRuns and exposes the release cockpit", asyn
   await expect(
     page.getByLabel("Release pipeline stages").locator("article").filter({ hasText: /Monitoring/ })
   ).toContainText(/p95|Latency evidence unavailable|Not scheduled|up/);
+  await page.getByText("Promotion workflow", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Deployment Intent" })).toBeVisible();
   await expect(page.getByLabel("Approver")).toHaveValue(
     latest.latest_deployment_intent?.approver || latest.tenant?.ops_owner || "ai-infra-sre"

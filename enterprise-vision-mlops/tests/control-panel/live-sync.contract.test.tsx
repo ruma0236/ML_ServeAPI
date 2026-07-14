@@ -176,7 +176,7 @@ describe("Control Panel source synchronization", () => {
     expect(govern).toBeDefined();
     await act(async () => govern?.click());
     const governance = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "Audit"
+      (button) => button.textContent === "Decisions"
     );
     expect(governance).toBeDefined();
     await act(async () => governance?.click());
@@ -205,11 +205,11 @@ describe("Control Panel source synchronization", () => {
     expect(localStorage.getItem("evm.control-panel.selected-tab")).toBeNull();
 
     const release = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "Release"
+      (button) => button.textContent === "Deploy"
     );
     await act(async () => release?.click());
     const promotion = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "Promotion"
+      (button) => button.textContent === "Models"
     );
     await act(async () => promotion?.click());
 

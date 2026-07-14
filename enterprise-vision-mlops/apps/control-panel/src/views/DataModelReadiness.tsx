@@ -1,4 +1,4 @@
-import { Cpu, DatabaseZap, Fingerprint, GitCommitVertical, LayoutDashboard, ShieldCheck } from "lucide-react";
+import { ArrowRight, Cpu, DatabaseZap, Fingerprint, GitCommitVertical, LayoutDashboard, ShieldCheck, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { formatNumber } from "../api/controlPanelClient";
@@ -14,22 +14,41 @@ interface DataModelReadinessProps {
 export function DataModelReadiness({ cycle }: DataModelReadinessProps) {
   const [mode, setMode] = useState<"summary" | "evidence">("summary");
   const splitEntries = Object.entries(cycle.dataset.split || {});
+  const blockers = readinessBlockers(cycle);
+  const ready = blockers.length === 0;
   return (
     <section className="readiness-shell" aria-label="Data and model readiness">
       <nav className="view-mode-nav" aria-label="Readiness content">
         <button type="button" className={mode === "summary" ? "active" : ""} onClick={() => setMode("summary")}>
-          <LayoutDashboard size={16} /> Decision Summary
+          <LayoutDashboard size={16} /> Release Decision
         </button>
         <button type="button" className={mode === "evidence" ? "active" : ""} onClick={() => setMode("evidence")}>
-          <Fingerprint size={16} /> Evidence Detail
+          <Fingerprint size={16} /> Technical Evidence
         </button>
       </nav>
 
       {mode === "summary" ? (
-        <section className="two-column readiness-mode" aria-label="Readiness decision summary">
-          <ServiceScopeFilters cycle={cycle} />
+        <section className="readiness-mode" aria-label="Readiness decision summary">
+          <div className={`readiness-verdict ${ready ? "is-ready" : "is-blocked"}`} role="status">
+            <div className="readiness-verdict-icon">
+              {ready ? <ShieldCheck /> : <TriangleAlert />}
+            </div>
+            <div>
+              <span>Promotion decision</span>
+              <h2>{ready ? "Ready for promotion" : "Review required"}</h2>
+              <p>{ready
+                ? "Data, model, and reproducibility gates are complete."
+                : `${blockers.length} gate${blockers.length === 1 ? "" : "s"} require attention before promotion.`}</p>
+            </div>
+            <div className="readiness-next-action">
+              <span>Next action</span>
+              <strong>{ready ? "Open Models and create a deployment intent" : humanizeBlocker(blockers[0])}</strong>
+              <ArrowRight size={18} />
+            </div>
+          </div>
 
-          <div className="panel">
+          <div className="two-column readiness-summary-grid">
+            <div className="panel">
         <div className="panel-heading">
           <div>
             <h2>Data Readiness</h2>
@@ -57,9 +76,9 @@ export function DataModelReadiness({ cycle }: DataModelReadinessProps) {
             </div>
           ))}
         </div>
-          </div>
+            </div>
 
-          <div className="panel">
+            <div className="panel">
         <div className="panel-heading">
           <div>
             <h2>Model Readiness</h2>
@@ -90,29 +109,56 @@ export function DataModelReadiness({ cycle }: DataModelReadinessProps) {
             </div>
           ))}
         </div>
-          </div>
-
-          <div className="panel wide">
-        <div className="panel-heading">
-          <div>
-            <h2>Real-Test Policy</h2>
-            <p>{cycle.model_matrix?.matrix_id || "not-bound"}</p>
-          </div>
-          <ShieldCheck />
-        </div>
-        <div className="policy-grid">
-          <Policy label="mock" value={cycle.model_matrix?.real_test_policy.mock_allowed === false ? "denied" : "allowed"} ok={cycle.model_matrix?.real_test_policy.mock_allowed === false} />
-          <Policy label="smoke" value={cycle.model_matrix?.real_test_policy.smoke_allowed === false ? "denied" : "allowed"} ok={cycle.model_matrix?.real_test_policy.smoke_allowed === false} />
-          <Policy label="dataset" value={cycle.model_matrix?.real_test_policy.requires_real_dataset ? "required" : "optional"} ok={cycle.model_matrix?.real_test_policy.requires_real_dataset === true} />
-          <Policy label="training" value={cycle.model_matrix?.real_test_policy.requires_real_training ? "required" : "optional"} ok={cycle.model_matrix?.real_test_policy.requires_real_training === true} />
-        </div>
+            </div>
           </div>
         </section>
       ) : (
-        <ReadinessChecklist cycle={cycle} />
+        <section className="readiness-evidence" aria-label="Technical readiness evidence">
+          <ServiceScopeFilters cycle={cycle} />
+          <div className="panel wide">
+            <div className="panel-heading">
+              <div>
+                <h2>Real-Test Policy</h2>
+                <p>{cycle.model_matrix?.matrix_id || "not-bound"}</p>
+              </div>
+              <ShieldCheck />
+            </div>
+            <div className="policy-grid">
+              <Policy label="mock" value={cycle.model_matrix?.real_test_policy.mock_allowed === false ? "denied" : "allowed"} ok={cycle.model_matrix?.real_test_policy.mock_allowed === false} />
+              <Policy label="smoke" value={cycle.model_matrix?.real_test_policy.smoke_allowed === false ? "denied" : "allowed"} ok={cycle.model_matrix?.real_test_policy.smoke_allowed === false} />
+              <Policy label="dataset" value={cycle.model_matrix?.real_test_policy.requires_real_dataset ? "required" : "optional"} ok={cycle.model_matrix?.real_test_policy.requires_real_dataset === true} />
+              <Policy label="training" value={cycle.model_matrix?.real_test_policy.requires_real_training ? "required" : "optional"} ok={cycle.model_matrix?.real_test_policy.requires_real_training === true} />
+            </div>
+          </div>
+          <ReadinessChecklist cycle={cycle} />
+        </section>
       )}
     </section>
   );
+}
+
+function readinessBlockers(cycle: CycleRun): string[] {
+  const checks: Array<[string, boolean]> = [
+    ["data contract", passing(cycle.data_pipeline?.contract_status)],
+    ["data quality", passing(cycle.data_pipeline?.quality_status)],
+    ["data lineage", passing(cycle.data_pipeline?.lineage_status)],
+    ["data replay", cycle.data_pipeline?.replay_ready === true],
+    ["experiment tracking", passing(cycle.experiment_pipeline?.tracking_status)],
+    ["model evaluation", passing(cycle.experiment_pipeline?.evaluation_status)],
+    ["model registry", passing(cycle.experiment_pipeline?.registry_status)],
+    ["promotion gate", cycle.experiment_pipeline?.promotion_ready === true]
+  ];
+  return checks.filter(([, ok]) => !ok).map(([label]) => label);
+}
+
+function passing(status: string | null | undefined): boolean {
+  return ["pass", "passed", "ready", "complete", "completed", "success", "succeeded", "finished"].includes(
+    String(status || "").toLowerCase()
+  );
+}
+
+function humanizeBlocker(blocker: string | undefined): string {
+  return blocker ? `Resolve ${blocker}` : "Inspect technical evidence";
 }
 
 function ReadinessItem({ label, status }: { label: string; status: string | null | undefined }) {

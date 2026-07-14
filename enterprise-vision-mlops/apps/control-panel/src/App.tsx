@@ -48,7 +48,7 @@ import { StageWorkbench } from "./views/StageWorkbench";
 import { TaskAuthoring } from "./views/TaskAuthoring";
 
 type TabKey = "overview" | "configure" | "stages" | "runs" | "readiness" | "timeline" | "operate" | "gates" | "release" | "governance";
-type WorkspaceKey = "observe" | "design" | "validate" | "govern";
+type WorkspaceKey = "overview" | "build" | "deploy" | "govern";
 
 const workspaces: Array<{
   key: WorkspaceKey;
@@ -57,40 +57,40 @@ const workspaces: Array<{
   views: Array<{ key: TabKey; label: string }>;
 }> = [
   {
-    key: "observe",
-    label: "Monitor",
+    key: "overview",
+    label: "Overview",
     icon: Activity,
     views: [
-      { key: "overview", label: "Command Center" },
+      { key: "overview", label: "Operations" },
       { key: "runs", label: "Runs" },
-      { key: "timeline", label: "Pipeline" }
+      { key: "timeline", label: "Resources" }
     ]
   },
   {
-    key: "design",
+    key: "build",
     label: "Build",
     icon: SlidersHorizontal,
     views: [
-      { key: "configure", label: "Blueprint" },
-      { key: "stages", label: "Stages" },
-      { key: "operate", label: "Task Studio" }
+      { key: "configure", label: "Pipeline Studio" },
+      { key: "stages", label: "Handoffs" },
+      { key: "operate", label: "Runtime Tasks" }
     ]
   },
   {
-    key: "validate",
-    label: "Release",
+    key: "deploy",
+    label: "Deploy",
     icon: ShieldCheck,
     views: [
+      { key: "release", label: "Models" },
       { key: "readiness", label: "Readiness" },
       { key: "gates", label: "Quality & Drift" },
-      { key: "release", label: "Promotion" }
     ]
   },
   {
     key: "govern",
     label: "Govern",
     icon: BookOpenCheck,
-    views: [{ key: "governance", label: "Audit" }]
+    views: [{ key: "governance", label: "Decisions" }]
   }
 ];
 
@@ -355,9 +355,24 @@ export function App() {
       />
     );
     if (tab === "gates") return <GateAndRiskPanel cycle={cycle} workflow={driftWorkflow} onRefresh={() => loadCycle(true, true)} />;
-    if (tab === "release") return <ReleaseControl cycle={cycle} lifecycleRun={lifecycleContext} modelSelectionId={modelSelectionId} />;
+    if (tab === "release") return (
+      <ReleaseControl
+        cycle={cycle}
+        lifecycleRun={lifecycleContext}
+        modelSelectionId={modelSelectionId}
+        resourceSnapshot={resourceSnapshot}
+        onPromote={(selection) => void openCandidatePromotion(selection)}
+      />
+    );
     if (tab === "governance") return <GovernancePanel cycle={cycle} lifecycleRun={lifecycleContext} registry={decisionRegistry} onRefresh={() => loadCycle(true, true)} />;
-    return <CycleOverview cycle={cycle} />;
+    return (
+      <CycleOverview
+        cycle={cycle}
+        resourceSnapshot={resourceSnapshot}
+        onOpenRuns={() => selectTab("runs")}
+        onOpenDeployments={() => selectTab("release")}
+      />
+    );
   }, [blueprintTarget, cycle, decisionRegistry, driftWorkflow, lifecycleContext, modelSelectionId, orchestratorConnections, resourceSnapshot, tab]);
 
   async function openCandidatePromotion(selection: ModelCandidateSelection) {

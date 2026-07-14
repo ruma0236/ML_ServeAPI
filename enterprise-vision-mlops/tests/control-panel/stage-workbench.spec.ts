@@ -24,7 +24,9 @@ test("@w8-stage-workbench selects an evidence-bound candidate for promotion", as
 
   await expect(page).toHaveURL(new RegExp(`candidate=${selection.selection_id}`));
   await expect(page).toHaveURL(new RegExp(`cycle=${selection.cycle_id}`));
-  await expect(page.getByRole("heading", { name: "Release Control" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Deployed Models" })).toBeVisible();
+  await page.getByText("Promotion workflow", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Deployment Intent" })).toBeVisible();
   await expect(
     page.getByLabel("Deployment intent control").getByRole("textbox", { name: "Selection", exact: true })
   ).toHaveValue(selection.selection_id);

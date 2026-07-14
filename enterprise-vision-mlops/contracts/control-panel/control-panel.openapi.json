@@ -576,6 +576,18 @@
         "responses": {
           "200": {"description": "versioned model component catalog", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ModelComponentCatalog"}}}}
         }
+      },
+      "post": {
+        "summary": "Register an immutable, digest-pinned model component for a wired runtime adapter.",
+        "operationId": "registerModelComponent",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ModelComponentRegistrationRequest"}}}
+        },
+        "responses": {
+          "201": {"description": "model component registered", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ModelComponentRegistration"}}}},
+          "422": {"description": "component identity, digest, or runtime adapter contract rejected"}
+        }
       }
     },
     "/control-panel/v1/scenarios": {
@@ -2061,8 +2073,8 @@
         "type": "object",
         "required": ["component_id", "version", "display_name", "status", "framework", "architecture", "backbone", "runtime_adapter", "default_input_size", "supported_input_sizes", "source_revision", "training_image", "serving_image"],
         "properties": {
-          "component_id": {"type": "string"},
-          "version": {"type": "string"},
+          "component_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"},
+          "version": {"type": "string", "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$"},
           "display_name": {"type": "string"},
           "status": {"type": "string", "enum": ["approved", "deprecated", "blocked"]},
           "framework": {"type": "string", "const": "torch"},
@@ -2082,6 +2094,28 @@
         "properties": {
           "schema_version": {"type": "string", "const": "evm.model_component_catalog.v1"},
           "components": {"type": "array", "items": {"$ref": "#/components/schemas/ModelComponent"}},
+          "catalog_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      },
+      "ModelComponentRegistrationRequest": {
+        "type": "object",
+        "required": ["component", "actor", "reason"],
+        "properties": {
+          "component": {"$ref": "#/components/schemas/ModelComponent"},
+          "actor": {"type": "string", "minLength": 2, "maxLength": 128},
+          "reason": {"type": "string", "minLength": 8, "maxLength": 500}
+        }
+      },
+      "ModelComponentRegistration": {
+        "type": "object",
+        "required": ["schema_version", "component", "actor", "reason", "registered_at", "registry_uri", "catalog_digest"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.model_component_registration.v1"},
+          "component": {"$ref": "#/components/schemas/ModelComponent"},
+          "actor": {"type": "string"},
+          "reason": {"type": "string"},
+          "registered_at": {"type": "string", "format": "date-time"},
+          "registry_uri": {"type": "string"},
           "catalog_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
         }
       },
