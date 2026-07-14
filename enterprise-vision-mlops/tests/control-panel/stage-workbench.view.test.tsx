@@ -51,6 +51,8 @@ describe("Stage Workbench", () => {
 
     expect(container.textContent).toContain("Model Training");
     expect(container.textContent).toContain("effnet-b0-ready");
+    expect(container.textContent).toContain("1 inputs / 0 outputs");
+    expect(container.textContent).toContain("previous_stage_evidence");
     const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
     const continueButton = buttons.find((button) => button.textContent?.includes("Continue"));
     const promoteButton = buttons.find((button) => button.textContent?.includes("Promote"));

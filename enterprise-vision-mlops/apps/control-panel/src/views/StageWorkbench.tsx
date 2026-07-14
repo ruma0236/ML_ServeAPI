@@ -174,9 +174,16 @@ export function StageWorkbench({ onPromote }: StageWorkbenchProps) {
                 </div>
                 <div className="handoff-progress"><b style={{ width: `${Math.round(item.progress * 100)}%` }} /></div>
                 {item.blockers.length ? <details><summary>{item.blockers.length} blockers</summary>{item.blockers.map((blocker) => <code key={blocker}>{blocker}</code>)}</details> : null}
+                {(Object.keys(item.input_refs).length || Object.keys(item.output_refs).length) ? (
+                  <details className="handoff-evidence">
+                    <summary>Input and output evidence</summary>
+                    {Object.entries(item.input_refs).map(([key, value]) => <code key={`input-${key}`} title={value}>IN {key}: {compactRef(value)}</code>)}
+                    {Object.entries(item.output_refs).map(([key, value]) => <code key={`output-${key}`} title={value}>OUT {key}: {compactRef(value)}</code>)}
+                  </details>
+                ) : null}
               </div>
               <div className="handoff-output">
-                <span>{Object.keys(item.output_refs).length} outputs</span>
+                <span>{Object.keys(item.input_refs).length} inputs / {Object.keys(item.output_refs).length} outputs</span>
                 <strong>{item.runtime}</strong>
                 <small>{new Date(item.updated_at).toLocaleString()}</small>
               </div>
@@ -247,4 +254,9 @@ function MetricValue({ label, value, suffix = "", digits = 3 }: { label: string;
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : "Stage Workbench request failed";
+}
+
+
+function compactRef(value: string): string {
+  return value.length > 88 ? `${value.slice(0, 44)}...${value.slice(-32)}` : value;
 }

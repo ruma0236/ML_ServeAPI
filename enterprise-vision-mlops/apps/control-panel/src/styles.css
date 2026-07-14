@@ -6069,6 +6069,8 @@ h3 {
 .candidate-matrix-row details { margin-top: 8px; color: var(--danger); font-size: 11px; }
 .handoff-main details code,
 .candidate-matrix-row details code { display: block; margin-top: 4px; white-space: normal; }
+.handoff-main .handoff-evidence { color: var(--text-muted); }
+.handoff-main .handoff-evidence code { overflow-wrap: anywhere; color: var(--text-muted); font-size: 10px; }
 .handoff-output { display: grid; gap: 5px; }
 .handoff-output span,
 .handoff-output small { color: var(--text-muted); font-size: 11px; }
