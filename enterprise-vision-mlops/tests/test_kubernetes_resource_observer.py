@@ -8,6 +8,8 @@ from pathlib import Path
 from apps.api.control_panel import list_resources
 from evm.control_panel.kubernetes_observer import (
     DEFAULT_NAMESPACES,
+    WindowsGpuEngineSample,
+    aggregate_windows_gpu_engine_samples,
     collect_host_compute_telemetry,
     collect_kubernetes_snapshot,
     collect_nvidia_telemetry,
@@ -35,6 +37,14 @@ def test_host_telemetry_parses_cpu_memory_and_nvidia_metrics() -> None:
         gpu_runner=lambda _: (
             "0, NVIDIA GeForce RTX 4080 SUPER, GPU-test, 71, 4096, 16376, 56, 188.5, 320\n"
         ),
+        gpu_engine_sampler=lambda: [
+            WindowsGpuEngineSample(
+                adapter_luid="luid_test",
+                utilization_percent=12.5,
+                busiest_engine="3D",
+                dedicated_memory_mib=4090,
+            )
+        ],
     )
 
     assert telemetry.status == "live"
@@ -45,9 +55,32 @@ def test_host_telemetry_parses_cpu_memory_and_nvidia_metrics() -> None:
     gpu = telemetry.accelerators[0]
     assert gpu.name == "NVIDIA GeForce RTX 4080 SUPER"
     assert gpu.utilization_percent == 71
+    assert gpu.engine_utilization_percent == 12.5
+    assert gpu.engine_utilization_source == "windows_pdh"
+    assert gpu.busiest_engine == "3D"
     assert gpu.memory_used_mib == 4096
     assert gpu.temperature_c == 56
     assert gpu.power_draw_w == 188.5
+
+
+def test_windows_gpu_engine_aggregation_matches_task_manager_busiest_engine() -> None:
+    samples = aggregate_windows_gpu_engine_samples(
+        [
+            ("pid_10_luid_0x0_0x1_phys_0_eng_0_engtype_3D", 7.25),
+            ("pid_20_luid_0x0_0x1_phys_0_eng_0_engtype_3D", 3.5),
+            ("pid_10_luid_0x0_0x1_phys_0_eng_2_engtype_Copy", 2.0),
+            ("pid_30_luid_0x0_0x2_phys_0_eng_0_engtype_3D", 1.0),
+        ],
+        [
+            ("luid_0x0_0x1_phys_0", 4096 * 1024**2),
+            ("luid_0x0_0x2_phys_0", 0),
+        ],
+    )
+
+    assert samples[0].adapter_luid == "luid_0x0_0x1_phys_0"
+    assert samples[0].utilization_percent == 10.75
+    assert samples[0].busiest_engine == "3D"
+    assert samples[0].dedicated_memory_mib == 4096
 
 
 def test_nvidia_parser_accepts_unavailable_optional_measurements() -> None:

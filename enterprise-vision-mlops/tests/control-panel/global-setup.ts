@@ -12,7 +12,10 @@ interface ResourceState {
   compute_telemetry?: {
     status?: string;
     cpu_utilization_percent?: number | null;
-    accelerators?: Array<{ utilization_percent?: number | null }>;
+    accelerators?: Array<{
+      utilization_percent?: number | null;
+      engine_utilization_percent?: number | null;
+    }>;
   } | null;
 }
 
@@ -38,7 +41,9 @@ export default async function globalSetup(): Promise<void> {
         && resources.observation_status === "live"
         && resources.compute_telemetry?.status === "live"
         && resources.compute_telemetry.cpu_utilization_percent != null
-        && resources.compute_telemetry.accelerators?.some((item) => item.utilization_percent != null)
+        && resources.compute_telemetry.accelerators?.some(
+          (item) => item.utilization_percent != null && item.engine_utilization_percent != null
+        )
       ) return;
       lastError = runtimeSummary(worker, resources);
     } catch (error) {

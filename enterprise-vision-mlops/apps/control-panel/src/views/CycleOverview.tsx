@@ -78,7 +78,7 @@ export function CycleOverview({ cycle, resourceSnapshot, onOpenRuns, onOpenDeplo
       <div className="operations-kpis" aria-label="Live operations summary">
         <OperationMetric icon={<GitBranch />} label="Pipelines in flight" value={activeRuns.length} tone={activeRuns.length ? "run" : "idle"} />
         <OperationMetric icon={<Server />} label="Serving models" value={deployments.active} tone="good" />
-        <OperationMetric icon={<Cpu />} label="GPU load" value={formatPercent(telemetry.gpuUtilizationPercent)} tone={telemetry.status === "live" ? "run" : "bad"} />
+        <OperationMetric icon={<Cpu />} label="GPU engine" value={formatPercent(telemetry.gpuUtilizationPercent)} tone={telemetry.status === "live" ? "run" : "bad"} />
         <OperationMetric icon={<TriangleAlert />} label="Needs attention" value={attention} tone={attention ? "bad" : "good"} />
       </div>
 
@@ -97,11 +97,12 @@ export function CycleOverview({ cycle, resourceSnapshot, onOpenRuns, onOpenDeplo
           <div className="compute-visual">
             <UtilizationRing label="CPU" percent={telemetry.cpuUtilizationPercent} detail="Host total" />
             <UtilizationRing label="RAM" percent={telemetry.memoryUtilizationPercent} detail={formatBytePair(telemetry.memoryUsedBytes, telemetry.memoryTotalBytes)} />
-            <UtilizationRing label="GPU" percent={telemetry.gpuUtilizationPercent} detail={telemetry.acceleratorCount ? `${telemetry.acceleratorCount} device${telemetry.acceleratorCount === 1 ? "" : "s"}` : "Unavailable"} />
+            <UtilizationRing label="GPU" percent={telemetry.gpuUtilizationPercent} detail={telemetry.gpuUtilizationDetail} />
             <UtilizationRing label="VRAM" percent={telemetry.gpuMemoryUtilizationPercent} detail={formatMibPair(telemetry.gpuMemoryUsedMib, telemetry.gpuMemoryTotalMib)} />
           </div>
           <div className="compute-status-list">
             <span><i className={telemetry.status === "live" ? "status-good" : "status-bad"} />Telemetry<strong>{formatTelemetryAge(telemetry.observedAt)}</strong></span>
+            <span><i className="status-idle" />NVML activity<strong>{formatPercent(telemetry.gpuNvmlActivityPercent)}</strong></span>
             <span><i className="status-good" />GPU allocation<strong>{compute.gpuAllocated} / {compute.gpuCapacity || "-"}</strong></span>
             <span><i className="status-idle" />{telemetry.acceleratorName}<strong>{formatTemperature(telemetry.gpuTemperatureC)}</strong></span>
             <span><i className="status-idle" />Power draw<strong>{formatPower(telemetry.gpuPowerDrawW, telemetry.gpuPowerLimitW)}</strong></span>
@@ -190,9 +191,15 @@ export function summarizeComputeResources(resources: RuntimeResource[]) {
 export function summarizeComputeTelemetry(telemetry: ComputeTelemetry | null | undefined) {
   const live = telemetry?.status === "live";
   const accelerators = live ? telemetry.accelerators : [];
-  const gpuUtilizationValues = accelerators
+  const gpuNvmlActivityValues = accelerators
     .map((accelerator) => accelerator.utilization_percent)
     .filter((value): value is number => value !== null && value !== undefined);
+  const gpuEngineUtilizationValues = accelerators
+    .map((accelerator) => accelerator.engine_utilization_percent)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const busiestEngines = accelerators
+    .map((accelerator) => accelerator.busiest_engine)
+    .filter((value): value is string => Boolean(value));
   const memoryUsedValues = accelerators
     .map((accelerator) => accelerator.memory_used_mib)
     .filter((value): value is number => value !== null && value !== undefined);
@@ -210,6 +217,7 @@ export function summarizeComputeTelemetry(telemetry: ComputeTelemetry | null | u
     .filter((value): value is number => value !== null && value !== undefined);
   const gpuMemoryUsedMib = sumOrNull(memoryUsedValues);
   const gpuMemoryTotalMib = sumOrNull(memoryTotalValues);
+  const usesWindowsEngine = gpuEngineUtilizationValues.length > 0;
   return {
     status: telemetry?.status || "unavailable",
     observedAt: telemetry?.observed_at || null,
@@ -217,7 +225,13 @@ export function summarizeComputeTelemetry(telemetry: ComputeTelemetry | null | u
     memoryUtilizationPercent: live ? finiteOrNull(telemetry.memory_utilization_percent) : null,
     memoryUsedBytes: live ? finiteOrNull(telemetry.memory_used_bytes) : null,
     memoryTotalBytes: live ? finiteOrNull(telemetry.memory_total_bytes) : null,
-    gpuUtilizationPercent: averageOrNull(gpuUtilizationValues),
+    gpuUtilizationPercent: averageOrNull(
+      usesWindowsEngine ? gpuEngineUtilizationValues : gpuNvmlActivityValues
+    ),
+    gpuNvmlActivityPercent: averageOrNull(gpuNvmlActivityValues),
+    gpuUtilizationDetail: usesWindowsEngine
+      ? `${busiestEngines.length === 1 ? busiestEngines[0] : "Busiest engine"} / Windows`
+      : accelerators.length ? "NVML fallback" : "Unavailable",
     gpuMemoryUsedMib,
     gpuMemoryTotalMib,
     gpuMemoryUtilizationPercent: gpuMemoryUsedMib !== null && gpuMemoryTotalMib

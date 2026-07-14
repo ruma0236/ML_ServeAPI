@@ -144,6 +144,10 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "observation_source" in schemas["RuntimeResource"]["properties"]
     assert "observation_status" in schemas["RuntimeResourceList"]["properties"]
     assert "compute_telemetry" in schemas["RuntimeResourceList"]["properties"]
+    accelerator_properties = schemas["AcceleratorTelemetry"]["properties"]
+    assert "engine_utilization_percent" in accelerator_properties
+    assert "engine_utilization_source" in accelerator_properties
+    assert "busiest_engine" in accelerator_properties
     assert set(ComputeTelemetry.model_fields).issubset(schemas["ComputeTelemetry"]["properties"])
     assert set(AcceleratorTelemetry.model_fields).issubset(schemas["AcceleratorTelemetry"]["properties"])
     assert "/control-panel/v1/deployment-intents" in openapi["paths"]

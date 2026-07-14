@@ -78,6 +78,9 @@ export interface AcceleratorTelemetry {
   name: string;
   uuid?: string | null;
   utilization_percent?: number | null;
+  engine_utilization_percent?: number | null;
+  engine_utilization_source?: "windows_pdh" | null;
+  busiest_engine?: string | null;
   memory_used_mib?: number | null;
   memory_total_mib?: number | null;
   temperature_c?: number | null;

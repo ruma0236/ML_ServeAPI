@@ -46,6 +46,9 @@ describe("fleet operations compute summary", () => {
           vendor: "nvidia",
           name: "NVIDIA RTX 4080 SUPER",
           utilization_percent: 64,
+          engine_utilization_percent: 12.5,
+          engine_utilization_source: "windows_pdh",
+          busiest_engine: "3D",
           memory_used_mib: 4096,
           memory_total_mib: 16384,
           temperature_c: 55,
@@ -56,7 +59,9 @@ describe("fleet operations compute summary", () => {
     });
 
     expect(summary.cpuUtilizationPercent).toBe(42.5);
-    expect(summary.gpuUtilizationPercent).toBe(64);
+    expect(summary.gpuUtilizationPercent).toBe(12.5);
+    expect(summary.gpuNvmlActivityPercent).toBe(64);
+    expect(summary.gpuUtilizationDetail).toBe("3D / Windows");
     expect(summary.gpuMemoryUtilizationPercent).toBe(25);
     expect(summary.gpuTemperatureC).toBe(55);
     expect(summary.gpuPowerDrawW).toBe(180);

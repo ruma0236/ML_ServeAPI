@@ -437,9 +437,10 @@ Goal:
 | `EVM-260` | Stage-level lifecycle workbench, evidence-bound model promotion, and control-plane observability | Done | 2026-07-W8 | automatic and stepwise lifecycle modes, explicit Continue/Retry handoffs, immutable stage input/output lineage, historical model-candidate selection bound to readiness/CT/artifact digest, selection-bound deployment intent, Prometheus lifecycle/stage/candidate/worker metrics, and an eight-panel Grafana operations dashboard pass 284 Python, 44 frontend, and 22 desktop/mobile browser scenarios; real run `lifecycle-20260714T035305-1fae6f0f` completed the VisA Airflow data stage and paused before untouched model training with a ready Continue handoff |
 | `EVM-261` | Fleet operations overview, multi-model deployment control, and governed custom authoring | Done | 2026-07-W8 | four purpose-based workspaces start from fleet-wide live pipelines, compute, and deployment state; Models reconciles production and scaled-down Kubernetes targets with promotion-ready candidates; custom manifests and immutable digest-pinned EfficientNet components are operator-authored in Pipeline Studio; `portfolio-custom-efficientnet-b0@0.1.0` was persisted on the F drive; 78 Python, 47 frontend, and 14 desktop/mobile core UX scenarios pass |
 | `EVM-262` | Real-time host compute telemetry and independent Control Panel synchronization | Done | 2026-07-W8 | the host observer samples CPU, RAM, NVIDIA GPU load, VRAM, temperature, and power every five seconds; typed telemetry is sanitized through the F-drive snapshot and API without granting the API container host GPU access; Overview replaces GPU capacity counts with live utilization gauges, rejects stale values, and polls resources independently from heavy CycleRun sources; 30 backend, 49 frontend, two focused desktop/mobile, and two all-tab visual scenarios pass |
+| `EVM-263` | Task Manager-aligned GPU engine utilization semantics | Done | 2026-07-W8 | Windows PDH aggregates per-process counters by physical adapter and engine, then reports the busiest physical GPU engine as the primary load; NVIDIA NVML activity remains a separately labeled secondary metric; live proof showed Windows 3D engine 9.1% while NVML activity was 21%, and 31 backend, 49 frontend, production build, plus desktop/mobile E2E pass |
 
 Execution order after this remediation is dependency-driven rather than depth-reducing:
-`EVM-262` (closed) -> `EVM-244` -> `EVM-255` -> `EVM-256` -> `EVM-257` -> `EVM-258`.
+`EVM-263` (closed) -> `EVM-244` -> `EVM-255` -> `EVM-256` -> `EVM-257` -> `EVM-258`.
 
 ## Jira Mapping
 
@@ -585,6 +586,7 @@ Jira live sync 기준 mapping이다.
 | `EVM-260` | `SCRUM-166` | Task | https://opop0236.atlassian.net/browse/SCRUM-166 |
 | `EVM-261` | `SCRUM-167` | Task | https://opop0236.atlassian.net/browse/SCRUM-167 |
 | `EVM-262` | `SCRUM-168` | Task | https://opop0236.atlassian.net/browse/SCRUM-168 |
+| `EVM-263` | `SCRUM-169` | Task | https://opop0236.atlassian.net/browse/SCRUM-169 |
 | `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |

@@ -24,13 +24,14 @@ utilization, and is not useful for operating a single-GPU workstation.
   current utilization.
 - The Control Panel polls resources independently every five seconds, so slow
   CycleRun, drift, or decision requests cannot delay utilization updates.
-- Overview now shows a live GPU-load KPI and animated CPU, RAM, GPU, and VRAM
-  gauges. GPU allocation remains visible as scheduling context, alongside GPU
-  model, temperature, power draw, and telemetry age.
+- Overview now shows animated CPU, RAM, GPU, and VRAM gauges. GPU allocation
+  remains visible as scheduling context, alongside GPU model, temperature,
+  power draw, and telemetry age.
 
 ## Live Proof
 
-Two API observations were captured exactly five seconds apart:
+Two API observations were captured exactly five seconds apart. The GPU values
+below are NVIDIA NVML activity readings, not Windows Task Manager engine load:
 
 - `2026-07-14T05:39:32Z`: CPU 27.54%, RAM 45.03%, GPU 48%, VRAM
   2770/16376 MiB, 51 C, 26.26 W.
@@ -40,6 +41,14 @@ Two API observations were captured exactly five seconds apart:
 The API health endpoint returned `ok`, the Control Panel returned HTTP 200,
 and browser sampling showed telemetry age reset while CPU and GPU gauges
 changed without a full page reload.
+
+## GPU Semantics Correction
+
+EVM-263 subsequently proved that NVML activity and Windows GPU engine load can
+diverge substantially under WDDM desktop workloads. The primary Overview value
+now uses the busiest physical Windows GPU engine from PDH, while the original
+NVML metric is retained and explicitly labeled `NVML activity`. The correction
+is recorded in `docs/status/2026-07-14-gpu-utilization-semantics-correction.md`.
 
 ## Verification
 

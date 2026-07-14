@@ -6,10 +6,13 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable
+from ctypes import wintypes
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,6 +30,148 @@ from evm.control_panel.schemas import (
 KubectlRunner = Callable[[list[str]], dict[str, Any]]
 TextCommandRunner = Callable[[list[str]], str]
 DEFAULT_NAMESPACES = ("evm-training", "evm-staging", "evm-production")
+PDH_FMT_DOUBLE = 0x00000200
+PDH_MORE_DATA = 0x800007D2
+PDH_VALID_DATA = {0, 1}
+GPU_ENGINE_PATTERN = re.compile(
+    r"(?P<adapter>luid_0x[0-9a-f]+_0x[0-9a-f]+_phys_\d+)_eng_(?P<engine>\d+)_engtype_(?P<type>.+)$",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class WindowsGpuEngineSample:
+    adapter_luid: str
+    utilization_percent: float
+    busiest_engine: str
+    dedicated_memory_mib: float
+
+
+class _PdhValueUnion(ctypes.Union):
+    _fields_ = [
+        ("long_value", wintypes.LONG),
+        ("double_value", ctypes.c_double),
+        ("large_value", ctypes.c_longlong),
+        ("wide_string_value", wintypes.LPWSTR),
+    ]
+
+
+class _PdhFormattedCounterValue(ctypes.Structure):
+    _anonymous_ = ("value",)
+    _fields_ = [("status", wintypes.DWORD), ("value", _PdhValueUnion)]
+
+
+class _PdhFormattedCounterValueItem(ctypes.Structure):
+    _fields_ = [("name", wintypes.LPWSTR), ("value", _PdhFormattedCounterValue)]
+
+
+class WindowsPdhGpuSampler:
+    def __init__(self, *, warmup_seconds: float = 1.0) -> None:
+        if os.name != "nt":
+            raise OSError("Windows PDH GPU counters are only available on Windows.")
+        self._warmup_seconds = warmup_seconds
+        self._pdh = ctypes.WinDLL("pdh")
+        self._query = wintypes.HANDLE()
+        self._engine_counter = wintypes.HANDLE()
+        self._memory_counter = wintypes.HANDLE()
+        self._primed = False
+        self._configure_signatures()
+        self._check(self._pdh.PdhOpenQueryW(None, 0, ctypes.byref(self._query)), "PdhOpenQueryW")
+        try:
+            self._add_counter(r"\GPU Engine(*)\Utilization Percentage", self._engine_counter)
+            self._add_counter(r"\GPU Adapter Memory(*)\Dedicated Usage", self._memory_counter)
+        except OSError:
+            self.close()
+            raise
+
+    def _configure_signatures(self) -> None:
+        self._pdh.PdhOpenQueryW.argtypes = [wintypes.LPCWSTR, ctypes.c_size_t, ctypes.POINTER(wintypes.HANDLE)]
+        self._pdh.PdhAddEnglishCounterW.argtypes = [
+            wintypes.HANDLE,
+            wintypes.LPCWSTR,
+            ctypes.c_size_t,
+            ctypes.POINTER(wintypes.HANDLE),
+        ]
+        self._pdh.PdhCollectQueryData.argtypes = [wintypes.HANDLE]
+        self._pdh.PdhGetFormattedCounterArrayW.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.c_void_p,
+        ]
+        self._pdh.PdhCloseQuery.argtypes = [wintypes.HANDLE]
+
+    def _add_counter(self, path: str, target: wintypes.HANDLE) -> None:
+        self._check(
+            self._pdh.PdhAddEnglishCounterW(self._query, path, 0, ctypes.byref(target)),
+            f"PdhAddEnglishCounterW:{path}",
+        )
+
+    def sample(self) -> list[WindowsGpuEngineSample]:
+        if not self._primed:
+            self._collect()
+            time.sleep(max(0.1, self._warmup_seconds))
+            self._primed = True
+        self._collect()
+        engine_values = self._read_array(self._engine_counter)
+        memory_values = self._read_array(self._memory_counter)
+        return aggregate_windows_gpu_engine_samples(engine_values, memory_values)
+
+    def _collect(self) -> None:
+        self._check(self._pdh.PdhCollectQueryData(self._query), "PdhCollectQueryData")
+
+    def _read_array(self, counter: wintypes.HANDLE) -> list[tuple[str, float]]:
+        buffer_size = wintypes.DWORD(0)
+        item_count = wintypes.DWORD(0)
+        status = self._status(
+            self._pdh.PdhGetFormattedCounterArrayW(
+                counter,
+                PDH_FMT_DOUBLE,
+                ctypes.byref(buffer_size),
+                ctypes.byref(item_count),
+                None,
+            )
+        )
+        if status != PDH_MORE_DATA:
+            self._check(status, "PdhGetFormattedCounterArrayW:size")
+        if buffer_size.value == 0:
+            return []
+        buffer = ctypes.create_string_buffer(buffer_size.value)
+        items = ctypes.cast(buffer, ctypes.POINTER(_PdhFormattedCounterValueItem))
+        self._check(
+            self._pdh.PdhGetFormattedCounterArrayW(
+                counter,
+                PDH_FMT_DOUBLE,
+                ctypes.byref(buffer_size),
+                ctypes.byref(item_count),
+                items,
+            ),
+            "PdhGetFormattedCounterArrayW:data",
+        )
+        return [
+            (items[index].name, float(items[index].value.double_value))
+            for index in range(item_count.value)
+            if items[index].name and items[index].value.status in PDH_VALID_DATA
+        ]
+
+    def close(self) -> None:
+        if self._query:
+            self._pdh.PdhCloseQuery(self._query)
+            self._query = wintypes.HANDLE()
+
+    @staticmethod
+    def _status(value: int) -> int:
+        return value & 0xFFFFFFFF
+
+    @classmethod
+    def _check(cls, value: int, operation: str) -> None:
+        status = cls._status(value)
+        if status != 0:
+            raise OSError(f"{operation} failed with PDH status 0x{status:08X}")
+
+
+_windows_gpu_sampler: WindowsPdhGpuSampler | None = None
 
 
 def utc_now() -> datetime:
@@ -65,12 +210,95 @@ def run_text_command(arguments: list[str]) -> str:
     return completed.stdout
 
 
+def aggregate_windows_gpu_engine_samples(
+    engine_values: Iterable[tuple[str, float]],
+    memory_values: Iterable[tuple[str, float]],
+) -> list[WindowsGpuEngineSample]:
+    dedicated_memory = {
+        name.lower(): max(0.0, value / 1024**2)
+        for name, value in memory_values
+    }
+    grouped_engines: dict[tuple[str, str, str], float] = {}
+    for name, value in engine_values:
+        match = GPU_ENGINE_PATTERN.search(name)
+        if match is None:
+            continue
+        key = (
+            match.group("adapter").lower(),
+            match.group("engine"),
+            match.group("type").replace("_", " "),
+        )
+        grouped_engines[key] = grouped_engines.get(key, 0.0) + max(0.0, value)
+
+    samples: list[WindowsGpuEngineSample] = []
+    adapter_ids = set(dedicated_memory) | {key[0] for key in grouped_engines}
+    for adapter_id in sorted(adapter_ids):
+        candidates = [
+            (engine_type, utilization)
+            for (candidate_adapter, _, engine_type), utilization in grouped_engines.items()
+            if candidate_adapter == adapter_id
+        ]
+        busiest_engine, utilization = max(candidates, key=lambda item: item[1], default=("unavailable", 0.0))
+        samples.append(
+            WindowsGpuEngineSample(
+                adapter_luid=adapter_id,
+                utilization_percent=round(max(0.0, min(100.0, utilization)), 2),
+                busiest_engine=busiest_engine,
+                dedicated_memory_mib=round(dedicated_memory.get(adapter_id, 0.0), 2),
+            )
+        )
+    return samples
+
+
+def sample_windows_gpu_engine_utilization() -> list[WindowsGpuEngineSample]:
+    global _windows_gpu_sampler
+    if _windows_gpu_sampler is None:
+        _windows_gpu_sampler = WindowsPdhGpuSampler()
+    return _windows_gpu_sampler.sample()
+
+
+def attach_windows_gpu_engine_utilization(
+    accelerators: list[AcceleratorTelemetry],
+    engine_samples: list[WindowsGpuEngineSample],
+) -> list[AcceleratorTelemetry]:
+    if not accelerators or not engine_samples:
+        return accelerators
+    remaining = list(engine_samples)
+    enriched: list[AcceleratorTelemetry] = []
+    for accelerator in accelerators:
+        if len(accelerators) == 1:
+            match = max(remaining, key=lambda sample: sample.dedicated_memory_mib)
+        elif accelerator.memory_used_mib is not None:
+            match = min(
+                remaining,
+                key=lambda sample: abs(sample.dedicated_memory_mib - accelerator.memory_used_mib),
+            )
+        else:
+            enriched.append(accelerator)
+            continue
+        remaining.remove(match)
+        enriched.append(
+            accelerator.model_copy(
+                update={
+                    "engine_utilization_percent": match.utilization_percent,
+                    "engine_utilization_source": "windows_pdh",
+                    "busiest_engine": match.busiest_engine,
+                }
+            )
+        )
+        if not remaining:
+            enriched.extend(accelerators[len(enriched) :])
+            break
+    return enriched
+
+
 def collect_host_compute_telemetry(
     *,
     now: datetime | None = None,
     gpu_runner: TextCommandRunner = run_text_command,
     cpu_sampler: Callable[[], float | None] | None = None,
     memory_reader: Callable[[], tuple[int, int] | None] | None = None,
+    gpu_engine_sampler: Callable[[], list[WindowsGpuEngineSample]] | None = None,
 ) -> ComputeTelemetry:
     observed_at = isoformat_z(now or utc_now())
     errors: list[str] = []
@@ -93,6 +321,18 @@ def collect_host_compute_telemetry(
         accelerators = collect_nvidia_telemetry(gpu_runner=gpu_runner)
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         errors.append(f"gpu:{sanitize_error(exc)}")
+    should_sample_windows_engine = gpu_engine_sampler is not None or (
+        os.name == "nt" and gpu_runner is run_text_command
+    )
+    if accelerators and should_sample_windows_engine:
+        try:
+            engine_samples = (gpu_engine_sampler or sample_windows_gpu_engine_utilization)()
+            if engine_samples:
+                accelerators = attach_windows_gpu_engine_utilization(accelerators, engine_samples)
+            else:
+                errors.append("gpu_engine:no Windows GPU engine samples")
+        except (OSError, ValueError) as exc:
+            errors.append(f"gpu_engine:{sanitize_error(exc)}")
 
     memory_percent = None
     if memory_used is not None and memory_total:

@@ -14,6 +14,8 @@ test("renders fleet-wide live operations and captures evidence", async ({ page }
   await expect(compute).toBeVisible();
   await expect(compute).toContainText("Host telemetry / live");
   await expect(compute).toContainText("NVIDIA GeForce RTX 4080 SUPER");
+  await expect(compute).toContainText("/ Windows");
+  await expect(compute).toContainText("NVML activity");
   await expect(compute.locator(".capacity-ring strong")).toHaveCount(4);
   const utilizationValues = await compute.locator(".capacity-ring strong").allTextContents();
   expect(utilizationValues.every((value) => /^\d+(?:\.\d+)?%$/.test(value.trim()))).toBe(true);

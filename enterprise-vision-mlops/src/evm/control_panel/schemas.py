@@ -138,6 +138,9 @@ class AcceleratorTelemetry(ContractModel):
     name: str
     uuid: str | None = None
     utilization_percent: float | None = Field(default=None, ge=0, le=100)
+    engine_utilization_percent: float | None = Field(default=None, ge=0, le=100)
+    engine_utilization_source: Literal["windows_pdh"] | None = None
+    busiest_engine: str | None = None
     memory_used_mib: float | None = Field(default=None, ge=0)
     memory_total_mib: float | None = Field(default=None, ge=0)
     temperature_c: float | None = None
