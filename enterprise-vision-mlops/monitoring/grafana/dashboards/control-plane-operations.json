@@ -1,0 +1,100 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "OFFLINE"}, "1": {"color": "green", "text": "ONLINE"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "Prometheus"}, "editorMode": "code", "expr": "evm_control_panel_lifecycle_worker_online", "instant": true, "legendFormat": "Lifecycle worker", "range": false, "refId": "A"}],
+      "title": "Lifecycle Worker",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "STALE"}, "1": {"color": "green", "text": "CURRENT"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "Prometheus"}, "editorMode": "code", "expr": "evm_control_panel_metric_refresh_success", "instant": true, "legendFormat": "Metric refresh", "range": false, "refId": "A"}],
+      "title": "Evidence Metric Refresh",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "id": 3,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "Prometheus"}, "editorMode": "code", "expr": "sum(evm_control_panel_model_candidate_count{selectable=\"true\"})", "instant": true, "legendFormat": "Promotion ready", "range": false, "refId": "A"}],
+      "title": "Promotion-ready Models",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "decimals": 3, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 2}, {"color": "red", "value": 5}]}, "unit": "s"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "id": 4,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "Prometheus"}, "editorMode": "code", "expr": "scrape_duration_seconds{job=\"evm-api\"}", "instant": false, "legendFormat": "API scrape", "range": true, "refId": "A"}],
+      "title": "API Scrape Duration",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "min": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "id": 5,
+      "options": {"displayMode": "gradient", "legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": false}, "maxVizHeight": 300, "minVizHeight": 16, "minVizWidth": 8, "namePlacement": "auto", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true, "sizing": "auto", "valueMode": "color"},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "Prometheus"}, "editorMode": "code", "expr": "sum by (state, execution_mode) (evm_control_panel_lifecycle_run_count)", "instant": true, "legendFormat": "{{state}} / {{execution_mode}}", "range": false, "refId": "A"}],
+      "title": "Lifecycle Runs by State",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "min": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "id": 6,
+      "options": {"displayMode": "gradient", "legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": false}, "maxVizHeight": 300, "minVizHeight": 16, "minVizWidth": 8, "namePlacement": "auto", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true, "sizing": "auto", "valueMode": "color"},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "Prometheus"}, "editorMode": "code", "expr": "sum by (bucket) (evm_control_panel_stage_handoff_count)", "instant": true, "legendFormat": "{{bucket}}", "range": false, "refId": "A"}],
+      "title": "Stage Handoff Queues",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "min": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "id": 7,
+      "options": {"displayMode": "lcd", "legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": false}, "maxVizHeight": 300, "minVizHeight": 16, "minVizWidth": 8, "namePlacement": "auto", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true, "sizing": "auto", "valueMode": "color"},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "Prometheus"}, "editorMode": "code", "expr": "sum by (architecture, selectable) (evm_control_panel_model_candidate_count)", "instant": true, "legendFormat": "{{architecture}} / selectable={{selectable}}", "range": false, "refId": "A"}],
+      "title": "Model Candidate Inventory",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-GrYlRd"}, "max": 1, "min": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.5}, {"color": "green", "value": 1}]}, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "id": 8,
+      "options": {"displayMode": "gradient", "legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": false}, "maxVizHeight": 300, "minVizHeight": 16, "minVizWidth": 8, "namePlacement": "auto", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true, "sizing": "auto", "valueMode": "color"},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "Prometheus"}, "editorMode": "code", "expr": "avg by (stage) (evm_control_panel_stage_progress_ratio)", "instant": true, "legendFormat": "{{stage}}", "range": false, "refId": "A"}],
+      "title": "Recent Stage Progress",
+      "type": "bargauge"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 40,
+  "tags": ["enterprise-mlops", "control-plane", "prometheus"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Enterprise Vision MLOps - Control Plane Operations",
+  "uid": "evm-control-plane",
+  "version": 1,
+  "weekStart": ""
+}

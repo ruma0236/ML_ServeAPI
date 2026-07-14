@@ -26,6 +26,7 @@ import { StatusBadge } from "../components/StatusBadge";
 
 interface DeploymentIntentPanelProps {
   cycle: CycleRun;
+  modelSelectionId?: string;
 }
 
 const namespaces: Record<EnvironmentTier, string> = {
@@ -36,7 +37,7 @@ const namespaces: Record<EnvironmentTier, string> = {
   production: "evm-production"
 };
 
-export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
+export function DeploymentIntentPanel({ cycle, modelSelectionId }: DeploymentIntentPanelProps) {
   const initialEnvironment = cycle.environment?.tier || "staging";
   const [ledger, setLedger] = useState<DeploymentIntentList>({
     intents: cycle.latest_deployment_intent ? [cycle.latest_deployment_intent] : [],
@@ -98,6 +99,7 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
     try {
       const created = await createDeploymentIntent({
         cycle_id: cycle.cycle_id,
+        model_selection_id: modelSelectionId || null,
         target_environment: environment,
         target_namespace: namespace,
         target: { namespace, kind: "Deployment", name: targetDeployment },
@@ -216,6 +218,10 @@ export function DeploymentIntentPanel({ cycle }: DeploymentIntentPanelProps) {
           <label>
             <span>Model Candidate</span>
             <input value={selectedCandidate} readOnly title={selectedCandidate} />
+          </label>
+          <label>
+            <span>Selection</span>
+            <input value={modelSelectionId || "cycle-bound"} readOnly title={modelSelectionId || "Cycle-bound model candidate"} />
           </label>
           <label>
             <span>Model SHA</span>

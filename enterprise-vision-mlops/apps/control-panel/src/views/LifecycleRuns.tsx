@@ -137,7 +137,7 @@ export function LifecycleRuns({ onCycleContext, onOpenBlueprint }: LifecycleRuns
     }
   }
 
-  async function runAction(action: "queue" | "cancel" | "retry") {
+  async function runAction(action: "queue" | "continue" | "cancel" | "retry") {
     if (!selected) return;
     setBusy(true);
     setError("");
@@ -245,6 +245,7 @@ export function LifecycleRuns({ onCycleContext, onOpenBlueprint }: LifecycleRuns
               </div>
               <div className="lifecycle-metadata">
                 <Metadata label="Current Stage" value={currentStageLabel(selected)} />
+                <Metadata label="Execution Mode" value={selected.execution_mode} />
                 <Metadata label="Requested By" value={selected.actor} />
                 <Metadata label="Config Digest" value={selected.effective_config_digest.slice(0, 16)} />
                 <Metadata label="Source Commit" value={selected.source_commit?.slice(0, 12) || "not captured"} />
@@ -269,6 +270,16 @@ export function LifecycleRuns({ onCycleContext, onOpenBlueprint }: LifecycleRuns
                       <ShieldCheck size={16} /> Approve
                     </button>
                   </>
+                ) : null}
+                {selected.state === "paused" ? (
+                  <button
+                    type="button"
+                    className="primary-action"
+                    disabled={busy || worker.status !== "online"}
+                    onClick={() => void runAction("continue")}
+                  >
+                    <Play size={16} /> Run Next Stage
+                  </button>
                 ) : null}
                 {selected.state === "blocked" || selected.state === "failed" ? (
                   <button
@@ -595,6 +606,7 @@ function stateLabel(state: LifecycleRunState): string {
     dry_run: "Dry Run Ready",
     queued: "Queued",
     running: "In Progress",
+    paused: "Ready for Next Stage",
     waiting_approval: "Approval Required",
     blocked: "Blocked",
     failed: "Failed",
@@ -615,7 +627,7 @@ function workerLabel(worker: LifecycleWorkerState): string {
 
 
 function isCancellable(state: LifecycleRunState): boolean {
-  return ["queued", "running", "waiting_approval"].includes(state);
+  return ["queued", "running", "paused", "waiting_approval"].includes(state);
 }
 
 

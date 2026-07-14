@@ -10,7 +10,7 @@ from functools import wraps
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
 from evm.control_panel.cdct import (
@@ -18,12 +18,16 @@ from evm.control_panel.cdct import (
     validate_ci_evidence,
     with_ci_bundle_digest,
 )
+from evm.control_panel.cycle_catalog import find_cycle
 from evm.control_panel.promotion_policy import evaluate_cycle_promotion
 from evm.control_panel.readiness_evaluator import (
     canonical_evidence_uri,
     payload_sha256,
     runtime_path,
 )
+
+if TYPE_CHECKING:
+    from evm.control_panel.model_candidates import ModelCandidateSelection
 from evm.control_panel.schemas import (
     CIEvidenceBundle,
     CIEvidenceValidation,
@@ -201,7 +205,16 @@ def create_deployment_intent(
 ) -> DeploymentIntent:
     if not request.dry_run:
         raise DeploymentIntentBlocked(["direct_non_dry_run_creation_forbidden"])
-    cycle = cycle or current_cycle()
+    selection: ModelCandidateSelection | None = None
+    if cycle is None:
+        cycle, selection = resolve_request_cycle(request)
+    elif request.model_selection_id:
+        from evm.control_panel.model_candidates import get_model_selection
+
+        try:
+            selection = get_model_selection(request.model_selection_id)
+        except KeyError:
+            raise DeploymentIntentBlocked(["model_selection_not_found"]) from None
     expected_commit = expected_ci_commit(cycle)
     selected_ci_path = str(ci_path or ci_evidence_path())
     validation = load_ci_evidence(
@@ -227,6 +240,8 @@ def create_deployment_intent(
         allow_pending_approval=True,
         manifest_ref=selected_manifest_ref,
     )
+    if selection is not None:
+        blockers.extend(selection_blockers(selection, request, cycle, evidence))
     if blockers:
         raise DeploymentIntentBlocked(blockers, validation)
 
@@ -672,6 +687,54 @@ def current_cycle() -> CycleRun:
     from evm.control_panel.aggregation import build_latest_cycle
 
     return build_latest_cycle()
+
+
+def resolve_request_cycle(
+    request: DeploymentIntentRequest,
+) -> tuple[CycleRun, ModelCandidateSelection | None]:
+    from evm.control_panel.model_candidates import get_model_selection
+
+    latest = current_cycle()
+    selection: ModelCandidateSelection | None = None
+    requested_cycle_id = request.cycle_id
+    if request.model_selection_id:
+        try:
+            selection = get_model_selection(request.model_selection_id)
+        except KeyError:
+            raise DeploymentIntentBlocked(["model_selection_not_found"]) from None
+        if requested_cycle_id and requested_cycle_id != selection.cycle_id:
+            raise DeploymentIntentBlocked(["model_selection_cycle_mismatch"])
+        requested_cycle_id = selection.cycle_id
+    if not requested_cycle_id:
+        return latest, selection
+    selected = find_cycle(requested_cycle_id, latest)
+    if selected is None:
+        raise DeploymentIntentBlocked(["requested_cycle_not_found"])
+    return selected, selection
+
+
+def selection_blockers(
+    selection: ModelCandidateSelection,
+    request: DeploymentIntentRequest,
+    cycle: CycleRun,
+    evidence: dict[str, str],
+) -> list[str]:
+    blockers: list[str] = []
+    if request.model_selection_id != selection.selection_id:
+        blockers.append("model_selection_identity_mismatch")
+    if request.cycle_id and request.cycle_id != selection.cycle_id:
+        blockers.append("model_selection_cycle_mismatch")
+    if cycle.cycle_id != selection.cycle_id:
+        blockers.append("resolved_cycle_selection_mismatch")
+    if evidence.get("model_candidate_id") != selection.candidate_id:
+        blockers.append("model_selection_candidate_mismatch")
+    if evidence.get("model_digest") != selection.artifact_digest:
+        blockers.append("model_selection_digest_mismatch")
+    if evidence.get("model_artifact_uri") != selection.artifact_uri:
+        blockers.append("model_selection_artifact_mismatch")
+    if cycle.dataset.version != selection.dataset_version:
+        blockers.append("model_selection_dataset_mismatch")
+    return blockers
 
 
 def write_intent_snapshot(intent: DeploymentIntent) -> None:

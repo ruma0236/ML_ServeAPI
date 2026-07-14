@@ -434,9 +434,10 @@ Goal:
 | `EVM-257` | Multi-tenant SSO, RBAC, quotas, and secrets | Planned | Post-W8 | team tenancy, least-privilege authorization, namespace/resource quotas, secret rotation, audited approval, and negative isolation tests |
 | `EVM-258` | HA/DR, load, chaos, SLO, and GitOps proof | Planned | Post-W8 | backup/restore, fault injection, load evidence, error-budget alerts, GitOps reconciliation, rollback, and disaster-recovery proof |
 | `EVM-259` | Deterministic cross-origin Control Panel state and live-runtime preflight | Done | 2026-07-W8 | root entry on ports 4173 and 4174 resolves to the same latest LIVE CycleRun; explicit `cycle`, `run`, and `view` URL state replaces origin-scoped persistence; stale requests cannot overwrite a newer selection; Connecting, Partial, and Unavailable are distinct; host worker and Kubernetes observer preflight fail fast; 43 frontend contracts and 20 desktop/mobile browser scenarios pass |
+| `EVM-260` | Stage-level lifecycle workbench, evidence-bound model promotion, and control-plane observability | Done | 2026-07-W8 | automatic and stepwise lifecycle modes, explicit Continue/Retry handoffs, immutable stage input/output lineage, historical model-candidate selection bound to readiness/CT/artifact digest, selection-bound deployment intent, Prometheus lifecycle/stage/candidate/worker metrics, and an eight-panel Grafana operations dashboard pass 284 Python, 44 frontend, and 22 desktop/mobile browser scenarios |
 
 Execution order after this remediation is dependency-driven rather than depth-reducing:
-`EVM-259` (closed) -> `EVM-244` -> `EVM-255` -> `EVM-256` -> `EVM-257` -> `EVM-258`.
+`EVM-260` (closed) -> `EVM-244` -> `EVM-255` -> `EVM-256` -> `EVM-257` -> `EVM-258`.
 
 ## Jira Mapping
 
@@ -579,6 +580,7 @@ Jira live sync 기준 mapping이다.
 | `EVM-257` | `SCRUM-163` | Task | https://opop0236.atlassian.net/browse/SCRUM-163 |
 | `EVM-258` | `SCRUM-164` | Task | https://opop0236.atlassian.net/browse/SCRUM-164 |
 | `EVM-259` | `SCRUM-165` | Task | https://opop0236.atlassian.net/browse/SCRUM-165 |
+| `EVM-260` | `SCRUM-166` | Task | https://opop0236.atlassian.net/browse/SCRUM-166 |
 | `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |

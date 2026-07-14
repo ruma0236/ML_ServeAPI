@@ -33,6 +33,7 @@ LifecycleRunState = Literal[
     "dry_run",
     "queued",
     "running",
+    "paused",
     "waiting_approval",
     "blocked",
     "failed",
@@ -41,6 +42,7 @@ LifecycleRunState = Literal[
     "rolling_back",
     "rolled_back",
 ]
+LifecycleExecutionMode = Literal["automatic", "stepwise"]
 LifecycleStageState = Literal[
     "not_started",
     "queued",
@@ -76,6 +78,7 @@ class LifecycleRunRequest(ContractModel):
     actor: str = Field(min_length=2)
     reason: str = Field(min_length=8)
     dry_run: bool = True
+    execution_mode: LifecycleExecutionMode = "automatic"
 
 
 class LifecycleActionRequest(ContractModel):
@@ -149,6 +152,7 @@ class LifecycleRun(ContractModel):
     actor: str
     reason: str
     dry_run: bool
+    execution_mode: LifecycleExecutionMode = "automatic"
     created_at: str
     updated_at: str
     started_at: str | None = None
@@ -355,6 +359,7 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
         actor=request.actor,
         reason=request.reason,
         dry_run=request.dry_run,
+        execution_mode=request.execution_mode,
         created_at=created_at,
         updated_at=created_at,
         current_stage="data_pipeline" if not request.dry_run else None,
@@ -690,6 +695,40 @@ def queue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
     return mutate_run(run_id, request.expected_version, update)
 
 
+def continue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        if run.execution_mode != "stepwise":
+            raise LifecycleRunError(
+                "lifecycle_run_not_stepwise",
+                f"LifecycleRun {run_id} uses {run.execution_mode} execution; Continue requires stepwise mode.",
+            )
+        if run.state != "paused" or not run.current_stage:
+            raise LifecycleRunError(
+                "lifecycle_run_not_paused",
+                f"LifecycleRun {run_id} is {run.state}; Continue requires a paused next stage.",
+            )
+        index = stage_index(run, run.current_stage)
+        stage = run.stages[index]
+        if stage.state != "not_started":
+            raise LifecycleRunError(
+                "lifecycle_stage_not_ready_for_continue",
+                f"Stage {stage.stage_id} is {stage.state}; not_started is required.",
+            )
+        assert_dependencies_complete(run, index)
+        run.state = "queued"
+        run.audit.append(
+            audit(
+                request.actor,
+                "lifecycle_stage_continue_requested",
+                stage_id=stage.stage_id,
+                reason=request.reason,
+            )
+        )
+        return run
+
+    return mutate_run(run_id, request.expected_version, update)
+
+
 def approve_lifecycle_run(
     run_id: str,
     request: LifecycleApprovalRequest,
@@ -732,6 +771,7 @@ def approve_lifecycle_run(
         run.current_stage = next_stage_id(run)
         run.progress = stage_progress(run.stages)
         run.state = derive_run_state(run)
+        run.state = pause_stepwise_run(run, completed_stage_id="approval")
         run.audit.append(
             audit(
                 request.actor,
@@ -894,6 +934,7 @@ def transition_stage(
         run.current_stage = next_stage_id(run)
         run.progress = stage_progress(run.stages)
         run.state = derive_run_state(run)
+        run.state = pause_stepwise_run(run, completed_stage_id=stage_id, stage_state=state)
         run.blockers = sorted(
             {blocker for item in run.stages for blocker in item.blockers}
         )
@@ -1105,6 +1146,23 @@ def derive_run_state(run: LifecycleRun) -> LifecycleRunState:
     if "running" in states:
         return "running"
     return "queued"
+
+
+def pause_stepwise_run(
+    run: LifecycleRun,
+    *,
+    completed_stage_id: str,
+    stage_state: LifecycleStageState = "completed",
+) -> LifecycleRunState:
+    if (
+        run.execution_mode == "stepwise"
+        and stage_state in {"completed", "skipped"}
+        and run.current_stage is not None
+        and completed_stage_id != "profile_snapshot"
+        and run.state == "queued"
+    ):
+        return "paused"
+    return run.state
 
 
 def next_stage_id(run: LifecycleRun) -> str | None:

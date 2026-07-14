@@ -4,6 +4,7 @@ import type { Page } from "@playwright/test";
 export type ControlPanelView =
   | "Overview"
   | "Configure"
+  | "Stages"
   | "Runs"
   | "Readiness"
   | "Timeline"
@@ -16,6 +17,7 @@ export type ControlPanelView =
 const workspaceByView: Record<ControlPanelView, "Monitor" | "Build" | "Release" | "Govern"> = {
   Overview: "Monitor",
   Configure: "Build",
+  Stages: "Build",
   Runs: "Monitor",
   Readiness: "Release",
   Timeline: "Monitor",
@@ -29,6 +31,7 @@ const workspaceByView: Record<ControlPanelView, "Monitor" | "Build" | "Release" 
 const labelByView: Record<ControlPanelView, string> = {
   Overview: "Command Center",
   Configure: "Blueprint",
+  Stages: "Stages",
   Runs: "Runs",
   Readiness: "Readiness",
   Timeline: "Pipeline",

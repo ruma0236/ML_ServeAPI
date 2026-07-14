@@ -19,7 +19,8 @@ const defaultTests = [
   "tests/control-panel/live-sync.contract.test.tsx",
   "tests/control-panel/operations.contract.test.ts",
   "tests/control-panel/pipeline-profile.contract.test.ts",
-  "tests/control-panel/pipeline-timeline.contract.test.ts"
+  "tests/control-panel/pipeline-timeline.contract.test.ts",
+  "tests/control-panel/stage-workbench.view.test.tsx"
 ];
 
 const result = spawnSync(

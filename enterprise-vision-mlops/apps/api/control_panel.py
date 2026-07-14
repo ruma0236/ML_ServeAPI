@@ -12,6 +12,15 @@ from evm.control_panel.kubernetes_observer import (
     load_kubernetes_resource_snapshot,
     merge_runtime_resources,
 )
+from evm.control_panel.model_candidates import (
+    ModelCandidateCatalog,
+    ModelCandidateSelection,
+    ModelCandidateSelectionBlocked,
+    ModelCandidateSelectionRequest,
+    build_model_candidate_catalog,
+    get_model_selection,
+    select_model_candidate,
+)
 from evm.control_panel.promotion_policy import evaluate_cycle_promotion
 from evm.control_panel.schemas import (
     CycleRun,
@@ -31,6 +40,10 @@ _CYCLE_CACHE_LOCK = RLock()
 _CYCLE_CACHE: CycleRun | None = None
 _CYCLE_CACHE_AT = 0.0
 _CYCLE_CACHE_BUILDER_ID = 0
+_MODEL_CANDIDATE_CACHE_LOCK = RLock()
+_MODEL_CANDIDATE_CACHE: ModelCandidateCatalog | None = None
+_MODEL_CANDIDATE_CACHE_AT = 0.0
+_MODEL_CANDIDATE_CACHE_CYCLE_ID = ""
 
 
 def cycle_cache_ttl() -> float:
@@ -38,6 +51,13 @@ def cycle_cache_ttl() -> float:
         return max(0.0, float(os.getenv("EVM_CONTROL_PANEL_CACHE_TTL_SECONDS", "2")))
     except ValueError:
         return 2.0
+
+
+def model_candidate_cache_ttl() -> float:
+    try:
+        return max(0.0, float(os.getenv("EVM_MODEL_CANDIDATE_CACHE_TTL_SECONDS", "30")))
+    except ValueError:
+        return 30.0
 
 
 def cycle_snapshot() -> CycleRun:
@@ -62,6 +82,33 @@ def invalidate_cycle_cache() -> None:
     with _CYCLE_CACHE_LOCK:
         _CYCLE_CACHE = None
         _CYCLE_CACHE_AT = 0.0
+    invalidate_model_candidate_cache()
+
+
+def invalidate_model_candidate_cache() -> None:
+    global _MODEL_CANDIDATE_CACHE, _MODEL_CANDIDATE_CACHE_AT, _MODEL_CANDIDATE_CACHE_CYCLE_ID
+    with _MODEL_CANDIDATE_CACHE_LOCK:
+        _MODEL_CANDIDATE_CACHE = None
+        _MODEL_CANDIDATE_CACHE_AT = 0.0
+        _MODEL_CANDIDATE_CACHE_CYCLE_ID = ""
+
+
+def model_candidate_catalog_snapshot(*, limit: int = 200) -> ModelCandidateCatalog:
+    global _MODEL_CANDIDATE_CACHE, _MODEL_CANDIDATE_CACHE_AT, _MODEL_CANDIDATE_CACHE_CYCLE_ID
+    live_cycle = cycle_snapshot()
+    with _MODEL_CANDIDATE_CACHE_LOCK:
+        now = monotonic()
+        if (
+            _MODEL_CANDIDATE_CACHE is None
+            or _MODEL_CANDIDATE_CACHE_CYCLE_ID != live_cycle.cycle_id
+            or now - _MODEL_CANDIDATE_CACHE_AT >= model_candidate_cache_ttl()
+        ):
+            _MODEL_CANDIDATE_CACHE = build_model_candidate_catalog(live_cycle, limit=1000)
+            _MODEL_CANDIDATE_CACHE_AT = monotonic()
+            _MODEL_CANDIDATE_CACHE_CYCLE_ID = live_cycle.cycle_id
+        return _MODEL_CANDIDATE_CACHE.model_copy(
+            update={"candidates": _MODEL_CANDIDATE_CACHE.candidates[:limit]}
+        )
 
 
 @router.get("/cycles/latest", response_model=CycleRun)
@@ -102,6 +149,45 @@ def get_cycle(cycle_id: str) -> CycleRun:
             },
         )
     return cycle
+
+
+@router.get("/model-candidates", response_model=ModelCandidateCatalog)
+def list_model_candidates(limit: int = Query(default=200, ge=1, le=1000)) -> ModelCandidateCatalog:
+    return model_candidate_catalog_snapshot(limit=limit)
+
+
+@router.post(
+    "/model-candidates/{candidate_key}/select",
+    response_model=ModelCandidateSelection,
+    status_code=202,
+)
+def select_candidate(
+    candidate_key: str,
+    request: ModelCandidateSelectionRequest,
+) -> ModelCandidateSelection:
+    try:
+        return select_model_candidate(cycle_snapshot(), candidate_key, request)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "model_candidate_not_found", "candidate_key": candidate_key},
+        ) from exc
+    except ModelCandidateSelectionBlocked as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "model_candidate_selection_blocked", "blockers": exc.blockers},
+        ) from exc
+
+
+@router.get("/model-selections/{selection_id}", response_model=ModelCandidateSelection)
+def read_model_selection(selection_id: str) -> ModelCandidateSelection:
+    try:
+        return get_model_selection(selection_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "model_selection_not_found", "selection_id": selection_id},
+        ) from exc
 
 
 @router.get("/resources", response_model=RuntimeResourceList)

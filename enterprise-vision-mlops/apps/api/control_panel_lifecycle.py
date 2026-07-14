@@ -12,6 +12,7 @@ from evm.control_panel.lifecycle_runs import (
     LifecycleWorkerState,
     approve_lifecycle_run,
     cancel_lifecycle_run,
+    continue_lifecycle_run,
     create_lifecycle_run,
     get_lifecycle_run,
     queue_lifecycle_run,
@@ -19,6 +20,7 @@ from evm.control_panel.lifecycle_runs import (
     read_worker_state,
     retry_lifecycle_run,
 )
+from evm.control_panel.stage_handoffs import StageHandoffCatalog, build_stage_handoff_catalog
 
 
 router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-lifecycle"])
@@ -32,6 +34,11 @@ def list_lifecycle_runs() -> LifecycleRunList:
 @router.get("/lifecycle-runs/worker", response_model=LifecycleWorkerState)
 def lifecycle_worker_health() -> LifecycleWorkerState:
     return read_worker_state()
+
+
+@router.get("/stage-handoffs", response_model=StageHandoffCatalog)
+def list_stage_handoffs(run_id: str | None = None, limit: int = 250) -> StageHandoffCatalog:
+    return build_stage_handoff_catalog(run_id=run_id, limit=limit)
 
 
 @router.get("/lifecycle-runs/{run_id}", response_model=LifecycleRun)
@@ -58,6 +65,11 @@ def queue_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
 @router.post("/lifecycle-runs/{run_id}/cancel", response_model=LifecycleRun, status_code=202)
 def cancel_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
     return lifecycle_operation(lambda: cancel_lifecycle_run(run_id, request))
+
+
+@router.post("/lifecycle-runs/{run_id}/continue", response_model=LifecycleRun, status_code=202)
+def continue_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
+    return lifecycle_operation(lambda: continue_lifecycle_run(run_id, request))
 
 
 @router.post("/lifecycle-runs/{run_id}/retry", response_model=LifecycleRun, status_code=202)

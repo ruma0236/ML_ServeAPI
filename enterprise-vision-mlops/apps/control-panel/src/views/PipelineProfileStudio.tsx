@@ -83,6 +83,7 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
   const [replayValidation, setReplayValidation] = useState<PipelineProfileReplayValidation | null>(null);
   const [task, setTask] = useState<TaskAssignment | null>(null);
   const [lifecycleRun, setLifecycleRun] = useState<LifecycleRun | null>(null);
+  const [executionMode, setExecutionMode] = useState<"automatic" | "stepwise">("automatic");
   const [modelComponents, setModelComponents] = useState<ModelComponent[]>([]);
   const [activeStep, setActiveStep] = useState<BlueprintStep>("intent");
   const [busy, setBusy] = useState(false);
@@ -213,7 +214,8 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
           profile_version: savedCurrent.version,
           actor: activeProfile.owner,
           reason: `${dryRun ? "Validate" : "Execute"} ${activeProfile.profile_name} full lifecycle`,
-          dry_run: dryRun
+          dry_run: dryRun,
+          execution_mode: executionMode
         });
         setLifecycleRun(result);
         setTask(null);
@@ -583,11 +585,27 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
               <strong>{savedCurrent ? `v${savedCurrent.version}` : "required"}</strong>
               <small>{savedCurrent?.digest.slice(0, 16) || "No immutable digest"}</small>
             </div>
+            <div className="execution-mode-control" aria-label="Lifecycle execution mode">
+              <button
+                type="button"
+                className={executionMode === "automatic" ? "active" : ""}
+                onClick={() => setExecutionMode("automatic")}
+                aria-pressed={executionMode === "automatic"}
+              >Automatic</button>
+              <button
+                type="button"
+                className={executionMode === "stepwise" ? "active" : ""}
+                onClick={() => setExecutionMode("stepwise")}
+                aria-pressed={executionMode === "stepwise"}
+              >Stepwise</button>
+            </div>
             <button type="button" className="secondary-action" disabled={busy || !savedCurrent || !validation?.executable || replayValidation?.status !== "ready"} onClick={() => void launch(true)}>
               <ShieldCheck size={16} /> Create Dry Run
             </button>
             <button type="button" className="primary-action" disabled={busy || !savedCurrent || !validation?.executable || replayValidation?.status !== "ready"} onClick={() => void launch(false)}>
-              <Play size={16} /> {profile.execution_scope === "full_lifecycle" ? "Queue Full Lifecycle" : "Queue Data Cycle"}
+              <Play size={16} /> {profile.execution_scope === "full_lifecycle"
+                ? executionMode === "stepwise" ? "Queue First Stage" : "Queue Full Lifecycle"
+                : "Queue Data Cycle"}
             </button>
             {task ? <div className="profile-task"><StatusBadge status={task.status} compact /><span>{task.task_id}</span></div> : null}
             {lifecycleRun ? <div className="profile-task"><LifecycleState state={lifecycleRun.state} /><span>{lifecycleRun.run_id}</span></div> : null}

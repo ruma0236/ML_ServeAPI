@@ -68,7 +68,13 @@ test("@w7-control-plane selects CycleRuns and exposes the release cockpit", asyn
   if (targetEnvironment !== "production") {
     await expect(page.getByRole("alert")).toContainText("deployment_target_not_production");
   }
-  await expect(page.getByRole("link", { name: /Grafana/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Grafana/ })).toHaveAttribute(
+    "href",
+    /\/d\/evm-control-plane\/enterprise-vision-mlops-control-plane-operations$/
+  );
   await expect(page.getByRole("link", { name: /MLflow/ })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Prometheus/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Prometheus/ })).toHaveAttribute(
+    "href",
+    /\/graph\?g0\.expr=.*evm_control_panel_stage_handoff_count/
+  );
 });

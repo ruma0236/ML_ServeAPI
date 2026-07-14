@@ -29,6 +29,7 @@ import type {
   DecisionRecordList,
   DriftReviewWorkflow,
   LifecycleRun,
+  ModelCandidateSelection,
   OrchestratorConnectionList,
   RuntimeResourceList
 } from "./api/types";
@@ -43,9 +44,10 @@ import { LifecycleRuns } from "./views/LifecycleRuns";
 import { PipelineTimeline } from "./views/PipelineTimeline";
 import { PipelineProfileStudio } from "./views/PipelineProfileStudio";
 import { ReleaseControl } from "./views/ReleaseControl";
+import { StageWorkbench } from "./views/StageWorkbench";
 import { TaskAuthoring } from "./views/TaskAuthoring";
 
-type TabKey = "overview" | "configure" | "runs" | "readiness" | "timeline" | "operate" | "gates" | "release" | "governance";
+type TabKey = "overview" | "configure" | "stages" | "runs" | "readiness" | "timeline" | "operate" | "gates" | "release" | "governance";
 type WorkspaceKey = "observe" | "design" | "validate" | "govern";
 
 const workspaces: Array<{
@@ -70,6 +72,7 @@ const workspaces: Array<{
     icon: SlidersHorizontal,
     views: [
       { key: "configure", label: "Blueprint" },
+      { key: "stages", label: "Stages" },
       { key: "operate", label: "Task Studio" }
     ]
   },
@@ -112,6 +115,7 @@ const LEGACY_VIEW_KEYS = [
 interface ViewLocation {
   cycleId: string;
   runId: string;
+  modelSelectionId: string;
   tab: TabKey;
 }
 
@@ -140,6 +144,7 @@ export function App() {
   );
   const [tab, setTab] = useState<TabKey>(initialLocation.tab);
   const [lifecycleContext, setLifecycleContext] = useState<LifecycleRun | null>(null);
+  const [modelSelectionId, setModelSelectionId] = useState(initialLocation.modelSelectionId);
   const [blueprintTarget, setBlueprintTarget] = useState<{
     profileId: string;
     version: number;
@@ -267,11 +272,13 @@ export function App() {
   async function selectCycle(
     cycleId: string,
     preserveLifecycleContext = false,
-    runId = ""
+    runId = "",
+    preserveModelSelection = false
   ) {
     if (!preserveLifecycleContext) {
       setLifecycleContext(null);
     }
+    if (!preserveModelSelection) setModelSelectionId("");
     selectedCycleRef.current = cycleId;
     setSelectedCycleId(cycleId);
     const requestSelectionVersion = ++selectionVersion.current;
@@ -279,7 +286,8 @@ export function App() {
     const liveSelection = Boolean(selectedSummary?.live || cycleId === catalog?.latest_cycle_id);
     writeViewLocation({
       cycleId: liveSelection && !runId ? "" : cycleId,
-      runId: preserveLifecycleContext ? runId : ""
+      runId: preserveLifecycleContext ? runId : "",
+      modelSelectionId: preserveModelSelection ? modelSelectionId : ""
     });
     setLoading(true);
     try {
@@ -314,10 +322,11 @@ export function App() {
       return;
     }
     setLifecycleContext(null);
+    setModelSelectionId("");
     selectionVersion.current += 1;
     selectedCycleRef.current = "";
     setSelectedCycleId("");
-    writeViewLocation({ cycleId: "", runId: "" });
+    writeViewLocation({ cycleId: "", runId: "", modelSelectionId: "" });
     await loadCycle(false, true);
   }
 
@@ -332,6 +341,7 @@ export function App() {
       />
     );
     if (!cycle) return null;
+    if (tab === "stages") return <StageWorkbench onPromote={(selection) => void openCandidatePromotion(selection)} />;
     if (tab === "configure") return (
       <PipelineProfileStudio cycle={cycle} profileTarget={blueprintTarget} />
     );
@@ -345,10 +355,22 @@ export function App() {
       />
     );
     if (tab === "gates") return <GateAndRiskPanel cycle={cycle} workflow={driftWorkflow} onRefresh={() => loadCycle(true, true)} />;
-    if (tab === "release") return <ReleaseControl cycle={cycle} lifecycleRun={lifecycleContext} />;
+    if (tab === "release") return <ReleaseControl cycle={cycle} lifecycleRun={lifecycleContext} modelSelectionId={modelSelectionId} />;
     if (tab === "governance") return <GovernancePanel cycle={cycle} lifecycleRun={lifecycleContext} registry={decisionRegistry} onRefresh={() => loadCycle(true, true)} />;
     return <CycleOverview cycle={cycle} />;
-  }, [blueprintTarget, cycle, decisionRegistry, driftWorkflow, lifecycleContext, orchestratorConnections, resourceSnapshot, tab]);
+  }, [blueprintTarget, cycle, decisionRegistry, driftWorkflow, lifecycleContext, modelSelectionId, orchestratorConnections, resourceSnapshot, tab]);
+
+  async function openCandidatePromotion(selection: ModelCandidateSelection) {
+    setModelSelectionId(selection.selection_id);
+    await selectCycle(selection.cycle_id, false, "", true);
+    setTab("release");
+    writeViewLocation({
+      cycleId: selection.cycle_id,
+      runId: "",
+      modelSelectionId: selection.selection_id,
+      tab: "release"
+    });
+  }
 
   const criticalSyncError = syncSources.some(
     (source) => ["catalog", "cycle"].includes(source.source_id) && source.status === "error"
@@ -504,6 +526,7 @@ function readViewLocation(): ViewLocation {
   return {
     cycleId: params.get("cycle") || "",
     runId: params.get("run") || "",
+    modelSelectionId: params.get("candidate") || "",
     tab: tabs.some((item) => item.key === view) ? view as TabKey : "overview"
   };
 }
@@ -511,11 +534,13 @@ function readViewLocation(): ViewLocation {
 function writeViewLocation(update: {
   cycleId?: string;
   runId?: string;
+  modelSelectionId?: string;
   tab?: string;
 }): void {
   const params = new URLSearchParams(window.location.search);
   updateLocationParameter(params, "cycle", update.cycleId);
   updateLocationParameter(params, "run", update.runId);
+  updateLocationParameter(params, "candidate", update.modelSelectionId);
   updateLocationParameter(params, "view", update.tab);
   const query = params.toString();
   window.history.replaceState(

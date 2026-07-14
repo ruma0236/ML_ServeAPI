@@ -6,10 +6,11 @@ import {
   type ControlPanelView
 } from "./helpers/navigation";
 
-const tabs: ControlPanelView[] = ["Overview", "Configure", "Runs", "Readiness", "Timeline", "Operate", "Gates", "Release", "Governance"];
+const tabs: ControlPanelView[] = ["Overview", "Configure", "Stages", "Runs", "Readiness", "Timeline", "Operate", "Gates", "Release", "Governance"];
 const headingsByTab: Record<string, string> = {
   Overview: "Lifecycle State",
   Configure: "Run Blueprint Studio",
+  Stages: "Stage Workbench",
   Runs: "Lifecycle Runs",
   Readiness: "Data Readiness",
   Timeline: "Pipeline Timeline",
@@ -44,6 +45,11 @@ test("@w7-all-tabs-visual captures every Control Panel tab for the active viewpo
           name: /standard-b0-operator-validation \/ v1 .* Completed 100%/
         })
       ).toBeVisible();
+    }
+    if (tab === "Stages") {
+      await expect(page.locator(".candidate-matrix-row").first()).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText(/promotion-ready \/ \d+ total$/)).not.toHaveText(/^0 /);
+      await expect(page.getByRole("button", { name: "Promotion Ready", exact: true })).toHaveClass(/active/);
     }
 
     const documentOverflow = await page.evaluate(

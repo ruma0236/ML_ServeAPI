@@ -14,6 +14,7 @@ from evm.control_panel.lifecycle_runs import (
     LifecycleRunError,
     LifecycleRunRequest,
     approve_lifecycle_run,
+    continue_lifecycle_run,
     create_lifecycle_run,
     get_lifecycle_run,
     lifecycle_deployment_name,
@@ -23,6 +24,7 @@ from evm.control_panel.lifecycle_runs import (
     update_run_evidence,
 )
 from evm.control_panel.pipeline_profiles import default_profile, save_profile
+from evm.control_panel.stage_handoffs import build_stage_handoff_catalog, handoff_bucket
 
 
 def configure_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -322,6 +324,66 @@ def test_stage_dependencies_and_attempts_are_enforced(tmp_path: Path, monkeypatc
 
     with pytest.raises(LifecycleRunError, match="cannot transition from completed"):
         transition_stage(run.run_id, "data_pipeline", "running", actor="worker")
+
+
+def test_stepwise_run_pauses_and_exposes_ready_handoff(tmp_path: Path, monkeypatch) -> None:
+    configure_roots(tmp_path, monkeypatch)
+    record = saved_full_lifecycle_profile(tmp_path)
+    dry_run = create_lifecycle_run(
+        LifecycleRunRequest(
+            profile_id=record.profile_id,
+            profile_version=record.version,
+            actor="requester@example.com",
+            reason="Execute lifecycle one governed stage at a time",
+            dry_run=True,
+            execution_mode="stepwise",
+        )
+    )
+    run = queue_run(dry_run, monkeypatch)
+    transition_stage(run.run_id, "data_pipeline", "running", actor="worker")
+    paused = transition_stage(
+        run.run_id,
+        "data_pipeline",
+        "completed",
+        actor="worker",
+        evidence_uri="evidence://data-pipeline",
+    )
+
+    assert paused.execution_mode == "stepwise"
+    assert paused.state == "paused"
+    assert paused.current_stage == "model_training"
+    catalog = build_stage_handoff_catalog(run_id=paused.run_id)
+    ready = next(item for item in catalog.handoffs if item.stage_id == "model_training")
+    assert ready.bucket == "ready"
+    assert ready.eligible_actions == ["continue", "inspect"]
+    assert ready.input_refs["previous_stage_evidence"] == "evidence://data-pipeline"
+
+    continued = continue_lifecycle_run(
+        paused.run_id,
+        LifecycleActionRequest(
+            actor="requester@example.com",
+            reason="Continue with the ready model training stage",
+            expected_version=paused.version,
+        ),
+    )
+    assert continued.state == "queued"
+    assert continued.current_stage == "model_training"
+
+
+def test_automatic_run_still_advances_without_pause(tmp_path: Path, monkeypatch) -> None:
+    run = queue_run(new_run(tmp_path, monkeypatch), monkeypatch)
+    transition_stage(run.run_id, "data_pipeline", "running", actor="worker")
+    completed = transition_stage(run.run_id, "data_pipeline", "completed", actor="worker")
+
+    assert completed.execution_mode == "automatic"
+    assert completed.state == "queued"
+    assert completed.current_stage == "model_training"
+
+
+def test_cancelled_stage_is_archived_instead_of_counted_as_blocked() -> None:
+    run = SimpleNamespace(state="cancelled", current_stage=None)
+
+    assert handoff_bucket(run, "deployment", "cancelled", None) == "cancelled"
 
 
 def test_two_person_approval_advances_waiting_run(tmp_path: Path, monkeypatch) -> None:

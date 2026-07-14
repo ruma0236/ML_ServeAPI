@@ -50,6 +50,13 @@ from evm.control_panel.lifecycle_runs import (
     LifecycleStage,
     LifecycleWorkerState,
 )
+from evm.control_panel.model_candidates import (
+    ModelCandidateCatalog,
+    ModelCandidateRecord,
+    ModelCandidateSelection,
+    ModelCandidateSelectionRequest,
+)
+from evm.control_panel.stage_handoffs import StageHandoff, StageHandoffCatalog
 from evm.control_panel.validate_cycle_run import validate_cycle_run
 
 
@@ -161,8 +168,13 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "/control-panel/v1/lifecycle-runs/worker" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/queue" in openapi["paths"]
+    assert "/control-panel/v1/lifecycle-runs/{run_id}/continue" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/retry" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/approve" in openapi["paths"]
+    assert "/control-panel/v1/stage-handoffs" in openapi["paths"]
+    assert "/control-panel/v1/model-candidates" in openapi["paths"]
+    assert "/control-panel/v1/model-candidates/{candidate_key}/select" in openapi["paths"]
+    assert "/control-panel/v1/model-selections/{selection_id}" in openapi["paths"]
     assert "/control-panel/v1/experiment-runs" in openapi["paths"]
     assert "/control-panel/v1/experiment-runs/{experiment_id}" in openapi["paths"]
     assert "/control-panel/v1/experiment-runs/{experiment_id}/cancel" in openapi["paths"]
@@ -218,6 +230,22 @@ def test_openapi_components_expose_enterprise_readiness_fields():
         *schema_properties(schemas["LifecycleApprovalRequest"]),
     }
     assert set(LifecycleApprovalRequest.model_fields).issubset(approval_properties)
+    assert set(StageHandoff.model_fields).issubset(schemas["StageHandoff"]["properties"])
+    assert set(StageHandoffCatalog.model_fields).issubset(
+        schemas["StageHandoffCatalog"]["properties"]
+    )
+    assert set(ModelCandidateRecord.model_fields).issubset(
+        schemas["ModelCandidateRecord"]["properties"]
+    )
+    assert set(ModelCandidateCatalog.model_fields).issubset(
+        schemas["ModelCandidateCatalog"]["properties"]
+    )
+    assert set(ModelCandidateSelectionRequest.model_fields).issubset(
+        schemas["ModelCandidateSelectionRequest"]["properties"]
+    )
+    assert set(ModelCandidateSelection.model_fields).issubset(
+        schemas["ModelCandidateSelection"]["properties"]
+    )
     assert set(HyperparameterSearchSpace.model_fields).issubset(
         schemas["HyperparameterSearchSpace"]["properties"]
     )

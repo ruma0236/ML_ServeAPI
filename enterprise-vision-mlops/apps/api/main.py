@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import threading
 import time
@@ -27,6 +28,7 @@ from evm.core.image_feature_model import extract_image_features, predict_with_mo
 
 
 APP_NAME = os.getenv("APP_NAME", "enterprise-vision-mlops-api")
+LOGGER = logging.getLogger(__name__)
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
 MODEL_NAME = os.getenv("MODEL_NAME", "vision-baseline")
 MODEL_STAGE = os.getenv("MODEL_STAGE", "Production")
@@ -91,6 +93,40 @@ VLM_AUDIT_EVENT_COUNT = Gauge(
     "evm_vlm_audit_event_count",
     "Latest VLM audit event count from observability artifacts.",
 )
+CONTROL_PANEL_LIFECYCLE_RUNS = Gauge(
+    "evm_control_panel_lifecycle_run_count",
+    "LifecycleRun count grouped by state and execution mode.",
+    ["state", "execution_mode"],
+)
+CONTROL_PANEL_STAGES = Gauge(
+    "evm_control_panel_stage_count",
+    "Lifecycle stage count grouped by stage, state, and runtime.",
+    ["stage", "state", "runtime"],
+)
+CONTROL_PANEL_STAGE_PROGRESS = Gauge(
+    "evm_control_panel_stage_progress_ratio",
+    "Progress ratio for recent lifecycle stages.",
+    ["run_id", "stage"],
+)
+CONTROL_PANEL_HANDOFFS = Gauge(
+    "evm_control_panel_stage_handoff_count",
+    "Stage handoff count grouped by work bucket.",
+    ["bucket"],
+)
+CONTROL_PANEL_MODEL_CANDIDATES = Gauge(
+    "evm_control_panel_model_candidate_count",
+    "Model candidate count grouped by architecture, status, and promotion eligibility.",
+    ["architecture", "status", "selectable"],
+)
+CONTROL_PANEL_WORKER_ONLINE = Gauge(
+    "evm_control_panel_lifecycle_worker_online",
+    "Whether the host lifecycle worker heartbeat is online.",
+)
+CONTROL_PANEL_METRIC_REFRESH_SUCCESS = Gauge(
+    "evm_control_panel_metric_refresh_success",
+    "Whether the latest control-plane metric refresh completed successfully.",
+)
+_CONTROL_PANEL_METRIC_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -408,4 +444,57 @@ def predict(payload: PredictRequest) -> PredictResponse:
 @app.get("/metrics")
 def metrics() -> Response:
     refresh_vlm_observability_state()
+    try:
+        refresh_control_panel_metrics()
+    except Exception:
+        CONTROL_PANEL_METRIC_REFRESH_SUCCESS.set(0)
+        LOGGER.exception("Control-plane Prometheus metric refresh failed")
+    else:
+        CONTROL_PANEL_METRIC_REFRESH_SUCCESS.set(1)
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+def refresh_control_panel_metrics() -> None:
+    from collections import Counter as ValueCounter
+
+    from apps.api.control_panel import model_candidate_catalog_snapshot
+    from evm.control_panel.lifecycle_runs import read_runs, read_worker_state
+    from evm.control_panel.stage_handoffs import build_stage_handoff_catalog
+
+    with _CONTROL_PANEL_METRIC_LOCK:
+        runs = read_runs().runs
+        run_counts = ValueCounter((run.state, run.execution_mode) for run in runs)
+        stage_counts = ValueCounter(
+            (stage.stage_id, stage.state, stage.runtime)
+            for run in runs
+            for stage in run.stages
+        )
+        handoffs = build_stage_handoff_catalog(limit=1000)
+        handoff_counts = ValueCounter(item.bucket for item in handoffs.handoffs)
+        candidates = model_candidate_catalog_snapshot(limit=1000)
+        candidate_counts = ValueCounter(
+            (item.architecture, item.status, str(item.selectable).lower())
+            for item in candidates.candidates
+        )
+
+        CONTROL_PANEL_LIFECYCLE_RUNS.clear()
+        CONTROL_PANEL_STAGES.clear()
+        CONTROL_PANEL_STAGE_PROGRESS.clear()
+        CONTROL_PANEL_HANDOFFS.clear()
+        CONTROL_PANEL_MODEL_CANDIDATES.clear()
+        for (state, execution_mode), value in run_counts.items():
+            CONTROL_PANEL_LIFECYCLE_RUNS.labels(state=state, execution_mode=execution_mode).set(value)
+        for (stage, state, runtime), value in stage_counts.items():
+            CONTROL_PANEL_STAGES.labels(stage=stage, state=state, runtime=runtime).set(value)
+        for run in runs[:25]:
+            for stage in run.stages:
+                CONTROL_PANEL_STAGE_PROGRESS.labels(run_id=run.run_id, stage=stage.stage_id).set(stage.progress)
+        for bucket, value in handoff_counts.items():
+            CONTROL_PANEL_HANDOFFS.labels(bucket=bucket).set(value)
+        for (architecture, status, selectable), value in candidate_counts.items():
+            CONTROL_PANEL_MODEL_CANDIDATES.labels(
+                architecture=architecture,
+                status=status,
+                selectable=selectable,
+            ).set(value)
+        CONTROL_PANEL_WORKER_ONLINE.set(1 if read_worker_state().status == "online" else 0)

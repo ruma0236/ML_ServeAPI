@@ -64,3 +64,18 @@ def test_refresh_model_state_removes_stale_metric_labels(tmp_path):
         'evm_serving_model_info{dataset_version="dataset-shadow",model_name="vision-baseline",'
         'model_stage="Shadow",model_version="10"} 1.0'
     ) in refreshed_metrics
+
+
+def test_metrics_remains_available_when_control_plane_refresh_fails(monkeypatch):
+    monkeypatch.setattr(api, "refresh_vlm_observability_state", lambda: None)
+
+    def fail_refresh() -> None:
+        raise OSError("evidence root is temporarily unavailable")
+
+    monkeypatch.setattr(api, "refresh_control_panel_metrics", fail_refresh)
+
+    response = api.metrics()
+    payload = response.body.decode("utf-8")
+
+    assert response.status_code == 200
+    assert "evm_control_panel_metric_refresh_success 0.0" in payload

@@ -8,6 +8,7 @@ import { DeploymentIntentPanel } from "./DeploymentIntentPanel";
 interface ReleaseControlProps {
   cycle: CycleRun;
   lifecycleRun?: LifecycleRun | null;
+  modelSelectionId?: string;
 }
 
 
@@ -20,7 +21,7 @@ interface ReleaseStage {
 }
 
 
-export function ReleaseControl({ cycle, lifecycleRun }: ReleaseControlProps) {
+export function ReleaseControl({ cycle, lifecycleRun, modelSelectionId }: ReleaseControlProps) {
   const intent = cycle.latest_deployment_intent;
   const targetEnvironment = intent?.target_environment || cycle.environment?.tier || "unknown";
   const stages: ReleaseStage[] = lifecycleRun ? lifecycleReleaseStages(lifecycleRun, targetEnvironment) : [
@@ -132,9 +133,9 @@ export function ReleaseControl({ cycle, lifecycleRun }: ReleaseControlProps) {
       </div>
 
       <div className="release-monitor-grid">
-        <MonitorLink icon={<Activity />} label="Grafana" href={serviceUrl("grafana")} detail="dashboards and alerts" />
+        <MonitorLink icon={<Activity />} label="Grafana" href={serviceUrl("grafana")} detail="control-plane dashboards and alerts" />
         <MonitorLink icon={<GitPullRequestArrow />} label="MLflow" href={serviceUrl("mlflow")} detail="runs and model registry" />
-        <MonitorLink icon={<RadioTower />} label="Prometheus" href={serviceUrl("prometheus")} detail="targets and metrics" />
+        <MonitorLink icon={<RadioTower />} label="Prometheus" href={serviceUrl("prometheus")} detail="lifecycle metrics in PromQL" />
       </div>
 
       {blockers.length ? (
@@ -144,7 +145,7 @@ export function ReleaseControl({ cycle, lifecycleRun }: ReleaseControlProps) {
         </div>
       ) : null}
 
-      <DeploymentIntentPanel cycle={cycle} />
+      <DeploymentIntentPanel cycle={cycle} modelSelectionId={modelSelectionId} />
     </section>
   );
 }
@@ -265,7 +266,13 @@ function serviceUrl(service: "grafana" | "mlflow" | "prometheus"): string {
   const ports = remote
     ? { grafana: 3001, mlflow: 5001, prometheus: 9091 }
     : { grafana: 3000, mlflow: 5000, prometheus: 9090 };
-  return `${window.location.protocol}//${window.location.hostname}:${ports[service]}/`;
+  const base = `${window.location.protocol}//${window.location.hostname}:${ports[service]}`;
+  if (service === "grafana") return `${base}/d/evm-control-plane/enterprise-vision-mlops-control-plane-operations`;
+  if (service === "prometheus") {
+    const query = encodeURIComponent("sum by (bucket) (evm_control_panel_stage_handoff_count)");
+    return `${base}/graph?g0.expr=${query}&g0.tab=1`;
+  }
+  return `${base}/`;
 }
 
 

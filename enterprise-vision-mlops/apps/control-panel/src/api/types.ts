@@ -222,6 +222,7 @@ export interface CIEvidenceValidation {
 
 export interface DeploymentIntentRequest {
   cycle_id?: string | null;
+  model_selection_id?: string | null;
   target_environment: EnvironmentTier;
   target_namespace: string;
   target: ResourceRef;
@@ -982,6 +983,7 @@ export type LifecycleRunState =
   | "dry_run"
   | "queued"
   | "running"
+  | "paused"
   | "waiting_approval"
   | "blocked"
   | "failed"
@@ -1033,6 +1035,7 @@ export interface LifecycleRun {
   actor: string;
   reason: string;
   dry_run: boolean;
+  execution_mode: "automatic" | "stepwise";
   created_at: string;
   updated_at: string;
   started_at?: string | null;
@@ -1188,6 +1191,101 @@ export interface LifecycleRunRequest {
   actor: string;
   reason: string;
   dry_run: boolean;
+  execution_mode?: "automatic" | "stepwise";
+}
+
+export type StageHandoffBucket = "ready" | "active" | "blocked" | "completed" | "consumed" | "cancelled" | "waiting";
+
+export interface StageHandoff {
+  handoff_id: string;
+  run_id: string;
+  run_state: string;
+  run_version: number;
+  execution_mode: "automatic" | "stepwise";
+  profile_id: string;
+  profile_version: number;
+  stage_id: string;
+  stage_label: string;
+  stage_state: string;
+  runtime: string;
+  bucket: StageHandoffBucket;
+  previous_stage_id?: string | null;
+  next_stage_id?: string | null;
+  progress: number;
+  eligible_actions: Array<"continue" | "retry" | "inspect">;
+  input_refs: Record<string, string>;
+  output_refs: Record<string, string>;
+  blockers: string[];
+  detail?: string | null;
+  updated_at: string;
+}
+
+export interface StageHandoffCatalog {
+  schema_version: "evm.stage_handoff_catalog.v1";
+  handoffs: StageHandoff[];
+  total: number;
+  ready: number;
+  active: number;
+  blocked: number;
+}
+
+export interface ModelCandidateRecord {
+  candidate_key: string;
+  candidate_id: string;
+  cycle_id: string;
+  lifecycle_run_id?: string | null;
+  matrix_id: string;
+  architecture: string;
+  framework: string;
+  dataset_id: string;
+  dataset_version: string;
+  model_version: string;
+  resource_profile: string;
+  status: string;
+  metrics: Record<string, number>;
+  metric_thresholds: Record<string, number>;
+  mlflow_run_uri?: string | null;
+  artifact_uri?: string | null;
+  artifact_digest?: string | null;
+  readiness_decision: string;
+  ct_decision: string;
+  source_commit?: string | null;
+  environment?: string | null;
+  selectable: boolean;
+  blockers: string[];
+  started_at: string;
+  live: boolean;
+}
+
+export interface ModelCandidateCatalog {
+  schema_version: "evm.model_candidate_catalog.v1";
+  candidates: ModelCandidateRecord[];
+  total: number;
+  selectable: number;
+}
+
+export interface ModelCandidateSelectionRequest {
+  actor: string;
+  reason: string;
+}
+
+export interface ModelCandidateSelection {
+  schema_version: "evm.model_candidate_selection.v1";
+  selection_id: string;
+  candidate_key: string;
+  candidate_id: string;
+  cycle_id: string;
+  lifecycle_run_id?: string | null;
+  matrix_id: string;
+  dataset_version: string;
+  artifact_uri: string;
+  artifact_digest: string;
+  metrics: Record<string, number>;
+  actor: string;
+  reason: string;
+  created_at: string;
+  status: "selected";
+  audit_uri: string;
 }
 
 export interface LifecycleActionRequest {

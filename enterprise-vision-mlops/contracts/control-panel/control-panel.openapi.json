@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise Vision MLOps Control Panel API",
-    "version": "2026-07-12.lifecycle-run.v1",
-    "description": "Multi-cycle metadata and guarded mutation contract for the enterprise MLOps Control Panel, including versioned human-authored pipeline profiles, persistent dependency-aware lifecycle runs, runtime task dispatch, CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
+    "version": "2026-07-14.stage-workbench.v1",
+    "description": "Multi-cycle metadata and guarded mutation contract for the enterprise MLOps Control Panel, including versioned human-authored pipeline profiles, automatic or stepwise lifecycle runs, explicit stage handoffs, evidence-bound model candidate selection, runtime task dispatch, CI evidence, deployment intent state transitions, organizational service scope, drift review, CD/CT gates, and real-test Torch EfficientNet model matrices."
   },
   "servers": [
     {
@@ -68,6 +68,42 @@
               }
             }
           }
+        }
+      }
+    },
+    "/control-panel/v1/model-candidates": {
+      "get": {
+        "summary": "List live and historical model candidates with evidence-bound promotion eligibility.",
+        "operationId": "listModelCandidates",
+        "parameters": [
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200}}
+        ],
+        "responses": {
+          "200": {"description": "model candidate catalog", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ModelCandidateCatalog"}}}}
+        }
+      }
+    },
+    "/control-panel/v1/model-candidates/{candidate_key}/select": {
+      "post": {
+        "summary": "Persist an immutable selection for a promotion-eligible model candidate.",
+        "operationId": "selectModelCandidate",
+        "parameters": [{"name": "candidate_key", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ModelCandidateSelectionRequest"}}}},
+        "responses": {
+          "202": {"description": "model candidate selected", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ModelCandidateSelection"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"description": "candidate evidence is not promotion eligible"}
+        }
+      }
+    },
+    "/control-panel/v1/model-selections/{selection_id}": {
+      "get": {
+        "summary": "Read an immutable model candidate selection audit record.",
+        "operationId": "getModelCandidateSelection",
+        "parameters": [{"name": "selection_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {
+          "200": {"description": "model candidate selection", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ModelCandidateSelection"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"}
         }
       }
     },
@@ -675,6 +711,19 @@
         }
       }
     },
+    "/control-panel/v1/stage-handoffs": {
+      "get": {
+        "summary": "List stage work items with immutable inputs, outputs, blockers, and eligible continuation actions.",
+        "operationId": "listStageHandoffs",
+        "parameters": [
+          {"name": "run_id", "in": "query", "required": false, "schema": {"type": "string"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 250}}
+        ],
+        "responses": {
+          "200": {"description": "stage handoff catalog", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StageHandoffCatalog"}}}}
+        }
+      }
+    },
     "/control-panel/v1/lifecycle-runs/{run_id}": {
       "get": {
         "summary": "Read one persistent lifecycle run and its stage evidence.",
@@ -702,6 +751,15 @@
         "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleActionRequest"}}}},
         "responses": {"202": {"description": "run cancelled", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "409": {"description": "transition rejected"}}
+      }
+    },
+    "/control-panel/v1/lifecycle-runs/{run_id}/continue": {
+      "post": {
+        "summary": "Continue the next dependency-ready stage of a paused stepwise lifecycle run.",
+        "operationId": "continueLifecycleRun",
+        "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleActionRequest"}}}},
+        "responses": {"202": {"description": "next stage queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "409": {"description": "run is not paused or optimistic lock rejected"}}
       }
     },
     "/control-panel/v1/lifecycle-runs/{run_id}/retry": {
@@ -871,11 +929,83 @@
           "report_uri": {"type": ["string", "null"]}
         }
       },
+      "ModelCandidateRecord": {
+        "type": "object",
+        "required": ["candidate_key", "candidate_id", "cycle_id", "matrix_id", "architecture", "framework", "dataset_id", "dataset_version", "model_version", "resource_profile", "status", "readiness_decision", "ct_decision", "selectable", "started_at"],
+        "properties": {
+          "candidate_key": {"type": "string"},
+          "candidate_id": {"type": "string"},
+          "cycle_id": {"type": "string"},
+          "lifecycle_run_id": {"type": ["string", "null"]},
+          "matrix_id": {"type": "string"},
+          "architecture": {"type": "string"},
+          "framework": {"type": "string"},
+          "dataset_id": {"type": "string"},
+          "dataset_version": {"type": "string"},
+          "model_version": {"type": "string"},
+          "resource_profile": {"type": "string"},
+          "status": {"type": "string"},
+          "metrics": {"type": "object", "additionalProperties": {"type": "number"}},
+          "metric_thresholds": {"type": "object", "additionalProperties": {"type": "number"}},
+          "mlflow_run_uri": {"type": ["string", "null"]},
+          "artifact_uri": {"type": ["string", "null"]},
+          "artifact_digest": {"type": ["string", "null"]},
+          "readiness_decision": {"type": "string"},
+          "ct_decision": {"type": "string"},
+          "source_commit": {"type": ["string", "null"]},
+          "environment": {"type": ["string", "null"]},
+          "selectable": {"type": "boolean"},
+          "blockers": {"type": "array", "items": {"type": "string"}},
+          "started_at": {"type": "string"},
+          "live": {"type": "boolean", "default": false}
+        }
+      },
+      "ModelCandidateCatalog": {
+        "type": "object",
+        "required": ["total", "selectable"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.model_candidate_catalog.v1"},
+          "candidates": {"type": "array", "items": {"$ref": "#/components/schemas/ModelCandidateRecord"}},
+          "total": {"type": "integer", "minimum": 0},
+          "selectable": {"type": "integer", "minimum": 0}
+        }
+      },
+      "ModelCandidateSelectionRequest": {
+        "type": "object",
+        "required": ["actor", "reason"],
+        "properties": {
+          "actor": {"type": "string", "minLength": 2},
+          "reason": {"type": "string", "minLength": 8}
+        }
+      },
+      "ModelCandidateSelection": {
+        "type": "object",
+        "required": ["selection_id", "candidate_key", "candidate_id", "cycle_id", "matrix_id", "dataset_version", "artifact_uri", "artifact_digest", "actor", "reason", "created_at", "audit_uri"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.model_candidate_selection.v1"},
+          "selection_id": {"type": "string"},
+          "candidate_key": {"type": "string"},
+          "candidate_id": {"type": "string"},
+          "cycle_id": {"type": "string"},
+          "lifecycle_run_id": {"type": ["string", "null"]},
+          "matrix_id": {"type": "string"},
+          "dataset_version": {"type": "string"},
+          "artifact_uri": {"type": "string"},
+          "artifact_digest": {"type": "string"},
+          "metrics": {"type": "object", "additionalProperties": {"type": "number"}},
+          "actor": {"type": "string"},
+          "reason": {"type": "string"},
+          "created_at": {"type": "string"},
+          "status": {"type": "string", "const": "selected"},
+          "audit_uri": {"type": "string"}
+        }
+      },
       "DeploymentIntentRequest": {
         "type": "object",
         "required": ["target_environment", "target_namespace", "target", "actor", "reason", "dry_run"],
         "properties": {
           "cycle_id": {"type": ["string", "null"]},
+          "model_selection_id": {"type": ["string", "null"]},
           "target_environment": {"type": "string", "enum": ["dev", "test", "staging", "pre-production", "production"]},
           "target_namespace": {"type": "string"},
           "target": {"$ref": "#/components/schemas/ResourceRef"},
@@ -2249,6 +2379,45 @@
           "task": {"anyOf": [{"$ref": "#/components/schemas/TaskAssignment"}, {"type": "null"}]}
         }
       },
+      "StageHandoff": {
+        "type": "object",
+        "required": ["handoff_id", "run_id", "run_state", "run_version", "execution_mode", "profile_id", "profile_version", "stage_id", "stage_label", "stage_state", "runtime", "bucket", "progress", "updated_at"],
+        "properties": {
+          "handoff_id": {"type": "string"},
+          "run_id": {"type": "string"},
+          "run_state": {"type": "string"},
+          "run_version": {"type": "integer", "minimum": 1},
+          "execution_mode": {"type": "string", "enum": ["automatic", "stepwise"]},
+          "profile_id": {"type": "string"},
+          "profile_version": {"type": "integer", "minimum": 1},
+          "stage_id": {"type": "string"},
+          "stage_label": {"type": "string"},
+          "stage_state": {"type": "string"},
+          "runtime": {"type": "string"},
+          "bucket": {"type": "string", "enum": ["ready", "active", "blocked", "completed", "consumed", "cancelled", "waiting"]},
+          "previous_stage_id": {"type": ["string", "null"]},
+          "next_stage_id": {"type": ["string", "null"]},
+          "progress": {"type": "number", "minimum": 0, "maximum": 1},
+          "eligible_actions": {"type": "array", "items": {"type": "string", "enum": ["continue", "retry", "inspect"]}},
+          "input_refs": {"type": "object", "additionalProperties": {"type": "string"}},
+          "output_refs": {"type": "object", "additionalProperties": {"type": "string"}},
+          "blockers": {"type": "array", "items": {"type": "string"}},
+          "detail": {"type": ["string", "null"]},
+          "updated_at": {"type": "string"}
+        }
+      },
+      "StageHandoffCatalog": {
+        "type": "object",
+        "required": ["total", "ready", "active", "blocked"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.stage_handoff_catalog.v1"},
+          "handoffs": {"type": "array", "items": {"$ref": "#/components/schemas/StageHandoff"}},
+          "total": {"type": "integer", "minimum": 0},
+          "ready": {"type": "integer", "minimum": 0},
+          "active": {"type": "integer", "minimum": 0},
+          "blocked": {"type": "integer", "minimum": 0}
+        }
+      },
       "LifecycleRunRequest": {
         "type": "object",
         "required": ["profile_id", "actor", "reason", "dry_run"],
@@ -2257,7 +2426,8 @@
           "profile_version": {"type": ["integer", "null"], "minimum": 1},
           "actor": {"type": "string", "minLength": 2},
           "reason": {"type": "string", "minLength": 8},
-          "dry_run": {"type": "boolean"}
+          "dry_run": {"type": "boolean"},
+          "execution_mode": {"type": "string", "enum": ["automatic", "stepwise"], "default": "automatic"}
         }
       },
       "LifecycleActionRequest": {
@@ -2312,11 +2482,12 @@
           "effective_config_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "source_commit": {"type": ["string", "null"]},
           "source_branch": {"type": ["string", "null"]},
-          "state": {"type": "string", "enum": ["dry_run", "queued", "running", "waiting_approval", "blocked", "failed", "completed", "cancelled", "rolling_back", "rolled_back"]},
+          "state": {"type": "string", "enum": ["dry_run", "queued", "running", "paused", "waiting_approval", "blocked", "failed", "completed", "cancelled", "rolling_back", "rolled_back"]},
           "version": {"type": "integer", "minimum": 1},
           "actor": {"type": "string"},
           "reason": {"type": "string"},
           "dry_run": {"type": "boolean"},
+          "execution_mode": {"type": "string", "enum": ["automatic", "stepwise"], "default": "automatic"},
           "created_at": {"type": "string"},
           "updated_at": {"type": "string"},
           "started_at": {"type": ["string", "null"]},

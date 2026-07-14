@@ -755,6 +755,7 @@ class CommandIntentList(ContractModel):
 
 class DeploymentIntentRequest(ContractModel):
     cycle_id: str | None = None
+    model_selection_id: str | None = None
     target_environment: EnvironmentTier
     target_namespace: str
     target: ResourceRef

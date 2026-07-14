@@ -23,6 +23,9 @@ import type {
   LifecycleRunList,
   LifecycleRunRequest,
   LifecycleWorkerState,
+  ModelCandidateCatalog,
+  ModelCandidateSelection,
+  ModelCandidateSelectionRequest,
   ModelComponentCatalog,
   OrchestratorConnectionList,
   PipelineProfileLaunch,
@@ -39,6 +42,7 @@ import type {
   RuntimeResourceList,
   State,
   ScenarioIntakeLaunchRequest,
+  StageHandoffCatalog,
   TaskAssignment,
   TaskAssignmentList,
   TaskAssignmentRequest,
@@ -503,7 +507,7 @@ export async function createLifecycleRun(
 
 export async function transitionLifecycleRun(
   runId: string,
-  action: "queue" | "cancel" | "retry",
+  action: "queue" | "continue" | "cancel" | "retry",
   request: LifecycleActionRequest,
   baseUrl = API_BASE
 ): Promise<LifecycleRun> {
@@ -517,6 +521,43 @@ export async function transitionLifecycleRun(
   );
   if (!response.ok) throw await controlPanelError(response, `LifecycleRun ${action} failed`);
   return (await response.json()) as LifecycleRun;
+}
+
+export async function fetchStageHandoffs(
+  runId?: string,
+  baseUrl = API_BASE
+): Promise<StageHandoffCatalog> {
+  const query = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
+  const response = await fetch(`${baseUrl}/control-panel/v1/stage-handoffs${query}`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw await controlPanelError(response, "Stage handoff catalog failed");
+  return (await response.json()) as StageHandoffCatalog;
+}
+
+export async function fetchModelCandidates(baseUrl = API_BASE): Promise<ModelCandidateCatalog> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/model-candidates`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw await controlPanelError(response, "Model candidate catalog failed");
+  return (await response.json()) as ModelCandidateCatalog;
+}
+
+export async function selectModelCandidate(
+  candidateKey: string,
+  request: ModelCandidateSelectionRequest,
+  baseUrl = API_BASE
+): Promise<ModelCandidateSelection> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/model-candidates/${encodeURIComponent(candidateKey)}/select`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    }
+  );
+  if (!response.ok) throw await controlPanelError(response, "Model candidate selection failed");
+  return (await response.json()) as ModelCandidateSelection;
 }
 
 export async function approveLifecycleRun(
