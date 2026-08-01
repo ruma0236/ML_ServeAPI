@@ -20,6 +20,10 @@ supervisor_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/
 evidence_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/failure_scenarios"
 sample_cadence_seconds = 5.0
 signal_precedence = ["kubernetes_pod", "readiness", "prometheus"]
+detection_budget_seconds = 30.0
+recovery_budget_seconds = 300.0
+cooldown_seconds = 30.0
+required_independent_runs = 3
 
 [identity]
 service = "evm-b0-production"
@@ -28,3 +32,18 @@ dataset_version = "visa-open-data-e35d93d5561f"
 model_sha256 = "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f"
 image_digest = "sha256:227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a"
 device = "cuda"
+
+[artifacts]
+candidate_summary_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/candidate_summary.json"
+model_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/model.pt"
+model_sha256 = "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f"
+split_manifest_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/split_manifest.json"
+split_manifest_sha256 = "5e7d96a8638c6729835405cb5ee2891ea1cf5736dc8345c4187f502be9d47e11"
+readiness_manifest_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/_readiness_inputs/readiness_inputs_manifest.json"
+readiness_manifest_sha256 = "2a751c3820891c11ccd57e9ab5491999ad14e1892d8a4761abbd725b9bd71283"
+ct_report_path = "F:/EnterpriseMLOps_CT/enterprise-vision-mlops/evaluations/ct-eval-b6a2574bc4e91b65/ct_evaluation.json"
+
+[inference]
+url = "http://127.0.0.1:30800/predict"
+image_uri = "file:///F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/visa/candle/Data/Images/Normal/0000.JPG"
+expected_prediction = "normal"

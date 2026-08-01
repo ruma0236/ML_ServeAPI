@@ -14,6 +14,11 @@ from evm.operations.failure_scenarios import (  # noqa: E402
     atomic_write_json,
 )
 from evm.operations.reconciliation import plan_device_plugin_reconciliation  # noqa: E402
+from evm.operations.scenario_a_live import run_scenario_a_live  # noqa: E402
+from evm.operations.scenario_a_preflight import (  # noqa: E402
+    issue_scenario_a_approval,
+    prepare_scenario_a_preflight,
+)
 from evm.operations.scenario_a_runner import (  # noqa: E402
     load_scenario_a_config,
     run_read_only_baseline,
@@ -36,6 +41,30 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile.add_argument("--run-id", required=True)
     reconcile.add_argument("--daemonset-json", type=Path, required=True)
     reconcile.add_argument("--discovered-driver-path", action="append", required=True)
+
+    preflight = subparsers.add_parser(
+        "preflight",
+        help="Capture the immutable identity and rollback package before approval.",
+    )
+    preflight.add_argument("--config", type=Path, required=True)
+    preflight.add_argument("--run-id", required=True)
+
+    approve = subparsers.add_parser(
+        "approve",
+        help="Issue one exact, expiring, single-use maintenance approval.",
+    )
+    approve.add_argument("--config", type=Path, required=True)
+    approve.add_argument("--run-id", required=True)
+    approve.add_argument("--approver", required=True)
+    approve.add_argument("--ttl-seconds", type=int, default=900)
+    approve.add_argument("--maintenance-approved", action="store_true")
+
+    live = subparsers.add_parser(
+        "live",
+        help="Consume approval and restart exactly one UID-bound production B0 Pod.",
+    )
+    live.add_argument("--config", type=Path, required=True)
+    live.add_argument("--run-id", required=True)
     return parser
 
 
@@ -50,6 +79,37 @@ def main() -> int:
         )
         print(json.dumps(result.model_dump(mode="json"), sort_keys=True))
         return 0 if result.decision == "passed" else 1
+
+    if args.command == "preflight":
+        result = prepare_scenario_a_preflight(
+            config=config,
+            project_root=ROOT,
+            run_id=args.run_id,
+        )
+        print(json.dumps(result.model_dump(mode="json"), sort_keys=True))
+        return 0 if result.decision == "passed" else 1
+
+    if args.command == "approve":
+        if not args.maintenance_approved:
+            print(json.dumps({"status": "blocked", "reason": "maintenance_approval_flag_missing"}))
+            return 2
+        result = issue_scenario_a_approval(
+            config=config,
+            run_id=args.run_id,
+            approver=args.approver,
+            ttl_seconds=args.ttl_seconds,
+        )
+        print(json.dumps(result.model_dump(mode="json"), sort_keys=True))
+        return 0
+
+    if args.command == "live":
+        result = run_scenario_a_live(
+            config=config,
+            project_root=ROOT,
+            run_id=args.run_id,
+        )
+        print(json.dumps(result.model_dump(mode="json"), sort_keys=True))
+        return 0
 
     resource = json.loads(args.daemonset_json.read_text(encoding="utf-8-sig"))
     plan = plan_device_plugin_reconciliation(resource, args.discovered_driver_path)

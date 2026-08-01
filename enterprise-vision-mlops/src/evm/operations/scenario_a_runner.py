@@ -94,6 +94,27 @@ class ScenarioAExecutionConfig(StrictModel):
     evidence_root: Path
     sample_cadence_seconds: float = Field(gt=0)
     signal_precedence: list[str] = Field(min_length=1)
+    detection_budget_seconds: float = Field(gt=0)
+    recovery_budget_seconds: float = Field(gt=0)
+    cooldown_seconds: float = Field(ge=0)
+    required_independent_runs: int = Field(ge=1)
+
+
+class ScenarioAArtifactConfig(StrictModel):
+    candidate_summary_path: Path
+    model_path: Path
+    model_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    split_manifest_path: Path
+    split_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    readiness_manifest_path: Path
+    readiness_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    ct_report_path: Path
+
+
+class ScenarioAInferenceConfig(StrictModel):
+    url: str
+    image_uri: str
+    expected_prediction: str
 
 
 class ScenarioAConfig(StrictModel):
@@ -102,6 +123,8 @@ class ScenarioAConfig(StrictModel):
     runtime: ScenarioARuntimeConfig
     execution: ScenarioAExecutionConfig
     identity: ScenarioAIdentityContract
+    artifacts: ScenarioAArtifactConfig
+    inference: ScenarioAInferenceConfig
 
 
 class RuntimeSourceSnapshot(StrictModel):

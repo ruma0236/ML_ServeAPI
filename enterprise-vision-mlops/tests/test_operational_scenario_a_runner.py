@@ -10,8 +10,10 @@ from evm.operations.failure_evidence import OperationalFailureReport, validate_c
 from evm.operations.runtime_adapters import ExactSelectionError, HttpAdapter, KubernetesAdapter
 from evm.operations.scenario_a_runner import (
     ScenarioAConfig,
+    ScenarioAArtifactConfig,
     ScenarioAExecutionConfig,
     ScenarioAHttpConfig,
+    ScenarioAInferenceConfig,
     ScenarioARuntimeConfig,
     ScenarioATargetConfig,
     discover_scenario_a_selectors,
@@ -76,6 +78,10 @@ def _config(tmp_path: Path) -> ScenarioAConfig:
             evidence_root=tmp_path / "evidence",
             sample_cadence_seconds=5,
             signal_precedence=["kubernetes_pod", "readiness", "prometheus"],
+            detection_budget_seconds=30,
+            recovery_budget_seconds=300,
+            cooldown_seconds=30,
+            required_independent_runs=3,
         ),
         identity=ScenarioAIdentityContract(
             service="evm-b0-production",
@@ -84,6 +90,21 @@ def _config(tmp_path: Path) -> ScenarioAConfig:
             model_sha256="a" * 64,
             image_digest="sha256:" + "b" * 64,
             device="cuda",
+        ),
+        artifacts=ScenarioAArtifactConfig(
+            candidate_summary_path=tmp_path / "candidate_summary.json",
+            model_path=tmp_path / "model.pt",
+            model_sha256="a" * 64,
+            split_manifest_path=tmp_path / "split_manifest.json",
+            split_manifest_sha256="c" * 64,
+            readiness_manifest_path=tmp_path / "readiness_manifest.json",
+            readiness_manifest_sha256="d" * 64,
+            ct_report_path=tmp_path / "ct_evaluation.json",
+        ),
+        inference=ScenarioAInferenceConfig(
+            url="http://ready/predict",
+            image_uri="file:///F:/sample.jpg",
+            expected_prediction="normal",
         ),
     )
 
