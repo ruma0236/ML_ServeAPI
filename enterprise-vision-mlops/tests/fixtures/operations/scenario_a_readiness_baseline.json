@@ -1,0 +1,10 @@
+{
+  "status": "ok",
+  "service": "evm-b0-production",
+  "model_loaded": true,
+  "candidate_id": "effnet-b0-img224-expedited-adamw",
+  "dataset_version": "visa-open-data-e35d93d5561f",
+  "model_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "device": "cuda",
+  "cuda_available": true
+}

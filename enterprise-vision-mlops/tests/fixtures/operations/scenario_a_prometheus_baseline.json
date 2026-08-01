@@ -1,0 +1,16 @@
+{
+  "status": "success",
+  "data": {
+    "activeTargets": [
+      {
+        "labels": {
+          "job": "evm-b0-production",
+          "instance": "host.docker.internal:30800"
+        },
+        "health": "up",
+        "lastError": "",
+        "scrapeUrl": "http://host.docker.internal:30800/metrics"
+      }
+    ]
+  }
+}

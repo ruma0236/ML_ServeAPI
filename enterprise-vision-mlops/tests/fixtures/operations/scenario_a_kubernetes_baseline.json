@@ -1,0 +1,61 @@
+{
+  "node": {
+    "metadata": {"name": "docker-desktop", "uid": "node-uid"},
+    "status": {
+      "capacity": {"nvidia.com/gpu": "1"},
+      "allocatable": {"nvidia.com/gpu": "1"}
+    }
+  },
+  "device_plugin": {
+    "metadata": {
+      "namespace": "kube-system",
+      "name": "nvidia-device-plugin-daemonset",
+      "uid": "plugin-uid"
+    },
+    "status": {"desiredNumberScheduled": 1, "numberReady": 1, "numberAvailable": 1}
+  },
+  "deployment": {
+    "metadata": {
+      "namespace": "evm-production",
+      "name": "evm-b0-production",
+      "uid": "deployment-uid"
+    },
+    "status": {"replicas": 1, "readyReplicas": 1, "availableReplicas": 1}
+  },
+  "pods": {
+    "items": [
+      {
+        "metadata": {
+          "namespace": "evm-production",
+          "name": "evm-b0-production-current",
+          "uid": "pod-current"
+        },
+        "status": {
+          "phase": "Running",
+          "conditions": [{"type": "Ready", "status": "True"}],
+          "containerStatuses": [
+            {
+              "imageID": "docker-pullable://serving@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ]
+        }
+      },
+      {
+        "metadata": {
+          "namespace": "evm-production",
+          "name": "evm-b0-production-old-1",
+          "uid": "pod-old-1"
+        },
+        "status": {"phase": "Failed", "reason": "UnexpectedAdmissionError"}
+      },
+      {
+        "metadata": {
+          "namespace": "evm-production",
+          "name": "evm-b0-production-old-2",
+          "uid": "pod-old-2"
+        },
+        "status": {"phase": "Failed", "reason": "ContainerStatusUnknown"}
+      }
+    ]
+  }
+}
