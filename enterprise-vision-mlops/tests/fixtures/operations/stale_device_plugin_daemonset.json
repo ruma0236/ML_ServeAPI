@@ -1,0 +1,42 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "DaemonSet",
+  "metadata": {
+    "name": "nvidia-device-plugin-daemonset",
+    "namespace": "kube-system",
+    "uid": "fixture-device-plugin-uid"
+  },
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [
+          {
+            "name": "nvidia-device-plugin-ctr",
+            "env": [
+              {
+                "name": "LD_LIBRARY_PATH",
+                "value": "/usr/lib/wsl/drivers/nv_dispi.inf_amd64_oldhash:/usr/lib/wsl/lib"
+              }
+            ],
+            "volumeMounts": [
+              {
+                "name": "wsl-driver",
+                "mountPath": "/usr/lib/wsl/drivers/nv_dispi.inf_amd64_oldhash",
+                "readOnly": true
+              }
+            ]
+          }
+        ],
+        "volumes": [
+          {
+            "name": "wsl-driver",
+            "hostPath": {
+              "path": "/usr/lib/wsl/drivers/nv_dispi.inf_amd64_oldhash",
+              "type": "Directory"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

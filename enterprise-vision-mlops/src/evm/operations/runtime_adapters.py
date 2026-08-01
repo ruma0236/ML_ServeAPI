@@ -104,6 +104,23 @@ class KubernetesAdapter:
         payload = self.runner(args)
         return select_exact([payload], selector)
 
+    def get_named(self, *, kind: str, name: str, namespace: str | None = None) -> JsonObject:
+        args = ["kubectl", "get", kind, name]
+        if namespace:
+            args.extend(["-n", namespace])
+        args.extend(["-o", "json"])
+        payload = self.runner(args)
+        observed_namespace, observed_name, observed_uid = _identity(payload)
+        if observed_name != name or (namespace is not None and observed_namespace != namespace):
+            raise ExactSelectionError(
+                f"named_resource_identity_failed:{kind}:{namespace or '_cluster'}/{name}"
+            )
+        if not observed_uid:
+            raise ExactSelectionError(
+                f"named_resource_uid_missing:{kind}:{namespace or '_cluster'}/{name}"
+            )
+        return payload
+
     def list_by_label(self, *, kind: str, namespace: str, label: str) -> list[JsonObject]:
         payload = self.runner(
             ["kubectl", "get", kind, "-n", namespace, "-l", label, "-o", "json"]
