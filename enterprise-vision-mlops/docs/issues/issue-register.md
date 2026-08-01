@@ -470,6 +470,24 @@ Execution order after this remediation is dependency-driven rather than depth-re
 `EVM-267` with `EVM-244` -> `EVM-270` -> `EVM-268` -> cross-scenario
 VisA operations proof -> `EVM-255` -> `EVM-256` -> `EVM-257` -> `EVM-258`.
 
+### Current Jira Timebox And Hierarchy
+
+- Sprint `144` was closed on `2026-08-01 23:06:25 KST` after unresolved
+  `SCRUM-49..52` and `SCRUM-144` were returned to the backlog with status,
+  parent, and closed-sprint history preserved.
+- Sprint `178`, `EVM S2 A-E 2026-08-01~08-02`, is active from
+  `2026-08-01 23:07:32 KST` to `2026-08-02 23:59 KST`.
+- Jira requires scenario subtasks `SCRUM-172..176` to inherit sprint membership
+  from parent `SCRUM-171`; the hierarchy and work statuses remain unchanged.
+- The sprint is a readiness, implementation-start, and non-disruptive
+  validation timebox. A0-A7 are not complete and A8/live mutation still needs
+  separate maintenance approval.
+- Roadmap hierarchy is now explicit: `SCRUM-123..127 -> SCRUM-119`,
+  `SCRUM-128..130 -> SCRUM-120`, `SCRUM-131..133 -> SCRUM-121`, and
+  `SCRUM-134..135 -> SCRUM-122`.
+- Full audit evidence is in
+  `docs/status/2026-08-01-stage-2-jira-sprint-realignment.md`.
+
 ## Jira Mapping
 
 Jira live sync 기준 mapping이다.

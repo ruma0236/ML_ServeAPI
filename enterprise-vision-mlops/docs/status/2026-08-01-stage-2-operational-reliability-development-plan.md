@@ -6,6 +6,13 @@ Parent: `EVM-265 / SCRUM-171`
 Scenario issues: `EVM-266..270 / SCRUM-172..176`
 Predecessor:
 `docs/status/2026-08-01-operational-failure-validation-master-plan.md`
+Jira timebox: Sprint `178`, `EVM S2 A-E 2026-08-01~08-02`, active from
+`2026-08-01 23:07:32 KST` through `2026-08-02 23:59 KST`.
+
+Jira schedules the five scenario subtasks through parent `SCRUM-171` because
+subtasks cannot be assigned independently. The timebox covers readiness,
+implementation start, and non-disruptive validation. It does not change the
+unstarted A0-A7 state or authorize A8/live mutation.
 
 ## Objective
 

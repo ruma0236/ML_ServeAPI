@@ -6,6 +6,10 @@ Parent epic: `EVM-EPIC-21 / SCRUM-156`
 Master issue: `EVM-265 / SCRUM-171`
 Stage 2 development plan:
 `docs/status/2026-08-01-stage-2-operational-reliability-development-plan.md`
+Active Jira timebox: Sprint `178`, `EVM S2 A-E 2026-08-01~08-02`, ending
+`2026-08-02 23:59 KST`. `SCRUM-171` is the directly scheduled parent and
+`SCRUM-172..176` inherit the sprint without hierarchy or status changes.
+This is not an A8/live-mutation completion commitment.
 
 ## Objective
 
