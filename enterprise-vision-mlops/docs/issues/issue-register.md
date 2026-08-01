@@ -439,8 +439,34 @@ Goal:
 | `EVM-262` | Real-time host compute telemetry and independent Control Panel synchronization | Done | 2026-07-W8 | the host observer samples CPU, RAM, NVIDIA GPU load, VRAM, temperature, and power every five seconds; typed telemetry is sanitized through the F-drive snapshot and API without granting the API container host GPU access; Overview replaces GPU capacity counts with live utilization gauges, rejects stale values, and polls resources independently from heavy CycleRun sources; 30 backend, 49 frontend, two focused desktop/mobile, and two all-tab visual scenarios pass |
 | `EVM-263` | Task Manager-aligned GPU engine utilization semantics | Done | 2026-07-W8 | Windows PDH aggregates per-process counters by physical adapter and engine, then reports the busiest physical GPU engine as the primary load; NVIDIA NVML activity remains a separately labeled secondary metric; live proof showed Windows 3D engine 9.1% while NVML activity was 21%, and 31 backend, 49 frontend, production build, plus desktop/mobile E2E pass |
 
+### Phase 22. Operational Failure Validation And Recovery Evidence
+
+Goal:
+
+- prove detection, containment, recovery, rollback, and prevention for bounded
+  operational failures before adding more model domains;
+- retain immutable, machine-valid evidence with an honest single-node local
+  boundary and no business A/B or production HA claim;
+- make each scenario defensible through hiring competencies, interview
+  questions, design trade-offs, and factual evidence.
+
+The source plan is
+`docs/status/2026-08-01-operational-failure-validation-master-plan.md`.
+
+| ID | Task | Status | Target | Acceptance Criteria |
+|---|---|---|---:|---|
+| `EVM-264` | P0 local runtime recovery | Done | 2026-08-01 | automatic WSL NVIDIA driver discovery, corrected GPU readiness, supervised worker/observer startup and revision injection restored GPU 1/1, device-plugin 1/1, production serving 1/1, real CUDA VisA inference, Prometheus up, live worker/observer, and 57 focused tests; evidence is `docs/status/2026-08-01-p0-local-runtime-recovery.md` |
+| `EVM-265` | Operational failure validation master contract | In Progress | Post-W8 | shared evidence/safety/claim contract, dependency order, five scenario runbooks, Jira subtasks, Stage 2 Scenario A implementation plan, and synchronized Git/Jira/Notion/Obsidian records exist; no new fault injection is claimed |
+| `EVM-266` | Scenario A GPU and serving failure recovery | Planned | Post-W8 | bounded staging Pod/device-plugin validation detects failure within 30 seconds, preserves stable identity, restores GPU/plugin/serving/inference/Prometheus within 300 seconds, and records machine-valid evidence; live cluster-wide plugin mutation requires explicit approval |
+| `EVM-267` | Scenario B invalid model canary and rollback | Planned | Post-W8 | controlled shadow then <=10% staging canary rejects a real guardrail breach, stops challenger traffic, and restores the exact stable digest within 300 seconds with sample/window evidence; no business A/B claim |
+| `EVM-268` | Scenario C quality degradation and retraining gate | Planned | Post-W8 | deterministic derived-data shift creates one deduplicated review event and reproducible candidate, then enforces evaluation, isolated CT, independent approval and limited release without automatic production replacement |
+| `EVM-269` | Scenario D lifecycle supervision recovery | Planned | Post-W8 | worker/observer termination, stale heartbeat and revision mismatch are detected and recovered with PID ownership, revision convergence, durable restart evidence and no duplicate lifecycle mutation |
+| `EVM-270` | Scenario E data and artifact integrity gate | Planned | Post-W8 | isolated leakage, duplicate, missing-data, digest, lineage and artifact corruptions map to deterministic blockers before any training, promotion or deployment is queued, while canonical identities remain unchanged |
+
 Execution order after this remediation is dependency-driven rather than depth-reducing:
-`EVM-263` (closed) -> `EVM-244` -> `EVM-255` -> `EVM-256` -> `EVM-257` -> `EVM-258`.
+`EVM-264` (closed) -> `EVM-265` -> (`EVM-266`, `EVM-269`) ->
+`EVM-267` with `EVM-244` -> `EVM-270` -> `EVM-268` -> cross-scenario
+VisA operations proof -> `EVM-255` -> `EVM-256` -> `EVM-257` -> `EVM-258`.
 
 ## Jira Mapping
 
@@ -587,6 +613,13 @@ Jira live sync 기준 mapping이다.
 | `EVM-261` | `SCRUM-167` | Task | https://opop0236.atlassian.net/browse/SCRUM-167 |
 | `EVM-262` | `SCRUM-168` | Task | https://opop0236.atlassian.net/browse/SCRUM-168 |
 | `EVM-263` | `SCRUM-169` | Task | https://opop0236.atlassian.net/browse/SCRUM-169 |
+| `EVM-264` | `SCRUM-170` | Task | https://opop0236.atlassian.net/browse/SCRUM-170 |
+| `EVM-265` | `SCRUM-171` | Task | https://opop0236.atlassian.net/browse/SCRUM-171 |
+| `EVM-266` | `SCRUM-172` | Subtask | https://opop0236.atlassian.net/browse/SCRUM-172 |
+| `EVM-267` | `SCRUM-173` | Subtask | https://opop0236.atlassian.net/browse/SCRUM-173 |
+| `EVM-268` | `SCRUM-174` | Subtask | https://opop0236.atlassian.net/browse/SCRUM-174 |
+| `EVM-269` | `SCRUM-175` | Subtask | https://opop0236.atlassian.net/browse/SCRUM-175 |
+| `EVM-270` | `SCRUM-176` | Subtask | https://opop0236.atlassian.net/browse/SCRUM-176 |
 | `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
