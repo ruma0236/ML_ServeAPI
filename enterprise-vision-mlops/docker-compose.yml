@@ -339,6 +339,7 @@ services:
       - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:9090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/w7/prometheus-targets:/etc/prometheus/targets:ro
       - prometheus-data:/prometheus
     depends_on:

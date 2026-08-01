@@ -25,6 +25,7 @@ from apps.api.control_panel_scenarios import router as control_panel_scenarios_r
 from apps.api.control_panel_tasks import router as control_panel_tasks_router
 from apps.api.control_panel import router as control_panel_router
 from evm.core.image_feature_model import extract_image_features, predict_with_model, resolve_image_path
+from evm.operations.metrics import OperationalMetrics, load_metric_projection
 
 
 APP_NAME = os.getenv("APP_NAME", "enterprise-vision-mlops-api")
@@ -127,6 +128,13 @@ CONTROL_PANEL_METRIC_REFRESH_SUCCESS = Gauge(
     "Whether the latest control-plane metric refresh completed successfully.",
 )
 _CONTROL_PANEL_METRIC_LOCK = threading.Lock()
+OPERATIONAL_METRICS = OperationalMetrics()
+OPERATIONAL_METRICS_PATH = Path(
+    os.getenv(
+        "EVM_OPERATIONAL_METRICS_PATH",
+        f"{EVM_DATA_MOUNT_ROOT}/artifacts/operations/failure_scenarios/_latest/metrics.json",
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -451,6 +459,11 @@ def metrics() -> Response:
         LOGGER.exception("Control-plane Prometheus metric refresh failed")
     else:
         CONTROL_PANEL_METRIC_REFRESH_SUCCESS.set(1)
+    if OPERATIONAL_METRICS_PATH.is_file():
+        try:
+            OPERATIONAL_METRICS.update(load_metric_projection(OPERATIONAL_METRICS_PATH))
+        except Exception:
+            LOGGER.exception("Operational reliability metric refresh failed")
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

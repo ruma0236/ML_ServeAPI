@@ -1,0 +1,39 @@
+groups:
+  - name: evm-operational-reliability
+    interval: 15s
+    rules:
+      - alert: EVMOperationalGPUAllocatableLost
+        expr: evm_operational_target_health{scenario="A",target="production-b0",signal="gpu_allocatable"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: Exact production B0 target lost allocatable GPU capacity
+      - alert: EVMOperationalDevicePluginUnavailable
+        expr: evm_operational_target_health{scenario="A",target="production-b0",signal="device_plugin"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: Exact production B0 device-plugin signal is unhealthy
+      - alert: EVMOperationalServingTargetDown
+        expr: evm_operational_target_health{scenario="A",target="production-b0",signal="prometheus"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: Exact production B0 Prometheus target is down
+      - alert: EVMOperationalIdentityMismatch
+        expr: evm_operational_target_health{scenario="A",target="production-b0",signal="identity"} == 0
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: Production B0 serving identity differs from the approved subset
+      - alert: EVMOperationalRecoveryBudgetExceeded
+        expr: evm_operational_recovery_seconds{scenario="A",target="production-b0"} > 300
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: Scenario A local recovery exceeded the 300 second engineering target
