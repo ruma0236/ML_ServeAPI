@@ -4,6 +4,7 @@ Status: Complete
 Environment: single-node Docker Desktop Kubernetes, one RTX 4080 SUPER, one
 production EfficientNet-B0 replica
 Jira: `SCRUM-172 / EVM-266`
+Jira status: Done; completion evidence comment `10444`
 
 ## Implemented Gates
 
@@ -94,6 +95,8 @@ data, Deployment template, or cluster-wide resource was mutated.
 - Supervisor: healthy; lifecycle worker and Kubernetes observer are live and
   both match revision `193dd10`.
 - Verification: 49 focused pytest tests and Ruff passed.
+- Jira `SCRUM-172` transitioned to Done after completion evidence comment
+  `10444`; the Stage 2 master and Scenarios B-E remain open.
 
 No manual patch or rollback was needed during any run. Recovery was performed
 by the Kubernetes Deployment controller.
