@@ -46,5 +46,11 @@ def test_gpu_bridge_script_fails_closed_and_records_f_drive_evidence() -> None:
 
     assert "default-runtime" in script
     assert "nvidia.com/gpu" in script
+    assert "Get-WslNvidiaDriverPath" in script
+    assert "$currentDriverPath -ne $driverPath" in script
+    assert "$allocatableGpuCount -ge 1" in script
+    assert "positive nvidia.com/gpu allocatable capacity" in script
+    assert "SkipGpuProbe" in script
+    assert 'schema_version = "evm.w7.docker_desktop_gpu_bridge.v2"' in script
     assert "throw \"NVIDIA device plugin rollout failed.\"" in script
     assert "F:\\EnterpriseMLOps_Data" in script

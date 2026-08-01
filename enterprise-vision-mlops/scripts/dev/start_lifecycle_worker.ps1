@@ -26,9 +26,24 @@ if (-not (Test-Path -LiteralPath $PrometheusTargetFile)) {
     Set-Content -LiteralPath $PrometheusTargetFile -Value "[]" -Encoding ascii
 }
 
+function Get-OwnedWorkerProcess {
+    param([int]$ProcessId)
+
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if (-not $process) {
+        return $null
+    }
+    $details = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue
+    if (-not $details -or $details.CommandLine -notlike "*evm.control_panel.lifecycle_worker*") {
+        return $null
+    }
+    return $process
+}
+
 if (Test-Path -LiteralPath $PidPath) {
-    $existingPid = [int](Get-Content -LiteralPath $PidPath -Raw).Trim()
-    $existing = Get-Process -Id $existingPid -ErrorAction SilentlyContinue
+    $existingPid = 0
+    [void][int]::TryParse((Get-Content -LiteralPath $PidPath -Raw).Trim(), [ref]$existingPid)
+    $existing = if ($existingPid -gt 0) { Get-OwnedWorkerProcess -ProcessId $existingPid } else { $null }
     if ($existing -and -not $Restart) {
         Write-Host "Lifecycle worker already running with PID $existingPid"
         exit 0
@@ -44,6 +59,7 @@ $pythonCandidates = [System.Collections.Generic.List[string]]::new()
 foreach ($candidate in @(
     $PythonPath,
     $(if ($env:CONDA_PREFIX) { Join-Path $env:CONDA_PREFIX "python.exe" }),
+    $(if ($env:USERPROFILE) { Join-Path $env:USERPROFILE "miniconda3\python.exe" }),
     "C:\Users\opop0\miniconda3\python.exe",
     $(if (Get-Command python -ErrorAction SilentlyContinue) {
         (Get-Command python -ErrorAction Stop).Source
@@ -96,6 +112,17 @@ if (-not $env:EVM_LIFECYCLE_GPU_HOLDERS) {
 }
 $env:EVM_GIT_COMMIT = (git -C $ProjectRoot rev-parse HEAD).Trim()
 $env:EVM_GIT_BRANCH = (git -C $ProjectRoot branch --show-current).Trim()
+if (-not $env:EVM_GIT_BRANCH) {
+    $env:EVM_GIT_BRANCH = (git -C $ProjectRoot rev-parse --abbrev-ref HEAD).Trim()
+}
+$env:EVM_EXPECTED_CI_COMMIT = $env:EVM_GIT_COMMIT
+
+$heartbeat = Join-Path $LifecycleRoot "_worker.json"
+$previousHeartbeatWrite = if (Test-Path -LiteralPath $heartbeat) {
+    (Get-Item -LiteralPath $heartbeat).LastWriteTimeUtc
+} else {
+    [DateTime]::MinValue
+}
 
 $arguments = @(
     "-m", "evm.control_panel.lifecycle_worker",
@@ -112,18 +139,27 @@ $process = Start-Process `
     -PassThru
 
 Set-Content -LiteralPath $PidPath -Value $process.Id -Encoding ascii
-Start-Sleep -Seconds 2
-if ($process.HasExited) {
-    $stderr = if (Test-Path -LiteralPath $StderrPath) {
-        Get-Content -LiteralPath $StderrPath -Raw
-    } else {
-        "No lifecycle worker stderr was produced."
+$deadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
+do {
+    Start-Sleep -Milliseconds 500
+    if ($process.HasExited) {
+        $stderr = if (Test-Path -LiteralPath $StderrPath) {
+            Get-Content -LiteralPath $StderrPath -Raw
+        } else {
+            "No lifecycle worker stderr was produced."
+        }
+        throw "Lifecycle worker exited during startup: $stderr"
     }
-    throw "Lifecycle worker exited during startup: $stderr"
-}
-
-$heartbeat = Join-Path $LifecycleRoot "_worker.json"
-if (-not (Test-Path -LiteralPath $heartbeat)) {
-    throw "Lifecycle worker started but did not produce $heartbeat"
+    $heartbeatFresh = (Test-Path -LiteralPath $heartbeat) -and `
+        (Get-Item -LiteralPath $heartbeat).LastWriteTimeUtc -gt $previousHeartbeatWrite
+    if ($heartbeatFresh) {
+        $payload = Get-Content -LiteralPath $heartbeat -Raw | ConvertFrom-Json
+        $heartbeatFresh = $payload.pid -eq $process.Id -and `
+            $payload.source_commit -eq $env:EVM_GIT_COMMIT
+    }
+} while (-not $heartbeatFresh -and [DateTimeOffset]::UtcNow -lt $deadline)
+if (-not $heartbeatFresh) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    throw "Lifecycle worker did not produce a revision-matched heartbeat within 15 seconds: $heartbeat"
 }
 Write-Host "Lifecycle worker PID=$($process.Id) heartbeat=$heartbeat"

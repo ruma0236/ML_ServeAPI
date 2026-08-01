@@ -52,11 +52,16 @@ repository keeps only code, configs, docs, and lightweight evidence.
 
 ## Quick Start
 
-```bash
-cp .env.example .env
-docker compose up -d --build
-docker compose ps
+```powershell
+Copy-Item .env.example .env
+.\scripts\dev\start_local_stack.ps1
 ```
+
+`start_local_stack.ps1` is the canonical Windows entry point. It injects the
+current Git revision into Compose, reconciles the Docker Desktop WSL GPU driver
+path, and starts a supervised Kubernetes observer and lifecycle worker. Raw
+`docker compose up` only starts containers and does not provide those host
+runtime guarantees.
 
 If `make` is available:
 

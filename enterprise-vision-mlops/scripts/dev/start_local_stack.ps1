@@ -1,8 +1,10 @@
 param(
     [switch]$Build,
     [switch]$NoAirflowRecreate,
+    [switch]$NoKubernetesGpuReconcile,
     [switch]$NoKubernetesObserver,
-    [switch]$NoLifecycleWorker
+    [switch]$NoLifecycleWorker,
+    [switch]$NoHostRuntimeSupervisor
 )
 
 $ErrorActionPreference = "Stop"
@@ -69,6 +71,7 @@ try {
     }
 
     Invoke-Docker -Arguments @("compose", "up", "-d", "--no-build")
+    Invoke-Docker -Arguments @("compose", "up", "-d", "--force-recreate", "--no-build", "api")
 
     if (-not $NoAirflowRecreate) {
         Invoke-Docker -Arguments @(
@@ -79,11 +82,30 @@ try {
 
     Invoke-Docker -Arguments @("compose", "ps")
 
-    if (-not $NoKubernetesObserver) {
-        & (Join-Path $PSScriptRoot "start_kubernetes_observer.ps1")
+    if (-not $NoKubernetesGpuReconcile) {
+        & (Join-Path $PSScriptRoot "configure_docker_desktop_kubernetes_gpu.ps1") `
+            -SkipDockerRuntimeConfiguration `
+            -SkipGpuProbe
     }
-    if (-not $NoLifecycleWorker) {
-        & (Join-Path $PSScriptRoot "start_lifecycle_worker.ps1")
+
+    if (-not $NoHostRuntimeSupervisor) {
+        $supervisorParameters = @{
+            Restart = $true
+        }
+        if ($NoKubernetesObserver) {
+            $supervisorParameters.NoKubernetesObserver = $true
+        }
+        if ($NoLifecycleWorker) {
+            $supervisorParameters.NoLifecycleWorker = $true
+        }
+        & (Join-Path $PSScriptRoot "start_host_runtime_supervisor.ps1") @supervisorParameters
+    } else {
+        if (-not $NoKubernetesObserver) {
+            & (Join-Path $PSScriptRoot "start_kubernetes_observer.ps1") -Restart
+        }
+        if (-not $NoLifecycleWorker) {
+            & (Join-Path $PSScriptRoot "start_lifecycle_worker.ps1") -Restart
+        }
     }
 }
 finally {

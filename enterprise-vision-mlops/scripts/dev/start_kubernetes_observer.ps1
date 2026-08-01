@@ -22,9 +22,24 @@ $StderrPath = Join-Path $ObserverRoot "observer.stderr.log"
 
 New-Item -ItemType Directory -Force -Path $ObserverRoot | Out-Null
 
+function Get-OwnedObserverProcess {
+    param([int]$ProcessId)
+
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if (-not $process) {
+        return $null
+    }
+    $details = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue
+    if (-not $details -or $details.CommandLine -notlike "*evm.control_panel.kubernetes_observer*") {
+        return $null
+    }
+    return $process
+}
+
 if (Test-Path -LiteralPath $PidPath) {
-    $existingPid = [int](Get-Content -LiteralPath $PidPath -Raw).Trim()
-    $existing = Get-Process -Id $existingPid -ErrorAction SilentlyContinue
+    $existingPid = 0
+    [void][int]::TryParse((Get-Content -LiteralPath $PidPath -Raw).Trim(), [ref]$existingPid)
+    $existing = if ($existingPid -gt 0) { Get-OwnedObserverProcess -ProcessId $existingPid } else { $null }
     if ($existing -and -not $Restart) {
         Write-Host "Kubernetes observer already running with PID $existingPid"
         exit 0
@@ -40,6 +55,7 @@ $pythonCandidates = [System.Collections.Generic.List[string]]::new()
 foreach ($candidate in @(
     $PythonPath,
     $(if ($env:CONDA_PREFIX) { Join-Path $env:CONDA_PREFIX "python.exe" }),
+    $(if ($env:USERPROFILE) { Join-Path $env:USERPROFILE "miniconda3\python.exe" }),
     "C:\Users\opop0\miniconda3\python.exe",
     $(if (Get-Command python -ErrorAction SilentlyContinue) {
         (Get-Command python -ErrorAction Stop).Source
@@ -65,6 +81,16 @@ if (-not $python) {
     throw "No Python runtime with the project dependencies was found. Set EVM_PYTHON_PATH."
 }
 $env:PYTHONPATH = Join-Path $ProjectRoot "src"
+$env:EVM_GIT_COMMIT = (git -C $ProjectRoot rev-parse HEAD).Trim()
+$env:EVM_GIT_BRANCH = (git -C $ProjectRoot branch --show-current).Trim()
+if (-not $env:EVM_GIT_BRANCH) {
+    $env:EVM_GIT_BRANCH = (git -C $ProjectRoot rev-parse --abbrev-ref HEAD).Trim()
+}
+$previousOutputWrite = if (Test-Path -LiteralPath $OutputPath) {
+    (Get-Item -LiteralPath $OutputPath).LastWriteTimeUtc
+} else {
+    [DateTime]::MinValue
+}
 $observerNamespaces = if ($Namespaces) {
     $Namespaces
 } else {
@@ -92,17 +118,23 @@ $startArguments = @{
 $process = Start-Process @startArguments
 
 Set-Content -LiteralPath $PidPath -Value $process.Id -Encoding ascii
-Start-Sleep -Seconds 2
-if ($process.HasExited) {
-    $stderr = if (Test-Path -LiteralPath $StderrPath) {
-        Get-Content -LiteralPath $StderrPath -Raw
-    } else {
-        "No observer stderr was produced."
+$deadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
+do {
+    Start-Sleep -Milliseconds 500
+    if ($process.HasExited) {
+        $stderr = if (Test-Path -LiteralPath $StderrPath) {
+            Get-Content -LiteralPath $StderrPath -Raw
+        } else {
+            "No observer stderr was produced."
+        }
+        throw "Kubernetes observer exited during startup: $stderr"
     }
-    throw "Kubernetes observer exited during startup: $stderr"
-}
-if (-not (Test-Path -LiteralPath $OutputPath)) {
-    throw "Kubernetes observer started but did not produce $OutputPath"
+    $outputFresh = (Test-Path -LiteralPath $OutputPath) -and `
+        (Get-Item -LiteralPath $OutputPath).LastWriteTimeUtc -gt $previousOutputWrite
+} while (-not $outputFresh -and [DateTimeOffset]::UtcNow -lt $deadline)
+if (-not $outputFresh) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    throw "Kubernetes observer did not produce a fresh snapshot within 15 seconds: $OutputPath"
 }
 
 Write-Host "Kubernetes observer PID=$($process.Id) output=$OutputPath"

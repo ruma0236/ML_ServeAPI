@@ -2610,6 +2610,8 @@
           "status": {"type": "string", "enum": ["online", "stale", "offline"]},
           "worker_id": {"type": ["string", "null"]},
           "pid": {"type": ["integer", "null"]},
+          "source_commit": {"type": ["string", "null"]},
+          "source_branch": {"type": ["string", "null"]},
           "started_at": {"type": ["string", "null"]},
           "last_seen_at": {"type": ["string", "null"]},
           "current_run_id": {"type": ["string", "null"]},

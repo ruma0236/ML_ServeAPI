@@ -191,6 +191,8 @@ class LifecycleWorkerState(ContractModel):
     status: Literal["online", "stale", "offline"]
     worker_id: str | None = None
     pid: int | None = None
+    source_commit: str | None = None
+    source_branch: str | None = None
     started_at: str | None = None
     last_seen_at: str | None = None
     current_run_id: str | None = None
