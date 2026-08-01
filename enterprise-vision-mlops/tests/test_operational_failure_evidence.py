@@ -45,9 +45,16 @@ def _report_payload(artifact_path: Path, *, live: bool = False) -> dict:
         "finished_at": finished,
         "actor": "pytest",
         "approval": {
-            "required": live,
+            "required": True,
             "decision": "consumed" if live else "pending",
             "approval_id": "approval-1" if live else None,
+            "run_id": "scenario-a-test-001" if live else None,
+            "target_uid": "uid" if live else None,
+            "action_digest": DIGEST if live else None,
+            "source_revision": "abcdef1" if live else None,
+            "expires_at": finished if live else None,
+            "consumed_at": started if live else None,
+            "single_use": True,
         },
         "source": {
             "commit": "abcdef1",

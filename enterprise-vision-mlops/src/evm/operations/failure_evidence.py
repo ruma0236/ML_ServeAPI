@@ -152,6 +152,34 @@ class ApprovalEvidence(StrictModel):
     required: bool
     decision: Literal["not_required", "pending", "approved", "rejected", "consumed"]
     approval_id: str | None = None
+    run_id: str | None = None
+    target_uid: str | None = None
+    action_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    source_revision: str | None = None
+    expires_at: datetime | None = None
+    consumed_at: datetime | None = None
+    single_use: bool = True
+
+    _validate_expires_at = field_validator("expires_at")(_require_utc)
+    _validate_consumed_at = field_validator("consumed_at")(_require_utc)
+
+    @model_validator(mode="after")
+    def validate_binding(self) -> "ApprovalEvidence":
+        if not self.required and self.decision != "not_required":
+            raise ValueError("approval decision must be not_required when approval is optional")
+        if self.decision == "consumed":
+            required = (
+                self.approval_id,
+                self.run_id,
+                self.target_uid,
+                self.action_digest,
+                self.source_revision,
+                self.expires_at,
+                self.consumed_at,
+            )
+            if not all(required) or not self.single_use:
+                raise ValueError("consumed approval requires an exact single-use binding")
+        return self
 
 
 class InjectionEvidence(StrictModel):
@@ -267,6 +295,14 @@ class OperationalFailureReport(StrictModel):
                 raise ValueError(f"{closure_name} closure contains failed checks: {failed}")
 
         if self.live_proof_closure.decision == "passed":
+            if self.approval.required and self.approval.decision != "consumed":
+                raise ValueError("live proof requires a consumed approval binding")
+            if self.approval.run_id and self.approval.run_id != self.run_id:
+                raise ValueError("approval run_id does not match evidence run_id")
+            if self.approval.target_uid and (
+                self.approval.target_uid != self.injection.target.get("uid")
+            ):
+                raise ValueError("approval target_uid does not match injection target")
             missing_identities = [
                 field_name
                 for field_name in self.identity_requirements
