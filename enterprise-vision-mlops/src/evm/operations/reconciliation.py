@@ -1,15 +1,46 @@
 from __future__ import annotations
 
+import subprocess
+from collections.abc import Callable
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 DRIVER_PATH_PREFIX = "/usr/lib/wsl/drivers/nv_dispi.inf_amd64_"
+TextRunner = Callable[[list[str]], str]
 
 
 class ReconciliationError(RuntimeError):
     pass
+
+
+def _run_text(args: list[str]) -> str:
+    completed = subprocess.run(
+        args,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return completed.stdout
+
+
+def discover_wsl_driver_paths(runner: TextRunner = _run_text) -> list[str]:
+    output = runner(
+        [
+            "wsl.exe",
+            "-d",
+            "docker-desktop",
+            "-u",
+            "root",
+            "--",
+            "sh",
+            "-lc",
+            "find /usr/lib/wsl/drivers -name nvidia-smi -type f -exec dirname {} \\;",
+        ]
+    )
+    return _valid_discovery(output.splitlines())
 
 
 class DriverPathChange(BaseModel):

@@ -13,7 +13,10 @@ from evm.operations.failure_scenarios import (  # noqa: E402
     ScenarioStateStore,
     atomic_write_json,
 )
-from evm.operations.reconciliation import plan_device_plugin_reconciliation  # noqa: E402
+from evm.operations.reconciliation import (  # noqa: E402
+    discover_wsl_driver_paths,
+    plan_device_plugin_reconciliation,
+)
 from evm.operations.scenario_a_live import run_scenario_a_live  # noqa: E402
 from evm.operations.scenario_a_preflight import (  # noqa: E402
     issue_scenario_a_approval,
@@ -40,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile.add_argument("--config", type=Path, required=True)
     reconcile.add_argument("--run-id", required=True)
     reconcile.add_argument("--daemonset-json", type=Path, required=True)
-    reconcile.add_argument("--discovered-driver-path", action="append", required=True)
+    reconcile.add_argument("--discovered-driver-path", action="append")
 
     preflight = subparsers.add_parser(
         "preflight",
@@ -112,7 +115,8 @@ def main() -> int:
         return 0
 
     resource = json.loads(args.daemonset_json.read_text(encoding="utf-8-sig"))
-    plan = plan_device_plugin_reconciliation(resource, args.discovered_driver_path)
+    discovered_paths = args.discovered_driver_path or discover_wsl_driver_paths()
+    plan = plan_device_plugin_reconciliation(resource, discovered_paths)
     run_root = config.execution.evidence_root / "A" / args.run_id
     plan_path = run_root / "device-plugin-reconciliation-plan.json"
     atomic_write_json(plan_path, plan.model_dump(mode="json"))

@@ -4,7 +4,10 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
-from evm.operations.reconciliation import plan_device_plugin_reconciliation
+from evm.operations.reconciliation import (
+    discover_wsl_driver_paths,
+    plan_device_plugin_reconciliation,
+)
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "operations" / "stale_device_plugin_daemonset.json"
@@ -64,3 +67,22 @@ def test_ambiguous_or_malformed_daemonset_fails_closed() -> None:
     assert plan.decision == "blocked"
     assert "wsl_driver_volume_cardinality:2" in plan.blockers
     assert plan.mutation_performed is False
+
+
+def test_driver_discovery_returns_only_verified_allowlisted_paths() -> None:
+    observed: list[str] = []
+
+    def runner(args: list[str]) -> str:
+        observed.extend(args)
+        return f"{CURRENT}\n/not/allowed\n{CURRENT}\n"
+
+    assert discover_wsl_driver_paths(runner) == [CURRENT]
+    assert observed[:7] == [
+        "wsl.exe",
+        "-d",
+        "docker-desktop",
+        "-u",
+        "root",
+        "--",
+        "sh",
+    ]
