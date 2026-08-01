@@ -1,6 +1,6 @@
 # Scenario A Operational Recovery Execution
 
-Status: In Progress
+Status: Complete
 Environment: single-node Docker Desktop Kubernetes, one RTX 4080 SUPER, one
 production EfficientNet-B0 replica
 Jira: `SCRUM-172 / EVM-266`
@@ -16,9 +16,9 @@ Jira: `SCRUM-172 / EVM-266`
   DaemonSet template comparison with no mutation.
 - `A7`: model/data/split/artifact/image/CT/rollback identity bundle, rollback
   capture, cooldown policy, maintenance preflight, and explicit approval command.
-- `A8` executor: UID-preconditioned Pod delete, monotonic fixed-cadence sampling,
-  CUDA inference, identity recovery, and immutable result evidence. It has not yet
-  been executed in this record.
+- `A8`: UID-preconditioned Pod delete, monotonic fixed-cadence sampling, CUDA
+  inference, identity recovery, immutable result evidence, cooldown, and three
+  independent maintenance replays.
 
 ## Real CT Evidence
 
@@ -52,12 +52,56 @@ terminalized the run as `blocked`. The NVIDIA DaemonSet was not changed.
 Prevention is versioned in the CLI: when no explicit path is supplied, Python
 invokes WSL discovery itself, deduplicates allowlisted `nv_dispi` directories,
 and preserves zero/multiple cardinality as a blocker. Unit tests cover discovery,
-allowlisting, stale/current plans, and zero/multiple paths. A fresh run is required;
-the blocked run will not be reopened or reused.
+allowlisting, stale/current plans, and zero/multiple paths. The blocked run was
+not reopened or reused; all live proof below used fresh run IDs.
+
+## A8 Three-Run Live Proof
+
+All three independent runs used source revision
+`193dd1077c9d1eb8cb8ce0e5f1a6277e417d7108`. Each run began with a fresh
+baseline and exact Pod UID, captured the DaemonSet before and after a
+non-mutating `no_change` reconciliation plan, passed the complete A7 preflight,
+and consumed a separate expiring single-use approval.
+
+| Run | Detection | Endpoint interruption | Recovery | Result |
+|---|---:|---:|---:|---|
+| `scenario-a-20260801T162419Z-9b384eca` | 0.200 s | 9.872 s | 10.082 s | PASS |
+| `scenario-a-20260801T162757Z-53992165` | 0.178 s | 9.898 s | 25.084 s | PASS |
+| `scenario-a-20260801T162953Z-69e939e5` | 0.170 s | 9.904 s | 25.087 s | PASS |
+
+The series ledger is
+`F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/failure_scenarios/A/_series/production-b0.json`.
+The three `live-report.json` files passed the machine validator with required
+closure `live_proof`. Detection was `3/3 <= 30 s`, recovery was
+`3/3 <= 300 s`, and the required dataset, split, model, artifact, image, CT,
+and rollback identities were `21/21` exact matches. Two historical failed Pods
+remained visible as context but produced `0` false target blockers.
+
+Each live report proves that Kubernetes replaced a different exact old UID,
+the rollback target remained unchanged, a real VisA image was inferred on
+CUDA, and the exact Prometheus target recovered. No device-plugin, staging B7,
+data, Deployment template, or cluster-wide resource was mutated.
+
+## Final Runtime And Verification
+
+- Docker Desktop node: Ready, GPU capacity/allocatable `1 / 1`.
+- NVIDIA device-plugin DaemonSet: desired/ready `1 / 1`.
+- `evm-production/evm-b0-production`: ready/available/updated `1 / 1 / 1`.
+- Final active Pod UID: `6bf1d8ca-f4b2-4dea-9d87-d6a06ceae3c2`.
+- Readiness: production B0 candidate loaded on CUDA with model SHA-256
+  `abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f`.
+- Prometheus target `evm-b0-production / host.docker.internal:30800`: `up`.
+- Supervisor: healthy; lifecycle worker and Kubernetes observer are live and
+  both match revision `193dd10`.
+- Verification: 49 focused pytest tests and Ruff passed.
+
+No manual patch or rollback was needed during any run. Recovery was performed
+by the Kubernetes Deployment controller.
 
 ## Claim Boundary
 
 The evidence supports controlled local operational validation, exact identity
-gating, and real CUDA CT. It does not support claims of high availability, zero
-downtime, production user traffic, or cluster-wide resilience. The approved A8
-maintenance action remains limited to restarting one exact production B0 Pod.
+gating, real CUDA CT, bounded detection, and controller-driven single-Pod
+recovery. It does not support claims of high availability, zero downtime,
+production user traffic, business A/B, or cluster-wide resilience. The measured
+9.87-9.90 second interruption is expected for this single-replica design.
