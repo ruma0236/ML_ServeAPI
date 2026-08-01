@@ -4,7 +4,7 @@ device_plugin_namespace = "kube-system"
 device_plugin_name = "nvidia-device-plugin-daemonset"
 deployment_namespace = "evm-production"
 deployment_name = "evm-b0-production"
-pod_label = "app=evm-b0-production"
+pod_label = "app.kubernetes.io/name=evm-b0-production"
 
 [http]
 readiness_url = "http://127.0.0.1:30800/ready"

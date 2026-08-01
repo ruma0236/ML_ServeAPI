@@ -15,12 +15,14 @@ from evm.operations.scenario_a_runner import (
     ScenarioARuntimeConfig,
     ScenarioATargetConfig,
     discover_scenario_a_selectors,
+    load_scenario_a_config,
     run_read_only_baseline,
 )
 from evm.operations.target_health import ScenarioAIdentityContract
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "operations"
+ROOT = Path(__file__).parents[1]
 COMMIT = "1" * 40
 
 
@@ -128,6 +130,15 @@ def test_discovery_binds_live_resources_to_exact_uids(tmp_path: Path) -> None:
     assert selectors.device_plugin.uid == "plugin-uid"
     assert selectors.deployment.uid == "deployment-uid"
     assert selectors.pod.uid == "pod-current"
+
+
+def test_versioned_local_config_uses_the_production_workload_label() -> None:
+    config = load_scenario_a_config(
+        ROOT / "configs" / "operations" / "local_failure_validation.toml"
+    )
+
+    assert config.target.pod_label == "app.kubernetes.io/name=evm-b0-production"
+    assert config.target.deployment_namespace == "evm-production"
 
 
 def test_discovery_rejects_multiple_active_pods(tmp_path: Path) -> None:
