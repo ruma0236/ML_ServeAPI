@@ -30,13 +30,40 @@ Invoke-RestMethod http://127.0.0.1:9090/api/v1/targets
 Baseline is blocked if staging cannot run without evicting or mutating the
 known-good production model. Single-GPU contention must be recorded, not hidden.
 
+## Current Read-only Preflight
+
+On 2026-08-01, GPU and device-plugin are `1/1`, production B0 is `1/1 Ready`,
+CUDA readiness and Prometheus pass, and staging B7 is intentionally `0/0`.
+Production owns the only GPU, so there is no no-impact live GPU-serving fault
+injection on this machine.
+
+Git is at documentation checkpoint `be41fb6`, while the healthy runtime still
+reports executable baseline `1c6e908`. This is reconciled as a docs-only delta
+for planning. After Scenario A implementation changes code, exact runtime
+revision convergence is mandatory before injection.
+
+The observer aggregate currently includes historical terminal failed Jobs and
+replaced Pods. Admission uses target-scoped active health and preserves those
+failures as historical context instead of treating the aggregate as proof that
+the active production Deployment is down.
+
 ## Injection Modes
 
-### Default: staging Pod restart
+### Preferred live mode: production Pod restart
 
-Delete one Pod selected by
-`app.kubernetes.io/name=evm-b7-serving`. The Deployment controller recreates
-it. The executor must capture the exact Pod UID and command before execution.
+During an approved local maintenance window, delete the one production B0 Pod
+selected by `app.kubernetes.io/name=evm-b0-production`. The Deployment
+controller recreates the same specification and model identity. The endpoint
+can be briefly unavailable because replicas equal one; this interruption is
+measured and is not described as zero-downtime recovery.
+
+### Alternative: production-to-staging handover
+
+Capture production identity, scale production to zero, scale B7 staging to one,
+establish a healthy baseline, restart one staging Pod, then restore the exact
+production state. This has a larger mutation surface and is not preferred.
+Both live modes require explicit approval because they change the only active
+GPU serving path.
 
 ### Non-disruptive plugin reconciliation
 
@@ -62,8 +89,9 @@ maintenance window. Without both, result `blocked` is correct.
 ## Success
 
 Detection is at most 30 seconds, serving recovery at most 300 seconds, no
-unapproved resource changes occur, the exact expected model returns real CUDA
-inference, and Prometheus returns `up`. All evidence validates under the shared
+unapproved resource or Deployment specification changes occur, the exact
+expected model returns real CUDA inference, and Prometheus returns `up`. Any
+single-replica outage is measured. All evidence validates under the shared
 contract.
 
 ## Rollback

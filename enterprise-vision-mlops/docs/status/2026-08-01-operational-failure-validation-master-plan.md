@@ -96,6 +96,31 @@ The exact evidence definition is in
 Scenario A is the first implementation target because GPU capacity and serving
 availability are dependencies for every later real model validation.
 
+### Read-only Preflight On 2026-08-01
+
+- Git HEAD and remote are
+  `be41fb6616e3b8de773bfa957f6c629e396d6cf2`.
+- The API, supervisor, worker, and observer still report runtime revision
+  `1c6e908798fdeac18aadfd77f1d06ca9fa202ad2`. The intervening commit changes
+  documentation only, so Stage 1 records both revisions rather than restarting
+  a healthy runtime. Scenario implementation will change executable paths;
+  those components must match the new implementation commit before injection.
+- Node GPU and device-plugin are `1/1`; production B0 is `1/1 Ready`; its
+  readiness endpoint reports CUDA and immutable model SHA
+  `abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f`;
+  Prometheus target `evm-b0-production` is `up`.
+- `evm-b7-serving` is intentionally scaled to `0/0` because production B0 owns
+  the single GPU. There is no staging Pod available for the planned default
+  restart injection.
+- The observer's aggregate `resource_status=fail` includes historical terminal
+  failed Jobs and replaced Pods. Scenario admission must evaluate the named
+  active target and retain historical failures as context; it must not use the
+  unscoped aggregate as the only baseline decision.
+
+Implementation of the schema, safety gate, CLI, validator, and tests can start
+without runtime mutation. Live injection remains blocked until a bounded
+single-GPU maintenance mode is selected and approved.
+
 ### Inputs
 
 - source commit and dirty-state snapshot;
@@ -107,8 +132,12 @@ availability are dependencies for every later real model validation.
 
 ### Default Injection
 
-Delete one `evm-b7-serving` staging Pod selected by label. Kubernetes owns the
-recreation. A dry-run/stale-manifest fixture exercises device-plugin path
+The preferred live mode is one production B0 Pod restart during an approved
+local maintenance window. It preserves the Deployment and model identity while
+briefly interrupting the only inference replica. An alternative is a controlled
+production-to-staging GPU handover, then one `evm-b7-serving` Pod restart and an
+exact handback. Both mutate the only live GPU path and therefore require explicit
+approval. A dry-run/stale-manifest fixture exercises device-plugin path
 reconciliation logic without changing the live cluster-wide DaemonSet.
 
 ### Required Outputs
@@ -144,8 +173,8 @@ python -m pytest tests/test_operational_failure_evidence.py `
 
 1. Planning and baseline commands are read-only and fail closed when the
    revision, target namespace, rollback identity, or baseline is invalid.
-2. The staging Pod loss is detected within 30 seconds.
-3. No production resource or stable model digest changes.
+2. The selected Pod loss is detected within 30 seconds.
+3. No Deployment specification, model digest, or unapproved resource changes.
 4. The Deployment returns `1/1 Ready` within 300 seconds.
 5. Post-recovery inference uses CUDA and the exact expected model digest.
 6. The Prometheus target returns `up` with no scrape error.
@@ -157,6 +186,8 @@ python -m pytest tests/test_operational_failure_evidence.py `
 
 - baseline GPU/plugin/serving/Prometheus state is not healthy;
 - staging B7 serving cannot be scheduled on the single GPU;
+- no approved local maintenance mode exists for restarting the only active GPU
+  inference replica or handing the GPU to staging;
 - the production B0 workload cannot be preserved or safely restored;
 - no immutable rollback artifact is available;
 - source/API/worker/observer revisions disagree;
