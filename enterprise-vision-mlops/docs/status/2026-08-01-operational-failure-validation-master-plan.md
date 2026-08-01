@@ -1,9 +1,11 @@
 # Operational Failure Validation Master Plan
 
 Date: 2026-08-01
-Status: Stage 1 contract and planning in progress; no new fault injection run.
+Status: Stage 1 contract complete; Stage 2 development plan complete; implementation and new fault injection not started.
 Parent epic: `EVM-EPIC-21 / SCRUM-156`
 Master issue: `EVM-265 / SCRUM-171`
+Stage 2 development plan:
+`docs/status/2026-08-01-stage-2-operational-reliability-development-plan.md`
 
 ## Objective
 

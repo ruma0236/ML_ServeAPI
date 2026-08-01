@@ -452,11 +452,13 @@ Goal:
 
 The source plan is
 `docs/status/2026-08-01-operational-failure-validation-master-plan.md`.
+The Stage 2 development plan is
+`docs/status/2026-08-01-stage-2-operational-reliability-development-plan.md`.
 
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
 | `EVM-264` | P0 local runtime recovery | Done | 2026-08-01 | automatic WSL NVIDIA driver discovery, corrected GPU readiness, supervised worker/observer startup and revision injection restored GPU 1/1, device-plugin 1/1, production serving 1/1, real CUDA VisA inference, Prometheus up, live worker/observer, and 57 focused tests; evidence is `docs/status/2026-08-01-p0-local-runtime-recovery.md` |
-| `EVM-265` | Operational failure validation master contract | In Progress | Post-W8 | shared evidence/safety/claim contract, dependency order, five scenario runbooks, Jira subtasks, Stage 2 Scenario A implementation plan, and synchronized Git/Jira/Notion/Obsidian records exist; no new fault injection is claimed |
+| `EVM-265` | Operational failure validation master contract | In Progress | Post-W8 | shared evidence/safety/claim contract, dependency order, five scenario runbooks, and the versioned Stage 2 reliability development plan define code/config/test/dashboard/alert work, SLI/SLO measurement, non-disruptive versus approved mutation stages, optimization loops, scenario exits, and four-system synchronization; implementation and fault injection remain not started |
 | `EVM-266` | Scenario A GPU and serving failure recovery | Planned | Post-W8 | bounded staging Pod/device-plugin validation detects failure within 30 seconds, preserves stable identity, restores GPU/plugin/serving/inference/Prometheus within 300 seconds, and records machine-valid evidence; live cluster-wide plugin mutation requires explicit approval |
 | `EVM-267` | Scenario B invalid model canary and rollback | Planned | Post-W8 | controlled shadow then <=10% staging canary rejects a real guardrail breach, stops challenger traffic, and restores the exact stable digest within 300 seconds with sample/window evidence; no business A/B claim |
 | `EVM-268` | Scenario C quality degradation and retraining gate | Planned | Post-W8 | deterministic derived-data shift creates one deduplicated review event and reproducible candidate, then enforces evaluation, isolated CT, independent approval and limited release without automatic production replacement |
