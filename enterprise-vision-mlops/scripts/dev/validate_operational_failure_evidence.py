@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from pydantic import ValidationError
 
-from evm.operations.failure_evidence import OperationalFailureReport, validate_closure
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from evm.operations.failure_evidence import (  # noqa: E402
+    OperationalFailureReport,
+    validate_closure,
+)
 
 
 def parse_args() -> argparse.Namespace:

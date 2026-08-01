@@ -2,15 +2,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from evm.operations.failure_scenarios import ScenarioStateStore, atomic_write_json
-from evm.operations.reconciliation import plan_device_plugin_reconciliation
-from evm.operations.scenario_a_runner import load_scenario_a_config, run_read_only_baseline
-
-
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from evm.operations.failure_scenarios import (  # noqa: E402
+    ScenarioStateStore,
+    atomic_write_json,
+)
+from evm.operations.reconciliation import plan_device_plugin_reconciliation  # noqa: E402
+from evm.operations.scenario_a_runner import (  # noqa: E402
+    load_scenario_a_config,
+    run_read_only_baseline,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
