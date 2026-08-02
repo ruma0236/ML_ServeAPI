@@ -78,3 +78,22 @@ The PowerShell wrapper runs a fresh source-bound real CUDA VisA drift proof
 before the lifecycle runner. Runner tests pass `5 / 5`; the complete Python
 suite passes `480 / 480`; Ruff and PowerShell parsing pass. Runtime execution
 is still pending, so the issue remains In Progress.
+
+## Attempt 1 RCA
+
+Fresh source `427b400` CUDA evidence completed before lifecycle admission:
+
+- run `scenario-c-20260802T211757Z-427b4002`;
+- known-good `within_policy`, shifted `review_required`;
+- decision `18.476526197 s`;
+- event `quality-review-9346197b9b22f4a26000`;
+- candidate `retrain-dbef6fe25b9b10bcfc46`;
+- production mutation and deployment intent remained false.
+
+The wrapper then selected PATH Python `C:/Python314/python.exe`, which does not
+contain the project package, and stopped before creating any LifecycleRun or
+Airflow/Kubernetes/MLflow/release action. This is a harness runtime-resolution
+failure, not a Scenario C guard result. The wrapper now selects only a Python
+runtime that successfully imports both `evm` and `pydantic`, preferring the
+configured or project Conda runtime. A new commit-bound CUDA proof and
+lifecycle attempt are required.

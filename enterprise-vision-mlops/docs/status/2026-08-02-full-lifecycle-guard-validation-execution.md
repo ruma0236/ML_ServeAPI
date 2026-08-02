@@ -411,6 +411,13 @@ zero downstream mutation at hold, resumes the same exact run through GPU
 training/MLflow/isolated CT, and stops before release approval. Runner tests
 pass `5 / 5` and the full suite `480 / 480`. No runtime attempt has started.
 
+Scenario C attempt 1 at source `427b400` produced a valid fresh CUDA drift
+proof in `18.476526197 s` but the wrapper selected PATH Python 3.14 without the
+project package and stopped before lifecycle admission. No LifecycleRun,
+Airflow task, Kubernetes Job, MLflow run or deployment intent was created.
+The wrapper now resolves only an import-capable project Python. This attempt is
+retained as harness RCA, not a guard pass.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -427,6 +434,7 @@ pass `5 / 5` and the full suite `480 / 480`. No runtime attempt has started.
 | `lifecycle-20260802T200116-548bea16` | `ea1a014` | 10/10 lifecycle completed; worker detection 4.2323827 s and recovery 7.0983775 s; same Job, MLflow, CT, approval, deploy and CUDA serving passed; final acceptance 10/11 because immediate Prometheus snapshot saw one restart-window EOF | three tasks, two intended Jobs, eight committed effects and release intent; exact B0 UID/1/1/CUDA/plugin restored; Prometheus autonomously up 19 s later | retain immutable blocked/RCA evidence; require two distinct consecutive successful scrapes within bounded restoration window, then rerun from a new revision |
 | `lifecycle-20260802T202558-a50d19fe` | `7f253ac` | PASS: 11/11 checks, 10/10 stages, worker detection 6.9141254 s, recovery 10.0661301 s, same training Job, MLflow, CT, approval, deploy, CUDA serve and two-distinct-scrape restoration 28.9677976 s | exact intended delta: Jobs +2, MLflow +1, candidate +1, intent +1; eight unique committed effects; B0 same UID 1/1 CUDA/plugin/Prometheus restored | accepted controlled local Scenario D closure; 16/16 hashes; proceed to Scenario C without HA or distributed exactly-once claim |
 | Scenario C contract and runner checkpoint | `25ba10a` plus pending runner commit | exact-run quality evidence, pre-training hold, single-use approved-for-training action, rejected branch and source-bound integrated runner implemented; 480/480 tests | none; runtime proof not started | commit/deploy runner, then run a fresh source-bound CUDA lifecycle attempt |
+| Scenario C attempt 1 | `427b400` | fresh CUDA drift PASS in 18.476526197 s, then wrapper selected Python 3.14 without `evm` and stopped before lifecycle admission | none; no LifecycleRun or external lifecycle side effect | retain harness RCA; pin import-capable project Python and rerun from a new source revision |
 
 ## Synchronization Rule
 
