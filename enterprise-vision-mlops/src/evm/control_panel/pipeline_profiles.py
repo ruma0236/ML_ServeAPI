@@ -649,9 +649,20 @@ def read_profiles() -> PipelineProfileList:
     for path in root.glob("*/v*/manifest.json"):
         try:
             record = PipelineProfileRecord.model_validate_json(path.read_text(encoding="utf-8"))
-            records.append(
-                record.model_copy(update={"validation": validate_profile(record.profile)})
-            )
+            validation = validate_profile(record.profile)
+            replay = validate_profile_replay(record)
+            if replay.status != "ready":
+                replay_blockers = [f"replay:{item}" for item in replay.blockers]
+                combined_blockers = unique([*validation.blockers, *replay_blockers])
+                validation = validation.model_copy(
+                    update={
+                        "status": "blocked",
+                        "executable": False,
+                        "blockers": combined_blockers,
+                        "stages": build_plan(record.profile, combined_blockers),
+                    }
+                )
+            records.append(record.model_copy(update={"validation": validation}))
         except (OSError, ValueError):
             continue
     records.sort(key=lambda item: (item.created_at, item.version), reverse=True)

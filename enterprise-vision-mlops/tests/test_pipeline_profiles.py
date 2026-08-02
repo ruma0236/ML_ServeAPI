@@ -193,6 +193,33 @@ def test_replay_validation_blocks_tampered_runtime_config(
     assert "replay_identity_mismatch:reproducibility_digest" in replay.blockers
 
 
+def test_profile_catalog_marks_replay_identity_mismatch_blocked(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    configure_roots(tmp_path, monkeypatch)
+    record = save_profile(profile_with_evidence(tmp_path))
+    source_manifest = Path(record.profile.data.source_manifest_uri)
+    source_manifest.write_text(
+        source_manifest.read_text(encoding="utf-8") + '{"sample_id":"sample-2"}\n',
+        encoding="utf-8",
+    )
+
+    refreshed = read_profiles().profiles[0]
+
+    assert refreshed.validation.status == "blocked"
+    assert refreshed.validation.executable is False
+    assert (
+        "replay:replay_identity_mismatch:source_manifest"
+        in refreshed.validation.blockers
+    )
+    assert all(
+        stage.state == "blocked"
+        for stage in refreshed.validation.stages
+        if stage.state != "not_started"
+    )
+
+
 def test_same_profile_creates_new_version_when_component_catalog_changes(
     tmp_path: Path,
     monkeypatch,
