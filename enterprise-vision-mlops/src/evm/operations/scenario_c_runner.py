@@ -173,7 +173,7 @@ def load_supervisor() -> dict[str, Any]:
     path = runtime_path(
         "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/host_runtime/supervisor.json"
     )
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
     if payload.get("status") != "healthy":
         raise ValueError("host_supervisor_not_healthy")
     children = {item.get("name"): item for item in payload.get("children", [])}

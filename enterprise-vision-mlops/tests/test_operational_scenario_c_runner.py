@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from evm.operations.scenario_c_quality import (
@@ -9,6 +10,7 @@ from evm.operations.scenario_c_quality import (
 from evm.operations.scenario_c_runner import (
     canonical_uri,
     gate_fixture_matrix,
+    load_supervisor,
     prediction_records,
     runtime_path,
 )
@@ -34,6 +36,38 @@ def test_canonical_uri_remains_host_addressable() -> None:
     assert canonical_uri("F:/evidence", "run-1", "report.json") == (
         "F:/evidence/run-1/report.json"
     )
+
+
+def test_supervisor_loader_accepts_powershell_utf8_bom(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv(
+        "EVM_HOST_DATA_ROOT",
+        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+    )
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", str(tmp_path))
+    path = tmp_path / "artifacts" / "w7" / "host_runtime" / "supervisor.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "status": "healthy",
+                "source_commit": "a" * 40,
+                "children": [
+                    {
+                        "name": "lifecycle_worker",
+                        "status": "live",
+                        "revision_matches": True,
+                    },
+                    {
+                        "name": "kubernetes_observer",
+                        "status": "live",
+                        "revision_matches": True,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8-sig",
+    )
+    assert load_supervisor()["status"] == "healthy"
 
 
 def test_prediction_payload_is_strictly_projected() -> None:
