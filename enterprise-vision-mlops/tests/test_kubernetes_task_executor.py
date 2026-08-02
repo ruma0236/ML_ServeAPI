@@ -12,6 +12,7 @@ from evm.control_panel.kubernetes_task_executor import (
     execute_kubernetes_task,
     observe_exact_kubernetes_task,
 )
+from evm.control_panel.lifecycle_kubernetes import short_run_id
 from evm.control_panel.operations import create_task_assignment, update_task_runtime
 from evm.control_panel.schemas import TaskAssignmentRequest
 
@@ -40,12 +41,19 @@ def completed(command: list[str], stdout: str = "", returncode: int = 0):
     return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr="")
 
 
-def lifecycle_job_payload(*, uid: str | None = None, run_label: str = "123456789abc") -> dict:
+LIFECYCLE_RUN_ID = "lifecycle-123456789abc"
+LIFECYCLE_RUN_LABEL = short_run_id(LIFECYCLE_RUN_ID)
+LIFECYCLE_JOB_NAME = f"evm-lifecycle-train-{LIFECYCLE_RUN_LABEL}"
+
+
+def lifecycle_job_payload(
+    *, uid: str | None = None, run_label: str = LIFECYCLE_RUN_LABEL
+) -> dict:
     payload = {
         "apiVersion": "batch/v1",
         "kind": "Job",
         "metadata": {
-            "name": "evm-lifecycle-train-123456789abc",
+            "name": LIFECYCLE_JOB_NAME,
             "namespace": "evm-training",
             "labels": {
                 "app.kubernetes.io/part-of": "enterprise-vision-mlops",
@@ -67,7 +75,7 @@ def lifecycle_job_payload(*, uid: str | None = None, run_label: str = "123456789
                                 },
                                 {
                                     "name": "EVM_LIFECYCLE_RUN_ID",
-                                    "value": "lifecycle-123456789abc",
+                                    "value": LIFECYCLE_RUN_ID,
                                 },
                             ],
                         }
@@ -101,8 +109,8 @@ def running_lifecycle_task(tmp_path: Path, monkeypatch):
                 **request().config_payload,
                 "manifest_dir": str(manifest_dir),
                 "namespace": "evm-training",
-                "job_name": "evm-lifecycle-train-123456789abc",
-                "lifecycle_run_id": "lifecycle-123456789abc",
+                "job_name": LIFECYCLE_JOB_NAME,
+                "lifecycle_run_id": LIFECYCLE_RUN_ID,
             }
         }
     )
@@ -113,7 +121,7 @@ def running_lifecycle_task(tmp_path: Path, monkeypatch):
         event="job_dispatched_before_worker_exit",
         status="running",
         runtime_system="kubernetes",
-        runtime_id="evm-training/job/evm-lifecycle-train-123456789abc",
+        runtime_id=f"evm-training/job/{LIFECYCLE_JOB_NAME}",
         runtime_state="running",
     )
 
@@ -128,7 +136,7 @@ def test_exact_running_job_is_observable_for_worker_reconciliation(tmp_path, mon
 
     assert observation.resource_uid == "job-uid-1"
     assert observation.observed_state == "running"
-    assert observation.lifecycle_run_label == "123456789abc"
+    assert observation.lifecycle_run_label == LIFECYCLE_RUN_LABEL
     evidence = json.loads(Path(observation.evidence_uri).read_text(encoding="utf-8"))
     assert evidence["mutation_performed"] is False
     assert evidence["observed_identity"] == evidence["expected_identity"]

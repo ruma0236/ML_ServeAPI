@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+import evm.operations.lifecycle_guard_d_training_live as training_live
 import pytest
 
 from evm.control_panel.lifecycle_guards import (
@@ -8,9 +11,11 @@ from evm.control_panel.lifecycle_guards import (
 )
 from evm.operations.lifecycle_guard_d_training_live import (
     exact_training_entry,
+    exact_training_job,
     release_approval_request,
     training_job_state,
 )
+from evm.control_panel.lifecycle_kubernetes import short_run_id
 
 
 def training_entry(*, state: str = "reserved") -> LifecycleSideEffect:
@@ -90,3 +95,62 @@ def test_release_approval_fails_closed_on_incomplete_identity() -> None:
                 "ct_evaluation_id": "ct-eval-d",
             },
         )
+
+
+def test_exact_training_job_uses_canonical_hashed_run_label(
+    tmp_path, monkeypatch
+) -> None:
+    run_id = "lifecycle-20260802T190057-c8cae6d4"
+    run_label = short_run_id(run_id)
+    assert not run_id.endswith(run_label)
+    job_name = f"evm-lifecycle-train-{run_label}"
+    manifest = {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": job_name,
+            "namespace": "evm-training",
+            "labels": {
+                "app.kubernetes.io/part-of": "enterprise-vision-mlops",
+                "evm.openai.local/lifecycle-run": run_label,
+                "evm.openai.local/candidate-id": "candidate-d",
+            },
+        },
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "trainer",
+                            "image": "pipeline@sha256:" + "a" * 64,
+                            "env": [
+                                {"name": "EVM_LIFECYCLE_RUN_ID", "value": run_id},
+                                {
+                                    "name": "EVM_EXPECTED_COMPONENT_SOURCE_REVISION",
+                                    "value": "b" * 40,
+                                },
+                            ],
+                        }
+                    ]
+                }
+            }
+        },
+    }
+    (tmp_path / "training-job.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    observed = json.loads(json.dumps(manifest))
+    observed["metadata"]["uid"] = "job-uid-d"
+    observed["status"] = {"active": 1}
+    monkeypatch.setattr(training_live, "kubectl_json", lambda _command: observed)
+    task = {
+        "runtime_id": f"evm-training/job/{job_name}",
+        "config_payload": {
+            "manifest_dir": str(tmp_path),
+            "namespace": "evm-training",
+            "job_name": job_name,
+            "lifecycle_run_id": run_id,
+        },
+    }
+
+    assert exact_training_job(run_id, task)["metadata"]["uid"] == "job-uid-d"

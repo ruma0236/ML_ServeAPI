@@ -22,6 +22,7 @@ from evm.control_panel.lifecycle_guards import (
     file_digest,
     reserve_side_effect,
 )
+from evm.control_panel.lifecycle_kubernetes import short_run_id
 from evm.control_panel.lifecycle_orchestrator import (
     LifecycleStageBlocked,
     execute_guarded_kubernetes_task,
@@ -191,7 +192,7 @@ def fixture_job(
     candidate_label: str = "efficientnet-b0-d-recovery",
     complete: bool = False,
 ) -> dict[str, Any]:
-    run_label = run_id[-12:]
+    run_label = short_run_id(run_id)
     payload: dict[str, Any] = {
         "apiVersion": "batch/v1",
         "kind": "Job",

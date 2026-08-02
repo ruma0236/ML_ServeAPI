@@ -123,6 +123,35 @@ replayed approval, or missing receipt remains fail closed. Future runner
 failures also persist the exact error and run snapshot. Focused approval and
 orchestration tests pass `32 / 32`; the full Python suite passes `463 / 463`.
 
+### Second combined active-training attempt RCA
+
+Source `649114f` attempt
+`scenario-d-training-20260802T190053Z-649114f1` created run
+`lifecycle-20260802T190057-c8cae6d4`. All three handoff approvals were issued
+against the exact production deployment UID and source revision. Real Airflow
+again reached 18 terminal tasks. The training approval was consumed, the B0
+holder was released, and Job `evm-lifecycle-train-9a468dd9c8ae` was admitted.
+
+Before worker termination, the runner rejected the Job with
+`training_job_exact_identity_mismatch`. RCA showed that the actual manifest
+correctly uses canonical `sha256(run_id)[:12]` label `9a468dd9c8ae`, while the
+runner and the newly added reconciliation fixture expected `run_id[-12:]`.
+The same stale assumption existed in the shared read-only reconciler and would
+have blocked the replacement worker during the intended live proof.
+
+Automatic safety cancellation removed the admitted Job and released the
+single-GPU handoff from `19:11:18Z` to `19:12:06Z` (`48 s`). The worker was
+never terminated; no MLflow run, candidate, CT Job, release approval, or
+deployment intent was created. Production B0 returned `1/1` and CUDA-ready.
+The run, consumed training receipt, unconsumed downstream receipts, manifest,
+failure snapshot, and cancellation audit remain immutable RCA evidence.
+
+The shared reconciler, integrated runner, and deterministic replay fixtures
+now use `short_run_id()` as the single canonical run-label contract and compare
+live labels, container image, and revision environment against the exact
+manifest. Focused regression passes `15 / 15`; the full suite passes
+`464 / 464`.
+
 ## Remaining Exit Work
 
 This checkpoint does not close Scenario D. The remaining proof must:

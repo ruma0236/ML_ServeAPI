@@ -11,12 +11,17 @@ from typing import Any
 
 import requests
 
+from evm.control_panel.kubernetes_task_executor import (
+    expected_job_identity,
+    job_container_identity,
+)
 from evm.control_panel.lifecycle_gpu_handoff import issue_gpu_handoff_approval
 from evm.control_panel.lifecycle_guards import (
     LifecycleSideEffectLedger,
     canonical_digest,
     file_digest,
 )
+from evm.control_panel.lifecycle_kubernetes import short_run_id
 from evm.control_panel.lifecycle_runs import LifecycleRun
 from evm.control_panel.readiness_evaluator import runtime_path
 from evm.operations.lifecycle_guard_e_runner import (
@@ -242,14 +247,37 @@ def exact_training_job(run_id: str, task: dict[str, Any]) -> dict[str, Any]:
     if len(parts) != 3 or parts[1] != "job":
         raise RuntimeError(f"training_runtime_identity_invalid:{runtime_id}")
     namespace, _, name = parts
+    config = task.get("config_payload")
+    if not isinstance(config, dict):
+        raise RuntimeError("training_task_config_missing")
+    if (
+        config.get("lifecycle_run_id") != run_id
+        or config.get("namespace") != namespace
+        or config.get("job_name") != name
+    ):
+        raise RuntimeError("training_task_identity_mismatch")
+    manifest_dir = Path(str(config.get("manifest_dir") or "")).resolve()
+    expected = expected_job_identity(
+        manifest_dir,
+        namespace=namespace,
+        job_name=name,
+    )
     payload = kubectl_json(["get", "job", name, "-n", namespace])
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     labels = metadata.get("labels") if isinstance(metadata.get("labels"), dict) else {}
+    expected_labels = expected["labels"]
+    expected_run_label = str(expected_labels.get("evm.openai.local/lifecycle-run") or "")
     if (
         metadata.get("name") != name
         or metadata.get("namespace") != namespace
         or not metadata.get("uid")
-        or labels.get("evm.openai.local/lifecycle-run") != run_id[-12:]
+        or not expected_run_label
+        or short_run_id(run_id) != expected_run_label
+        or any(
+            str(labels.get(key) or "") != value
+            for key, value in expected_labels.items()
+        )
+        or job_container_identity(payload) != expected["containers"]
     ):
         raise RuntimeError("training_job_exact_identity_mismatch")
     return payload
@@ -423,13 +451,13 @@ def wait_for_terminal(
 
 
 def run_job_identities(run_id: str) -> list[dict[str, str]]:
-    payload = kubectl_json(["get", "jobs", "-A"])
     identities: list[dict[str, str]] = []
-    for item in payload.get("items", []):
+    for task in tasks_for_run(run_id):
+        if task.get("task_type") != "kubernetes_job":
+            continue
+        item = exact_training_job(run_id, task)
         metadata = item.get("metadata") if isinstance(item, dict) else {}
         labels = metadata.get("labels") if isinstance(metadata.get("labels"), dict) else {}
-        if labels.get("evm.openai.local/lifecycle-run") != run_id[-12:]:
-            continue
         identities.append(
             {
                 "namespace": str(metadata.get("namespace") or ""),

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from evm.control_panel.lifecycle_kubernetes import short_run_id
 from evm.control_panel.lifecycle_runs import get_lifecycle_run
 from evm.control_panel.operations import read_tasks, update_task_runtime
 from evm.control_panel.schemas import TaskAssignment
@@ -156,7 +157,7 @@ def observe_exact_kubernetes_task(
     if observed_containers != expected["containers"]:
         raise KubernetesTaskExecutionError("kubernetes_reconciliation_workload_identity_mismatch")
     expected_run_label = str(expected_labels.get("evm.openai.local/lifecycle-run") or "")
-    if not expected_run_label or not lifecycle_run_id.endswith(expected_run_label):
+    if not expected_run_label or short_run_id(lifecycle_run_id) != expected_run_label:
         raise KubernetesTaskExecutionError("kubernetes_reconciliation_run_identity_mismatch")
 
     conditions = {
