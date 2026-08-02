@@ -1,0 +1,22 @@
+[correlation]
+schema_version = "evm.cross_scenario_correlation_policy.v1"
+policy_version = "cross-scenario-correlation-v1"
+collector_cadence_ms = 5000
+freshness_seconds = 20
+decision_deadline_seconds = 30
+dedupe_ttl_seconds = 300
+recurrence_window_seconds = 300
+clock_tolerance_seconds = 2
+
+[component_revisions]
+correlation-coordinator = "0000000"
+scenario-a-controller = "0000000"
+scenario-b-controller = "0000000"
+scenario-c-controller = "0000000"
+scenario-d-controller = "0000000"
+scenario-e-controller = "0000000"
+lifecycle-worker = "0000000"
+kubernetes-observer = "0000000"
+
+[actions]
+non_mutating = ["none", "review", "hold", "recommend", "observe"]
