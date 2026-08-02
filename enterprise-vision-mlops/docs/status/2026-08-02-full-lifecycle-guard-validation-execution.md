@@ -276,6 +276,12 @@ worker/observer live recovery remains required before Scenario D can close.
 Detailed progress is in
 `docs/status/2026-08-02-lifecycle-guard-scenario-d-progress.md`.
 
+The first runner attempt, `scenario-d-lifecycle-20260802T181803Z-532dd42e`,
+stopped before the exact-observation guard decision on a Windows path-length
+failure in its nested isolated evidence root. No external or process mutation
+occurred. The immutable failed attempt is retained, and only isolated generated
+manifest/operation paths were shortened for the next clean-source attempt.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |

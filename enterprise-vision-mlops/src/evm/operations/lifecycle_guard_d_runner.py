@@ -274,7 +274,10 @@ def run_exact_reconciliation_fixture(
 ) -> dict[str, Any]:
     run_id = f"lifecycle-d-{fixture_root.name[-12:]}"
     job_name = f"evm-lifecycle-train-{run_id[-12:]}"
-    manifest_dir = fixture_root / "generated" / "training"
+    branch = "w" if wrong_candidate else "e"
+    replay = fixture_root.name.rsplit("-", 1)[-1]
+    short_root = fixture_root.parents[1] / f"_r-{branch}-{replay}"
+    manifest_dir = short_root / "g"
     manifest_dir.mkdir(parents=True, exist_ok=True)
     expected = fixture_job(
         run_id=run_id,
@@ -299,8 +302,8 @@ def run_exact_reconciliation_fixture(
     )
     environment = {
         "EVM_PROJECT_ROOT": str(project_root),
-        "EVM_CONTROL_PANEL_LEDGER_ROOT": str(fixture_root / "operations"),
-        "EVM_KUBERNETES_GENERATED_MANIFEST_ROOT": str(fixture_root / "generated"),
+        "EVM_CONTROL_PANEL_LEDGER_ROOT": str(short_root / "o"),
+        "EVM_KUBERNETES_GENERATED_MANIFEST_ROOT": str(short_root / "g"),
     }
     with temporary_environment(environment):
         task = operations.create_task_assignment(

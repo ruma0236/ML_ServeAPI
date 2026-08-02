@@ -56,6 +56,16 @@ GPU, supervisor, observer, worker, and Prometheus identities before and after.
 The runner itself is implemented but its immutable F-drive execution remains
 pending a clean pushed revision.
 
+### First runner attempt RCA
+
+Attempt `scenario-d-lifecycle-20260802T181803Z-532dd42e` stopped before an
+exact-observation decision because its nested isolated task-evidence path
+crossed the Windows path-length boundary. No Kubernetes apply/delete/patch,
+MLflow write, candidate creation, deployment intent, or production/process
+mutation occurred. The partial attempt is retained as immutable RCA evidence.
+Generated manifests and isolated operation ledgers now use a short run-root
+path; canonical and external locations are unchanged.
+
 ## Remaining Exit Work
 
 This checkpoint does not close Scenario D. The remaining proof must:
