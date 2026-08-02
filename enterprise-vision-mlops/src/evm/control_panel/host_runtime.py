@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import ContractModel
 
 
@@ -72,7 +73,7 @@ def parse_utc(value: str | None) -> datetime | None:
 
 
 def supervisor_snapshot_path() -> Path:
-    return Path(
+    return runtime_path(
         os.getenv(
             "EVM_HOST_RUNTIME_SUPERVISOR_PATH",
             "/app/artifacts/w7/host_runtime/supervisor.json",

@@ -51,6 +51,27 @@ def test_missing_supervisor_snapshot_is_unavailable(tmp_path: Path) -> None:
     assert observed.status == "unavailable"
 
 
+def test_default_container_snapshot_uri_maps_to_host_data_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    host_root = tmp_path / "evm-data"
+    path = host_root / "artifacts" / "w7" / "host_runtime" / "supervisor.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(payload()), encoding="utf-8")
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(host_root))
+    monkeypatch.setenv(
+        "EVM_HOST_RUNTIME_SUPERVISOR_PATH",
+        "/app/artifacts/w7/host_runtime/supervisor.json",
+    )
+
+    observed = read_host_runtime_supervisor(now=NOW + timedelta(seconds=2))
+
+    assert observed.status == "healthy"
+    assert observed.snapshot_uri == str(path)
+    assert all(item.revision_matches for item in observed.children)
+
+
 def test_exact_live_children_are_healthy(tmp_path: Path) -> None:
     path = tmp_path / "supervisor.json"
     path.write_text(json.dumps(payload()), encoding="utf-8")
