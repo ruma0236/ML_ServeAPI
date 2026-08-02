@@ -1,0 +1,14 @@
+{
+  "candidate_id": "effnet-b7-img600-finetune-adamw",
+  "architecture": "efficientnet-b7",
+  "dataset_version": "visa-open-data-f1f1c9ee9922",
+  "model_digest": "3058c67eb8eda61a8504d32aa14003206768dca96efc7fb2ddcdb1e01791d6f4",
+  "image_digest": "227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a",
+  "quality": {
+    "accuracy": 0.8954607977991746,
+    "f1": 0.6369426751592355,
+    "auroc": 0.97111441591145
+  },
+  "source_summary_sha256": "5b05f7e925d8772b14c397719bacda3e82e0703c643aa434cce09d015b0e5e77",
+  "expected_blocker": "quality_f1_below_minimum"
+}

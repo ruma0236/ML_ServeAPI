@@ -1,0 +1,37 @@
+[policy]
+schema_version = "evm.scenario_b_policy.v1"
+policy_id = "scenario-b-visa-v1"
+assignment_seed = "scenario-b-20260802"
+min_shadow_requests = 500
+total_replay_requests = 1000
+challenger_requests = 100
+max_challenger_fraction = 0.10
+min_accuracy = 0.80
+min_f1 = 0.75
+min_auroc = 0.80
+max_latency_p95_ms = 30.0
+max_error_rate = 0.01
+stop_budget_seconds = 30.0
+rollback_budget_seconds = 300.0
+signal_precedence = ["identity", "error_rate", "latency", "quality"]
+
+[stable]
+candidate_id = "effnet-b0-img224-expedited-adamw"
+architecture = "efficientnet-b0"
+dataset_version = "visa-open-data-e35d93d5561f"
+model_digest = "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f"
+image_digest = "227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a"
+
+[challenger]
+candidate_id = "effnet-b7-img600-finetune-adamw"
+architecture = "efficientnet-b7"
+dataset_version = "visa-open-data-f1f1c9ee9922"
+model_digest = "3058c67eb8eda61a8504d32aa14003206768dca96efc7fb2ddcdb1e01791d6f4"
+image_digest = "227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a"
+
+[replay]
+snapshot_id = "ct-visa-open-data-e35d93d5561f-test-c6b466afb907"
+manifest_path = "F:/EnterpriseMLOps_CT/enterprise-vision-mlops/snapshots/ct-visa-open-data-e35d93d5561f-test-c6b466afb907/holdout_manifest.jsonl"
+manifest_sha256 = "7635a75aa7d5a5fd66b4dbb121203a809eceef637f8909c153899c53b4492566"
+evidence_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/scenario-b"
+
