@@ -5,14 +5,21 @@ import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from evm.control_panel.lifecycle_kubernetes import ServingBundle, TrainingBundle
 from evm.control_panel.lifecycle_runs import LifecycleRun
+from evm.operations.failure_scenarios import (
+    ApprovalRejected,
+    ApprovalStore,
+    TargetRef,
+)
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 HANDOFF_SCHEMA = "evm.lifecycle_gpu_handoff.v1"
+HANDOFF_APPROVAL_SCHEMA = "evm.lifecycle_gpu_handoff_approval_reference.v1"
+GpuHandoffPhase = Literal["training", "isolated_ct", "staging_deployment"]
 
 
 class GpuHandoffError(RuntimeError):
@@ -35,6 +42,89 @@ def training_handoff_path(run: LifecycleRun) -> Path:
     return Path(run.artifact_root) / "kubernetes" / "training_gpu_handoff.json"
 
 
+def handoff_approval_root(run: LifecycleRun, phase: GpuHandoffPhase) -> Path:
+    return Path(run.artifact_root) / "kubernetes" / "handoff_approvals" / phase
+
+
+def handoff_approval_reference_path(
+    run: LifecycleRun,
+    phase: GpuHandoffPhase,
+) -> Path:
+    return handoff_approval_root(run, phase) / "approval-reference.json"
+
+
+def handoff_action(phase: GpuHandoffPhase) -> str:
+    return f"release_single_gpu_holder_for_{phase}"
+
+
+def training_handoff_phase(training: TrainingBundle) -> GpuHandoffPhase:
+    return "isolated_ct" if "-ct-" in training.job_name else "training"
+
+
+def issue_gpu_handoff_approval(
+    run: LifecycleRun,
+    *,
+    phase: GpuHandoffPhase,
+    approver: str,
+    reason: str,
+    ttl_seconds: int,
+    runner: Runner,
+) -> Path:
+    source_revision = str(run.source_commit or "").strip()
+    if len(source_revision) != 40:
+        raise GpuHandoffError("gpu_handoff_source_revision_missing")
+    if ttl_seconds < 60:
+        raise GpuHandoffError("gpu_handoff_approval_ttl_too_short")
+
+    active: list[TargetRef] = []
+    for namespace, deployment in configured_holders():
+        payload = optional_deployment(runner, namespace, deployment)
+        if int(payload.get("spec", {}).get("replicas") or 0) < 1:
+            continue
+        uid = str(payload.get("metadata", {}).get("uid") or "").strip()
+        if not uid:
+            raise GpuHandoffError(
+                f"gpu_handoff_holder_uid_missing:{namespace}/{deployment}"
+            )
+        active.append(TargetRef(namespace=namespace, name=deployment, uid=uid))
+    if len(active) != 1:
+        raise GpuHandoffError(
+            f"gpu_handoff_exact_holder_required:actual={len(active)}"
+        )
+
+    store = ApprovalStore(handoff_approval_root(run, phase))
+    binding = store.issue(
+        run_id=run.run_id,
+        target=active[0],
+        action=handoff_action(phase),
+        source_revision=source_revision,
+        approver=approver,
+        ttl_seconds=ttl_seconds,
+    )
+    reference = handoff_approval_reference_path(run, phase)
+    write_payload(
+        reference,
+        {
+            "schema_version": HANDOFF_APPROVAL_SCHEMA,
+            "run_id": run.run_id,
+            "phase": phase,
+            "approval_id": binding.approval_id,
+            "approval_path": str(store.root / f"{binding.approval_id}.json"),
+            "action": binding.action,
+            "action_digest": binding.action_digest,
+            "target": binding.target.model_dump(mode="json"),
+            "source_revision": binding.source_revision,
+            "approver": binding.approver,
+            "reason": reason,
+            "issued_at": binding.issued_at.isoformat(),
+            "expires_at": binding.expires_at.isoformat(),
+            "single_use": True,
+            "state": "approved",
+        },
+    )
+    return reference
+
+
 def acquire_gpu_handoff(
     run: LifecycleRun,
     serving: ServingBundle,
@@ -53,6 +143,7 @@ def acquire_gpu_handoff(
     return acquire_holders(
         run,
         path,
+        phase="staging_deployment",
         target={
             "kind": "Deployment",
             "namespace": serving.namespace,
@@ -85,6 +176,7 @@ def acquire_training_gpu_handoff(
     return acquire_holders(
         run,
         path,
+        phase=training_handoff_phase(training),
         target={
             "kind": "Job",
             "namespace": training.namespace,
@@ -176,6 +268,7 @@ def acquire_holders(
     run: LifecycleRun,
     path: Path,
     *,
+    phase: GpuHandoffPhase,
     target: dict[str, str],
     excluded_holder: tuple[str, str] | None,
     runner: Runner,
@@ -207,11 +300,16 @@ def acquire_holders(
         holder = {
             "namespace": namespace,
             "deployment": deployment,
+            "uid": str(payload.get("metadata", {}).get("uid") or ""),
             "original_replicas": replicas,
             "selector": deployment_selector(payload),
             "images": images,
         }
         holders.append(holder)
+        if not holder["uid"]:
+            holder_blockers.append(
+                f"gpu_handoff_holder_uid_missing:{namespace}/{deployment}"
+            )
         available = int(payload.get("status", {}).get("availableReplicas") or 0)
         if available < replicas:
             holder_blockers.append(
@@ -244,6 +342,16 @@ def acquire_holders(
         write_payload(path, lease)
         return path
 
+    try:
+        approval = consume_gpu_handoff_approval(run, phase, holders)
+    except GpuHandoffError as exc:
+        lease["state"] = "acquire_failed"
+        lease["blockers"] = sorted(set([*lease["blockers"], str(exc)]))
+        write_payload(path, lease)
+        raise
+    lease["approval"] = approval
+    write_payload(path, lease)
+
     scaled: list[dict[str, Any]] = []
     try:
         for holder in holders:
@@ -269,6 +377,66 @@ def acquire_holders(
     lease["acquired_at"] = utc_now()
     write_payload(path, lease)
     return path
+
+
+def consume_gpu_handoff_approval(
+    run: LifecycleRun,
+    phase: GpuHandoffPhase,
+    holders: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if len(holders) != 1:
+        raise GpuHandoffError(
+            f"gpu_handoff_exact_holder_required:actual={len(holders)}"
+        )
+    reference_path = handoff_approval_reference_path(run, phase)
+    reference = read_payload(reference_path)
+    if reference.get("schema_version") != HANDOFF_APPROVAL_SCHEMA:
+        raise GpuHandoffError(f"gpu_handoff_approval_missing:{phase}")
+    if reference.get("run_id") != run.run_id or reference.get("phase") != phase:
+        raise GpuHandoffError(f"gpu_handoff_approval_reference_mismatch:{phase}")
+
+    holder = holders[0]
+    target = TargetRef(
+        namespace=str(holder["namespace"]),
+        name=str(holder["deployment"]),
+        uid=str(holder["uid"]),
+    )
+    source_revision = str(run.source_commit or "").strip()
+    store = ApprovalStore(handoff_approval_root(run, phase))
+    approval_id = str(reference.get("approval_id") or "")
+    try:
+        binding = store.consume(
+            approval_id,
+            run_id=run.run_id,
+            target=target,
+            action=handoff_action(phase),
+            source_revision=source_revision,
+        )
+    except (ApprovalRejected, OSError, ValueError) as exc:
+        raise GpuHandoffError(f"gpu_handoff_approval_rejected:{phase}:{exc}") from exc
+
+    consumed_at = utc_now()
+    reference.update(
+        {
+            "state": "consumed",
+            "consumed_at": consumed_at,
+            "consumed_receipt_path": str(
+                store.root / f"{binding.approval_id}.consumed.json"
+            ),
+        }
+    )
+    write_payload(reference_path, reference)
+    return {
+        "approval_id": binding.approval_id,
+        "action_digest": binding.action_digest,
+        "target_uid": binding.target.uid,
+        "source_revision": binding.source_revision,
+        "approver": binding.approver,
+        "expires_at": binding.expires_at.isoformat(),
+        "single_use": True,
+        "consumed_at": consumed_at,
+        "reference_path": str(reference_path),
+    }
 
 
 def base_payload(run: LifecycleRun, target: dict[str, str], state: str) -> dict[str, Any]:

@@ -10,6 +10,7 @@ from evm.control_panel.lifecycle_gpu_handoff import (
     GpuHandoffError,
     acquire_gpu_handoff,
     acquire_training_gpu_handoff,
+    issue_gpu_handoff_approval,
     release_gpu_handoff,
     release_training_gpu_handoff,
 )
@@ -17,6 +18,7 @@ from evm.control_panel.lifecycle_kubernetes import ServingBundle, TrainingBundle
 
 
 HOLDER_IMAGE = "enterprise-vision-mlops-efficientnet-serving@sha256:" + "e" * 64
+SOURCE_COMMIT = "a" * 40
 
 
 class FakeKubectl:
@@ -26,12 +28,14 @@ class FakeKubectl:
         fail_delete_wait: bool = False,
         holder_ready: bool = True,
         holder_image_present: bool = True,
+        holder_uid: str = "deployment-uid-1",
     ):
         self.production_replicas = 1
         self.commands: list[list[str]] = []
         self.fail_delete_wait = fail_delete_wait
         self.holder_ready = holder_ready
         self.holder_image_present = holder_image_present
+        self.holder_uid = holder_uid
 
     def __call__(self, command: list[str], **_kwargs):
         self.commands.append(command)
@@ -57,6 +61,7 @@ class FakeKubectl:
                 command,
                 stdout=json.dumps(
                     {
+                        "metadata": {"uid": self.holder_uid},
                         "spec": {
                             "replicas": self.production_replicas,
                             "selector": {"matchLabels": {"app.kubernetes.io/name": "evm-b0-production"}},
@@ -96,10 +101,29 @@ def completed(
     return subprocess.CompletedProcess(command, returncode, stdout, stderr)
 
 
+def lifecycle_run(tmp_path, run_id: str):
+    return SimpleNamespace(
+        run_id=run_id,
+        artifact_root=str(tmp_path),
+        source_commit=SOURCE_COMMIT,
+    )
+
+
+def approve_handoff(run, runner, phase: str) -> None:
+    issue_gpu_handoff_approval(
+        run,
+        phase=phase,
+        approver="portfolio-operator",
+        reason="Bounded single-GPU lifecycle validation",
+        ttl_seconds=300,
+        runner=runner,
+    )
+
+
 def test_single_gpu_handoff_scales_product_down_and_restores_it(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED", "true")
     monkeypatch.setenv("EVM_LIFECYCLE_GPU_HOLDERS", "evm-production/evm-b0-production")
-    run = SimpleNamespace(run_id="lifecycle-handoff", artifact_root=str(tmp_path))
+    run = lifecycle_run(tmp_path, "lifecycle-handoff")
     serving = ServingBundle(
         manifest_dir=tmp_path,
         namespace="evm-staging",
@@ -108,6 +132,7 @@ def test_single_gpu_handoff_scales_product_down_and_restores_it(tmp_path, monkey
         image="serving@sha256:" + "a" * 64,
     )
     runner = FakeKubectl()
+    approve_handoff(run, runner, "staging_deployment")
 
     path = acquire_gpu_handoff(run, serving, runner=runner)
 
@@ -133,7 +158,7 @@ def test_single_gpu_handoff_scales_product_down_and_restores_it(tmp_path, monkey
 
 def test_failed_handoff_acquisition_restores_product(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED", "true")
-    run = SimpleNamespace(run_id="lifecycle-handoff-failed", artifact_root=str(tmp_path))
+    run = lifecycle_run(tmp_path, "lifecycle-handoff-failed")
     serving = ServingBundle(
         manifest_dir=tmp_path,
         namespace="evm-staging",
@@ -142,6 +167,7 @@ def test_failed_handoff_acquisition_restores_product(tmp_path, monkeypatch) -> N
         image="serving@sha256:" + "b" * 64,
     )
     runner = FakeKubectl(fail_delete_wait=True)
+    approve_handoff(run, runner, "staging_deployment")
 
     with pytest.raises(GpuHandoffError, match="timed out waiting for pod deletion"):
         acquire_gpu_handoff(run, serving, runner=runner)
@@ -155,7 +181,7 @@ def test_failed_handoff_acquisition_restores_product(tmp_path, monkeypatch) -> N
 def test_training_handoff_releases_product_after_gpu_job(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED", "true")
     monkeypatch.setenv("EVM_LIFECYCLE_GPU_HOLDERS", "evm-production/evm-b0-production")
-    run = SimpleNamespace(run_id="lifecycle-training-handoff", artifact_root=str(tmp_path))
+    run = lifecycle_run(tmp_path, "lifecycle-training-handoff")
     training = TrainingBundle(
         manifest_dir=tmp_path,
         namespace="evm-training",
@@ -164,6 +190,7 @@ def test_training_handoff_releases_product_after_gpu_job(tmp_path, monkeypatch) 
         image="training@sha256:" + "c" * 64,
     )
     runner = FakeKubectl()
+    approve_handoff(run, runner, "training")
 
     path = acquire_training_gpu_handoff(run, training, runner=runner)
 
@@ -212,7 +239,7 @@ def test_training_handoff_fails_before_scale_when_holder_cannot_be_restored(
     expected_blocker,
 ) -> None:
     monkeypatch.setenv("EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED", "true")
-    run = SimpleNamespace(run_id="lifecycle-holder-preflight", artifact_root=str(tmp_path))
+    run = lifecycle_run(tmp_path, "lifecycle-holder-preflight")
     training = TrainingBundle(
         manifest_dir=tmp_path,
         namespace="evm-training",
@@ -220,6 +247,7 @@ def test_training_handoff_fails_before_scale_when_holder_cannot_be_restored(
         candidate_id="efficientnet-b0",
         image="training@sha256:" + "c" * 64,
     )
+    approve_handoff(run, runner, "training")
 
     with pytest.raises(GpuHandoffError, match=expected_blocker):
         acquire_training_gpu_handoff(run, training, runner=runner)
@@ -232,4 +260,65 @@ def test_training_handoff_fails_before_scale_when_holder_cannot_be_restored(
     )
     assert evidence["state"] == "acquire_failed"
     assert any(expected_blocker in item for item in evidence["blockers"])
+    assert not any("scale" in command for command in runner.commands)
+
+
+def test_training_handoff_fails_closed_without_exact_approval(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED", "true")
+    run = lifecycle_run(tmp_path, "lifecycle-training-no-approval")
+    training = TrainingBundle(
+        manifest_dir=tmp_path,
+        namespace="evm-training",
+        job_name="evm-lifecycle-train-no-approval",
+        candidate_id="efficientnet-b0",
+        image="training@sha256:" + "c" * 64,
+    )
+    runner = FakeKubectl()
+
+    with pytest.raises(GpuHandoffError, match="gpu_handoff_approval_missing:training"):
+        acquire_training_gpu_handoff(run, training, runner=runner)
+
+    assert runner.production_replicas == 1
+    assert not any("scale" in command for command in runner.commands)
+
+
+def test_consumed_handoff_approval_cannot_be_replayed(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED", "true")
+    run = lifecycle_run(tmp_path, "lifecycle-training-replay")
+    training = TrainingBundle(
+        manifest_dir=tmp_path,
+        namespace="evm-training",
+        job_name="evm-lifecycle-train-replay",
+        candidate_id="efficientnet-b0",
+        image="training@sha256:" + "c" * 64,
+    )
+    runner = FakeKubectl()
+    approve_handoff(run, runner, "training")
+    acquire_training_gpu_handoff(run, training, runner=runner)
+    release_training_gpu_handoff(run, training, runner=runner, reason="first_pass")
+
+    with pytest.raises(GpuHandoffError, match="approval_already_consumed"):
+        acquire_training_gpu_handoff(run, training, runner=runner)
+
+    assert runner.production_replicas == 1
+
+
+def test_handoff_approval_rejects_changed_holder_uid(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED", "true")
+    run = lifecycle_run(tmp_path, "lifecycle-training-changed-holder")
+    training = TrainingBundle(
+        manifest_dir=tmp_path,
+        namespace="evm-training",
+        job_name="evm-lifecycle-ct-changed-holder",
+        candidate_id="efficientnet-b0",
+        image="training@sha256:" + "c" * 64,
+    )
+    runner = FakeKubectl(holder_uid="deployment-uid-before")
+    approve_handoff(run, runner, "isolated_ct")
+    runner.holder_uid = "deployment-uid-after"
+
+    with pytest.raises(GpuHandoffError, match="approval_binding_rejected:target"):
+        acquire_training_gpu_handoff(run, training, runner=runner)
+
+    assert runner.production_replicas == 1
     assert not any("scale" in command for command in runner.commands)
