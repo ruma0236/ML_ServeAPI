@@ -465,6 +465,31 @@ The Stage 2 development plan is
 | `EVM-269` | Scenario D lifecycle supervision recovery | Done | Sprint 178 | Closure is `docs/status/2026-08-02-scenario-d-lifecycle-supervision-closure.md`: 13/13 deterministic fixtures, fenced claims, exact identity and restart controls, live API/Prometheus/Grafana observability, and source-`37ec89d` worker/observer/worker proof. Detection max `5.870 s`, recovery max `9.049 s`, healthy heartbeat p95 max `5.0 s`; every run passes 10/10 postconditions, 9/9 hashes, exact CUDA/production invariants, and common closure. The earlier heartbeat-closure omission remains immutable RCA evidence; local single-node scope is explicit. |
 | `EVM-270` | Scenario E data and artifact integrity gate | Done | Sprint 178 | Closure is `docs/status/2026-08-02-scenario-e-data-artifact-integrity-closure.md`: source `89c93a5`, real VisA 10,821 records/23 shards/CT 2,181, canonical 3/3, 14 fixtures and 42/42 deterministic replays, corrupted 39/39 blocked, signed one-hour admission TTL, 36/36 hashes, zero intent delta, exact CUDA/production invariants, live API/Prometheus proof and 395/395 tests. Timestamp-fingerprint failure and the rejected 30-day pre-closure run remain immutable RCA history. Local Ed25519/single-node claim boundaries are explicit. |
 
+### Phase 23. Cross-Scenario Correlation And Recovery Validation
+
+Goal:
+
+- correlate bounded A-E signals without losing exact identity or merging events
+  from timing alone;
+- enforce E integrity and D control-plane freshness before any A/B/C recovery,
+  release, or candidate action;
+- prove one fenced recovery owner, deterministic causality and dedupe, complete
+  parent/child evidence, and honest local claim boundaries;
+- keep implementation, fault injection, and runtime mutation outside the
+  planning/design-validation checkpoint.
+
+The source plan is
+`docs/status/2026-08-02-cross-scenario-correlation-recovery-validation-plan.md`.
+The workstream is separate from Sprint 178 and does not change A-E Done states.
+
+| ID | Task | Status | Target | Acceptance Criteria |
+|---|---|---|---:|---|
+| `EVM-271` | Cross-scenario master contract and independent design validation | In Progress | Post-Sprint 178 | separate Epic/backlog, exact event/identity/causality/dedupe/ownership contracts, five ordered pair candidates, read-only design verdict, and four-system plan sync; no implementation or runtime mutation |
+| `EVM-272` | Normalized event, identity, correlation, causality, and dedupe engine | Planned | Post-Sprint 178 | typed schemas, causal DAG, UUIDv7 incident correlation, exact identity matching, bounded dedupe TTL, stale/cycle/anti-correlation fixtures, and three deterministic replay series with zero false merge or duplicate parent/action |
+| `EVM-273` | Fail-closed recovery ownership and read-only incident plane | Planned | Post-Sprint 178 | fenced lease/approval binding, one recovery owner per exact target, action ledger, low-cardinality metrics/alerts, read-only API and Control Panel timeline; no mutation endpoint admitted |
+| `EVM-274` | Non-disruptive pairwise correlation proof | Planned | Post-Sprint 178 | D+E, C+E, and B+C each pass three independent isolated/replay runs plus negative anti-merge fixtures, full hash closure, zero production/process/data mutation, and immutable RCA history |
+| `EVM-275` | Maintenance-gated live pair and cross-scenario closure | Planned / approval gated | Post-Sprint 178 | only after EVM-274 PASS: exact-target A+D then A+B proof under a new single-use maintenance approval, one owner/action, known-good rollback, child SLO plus coordinator-overhead reporting, and explicit single-node limitations |
+
 The original dependency order was `A/D -> B -> E -> C -> cross-scenario`.
 Current execution evidence has closed A-E independently. Cross-scenario
 correlation is now the next dependency. C's candidate remains on manual hold

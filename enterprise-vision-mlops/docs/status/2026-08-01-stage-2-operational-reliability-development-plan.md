@@ -608,6 +608,12 @@ deployment is governed by B. Only then may cross-scenario work start.
 
 ## Cross-Scenario Validation
 
+The authoritative detailed contract is now
+`docs/status/2026-08-02-cross-scenario-correlation-recovery-validation-plan.md`.
+This section remains historical intent; the new workstream adds exact identity,
+causality, dedupe, recovery ownership, fail-closed precedence, negative
+anti-correlation fixtures, and maintenance approval boundaries.
+
 Start only after A-E exits. Combine at most two bounded conditions per run:
 
 1. D worker restart while E integrity validation is read-only.

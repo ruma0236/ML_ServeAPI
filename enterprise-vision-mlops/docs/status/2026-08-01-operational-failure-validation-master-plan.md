@@ -1,7 +1,9 @@
 # Operational Failure Validation Master Plan
 
 Date: 2026-08-01
-Status: Stage 1 contract complete; Stage 2 development plan complete; implementation and new fault injection not started.
+Status: A-E independently complete; cross-scenario correlation/recovery
+planning and design validation in progress; final VisA operations drill not
+started.
 Parent epic: `EVM-EPIC-21 / SCRUM-156`
 Master issue: `EVM-265 / SCRUM-171`
 Stage 2 development plan:
@@ -57,6 +59,12 @@ Jira execution order follows dependencies rather than issue-number order.
 Execution update on `2026-08-02`: A-E now have independent local closure
 evidence. The master remains In Progress because cross-scenario validation and
 the final VisA operations drill are not complete.
+
+The versioned cross-scenario workstream contract is
+`docs/status/2026-08-02-cross-scenario-correlation-recovery-validation-plan.md`.
+It is a separate Epic/backlog after A-E and does not alter Sprint 178 or the
+Done states of `SCRUM-172..176`. Planning and design validation do not imply
+that correlation code, combined fault injection, or runtime mutation exists.
 
 ## Deployment Experiment Vocabulary
 
@@ -249,6 +257,12 @@ data intake -> quality/lineage -> training -> MLflow -> isolated CT
 The final report must include source revision, dataset/split/model/artifact
 identities, quality and operational metrics, detection/containment/recovery
 times, failed attempts, residual risks, and the local-environment boundary.
+
+Cross-scenario execution is now governed by the separate versioned contract
+above. Its safe order is D+E, C+E, B+C, A+D, then A+B. E integrity and D
+control-plane freshness are permission-to-act gates; ambiguous identity,
+stale evidence, conflicting ownership, or an invalid causal edge must block
+mutation. A later live pair requires a new target-bound maintenance approval.
 
 ## Portfolio Review Contract
 
