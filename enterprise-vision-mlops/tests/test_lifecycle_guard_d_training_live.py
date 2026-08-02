@@ -15,6 +15,7 @@ from evm.operations.lifecycle_guard_d_training_live import (
     exact_training_job,
     release_approval_request,
     training_job_state,
+    wait_for_runtime_restoration,
 )
 from evm.control_panel.lifecycle_kubernetes import short_run_id
 
@@ -210,3 +211,83 @@ def test_exact_training_job_waits_only_for_kubernetes_not_found(
     assert exact_training_job(run_id, task, allow_not_found=True) is None
     with pytest.raises(subprocess.CalledProcessError):
         exact_training_job(run_id, task)
+
+
+def runtime_sample(
+    *,
+    scrape: str,
+    health: str = "up",
+    error: str = "",
+    source_commit: str = "a" * 40,
+) -> dict[str, object]:
+    return {
+        "supervisor": {
+            "source_commit": source_commit,
+            "children": [
+                {"source_commit": source_commit},
+                {"source_commit": source_commit},
+            ],
+        },
+        "kubernetes": {
+            "deployment_uid": "production-uid",
+            "ready_replicas": 1,
+            "plugin_ready": 1,
+        },
+        "production_inference": {"device": "cuda"},
+        "prometheus": {
+            "health": health,
+            "last_error": error,
+            "last_scrape": scrape,
+        },
+    }
+
+
+def test_runtime_restoration_requires_two_distinct_consecutive_scrapes() -> None:
+    snapshots = iter(
+        [
+            runtime_sample(scrape="2026-08-02T20:17:05Z"),
+            runtime_sample(scrape="2026-08-02T20:17:05Z"),
+            runtime_sample(scrape="2026-08-02T20:17:20Z"),
+        ]
+    )
+    ticks = iter([0.0, 1.0, 2.0, 3.0])
+
+    latest, evidence = wait_for_runtime_restoration(
+        before_runtime={
+            "kubernetes": {"deployment_uid": "production-uid", "plugin_ready": 1}
+        },
+        source_commit="a" * 40,
+        inference_image_uri="file:///fixture.jpg",
+        timeout_seconds=30,
+        snapshot_reader=lambda **_kwargs: next(snapshots),
+        sleep=lambda _seconds: None,
+        monotonic=lambda: next(ticks),
+    )
+
+    assert evidence["status"] == "pass"
+    assert evidence["elapsed_seconds"] == 3.0
+    assert len(evidence["observations"]) == 3
+    assert latest["prometheus"]["last_scrape"] == "2026-08-02T20:17:20Z"
+
+
+def test_runtime_restoration_fails_closed_after_timeout() -> None:
+    ticks = iter([0.0, 31.0])
+
+    _latest, evidence = wait_for_runtime_restoration(
+        before_runtime={
+            "kubernetes": {"deployment_uid": "production-uid", "plugin_ready": 1}
+        },
+        source_commit="a" * 40,
+        inference_image_uri="file:///fixture.jpg",
+        timeout_seconds=30,
+        snapshot_reader=lambda **_kwargs: runtime_sample(
+            scrape="2026-08-02T20:16:45Z",
+            health="down",
+            error="EOF",
+        ),
+        sleep=lambda _seconds: None,
+        monotonic=lambda: next(ticks),
+    )
+
+    assert evidence["status"] == "blocked"
+    assert evidence["observations"][0]["prometheus_error"] == "EOF"

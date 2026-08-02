@@ -212,6 +212,7 @@ def prometheus_target() -> dict[str, Any]:
         "health": matches[0].get("health"),
         "scrape_url": matches[0].get("scrapeUrl"),
         "last_error": matches[0].get("lastError"),
+        "last_scrape": matches[0].get("lastScrape"),
     }
 
 

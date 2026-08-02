@@ -204,12 +204,37 @@ available. API errors also retain bounded response details in immutable runner
 evidence. Focused contract tests pass `30 / 30`; the full suite passes
 `466 / 466`.
 
+### Fifth combined active-training attempt RCA
+
+Source `ea1a014` attempt
+`scenario-d-training-20260802T200109Z-ea1a014f` created run
+`lifecycle-20260802T200116-548bea16`. The run completed all 10 lifecycle
+stages, three task assignments, two exact Kubernetes Jobs, eight unique
+committed side effects, all three GPU handoff receipts, independent release
+approval, candidate deployment, and serving validation. Exact-worker detection
+was `4.2323827 s` and recovery `7.0983775 s`; Job UID
+`67038ff1-d059-4ad7-9456-8a8c618238ab` continued without redispatch.
+
+Final acceptance passed `10 / 11` checks. Production deployment UID, replica
+`1 / 1`, CUDA inference, and device-plugin `1 / 1` were restored, but the
+single immediate Prometheus snapshot at `20:16:46Z` observed an endpoint
+restart-window `EOF` and reported `down`. The same exact target recovered to
+`up` without intervention by `20:17:05Z`. This exposed a final-observation
+false negative: serving readiness and one Prometheus scrape do not converge at
+the same instant after a bounded single-GPU handoff.
+
+The fifth attempt remains immutable blocked/RCA evidence with 15 indexed
+artifacts. Final restoration now waits up to 90 seconds for unchanged
+production UID, replica, CUDA, device-plugin, source revision, and two distinct
+consecutive successful Prometheus scrape timestamps. Repeated reads of one
+scrape do not satisfy the gate, and timeout remains fail closed. Focused tests
+pass `14 / 14`; the full suite passes `468 / 468`.
+
 ## Remaining Exit Work
 
 This checkpoint does not close Scenario D. The remaining proof must:
 
-1. rebuild the API from the corrected source and prove the fourth attempt's
-   sealed release submission validates identically inside the API container;
+1. commit and deploy the bounded distinct-scrape restoration contract;
 2. execute a new source-bound combined attempt with all exact single-use
    handoff approvals present;
 3. terminate only the exact supervisor-owned worker while the real training

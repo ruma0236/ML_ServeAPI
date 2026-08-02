@@ -7,7 +7,7 @@ import subprocess
 import time
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
@@ -52,6 +52,8 @@ DEFAULT_OUTPUT_ROOT = Path(
     "lifecycle_guard_d_training_live"
 )
 HANDOFF_PHASES = ("training", "isolated_ct", "staging_deployment")
+RUNTIME_RESTORATION_CADENCE_SECONDS = 5.0
+RUNTIME_RESTORATION_REQUIRED_SCRAPES = 2
 
 
 def api_request(
@@ -511,6 +513,92 @@ def safe_cancel(run: dict[str, Any], reason: str) -> dict[str, Any] | None:
         return None
 
 
+def wait_for_runtime_restoration(
+    *,
+    before_runtime: dict[str, Any],
+    source_commit: str,
+    inference_image_uri: str,
+    timeout_seconds: float,
+    snapshot_reader: Callable[..., dict[str, Any]] = runtime_snapshot,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    started = monotonic()
+    observations: list[dict[str, Any]] = []
+    consecutive_scrapes: list[str] = []
+    latest: dict[str, Any] = {}
+    while True:
+        latest = snapshot_reader(inference_image_uri=inference_image_uri)
+        elapsed = max(monotonic() - started, 0.0)
+        supervisor = latest["supervisor"]
+        kubernetes = latest["kubernetes"]
+        prometheus = latest["prometheus"]
+        revision_converged = (
+            supervisor.get("source_commit") == source_commit
+            and all(
+                item.get("source_commit") == source_commit
+                for item in supervisor.get("children", [])
+            )
+        )
+        runtime_restored = (
+            kubernetes.get("deployment_uid")
+            == before_runtime["kubernetes"].get("deployment_uid")
+            and kubernetes.get("ready_replicas") == 1
+            and latest["production_inference"].get("device") == "cuda"
+            and kubernetes.get("plugin_ready")
+            == before_runtime["kubernetes"].get("plugin_ready")
+            and revision_converged
+        )
+        scrape_id = str(prometheus.get("last_scrape") or "")
+        scrape_healthy = (
+            prometheus.get("health") == "up"
+            and not prometheus.get("last_error")
+            and bool(scrape_id)
+        )
+        if runtime_restored and scrape_healthy:
+            if not consecutive_scrapes or consecutive_scrapes[-1] != scrape_id:
+                consecutive_scrapes.append(scrape_id)
+        else:
+            consecutive_scrapes = []
+        observations.append(
+            {
+                "elapsed_seconds": elapsed,
+                "runtime_restored": runtime_restored,
+                "revision_converged": revision_converged,
+                "deployment_uid": kubernetes.get("deployment_uid"),
+                "ready_replicas": kubernetes.get("ready_replicas"),
+                "device": latest["production_inference"].get("device"),
+                "plugin_ready": kubernetes.get("plugin_ready"),
+                "prometheus_health": prometheus.get("health"),
+                "prometheus_error": prometheus.get("last_error"),
+                "prometheus_last_scrape": scrape_id,
+                "distinct_consecutive_scrapes": len(consecutive_scrapes),
+            }
+        )
+        if (
+            runtime_restored
+            and len(consecutive_scrapes) >= RUNTIME_RESTORATION_REQUIRED_SCRAPES
+        ):
+            return latest, {
+                "status": "pass",
+                "elapsed_seconds": elapsed,
+                "required_distinct_consecutive_scrapes": (
+                    RUNTIME_RESTORATION_REQUIRED_SCRAPES
+                ),
+                "observations": observations,
+            }
+        if elapsed >= timeout_seconds:
+            return latest, {
+                "status": "blocked",
+                "elapsed_seconds": elapsed,
+                "required_distinct_consecutive_scrapes": (
+                    RUNTIME_RESTORATION_REQUIRED_SCRAPES
+                ),
+                "observations": observations,
+            }
+        sleep(RUNTIME_RESTORATION_CADENCE_SECONDS)
+
+
 def run(
     *,
     project_root: Path,
@@ -524,6 +612,7 @@ def run(
     completion_timeout_seconds: float,
     handoff_approval_ttl_seconds: int,
     inference_image_uri: str,
+    runtime_restoration_timeout_seconds: float = 90,
 ) -> Path:
     head = git_text(project_root, "rev-parse", "HEAD")
     upstream = git_text(project_root, "rev-parse", "@{u}")
@@ -680,9 +769,15 @@ def run(
 
     write_json(run_root / "timeline.json", timeline)
     write_json(run_root / "terminal-run.json", terminal)
-    after_runtime = runtime_snapshot(inference_image_uri=inference_image_uri)
+    after_runtime, runtime_restoration = wait_for_runtime_restoration(
+        before_runtime=before_runtime,
+        source_commit=source_commit,
+        inference_image_uri=inference_image_uri,
+        timeout_seconds=runtime_restoration_timeout_seconds,
+    )
     after_effects = external_side_effect_snapshot()
     write_json(run_root / "after-runtime.json", after_runtime)
+    write_json(run_root / "runtime-restoration.json", runtime_restoration)
     write_json(run_root / "after-side-effects.json", after_effects)
     final_ledger, ledger_path = side_effect_ledger(terminal)
     handoff_consumption = handoff_consumption_snapshot(handoff_approvals)
@@ -742,13 +837,7 @@ def run(
             )
         ),
         "production_cuda_prometheus_restored": (
-            after_runtime["kubernetes"]["deployment_uid"]
-            == before_runtime["kubernetes"]["deployment_uid"]
-            and after_runtime["kubernetes"]["ready_replicas"] == 1
-            and after_runtime["production_inference"].get("device") == "cuda"
-            and after_runtime["prometheus"].get("health") == "up"
-            and after_runtime["kubernetes"]["plugin_ready"]
-            == before_runtime["kubernetes"]["plugin_ready"]
+            runtime_restoration["status"] == "pass"
         ),
     }
     result = {
@@ -770,6 +859,7 @@ def run(
         "timing": {
             "detection_seconds": recovery["detection_seconds"],
             "recovery_seconds": recovery["recovery_seconds"],
+            "runtime_restoration_seconds": runtime_restoration["elapsed_seconds"],
         },
         "checks": checks,
         "run_job_identities": jobs,
@@ -813,6 +903,9 @@ def main() -> int:
     parser.add_argument("--admission-timeout-seconds", type=float, default=900)
     parser.add_argument("--completion-timeout-seconds", type=float, default=3600)
     parser.add_argument("--handoff-approval-ttl-seconds", type=int, default=7200)
+    parser.add_argument(
+        "--runtime-restoration-timeout-seconds", type=float, default=90
+    )
     parser.add_argument("--inference-image-uri", default=DEFAULT_INFERENCE_IMAGE_URI)
     args = parser.parse_args()
     result = run(
@@ -827,6 +920,9 @@ def main() -> int:
         completion_timeout_seconds=args.completion_timeout_seconds,
         handoff_approval_ttl_seconds=args.handoff_approval_ttl_seconds,
         inference_image_uri=args.inference_image_uri,
+        runtime_restoration_timeout_seconds=(
+            args.runtime_restoration_timeout_seconds
+        ),
     )
     print(json.dumps({"result_uri": str(result.resolve())}, sort_keys=True))
     return 0

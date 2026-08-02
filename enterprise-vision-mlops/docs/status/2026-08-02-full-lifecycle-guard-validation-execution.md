@@ -361,6 +361,24 @@ serving mutation. CT host/mount runtime-path resolution and bounded API error
 evidence are now implemented; focused tests pass 30/30 and the full suite
 466/466. D remains open until container validation and a fresh 10/10 attempt.
 
+The fifth combined attempt at source `ea1a014`, series
+`scenario-d-training-20260802T200109Z-ea1a014f`, proved the CT path correction
+inside the full lifecycle and completed run
+`lifecycle-20260802T200116-548bea16` with all 10 stages. Exact-worker detection
+was `4.2323827 s`, recovery `7.0983775 s`, and the same training Job UID
+continued without redispatch. Three tasks, two Jobs, eight unique committed
+side effects, three GPU handoff approvals, independent release approval,
+deployment, and CUDA serving completed.
+
+Acceptance was `10 / 11`: exact production UID, replica 1/1, CUDA, and
+device-plugin 1/1 were restored, while the immediate final Prometheus snapshot
+captured one endpoint restart-window `EOF/down` at `20:16:46Z`. The same target
+returned to `up` autonomously by `20:17:05Z`. The attempt remains immutable
+blocked evidence with 15 indexed artifacts. Final restoration now requires
+two distinct consecutive successful Prometheus scrape timestamps plus all
+runtime identities within a bounded 90-second window; timeout fails closed.
+Focused tests pass 14/14 and the full suite 468/468.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -374,6 +392,7 @@ evidence are now implemented; focused tests pass 30/30 and the full suite
 | `lifecycle-20260802T190057-c8cae6d4` | `649114f` | Airflow 18/18 terminal; exact training approval consumed and Job admitted; blocked before worker termination on stale run-label expectation | bounded production handoff occurred; automatic cancel deleted Job and released handoff in 48 s; B0 returned 1/1 CUDA; no MLflow/candidate/CT/intent | retain immutable RCA; unify runner/reconciler/fixtures on canonical `short_run_id()` and exact manifest identity; retry from a new source revision |
 | `lifecycle-20260802T192014-183e0bc1` | `689b775` | Airflow 18/18 terminal; training handoff began; admission poll hit the normal pre-persistence Job `NotFound` window | no worker termination; automatic cancel released handoff in 10 s and restored B0 CUDA; no downstream outcome | retain immutable RCA; wait only on `NotFound` during bounded admission while every other error remains fail closed; retry from a new source revision |
 | `lifecycle-20260802T193458-04b6cb7b` | `b82f6b4` | Airflow 18/18; exact worker detection 2.3490377 s and recovery 5.631701 s; same training Job completed; MLflow, readiness 13/13 and CT 2,181 completed; release approval returned 422 because API could not resolve the CT host URI through `/mnt/evm-ct` | exact approved worker only; no Job redispatch; automatic cancellation restored B0 1/1 CUDA; no release approval, deployment intent or candidate serving mutation | retain immutable integrated recovery/RCA evidence; map configured CT host and mount roots, validate inside API, then retry full 10/10 lifecycle |
+| `lifecycle-20260802T200116-548bea16` | `ea1a014` | 10/10 lifecycle completed; worker detection 4.2323827 s and recovery 7.0983775 s; same Job, MLflow, CT, approval, deploy and CUDA serving passed; final acceptance 10/11 because immediate Prometheus snapshot saw one restart-window EOF | three tasks, two intended Jobs, eight committed effects and release intent; exact B0 UID/1/1/CUDA/plugin restored; Prometheus autonomously up 19 s later | retain immutable blocked/RCA evidence; require two distinct consecutive successful scrapes within bounded restoration window, then rerun from a new revision |
 
 ## Synchronization Rule
 
