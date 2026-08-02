@@ -27,6 +27,11 @@ from evm.control_panel.lifecycle_gpu_handoff import (
     release_gpu_handoff,
     release_training_gpu_handoff,
 )
+from evm.control_panel.lifecycle_guards import (
+    LifecycleGuardBlocked,
+    complete_side_effect,
+    reserve_side_effect,
+)
 from evm.control_panel.lifecycle_kubernetes import (
     LifecycleKubernetesError,
     ServingBundle,
@@ -142,6 +147,258 @@ def process_lifecycle_run(
         return failed
 
 
+def lifecycle_guard_directory(run: LifecycleRun) -> Path:
+    if not (
+        run.identity_envelope_uri
+        and run.lifecycle_series_id
+        and run.attempt_id
+        and run.correlation_id
+    ):
+        raise LifecycleStageBlocked("lifecycle_guard_identity_missing")
+    return Path(run.identity_envelope_uri).parent
+
+
+def reserve_external_action(
+    run: LifecycleRun,
+    stage_id: str,
+    action: str,
+    payload: object,
+):
+    try:
+        return reserve_side_effect(
+            directory=lifecycle_guard_directory(run),
+            lifecycle_series_id=str(run.lifecycle_series_id),
+            run_id=run.run_id,
+            attempt_id=str(run.attempt_id),
+            correlation_id=str(run.correlation_id),
+            stage_id=stage_id,
+            action=action,
+            action_payload=payload,
+        )
+    except LifecycleGuardBlocked as exc:
+        raise LifecycleStageBlocked("side_effect_ledger_blocked", exc.blockers) from exc
+
+
+def finish_external_action(
+    run: LifecycleRun,
+    side_effect_key: str,
+    *,
+    state: str,
+    runtime_id: str | None = None,
+    evidence_uri: str | None = None,
+):
+    try:
+        return complete_side_effect(
+            directory=lifecycle_guard_directory(run),
+            side_effect_key=side_effect_key,
+            state=state,
+            runtime_id=runtime_id,
+            evidence_uri=evidence_uri,
+        )
+    except LifecycleGuardBlocked as exc:
+        raise LifecycleStageBlocked("side_effect_ledger_blocked", exc.blockers) from exc
+
+
+def create_guarded_task_assignment(
+    run: LifecycleRun,
+    stage_id: str,
+    action: str,
+    request: TaskAssignmentRequest,
+) -> TaskAssignment:
+    entry, created = reserve_external_action(
+        run,
+        stage_id,
+        action,
+        request.model_dump(mode="json"),
+    )
+    if not created:
+        existing = task_for(entry.runtime_id)
+        if entry.state in {"completed", "reconciled"} and existing is not None:
+            return existing
+        raise LifecycleStageBlocked(
+            "side_effect_reconciliation_required",
+            [f"side_effect_state:{entry.state}", f"side_effect_key:{entry.side_effect_key}"],
+        )
+    try:
+        task = create_task_assignment(request)
+    except Exception:
+        finish_external_action(run, entry.side_effect_key, state="failed")
+        raise
+    finish_external_action(
+        run,
+        entry.side_effect_key,
+        state="completed",
+        runtime_id=task.task_id,
+    )
+    return task
+
+
+def dispatch_guarded_task_assignment(
+    run: LifecycleRun,
+    stage_id: str,
+    task: TaskAssignment,
+) -> TaskAssignment | None:
+    entry, created = reserve_external_action(
+        run,
+        stage_id,
+        "dispatch_task_assignment",
+        {"task_id": task.task_id, "task_type": task.task_type},
+    )
+    if not created:
+        existing = task_for(task.task_id)
+        if (
+            entry.state in {"completed", "reconciled"}
+            and existing is not None
+            and existing.status != "queued"
+        ):
+            return existing
+        raise LifecycleStageBlocked(
+            "side_effect_reconciliation_required",
+            [f"side_effect_state:{entry.state}", f"side_effect_key:{entry.side_effect_key}"],
+        )
+    try:
+        dispatched = dispatch_task_assignment(task.task_id)
+    except Exception:
+        finish_external_action(run, entry.side_effect_key, state="failed")
+        raise
+    finish_external_action(
+        run,
+        entry.side_effect_key,
+        state="completed",
+        runtime_id=(dispatched.runtime_id if dispatched is not None else task.task_id),
+    )
+    return dispatched
+
+
+def execute_guarded_kubernetes_task(
+    run: LifecycleRun,
+    stage_id: str,
+    task: TaskAssignment,
+    *,
+    runner: Runner,
+    progress_callback: Callable[[dict[str, object]], None] | None = None,
+) -> TaskAssignment:
+    entry, created = reserve_external_action(
+        run,
+        stage_id,
+        "execute_kubernetes_job",
+        {"task_id": task.task_id, "config_payload": task.config_payload},
+    )
+    if not created:
+        existing = task_for(task.task_id)
+        if (
+            entry.state in {"completed", "reconciled"}
+            and existing is not None
+            and existing.status not in {"queued", "running"}
+        ):
+            return existing
+        raise LifecycleStageBlocked(
+            "side_effect_reconciliation_required",
+            [f"side_effect_state:{entry.state}", f"side_effect_key:{entry.side_effect_key}"],
+        )
+    try:
+        result = execute_kubernetes_task(
+            task.task_id,
+            runner=runner,
+            progress_callback=progress_callback,
+        )
+    except Exception:
+        finish_external_action(run, entry.side_effect_key, state="failed")
+        raise
+    finish_external_action(
+        run,
+        entry.side_effect_key,
+        state="completed",
+        runtime_id=result.runtime_id or task.task_id,
+    )
+    return result
+
+
+def execute_guarded_deployment_apply(
+    run: LifecycleRun,
+    intent_id: str,
+    *,
+    runner: Runner,
+    cycle: CycleRun,
+):
+    entry, created = reserve_external_action(
+        run,
+        "deployment",
+        "execute_deployment_apply",
+        {"intent_id": intent_id, "cycle_id": cycle.cycle_id},
+    )
+    if not created:
+        intent = get_intent(intent_id)
+        if entry.state in {"completed", "reconciled"} and intent is not None:
+            return intent
+        raise LifecycleStageBlocked(
+            "side_effect_reconciliation_required",
+            [f"side_effect_state:{entry.state}", f"side_effect_key:{entry.side_effect_key}"],
+        )
+    try:
+        intent = execute_apply(
+            intent_id,
+            runner=runner,
+            require_enabled=False,
+            cycle=cycle,
+        )
+    except Exception:
+        finish_external_action(run, entry.side_effect_key, state="failed")
+        raise
+    finish_external_action(
+        run,
+        entry.side_effect_key,
+        state="completed",
+        runtime_id=intent.intent_id,
+        evidence_uri=intent.audit_uri,
+    )
+    return intent
+
+
+def create_guarded_deployment_intent(
+    run: LifecycleRun,
+    request: DeploymentIntentRequest,
+    *,
+    cycle: CycleRun,
+    manifest_ref: Path,
+):
+    entry, created = reserve_external_action(
+        run,
+        "deployment",
+        "create_deployment_intent",
+        {
+            "request": request.model_dump(mode="json"),
+            "cycle_id": cycle.cycle_id,
+            "manifest_ref": str(manifest_ref),
+        },
+    )
+    if not created:
+        intent = get_intent(entry.runtime_id) if entry.runtime_id else None
+        if entry.state in {"completed", "reconciled"} and intent is not None:
+            return intent
+        raise LifecycleStageBlocked(
+            "side_effect_reconciliation_required",
+            [f"side_effect_state:{entry.state}", f"side_effect_key:{entry.side_effect_key}"],
+        )
+    try:
+        intent = create_deployment_intent(
+            request,
+            cycle=cycle,
+            manifest_ref=manifest_ref,
+        )
+    except Exception:
+        finish_external_action(run, entry.side_effect_key, state="failed")
+        raise
+    finish_external_action(
+        run,
+        entry.side_effect_key,
+        state="completed",
+        runtime_id=intent.intent_id,
+        evidence_uri=intent.audit_uri,
+    )
+    return intent
+
+
 def process_data_pipeline(
     run: LifecycleRun,
     *,
@@ -152,7 +409,10 @@ def process_data_pipeline(
     stage = stage_for(run, "data_pipeline")
     task = task_for(stage.task_id)
     if stage.state == "not_started":
-        task = create_task_assignment(
+        task = create_guarded_task_assignment(
+            run,
+            "data_pipeline",
+            "create_airflow_task_assignment",
             TaskAssignmentRequest(
                 cycle_id=run.run_id,
                 task_type="airflow_dag_run",
@@ -189,7 +449,7 @@ def process_data_pipeline(
     if task is None:
         raise LifecycleStageBlocked("airflow_task_missing")
     if task.status == "queued":
-        task = dispatch_task_assignment(task.task_id)
+        task = dispatch_guarded_task_assignment(run, "data_pipeline", task)
         if task is None:
             raise LifecycleStageBlocked("airflow_task_disappeared")
     task = next(
@@ -353,7 +613,10 @@ def process_model_training(
     stage = stage_for(run, "model_training")
     task = task_for(stage.task_id)
     if stage.state == "not_started":
-        task = create_task_assignment(
+        task = create_guarded_task_assignment(
+            run,
+            "model_training",
+            "create_kubernetes_training_assignment",
             TaskAssignmentRequest(
                 cycle_id=run.run_id,
                 task_type="kubernetes_job",
@@ -443,8 +706,10 @@ def process_model_training(
                 ),
             )
         try:
-            task = execute_kubernetes_task(
-                task.task_id,
+            task = execute_guarded_kubernetes_task(
+                run,
+                "model_training",
+                task,
                 runner=runner,
                 progress_callback=report_training_progress,
             )
@@ -676,7 +941,10 @@ def process_ci_ct_gate(
     stage = stage_for(run, "ci_ct_gate")
     task = task_for(stage.task_id)
     if stage.state == "not_started":
-        task = create_task_assignment(
+        task = create_guarded_task_assignment(
+            run,
+            "ci_ct_gate",
+            "create_kubernetes_ct_assignment",
             TaskAssignmentRequest(
                 cycle_id=run.run_id,
                 task_type="kubernetes_job",
@@ -735,7 +1003,12 @@ def process_ci_ct_gate(
                 detail="Isolated CT snapshot is being evaluated on the real GPU",
             )
         try:
-            task = execute_kubernetes_task(task.task_id, runner=runner)
+            task = execute_guarded_kubernetes_task(
+                run,
+                "ci_ct_gate",
+                task,
+                runner=runner,
+            )
         finally:
             release_training_gpu_handoff(
                 run,
@@ -856,7 +1129,8 @@ def process_deployment(
     if intent is None:
         profile = read_json(runtime_path(run.profile_snapshot_uri))
         gates = object_value(profile, "gates")
-        intent = create_deployment_intent(
+        intent = create_guarded_deployment_intent(
+            run,
             DeploymentIntentRequest(
                 cycle_id=run.run_id,
                 target_environment=str(gates.get("target_environment") or "staging"),
@@ -915,10 +1189,10 @@ def process_deployment(
                 resource_handoff_uri=str(handoff),
             )
         try:
-            intent = execute_apply(
+            intent = execute_guarded_deployment_apply(
+                run,
                 intent.intent_id,
                 runner=runner,
-                require_enabled=False,
                 cycle=cycle,
             )
         except Exception:

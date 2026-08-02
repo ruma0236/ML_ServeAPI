@@ -85,6 +85,16 @@ describe("Lifecycle Runs view", () => {
     expect(completed?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("100");
   });
 
+  it("shows the lifecycle guard decision and immutable evidence locations", async () => {
+    await act(async () => root.render(<LifecycleRuns />));
+    await flushUpdates();
+
+    expect(container.textContent).toContain("pass / E+D");
+    expect(container.textContent).toContain("Identity Envelope");
+    expect(container.textContent).toContain("Guard Decisions");
+    expect(container.textContent).toContain("Side Effects");
+  });
+
   it("does not poll an ExperimentRun for a lifecycle without experiment search", async () => {
     api.fetchLifecycleRuns.mockResolvedValue({
       runs: [{ ...run, experiment_id: null }],
@@ -309,6 +319,9 @@ function lifecycleRun(): LifecycleRun {
     profile_version: 1,
     profile_digest: "a".repeat(64),
     effective_config_digest: "b".repeat(64),
+    lifecycle_series_id: "series-contract-1",
+    attempt_id: "attempt-contract-1",
+    correlation_id: "correlation-contract-1",
     source_commit: "c".repeat(40),
     source_branch: "main",
     state: "blocked",
@@ -326,6 +339,13 @@ function lifecycleRun(): LifecycleRun {
     model_config_uri: "F:/runs/1/model.json",
     model_runtime_uri: "/mnt/evm-data/runs/1/model.json",
     artifact_root: "F:/runs/1",
+    identity_envelope_uri: "F:/runs/1/identity.envelope.json",
+    component_revision_map_uri: "F:/runs/1/component_revision_map.json",
+    guard_state_uri: "F:/runs/1/guard_state.json",
+    side_effect_ledger_uri: "F:/runs/1/side_effect_ledger.json",
+    guard_decision: "pass",
+    guard_authorities: ["E", "D"],
+    guard_blockers: [],
     cycle_id: "cycle-contract-1",
     experiment_id: "lifecycle-contract-1",
     failure_reason: "artifact_readiness_blocked",

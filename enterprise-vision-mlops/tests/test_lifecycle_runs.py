@@ -123,6 +123,18 @@ def test_dry_run_creates_immutable_runtime_snapshot(tmp_path: Path, monkeypatch)
     assert all(stage.state == "not_started" for stage in run.stages[1:])
     assert get_lifecycle_run(run.run_id) == run
     assert read_runs().runs == [run]
+    assert run.lifecycle_series_id and run.lifecycle_series_id.startswith("series-")
+    assert run.attempt_id and run.attempt_id.startswith("attempt-")
+    assert run.correlation_id and run.correlation_id.startswith("correlation-")
+    assert run.guard_decision == "pass"
+    assert run.guard_authorities == ["D", "E"]
+    for uri in (
+        run.identity_envelope_uri,
+        run.component_revision_map_uri,
+        run.guard_state_uri,
+        run.side_effect_ledger_uri,
+    ):
+        assert uri and Path(uri).is_file()
 
     profile_snapshot = json.loads(Path(run.profile_snapshot_uri).read_text(encoding="utf-8"))
     airflow_snapshot = json.loads(Path(run.airflow_config_uri).read_text(encoding="utf-8"))

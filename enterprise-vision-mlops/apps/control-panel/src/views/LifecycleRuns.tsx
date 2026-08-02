@@ -106,7 +106,7 @@ export function LifecycleRuns({ onCycleContext, onOpenBlueprint }: LifecycleRuns
   );
   const selectedBlockers = useMemo(() => {
     if (!selected) return [];
-    const blockers = [...selected.blockers];
+    const blockers = [...selected.blockers, ...(selected.guard_blockers || [])];
     if (!selected.source_commit) blockers.push("source_revision_missing");
     return [...new Set(blockers)];
   }, [selected]);
@@ -249,6 +249,7 @@ export function LifecycleRuns({ onCycleContext, onOpenBlueprint }: LifecycleRuns
                 <Metadata label="Requested By" value={selected.actor} />
                 <Metadata label="Config Digest" value={selected.effective_config_digest.slice(0, 16)} />
                 <Metadata label="Source Commit" value={selected.source_commit?.slice(0, 12) || "not captured"} />
+                <Metadata label="Guard" value={`${selected.guard_decision || "legacy"} / ${(selected.guard_authorities || []).join("+") || "not sealed"}`} />
                 <Metadata label="Cycle Context" value={selected.cycle_id || "snapshot pending"} />
               </div>
               <div className="lifecycle-actions">
@@ -354,6 +355,10 @@ export function LifecycleRuns({ onCycleContext, onOpenBlueprint }: LifecycleRuns
             <details className="panel lifecycle-evidence">
               <summary>Run Evidence And Audit</summary>
               <Evidence label="Profile" value={selected.profile_snapshot_uri} />
+              <Evidence label="Identity Envelope" value={selected.identity_envelope_uri} />
+              <Evidence label="Component Revisions" value={selected.component_revision_map_uri} />
+              <Evidence label="Guard Decisions" value={selected.guard_state_uri} />
+              <Evidence label="Side Effects" value={selected.side_effect_ledger_uri} />
               <Evidence label="Airflow Config" value={selected.airflow_config_uri} />
               <Evidence label="Model Config" value={selected.model_config_uri} />
               <Evidence label="Model Matrix" value={selected.model_matrix_uri} />

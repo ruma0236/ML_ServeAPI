@@ -144,6 +144,15 @@ def test_airflow_success_advances_lifecycle_to_model_training(tmp_path, monkeypa
     assert tasks[0].config_payload["source_commit"] == run.source_commit
     assert tasks[0].config_payload["source_branch"] == run.source_branch
     assert result.stages[1].evidence_uri.endswith("provenance-validation.json")
+    side_effects = json.loads(
+        Path(str(result.side_effect_ledger_uri)).read_text(encoding="utf-8")
+    )["entries"]
+    assert [item["action"] for item in side_effects] == [
+        "create_airflow_task_assignment",
+        "dispatch_task_assignment",
+    ]
+    assert all(item["state"] == "completed" for item in side_effects)
+    assert len({item["side_effect_key"] for item in side_effects}) == 2
 
 
 def test_airflow_success_blocks_when_source_commit_does_not_match(tmp_path, monkeypatch) -> None:

@@ -1143,6 +1143,9 @@ export interface LifecycleRun {
   profile_version: number;
   profile_digest: string;
   effective_config_digest: string;
+  lifecycle_series_id?: string | null;
+  attempt_id?: string | null;
+  correlation_id?: string | null;
   source_commit?: string | null;
   source_branch?: string | null;
   state: LifecycleRunState;
@@ -1163,6 +1166,13 @@ export interface LifecycleRun {
   model_config_uri: string;
   model_runtime_uri: string;
   artifact_root: string;
+  identity_envelope_uri?: string | null;
+  component_revision_map_uri?: string | null;
+  guard_state_uri?: string | null;
+  side_effect_ledger_uri?: string | null;
+  guard_decision?: "pass" | "blocked" | null;
+  guard_authorities?: string[];
+  guard_blockers?: string[];
   cycle_id?: string | null;
   experiment_id?: string | null;
   cycle_snapshot_uri?: string | null;

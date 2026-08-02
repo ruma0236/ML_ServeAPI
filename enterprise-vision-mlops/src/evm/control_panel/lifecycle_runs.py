@@ -19,6 +19,11 @@ from evm.control_panel.experiment_runs import (
     read_experiment,
     unresolved_quality_review,
 )
+from evm.control_panel.lifecycle_guards import (
+    LifecycleGuardBlocked,
+    dispatch_lifecycle_guard,
+    seal_lifecycle_guard_artifacts,
+)
 from evm.control_panel.pipeline_profiles import (
     PipelineProfileRecord,
     get_profile,
@@ -145,6 +150,9 @@ class LifecycleRun(ContractModel):
     profile_version: int
     profile_digest: str
     effective_config_digest: str
+    lifecycle_series_id: str | None = None
+    attempt_id: str | None = None
+    correlation_id: str | None = None
     source_commit: str | None = None
     source_branch: str | None = None
     state: LifecycleRunState
@@ -165,6 +173,13 @@ class LifecycleRun(ContractModel):
     model_config_uri: str
     model_runtime_uri: str
     artifact_root: str
+    identity_envelope_uri: str | None = None
+    component_revision_map_uri: str | None = None
+    guard_state_uri: str | None = None
+    side_effect_ledger_uri: str | None = None
+    guard_decision: Literal["pass", "blocked"] | None = None
+    guard_authorities: list[str] = Field(default_factory=list)
+    guard_blockers: list[str] = Field(default_factory=list)
     cycle_id: str | None = None
     experiment_id: str | None = None
     cycle_snapshot_uri: str | None = None
@@ -338,6 +353,20 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
     created_at = utc_now()
     run_id = f"lifecycle-{created_at.replace(':', '').replace('-', '').replace('Z', '')}-{uuid4().hex[:8]}"
     snapshot = prepare_runtime_snapshot(run_id, record)
+    guard_identity = seal_lifecycle_guard_artifacts(
+        directory=lifecycle_root() / run_id,
+        run_id=run_id,
+        profile_id=record.profile_id,
+        profile_version=record.version,
+        profile_digest=record.digest,
+        effective_config_digest=snapshot["effective_config_digest"],
+        source_commit=source_commit or "unresolved",
+        source_branch=source_branch,
+        profile_snapshot_uri=snapshot["profile_snapshot_uri"],
+        airflow_config_uri=snapshot["airflow_config_uri"],
+        model_config_uri=snapshot["model_config_uri"],
+        dirty_state_digest=os.getenv("EVM_GIT_DIRTY_DIGEST"),
+    )
     stages = build_stages()
     stages[0] = stages[0].model_copy(
         update={
@@ -357,6 +386,9 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
         profile_version=record.version,
         profile_digest=record.digest,
         effective_config_digest=snapshot["effective_config_digest"],
+        lifecycle_series_id=guard_identity.lifecycle_series_id,
+        attempt_id=guard_identity.attempt_id,
+        correlation_id=guard_identity.correlation_id,
         source_commit=source_commit,
         source_branch=source_branch,
         state=state,
@@ -375,6 +407,13 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
         model_config_uri=snapshot["model_config_uri"],
         model_runtime_uri=snapshot["model_runtime_uri"],
         artifact_root=snapshot["artifact_root"],
+        identity_envelope_uri=str(lifecycle_root() / run_id / "identity.envelope.json"),
+        component_revision_map_uri=guard_identity.component_revision_map_uri,
+        guard_state_uri=str(lifecycle_root() / run_id / "guard_state.json"),
+        side_effect_ledger_uri=str(lifecycle_root() / run_id / "side_effect_ledger.json"),
+        guard_decision="pass",
+        guard_authorities=["D", "E"],
+        guard_blockers=[],
         blockers=[] if source_commit else ["source_revision_missing"],
         stages=stages,
         audit=[
@@ -691,9 +730,11 @@ def queue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
                 "LifecycleRun cannot be queued without an immutable source commit.",
                 status_code=422,
             )
+        decision = lifecycle_guard_decision(run, "data_pipeline", "queue")
         run.state = "queued"
         run.dry_run = False
         run.current_stage = "data_pipeline"
+        apply_guard_decision(run, decision)
         run.audit.append(audit(request.actor, "lifecycle_run_queued", reason=request.reason))
         return run
 
@@ -720,7 +761,9 @@ def continue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Life
                 f"Stage {stage.stage_id} is {stage.state}; not_started is required.",
             )
         assert_dependencies_complete(run, index)
+        decision = lifecycle_guard_decision(run, stage.stage_id, "continue")
         run.state = "queued"
+        apply_guard_decision(run, decision)
         run.audit.append(
             audit(
                 request.actor,
@@ -761,6 +804,7 @@ def approve_lifecycle_run(
                 "lifecycle_approval_stage_invalid",
                 f"Approval stage is {stage.state}; waiting_approval is required.",
             )
+        decision = lifecycle_guard_decision(run, "approval", "approve")
         now = utc_now()
         run.stages[index] = stage.model_copy(
             update={
@@ -773,6 +817,7 @@ def approve_lifecycle_run(
             }
         )
         run.approver = request.approver
+        apply_guard_decision(run, decision)
         run.current_stage = next_stage_id(run)
         run.progress = stage_progress(run.stages)
         run.state = derive_run_state(run)
@@ -831,6 +876,7 @@ def retry_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
                 "lifecycle_stage_attempts_exhausted",
                 f"Stage {stage.stage_id} exhausted {stage.max_attempts} attempts.",
             )
+        decision = lifecycle_guard_decision(run, stage.stage_id, "retry")
         index = stage_index(run, stage.stage_id)
         run.stages[index] = stage.model_copy(
             update={
@@ -851,6 +897,7 @@ def retry_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
         run.failure_reason = None
         run.blockers = []
         run.finished_at = None
+        apply_guard_decision(run, decision)
         run.audit.append(
             audit(
                 request.actor,
@@ -896,6 +943,9 @@ def transition_stage(
             )
         if state in {"queued", "running", "waiting_approval"}:
             assert_dependencies_complete(run, index)
+        decision = None
+        if state in {"queued", "running", "waiting_approval", "completed", "skipped"}:
+            decision = lifecycle_guard_decision(run, stage_id, state)
         now = utc_now()
         next_attempt = stage.attempt
         started_at = stage.started_at
@@ -936,6 +986,8 @@ def transition_stage(
             }
         )
         run.stages[index] = stage
+        if decision is not None:
+            apply_guard_decision(run, decision)
         run.current_stage = next_stage_id(run)
         run.progress = stage_progress(run.stages)
         run.state = derive_run_state(run)
@@ -961,6 +1013,69 @@ def transition_stage(
         return run
 
     return mutate_run(run_id, None, update)
+
+
+def lifecycle_guard_decision(
+    run: LifecycleRun,
+    stage_id: str,
+    transition: str,
+):
+    if not run.identity_envelope_uri:
+        raise LifecycleRunError(
+            "lifecycle_identity_envelope_missing",
+            "LifecycleRun has no sealed identity envelope.",
+            status_code=422,
+        )
+    runtime_revisions: dict[str, str | None] = {}
+    if os.getenv("EVM_LIFECYCLE_GUARD_REQUIRE_RUNTIME_MATCH", "false").lower() == "true":
+        from evm.control_panel.host_runtime import read_host_runtime_supervisor
+
+        supervisor = read_host_runtime_supervisor()
+        runtime_revisions = {
+            child.name: child.source_commit
+            for child in supervisor.children
+            if child.name in {"lifecycle_worker", "kubernetes_observer"}
+        }
+        if supervisor.status != "healthy":
+            runtime_revisions.setdefault("lifecycle_worker", None)
+            runtime_revisions.setdefault("kubernetes_observer", None)
+    try:
+        return dispatch_lifecycle_guard(
+            directory=Path(run.identity_envelope_uri).parent,
+            stage_id=stage_id,
+            transition=transition,
+            run_identity={
+                "run_id": run.run_id,
+                "profile_id": run.profile_id,
+                "profile_version": run.profile_version,
+                "profile_digest": run.profile_digest,
+                "effective_config_digest": run.effective_config_digest,
+                "source_commit": run.source_commit,
+                "profile_snapshot_uri": run.profile_snapshot_uri,
+                "airflow_config_uri": run.airflow_config_uri,
+                "model_config_uri": run.model_config_uri,
+                "lifecycle_series_id": run.lifecycle_series_id,
+                "attempt_id": run.attempt_id,
+                "correlation_id": run.correlation_id,
+            },
+            runtime_revisions=runtime_revisions,
+            require_runtime_match=(
+                os.getenv("EVM_LIFECYCLE_GUARD_REQUIRE_RUNTIME_MATCH", "false").lower()
+                == "true"
+            ),
+        )
+    except LifecycleGuardBlocked as exc:
+        raise LifecycleRunError(
+            "lifecycle_guard_blocked",
+            ", ".join(exc.blockers),
+            status_code=422,
+        ) from exc
+
+
+def apply_guard_decision(run: LifecycleRun, decision) -> None:
+    run.guard_decision = decision.decision
+    run.guard_authorities = decision.authorities
+    run.guard_blockers = decision.blockers
 
 
 def update_stage_runtime(

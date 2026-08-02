@@ -184,6 +184,9 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "/control-panel/v1/lifecycle-runs/{run_id}/continue" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/retry" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/approve" in openapi["paths"]
+    assert set(LifecycleRun.model_fields).issubset(
+        schemas["LifecycleRun"]["properties"]
+    )
     assert "/control-panel/v1/stage-handoffs" in openapi["paths"]
     assert "/control-panel/v1/model-candidates" in openapi["paths"]
     assert "/control-panel/v1/model-candidates/{candidate_key}/select" in openapi["paths"]
