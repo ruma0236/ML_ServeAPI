@@ -220,12 +220,16 @@ def test_evidence_writer_indexes_every_artifact(tmp_path: Path) -> None:
         root=tmp_path,
         result=result,
         requests=_requests(),
+        canonical_evidence_root=Path("F:/canonical-evidence"),
     )
     index = json.loads(index_path.read_text(encoding="utf-8"))
 
     assert len(index["artifacts"]) == 8
     for artifact in index["artifacts"]:
-        path = Path(artifact["uri"])
+        assert artifact["uri"].startswith("F:/canonical-evidence/scenario-b-evidence/")
+        relative = Path(artifact["uri"]).relative_to(
+            Path("F:/canonical-evidence/scenario-b-evidence")
+        )
+        path = tmp_path / "scenario-b-evidence" / relative
         assert path.is_file()
         assert sha256_file(path) == artifact["sha256"]
-

@@ -371,14 +371,14 @@ def execute_real_replay(
     warmup_requests: int,
     inject_error_count: int,
 ) -> tuple[ControlledReplayResult, Path]:
-    policy, stable, _ = load_runtime_config(config_path)
+    policy, stable, replay_config = load_runtime_config(config_path)
     challenger, quality, summary = load_candidate_identity(
         candidate_summary_path=candidate_summary_path,
         model_path=model_path,
         image_digest=stable.image_digest,
     )
     if sha256_file(manifest_path) != str(
-        load_runtime_config(config_path)[2].get("manifest_sha256") or ""
+        replay_config.get("manifest_sha256") or ""
     ):
         raise ValueError("replay_manifest_digest_mismatch")
     records = load_replay_records(
@@ -492,5 +492,6 @@ def execute_real_replay(
             "runtime": runtime_path,
             "candidate_summary_reference": summary_path,
         },
+        canonical_evidence_root=Path(str(replay_config["evidence_root"])),
     )
     return result, index_path

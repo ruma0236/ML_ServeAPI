@@ -505,6 +505,7 @@ def write_controlled_replay_evidence(
     result: ControlledReplayResult,
     requests: list[ReplayRequest],
     additional_artifacts: dict[str, Path] | None = None,
+    canonical_evidence_root: Path | None = None,
 ) -> Path:
     run_root = root / result.run_id
     selected = _request_subset(requests, result.policy.total_replay_requests)
@@ -559,13 +560,20 @@ def write_controlled_replay_evidence(
         artifacts[role] = path
 
     index_path = run_root / "evidence-index.json"
+
+    def canonical_uri(path: Path) -> str:
+        if canonical_evidence_root is None:
+            return str(path.resolve())
+        relative = path.relative_to(run_root)
+        return str((canonical_evidence_root / result.run_id / relative).as_posix())
+
     index = {
         "schema_version": "evm.scenario_b_evidence_index.v1",
         "run_id": result.run_id,
         "artifacts": [
             {
                 "role": role,
-                "uri": str(path.resolve()),
+                "uri": canonical_uri(path),
                 "sha256": sha256_file(path),
             }
             for role, path in sorted(artifacts.items())
