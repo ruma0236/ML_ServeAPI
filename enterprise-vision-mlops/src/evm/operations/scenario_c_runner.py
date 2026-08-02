@@ -322,7 +322,8 @@ def build_common_report(
     policy: ScenarioCPolicy,
     identity: ScenarioCIdentity,
     source_branch: str,
-    supervisor: dict[str, Any],
+    supervisor_before: dict[str, Any],
+    supervisor_after: dict[str, Any],
     gpu_runtime: dict[str, Any],
     known_good_decision,
     shift_decision,
@@ -331,13 +332,15 @@ def build_common_report(
     registration_results,
     real_gate,
     gate_fixtures,
-    production_ready: dict[str, Any],
-    prometheus: dict[str, Any],
+    production_ready_before: dict[str, Any],
+    prometheus_before: dict[str, Any],
+    production_ready_after: dict[str, Any],
+    prometheus_after: dict[str, Any],
     artifact_paths: dict[str, Path],
     canonical_root: str,
     target_uid: str,
 ) -> OperationalFailureReport:
-    children = {item["name"]: item for item in supervisor["children"]}
+    children = {item["name"]: item for item in supervisor_after["children"]}
     preconditions = [
         CheckEvidence(
             check_id="source_clean",
@@ -357,7 +360,15 @@ def build_common_report(
         CheckEvidence(
             check_id="stable_production_before",
             passed=True,
-            observed=production_ready,
+            observed={
+                "readiness": production_ready_before,
+                "prometheus": prometheus_before,
+            },
+        ),
+        CheckEvidence(
+            check_id="supervisor_live_before",
+            passed=True,
+            observed=supervisor_before,
         ),
         CheckEvidence(
             check_id="scenario_b_release_controls",
@@ -457,17 +468,37 @@ def build_common_report(
         CheckEvidence(
             check_id="production_unchanged_after",
             passed=(
-                production_ready.get("model_sha256") == identity.baseline_model_sha256
-                and production_ready.get("device") == "cuda"
-                and prometheus.get("health") == "up"
+                production_ready_before.get("model_sha256")
+                == production_ready_after.get("model_sha256")
+                == identity.baseline_model_sha256
+                and production_ready_before.get("candidate_id")
+                == production_ready_after.get("candidate_id")
+                == identity.baseline_candidate_id
+                and production_ready_before.get("device")
+                == production_ready_after.get("device")
+                == "cuda"
+                and prometheus_before.get("health")
+                == prometheus_after.get("health")
+                == "up"
                 and not real_gate.production_mutated
             ),
             observed={
-                "readiness": production_ready,
-                "prometheus": prometheus,
+                "before": {
+                    "readiness": production_ready_before,
+                    "prometheus": prometheus_before,
+                },
+                "after": {
+                    "readiness": production_ready_after,
+                    "prometheus": prometheus_after,
+                },
                 "deployment_intent_created": real_gate.deployment_intent_created,
                 "production_mutated": real_gate.production_mutated,
             },
+        ),
+        CheckEvidence(
+            check_id="supervisor_live_after",
+            passed=True,
+            observed=supervisor_after,
         ),
     ]
     failed = [item.check_id for item in preconditions + postconditions if not item.passed]
@@ -501,9 +532,15 @@ def build_common_report(
             commit=identity.source_revision,
             branch=source_branch,
             dirty=False,
-            api_revision=str(supervisor["source_commit"]),
-            worker_revision=str(children["lifecycle_worker"].get("source_commit") or supervisor["source_commit"]),
-            observer_revision=str(children["kubernetes_observer"].get("source_commit") or supervisor["source_commit"]),
+            api_revision=str(supervisor_after["source_commit"]),
+            worker_revision=str(
+                children["lifecycle_worker"].get("source_commit")
+                or supervisor_after["source_commit"]
+            ),
+            observer_revision=str(
+                children["kubernetes_observer"].get("source_commit")
+                or supervisor_after["source_commit"]
+            ),
         ),
         environment=EnvironmentEvidence(
             cluster_context=os.getenv("EVM_CLUSTER_CONTEXT", "docker-desktop"),
@@ -691,6 +728,11 @@ def run(config_path: str | Path) -> dict[str, Any]:
     require_file_digest(shard_index_path, identity.shard_index_sha256, "shard_index")
     require_file_digest(model_path, identity.baseline_model_sha256, "baseline_model")
     require_file_digest(ct_manifest_path, identity.ct_manifest_sha256, "ct_manifest")
+    production_ready_before, prometheus_before = production_postcondition(
+        stable_digest=identity.baseline_model_sha256,
+        candidate_id=identity.baseline_candidate_id,
+    )
+    supervisor_before = load_supervisor()
 
     canonical_root = str(config["outputs"]["artifact_root"])
     runtime_root = runtime_path(canonical_root)
@@ -887,11 +929,11 @@ def run(config_path: str | Path) -> dict[str, Any]:
         evaluated_at=started_at,
     )
 
-    production_ready, prometheus = production_postcondition(
+    production_ready_after, prometheus_after = production_postcondition(
         stable_digest=identity.baseline_model_sha256,
         candidate_id=identity.baseline_candidate_id,
     )
-    supervisor = load_supervisor()
+    supervisor_after = load_supervisor()
     recovery_monotonic_ns = time.monotonic_ns()
     finished_at = utc_now()
     gpu_runtime = {
@@ -922,9 +964,16 @@ def run(config_path: str | Path) -> dict[str, Any]:
         "gate-fixtures.json": {"fixtures": fixtures},
         "runtime.json": {
             "gpu": gpu_runtime,
-            "production_readiness": production_ready,
-            "prometheus": prometheus,
-            "supervisor": supervisor,
+            "before": {
+                "production_readiness": production_ready_before,
+                "prometheus": prometheus_before,
+                "supervisor": supervisor_before,
+            },
+            "after": {
+                "production_readiness": production_ready_after,
+                "prometheus": prometheus_after,
+                "supervisor": supervisor_after,
+            },
         },
     }
     artifact_paths: dict[str, Path] = {"derived_manifest": derived_manifest_path}
@@ -965,7 +1014,8 @@ def run(config_path: str | Path) -> dict[str, Any]:
         policy=policy,
         identity=identity,
         source_branch=source_branch,
-        supervisor=supervisor,
+        supervisor_before=supervisor_before,
+        supervisor_after=supervisor_after,
         gpu_runtime=gpu_runtime,
         known_good_decision=known_good_decision,
         shift_decision=shift_decision,
@@ -974,8 +1024,10 @@ def run(config_path: str | Path) -> dict[str, Any]:
         registration_results=registration_results,
         real_gate=real_gate,
         gate_fixtures=fixtures,
-        production_ready=production_ready,
-        prometheus=prometheus,
+        production_ready_before=production_ready_before,
+        prometheus_before=prometheus_before,
+        production_ready_after=production_ready_after,
+        prometheus_after=prometheus_after,
         artifact_paths=artifact_paths,
         canonical_root=canonical_root,
         target_uid=target_uid,
