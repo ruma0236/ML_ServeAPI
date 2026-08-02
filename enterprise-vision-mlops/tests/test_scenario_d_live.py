@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from evm.operations.scenario_d_live import (
     action_digest,
     approval_binding_errors,
+    heartbeat_cadence_summary,
     percentile_95,
     same_production,
 )
@@ -94,6 +95,20 @@ def test_approval_binding_is_exact_unexpired_and_single_use() -> None:
 def test_percentile_95_is_deterministic() -> None:
     assert percentile_95([]) is None
     assert percentile_95([5.0, 4.0, 6.0, 5.5]) == 6.0
+
+
+def test_heartbeat_cadence_summary_requires_real_timestamp_deltas() -> None:
+    timestamps = [
+        datetime(2026, 8, 2, 0, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 8, 2, 0, 0, 5, tzinfo=timezone.utc),
+        datetime(2026, 8, 2, 0, 0, 11, tzinfo=timezone.utc),
+    ]
+    assert heartbeat_cadence_summary(timestamps) == {
+        "heartbeat_timestamps": [value.isoformat() for value in timestamps],
+        "heartbeat_deltas_seconds": [5.0, 6.0],
+        "heartbeat_delta_count": 2,
+        "heartbeat_p95_seconds": 6.0,
+    }
 
 
 def test_same_production_requires_exact_uid_model_gpu_plugin_and_prometheus() -> None:

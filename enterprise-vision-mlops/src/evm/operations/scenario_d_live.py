@@ -54,6 +54,9 @@ OBSERVER_IDENTITY_PATH = Path(
     "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/kubernetes_observer/"
     "observer.identity.json"
 )
+CLAIM_ROOT = Path(
+    "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/lifecycle_runs/_claims"
+)
 PRODUCTION_READY_URL = "http://127.0.0.1:30800/ready"
 PRODUCTION_PREDICT_URL = "http://127.0.0.1:30800/predict"
 DEFAULT_INFERENCE_IMAGE_URI = (
@@ -266,6 +269,17 @@ def active_lifecycle_runs() -> list[str]:
     ]
 
 
+def lifecycle_claim_state() -> dict[str, Any]:
+    claims: list[dict[str, Any]] = []
+    if CLAIM_ROOT.exists():
+        for path in sorted(CLAIM_ROOT.rglob("*.json")):
+            try:
+                claims.append({"uri": str(path.resolve()), "payload": read_json(path)})
+            except (OSError, ValueError, json.JSONDecodeError):
+                claims.append({"uri": str(path.resolve()), "payload": "invalid_json"})
+    return {"claim_count": len(claims), "claims": claims}
+
+
 def runtime_snapshot(*, inference_image_uri: str) -> dict[str, Any]:
     return {
         "supervisor": read_json(SUPERVISOR_PATH),
@@ -281,6 +295,14 @@ def runtime_snapshot(*, inference_image_uri: str) -> dict[str, Any]:
         "prometheus": prometheus_target(),
         "kubernetes": kubernetes_runtime(),
         "active_lifecycle_runs": active_lifecycle_runs(),
+        "process_census": {
+            "lifecycle_worker": process_census("lifecycle_worker"),
+            "kubernetes_observer": process_census("kubernetes_observer"),
+        },
+        "restart_ledger": (
+            read_json(LEDGER_PATH) if LEDGER_PATH.exists() else {"attempts": []}
+        ),
+        "lifecycle_claims": lifecycle_claim_state(),
     }
 
 
@@ -543,6 +565,79 @@ def percentile_95(values: list[float]) -> float | None:
     return ordered[min(len(ordered) - 1, math.ceil(len(ordered) * 0.95) - 1)]
 
 
+def heartbeat_cadence_summary(timestamps: list[datetime]) -> dict[str, Any]:
+    deltas = [
+        (right - left).total_seconds()
+        for left, right in zip(timestamps, timestamps[1:])
+        if right >= left
+    ]
+    return {
+        "heartbeat_timestamps": [value.isoformat() for value in timestamps],
+        "heartbeat_deltas_seconds": deltas,
+        "heartbeat_delta_count": len(deltas),
+        "heartbeat_p95_seconds": percentile_95(deltas),
+    }
+
+
+def collect_healthy_heartbeat_cadence(
+    *,
+    child: ChildName,
+    old_pid: int,
+    source_commit: str,
+    lease_id: str,
+    fencing_token: int,
+    minimum_deltas: int,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout_seconds
+    timestamps: list[datetime] = []
+    seen: set[str] = set()
+    samples: list[dict[str, Any]] = []
+    while time.monotonic() < deadline:
+        observed_at = utc_now()
+        try:
+            supervisor = read_json(SUPERVISOR_PATH)
+            target = supervisor_child(supervisor, child)
+            heartbeat_value = heartbeat_observed_at(child)
+            process_live = (
+                target.get("status") == "live"
+                and target.get("exact_identity") is True
+                and int(target.get("pid") or 0) != old_pid
+                and target.get("source_commit") == source_commit
+                and target.get("revision_matches") is True
+                and target.get("lease_matches") is True
+                and target.get("fencing_matches") is True
+                and supervisor.get("lease_id") == lease_id
+                and int(supervisor.get("fencing_token")) == fencing_token
+            )
+            if process_live and heartbeat_value not in seen:
+                seen.add(heartbeat_value)
+                timestamps.append(parse_utc(heartbeat_value))
+        except (KeyError, OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
+            target = None
+            heartbeat_value = None
+            process_live = False
+        samples.append(
+            {
+                "observed_at": observed_at.isoformat(),
+                "target": target,
+                "heartbeat": heartbeat_value,
+                "process_live": process_live,
+            }
+        )
+        if len(timestamps) >= minimum_deltas + 1:
+            break
+        time.sleep(0.2)
+    summary = heartbeat_cadence_summary(timestamps)
+    summary["samples"] = samples
+    if summary["heartbeat_delta_count"] < minimum_deltas:
+        raise RuntimeError(
+            f"scenario_d_healthy_heartbeat_samples_insufficient:{child}:"
+            f"{summary['heartbeat_delta_count']}"
+        )
+    return summary
+
+
 def collect_recovery(
     *,
     child: ChildName,
@@ -620,11 +715,7 @@ def collect_recovery(
         raise RuntimeError(f"scenario_d_detection_timeout:{child}")
     if recovery_ns is None or final_supervisor is None:
         raise RuntimeError(f"scenario_d_recovery_timeout:{child}")
-    heartbeat_deltas = [
-        (right - left).total_seconds()
-        for left, right in zip(heartbeat_times, heartbeat_times[1:])
-        if right >= left
-    ]
+    observed_cadence = heartbeat_cadence_summary(heartbeat_times)
     return {
         "detection_monotonic_ns": detection_ns,
         "recovery_monotonic_ns": recovery_ns,
@@ -632,8 +723,11 @@ def collect_recovery(
         "recovery_seconds": (recovery_ns - injection_ns) / 1_000_000_000,
         "detection_event": detection_event,
         "samples": samples,
-        "heartbeat_deltas_seconds": heartbeat_deltas,
-        "heartbeat_p95_seconds": percentile_95(heartbeat_deltas),
+        "observed_heartbeat_timestamps": observed_cadence["heartbeat_timestamps"],
+        "observed_heartbeat_deltas_seconds": observed_cadence[
+            "heartbeat_deltas_seconds"
+        ],
+        "observed_heartbeat_p95_seconds": observed_cadence["heartbeat_p95_seconds"],
         "supervisor": final_supervisor,
     }
 
@@ -747,6 +841,10 @@ def run_live_once(
         )
     )
     artifact_paths = [
+        write_artifact(
+            run_root / "policy.json",
+            policy.model_dump(mode="json"),
+        ),
         write_artifact(run_root / "before.json", before),
         write_artifact(
             run_root / "preflight.json",
@@ -780,7 +878,15 @@ def run_live_once(
         injection_ns=injection_ns,
         timeout_seconds=policy.max_recovery_seconds,
     )
-    time.sleep(1)
+    recovery["healthy_cadence"] = collect_healthy_heartbeat_cadence(
+        child=child,
+        old_pid=old_pid,
+        source_commit=source_commit,
+        lease_id=str(supervisor_before["lease_id"]),
+        fencing_token=int(supervisor_before["fencing_token"]),
+        minimum_deltas=2,
+        timeout_seconds=max(30.0, policy.heartbeat_interval_seconds * 6),
+    )
     after = runtime_snapshot(inference_image_uri=inference_image_uri)
     new_identity, new_process = exact_process_identity(child)
     supervisor_after = after["supervisor"]
@@ -798,6 +904,13 @@ def run_live_once(
             check_id="recovery_within_target",
             passed=recovery["recovery_seconds"] <= policy.max_recovery_seconds,
             observed=recovery["recovery_seconds"],
+        ),
+        CheckEvidence(
+            check_id="healthy_heartbeat_cadence_within_target",
+            passed=recovery["healthy_cadence"]["heartbeat_delta_count"] >= 2
+            and recovery["healthy_cadence"]["heartbeat_p95_seconds"]
+            <= policy.max_heartbeat_p95_seconds,
+            observed=recovery["healthy_cadence"],
         ),
         CheckEvidence(
             check_id="target_replaced_exactly_once",
@@ -1105,16 +1218,46 @@ def run_live_series(
         )
         raise
     summaries = []
+    required_live_checks = {
+        "detection_within_target",
+        "recovery_within_target",
+        "healthy_heartbeat_cadence_within_target",
+        "target_replaced_exactly_once",
+        "unaffected_child_not_restarted",
+        "revision_lease_fence_converged",
+        "control_panel_recovered",
+        "production_and_prometheus_unchanged",
+        "duplicate_process_and_active_run_zero",
+        "maintenance_approval_consumed_once",
+    }
     for report_path in reports:
         report = OperationalFailureReport.model_validate_json(
             report_path.read_text(encoding="utf-8")
         )
+        postconditions = {item.check_id: item for item in report.postconditions}
+        missing = sorted(required_live_checks - set(postconditions))
+        failed = sorted(
+            check_id
+            for check_id in required_live_checks
+            if check_id in postconditions and not postconditions[check_id].passed
+        )
+        if missing or failed:
+            raise RuntimeError(
+                f"scenario_d_series_acceptance_failed:missing={missing}:failed={failed}"
+            )
+        timeline = read_json(report_path.parent / "timeline.json")
         summaries.append(
             {
                 "run_id": report.run_id,
                 "target": report.injection.target,
                 "detection_seconds": report.timing.detection_seconds,
                 "recovery_seconds": report.timing.recovery_seconds,
+                "healthy_heartbeat_p95_seconds": timeline["healthy_cadence"][
+                    "heartbeat_p95_seconds"
+                ],
+                "healthy_heartbeat_delta_count": timeline["healthy_cadence"][
+                    "heartbeat_delta_count"
+                ],
                 "report_uri": str(report_path.resolve()),
                 "report_sha256": sha256_file(report_path),
             }
@@ -1128,6 +1271,18 @@ def run_live_series(
             "source_commit": source_commit,
             "sequence": sequence,
             "runs": summaries,
+            "acceptance": {
+                "required_live_checks": sorted(required_live_checks),
+                "max_detection_seconds": max(
+                    float(item["detection_seconds"]) for item in summaries
+                ),
+                "max_recovery_seconds": max(
+                    float(item["recovery_seconds"]) for item in summaries
+                ),
+                "max_healthy_heartbeat_p95_seconds": max(
+                    float(item["healthy_heartbeat_p95_seconds"]) for item in summaries
+                ),
+            },
             "passed": len(summaries) == len(sequence),
             "completed_at": utc_now().isoformat(),
         },
