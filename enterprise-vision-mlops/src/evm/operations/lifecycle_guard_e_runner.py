@@ -282,7 +282,11 @@ def invariant_diff(
             for job in ("evm-api", "evm-b0-production")
         )
         and all(item["ready"] for item in after_projection["device_plugin"])
-        and all(item["status"] == "online" for item in after_projection["children"].values())
+        and after_projection["supervisor_status"] in {"healthy", "online"}
+        and all(
+            item["status"] in {"live", "online"}
+            for item in after_projection["children"].values()
+        )
     )
     side_effect_checks = {
         role: before_effects[role] == after_effects[role] for role in before_effects

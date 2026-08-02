@@ -13,7 +13,7 @@ def runtime_snapshot() -> dict:
         "prometheus_targets": {"evm-api": "up", "evm-b0-production": "up"},
         "runtime_supervisor": {
             "source_commit": "b" * 40,
-            "status": "online",
+            "status": "healthy",
             "children": [
                 {
                     "name": "lifecycle_worker",
@@ -22,7 +22,7 @@ def runtime_snapshot() -> dict:
                     "source_commit": "b" * 40,
                     "supervisor_lease_id": "lease-1",
                     "fencing_token": 1,
-                    "status": "online",
+                    "status": "live",
                 },
                 {
                     "name": "kubernetes_observer",
@@ -31,7 +31,7 @@ def runtime_snapshot() -> dict:
                     "source_commit": "b" * 40,
                     "supervisor_lease_id": "lease-1",
                     "fencing_token": 1,
-                    "status": "online",
+                    "status": "live",
                 },
             ],
         },
