@@ -120,6 +120,11 @@ RCA records:
 
 Final verification passed `53 / 53` operational tests and Ruff.
 
+Jira closure:
+
+- `SCRUM-173 / EVM-267`: Done, evidence comment `10460`;
+- `SCRUM-144 / EVM-244`: Done, evidence comment `10461`.
+
 ## Portfolio Claim
 
 Supported: a single-node local MLOps system used immutable VisA/CUDA evidence
