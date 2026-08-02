@@ -152,6 +152,25 @@ live labels, container image, and revision environment against the exact
 manifest. Focused regression passes `15 / 15`; the full suite passes
 `464 / 464`.
 
+### Third combined active-training attempt RCA
+
+Source `689b775` attempt
+`scenario-d-training-20260802T192008Z-689b7758` created run
+`lifecycle-20260802T192014-183e0bc1`. Real Airflow again completed 18 terminal
+tasks and the exact training handoff began. During the normal interval after
+the task/ledger entered `running/reserved` but before Kubernetes persisted the
+Job, the admission poll treated API `NotFound` as a terminal kubectl error.
+
+No worker termination occurred. Automatic cancellation released the handoff
+from `19:30:15Z` to `19:30:25Z` (`10 s`), and production B0 returned `1/1`
+and CUDA-ready. No admitted Job remained and no MLflow, candidate, CT, release,
+or deployment intent followed.
+
+The runner now treats only Kubernetes `NotFound` during the bounded admission
+poll as transient. Authentication, context, malformed JSON, ambiguous identity,
+wrong labels/workload, and every other kubectl failure still fail closed.
+Focused tests pass `16 / 16`; the full suite passes `465 / 465`.
+
 ## Remaining Exit Work
 
 This checkpoint does not close Scenario D. The remaining proof must:

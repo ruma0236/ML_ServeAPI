@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import evm.operations.lifecycle_guard_d_training_live as training_live
 import pytest
@@ -154,3 +155,58 @@ def test_exact_training_job_uses_canonical_hashed_run_label(
     }
 
     assert exact_training_job(run_id, task)["metadata"]["uid"] == "job-uid-d"
+
+
+def test_exact_training_job_waits_only_for_kubernetes_not_found(
+    tmp_path, monkeypatch
+) -> None:
+    run_id = "lifecycle-20260802T190057-c8cae6d4"
+    run_label = short_run_id(run_id)
+    job_name = f"evm-lifecycle-train-{run_label}"
+    manifest = {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": job_name,
+            "namespace": "evm-training",
+            "labels": {
+                "app.kubernetes.io/part-of": "enterprise-vision-mlops",
+                "evm.openai.local/lifecycle-run": run_label,
+                "evm.openai.local/candidate-id": "candidate-d",
+            },
+        },
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [
+                        {"name": "trainer", "image": "pipeline:immutable"}
+                    ]
+                }
+            }
+        },
+    }
+    (tmp_path / "training-job.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    task = {
+        "runtime_id": f"evm-training/job/{job_name}",
+        "config_payload": {
+            "manifest_dir": str(tmp_path),
+            "namespace": "evm-training",
+            "job_name": job_name,
+            "lifecycle_run_id": run_id,
+        },
+    }
+
+    def missing(_command):
+        raise subprocess.CalledProcessError(
+            1,
+            ["kubectl", "get", "job"],
+            stderr='Error from server (NotFound): jobs.batch "missing" not found',
+        )
+
+    monkeypatch.setattr(training_live, "kubectl_json", missing)
+
+    assert exact_training_job(run_id, task, allow_not_found=True) is None
+    with pytest.raises(subprocess.CalledProcessError):
+        exact_training_job(run_id, task)

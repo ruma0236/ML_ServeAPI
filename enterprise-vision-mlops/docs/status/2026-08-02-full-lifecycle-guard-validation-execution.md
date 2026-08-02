@@ -331,6 +331,17 @@ runner, and fixtures now share `short_run_id()` and exact manifest workload
 identity. Focused tests pass `15 / 15`, full tests `464 / 464`; D remains open
 for a fresh source-bound attempt.
 
+The third combined attempt at source `689b775`, series
+`scenario-d-training-20260802T192008Z-689b7758`, completed real Airflow 18/18
+and began the exact training handoff. Its bounded admission poll observed the
+normal task/ledger `running/reserved` state just before Kubernetes persisted
+the Job and incorrectly treated API `NotFound` as terminal. No worker was
+terminated. Automatic cancellation released the handoff in `10 s` and restored
+B0 CUDA; no Job outcome, MLflow, candidate, CT, release, or intent followed.
+Only `NotFound` is now transient during admission; all other kubectl and
+identity failures remain fail closed. Focused tests pass `16 / 16`, full tests
+`465 / 465`; another immutable attempt is required.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -342,6 +353,7 @@ for a fresh source-bound attempt.
 | `lifecycle-20260802T165525-279cf1dc` | `85867e1` | PASS: 11/11 preflight, Airflow 18/18, real CUDA training, MLflow, readiness 13/13, isolated CT 18/18, local-staging approval/deploy, CUDA serving and Prometheus; 10/10 stages complete | eight intended side effects; bounded single-GPU handoffs; cleanup restored exact production B0 1/1 and staging 0/0 | accepted golden baseline; result under F-drive `validation/integrated-attempt-result.json`; proceed to E on a new immutable attempt |
 | `lifecycle-20260802T183833-47cdc111` | `7a68097` | Airflow 18/18 terminal; training blocked before Job admission with `gpu_handoff_approval_missing:training` | none; no worker termination or resource handoff; production B0 remained CUDA-ready | retain immutable RCA; runner now pre-issues exact phase approvals and independently approves the sealed release; retry from a new source revision |
 | `lifecycle-20260802T190057-c8cae6d4` | `649114f` | Airflow 18/18 terminal; exact training approval consumed and Job admitted; blocked before worker termination on stale run-label expectation | bounded production handoff occurred; automatic cancel deleted Job and released handoff in 48 s; B0 returned 1/1 CUDA; no MLflow/candidate/CT/intent | retain immutable RCA; unify runner/reconciler/fixtures on canonical `short_run_id()` and exact manifest identity; retry from a new source revision |
+| `lifecycle-20260802T192014-183e0bc1` | `689b775` | Airflow 18/18 terminal; training handoff began; admission poll hit the normal pre-persistence Job `NotFound` window | no worker termination; automatic cancel released handoff in 10 s and restored B0 CUDA; no downstream outcome | retain immutable RCA; wait only on `NotFound` during bounded admission while every other error remains fail closed; retry from a new source revision |
 
 ## Synchronization Rule
 

@@ -241,7 +241,12 @@ def exact_training_entry(
     return matches[0].model_dump(mode="json")
 
 
-def exact_training_job(run_id: str, task: dict[str, Any]) -> dict[str, Any]:
+def exact_training_job(
+    run_id: str,
+    task: dict[str, Any],
+    *,
+    allow_not_found: bool = False,
+) -> dict[str, Any] | None:
     runtime_id = str(task.get("runtime_id") or "")
     parts = runtime_id.split("/")
     if len(parts) != 3 or parts[1] != "job":
@@ -262,7 +267,13 @@ def exact_training_job(run_id: str, task: dict[str, Any]) -> dict[str, Any]:
         namespace=namespace,
         job_name=name,
     )
-    payload = kubectl_json(["get", "job", name, "-n", namespace])
+    try:
+        payload = kubectl_json(["get", "job", name, "-n", namespace])
+    except subprocess.CalledProcessError as exc:
+        normalized = str(exc.stderr or "").replace(" ", "").lower()
+        if allow_not_found and "notfound" in normalized:
+            return None
+        raise
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     labels = metadata.get("labels") if isinstance(metadata.get("labels"), dict) else {}
     expected_labels = expected["labels"]
@@ -310,7 +321,9 @@ def admission_snapshot(run_id: str) -> dict[str, Any] | None:
     entry = exact_training_entry(ledger)
     if entry["state"] != "reserved":
         return None
-    job = exact_training_job(run_id, task)
+    job = exact_training_job(run_id, task, allow_not_found=True)
+    if job is None:
+        return None
     state = training_job_state(job)
     if state not in {"active", "admitted"}:
         return None
@@ -456,6 +469,8 @@ def run_job_identities(run_id: str) -> list[dict[str, str]]:
         if task.get("task_type") != "kubernetes_job":
             continue
         item = exact_training_job(run_id, task)
+        if item is None:
+            raise RuntimeError("lifecycle_job_disappeared_after_completion")
         metadata = item.get("metadata") if isinstance(item, dict) else {}
         labels = metadata.get("labels") if isinstance(metadata.get("labels"), dict) else {}
         identities.append(
