@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -24,6 +26,16 @@ class KubernetesTaskExecutionError(RuntimeError):
 
 class KubernetesTaskCancellationRequested(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class KubernetesTaskObservation:
+    runtime_id: str
+    resource_uid: str
+    lifecycle_run_label: str
+    candidate_label: str
+    observed_state: str
+    evidence_uri: str
 
 
 def project_root() -> Path:
@@ -82,6 +94,196 @@ def run_command(
         timeout=timeout,
         check=False,
     )
+
+
+def observe_exact_kubernetes_task(
+    task_id: str,
+    *,
+    runner: Runner = subprocess.run,
+) -> KubernetesTaskObservation:
+    """Observe one previously dispatched Job without creating or replacing it."""
+
+    task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
+    if task is None:
+        raise KubernetesTaskExecutionError("task_not_found")
+    if task.task_type != "kubernetes_job":
+        raise KubernetesTaskExecutionError("task_is_not_kubernetes_job")
+    if task.status not in {"running", "done"}:
+        raise KubernetesTaskExecutionError(
+            f"kubernetes_reconciliation_task_not_observable:{task.status}"
+        )
+    if task.config_payload.get("adapter") != "host-kubectl-bridge":
+        raise KubernetesTaskExecutionError("kubernetes_adapter_not_allowed")
+
+    manifest_dir = resolve_manifest_dir(task.config_payload.get("manifest_dir"))
+    namespace = str(task.config_payload.get("namespace") or "").strip()
+    job_name = str(task.config_payload.get("job_name") or "").strip()
+    lifecycle_run_id = str(task.config_payload.get("lifecycle_run_id") or "").strip()
+    if not namespace or not job_name or not lifecycle_run_id:
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_identity_missing")
+    runtime_id = f"{namespace}/job/{job_name}"
+    if task.runtime_system != "kubernetes" or task.runtime_id != runtime_id:
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_runtime_identity_mismatch")
+
+    expected = expected_job_identity(manifest_dir, namespace=namespace, job_name=job_name)
+    command = ["kubectl", "get", "job", job_name, "-n", namespace, "-o", "json"]
+    result = run_command(runner, command, timeout=30)
+    if result.returncode != 0:
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_job_missing")
+    try:
+        observed = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_job_invalid") from exc
+    if not isinstance(observed, dict):
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_job_invalid")
+
+    metadata = observed.get("metadata") if isinstance(observed.get("metadata"), dict) else {}
+    observed_name = str(metadata.get("name") or "")
+    observed_namespace = str(metadata.get("namespace") or "")
+    resource_uid = str(metadata.get("uid") or "")
+    labels = metadata.get("labels") if isinstance(metadata.get("labels"), dict) else {}
+    if (
+        observed_name != job_name
+        or observed_namespace != namespace
+        or not resource_uid
+    ):
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_exact_target_mismatch")
+    expected_labels = expected["labels"]
+    if any(str(labels.get(key) or "") != value for key, value in expected_labels.items()):
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_label_identity_mismatch")
+
+    observed_containers = job_container_identity(observed)
+    if observed_containers != expected["containers"]:
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_workload_identity_mismatch")
+    expected_run_label = str(expected_labels.get("evm.openai.local/lifecycle-run") or "")
+    if not expected_run_label or not lifecycle_run_id.endswith(expected_run_label):
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_run_identity_mismatch")
+
+    conditions = {
+        str(item.get("type")): str(item.get("status"))
+        for item in (observed.get("status") or {}).get("conditions", [])
+        if isinstance(item, dict)
+    }
+    if conditions.get("Failed") == "True":
+        observed_state = "failed"
+    elif conditions.get("Complete") == "True":
+        observed_state = "complete"
+    else:
+        observed_state = "running"
+    evidence = {
+        "schema_version": "evm.lifecycle_kubernetes_reconciliation.v1",
+        "task_id": task.task_id,
+        "lifecycle_run_id": lifecycle_run_id,
+        "runtime_id": runtime_id,
+        "resource_uid": resource_uid,
+        "observed_state": observed_state,
+        "expected_identity": expected,
+        "observed_identity": {
+            "name": observed_name,
+            "namespace": observed_namespace,
+            "labels": {key: str(labels.get(key) or "") for key in expected_labels},
+            "containers": observed_containers,
+        },
+        "mutation_performed": False,
+    }
+    digest = hashlib.sha256(
+        json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    evidence_dir = Path(
+        os.getenv(
+            "EVM_CONTROL_PANEL_LEDGER_ROOT",
+            "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/operations",
+        )
+    ) / "task-executions" / task_id
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = evidence_dir / f"reconciliation-{digest[:16]}.json"
+    write_json(evidence_path, evidence)
+    return KubernetesTaskObservation(
+        runtime_id=runtime_id,
+        resource_uid=resource_uid,
+        lifecycle_run_label=expected_run_label,
+        candidate_label=str(expected_labels.get("evm.openai.local/candidate-id") or ""),
+        observed_state=observed_state,
+        evidence_uri=str(evidence_path),
+    )
+
+
+def expected_job_identity(
+    manifest_dir: Path,
+    *,
+    namespace: str,
+    job_name: str,
+) -> dict[str, object]:
+    matches: list[dict[str, object]] = []
+    for path in sorted(manifest_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("kind") != "Job":
+            continue
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        if (
+            str(metadata.get("name") or "") == job_name
+            and str(metadata.get("namespace") or "") == namespace
+        ):
+            matches.append(payload)
+    if len(matches) != 1:
+        raise KubernetesTaskExecutionError(
+            f"kubernetes_reconciliation_manifest_match_count:{len(matches)}"
+        )
+    metadata = matches[0]["metadata"]
+    labels = metadata.get("labels") if isinstance(metadata.get("labels"), dict) else {}
+    required_labels = {
+        key: str(labels.get(key) or "")
+        for key in (
+            "app.kubernetes.io/part-of",
+            "evm.openai.local/lifecycle-run",
+            "evm.openai.local/candidate-id",
+        )
+    }
+    if any(not value for value in required_labels.values()):
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_manifest_labels_missing")
+    return {
+        "name": job_name,
+        "namespace": namespace,
+        "labels": required_labels,
+        "containers": job_container_identity(matches[0]),
+    }
+
+
+def job_container_identity(payload: dict[str, object]) -> list[dict[str, object]]:
+    spec = payload.get("spec") if isinstance(payload.get("spec"), dict) else {}
+    template = spec.get("template") if isinstance(spec.get("template"), dict) else {}
+    pod_spec = template.get("spec") if isinstance(template.get("spec"), dict) else {}
+    containers = pod_spec.get("containers") if isinstance(pod_spec.get("containers"), list) else []
+    identities: list[dict[str, object]] = []
+    for item in containers:
+        if not isinstance(item, dict):
+            continue
+        environment = item.get("env") if isinstance(item.get("env"), list) else []
+        revision_values = {
+            str(entry.get("name")): str(entry.get("value") or "")
+            for entry in environment
+            if isinstance(entry, dict)
+            and entry.get("name")
+            in {
+                "EVM_EXPECTED_COMPONENT_SOURCE_REVISION",
+                "EVM_IMAGE_SOURCE_REVISION",
+                "EVM_LIFECYCLE_RUN_ID",
+            }
+        }
+        identities.append(
+            {
+                "name": str(item.get("name") or ""),
+                "image": str(item.get("image") or ""),
+                "revision_env": revision_values,
+            }
+        )
+    identities.sort(key=lambda item: str(item["name"]))
+    if not identities or any(not item["name"] or not item["image"] for item in identities):
+        raise KubernetesTaskExecutionError("kubernetes_reconciliation_container_identity_missing")
+    return identities
 
 
 def wait_for_job(

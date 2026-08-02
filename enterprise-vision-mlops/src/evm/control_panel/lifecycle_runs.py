@@ -1065,10 +1065,13 @@ def lifecycle_guard_decision(
             child.name: child.source_commit
             for child in supervisor.children
             if child.name in {"lifecycle_worker", "kubernetes_observer"}
+            and child.status == "live"
         }
         if supervisor.status != "healthy":
-            runtime_revisions.setdefault("lifecycle_worker", None)
-            runtime_revisions.setdefault("kubernetes_observer", None)
+            runtime_revisions = {
+                "lifecycle_worker": None,
+                "kubernetes_observer": None,
+            }
     try:
         return dispatch_lifecycle_guard(
             directory=runtime_path(run.identity_envelope_uri).parent,

@@ -6,8 +6,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import evm.control_panel.kubernetes_task_executor as kubernetes_task_executor
-from evm.control_panel.kubernetes_task_executor import execute_kubernetes_task
-from evm.control_panel.operations import create_task_assignment
+import pytest
+from evm.control_panel.kubernetes_task_executor import (
+    KubernetesTaskExecutionError,
+    execute_kubernetes_task,
+    observe_exact_kubernetes_task,
+)
+from evm.control_panel.operations import create_task_assignment, update_task_runtime
 from evm.control_panel.schemas import TaskAssignmentRequest
 
 
@@ -33,6 +38,122 @@ def request() -> TaskAssignmentRequest:
 
 def completed(command: list[str], stdout: str = "", returncode: int = 0):
     return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr="")
+
+
+def lifecycle_job_payload(*, uid: str | None = None, run_label: str = "123456789abc") -> dict:
+    payload = {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": "evm-lifecycle-train-123456789abc",
+            "namespace": "evm-training",
+            "labels": {
+                "app.kubernetes.io/part-of": "enterprise-vision-mlops",
+                "evm.openai.local/lifecycle-run": run_label,
+                "evm.openai.local/candidate-id": "efficientnet-b0-candidate",
+            },
+        },
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "trainer",
+                            "image": "evm-pipeline@sha256:" + "a" * 64,
+                            "env": [
+                                {
+                                    "name": "EVM_EXPECTED_COMPONENT_SOURCE_REVISION",
+                                    "value": "1" * 40,
+                                },
+                                {
+                                    "name": "EVM_LIFECYCLE_RUN_ID",
+                                    "value": "lifecycle-123456789abc",
+                                },
+                            ],
+                        }
+                    ],
+                    "restartPolicy": "Never",
+                }
+            }
+        },
+    }
+    if uid is not None:
+        payload["metadata"]["uid"] = uid
+        payload["status"] = {"active": 1}
+    return payload
+
+
+def running_lifecycle_task(tmp_path: Path, monkeypatch):
+    project = tmp_path / "project"
+    manifest_dir = project / "infra" / "kubernetes" / "generated"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "kustomization.yaml").write_text(
+        "resources:\n  - training-job.json\n", encoding="utf-8"
+    )
+    (manifest_dir / "training-job.json").write_text(
+        json.dumps(lifecycle_job_payload()), encoding="utf-8"
+    )
+    monkeypatch.setenv("EVM_PROJECT_ROOT", str(project))
+    monkeypatch.setenv("EVM_CONTROL_PANEL_LEDGER_ROOT", str(tmp_path / "ledger"))
+    task_request = request().model_copy(
+        update={
+            "config_payload": {
+                **request().config_payload,
+                "manifest_dir": str(manifest_dir),
+                "namespace": "evm-training",
+                "job_name": "evm-lifecycle-train-123456789abc",
+                "lifecycle_run_id": "lifecycle-123456789abc",
+            }
+        }
+    )
+    task = create_task_assignment(task_request)
+    return update_task_runtime(
+        task.task_id,
+        actor="test",
+        event="job_dispatched_before_worker_exit",
+        status="running",
+        runtime_system="kubernetes",
+        runtime_id="evm-training/job/evm-lifecycle-train-123456789abc",
+        runtime_state="running",
+    )
+
+
+def test_exact_running_job_is_observable_for_worker_reconciliation(tmp_path, monkeypatch):
+    task = running_lifecycle_task(tmp_path, monkeypatch)
+
+    def runner(command, **_kwargs):
+        return completed(command, json.dumps(lifecycle_job_payload(uid="job-uid-1")))
+
+    observation = observe_exact_kubernetes_task(task.task_id, runner=runner)
+
+    assert observation.resource_uid == "job-uid-1"
+    assert observation.observed_state == "running"
+    assert observation.lifecycle_run_label == "123456789abc"
+    evidence = json.loads(Path(observation.evidence_uri).read_text(encoding="utf-8"))
+    assert evidence["mutation_performed"] is False
+    assert evidence["observed_identity"] == evidence["expected_identity"]
+
+
+def test_reconciliation_rejects_wrong_job_identity_without_mutation(tmp_path, monkeypatch):
+    task = running_lifecycle_task(tmp_path, monkeypatch)
+
+    def runner(command, **_kwargs):
+        return completed(
+            command,
+            json.dumps(lifecycle_job_payload(uid="job-uid-2", run_label="wrong-run")),
+        )
+
+    with pytest.raises(
+        KubernetesTaskExecutionError,
+        match="kubernetes_reconciliation_label_identity_mismatch",
+    ):
+        observe_exact_kubernetes_task(task.task_id, runner=runner)
+
+    assert not list(
+        (tmp_path / "ledger" / "task-executions" / task.task_id).glob(
+            "reconciliation-*.json"
+        )
+    )
 
 
 def test_host_bridge_executes_allowlisted_kustomize_job(tmp_path, monkeypatch):

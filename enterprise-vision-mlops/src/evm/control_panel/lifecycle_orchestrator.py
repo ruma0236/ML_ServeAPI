@@ -20,7 +20,11 @@ from evm.control_panel.deployment_intents import (
 )
 from evm.control_panel.experiment_runs import read_experiment
 from evm.control_panel.isolated_ct import create_ct_snapshot, load_ct_evaluation
-from evm.control_panel.kubernetes_task_executor import execute_kubernetes_task
+from evm.control_panel.kubernetes_task_executor import (
+    KubernetesTaskExecutionError,
+    execute_kubernetes_task,
+    observe_exact_kubernetes_task,
+)
 from evm.control_panel.lifecycle_gpu_handoff import (
     acquire_gpu_handoff,
     acquire_training_gpu_handoff,
@@ -292,16 +296,52 @@ def execute_guarded_kubernetes_task(
     )
     if not created:
         existing = task_for(task.task_id)
-        if (
-            entry.state in {"completed", "reconciled"}
-            and existing is not None
-            and existing.status not in {"queued", "running"}
-        ):
+        if existing is None:
+            raise LifecycleStageBlocked(
+                "side_effect_reconciliation_required",
+                ["side_effect_runtime_missing", f"side_effect_key:{entry.side_effect_key}"],
+            )
+        if entry.state in {"completed", "reconciled"} and existing.status not in {
+            "queued",
+            "running",
+        }:
             return existing
-        raise LifecycleStageBlocked(
-            "side_effect_reconciliation_required",
-            [f"side_effect_state:{entry.state}", f"side_effect_key:{entry.side_effect_key}"],
+        if entry.state not in {"reserved", "reconciled"} or existing.status not in {
+            "running",
+            "done",
+        }:
+            raise LifecycleStageBlocked(
+                "side_effect_reconciliation_required",
+                [
+                    f"side_effect_state:{entry.state}",
+                    f"side_effect_task_state:{existing.status}",
+                    f"side_effect_key:{entry.side_effect_key}",
+                ],
+            )
+        try:
+            observation = observe_exact_kubernetes_task(existing.task_id, runner=runner)
+        except KubernetesTaskExecutionError as exc:
+            raise LifecycleStageBlocked(
+                "side_effect_reconciliation_blocked",
+                [str(exc), f"side_effect_key:{entry.side_effect_key}"],
+            ) from exc
+        finish_external_action(
+            run,
+            entry.side_effect_key,
+            state="reconciled",
+            runtime_id=observation.runtime_id,
+            evidence_uri=observation.evidence_uri,
         )
+        if existing.status == "done":
+            finish_external_action(
+                run,
+                entry.side_effect_key,
+                state="completed",
+                runtime_id=observation.runtime_id,
+                evidence_uri=observation.evidence_uri,
+            )
+            return existing
+        task = existing
     try:
         result = execute_kubernetes_task(
             task.task_id,

@@ -14,12 +14,14 @@ from evm.control_panel.lifecycle_integrity import build_lifecycle_release_submis
 from evm.control_panel.lifecycle_orchestrator import (
     LifecycleStageBlocked,
     clear_prometheus_target,
+    execute_guarded_kubernetes_task,
     lifecycle_guard_directory,
     process_artifact_readiness,
     process_approval,
     process_ci_ct_gate,
     process_deployment,
     process_lifecycle_run,
+    reserve_external_action,
     rollback_lifecycle,
     training_failure_blockers,
     write_prometheus_target,
@@ -39,6 +41,7 @@ from evm.control_panel.schemas import (
     CTDatasetSnapshot,
     CTEvaluation,
     ReadinessEvidenceCheck,
+    TaskAssignmentRequest,
 )
 from evm.core.dataset import shard_index_identity_digest
 
@@ -179,6 +182,88 @@ def test_airflow_success_advances_lifecycle_to_model_training(tmp_path, monkeypa
     ]
     assert all(item["state"] == "completed" for item in side_effects)
     assert len({item["side_effect_key"] for item in side_effects}) == 2
+
+
+def test_running_kubernetes_side_effect_is_reconciled_before_worker_resume(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = queued_run(tmp_path, monkeypatch)
+    request = TaskAssignmentRequest(
+        cycle_id=run.run_id,
+        task_type="kubernetes_job",
+        owner=run.actor,
+        priority="high",
+        resource_profile="docker-desktop-gpu",
+        approval_policy="auto",
+        config_payload={
+            "adapter": "host-kubectl-bridge",
+            "manifest_dir": str(tmp_path / "generated"),
+            "namespace": "evm-training",
+            "job_name": "evm-lifecycle-train-123456789abc",
+            "lifecycle_run_id": run.run_id,
+        },
+        dry_run=False,
+    )
+    task = operations.create_task_assignment(request)
+    task = operations.update_task_runtime(
+        task.task_id,
+        actor="test",
+        event="job_admitted_before_worker_exit",
+        status="running",
+        runtime_system="kubernetes",
+        runtime_id="evm-training/job/evm-lifecycle-train-123456789abc",
+        runtime_state="running",
+    )
+    assert task is not None
+    entry, created = reserve_external_action(
+        run,
+        "model_training",
+        "execute_kubernetes_job",
+        {"task_id": task.task_id, "config_payload": task.config_payload},
+    )
+    assert created is True
+    calls: list[str] = []
+
+    def observe(task_id, *, runner):
+        del runner
+        calls.append(f"observe:{task_id}")
+        return SimpleNamespace(
+            runtime_id=task.runtime_id,
+            evidence_uri=str(tmp_path / "reconciliation.json"),
+        )
+
+    def execute(task_id, *, runner, progress_callback=None):
+        del runner, progress_callback
+        calls.append(f"execute:{task_id}")
+        return operations.update_task_runtime(
+            task_id,
+            actor="test",
+            event="reconciled_job_completed",
+            status="done",
+            runtime_state="complete",
+        )
+
+    monkeypatch.setattr(lifecycle_orchestrator, "observe_exact_kubernetes_task", observe)
+    monkeypatch.setattr(lifecycle_orchestrator, "execute_kubernetes_task", execute)
+
+    result = execute_guarded_kubernetes_task(
+        run,
+        "model_training",
+        task,
+        runner=lambda *_args, **_kwargs: None,
+    )
+
+    assert result.status == "done"
+    assert calls == [f"observe:{task.task_id}", f"execute:{task.task_id}"]
+    ledger = json.loads(
+        Path(str(run.side_effect_ledger_uri)).read_text(encoding="utf-8")
+    )
+    reconciled = next(
+        item for item in ledger["entries"] if item["side_effect_key"] == entry.side_effect_key
+    )
+    assert reconciled["state"] == "completed"
+    assert reconciled["runtime_id"] == task.runtime_id
 
 
 def test_airflow_success_blocks_when_source_commit_does_not_match(tmp_path, monkeypatch) -> None:

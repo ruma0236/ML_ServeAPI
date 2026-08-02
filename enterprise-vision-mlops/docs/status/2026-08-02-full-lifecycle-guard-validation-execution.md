@@ -251,6 +251,28 @@ All listed exit checks passed in the immutable F-drive attempt. Closure details
 are in `docs/status/2026-08-02-lifecycle-guard-scenario-e-closure.md`.
 `SCRUM-186 / EVM-278` is complete and Scenario D is the next dependency.
 
+## Scenario D Lifecycle Continuity Checkpoint
+
+Scenario D entered implementation under `SCRUM-187 / EVM-279`. The independent
+host-process recovery closure remains baseline evidence only. Integrated code
+review confirmed that a worker restart after Kubernetes Job admission could
+leave the side-effect ledger `reserved` and permanently block rather than
+reattach to the exact existing Job.
+
+The checkpoint implementation adds read-only reconciliation of one exact Job
+identity before resumed execution. Namespace, name, UID, lifecycle label,
+candidate label, image and source-revision identity must match the versioned
+manifest; any missing or mismatched observation fails closed without apply,
+delete or redispatch. Degraded supervisor state also now invalidates runtime
+revision admission instead of trusting retained child revision strings.
+
+Focused tests pass `40 / 40`, the full Python suite passes `453 / 453`, and
+Ruff passes for touched files. This is an implementation checkpoint only. The
+dedicated F-drive replay, side-effect identity delta proof and bounded exact
+worker/observer live recovery remain required before Scenario D can close.
+Detailed progress is in
+`docs/status/2026-08-02-lifecycle-guard-scenario-d-progress.md`.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |

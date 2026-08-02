@@ -114,6 +114,35 @@ def queue_run(run, monkeypatch: pytest.MonkeyPatch):
     )
 
 
+def test_degraded_supervisor_fails_runtime_revision_guard_closed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run = queue_run(new_run(tmp_path, monkeypatch), monkeypatch)
+    monkeypatch.setenv("EVM_LIFECYCLE_GUARD_REQUIRE_RUNTIME_MATCH", "true")
+    monkeypatch.setattr(
+        "evm.control_panel.host_runtime.read_host_runtime_supervisor",
+        lambda: SimpleNamespace(
+            status="degraded",
+            children=[
+                SimpleNamespace(
+                    name="lifecycle_worker",
+                    status="live",
+                    source_commit=run.source_commit,
+                ),
+                SimpleNamespace(
+                    name="kubernetes_observer",
+                    status="live",
+                    source_commit=run.source_commit,
+                ),
+            ],
+        ),
+    )
+
+    with pytest.raises(LifecycleRunError, match="runtime_revision_unavailable"):
+        lifecycle_runs.lifecycle_guard_decision(run, "approval", "approve")
+
+
 def test_dry_run_creates_immutable_runtime_snapshot(tmp_path: Path, monkeypatch) -> None:
     run = new_run(tmp_path, monkeypatch)
 
