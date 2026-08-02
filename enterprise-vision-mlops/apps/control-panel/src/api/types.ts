@@ -1179,6 +1179,10 @@ export interface LifecycleRun {
   model_matrix_uri?: string | null;
   readiness_uri?: string | null;
   real_test_validation_uri?: string | null;
+  ct_snapshot_uri?: string | null;
+  ct_evaluation_uri?: string | null;
+  data_integrity_uri?: string | null;
+  release_submission_uri?: string | null;
   resource_handoff_uri?: string | null;
   deployment_intent_id?: string | null;
   approver?: string | null;
@@ -1421,6 +1425,9 @@ export interface LifecycleActionRequest {
 
 export interface LifecycleApprovalRequest extends LifecycleActionRequest {
   approver: string;
+  candidate_id?: string | null;
+  model_digest?: string | null;
+  ct_evaluation_id?: string | null;
 }
 
 export interface CommandIntentRequest {

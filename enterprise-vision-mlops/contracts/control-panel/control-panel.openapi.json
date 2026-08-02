@@ -2532,7 +2532,12 @@
           {
             "type": "object",
             "required": ["approver"],
-            "properties": {"approver": {"type": "string", "minLength": 2}}
+            "properties": {
+              "approver": {"type": "string", "minLength": 2},
+              "candidate_id": {"type": ["string", "null"], "minLength": 1},
+              "model_digest": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+              "ct_evaluation_id": {"type": ["string", "null"], "minLength": 1}
+            }
           }
         ]
       },
@@ -2605,6 +2610,8 @@
           "real_test_validation_uri": {"type": ["string", "null"]},
           "ct_snapshot_uri": {"type": ["string", "null"]},
           "ct_evaluation_uri": {"type": ["string", "null"]},
+          "data_integrity_uri": {"type": ["string", "null"]},
+          "release_submission_uri": {"type": ["string", "null"]},
           "resource_handoff_uri": {"type": ["string", "null"]},
           "deployment_intent_id": {"type": ["string", "null"]},
           "approver": {"type": ["string", "null"]},

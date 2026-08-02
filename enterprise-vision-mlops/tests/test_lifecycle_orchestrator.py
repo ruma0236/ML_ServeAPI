@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import URLError
@@ -9,6 +10,7 @@ import pytest
 
 from evm.control_panel import lifecycle_orchestrator, lifecycle_runs, operations
 from evm.control_panel.lifecycle_kubernetes import CTBundle, ServingBundle
+from evm.control_panel.lifecycle_integrity import build_lifecycle_release_submission
 from evm.control_panel.lifecycle_orchestrator import (
     LifecycleStageBlocked,
     clear_prometheus_target,
@@ -16,6 +18,7 @@ from evm.control_panel.lifecycle_orchestrator import (
     process_artifact_readiness,
     process_approval,
     process_ci_ct_gate,
+    process_deployment,
     process_lifecycle_run,
     rollback_lifecycle,
     training_failure_blockers,
@@ -27,6 +30,7 @@ from evm.control_panel.lifecycle_runs import (
     create_lifecycle_run,
     queue_lifecycle_run,
     transition_stage,
+    update_run_evidence,
 )
 from evm.control_panel.pipeline_profiles import default_profile, save_profile
 from evm.control_panel.schemas import (
@@ -36,6 +40,7 @@ from evm.control_panel.schemas import (
     CTEvaluation,
     ReadinessEvidenceCheck,
 )
+from evm.core.dataset import shard_index_identity_digest
 
 
 class FakeResponse:
@@ -201,6 +206,32 @@ def test_airflow_success_blocks_when_source_commit_does_not_match(tmp_path, monk
     assert report["status"] == "blocked"
 
 
+def test_airflow_success_blocks_corrupt_derived_shard_identity(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = queued_run(tmp_path, monkeypatch)
+    write_data_provenance(run)
+    index_path = Path(run.artifact_root) / "data" / "shards" / "shard_index.json"
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    payload["identity_sha256"] = "0" * 64
+    index_path.write_text(json.dumps(payload), encoding="utf-8")
+    responses = iter(
+        [
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "queued"}),
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "success"}),
+        ]
+    )
+    monkeypatch.setattr(operations, "urlopen", lambda *_args, **_kwargs: next(responses))
+
+    result = process_lifecycle_run(run.run_id)
+
+    assert result.state == "blocked"
+    assert result.current_stage == "data_pipeline"
+    assert "integrity_shard_index_identity_mismatch" in result.blockers
+    assert result.stages[2].state == "not_started"
+
+
 def write_data_provenance(run, *, commit: str | None = None) -> None:
     trace = {
         "trace_id": "enterprise_vision_mlops_daily__cp__lifecycle",
@@ -211,6 +242,64 @@ def write_data_provenance(run, *, commit: str | None = None) -> None:
         path = Path(run.artifact_root) / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"trace": trace}), encoding="utf-8")
+    source_path = Path(run.artifact_root) / "data" / "quality" / "quality_manifest.jsonl"
+    records = [
+        {
+            "sample_id": "sample-train",
+            "content_sha256": "1" * 64,
+            "label": "normal",
+            "split": "train",
+        },
+        {
+            "sample_id": "sample-validation",
+            "content_sha256": "2" * 64,
+            "label": "normal",
+            "split": "validation",
+        },
+        {
+            "sample_id": "sample-test",
+            "content_sha256": "3" * 64,
+            "label": "anomaly",
+            "split": "test",
+        },
+    ]
+    source_path.write_text(
+        "".join(json.dumps(record) + "\n" for record in records),
+        encoding="utf-8",
+    )
+    shard_root = Path(run.artifact_root) / "data" / "shards"
+    shards = []
+    for index, record in enumerate(records):
+        split = str(record["split"])
+        path = shard_root / f"{split}.jsonl"
+        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        shards.append(
+            {
+                "shard_id": f"{split}-{index:04d}",
+                "split": split,
+                "path": str(path),
+                "record_count": 1,
+                "first_sample_id": record["sample_id"],
+                "last_sample_id": record["sample_id"],
+            }
+        )
+    index_payload = {
+        "schema_version": "evm.dataset_shards.v1",
+        "input_manifest": str(source_path),
+        "records_per_shard": 1,
+        "record_count": len(records),
+        "shard_count": len(shards),
+        "split_counts": {"train": 1, "validation": 1, "test": 1},
+        "label_counts": {"normal": 2, "anomaly": 1},
+        "label_type_counts": {"binary": 3},
+        "shards": shards,
+        "trace": trace,
+    }
+    index_payload["identity_sha256"] = shard_index_identity_digest(index_payload)
+    (shard_root / "shard_index.json").write_text(
+        json.dumps(index_payload),
+        encoding="utf-8",
+    )
 
 
 def test_airflow_running_observation_reaches_lifecycle_stage(tmp_path, monkeypatch) -> None:
@@ -366,6 +455,7 @@ def test_staging_policy_approval_advances_without_human_action(
     ):
         transition_stage(run.run_id, stage_id, "running", actor="test")
         run = transition_stage(run.run_id, stage_id, "completed", actor="test")
+    install_release_submission(run, tmp_path, monkeypatch)
 
     approved = process_approval(
         run,
@@ -509,6 +599,70 @@ def ct_evaluation(run, snapshot: CTDatasetSnapshot, tmp_path: Path) -> CTEvaluat
 def install_ct_runtime_stubs(run, tmp_path: Path, monkeypatch):
     snapshot = ct_snapshot(run, tmp_path)
     evaluation = ct_evaluation(run, snapshot, tmp_path)
+    model_path = tmp_path / "model.pt"
+    model_path.write_bytes(b"real-model-fixture")
+    model_digest = hashlib.sha256(model_path.read_bytes()).hexdigest()
+    evaluation = evaluation.model_copy(
+        update={"model_artifact_uri": str(model_path), "model_sha256": model_digest}
+    )
+    Path(str(evaluation.report_uri)).write_text(
+        evaluation.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    readiness_path = tmp_path / "readiness.json"
+    matrix_path = tmp_path / "model-matrix.json"
+    image_digest = "sha256:" + "8" * 64
+    mlflow_run_id = "mlflow-run-test"
+    readiness_path.write_text(
+        json.dumps(
+            {
+                "decision": "ready",
+                "status": "pass",
+                "candidate_id": evaluation.candidate_id,
+                "dataset_version": evaluation.dataset_version,
+                "checks": [
+                    {
+                        "check_id": "model_artifact",
+                        "evidence_uri": str(model_path),
+                        "observed": {"actual_sha256": model_digest},
+                    },
+                    {
+                        "check_id": "kubernetes_runtime",
+                        "observed": {"serving_image_digest": image_digest},
+                    },
+                    {
+                        "check_id": "mlflow_run",
+                        "observed": {"run_id": mlflow_run_id},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    matrix_path.write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "candidates": [
+                    {
+                        "candidate_id": evaluation.candidate_id,
+                        "status": "pass",
+                        "dataset_version": evaluation.dataset_version,
+                        "model_sha256": model_digest,
+                        "mlflow_run_id": mlflow_run_id,
+                        "model_artifact": str(model_path),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    update_run_evidence(
+        run.run_id,
+        actor="test",
+        readiness_uri=str(readiness_path),
+        model_matrix_uri=str(matrix_path),
+    )
     bundle = CTBundle(
         manifest_dir=tmp_path / "kubernetes" / "ct",
         namespace="evm-validation",
@@ -533,6 +687,26 @@ def install_ct_runtime_stubs(run, tmp_path: Path, monkeypatch):
         ),
     )
     return snapshot, evaluation
+
+
+def install_release_submission(run, tmp_path: Path, monkeypatch) -> None:
+    _snapshot, evaluation = install_ct_runtime_stubs(run, tmp_path, monkeypatch)
+    current = lifecycle_runs.get_lifecycle_run(run.run_id)
+    assert current is not None
+    submission = build_lifecycle_release_submission(
+        artifact_root=Path(current.artifact_root),
+        run_id=current.run_id,
+        source_commit=str(current.source_commit),
+        readiness_uri=str(current.readiness_uri),
+        model_matrix_uri=str(current.model_matrix_uri),
+        ct_evaluation_uri=str(evaluation.report_uri),
+    )
+    update_run_evidence(
+        current.run_id,
+        actor="test",
+        ct_evaluation_uri=str(evaluation.report_uri),
+        release_submission_uri=str(submission),
+    )
 
 
 def test_ci_ct_gate_requires_ci_and_isolated_ct_before_completion(
@@ -573,6 +747,7 @@ def test_ci_ct_gate_requires_ci_and_isolated_ct_before_completion(
     assert stage.evidence_uri == evaluation.report_uri
     assert completed.ct_snapshot_uri == snapshot.snapshot_uri
     assert completed.ct_evaluation_uri == evaluation.report_uri
+    assert completed.release_submission_uri
 
 
 def test_ci_ct_gate_fails_closed_when_gpu_job_produces_no_evaluation(
@@ -628,6 +803,36 @@ def test_prometheus_target_uses_container_reachable_host(tmp_path, monkeypatch) 
 
     assert json.loads(target_path.read_text(encoding="utf-8")) == [foreign]
 
+
+def test_deployment_revalidates_release_seal_before_any_mutation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = queued_run(tmp_path, monkeypatch)
+    submission = tmp_path / "tampered-release-submission.json"
+    submission.write_text("{}", encoding="utf-8")
+    guarded = run.model_copy(
+        update={
+            "approver": "release-approver@example.com",
+            "release_submission_uri": str(submission),
+        }
+    )
+    mutation_called = False
+
+    def unexpected_mutation():
+        nonlocal mutation_called
+        mutation_called = True
+
+    monkeypatch.setattr(lifecycle_orchestrator, "ensure_generated_manifest_root", unexpected_mutation)
+
+    with pytest.raises(LifecycleStageBlocked, match="lifecycle_release_integrity_blocked"):
+        process_deployment(
+            guarded,
+            runner=lambda *_args, **_kwargs: None,
+            http_client=lambda *_args, **_kwargs: (200, {}),
+        )
+
+    assert mutation_called is False
 
 def test_rollback_executor_failure_terminates_run_with_explicit_blocker(tmp_path, monkeypatch) -> None:
     run = queued_run(tmp_path, monkeypatch)

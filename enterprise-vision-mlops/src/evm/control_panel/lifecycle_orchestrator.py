@@ -32,6 +32,12 @@ from evm.control_panel.lifecycle_guards import (
     complete_side_effect,
     reserve_side_effect,
 )
+from evm.control_panel.lifecycle_integrity import (
+    LifecycleIntegrityBlocked,
+    build_lifecycle_release_submission,
+    validate_lifecycle_data_integrity,
+    validate_lifecycle_release_submission,
+)
 from evm.control_panel.lifecycle_kubernetes import (
     LifecycleKubernetesError,
     ServingBundle,
@@ -515,6 +521,20 @@ def process_data_pipeline(
                 runtime_state=task.runtime_state,
             )
         provenance_path = validate_data_pipeline_provenance(current)
+        try:
+            integrity_path = validate_lifecycle_data_integrity(
+                Path(current.artifact_root)
+            )
+        except LifecycleIntegrityBlocked as exc:
+            raise LifecycleStageBlocked(
+                "data_pipeline_integrity_failed",
+                exc.blockers,
+            ) from exc
+        update_run_evidence(
+            current.run_id,
+            actor="lifecycle-worker",
+            data_integrity_uri=str(integrity_path),
+        )
         return transition_stage(
             current.run_id,
             "data_pipeline",
@@ -1037,6 +1057,34 @@ def process_ci_ct_gate(
         ct_snapshot_uri=snapshot.snapshot_uri,
         ct_evaluation_uri=evaluation.report_uri,
     )
+    current = required_run(run.run_id)
+    if not current.readiness_uri or not current.model_matrix_uri or not current.ct_evaluation_uri:
+        raise LifecycleStageBlocked("release_submission_evidence_missing")
+    try:
+        release_submission = build_lifecycle_release_submission(
+            artifact_root=Path(current.artifact_root),
+            run_id=current.run_id,
+            source_commit=str(current.source_commit or ""),
+            readiness_uri=current.readiness_uri,
+            model_matrix_uri=current.model_matrix_uri,
+            ct_evaluation_uri=current.ct_evaluation_uri,
+        )
+        validate_lifecycle_release_submission(
+            release_submission,
+            run_id=current.run_id,
+            source_commit=str(current.source_commit or ""),
+        )
+    except LifecycleIntegrityBlocked as exc:
+        raise LifecycleStageBlocked(
+            "release_submission_integrity_failed",
+            exc.blockers,
+        ) from exc
+    update_run_evidence(
+        current.run_id,
+        actor="lifecycle-worker",
+        release_submission_uri=str(release_submission),
+    )
+    run = required_run(current.run_id)
     cycle = rebuild_cycle(run)
     gate = cycle.cdct_gate
     if cycle.ci_evidence is None or not cycle.ci_evidence.valid or gate is None:
@@ -1121,6 +1169,19 @@ def process_deployment(
     del http_client
     if not run.approver:
         raise LifecycleStageBlocked("lifecycle_approver_missing")
+    if not run.release_submission_uri:
+        raise LifecycleStageBlocked("lifecycle_release_submission_missing")
+    try:
+        validate_lifecycle_release_submission(
+            runtime_path(run.release_submission_uri),
+            run_id=run.run_id,
+            source_commit=str(run.source_commit or ""),
+        )
+    except LifecycleIntegrityBlocked as exc:
+        raise LifecycleStageBlocked(
+            "lifecycle_release_integrity_blocked",
+            exc.blockers,
+        ) from exc
     ensure_generated_manifest_root()
     run = ensure_stage_running(run, "deployment", "Applying guarded deployment intent")
     cycle = rebuild_cycle(run)

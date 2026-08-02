@@ -95,7 +95,7 @@ They are not golden-path or scenario acceptance.
 | normalized event/correlation/dedupe | complete | source `627209a`; 12 focused, 98 A-E regression, and 407 full tests passed; three independent 1,000-event replays, 300 unrelated events, zero false merge/duplicate parent/action; p95 30.183-32.374 ms; F-drive artifact hashes 625/625 | `SCRUM-180` |
 | recovery ownership/read-only incident plane | complete | source `c905d7d`, stale-state UI correction `3467315`; 16 focused and 423 full Python tests at implementation, 16 files/51 Control Panel tests after UI correction; three independent recommendation-only series, 41/41 artifact hash closure, zero mutation; GET-only APIs, low-cardinality metrics, browser proof, CUDA B0 and runtime invariants preserved | `SCRUM-185` |
 | no-fault golden lifecycle | complete | attempt `lifecycle-20260802T165525-279cf1dc` at `85867e1` passed 11/11 preflight, Airflow 18/18, real RTX 4080 SUPER CUDA training, MLflow, readiness 13/13, isolated CT 18/18, approval, staging deployment, CUDA inference and Prometheus; all 10 stages, 23 guard decisions and 8 side effects completed; cleanup restored exact production B0 1/1 and staging 0/0; a post-run phase-evidence overwrite was remediated with independent training/CT handoff files and 437 full tests | `SCRUM-186` E guard |
-| E lifecycle guard | not started | pending | D guard |
+| E lifecycle guard | implementation complete; integrated proof pending | lifecycle data semantic validator and release submission seal are wired into Airflow completion, approval, and deployment boundaries; 48 focused tests, 447 full Python tests, Control Panel typecheck/build pass | run immutable F-drive branch replay and runtime invariant proof before D |
 | D lifecycle guard | not started | pending | C guard |
 | C lifecycle guard | not started | pending | B guard |
 | B lifecycle guard | not started | pending | A maintenance preflight |
@@ -184,6 +184,63 @@ They are not golden-path or scenario acceptance.
     gap is explicitly recorded. Training and isolated CT now use independent
     evidence paths; the sequential regression and all 437 tests pass. The
     original run remains immutable and bound to `85867e1`.
+13. Scenario E integration review found two lifecycle-specific gaps that the
+    isolated Scenario E closure did not cover. Airflow completion previously
+    proved file provenance but did not semantically validate the generated
+    shard membership, split isolation, labels, content identities, or embedded
+    index identity before GPU training. Release admission also lacked one
+    run-local seal joining source revision, candidate, dataset, model artifact,
+    MLflow run, serving image, CT evaluation, readiness, and model matrix.
+    The current implementation adds both fail-closed boundaries, revalidates
+    the release seal at approval and immediately before deployment mutation,
+    and exposes their evidence URIs through the API/OpenAPI/UI contract. The
+    focused suite passes 48 tests, the full Python suite passes 447 tests, and
+    the Control Panel typecheck and production build pass. Scenario E remains
+    in progress until immutable F-drive replay evidence and unchanged runtime
+    invariants are captured; these tests alone are not the integrated proof.
+
+## Scenario E Lifecycle Guard Checkpoint
+
+### Implemented guard boundaries
+
+- Airflow success is followed by semantic validation of the run-local source
+  manifest, shard files, split membership, record/content identity, labels,
+  counts, boundaries, and `identity_sha256`; any ambiguity blocks before the
+  model-training stage is queued.
+- Isolated CT completion creates `validation/release-submission.json`, sealing
+  the source commit, candidate, dataset, actual model file digest, MLflow run,
+  serving image digest, CT evaluation, readiness report, and model matrix.
+- Independent approval revalidates the sealed bytes and may bind the request to
+  the expected candidate/model/CT tuple. Deployment revalidates the same seal
+  before manifest generation, intent creation, or Kubernetes mutation, closing
+  the approval-to-deploy time-of-check/time-of-use window.
+- Missing, empty, duplicated, cross-split, malformed, stale, or digest-mismatched
+  evidence is fail-closed. No fallback to an unsealed candidate is permitted.
+
+### Current verification
+
+- canonical data and exact release identity each pass three deterministic
+  replays with one stable decision fingerprint;
+- corrupt shard semantic identity, cross-split duplicate, empty data, wrong
+  expected model identity, modified model bytes, and modified readiness bytes
+  are blocked;
+- an Airflow `success` observation with a corrupt derived index leaves model
+  training `not_started`;
+- a modified release submission is rejected before the first deployment
+  mutation callback;
+- targeted Ruff, 48 focused Python tests, 447 full Python tests, Control Panel
+  TypeScript lint, and production build pass;
+- repository-wide Ruff still reports nine pre-existing findings in unrelated
+  files. They are not changed or counted as Scenario E regressions.
+
+### Remaining exit gate
+
+Create immutable scenario-attempt artifacts under the F-drive execution root,
+replay canonical and corrupt branches through these exact production-code
+validators, prove deterministic blocker/fingerprint results, verify deployment
+intent delta remains zero for blocked branches, and compare production B0,
+GPU/device-plugin, worker/observer, and Prometheus identities before and after.
+Only that evidence can close `SCRUM-186 / EVM-278` and admit Scenario D.
 
 ## Golden Attempt Log
 

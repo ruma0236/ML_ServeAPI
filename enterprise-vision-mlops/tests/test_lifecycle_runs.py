@@ -416,6 +416,18 @@ def test_two_person_approval_advances_waiting_run(tmp_path: Path, monkeypatch) -
         actor="worker",
         detail="All automated gates passed",
     )
+    submission = tmp_path / "release-submission.json"
+    submission.write_text("{}", encoding="utf-8")
+    run = update_run_evidence(
+        run.run_id,
+        actor="worker",
+        release_submission_uri=str(submission),
+    )
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "validate_lifecycle_release_submission",
+        lambda *_args, **_kwargs: {"decision": "pass"},
+    )
 
     assert run.state == "waiting_approval"
     with pytest.raises(LifecycleRunError, match="requester cannot approve"):

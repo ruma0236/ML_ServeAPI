@@ -24,6 +24,10 @@ from evm.control_panel.lifecycle_guards import (
     dispatch_lifecycle_guard,
     seal_lifecycle_guard_artifacts,
 )
+from evm.control_panel.lifecycle_integrity import (
+    LifecycleIntegrityBlocked,
+    validate_lifecycle_release_submission,
+)
 from evm.control_panel.pipeline_profiles import (
     PipelineProfileRecord,
     get_profile,
@@ -123,6 +127,9 @@ def reject_run_quality_review(run_id: str, profile_digest: str) -> None:
 
 class LifecycleApprovalRequest(LifecycleActionRequest):
     approver: str = Field(min_length=2)
+    candidate_id: str | None = Field(default=None, min_length=1)
+    model_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    ct_evaluation_id: str | None = Field(default=None, min_length=1)
 
 
 class LifecycleStage(ContractModel):
@@ -188,6 +195,8 @@ class LifecycleRun(ContractModel):
     real_test_validation_uri: str | None = None
     ct_snapshot_uri: str | None = None
     ct_evaluation_uri: str | None = None
+    data_integrity_uri: str | None = None
+    release_submission_uri: str | None = None
     resource_handoff_uri: str | None = None
     deployment_intent_id: str | None = None
     approver: str | None = None
@@ -804,6 +813,27 @@ def approve_lifecycle_run(
                 "lifecycle_approval_stage_invalid",
                 f"Approval stage is {stage.state}; waiting_approval is required.",
             )
+        if not run.release_submission_uri:
+            raise LifecycleRunError(
+                "lifecycle_release_submission_missing",
+                "LifecycleRun has no sealed release submission.",
+                status_code=422,
+            )
+        try:
+            validate_lifecycle_release_submission(
+                runtime_path(run.release_submission_uri),
+                run_id=run.run_id,
+                source_commit=str(run.source_commit or ""),
+                expected_candidate_id=request.candidate_id,
+                expected_model_digest=request.model_digest,
+                expected_ct_evaluation_id=request.ct_evaluation_id,
+            )
+        except LifecycleIntegrityBlocked as exc:
+            raise LifecycleRunError(
+                "lifecycle_release_integrity_blocked",
+                ", ".join(exc.blockers),
+                status_code=422,
+            ) from exc
         decision = lifecycle_guard_decision(run, "approval", "approve")
         now = utc_now()
         run.stages[index] = stage.model_copy(
@@ -1133,6 +1163,8 @@ def update_run_evidence(
     real_test_validation_uri: str | None = None,
     ct_snapshot_uri: str | None = None,
     ct_evaluation_uri: str | None = None,
+    data_integrity_uri: str | None = None,
+    release_submission_uri: str | None = None,
     resource_handoff_uri: str | None = None,
     deployment_intent_id: str | None = None,
     approver: str | None = None,
@@ -1147,6 +1179,10 @@ def update_run_evidence(
         )
         run.ct_snapshot_uri = ct_snapshot_uri or run.ct_snapshot_uri
         run.ct_evaluation_uri = ct_evaluation_uri or run.ct_evaluation_uri
+        run.data_integrity_uri = data_integrity_uri or run.data_integrity_uri
+        run.release_submission_uri = (
+            release_submission_uri or run.release_submission_uri
+        )
         run.resource_handoff_uri = resource_handoff_uri or run.resource_handoff_uri
         run.deployment_intent_id = deployment_intent_id or run.deployment_intent_id
         run.approver = approver or run.approver
