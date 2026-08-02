@@ -95,7 +95,7 @@ They are not golden-path or scenario acceptance.
 | normalized event/correlation/dedupe | complete | source `627209a`; 12 focused, 98 A-E regression, and 407 full tests passed; three independent 1,000-event replays, 300 unrelated events, zero false merge/duplicate parent/action; p95 30.183-32.374 ms; F-drive artifact hashes 625/625 | `SCRUM-180` |
 | recovery ownership/read-only incident plane | complete | source `c905d7d`, stale-state UI correction `3467315`; 16 focused and 423 full Python tests at implementation, 16 files/51 Control Panel tests after UI correction; three independent recommendation-only series, 41/41 artifact hash closure, zero mutation; GET-only APIs, low-cardinality metrics, browser proof, CUDA B0 and runtime invariants preserved | `SCRUM-185` |
 | no-fault golden lifecycle | complete | attempt `lifecycle-20260802T165525-279cf1dc` at `85867e1` passed 11/11 preflight, Airflow 18/18, real RTX 4080 SUPER CUDA training, MLflow, readiness 13/13, isolated CT 18/18, approval, staging deployment, CUDA inference and Prometheus; all 10 stages, 23 guard decisions and 8 side effects completed; cleanup restored exact production B0 1/1 and staging 0/0; a post-run phase-evidence overwrite was remediated with independent training/CT handoff files and 437 full tests | `SCRUM-186` E guard |
-| E lifecycle guard | implementation complete; integrated proof pending | lifecycle data semantic validator and release submission seal are wired into Airflow completion, approval, and deployment boundaries; 48 focused tests, 447 full Python tests, Control Panel typecheck/build pass | run immutable F-drive branch replay and runtime invariant proof before D |
+| E lifecycle guard | complete | source `bc726d9`; real VisA 10,821 records/23 shards; six canonical/corrupt/corrected branches and 18/18 deterministic replays; zero Kubernetes Job, MLflow, candidate or intent delta; runtime/canonical identity delta zero; evidence hashes 133/133 | `SCRUM-187` D guard |
 | D lifecycle guard | not started | pending | C guard |
 | C lifecycle guard | not started | pending | B guard |
 | B lifecycle guard | not started | pending | A maintenance preflight |
@@ -196,8 +196,20 @@ They are not golden-path or scenario acceptance.
     and exposes their evidence URIs through the API/OpenAPI/UI contract. The
     focused suite passes 48 tests, the full Python suite passes 447 tests, and
     the Control Panel typecheck and production build pass. Scenario E remains
-    in progress until immutable F-drive replay evidence and unchanged runtime
-    invariants are captured; these tests alone are not the integrated proof.
+    implementation checkpoint remained in progress until immutable F-drive
+    replay evidence and unchanged runtime invariants were captured.
+14. Scenario E attempt
+    `scenario-e-lifecycle-20260802T175222Z-bc726d96` passed all seven
+    acceptance checks. Six real-evidence branches produced 18/18 deterministic
+    decisions: canonical and corrected data passed, wrong shard identity and
+    split leakage blocked, canonical release passed, and wrong model identity
+    blocked. Maximum data decision time was `0.361160 s`; maximum release
+    decision time was `0.027395 s`. Kubernetes Job, MLflow run, candidate, and
+    deployment intent identity sets had zero delta. Production B0, CUDA, GPU,
+    device-plugin, worker, observer, Prometheus, and all golden hashes remained
+    unchanged. Independent evidence re-hashing matched 133/133 files. This
+    closes controlled local Scenario E and admits Scenario D; it does not claim
+    a new live Airflow corruption run or production release.
 
 ## Scenario E Lifecycle Guard Checkpoint
 
@@ -233,14 +245,11 @@ They are not golden-path or scenario acceptance.
 - repository-wide Ruff still reports nine pre-existing findings in unrelated
   files. They are not changed or counted as Scenario E regressions.
 
-### Remaining exit gate
+### Exit gate result
 
-Create immutable scenario-attempt artifacts under the F-drive execution root,
-replay canonical and corrupt branches through these exact production-code
-validators, prove deterministic blocker/fingerprint results, verify deployment
-intent delta remains zero for blocked branches, and compare production B0,
-GPU/device-plugin, worker/observer, and Prometheus identities before and after.
-Only that evidence can close `SCRUM-186 / EVM-278` and admit Scenario D.
+All listed exit checks passed in the immutable F-drive attempt. Closure details
+are in `docs/status/2026-08-02-lifecycle-guard-scenario-e-closure.md`.
+`SCRUM-186 / EVM-278` is complete and Scenario D is the next dependency.
 
 ## Golden Attempt Log
 
