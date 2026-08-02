@@ -94,7 +94,7 @@ They are not golden-path or scenario acceptance.
 | tracking and runtime baseline | complete | Git/Jira/Notion/Obsidian execution section plus read-only runtime observations | implement `SCRUM-179` |
 | normalized event/correlation/dedupe | complete | source `627209a`; 12 focused, 98 A-E regression, and 407 full tests passed; three independent 1,000-event replays, 300 unrelated events, zero false merge/duplicate parent/action; p95 30.183-32.374 ms; F-drive artifact hashes 625/625 | `SCRUM-180` |
 | recovery ownership/read-only incident plane | complete | source `c905d7d`, stale-state UI correction `3467315`; 16 focused and 423 full Python tests at implementation, 16 files/51 Control Panel tests after UI correction; three independent recommendation-only series, 41/41 artifact hash closure, zero mutation; GET-only APIs, low-cardinality metrics, browser proof, CUDA B0 and runtime invariants preserved | `SCRUM-185` |
-| no-fault golden lifecycle | in progress | common identity/revision/side-effect guard implemented; 434 tests passed at `1d39845`; first pre-run rejected stale profile v8 identity before run creation; profile v9 replay-ready; attempts `lifecycle-20260802T160919-97ba37d2` and `lifecycle-20260802T161927-4992f133` each passed 11/11 preflight then failed closed before Airflow dispatch on separate cross-runtime evidence paths; RCAs fixed in `0f1a8ab` and `1d39845`; no external side effect occurred | restart all runtimes at one CI-green revision and create a new attempt |
+| no-fault golden lifecycle | in progress | common identity/revision/side-effect guard implemented; 436 tests passed at `4d716a2`; first pre-run rejected stale profile v8 identity; two attempts failed closed before Airflow dispatch on corrected cross-runtime evidence paths; third attempt `lifecycle-20260802T163003-ec64fa8c` passed 11/11 preflight and completed real Airflow 18/18, then exposed a historical-Pod false blocker during the approved GPU handoff; B0 automatically recovered 1/1 and no training Job was created; exact active-Pod fix is `4d716a2` | restart all runtimes at one CI-green revision and create a new attempt |
 | E lifecycle guard | not started | pending | D guard |
 | D lifecycle guard | not started | pending | C guard |
 | C lifecycle guard | not started | pending | B guard |
@@ -147,6 +147,23 @@ They are not golden-path or scenario acceptance.
    path resolver to this snapshot and adds a Windows-host/container-URI
    regression test. All 434 tests pass. This run and its approvals also remain
    immutable and are not reused.
+10. Attempt `lifecycle-20260802T163003-ec64fa8c`, bound to source `51731ed`,
+    passed a fresh 11/11 preflight with evidence SHA-256
+    `aef59b79653fa6089d494c9c8475fa5230274e1e5cf1bd7b1223a8453a04c8ac`.
+    The real Airflow run `cp__20260802T163224-4ade7238` completed all 18 tasks
+    and verified source provenance. Its training handoff consumed the exact,
+    single-use approval for deployment UID
+    `cfdab424-dcc5-4d5f-a46f-ae7530441ef4`, scaled B0 from one to zero, but a
+    label-wide `kubectl wait` also selected two historical Failed Pods. The
+    120-second wait timed out before the training Job was created. Automatic
+    rollback restored the unchanged B0 deployment and candidate to 1/1;
+    Prometheus returned `up=1` and serving readiness passed. Failure artifact
+    SHA-256 is
+    `794315a86f4c8c28a6e4eeb9d851ed53e84ed93672ba4c365d77353aee5d4385`.
+    Commit `4d716a2` captures non-terminal Pod name and UID before scale, waits
+    only those exact Pods, and blocks zero/multiple active identities before
+    mutation. Ten focused and 436 full tests pass. The failed run remains
+    immutable and is not retried.
 
 ## Golden Attempt Log
 
@@ -155,6 +172,7 @@ They are not golden-path or scenario acceptance.
 | pre-run profile v8 | `329b609` | rejected: source manifest, split file and reproducibility digests changed since snapshot | none | retain rejection; v8 remains blocked |
 | `lifecycle-20260802T160919-97ba37d2` | `329b609` | 11/11 preflight pass, then `side_effect_ledger_invalid` at data dispatch | none; no Airflow task assignment was created | retain run; path RCA fixed at `0f1a8ab`; create a new source-bound attempt |
 | `lifecycle-20260802T161927-4992f133` | `1e1e251` | 11/11 preflight pass, then `runtime_revision_unavailable` for worker and observer before data dispatch | none; no Airflow task assignment was created | retain run; supervisor URI-path RCA fixed at `1d39845`; create a new source-bound attempt |
+| `lifecycle-20260802T163003-ec64fa8c` | `51731ed` | 11/11 preflight and Airflow 18/18 pass; training handoff then failed on a label-wide delete wait that included two historical Failed Pods | approved B0 1-to-0 handoff occurred; automatic rollback restored 1/1; no training Job, model, or deployment intent was created | retain run and failure artifact; exact active-Pod fix at `4d716a2`; create a new source-bound attempt |
 
 ## Synchronization Rule
 
