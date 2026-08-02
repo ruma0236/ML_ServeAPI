@@ -72,3 +72,10 @@ groups:
           severity: critical
         annotations:
           summary: A supervised child has zero or multiple command-matched processes
+      - alert: EVMDataArtifactIntegrityBlocked
+        expr: evm_operational_validation_total{scenario="E",result=~"blocked|failed"} == 1 or evm_operational_target_health{scenario="E",target="data-artifact",signal="artifact_integrity"} == 0
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: Scenario E data or artifact integrity admission is blocked

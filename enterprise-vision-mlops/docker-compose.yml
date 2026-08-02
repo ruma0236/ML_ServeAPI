@@ -278,6 +278,9 @@ services:
       GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       GIT_BRANCH: ${EVM_GIT_BRANCH:-}
       EVM_DEPLOYMENT_INTENT_ROOT: /app/artifacts/w7/deployment_intents
+      EVM_REQUIRE_SCENARIO_E_INTEGRITY: "true"
+      EVM_SCENARIO_E_ADMISSION_PATH: /app/artifacts/operations/scenario-e/_latest/integrity-admission.json
+      EVM_SCENARIO_E_PUBLIC_KEY_PATH: configs/operations/scenario_e_ed25519_public.pem
       EVM_CONTROL_PANEL_CACHE_TTL_SECONDS: "2"
       EVM_CONTROL_PANEL_CYCLE_HISTORY_ROOT: /app/artifacts/w7
       EVM_CONTROL_PANEL_CATALOG_SCAN_LIMIT: "500"

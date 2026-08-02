@@ -1,0 +1,86 @@
+[policy]
+schema_version = "evm.scenario_e_policy.v1"
+policy_id = "scenario-e-visa-b0-v1"
+issue = "SCRUM-176"
+key_id = "evm-local-03bd78cde241b92d"
+issuer = "ml-platform-integrity"
+exception_requester = "ml-platform-owner"
+exception_approver = "ai-infra-owner"
+exception_days = 30
+manifest_valid_days = 30
+max_validation_seconds = 120.0
+fixture_replays = 3
+canonical_replays = 3
+public_key_path = "configs/operations/scenario_e_ed25519_public.pem"
+private_key_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/secrets/scenario-e/scenario-e-ed25519-private.pem"
+signal_precedence = ["trust", "freshness", "checksum", "dataset_contract", "leakage_ct", "lineage_model_mlflow", "container", "admission"]
+allowed_roots = [
+  "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+  "F:/EnterpriseMLOps_CT/enterprise-vision-mlops",
+  "C:/Users/mlops/EnterpriseMLOps_Project/enterprise-vision-mlops",
+]
+
+[identity]
+dataset_version = "visa-open-data-e35d93d5561f"
+shard_identity_sha256 = "64043adeeca6654467b842c7b5bb8fc64ce8a0b2c78ca158623164f829a38cd0"
+shard_manifest_sha256 = "8b6f281abc93e735545e060b0f6d8b8b7e506d8a0e296f45c84347cb44a91115"
+split_manifest_sha256 = "5e7d96a8638c6729835405cb5ee2891ea1cf5736dc8345c4187f502be9d47e11"
+ct_manifest_sha256 = "7635a75aa7d5a5fd66b4dbb121203a809eceef637f8909c153899c53b4492566"
+candidate_id = "effnet-b0-img224-expedited-adamw"
+model_digest = "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f"
+container_image_digest = "sha256:227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a"
+mlflow_run_id = "7f2d6d1cd5ed4d8bac48d114fd767ba9"
+candidate_summary_sha256 = "87d9c84c0b27ddcc3f3a5e375d8c86535417d5cc94692ab082860d6be9e1da99"
+lineage_sha256 = "30382c267cd3cb2ec9e39ca968c45714ca4fb0b6f09c4a3bfabb6fbaf94327a8"
+model_card_sha256 = "f1136681f3a83d50ea76ef1ea9aaee7c76748a144944545ca40bf054d1e524a3"
+
+[paths]
+host_data_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops"
+host_ct_root = "F:/EnterpriseMLOps_CT/enterprise-vision-mlops"
+shard_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/shards/shard_index.json"
+split_manifest = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/split_manifest.json"
+ct_manifest = "F:/EnterpriseMLOps_CT/enterprise-vision-mlops/snapshots/ct-visa-open-data-e35d93d5561f-test-c6b466afb907/holdout_manifest.jsonl"
+candidate_summary = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/candidate_summary.json"
+lineage = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/lineage.json"
+model_card = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/model_card.md"
+model_artifact = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/model.pt"
+output_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/scenario-e"
+deployment_intent_ledger = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/deployment_intents/deployment_intents.json"
+
+[expected_counts]
+record_count = 10821
+shard_count = 23
+ct_record_count = 2181
+
+[expected_counts.split_counts]
+train = 6504
+validation = 2136
+test = 2181
+
+[shard_digests]
+"train-0000" = "53959fe39357c039d9ed3a25c1d7a1a66acb884df585fda38ed5b89c8b4970df"
+"train-0001" = "16f436954e65b68c9e948bdc37c8483403206009c8b1263d6a8ecf254500af28"
+"train-0002" = "5b4a12bc707861e70bad65f600659c7f0f110d493dbd9577a377921fb22b1535"
+"train-0003" = "13476b5d7ecde46b92c368e77913939be53f35f76b89791f1c19c4458c5e0424"
+"train-0004" = "a07141224ff0de9f040f51ff852b02b5ec2ea2e7545cd194486dfc76f0903504"
+"train-0005" = "5d770b5878a46066065ff40557dccc146740714d870bca717ccf064894f6ef36"
+"train-0006" = "bea52c3d13787a0c6fb0a778d3368d46988cb070e229cddacc032c028cd74c53"
+"train-0007" = "af443e743c13f595fb474cad603dd98b07ecd2644f58aeb7cbbd8e41b4fb5982"
+"train-0008" = "bb9a9a342fb54e045c85f39df346ce162d14fe9d5de5b8d2d81872a0b263a4da"
+"train-0009" = "81587ad98da3c16cbcd55b849e7a82ef1bc8e59eee26a207f16ddc29484fc244"
+"train-0010" = "f9f5cbabb336b21240530ed13416f311c7b82fa3706ccd0838f9da4629338a38"
+"train-0011" = "36bed65b51ec17f88f6a4c51fac95f6682e3da01aa6f863e035f81f883bc6576"
+"train-0012" = "c565944e916b69caed6a41503e5201f6cbb79ca641b64cd66d818926ca22965c"
+"validation-0013" = "47d2dee8111f719938b1567791c0660370cede26835ba20dad4121851bff5bd8"
+"validation-0014" = "e268a600baaa42c824dde3a15a73ec7cab7ed69af0ba2339178f78d0c35d6017"
+"validation-0015" = "1cf595e63230c251ee8abf60800a8b6610a51348c37d9e6dd8b252a38616b741"
+"validation-0016" = "1acb0017a6f474094432bcc7c34476d6d7393e9328f5c5086d37dbac75e9adcf"
+"validation-0017" = "ab3b8a66c4905b0e06e47c8816a7a67290cf9a4fcc1718bdc6b0f55c2e52d9ee"
+"test-0018" = "86d249be5753e2292c59616be764b30308998ea61f935a80f45a9b66a1611831"
+"test-0019" = "d1446456279b2a7d23ecf914cc94b47e10ed78deaaba41e6a9070bdd138a2aae"
+"test-0020" = "4435703424352ae259e17a189c47cc45a0afc6dd4c89d0b652d375d156e172af"
+"test-0021" = "a18d2b36918b0d08754f0d43b916abe8cbacf6e513fa03653f4d82e51ae35536"
+"test-0022" = "22a149d4d7cb4d8872d140b2eef5b22144aa9ee9f1fdc97e79f15b9a4fb073e5"
+
+[lineage]
+required_parent_fields = ["split_manifest_uri", "model_artifact", "artifact_uri", "mlflow_run_id"]

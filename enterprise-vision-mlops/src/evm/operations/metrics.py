@@ -48,6 +48,12 @@ ALLOWED_BLOCKERS = {
     "rollback_missing",
     "cooldown_active",
     "live_proof_not_run",
+    "integrity_admission_missing",
+    "integrity_admission_malformed",
+    "integrity_admission_stale",
+    "integrity_admission_signature_invalid",
+    "integrity_admission_identity_mismatch",
+    "integrity_admission_evidence_mismatch",
 }
 
 

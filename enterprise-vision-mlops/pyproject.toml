@@ -5,6 +5,7 @@ description = "Portfolio-grade modular MLOps platform for enterprise vision AI w
 requires-python = ">=3.11"
 dependencies = [
     "boto3==1.35.76",
+    "cryptography==49.0.0",
     "fastapi==0.115.6",
     "optuna==4.9.0",
     "prometheus-client==0.21.1",

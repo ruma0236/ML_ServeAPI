@@ -1,10 +1,12 @@
 # Scenario E: Data and Artifact Integrity Gate
 
 Issue: `EVM-270 / SCRUM-176`
-State: E0 contract complete; implementation and execution pending.
+State: E0-E5 implemented; formal E6-E8 execution and closure pending.
 
 Authoritative contract:
 `docs/status/2026-08-02-scenario-e-data-artifact-integrity-contract.md`.
+Implementation checkpoint:
+`docs/status/2026-08-02-scenario-e-integrity-implementation.md`.
 
 ## Purpose
 

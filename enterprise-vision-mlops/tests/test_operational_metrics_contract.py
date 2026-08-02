@@ -90,6 +90,7 @@ def test_prometheus_rule_and_dashboard_contracts_are_versioned() -> None:
         "EVMHostRuntimeHeartbeatStale",
         "EVMHostRuntimeRevisionMismatch",
         "EVMHostRuntimeProcessCountInvalid",
+        "EVMDataArtifactIntegrityBlocked",
     ):
         assert alert in rules
     assert dashboard["uid"] == "evm-operational-reliability"

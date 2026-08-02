@@ -355,12 +355,53 @@ def deployment_gate_blockers(
         blockers.append("runtime_image_digest_missing")
     elif bundle.image_digest != runtime_digest:
         blockers.append("ci_runtime_image_digest_mismatch")
+    blockers.extend(
+        scenario_e_integrity_blockers(
+            candidate_id=model_candidate_id,
+            dataset_version=cycle.dataset.version,
+            model_digest=model_digest,
+            image_digest=bundle.image_digest,
+        )
+    )
     return sorted(set(blockers)), {
         "model_candidate_id": model_candidate_id,
         "model_artifact_uri": model_artifact_uri,
         "model_digest": model_digest,
         "rollback_reference": rollback_reference,
     }
+
+
+def scenario_e_integrity_blockers(
+    *,
+    candidate_id: str,
+    dataset_version: str,
+    model_digest: str,
+    image_digest: str,
+) -> list[str]:
+    enabled = os.getenv("EVM_REQUIRE_SCENARIO_E_INTEGRITY", "false").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return []
+    from evm.operations.scenario_e_integrity import validate_integrity_admission
+
+    admission_value = os.getenv(
+        "EVM_SCENARIO_E_ADMISSION_PATH",
+        "/app/artifacts/operations/scenario-e/_latest/integrity-admission.json",
+    )
+    public_key_value = os.getenv(
+        "EVM_SCENARIO_E_PUBLIC_KEY_PATH",
+        "configs/operations/scenario_e_ed25519_public.pem",
+    )
+    normalized_image_digest = (
+        image_digest.split("@", 1)[1] if "@sha256:" in image_digest else image_digest
+    )
+    return validate_integrity_admission(
+        runtime_path(admission_value),
+        public_key_path=Path(public_key_value),
+        expected_candidate_id=candidate_id,
+        expected_dataset_version=dataset_version,
+        expected_model_digest=model_digest,
+        expected_image_digest=normalized_image_digest,
+    )
 
 
 def request_approval(

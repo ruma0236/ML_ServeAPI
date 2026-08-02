@@ -28,6 +28,7 @@ from evm.control_panel.deployment_intents import (
     queue_intent,
     read_intents,
     request_approval,
+    scenario_e_integrity_blockers,
 )
 from evm.control_panel.schemas import (
     ArtifactReadinessEvaluation,
@@ -226,6 +227,29 @@ def test_create_intent_requires_ci_readiness_policy_and_expected_commit(
         create_deployment_intent(deployment_request(), cycle=cycle)
 
     assert "expected_ci_commit_not_configured" in exc.value.blockers
+
+
+def test_scenario_e_blocker_prevents_intent_creation_and_keeps_ledger_empty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    configure_paths(tmp_path, monkeypatch)
+    monkeypatch.setenv("EVM_REQUIRE_SCENARIO_E_INTEGRITY", "true")
+    monkeypatch.setattr(
+        "evm.operations.scenario_e_integrity.validate_integrity_admission",
+        lambda *_args, **_kwargs: ["integrity_admission_missing"],
+    )
+
+    with pytest.raises(DeploymentIntentBlocked) as exc:
+        create_deployment_intent(deployment_request(), cycle=ready_cycle())
+
+    assert exc.value.blockers == ["integrity_admission_missing"]
+    assert read_intents().intents == []
+    assert scenario_e_integrity_blockers(
+        candidate_id="candidate",
+        dataset_version="dataset",
+        model_digest="a" * 64,
+        image_digest="image@sha256:" + "b" * 64,
+    ) == ["integrity_admission_missing"]
 
 
 def test_staging_intent_runs_dry_run_approval_queue_apply_and_rollback(
