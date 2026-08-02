@@ -136,6 +136,25 @@ def lifecycle_binding(run: dict[str, Any], submission: dict[str, Any]) -> dict[s
     return binding
 
 
+def ensure_replay_runtime_ready(
+    *,
+    before_runtime: dict[str, Any],
+    source_commit: str,
+    inference_image_uri: str,
+    timeout_seconds: float,
+    waiter: Any = wait_for_runtime_restoration,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    runtime, restoration = waiter(
+        before_runtime=before_runtime,
+        source_commit=source_commit,
+        inference_image_uri=inference_image_uri,
+        timeout_seconds=timeout_seconds,
+    )
+    if restoration.get("status") != "pass":
+        raise RuntimeError("scenario_b_pre_replay_runtime_not_restored")
+    return runtime, restoration
+
+
 def replay_inputs(run: dict[str, Any]) -> tuple[dict[str, Any], Path, Path]:
     submission_path = runtime_path(str(run.get("release_submission_uri") or ""))
     submission = read_json(submission_path)
@@ -284,6 +303,17 @@ def run_branch(
             timeline=timeline,
         )
         write_json(branch_root / "release-boundary-run.json", current)
+        pre_replay_runtime, pre_replay_restoration = ensure_replay_runtime_ready(
+            before_runtime=before_runtime,
+            source_commit=source_commit,
+            inference_image_uri=inference_image_uri,
+            timeout_seconds=90,
+        )
+        write_json(branch_root / "pre-replay-runtime.json", pre_replay_runtime)
+        write_json(
+            branch_root / "pre-replay-runtime-restoration.json",
+            pre_replay_restoration,
+        )
         submission, candidate_summary_path, model_path = replay_inputs(current)
         binding = lifecycle_binding(current, submission)
         replay_id = (
@@ -307,7 +337,7 @@ def run_branch(
             expected_state=expected_state,
             expected_blocker=expected_blocker,
             execution_context=replay_context(
-                before_runtime,
+                pre_replay_runtime,
                 source_commit=source_commit,
                 source_branch=source_branch,
             ),

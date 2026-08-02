@@ -477,6 +477,14 @@ restored active runs 0 and preserved exact B0 CUDA/Prometheus identity. The
 loader now applies the shared CT host/mount mapping before path and digest
 checks; both B branches still require fresh execution.
 
+The following quality run passed the corrected 1,000-record loader but sampled
+Prometheus once during the expected B0 restart convergence window after CT.
+It failed closed before replay, guard registration or approval; intended delta
+remained Jobs +2, MLflow +1, candidate +1 and intent 0. The same exact target
+was autonomously `up` on a new scrape about 22 seconds later. Replay admission
+now reuses the proven runtime-restoration gate: exact UID/1/1/CUDA/plugin/source
+identity and two distinct consecutive successful scrapes within 90 seconds.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -498,6 +506,7 @@ checks; both B branches still require fresh execution.
 | `lifecycle-20260802T213202-1c0776fc` | `39d4cd2` | PASS: 18/18 guards; rejection audit; Airflow; hold at training attempt 0; single-use governed resume; real CUDA training, MLflow, readiness and isolated CT; stop at independent release approval | Jobs +2, MLflow +1, candidate +1, intent 0; exact B0 CUDA/plugin/Prometheus restored in 29.0953264 s | accepted controlled local Scenario C closure; source 17/17 and integrated 21/21 hashes; proceed to Scenario B |
 | Scenario B pre-launch attempt 1 | `fabe6a2` | wrapper stopped during Python discovery because Conda base lacked Torch and native stderr terminated fallback | none; no LifecycleRun, Airflow, Kubernetes, MLflow, candidate, replay or intent | retain harness RCA; discover F-drive CUDA Python safely and run both branches fresh from the corrected revision |
 | `lifecycle-20260802T222607-175d2b88` | `ab72f9f` | Airflow 18/18, CUDA training, MLflow, readiness and CT passed; replay then failed closed because `/mnt/evm-ct` was not mapped to the Windows host path | intended pre-release Jobs +2, MLflow +1, candidate +1, intent 0; automatic cancel; B0 1/1 CUDA/Prometheus unchanged | retain mount-boundary RCA; map CT mount paths before path/digest validation and rerun both branches fresh |
+| `lifecycle-20260802T224642-da79b5a0` | `ec2ce22` | full quality lifecycle and corrected replay manifest preflight passed; one Prometheus snapshot caught the post-CT B0 restart window before replay | Jobs +2, MLflow +1, candidate +1, intent 0; target autonomously up on a distinct scrape about 22 s later; exact B0 unchanged | retain convergence RCA; require exact runtime plus two distinct up scrapes before replay and rerun both branches fresh |
 
 ## Synchronization Rule
 

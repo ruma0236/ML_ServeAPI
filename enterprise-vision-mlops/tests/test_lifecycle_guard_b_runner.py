@@ -8,6 +8,7 @@ import pytest
 
 from evm.operations.lifecycle_guard_b_runner import (
     approval_denial,
+    ensure_replay_runtime_ready,
     lifecycle_binding,
     replay_inputs,
 )
@@ -102,3 +103,41 @@ def test_wrapper_falls_through_invalid_python_candidates_to_cuda_runtime() -> No
     assert '$ErrorActionPreference = "Continue"' in script
     assert "$probeExitCode = $LASTEXITCODE" in script
     assert "if ($probeExitCode -eq 0)" in script
+
+
+def test_pre_replay_runtime_requires_bounded_two_scrape_restoration() -> None:
+    before = {"kubernetes": {"deployment_uid": "uid-1"}}
+    calls: list[dict[str, object]] = []
+
+    def passing_waiter(**kwargs: object) -> tuple[dict[str, object], dict[str, object]]:
+        calls.append(kwargs)
+        return {"prometheus": {"health": "up"}}, {
+            "status": "pass",
+            "required_distinct_consecutive_scrapes": 2,
+        }
+
+    runtime, restoration = ensure_replay_runtime_ready(
+        before_runtime=before,
+        source_commit="a" * 40,
+        inference_image_uri="image@sha256:" + "b" * 64,
+        timeout_seconds=90,
+        waiter=passing_waiter,
+    )
+
+    assert runtime["prometheus"]["health"] == "up"
+    assert restoration["required_distinct_consecutive_scrapes"] == 2
+    assert calls[0]["timeout_seconds"] == 90
+
+
+def test_pre_replay_runtime_fails_closed_on_convergence_timeout() -> None:
+    def blocked_waiter(**_kwargs: object) -> tuple[dict[str, object], dict[str, object]]:
+        return {}, {"status": "blocked", "observations": []}
+
+    with pytest.raises(RuntimeError, match="pre_replay_runtime_not_restored"):
+        ensure_replay_runtime_ready(
+            before_runtime={},
+            source_commit="a" * 40,
+            inference_image_uri="image@sha256:" + "b" * 64,
+            timeout_seconds=90,
+            waiter=blocked_waiter,
+        )

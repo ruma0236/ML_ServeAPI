@@ -118,6 +118,33 @@ Attempt 2 is immutable integrated-pipeline RCA evidence, not Scenario B guard
 acceptance. Quality and runtime branches must both run fresh on the corrected
 source revision.
 
+## Attempt 3 Pre-Replay Monitoring Convergence RCA
+
+Source `ec2ce22` again completed a fresh real quality lifecycle and reached the
+release boundary. The corrected loader passed all 1,000 CT manifest records,
+but replay admission took one instantaneous Prometheus snapshot during the B0
+restart window after isolated CT and failed closed with
+`stable_prometheus_target_not_up` before issuing replay requests.
+
+- Lifecycle: `lifecycle-20260802T224642-da79b5a0`; MLflow
+  `464e16a5dab54eb486b85914861361a4`; CT
+  `ct-eval-183aa57f0c4cb439`.
+- Candidate: accuracy `0.962079`, F1 `0.823529`, AUROC `0.973746`, training
+  `122.139 s`, peak GPU memory `2846.96 MiB`.
+- Side effects: intended Jobs +2, MLflow +1, candidate +1, intent 0. Replay,
+  guard registration and approval did not execute.
+- Recovery: the exact stable target was autonomously `up` by the distinct
+  Prometheus scrape at `23:00:44Z`, about 22 seconds after the failure record.
+  Active runs returned to 0; exact B0 deployment UID/model remained 1/1 CUDA.
+- Evidence index SHA-256:
+  `71a9806b248baef519ead63632b354ee3726c4977b651a1a5a320452749b8b76`.
+- Correction: before replay, require exact B0 UID/replica/CUDA/plugin/revision
+  restoration plus two distinct consecutive successful Prometheus scrape
+  timestamps within 90 seconds. Timeout remains fail closed with zero replay.
+
+This is convergence-timing RCA, not Scenario B acceptance. Both branches still
+require fresh execution from the corrected source revision.
+
 ## Claim Boundary
 
 The implementation supports controlled local release validation. It is not a
