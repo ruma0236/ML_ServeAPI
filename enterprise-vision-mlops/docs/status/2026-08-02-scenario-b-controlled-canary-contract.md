@@ -2,8 +2,11 @@
 
 Issue: `EVM-267 / SCRUM-173`  
 Router dependency: `EVM-244 / SCRUM-144`  
-Contract state: `PASS - non-disruptive implementation admitted`  
+Contract state: `PASS - non-disruptive closure complete`
 Captured at: `2026-08-02T02:07:32Z`
+
+Final closure:
+`docs/status/2026-08-02-scenario-b-controlled-replay-closure.md`
 
 ## Decision
 
@@ -194,12 +197,11 @@ high availability, multi-node isolation, or enterprise SLA validation.
 
 ## Implementation Backlog
 
-- `B1`: typed policy, identity, assignment, window and decision contracts.
-- `B2`: deterministic router plus failing/known-good fixtures.
-- `B3`: real CUDA replay collector and paired shadow ledger.
-- `B4`: guardrail evaluator, zero-allocation containment and rollback evidence.
-- `B5`: operational evidence report, validator and focused tests.
-- `B6`: controlled replay execution and non-disruptive closure.
-- `B7`: four-system synchronization and claim audit.
+- `B1`: complete - typed policy, identity, assignment, window and decision contracts.
+- `B2`: complete - deterministic router plus failing/known-good fixtures.
+- `B3`: complete - real CUDA replay collector and paired shadow ledger.
+- `B4`: complete - guardrail evaluator, zero-allocation containment and rollback evidence.
+- `B5`: complete - operational evidence report, validator and focused tests.
+- `B6`: complete - controlled replay execution and non-disruptive closure.
+- `B7`: in progress - final four-system synchronization and claim audit.
 - `B8-live`: blocked; future separately approved Kubernetes production canary.
-
