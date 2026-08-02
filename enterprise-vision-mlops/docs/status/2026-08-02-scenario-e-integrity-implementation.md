@@ -47,6 +47,16 @@ The development preflight is not final evidence. E6-E8 require a clean pushed
 source revision, three canonical runs, three replays per fixture, immutable
 evidence validation, runtime invariant proof and four-system closure.
 
+## Formal Attempt 1 RCA
+
+Run `scenario-e-20260802T095506Z-65b08a3b` failed closed before fixture or
+admission publication. All three canonical decisions were admitted, but the
+raw freshness evaluation timestamp incorrectly participated in the stable
+decision fingerprint. The timestamp remains audit evidence and is now excluded
+from fingerprint material. The failed run remains immutable evidence and a
+fresh pushed revision is required. See
+`docs/status/2026-08-02-scenario-e-canonical-fingerprint-rca.md`.
+
 ## Safety And Residual Boundaries
 
 No canonical data, production B0, GPU plugin, Kubernetes workload or existing

@@ -56,6 +56,8 @@ command-intent audit and proof that no downstream work was queued.
 - Canonical source/artifact digests do not change.
 - Corrected isolated copies pass the same validator.
 - Repeated validation returns the same decision and fingerprint.
+- Raw evaluation timestamps remain in evidence but are excluded from the
+  decision fingerprint; signed issue/expiry times remain fingerprint-bound.
 - A blocked validation creates zero deployment intents through the E admission
   fence.
 

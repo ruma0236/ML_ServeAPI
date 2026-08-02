@@ -257,11 +257,14 @@ def validate(bundle: dict, envelope: SignedTrustManifest | None = None, now: dat
 def test_signed_known_good_bundle_is_admitted_deterministically(tmp_path: Path) -> None:
     bundle = signed_bundle(tmp_path)
     first = validate(bundle)
-    second = validate(bundle)
+    second = validate(bundle, now=NOW + timedelta(seconds=1))
 
     assert first.decision == "admitted"
     assert first.blockers == []
     assert first.decision_fingerprint == second.decision_fingerprint
+    first_freshness = next(item for item in first.checks if item.check_id == "trust_freshness")
+    second_freshness = next(item for item in second.checks if item.check_id == "trust_freshness")
+    assert first_freshness.observed["evaluated_at"] != second_freshness.observed["evaluated_at"]
     assert first.counts["record_count"] == 9
     assert first.counts["cross_split_record_count"] == 0
     assert first.exceptions_applied == ["legacy-source-test"]

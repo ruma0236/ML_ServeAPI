@@ -818,7 +818,13 @@ def _finalize_validation(
                 "check_id": item.check_id,
                 "passed": item.passed,
                 "blocker_codes": item.blocker_codes,
-                "observed": item.observed,
+                # Keep audit time in evidence without making equivalent
+                # decisions produce different fingerprints.
+                "observed": (
+                    {key: value for key, value in item.observed.items() if key != "evaluated_at"}
+                    if item.check_id == "trust_freshness"
+                    else item.observed
+                ),
             }
             for item in checks
         ],
