@@ -58,6 +58,8 @@ command-intent audit and proof that no downstream work was queued.
 - Repeated validation returns the same decision and fingerprint.
 - Raw evaluation timestamps remain in evidence but are excluded from the
   decision fingerprint; signed issue/expiry times remain fingerprint-bound.
+- Admission TTL is signed at `3,600 s`; expiry requires a fresh full validation
+  and cannot be extended by editing the latest pointer.
 - A blocked validation creates zero deployment intents through the E admission
   fence.
 

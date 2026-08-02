@@ -57,6 +57,15 @@ from fingerprint material. The failed run remains immutable evidence and a
 fresh pushed revision is required. See
 `docs/status/2026-08-02-scenario-e-canonical-fingerprint-rca.md`.
 
+## Pre-Closure TTL Hardening
+
+Run `scenario-e-20260802T100123Z-5b67483a` passed the formal matrix and is
+retained as positive pre-closure evidence. Independent review found that its
+admission inherited the 30-day manifest expiry, which was inconsistent with
+the short-lived admission contract. The signed policy now fixes admission TTL
+at one hour and requires a fresh full validation for renewal. A new pushed
+revision and final evidence run supersede this run for closure.
+
 ## Safety And Residual Boundaries
 
 No canonical data, production B0, GPU plugin, Kubernetes workload or existing

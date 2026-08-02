@@ -5,7 +5,7 @@ import hashlib
 import json
 import time
 from collections import Counter, defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -138,6 +138,7 @@ class TrustManifest(StrictModel):
     validator_source_revision: str = Field(pattern=r"^[a-f0-9]{40}$")
     issued_at: datetime
     expires_at: datetime
+    admission_ttl_seconds: int = Field(ge=60, le=86_400)
     identity: IntegrityIdentity
     expected_counts: IntegrityCounts
     files: list[TrustedFile] = Field(min_length=len(REQUIRED_FILE_ROLES))
@@ -878,7 +879,10 @@ def build_integrity_admission(
         validation_sha256=sha256_file(validation_path),
         source_revision=source_revision,
         issued_at=validation.evaluated_at,
-        expires_at=envelope.manifest.expires_at,
+        expires_at=min(
+            envelope.manifest.expires_at,
+            validation.evaluated_at + timedelta(seconds=envelope.manifest.admission_ttl_seconds),
+        ),
     )
 
 
@@ -930,7 +934,12 @@ def validate_integrity_admission(
         or envelope.manifest.manifest_id != admission.manifest_id
         or envelope.manifest.identity != admission.identity
         or envelope.manifest.validator_source_revision != admission.source_revision
-        or admission.expires_at != envelope.manifest.expires_at
+        or admission.expires_at
+        != min(
+            envelope.manifest.expires_at,
+            validation.evaluated_at
+            + timedelta(seconds=envelope.manifest.admission_ttl_seconds),
+        )
         or admission.issued_at != validation.evaluated_at
     ):
         blockers.append("integrity_admission_evidence_mismatch")

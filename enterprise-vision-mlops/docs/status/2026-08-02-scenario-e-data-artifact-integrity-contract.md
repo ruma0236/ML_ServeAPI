@@ -145,6 +145,12 @@ audit blocker. A correction creates a new signed manifest; failed evidence is
 never overwritten. Because Scenario E performs no production mutation,
 rollback is a hold/quarantine action rather than a deployment rollback.
 
+The signed manifest fixes the admission TTL at `3,600 s`. The pointer expires
+one hour after validation even though the underlying trust manifest and exact
+legacy exception may remain valid longer. Refresh therefore requires a new
+full canonical validation; an operator cannot extend TTL by editing the
+unsigned latest pointer.
+
 ## Evidence And Portfolio Positioning
 
 Each run stores the signed trust manifest, observation, check results, timing,

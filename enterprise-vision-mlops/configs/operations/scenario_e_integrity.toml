@@ -8,6 +8,7 @@ exception_requester = "ml-platform-owner"
 exception_approver = "ai-infra-owner"
 exception_days = 30
 manifest_valid_days = 30
+admission_ttl_seconds = 3600
 max_validation_seconds = 120.0
 fixture_replays = 3
 canonical_replays = 3

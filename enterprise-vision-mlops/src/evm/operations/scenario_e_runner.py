@@ -206,6 +206,7 @@ def build_canonical_manifest(
             "validator_source_revision": source_revision,
             "issued_at": issued_at,
             "expires_at": expires_at,
+            "admission_ttl_seconds": int(policy["admission_ttl_seconds"]),
             "identity": identity.model_dump(mode="json"),
             "expected_counts": IntegrityCounts(
                 record_count=counts_cfg["record_count"],

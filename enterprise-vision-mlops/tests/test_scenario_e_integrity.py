@@ -203,6 +203,7 @@ def signed_bundle(tmp_path: Path) -> dict:
             "validator_source_revision": "a" * 40,
             "issued_at": NOW,
             "expires_at": NOW + timedelta(days=1),
+            "admission_ttl_seconds": 3600,
             "identity": identity.model_dump(mode="json"),
             "expected_counts": IntegrityCounts(
                 record_count=9,
@@ -358,9 +359,37 @@ def test_admission_pointer_revalidates_signature_evidence_and_identity(tmp_path:
         expected_image_digest=IMAGE_DIGEST,
         now=NOW + timedelta(minutes=1),
     )
+    stale = validate_integrity_admission(
+        admission_path,
+        public_key_path=bundle["public_path"],
+        expected_candidate_id="candidate-test",
+        expected_dataset_version="visa-test-v1",
+        expected_model_digest=bundle["manifest"].identity.model_digest,
+        expected_image_digest=IMAGE_DIGEST,
+        now=NOW + timedelta(hours=1),
+    )
+    extended_path = tmp_path / "extended-admission.json"
+    extended_path.write_text(
+        admission.model_copy(
+            update={"expires_at": admission.expires_at + timedelta(minutes=1)}
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    extended = validate_integrity_admission(
+        extended_path,
+        public_key_path=bundle["public_path"],
+        expected_candidate_id="candidate-test",
+        expected_dataset_version="visa-test-v1",
+        expected_model_digest=bundle["manifest"].identity.model_digest,
+        expected_image_digest=IMAGE_DIGEST,
+        now=NOW + timedelta(minutes=1),
+    )
 
     assert blockers == []
     assert mismatch == ["integrity_admission_identity_mismatch"]
+    assert admission.expires_at == NOW + timedelta(hours=1)
+    assert stale == ["integrity_admission_stale"]
+    assert extended == ["integrity_admission_evidence_mismatch"]
 
 
 def test_manifest_byte_change_fails_even_when_semantic_identity_is_unchanged(tmp_path: Path) -> None:
