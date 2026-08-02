@@ -94,7 +94,7 @@ They are not golden-path or scenario acceptance.
 | tracking and runtime baseline | complete | Git/Jira/Notion/Obsidian execution section plus read-only runtime observations | implement `SCRUM-179` |
 | normalized event/correlation/dedupe | complete | source `627209a`; 12 focused, 98 A-E regression, and 407 full tests passed; three independent 1,000-event replays, 300 unrelated events, zero false merge/duplicate parent/action; p95 30.183-32.374 ms; F-drive artifact hashes 625/625 | `SCRUM-180` |
 | recovery ownership/read-only incident plane | complete | source `c905d7d`, stale-state UI correction `3467315`; 16 focused and 423 full Python tests at implementation, 16 files/51 Control Panel tests after UI correction; three independent recommendation-only series, 41/41 artifact hash closure, zero mutation; GET-only APIs, low-cardinality metrics, browser proof, CUDA B0 and runtime invariants preserved | `SCRUM-185` |
-| no-fault golden lifecycle | in progress | common identity/revision/side-effect guard implemented; 433 tests passed at `0f1a8ab`; first pre-run rejected stale profile v8 identity before run creation; profile v9 replay-ready; attempt `lifecycle-20260802T160919-97ba37d2` passed 11/11 preflight then blocked before Airflow dispatch on cross-runtime ledger path; RCA fixed in `0f1a8ab`; no external side effect occurred | new revision-bound attempt |
+| no-fault golden lifecycle | in progress | common identity/revision/side-effect guard implemented; 434 tests passed at `1d39845`; first pre-run rejected stale profile v8 identity before run creation; profile v9 replay-ready; attempts `lifecycle-20260802T160919-97ba37d2` and `lifecycle-20260802T161927-4992f133` each passed 11/11 preflight then failed closed before Airflow dispatch on separate cross-runtime evidence paths; RCAs fixed in `0f1a8ab` and `1d39845`; no external side effect occurred | restart all runtimes at one CI-green revision and create a new attempt |
 | E lifecycle guard | not started | pending | D guard |
 | D lifecycle guard | not started | pending | C guard |
 | C lifecycle guard | not started | pending | B guard |
@@ -135,6 +135,18 @@ They are not golden-path or scenario acceptance.
    Commit `0f1a8ab` routes guard evidence through the shared runtime path
    resolver. The failed run and its unconsumed handoff approvals remain
    immutable RCA evidence; they are not retried across source revisions.
+9. The replacement attempt `lifecycle-20260802T161927-4992f133` was bound to
+   source `1e1e251`, passed the same 11/11 preflight, and produced preflight
+   evidence SHA-256
+   `2ae6ad5f7157382dc25fc615df8b990606754f6243b66d22a8e75f49920604aa`.
+   It then failed closed before Airflow dispatch because the host worker read
+   the supervisor snapshot from the literal container URI
+   `/app/artifacts/w7/host_runtime/supervisor.json`. The underlying supervisor,
+   worker, and observer snapshots were live and revision-matched on F drive;
+   only URI resolution was wrong. Commit `1d39845` applies the shared runtime
+   path resolver to this snapshot and adds a Windows-host/container-URI
+   regression test. All 434 tests pass. This run and its approvals also remain
+   immutable and are not reused.
 
 ## Golden Attempt Log
 
@@ -142,6 +154,7 @@ They are not golden-path or scenario acceptance.
 |---|---|---|---|---|
 | pre-run profile v8 | `329b609` | rejected: source manifest, split file and reproducibility digests changed since snapshot | none | retain rejection; v8 remains blocked |
 | `lifecycle-20260802T160919-97ba37d2` | `329b609` | 11/11 preflight pass, then `side_effect_ledger_invalid` at data dispatch | none; no Airflow task assignment was created | retain run; path RCA fixed at `0f1a8ab`; create a new source-bound attempt |
+| `lifecycle-20260802T161927-4992f133` | `1e1e251` | 11/11 preflight pass, then `runtime_revision_unavailable` for worker and observer before data dispatch | none; no Airflow task assignment was created | retain run; supervisor URI-path RCA fixed at `1d39845`; create a new source-bound attempt |
 
 ## Synchronization Rule
 
