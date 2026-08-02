@@ -94,7 +94,7 @@ They are not golden-path or scenario acceptance.
 | tracking and runtime baseline | complete | Git/Jira/Notion/Obsidian execution section plus read-only runtime observations | implement `SCRUM-179` |
 | normalized event/correlation/dedupe | complete | source `627209a`; 12 focused, 98 A-E regression, and 407 full tests passed; three independent 1,000-event replays, 300 unrelated events, zero false merge/duplicate parent/action; p95 30.183-32.374 ms; F-drive artifact hashes 625/625 | `SCRUM-180` |
 | recovery ownership/read-only incident plane | complete | source `c905d7d`, stale-state UI correction `3467315`; 16 focused and 423 full Python tests at implementation, 16 files/51 Control Panel tests after UI correction; three independent recommendation-only series, 41/41 artifact hash closure, zero mutation; GET-only APIs, low-cardinality metrics, browser proof, CUDA B0 and runtime invariants preserved | `SCRUM-185` |
-| no-fault golden lifecycle | not started | pending | E guard |
+| no-fault golden lifecycle | in progress | common identity/revision/side-effect guard implemented; 433 tests passed at `0f1a8ab`; first pre-run rejected stale profile v8 identity before run creation; profile v9 replay-ready; attempt `lifecycle-20260802T160919-97ba37d2` passed 11/11 preflight then blocked before Airflow dispatch on cross-runtime ledger path; RCA fixed in `0f1a8ab`; no external side effect occurred | new revision-bound attempt |
 | E lifecycle guard | not started | pending | D guard |
 | D lifecycle guard | not started | pending | C guard |
 | C lifecycle guard | not started | pending | B guard |
@@ -118,10 +118,30 @@ They are not golden-path or scenario acceptance.
    transient SSD spool and hash-verified canonical publication to F. This
    retains audit integrity but is not an F-drive ingestion throughput claim;
    the failed partial attempt remains immutable RCA evidence.
-6. The host supervisor and both children are healthy and mutually revision
-   matched, but still execute baseline revision `37ec89d6...`. `SCRUM-185`
-   must reconcile them to its sealed source revision before starting L0-L7;
-   otherwise the lifecycle gate fails closed.
+6. The initial host runtime revision gap was closed before the first attempt.
+   API, supervisor, worker, and observer were all bound to `329b609` for its
+   preflight. Every later corrective commit still requires a fresh restart and
+   exact revision convergence before a replacement attempt is admitted.
+7. The first golden launch exposed two real admission gaps without mutating
+   Airflow, Kubernetes, MLflow, or the stable B0 target. Profile v8 had valid
+   parameters but stale source and split file digests, while the catalog still
+   displayed it as ready. Commit `329b609` makes catalog execution readiness
+   include replay identity, and the normal profile API created replay-ready v9
+   from the current immutable inputs.
+8. Attempt `lifecycle-20260802T160919-97ba37d2` then passed 11/11 target,
+   CUDA, Prometheus, runtime, profile, CI, rollback, and clean-source checks.
+   It was blocked before Airflow dispatch because the Windows host worker tried
+   to open the container-only `/app/artifacts/.../side_effect_ledger.json` URI.
+   Commit `0f1a8ab` routes guard evidence through the shared runtime path
+   resolver. The failed run and its unconsumed handoff approvals remain
+   immutable RCA evidence; they are not retried across source revisions.
+
+## Golden Attempt Log
+
+| Attempt | Source | Result | External mutation | Disposition |
+|---|---|---|---|---|
+| pre-run profile v8 | `329b609` | rejected: source manifest, split file and reproducibility digests changed since snapshot | none | retain rejection; v8 remains blocked |
+| `lifecycle-20260802T160919-97ba37d2` | `329b609` | 11/11 preflight pass, then `side_effect_ledger_invalid` at data dispatch | none; no Airflow task assignment was created | retain run; path RCA fixed at `0f1a8ab`; create a new source-bound attempt |
 
 ## Synchronization Rule
 
