@@ -29,6 +29,7 @@ class FakeKubectl:
         holder_ready: bool = True,
         holder_image_present: bool = True,
         holder_uid: str = "deployment-uid-1",
+        active_pod_count: int = 1,
     ):
         self.production_replicas = 1
         self.commands: list[list[str]] = []
@@ -36,6 +37,7 @@ class FakeKubectl:
         self.holder_ready = holder_ready
         self.holder_image_present = holder_image_present
         self.holder_uid = holder_uid
+        self.active_pod_count = active_pod_count
 
     def __call__(self, command: list[str], **_kwargs):
         self.commands.append(command)
@@ -52,6 +54,38 @@ class FakeKubectl:
                                     "images": [{"names": image_names}],
                                 }
                             }
+                        ]
+                    }
+                ),
+            )
+        if "get" in command and "pods" in command and "-l" in command:
+            active = [
+                {
+                    "metadata": {
+                        "name": (
+                            "evm-b0-production-active"
+                            if self.active_pod_count == 1
+                            else f"evm-b0-production-active-{index}"
+                        ),
+                        "uid": f"pod-uid-active{'' if self.active_pod_count == 1 else f'-{index}'}",
+                    },
+                    "status": {"phase": "Running"},
+                }
+                for index in range(self.active_pod_count)
+            ]
+            return completed(
+                command,
+                stdout=json.dumps(
+                    {
+                        "items": [
+                            *active,
+                            {
+                                "metadata": {
+                                    "name": "evm-b0-production-historical",
+                                    "uid": "pod-uid-historical",
+                                },
+                                "status": {"phase": "Failed"},
+                            },
                         ]
                     }
                 ),
@@ -77,6 +111,8 @@ class FakeKubectl:
                     }
                 ),
             )
+        if "get" in command and any(item.startswith("deployment/") for item in command):
+            return completed(command, returncode=1, stderr="Error from server (NotFound)")
         if "scale" in command and "deployment/evm-b0-production" in command:
             replica_arg = next(item for item in command if item.startswith("--replicas="))
             self.production_replicas = int(replica_arg.split("=", 1)[1])
@@ -84,7 +120,7 @@ class FakeKubectl:
         if (
             self.fail_delete_wait
             and "wait" in command
-            and "app.kubernetes.io/name=evm-b0-production" in command
+            and "pod/evm-b0-production-active" in command
         ):
             self.fail_delete_wait = False
             return completed(command, returncode=1, stderr="timed out waiting for pod deletion")
@@ -141,6 +177,13 @@ def test_single_gpu_handoff_scales_product_down_and_restores_it(tmp_path, monkey
     acquired = json.loads(path.read_text(encoding="utf-8"))
     assert acquired["state"] == "acquired"
     assert acquired["holders"][0]["original_replicas"] == 1
+    assert acquired["holders"][0]["active_pods"] == [
+        {"name": "evm-b0-production-active", "uid": "pod-uid-active"}
+    ]
+    assert any(
+        "pod/evm-b0-production-active" in command for command in runner.commands
+    )
+    assert not any("pod-uid-historical" in command for command in runner.commands)
 
     release_gpu_handoff(
         run,
@@ -260,6 +303,34 @@ def test_training_handoff_fails_before_scale_when_holder_cannot_be_restored(
     )
     assert evidence["state"] == "acquire_failed"
     assert any(expected_blocker in item for item in evidence["blockers"])
+    assert not any("scale" in command for command in runner.commands)
+
+
+@pytest.mark.parametrize("active_pod_count", [0, 2])
+def test_training_handoff_fails_before_scale_on_ambiguous_active_pod_identity(
+    tmp_path,
+    monkeypatch,
+    active_pod_count,
+) -> None:
+    monkeypatch.setenv("EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED", "true")
+    run = lifecycle_run(tmp_path, f"lifecycle-active-pods-{active_pod_count}")
+    training = TrainingBundle(
+        manifest_dir=tmp_path,
+        namespace="evm-training",
+        job_name="evm-lifecycle-train-active-pods",
+        candidate_id="efficientnet-b0",
+        image="training@sha256:" + "c" * 64,
+    )
+    runner = FakeKubectl(active_pod_count=active_pod_count)
+    approve_handoff(run, runner, "training")
+
+    with pytest.raises(
+        GpuHandoffError,
+        match="gpu_handoff_holder_active_pod_identity_ambiguous",
+    ):
+        acquire_training_gpu_handoff(run, training, runner=runner)
+
+    assert runner.production_replicas == 1
     assert not any("scale" in command for command in runner.commands)
 
 

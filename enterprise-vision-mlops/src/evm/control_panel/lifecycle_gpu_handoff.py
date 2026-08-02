@@ -305,6 +305,12 @@ def acquire_holders(
             "selector": deployment_selector(payload),
             "images": images,
         }
+        active_pods = active_deployment_pods(
+            runner,
+            namespace=namespace,
+            selector=str(holder["selector"]),
+        )
+        holder["active_pods"] = active_pods
         holders.append(holder)
         if not holder["uid"]:
             holder_blockers.append(
@@ -314,6 +320,11 @@ def acquire_holders(
         if available < replicas:
             holder_blockers.append(
                 f"gpu_handoff_holder_not_ready:{namespace}/{deployment}"
+            )
+        if len(active_pods) != replicas:
+            holder_blockers.append(
+                "gpu_handoff_holder_active_pod_identity_ambiguous:"
+                f"{namespace}/{deployment}:expected={replicas}:actual={len(active_pods)}"
             )
         for image in images:
             if local_image_required(image) and not node_has_image(nodes, image):
@@ -528,6 +539,40 @@ def deployment_images(payload: dict[str, Any]) -> list[str]:
     )
 
 
+def active_deployment_pods(
+    runner: Runner,
+    *,
+    namespace: str,
+    selector: str,
+) -> list[dict[str, str]]:
+    if not selector:
+        raise GpuHandoffError(
+            f"gpu_handoff_holder_selector_missing:{namespace}"
+        )
+    payload = kubectl_json(
+        runner,
+        ["kubectl", "-n", namespace, "get", "pods", "-l", selector, "-o", "json"],
+    )
+    active: list[dict[str, str]] = []
+    for item in payload.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        metadata = item.get("metadata", {})
+        status = item.get("status", {})
+        if metadata.get("deletionTimestamp"):
+            continue
+        if str(status.get("phase") or "") in {"Failed", "Succeeded"}:
+            continue
+        name = str(metadata.get("name") or "").strip()
+        uid = str(metadata.get("uid") or "").strip()
+        if not name or not uid:
+            raise GpuHandoffError(
+                f"gpu_handoff_active_pod_identity_missing:{namespace}"
+            )
+        active.append({"name": name, "uid": uid})
+    return sorted(active, key=lambda item: (item["name"], item["uid"]))
+
+
 def local_image_required(image: str) -> bool:
     prefix = os.getenv("EVM_LIFECYCLE_LOCAL_IMAGE_PREFIX", "enterprise-vision-mlops-")
     return image.startswith(prefix) and "@sha256:" in image
@@ -544,24 +589,25 @@ def node_has_image(nodes: dict[str, Any], image: str) -> bool:
 
 
 def wait_for_pods_deleted(runner: Runner, holder: dict[str, Any], lease: dict[str, Any]) -> None:
-    selector = str(holder.get("selector") or "")
-    if not selector:
-        return
-    run_checked(
-        runner,
-        [
-            "kubectl",
-            "-n",
-            str(holder["namespace"]),
-            "wait",
-            "--for=delete",
-            "pod",
-            "-l",
-            selector,
-            "--timeout=120s",
-        ],
-        lease,
-    )
+    active_pods = holder.get("active_pods")
+    if not isinstance(active_pods, list):
+        raise GpuHandoffError("gpu_handoff_active_pod_identity_missing")
+    for pod in active_pods:
+        if not isinstance(pod, dict) or not pod.get("name") or not pod.get("uid"):
+            raise GpuHandoffError("gpu_handoff_active_pod_identity_missing")
+        run_checked(
+            runner,
+            [
+                "kubectl",
+                "-n",
+                str(holder["namespace"]),
+                "wait",
+                "--for=delete",
+                f"pod/{pod['name']}",
+                "--timeout=120s",
+            ],
+            lease,
+        )
 
 
 def scale_target_to_zero(
@@ -569,6 +615,18 @@ def scale_target_to_zero(
     serving: ServingBundle,
     lease: dict[str, Any],
 ) -> None:
+    deployment = optional_deployment(runner, serving.namespace, serving.deployment_name)
+    target = {
+        "namespace": serving.namespace,
+        "deployment": serving.deployment_name,
+        "active_pods": [],
+    }
+    if deployment:
+        target["active_pods"] = active_deployment_pods(
+            runner,
+            namespace=serving.namespace,
+            selector=deployment_selector(deployment),
+        )
     command = [
         "kubectl",
         "-n",
@@ -586,11 +644,7 @@ def scale_target_to_zero(
         raise GpuHandoffError(f"gpu_handoff_target_scale_failed:{serving.namespace}/{serving.deployment_name}")
     wait_for_pods_deleted(
         runner,
-        {
-            "namespace": serving.namespace,
-            "deployment": serving.deployment_name,
-            "selector": f"app.kubernetes.io/name={serving.deployment_name}",
-        },
+        target,
         lease,
     )
 
