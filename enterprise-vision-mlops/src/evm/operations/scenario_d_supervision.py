@@ -46,15 +46,26 @@ def current_process_started_at() -> datetime:
     exit_time = FileTime()
     kernel = FileTime()
     user = FileTime()
-    handle = ctypes.windll.kernel32.GetCurrentProcess()
-    if not ctypes.windll.kernel32.GetProcessTimes(
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.GetProcessTimes.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+    ]
+    kernel32.GetProcessTimes.restype = ctypes.c_int
+    handle = kernel32.GetCurrentProcess()
+    if not kernel32.GetProcessTimes(
         handle,
         ctypes.byref(creation),
         ctypes.byref(exit_time),
         ctypes.byref(kernel),
         ctypes.byref(user),
     ):
-        return utc_now()
+        raise OSError(ctypes.get_last_error(), "GetProcessTimes failed")
     ticks = (creation.high << 32) + creation.low
     return datetime(1601, 1, 1, tzinfo=UTC) + timedelta(microseconds=ticks // 10)
 

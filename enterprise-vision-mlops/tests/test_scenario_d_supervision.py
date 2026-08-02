@@ -14,6 +14,7 @@ from evm.operations.scenario_d_supervision import (
     RestartLedger,
     RestartLedgerData,
     ScenarioDPolicy,
+    current_process_started_at,
     evaluate_child,
     evaluate_runtime_tick,
 )
@@ -22,6 +23,12 @@ from evm.operations.scenario_d_supervision import (
 NOW = datetime(2026, 8, 2, 6, 0, tzinfo=timezone.utc)
 COMMIT = "a" * 40
 LEASE = "lease-12345678"
+
+
+def test_current_process_start_precedes_observation() -> None:
+    started_at = current_process_started_at()
+    assert started_at.tzinfo is not None
+    assert datetime.now(timezone.utc) - started_at >= timedelta(milliseconds=10)
 
 
 @pytest.fixture
