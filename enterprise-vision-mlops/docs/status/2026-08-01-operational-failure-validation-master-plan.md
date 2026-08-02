@@ -51,7 +51,7 @@ traffic, or a production SLA.
 | 3 | `EVM-267` | `SCRUM-173` | B: invalid model canary and rollback | To do | A and `EVM-244` router |
 | 4 | `EVM-270` | `SCRUM-176` | E: data/artifact integrity | In progress | E0 contract fixed; implementation/proof open |
 | 5 | `EVM-268` | `SCRUM-174` | C: quality degradation and retraining gate | To do | E, then B for limited release |
-| 6 | future child | not created | cross-scenario injection | Blocked | A-E passed |
+| 6 | `EVM-EPIC-22 / EVM-271..275` | `SCRUM-177..182` | cross-scenario correlation and recovery | plan/design PASS; implementation To Do | A-E passed |
 | 7 | future child | not created | VisA end-to-end operations drill | Blocked | cross-scenario passed |
 
 Jira execution order follows dependencies rather than issue-number order.
@@ -65,6 +65,8 @@ The versioned cross-scenario workstream contract is
 It is a separate Epic/backlog after A-E and does not alter Sprint 178 or the
 Done states of `SCRUM-172..176`. Planning and design validation do not imply
 that correlation code, combined fault injection, or runtime mutation exists.
+Its read-only design review is
+`docs/status/2026-08-02-cross-scenario-correlation-recovery-design-validation.md`.
 
 ## Deployment Experiment Vocabulary
 

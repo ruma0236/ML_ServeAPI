@@ -1,11 +1,13 @@
 # Cross-Scenario Correlation And Recovery Validation Plan
 
 Date: 2026-08-02
-Status: planning and design validation in progress; implementation, fault
-injection, and runtime mutation not started.
+Status: plan complete; design validation PASS for implementation planning;
+implementation, fault injection, and runtime mutation not started.
 Parent program: `EVM-265 / SCRUM-171`
-Planned workstream epic: `EVM-EPIC-22 / Jira pending`
-Planning issue: `EVM-271 / Jira pending`
+Workstream epic: `EVM-EPIC-22 / SCRUM-177`
+Planning issue: `EVM-271 / SCRUM-178`
+Design validation:
+`docs/status/2026-08-02-cross-scenario-correlation-recovery-design-validation.md`
 
 ## Objective
 
@@ -63,11 +65,11 @@ evidence.
 
 | Order | Internal ID | Jira | Unit | State after this turn | Dependency |
 |---:|---|---|---|---|---|
-| 0 | `EVM-271` | pending | master contract and independent design validation | planned for Done | A-E independent closure |
-| 1 | `EVM-272` | pending | normalized event, identity, causality, correlation and dedupe engine | To Do | `EVM-271` PASS |
-| 2 | `EVM-273` | pending | fail-closed recovery ownership plus read-only incident API/metrics/UI | To Do | `EVM-272` |
-| 3 | `EVM-274` | pending | non-disruptive pairwise fixtures and controlled replay evidence | To Do | `EVM-272..273` |
-| 4 | `EVM-275` | pending | maintenance-gated live pair and cross-scenario closure | To Do, approval gated | `EVM-274` PASS |
+| 0 | `EVM-271` | `SCRUM-178` | master contract and independent design validation | Done after final sync | A-E independent closure |
+| 1 | `EVM-272` | `SCRUM-179` | normalized event, identity, causality, correlation and dedupe engine | To Do | `EVM-271` PASS |
+| 2 | `EVM-273` | `SCRUM-180` | fail-closed recovery ownership plus read-only incident API/metrics/UI | To Do | `EVM-272` |
+| 3 | `EVM-274` | `SCRUM-181` | non-disruptive pairwise fixtures and controlled replay evidence | To Do | `EVM-272..273` |
+| 4 | `EVM-275` | `SCRUM-182` | maintenance-gated live pair and cross-scenario closure | To Do, approval gated | `EVM-274` PASS |
 
 The new workstream is intentionally not added to Sprint 178. A separate future
 timebox may be created only after the implementation backlog is reviewed.
@@ -92,6 +94,7 @@ fresh_until_utc
 source_revision
 policy_version
 evidence_digest
+semantic_identity_digest
 subject_identity
 actor_or_controller
 recommended_action
@@ -106,6 +109,17 @@ recommended_action
   only for an admitted root observation.
 - `parent_incident_id`: immutable incident envelope that owns the causal DAG.
 - IDs are never inferred only from timestamps, log text, labels, or severity.
+- `semantic_identity_digest`: canonical digest of stable decision inputs. Raw
+  collection time, volatile log fields, and output-file bytes are excluded.
+- `evidence_digest`: hash of the exact raw evidence object retained for audit.
+  It is not used as the idempotency key because timestamps and collection
+  metadata may legitimately differ across equivalent observations.
+
+The coordinator stores a durable `root_fingerprint -> parent_incident_id`
+index. Incident creation is an atomic compare-and-create operation. A replay or
+coordinator restart therefore resolves the existing open incident instead of
+allocating another UUIDv7. The root fingerprint and every state transition are
+included in the append-only decision ledger.
 
 ### Exact Subject Identity
 
@@ -125,6 +139,22 @@ The subject tuple is typed by scenario and includes every relevant field:
 Missing required identity, zero target matches, multiple target matches,
 revision mismatch, stale evidence, invalid hash closure, or an unsupported
 schema version blocks mutation.
+
+### Timing And Freshness
+
+- Every producer emits `producer_boot_id`, monotonically increasing
+  `producer_sequence`, `observed_at_utc`, and local monotonic elapsed time.
+- The coordinator records `ingested_at_utc` and its own monotonic elapsed time.
+- Initial local policy uses a `5 s` collector cadence, `20 s` active-signal
+  freshness budget, `30 s` correlation decision deadline, `300 s` closed-event
+  recurrence window, and at most `2 s` tolerated wall-clock offset.
+- Required and optional signals are declared per combination rule. If a
+  required signal is absent, stale, or contradictory by `30 s` after the first
+  admissible root event is ingested, the incident enters `held/blocked`; the
+  coordinator does not wait indefinitely or infer success.
+- UTC supports audit ordering. Durations and SLOs use one process's monotonic
+  clock. Cross-producer ordering uses sequence, causal IDs, and coordinator
+  ingestion, never wall-clock proximity alone.
 
 ## Signal Precedence
 
@@ -147,6 +177,29 @@ are disjoint. Every mutation target has one active recovery owner. The
 correlation coordinator grants or denies a lease and records ordering; it does
 not replace the specialized A-E controllers.
 
+### Deadlock-Free Containment Boundary
+
+Trust gates distinguish risk-reducing containment from risk-increasing
+mutation:
+
+- An E failure blocks training, candidate admission, rollout, promotion, and
+  model/artifact replacement. It does not block D from restarting one exact
+  supervisor-owned worker/observer when the process lease, command digest, and
+  revision are independently valid.
+- A D freshness/ownership failure blocks data/model/release/serving mutation.
+  D may recover only its exact fenced child so that fresh evidence can resume.
+- B may reduce challenger allocation to zero using a pre-bound stable identity
+  even while other gates are held; it may not increase allocation or deploy.
+- C may emit a non-mutating review/hold event while E or D is blocked, but may
+  not create training, promotion, or deployment intent.
+- A may restore only a pre-captured, immutable known-good serving identity when
+  that rollback trust root and exact target approval remain valid. If that
+  identity is implicated by E or target ownership is ambiguous, A also stops.
+
+These exceptions are narrow, monotonic risk-reduction actions. Each requires an
+exact owner lease and audit record; none permits a new candidate or broader
+resource mutation.
+
 ## Causality And Alert Dedupe
 
 ### Causality Rules
@@ -164,13 +217,14 @@ not replace the specialized A-E controllers.
 ```text
 sha256(
   policy_version + scenario_id + event_type + cause_code +
-  exact_subject_identity + source_revision + evidence_digest
+  exact_subject_identity + semantic_identity_digest + source_revision
 )
 ```
 
-- Replays with the same fingerprint are idempotent observations of one event.
-- The dedupe TTL is bounded by policy and recorded; TTL expiry creates a new
-  event, not a silent merge.
+- Replays with the same fingerprint remain one event while its incident is
+  active. A closed event recurring within the initial local `300 s` window is
+  linked as a recurrence; after the window it creates a new event with an
+  explicit `recurs_from_event_id` edge, never a silent merge.
 - Events close in time but with different exact identities remain separate.
 - A deduped alert count, first/last observed timestamps, and source event IDs
   remain queryable without multiplying recovery actions.
@@ -191,6 +245,12 @@ process lease, action digest, source revision, policy version, expiry, actor,
 and single-use nonce. Expired, reused, mismatched, or partial approvals fail
 closed. A recovery owner must release or expire its fenced lease before another
 controller can act on the same target.
+
+The owner ledger is durable and uses atomic compare-and-set. Each exact target
+has a monotonically increasing fencing token. Initial local policy renews an
+active owner lease every `5 s` and expires it after `20 s`; an expired owner
+cannot commit an action result. A new owner may act only with a higher fencing
+token after reconciling the prior action ledger and exact target state.
 
 ## Incident State Machine
 
@@ -239,6 +299,11 @@ single aggregate duration. Cross-scenario reports record collection delay,
 correlation overhead, containment delay, child recovery, and final validation
 separately.
 
+The first performance proof uses at least `1,000` normalized events with at
+least `100` unrelated near-time negative events in each of three independent
+offline replay series. These counts validate only this local test workload;
+they are not a production throughput claim.
+
 ## Evidence Contract
 
 Each future run is stored outside Git under the F-drive evidence root and must
@@ -247,6 +312,9 @@ include:
 - `incident.json`: state, identity, policy, owner, approval, and claim boundary;
 - `events.jsonl`: normalized source events with UTC and monotonic timing;
 - `causal-graph.json`: nodes, edges, edge rule, confidence type, and blockers;
+- `identity-map.json`: canonical subject tuples and stable semantic digests;
+- `policy-decision.json`: required/optional signals, precedence, deadline, and
+  decision result;
 - `dedupe-ledger.jsonl`: fingerprint, TTL, source IDs, and count;
 - `action-ledger.jsonl`: lease, fencing token, action digest, result, rollback;
 - `child-evidence-index.json`: immutable A-E references and digests;
@@ -272,6 +340,10 @@ not raw data, model binaries, credentials, or large evidence.
    declared precedence; the other records a fenced rejection.
 9. Source revision or policy version mismatch: no correlation-assisted action.
 10. Approval replay, expiry, or wrong target/action digest: no mutation.
+11. Coordinator restart between incident admission and action: the durable root
+    index and action ledger return one parent, one owner, and one action.
+12. Raw evidence timestamps differ but semantic inputs match: one event is
+    retained with multiple raw observation digests.
 
 ## Implementation Phases And Gates
 
@@ -316,7 +388,9 @@ leaves this phase Blocked, not partially Done.
 3. Causality is explicit; no merge occurs from timing alone.
 4. All negative anti-correlation, stale, duplicate, cycle, and approval fixtures
    fail closed with zero mutation intent.
-5. Dedupe yields one parent incident and one action per fence in three replays.
+5. Dedupe yields one parent incident and one action per fence across three
+   `1,000`-event replays that each include at least `100` unrelated near-time
+   negative events and a coordinator-restart fixture.
 6. Exactly one recovery owner acts on a target; rejected owners are audited.
 7. Signal precedence is deterministic and preserves E/D trust gates.
 8. Parent evidence closes over every child report and hash.

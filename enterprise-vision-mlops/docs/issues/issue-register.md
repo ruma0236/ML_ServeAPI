@@ -484,11 +484,11 @@ The workstream is separate from Sprint 178 and does not change A-E Done states.
 
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
-| `EVM-271` | Cross-scenario master contract and independent design validation | In Progress | Post-Sprint 178 | separate Epic/backlog, exact event/identity/causality/dedupe/ownership contracts, five ordered pair candidates, read-only design verdict, and four-system plan sync; no implementation or runtime mutation |
-| `EVM-272` | Normalized event, identity, correlation, causality, and dedupe engine | Planned | Post-Sprint 178 | typed schemas, causal DAG, UUIDv7 incident correlation, exact identity matching, bounded dedupe TTL, stale/cycle/anti-correlation fixtures, and three deterministic replay series with zero false merge or duplicate parent/action |
-| `EVM-273` | Fail-closed recovery ownership and read-only incident plane | Planned | Post-Sprint 178 | fenced lease/approval binding, one recovery owner per exact target, action ledger, low-cardinality metrics/alerts, read-only API and Control Panel timeline; no mutation endpoint admitted |
-| `EVM-274` | Non-disruptive pairwise correlation proof | Planned | Post-Sprint 178 | D+E, C+E, and B+C each pass three independent isolated/replay runs plus negative anti-merge fixtures, full hash closure, zero production/process/data mutation, and immutable RCA history |
-| `EVM-275` | Maintenance-gated live pair and cross-scenario closure | Planned / approval gated | Post-Sprint 178 | only after EVM-274 PASS: exact-target A+D then A+B proof under a new single-use maintenance approval, one owner/action, known-good rollback, child SLO plus coordinator-overhead reporting, and explicit single-node limitations |
+| `EVM-271` | Cross-scenario master contract and independent design validation | Done | Post-Sprint 178 | Jira `SCRUM-178` under Epic `SCRUM-177`; versioned contract, exact event/identity/causality/dedupe/ownership rules, five ordered pairs and read-only design remediation produce a planning-only PASS; no implementation or runtime mutation |
+| `EVM-272` | Normalized event, identity, correlation, causality, and dedupe engine | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-179`; typed schemas, durable root index, causal DAG, UUIDv7 incident correlation, stable semantic dedupe, stale/cycle/anti-correlation fixtures, and three 1,000-event replay series with zero false merge or duplicate parent/action |
+| `EVM-273` | Fail-closed recovery ownership and read-only incident plane | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-180`; fenced CAS lease/approval binding, one recovery owner per exact target, action ledger, low-cardinality metrics/alerts, read-only API and Control Panel timeline; no mutation endpoint admitted |
+| `EVM-274` | Non-disruptive pairwise correlation proof | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-181`; D+E, C+E, and B+C each pass three independent isolated/replay runs plus negative anti-merge fixtures, full hash closure, zero production/process/data mutation, and immutable RCA history |
+| `EVM-275` | Maintenance-gated live pair and cross-scenario closure | Planned / To Do / approval gated | Post-Sprint 178 | Jira `SCRUM-182`; only after EVM-274 PASS: exact-target A+D then A+B proof under a new single-use maintenance approval, one owner/action, known-good rollback, child SLO plus coordinator-overhead reporting, and explicit single-node limitations |
 
 The original dependency order was `A/D -> B -> E -> C -> cross-scenario`.
 Current execution evidence has closed A-E independently. Cross-scenario
@@ -667,6 +667,12 @@ Jira live sync 기준 mapping이다.
 | `EVM-268` | `SCRUM-174` | Subtask | https://opop0236.atlassian.net/browse/SCRUM-174 |
 | `EVM-269` | `SCRUM-175` | Subtask | https://opop0236.atlassian.net/browse/SCRUM-175 |
 | `EVM-270` | `SCRUM-176` | Subtask | https://opop0236.atlassian.net/browse/SCRUM-176 |
+| `EVM-EPIC-22` | `SCRUM-177` | Epic | https://opop0236.atlassian.net/browse/SCRUM-177 |
+| `EVM-271` | `SCRUM-178` | Task | https://opop0236.atlassian.net/browse/SCRUM-178 |
+| `EVM-272` | `SCRUM-179` | Task | https://opop0236.atlassian.net/browse/SCRUM-179 |
+| `EVM-273` | `SCRUM-180` | Task | https://opop0236.atlassian.net/browse/SCRUM-180 |
+| `EVM-274` | `SCRUM-181` | Task | https://opop0236.atlassian.net/browse/SCRUM-181 |
+| `EVM-275` | `SCRUM-182` | Task | https://opop0236.atlassian.net/browse/SCRUM-182 |
 | `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
