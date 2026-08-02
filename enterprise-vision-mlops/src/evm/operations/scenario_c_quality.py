@@ -540,14 +540,20 @@ class ScenarioCRegistry:
             candidate_payload = candidate.model_dump(mode="json")
             existing_event = events.get(event.event_id)
             existing_candidate = candidates.get(candidate.candidate_id)
-            if existing_event is not None and existing_event != event_payload:
+            if existing_event is not None and self._semantic_event(existing_event) != self._semantic_event(
+                event_payload
+            ):
                 raise RegistryConflict("event_identity_payload_conflict")
-            if existing_candidate is not None and existing_candidate != candidate_payload:
+            if existing_candidate is not None and self._semantic_candidate(
+                existing_candidate
+            ) != self._semantic_candidate(candidate_payload):
                 raise RegistryConflict("candidate_identity_payload_conflict")
             event_created = existing_event is None
             candidate_created = existing_candidate is None
-            events[event.event_id] = event_payload
-            candidates[candidate.candidate_id] = candidate_payload
+            if event_created:
+                events[event.event_id] = event_payload
+            if candidate_created:
+                candidates[candidate.candidate_id] = candidate_payload
             payload["attempt_count"] = int(payload.get("attempt_count", 0)) + 1
             atomic_write_json(self.path, payload)
             return RegistrationResult(
@@ -574,6 +580,14 @@ class ScenarioCRegistry:
         ):
             raise RegistryConflict("registry_payload_malformed")
         return payload
+
+    @staticmethod
+    def _semantic_event(payload: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in payload.items() if key != "created_at"}
+
+    @staticmethod
+    def _semantic_candidate(payload: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in payload.items() if key != "created_at"}
 
 
 def evaluate_candidate_gate(

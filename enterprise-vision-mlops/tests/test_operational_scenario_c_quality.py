@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -218,10 +219,23 @@ def test_review_event_and_candidate_are_deterministic() -> None:
 def test_registry_deduplicates_three_retries(tmp_path) -> None:
     event, candidate = event_and_candidate()
     registry = ScenarioCRegistry(tmp_path)
-    results = [registry.register(event, candidate) for _ in range(3)]
+    later_event = event.model_copy(update={"created_at": NOW + timedelta(minutes=1)})
+    later_candidate = candidate.model_copy(update={"created_at": NOW + timedelta(minutes=1)})
+    results = [
+        registry.register(event, candidate),
+        registry.register(later_event, later_candidate),
+        registry.register(event, candidate),
+    ]
     assert results[0].event_created is True
     assert results[1].event_created is False
     assert results[2].candidate_created is False
+    snapshot = json.loads(registry.path.read_text(encoding="utf-8"))
+    assert snapshot["events"][event.event_id]["created_at"] == event.model_dump(mode="json")[
+        "created_at"
+    ]
+    assert snapshot["candidates"][candidate.candidate_id]["created_at"] == (
+        candidate.model_dump(mode="json")["created_at"]
+    )
     assert results[2].event_count == 1
     assert results[2].candidate_count == 1
     assert results[2].attempt_count == 3
