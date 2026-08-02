@@ -94,7 +94,7 @@ They are not golden-path or scenario acceptance.
 | tracking and runtime baseline | complete | Git/Jira/Notion/Obsidian execution section plus read-only runtime observations | implement `SCRUM-179` |
 | normalized event/correlation/dedupe | complete | source `627209a`; 12 focused, 98 A-E regression, and 407 full tests passed; three independent 1,000-event replays, 300 unrelated events, zero false merge/duplicate parent/action; p95 30.183-32.374 ms; F-drive artifact hashes 625/625 | `SCRUM-180` |
 | recovery ownership/read-only incident plane | complete | source `c905d7d`, stale-state UI correction `3467315`; 16 focused and 423 full Python tests at implementation, 16 files/51 Control Panel tests after UI correction; three independent recommendation-only series, 41/41 artifact hash closure, zero mutation; GET-only APIs, low-cardinality metrics, browser proof, CUDA B0 and runtime invariants preserved | `SCRUM-185` |
-| no-fault golden lifecycle | in progress | common identity/revision/side-effect guard implemented; 436 tests passed at `4d716a2`; first pre-run rejected stale profile v8 identity; two attempts failed closed before Airflow dispatch on corrected cross-runtime evidence paths; third attempt `lifecycle-20260802T163003-ec64fa8c` passed 11/11 preflight and completed real Airflow 18/18, then exposed a historical-Pod false blocker during the approved GPU handoff; B0 automatically recovered 1/1 and no training Job was created; exact active-Pod fix is `4d716a2` | restart all runtimes at one CI-green revision and create a new attempt |
+| no-fault golden lifecycle | complete | attempt `lifecycle-20260802T165525-279cf1dc` at `85867e1` passed 11/11 preflight, Airflow 18/18, real RTX 4080 SUPER CUDA training, MLflow, readiness 13/13, isolated CT 18/18, approval, staging deployment, CUDA inference and Prometheus; all 10 stages, 23 guard decisions and 8 side effects completed; cleanup restored exact production B0 1/1 and staging 0/0; a post-run phase-evidence overwrite was remediated with independent training/CT handoff files and 437 full tests | `SCRUM-186` E guard |
 | E lifecycle guard | not started | pending | D guard |
 | D lifecycle guard | not started | pending | C guard |
 | C lifecycle guard | not started | pending | B guard |
@@ -164,6 +164,26 @@ They are not golden-path or scenario acceptance.
     only those exact Pods, and blocks zero/multiple active identities before
     mutation. Ten focused and 436 full tests pass. The failed run remains
     immutable and is not retried.
+11. Attempt `lifecycle-20260802T165525-279cf1dc`, bound to source `85867e1`,
+    is the accepted no-fault golden run. It passed 11/11 preflight, real
+    Airflow 18/18, Kubernetes training Job
+    `evm-lifecycle-train-0e8fdaf4493e`, MLflow run
+    `bf06465b8ff44f8a9dba2e02bdf90552`, readiness 13/13, isolated CT 18/18,
+    explicit local-staging approval, deployment intent
+    `deploy-9ab54c1cda4b604a`, exact CUDA serving validation and Prometheus.
+    Training stopped at epoch 4/20 after validation accuracy `0.958333`
+    crossed the predeclared `0.93` threshold. The final candidate recorded
+    accuracy `0.962079`, F1 `0.823529`, AUROC `0.973746`, and model SHA-256
+    `2df0b78a...2707e`. All 10 lifecycle stages, 23 guard decisions and eight
+    side effects completed. Cleanup left staging at 0/0 and restored the same
+    production deployment UID to 1/1 with CUDA inference and Prometheus up.
+12. Post-run review found that isolated CT reused
+    `training_gpu_handoff.json`, preserving both single-use approval receipts
+    but overwriting the earlier training lease command history. The runtime
+    behavior and restoration result remain valid, while the audit durability
+    gap is explicitly recorded. Training and isolated CT now use independent
+    evidence paths; the sequential regression and all 437 tests pass. The
+    original run remains immutable and bound to `85867e1`.
 
 ## Golden Attempt Log
 
@@ -173,6 +193,7 @@ They are not golden-path or scenario acceptance.
 | `lifecycle-20260802T160919-97ba37d2` | `329b609` | 11/11 preflight pass, then `side_effect_ledger_invalid` at data dispatch | none; no Airflow task assignment was created | retain run; path RCA fixed at `0f1a8ab`; create a new source-bound attempt |
 | `lifecycle-20260802T161927-4992f133` | `1e1e251` | 11/11 preflight pass, then `runtime_revision_unavailable` for worker and observer before data dispatch | none; no Airflow task assignment was created | retain run; supervisor URI-path RCA fixed at `1d39845`; create a new source-bound attempt |
 | `lifecycle-20260802T163003-ec64fa8c` | `51731ed` | 11/11 preflight and Airflow 18/18 pass; training handoff then failed on a label-wide delete wait that included two historical Failed Pods | approved B0 1-to-0 handoff occurred; automatic rollback restored 1/1; no training Job, model, or deployment intent was created | retain run and failure artifact; exact active-Pod fix at `4d716a2`; create a new source-bound attempt |
+| `lifecycle-20260802T165525-279cf1dc` | `85867e1` | PASS: 11/11 preflight, Airflow 18/18, real CUDA training, MLflow, readiness 13/13, isolated CT 18/18, local-staging approval/deploy, CUDA serving and Prometheus; 10/10 stages complete | eight intended side effects; bounded single-GPU handoffs; cleanup restored exact production B0 1/1 and staging 0/0 | accepted golden baseline; result under F-drive `validation/integrated-attempt-result.json`; proceed to E on a new immutable attempt |
 
 ## Synchronization Rule
 

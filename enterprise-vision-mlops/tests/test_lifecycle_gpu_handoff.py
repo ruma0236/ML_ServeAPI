@@ -262,6 +262,62 @@ def test_training_handoff_releases_product_after_gpu_job(tmp_path, monkeypatch) 
     assert not any("evm-lifecycle-train-proof" in " ".join(command) for command in runner.commands)
 
 
+def test_training_and_isolated_ct_handoffs_preserve_independent_evidence(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED", "true")
+    monkeypatch.setenv("EVM_LIFECYCLE_GPU_HOLDERS", "evm-production/evm-b0-production")
+    run = lifecycle_run(tmp_path, "lifecycle-independent-handoff-evidence")
+    training = TrainingBundle(
+        manifest_dir=tmp_path,
+        namespace="evm-training",
+        job_name="evm-lifecycle-train-proof",
+        candidate_id="efficientnet-b0",
+        image="training@sha256:" + "c" * 64,
+    )
+    isolated_ct = TrainingBundle(
+        manifest_dir=tmp_path,
+        namespace="evm-training",
+        job_name="evm-lifecycle-ct-proof",
+        candidate_id="efficientnet-b0",
+        image="training@sha256:" + "c" * 64,
+    )
+    runner = FakeKubectl()
+
+    approve_handoff(run, runner, "training")
+    training_path = acquire_training_gpu_handoff(run, training, runner=runner)
+    release_training_gpu_handoff(
+        run,
+        training,
+        runner=runner,
+        reason="training_task_done",
+    )
+    approve_handoff(run, runner, "isolated_ct")
+    ct_path = acquire_training_gpu_handoff(run, isolated_ct, runner=runner)
+    release_training_gpu_handoff(
+        run,
+        isolated_ct,
+        runner=runner,
+        reason="isolated_ct_task_done",
+    )
+
+    assert training_path is not None
+    assert ct_path is not None
+    assert training_path.name == "training_gpu_handoff.json"
+    assert ct_path.name == "isolated_ct_gpu_handoff.json"
+    assert training_path != ct_path
+    training_evidence = json.loads(training_path.read_text(encoding="utf-8"))
+    ct_evidence = json.loads(ct_path.read_text(encoding="utf-8"))
+    assert training_evidence["phase"] == "training"
+    assert training_evidence["state"] == "released"
+    assert training_evidence["release_reason"] == "training_task_done"
+    assert ct_evidence["phase"] == "isolated_ct"
+    assert ct_evidence["state"] == "released"
+    assert ct_evidence["release_reason"] == "isolated_ct_task_done"
+    assert runner.production_replicas == 1
+
+
 @pytest.mark.parametrize(
     ("runner", "expected_blocker"),
     [

@@ -38,8 +38,13 @@ def handoff_path(run: LifecycleRun) -> Path:
     return Path(run.artifact_root) / "kubernetes" / "gpu_handoff.json"
 
 
-def training_handoff_path(run: LifecycleRun) -> Path:
-    return Path(run.artifact_root) / "kubernetes" / "training_gpu_handoff.json"
+def training_handoff_path(run: LifecycleRun, training: TrainingBundle) -> Path:
+    filename = (
+        "isolated_ct_gpu_handoff.json"
+        if training_handoff_phase(training) == "isolated_ct"
+        else "training_gpu_handoff.json"
+    )
+    return Path(run.artifact_root) / "kubernetes" / filename
 
 
 def handoff_approval_root(run: LifecycleRun, phase: GpuHandoffPhase) -> Path:
@@ -162,7 +167,7 @@ def acquire_training_gpu_handoff(
 ) -> Path | None:
     if not handoff_enabled():
         return None
-    path = training_handoff_path(run)
+    path = training_handoff_path(run, training)
     existing = read_payload(path)
     if existing.get("state") == "acquired":
         return path
@@ -235,8 +240,7 @@ def release_training_gpu_handoff(
     runner: Runner,
     reason: str,
 ) -> Path | None:
-    del training
-    path = training_handoff_path(run)
+    path = training_handoff_path(run, training)
     if not path.is_file():
         return None
     lease = read_payload(path)
@@ -281,7 +285,11 @@ def acquire_holders(
         write_payload(
             path,
             base_payload(run, target, "not_required")
-            | {"gpu_allocatable": allocatable, "reason": "multiple_gpus_available"},
+            | {
+                "phase": phase,
+                "gpu_allocatable": allocatable,
+                "reason": "multiple_gpus_available",
+            },
         )
         return path
 
@@ -333,6 +341,7 @@ def acquire_holders(
                 )
 
     lease = base_payload(run, target, "acquiring") | {
+        "phase": phase,
         "gpu_allocatable": allocatable,
         "holders": holders,
         "commands": [],
