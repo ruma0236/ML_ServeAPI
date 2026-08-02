@@ -53,3 +53,28 @@ served model.
 7. independently hash all evidence and synchronize the final result.
 
 This checkpoint is implementation evidence, not Scenario C completion.
+
+## Integrated Runner Checkpoint
+
+The source-bound runner now executes three distinct branches without allowing
+release mutation:
+
+1. an isolated rejected dry-run branch with an actual API audit;
+2. the main run with three exact/stale registrations and a manual hold after
+   real Airflow data completion;
+3. the same main run resumed by an independent approved-for-training action
+   through real Kubernetes GPU training, MLflow and isolated CT, stopping at
+   the independent release-approval boundary.
+
+It records pre/hold/post runtime snapshots, exact external identity deltas,
+handoff receipts, lifecycle timeline, controlled cleanup and a content hash
+index. The source Scenario C evidence index is independently re-hashed before
+admission. Hold acceptance requires zero Kubernetes Job, MLflow, candidate and
+deployment-intent delta plus unchanged CUDA B0/Prometheus state. Resume
+acceptance requires exactly two Jobs, one MLflow run, one candidate, zero
+deployment intents, single-use quality approval and exact B0 restoration.
+
+The PowerShell wrapper runs a fresh source-bound real CUDA VisA drift proof
+before the lifecycle runner. Runner tests pass `5 / 5`; the complete Python
+suite passes `480 / 480`; Ruff and PowerShell parsing pass. Runtime execution
+is still pending, so the issue remains In Progress.

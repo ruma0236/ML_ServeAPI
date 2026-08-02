@@ -405,6 +405,12 @@ runtime identity. No real CUDA lifecycle attempt has been run at this
 checkpoint, so `EVM-280` remains open. Details are in
 `docs/status/2026-08-03-lifecycle-guard-scenario-c-progress.md`.
 
+The integrated runner is now implemented with rejected, held and governed
+resume branches. It independently re-hashes the source drift proof, requires
+zero downstream mutation at hold, resumes the same exact run through GPU
+training/MLflow/isolated CT, and stops before release approval. Runner tests
+pass `5 / 5` and the full suite `480 / 480`. No runtime attempt has started.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -420,7 +426,7 @@ checkpoint, so `EVM-280` remains open. Details are in
 | `lifecycle-20260802T193458-04b6cb7b` | `b82f6b4` | Airflow 18/18; exact worker detection 2.3490377 s and recovery 5.631701 s; same training Job completed; MLflow, readiness 13/13 and CT 2,181 completed; release approval returned 422 because API could not resolve the CT host URI through `/mnt/evm-ct` | exact approved worker only; no Job redispatch; automatic cancellation restored B0 1/1 CUDA; no release approval, deployment intent or candidate serving mutation | retain immutable integrated recovery/RCA evidence; map configured CT host and mount roots, validate inside API, then retry full 10/10 lifecycle |
 | `lifecycle-20260802T200116-548bea16` | `ea1a014` | 10/10 lifecycle completed; worker detection 4.2323827 s and recovery 7.0983775 s; same Job, MLflow, CT, approval, deploy and CUDA serving passed; final acceptance 10/11 because immediate Prometheus snapshot saw one restart-window EOF | three tasks, two intended Jobs, eight committed effects and release intent; exact B0 UID/1/1/CUDA/plugin restored; Prometheus autonomously up 19 s later | retain immutable blocked/RCA evidence; require two distinct consecutive successful scrapes within bounded restoration window, then rerun from a new revision |
 | `lifecycle-20260802T202558-a50d19fe` | `7f253ac` | PASS: 11/11 checks, 10/10 stages, worker detection 6.9141254 s, recovery 10.0661301 s, same training Job, MLflow, CT, approval, deploy, CUDA serve and two-distinct-scrape restoration 28.9677976 s | exact intended delta: Jobs +2, MLflow +1, candidate +1, intent +1; eight unique committed effects; B0 same UID 1/1 CUDA/plugin/Prometheus restored | accepted controlled local Scenario D closure; 16/16 hashes; proceed to Scenario C without HA or distributed exactly-once claim |
-| Scenario C contract checkpoint | pending commit | 59/59 focused tests pass; exact-run quality evidence, pre-training fail-closed hold and single-use approved-for-training action implemented | none; runtime proof not started | synchronize implementation-only checkpoint; then run a fresh source-bound CUDA lifecycle attempt |
+| Scenario C contract and runner checkpoint | `25ba10a` plus pending runner commit | exact-run quality evidence, pre-training hold, single-use approved-for-training action, rejected branch and source-bound integrated runner implemented; 480/480 tests | none; runtime proof not started | commit/deploy runner, then run a fresh source-bound CUDA lifecycle attempt |
 
 ## Synchronization Rule
 
