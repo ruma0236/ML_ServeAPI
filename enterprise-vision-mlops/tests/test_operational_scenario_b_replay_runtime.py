@@ -239,6 +239,7 @@ def test_scenario_b_report_passes_common_live_proof_contract(tmp_path: Path) -> 
         injection=injection,
         manifest_digest="d" * 64,
         candidate_summary_digest="e" * 64,
+        stable_observations=stable_observations,
         raw_challenger=raw_challenger,
         artifact_paths={"runtime": runtime_path},
         runtime_root=run_root,

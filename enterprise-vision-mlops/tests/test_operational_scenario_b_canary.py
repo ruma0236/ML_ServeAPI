@@ -51,16 +51,12 @@ def _policy(**updates: object) -> CanaryPolicy:
 
 def _stable() -> ModelIdentity:
     payload = _payload("scenario_b_known_good_rollback.json")
-    return ModelIdentity.model_validate(
-        {key: payload[key] for key in ModelIdentity.model_fields}
-    )
+    return ModelIdentity.model_validate({key: payload[key] for key in ModelIdentity.model_fields})
 
 
 def _challenger() -> ModelIdentity:
     payload = _payload("scenario_b_invalid_candidate.json")
-    return ModelIdentity.model_validate(
-        {key: payload[key] for key in ModelIdentity.model_fields}
-    )
+    return ModelIdentity.model_validate({key: payload[key] for key in ModelIdentity.model_fields})
 
 
 def _requests() -> list[ReplayRequest]:
@@ -134,6 +130,31 @@ def test_real_invalid_candidate_is_blocked_before_canary() -> None:
     assert result.rollback.action == "stable_route_retained"
     assert result.rollback.restored_model_digest == stable.model_digest
     assert result.production_mutated is False
+
+
+def test_failed_stable_shadow_observation_blocks_result() -> None:
+    stable = _stable()
+    stable_observations = _observations(stable)
+    stable_observations[0] = stable_observations[0].model_copy(
+        update={
+            "succeeded": False,
+            "prediction": None,
+            "confidence": None,
+            "failure_code": "stable_http_error:HTTPError",
+        }
+    )
+
+    with pytest.raises(ValidationError, match="stable authoritative"):
+        run_controlled_replay(
+            run_id="scenario-b-stable-shadow-failure",
+            policy=_policy(),
+            stable=stable,
+            challenger=_challenger(),
+            requests=_requests(),
+            stable_observations=stable_observations,
+            challenger_observations=_observations(_challenger()),
+            challenger_quality=QualityMetrics(accuracy=0.7, f1=0.6, auroc=0.9),
+        )
 
 
 def test_runtime_error_breach_stops_allocation_and_restores_exact_stable_route() -> None:

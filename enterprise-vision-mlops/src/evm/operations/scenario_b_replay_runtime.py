@@ -77,6 +77,7 @@ def _scenario_b_report(
     injection: dict[str, Any],
     manifest_digest: str,
     candidate_summary_digest: str,
+    stable_observations: list[InferenceObservation],
     raw_challenger: list[InferenceObservation],
     artifact_paths: dict[str, Path],
     runtime_root: Path,
@@ -97,6 +98,7 @@ def _scenario_b_report(
         expected_blocker
     ]
     raw_errors = sum(not item.succeeded for item in raw_challenger)
+    stable_errors = sum(not item.succeeded for item in stable_observations)
     routing_passed = (
         len(result.assignment_ledger) == 0 and metric_window is None
         if quality_block
@@ -173,6 +175,11 @@ def _scenario_b_report(
                 if metric_window
                 else {"challenger_assignments": 0, "admission_blocked": True}
             ),
+        ),
+        CheckEvidence(
+            check_id="stable_authoritative_observations_clean",
+            passed=stable_errors == 0,
+            observed={"observations": len(stable_observations), "errors": stable_errors},
         ),
         CheckEvidence(
             check_id="raw_cuda_observations_clean",
@@ -756,7 +763,6 @@ def execute_real_replay(
     prometheus_targets_url: str,
     prometheus_job: str,
     prometheus_instance: str,
-    host_data_root: str,
     warmup_requests: int,
     inject_error_count: int,
     expected_state: Literal["blocked_admission", "canary_passed", "rolled_back"],
@@ -778,7 +784,7 @@ def execute_real_replay(
     records = load_replay_records(
         manifest_path,
         count=policy.total_replay_requests,
-        host_data_root=host_data_root,
+        host_data_root=str(replay_config["stable_serving_data_root"]),
         verify_content=True,
     )
     before = fetch_stable_runtime(
@@ -798,6 +804,11 @@ def execute_real_replay(
         predict_url=stable_predict_url,
         expected=stable,
     )
+    stable_failure_count = sum(not item.succeeded for item in stable_observations)
+    if stable_failure_count:
+        raise ValueError(
+            f"stable_replay_observations_failed:{stable_failure_count}/{len(stable_observations)}"
+        )
     raw_challenger, cuda_runtime = collect_cuda_observations(
         records,
         candidate=challenger,
@@ -938,6 +949,7 @@ def execute_real_replay(
         injection=injection,
         manifest_digest=str(replay_config["manifest_sha256"]),
         candidate_summary_digest=sha256_file(candidate_summary_path),
+        stable_observations=stable_observations,
         raw_challenger=raw_challenger,
         artifact_paths=report_artifacts,
         runtime_root=run_root,

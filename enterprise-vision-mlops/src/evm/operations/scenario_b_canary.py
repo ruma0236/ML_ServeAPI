@@ -193,14 +193,14 @@ class ControlledReplayResult(StrictModel):
             raise ValueError("finished_at precedes started_at")
         if len(self.shadow_ledger) < self.policy.min_shadow_requests:
             raise ValueError("shadow ledger is below the minimum sample")
+        if any(not item.stable_succeeded for item in self.shadow_ledger):
+            raise ValueError("stable authoritative shadow observation failed")
         if self.decision.state == "blocked_admission" and self.assignment_ledger:
             raise ValueError("admission-blocked challenger cannot receive canary assignments")
         if self.decision.state != "blocked_admission":
             if len(self.assignment_ledger) != self.policy.total_replay_requests:
                 raise ValueError("assignment ledger does not cover the replay window")
-            observed = sum(
-                item.assigned_route == "challenger" for item in self.assignment_ledger
-            )
+            observed = sum(item.assigned_route == "challenger" for item in self.assignment_ledger)
             if observed != self.policy.challenger_requests:
                 raise ValueError("challenger assignment count is not exact")
         if not self.rollback.exact_identity_restored:
@@ -400,9 +400,7 @@ def run_controlled_replay(
             )
         )
 
-    challenger_entries = [
-        item for item in assignment_ledger if item.assigned_route == "challenger"
-    ]
+    challenger_entries = [item for item in assignment_ledger if item.assigned_route == "challenger"]
     identity_matches = sum(
         item.assigned_model_digest == item.response_model_digest for item in assignment_ledger
     )

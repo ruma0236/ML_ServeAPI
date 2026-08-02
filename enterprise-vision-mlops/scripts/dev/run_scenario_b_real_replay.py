@@ -23,7 +23,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prometheus-targets-url", required=True)
     parser.add_argument("--prometheus-job", required=True)
     parser.add_argument("--prometheus-instance", required=True)
-    parser.add_argument("--host-data-root", required=True)
     parser.add_argument("--warmup-requests", type=int, default=10)
     parser.add_argument("--inject-error-count", type=int, default=0)
     parser.add_argument(
@@ -61,7 +60,6 @@ def main() -> None:
         prometheus_targets_url=args.prometheus_targets_url,
         prometheus_job=args.prometheus_job,
         prometheus_instance=args.prometheus_instance,
-        host_data_root=args.host_data_root,
         warmup_requests=args.warmup_requests,
         inject_error_count=args.inject_error_count,
         expected_state=args.expect_state,

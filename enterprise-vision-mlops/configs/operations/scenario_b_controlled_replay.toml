@@ -34,4 +34,4 @@ snapshot_id = "ct-visa-open-data-e35d93d5561f-test-c6b466afb907"
 manifest_path = "F:/EnterpriseMLOps_CT/enterprise-vision-mlops/snapshots/ct-visa-open-data-e35d93d5561f-test-c6b466afb907/holdout_manifest.jsonl"
 manifest_sha256 = "7635a75aa7d5a5fd66b4dbb121203a809eceef637f8909c153899c53b4492566"
 evidence_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/scenario-b"
-
+stable_serving_data_root = "mnt/evm-data"
