@@ -485,6 +485,16 @@ was autonomously `up` on a new scrape about 22 seconds later. Replay admission
 now reuses the proven runtime-restoration gate: exact UID/1/1/CUDA/plugin/source
 identity and two distinct consecutive successful scrapes within 90 seconds.
 
+Scenario B then closed PASS at source `1e541de`, series
+`scenario-b-lifecycle-20260802T230659Z-1e541de0`. Two fresh lifecycle runs each
+completed Airflow, CUDA training, MLflow, readiness and isolated CT. The quality
+branch registered `rejected_release`; the runtime branch registered
+`rolled_back` after 100/1,000 assignments and two controlled errors. Both
+approval requests returned HTTP 422, both deployment-intent deltas were zero,
+and exact B0 UID/model/CUDA/Prometheus identity was retained. Independent
+re-hash matched 95/95 artifacts across five indexes. Scenario A is now the next
+dependency.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -507,6 +517,7 @@ identity and two distinct consecutive successful scrapes within 90 seconds.
 | Scenario B pre-launch attempt 1 | `fabe6a2` | wrapper stopped during Python discovery because Conda base lacked Torch and native stderr terminated fallback | none; no LifecycleRun, Airflow, Kubernetes, MLflow, candidate, replay or intent | retain harness RCA; discover F-drive CUDA Python safely and run both branches fresh from the corrected revision |
 | `lifecycle-20260802T222607-175d2b88` | `ab72f9f` | Airflow 18/18, CUDA training, MLflow, readiness and CT passed; replay then failed closed because `/mnt/evm-ct` was not mapped to the Windows host path | intended pre-release Jobs +2, MLflow +1, candidate +1, intent 0; automatic cancel; B0 1/1 CUDA/Prometheus unchanged | retain mount-boundary RCA; map CT mount paths before path/digest validation and rerun both branches fresh |
 | `lifecycle-20260802T224642-da79b5a0` | `ec2ce22` | full quality lifecycle and corrected replay manifest preflight passed; one Prometheus snapshot caught the post-CT B0 restart window before replay | Jobs +2, MLflow +1, candidate +1, intent 0; target autonomously up on a distinct scrape about 22 s later; exact B0 unchanged | retain convergence RCA; require exact runtime plus two distinct up scrapes before replay and rerun both branches fresh |
+| `lifecycle-20260802T230714-5e948d45` plus `lifecycle-20260802T232208-c58e1e77` | `1e541de` | PASS: two fresh full lifecycles; measured quality rejection; 100/1,000 runtime replay with two errors; approval HTTP 422 for both | each branch Jobs +2, MLflow +1, candidate +1, intent 0; exact B0 UID/model/CUDA/plugin/Prometheus retained | accepted Scenario B closure; 95/95 indexed artifacts; proceed to Scenario A |
 
 ## Synchronization Rule
 

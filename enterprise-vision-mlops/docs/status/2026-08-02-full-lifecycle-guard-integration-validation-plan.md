@@ -60,7 +60,7 @@ The planning source baseline is Git `e247efd133a2c486e81a1e700aa68133876770a9`.
 | 2 | `EVM-278` | `SCRUM-186` | E data and artifact integrity guard in the lifecycle | Done | `EVM-277` |
 | 3 | `EVM-279` | `SCRUM-187` | D idempotent lifecycle continuity and side-effect reconciliation | Done | `EVM-278` |
 | 4 | `EVM-280` | `SCRUM-188` | C quality/drift review, hold, and governed resume | Done | `EVM-279` |
-| 5 | `EVM-281` | `SCRUM-189` | B candidate release guardrail and stable rollback | In Progress; implementation PASS, runtime pending | `EVM-280` |
+| 5 | `EVM-281` | `SCRUM-189` | B candidate release guardrail and stable rollback | Done; two fresh real lifecycle branches PASS | `EVM-280` |
 | 6 | `EVM-282` | `SCRUM-190` | A post-promotion GPU serving recovery | To Do, maintenance gated | `EVM-281` |
 | 7 | `EVM-283` | `SCRUM-191` | single-scenario integrated evidence closure | To Do | `EVM-282` |
 | 8 | `EVM-284` | `SCRUM-192` | final VisA operations drill | To Do, final gate | `EVM-283`, `EVM-274`, `EVM-275` |
@@ -429,6 +429,11 @@ Expected guard action:
 - no guard or operator can lower the policy mid-run;
 - exact stable model/image/route/Prometheus identity passes after containment;
 - this is controlled operational replay, not business A/B.
+
+Closure PASS at evidence source `1e541de`: measured quality rejection and
+1,000-request runtime containment both denied approval before deployment
+intent, preserved exact B0 CUDA identity and independently closed 95/95 indexed
+artifacts. See `docs/status/2026-08-03-lifecycle-guard-scenario-b-closure.md`.
 
 ## Scenario A: Post-Promotion Serving Recovery
 

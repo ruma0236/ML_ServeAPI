@@ -1,7 +1,7 @@
 # Scenario B Integrated Lifecycle Guard Progress
 
 - Work item: `EVM-281` / Jira `SCRUM-189`
-- State: implementation complete; clean-source real lifecycle execution pending
+- State: PASS; superseded by the Scenario B integrated closure
 - Dependency: Scenario C integrated closure PASS
 - Runtime scope: local Docker Desktop, one node, one RTX 4080 SUPER, one stable B0 replica
 
@@ -144,6 +144,22 @@ restart window after isolated CT and failed closed with
 
 This is convergence-timing RCA, not Scenario B acceptance. Both branches still
 require fresh execution from the corrected source revision.
+
+## Integrated Closure
+
+Source `1e541de` passed two fresh real lifecycle branches in series
+`scenario-b-lifecycle-20260802T230659Z-1e541de0`.
+
+- Quality: measured F1 `0.823529` against fixed minimum `0.90`,
+  `rejected_release`, assignment 0, approval HTTP 422, intent 0.
+- Runtime: 100/1,000 exact assignments, two controlled errors, error rate
+  `0.02`, `rolled_back`, identity 1,000/1,000, allocation after 0, approval
+  HTTP 422, intent 0.
+- Detection and logical stable-route containment were `0.016 s`; exact runtime
+  restoration with two Prometheus scrapes took `15.437 s` and `22.140 s`.
+- Five indexes independently matched 95/95 artifacts; both operational reports
+  passed live-proof validation. Full Python tests pass 492/492.
+- Detailed evidence: `docs/status/2026-08-03-lifecycle-guard-scenario-b-closure.md`.
 
 ## Claim Boundary
 
