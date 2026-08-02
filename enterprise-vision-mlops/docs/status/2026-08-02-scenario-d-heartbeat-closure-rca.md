@@ -1,7 +1,7 @@
 # Scenario D Heartbeat Closure RCA
 
-Date: 2026-08-02  
-Issue: `SCRUM-175 / EVM-269`  
+Date: 2026-08-02
+Issue: `SCRUM-175 / EVM-269`
 Status: corrected; fresh proof required
 
 ## Incident

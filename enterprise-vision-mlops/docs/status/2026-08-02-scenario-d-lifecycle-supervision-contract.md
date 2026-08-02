@@ -2,7 +2,10 @@
 
 Date: `2026-08-02`
 Issue: `EVM-269 / SCRUM-175`
-State: D0 contract ready; implementation and live proof not started
+State: Done for the admitted local scope; closure evidence recorded separately
+
+Closure:
+`docs/status/2026-08-02-scenario-d-lifecycle-supervision-closure.md`.
 
 ## Scope And Independence
 

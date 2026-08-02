@@ -242,6 +242,14 @@ lease/fence identity, persistent restart budgeting, fenced run claims, API and
 Prometheus state, deterministic fixtures, and three fresh exact-child recovery
 runs before D can close.
 
+Closure update `2026-08-02`: D0-D8 passed for the admitted single-node local
+scope at executable revision `37ec89d`. The authoritative worker/observer/worker
+series is `scenario-d-series-20260802T082205Z-37ec89d6`; maximum detection,
+recovery, and healthy heartbeat p95 are `5.870 / 9.049 / 5.0 s`. All three
+reports pass common closure and `9 / 9` hashes. The first D8 series remains
+immutable superseded RCA evidence. See
+`docs/status/2026-08-02-scenario-d-lifecycle-supervision-closure.md`.
+
 ### 1. Baseline And Gap
 
 P0 proved lifecycle-worker termination and automatic restart. Observer loss,
@@ -316,6 +324,9 @@ control, and why this Windows supervisor is not distributed control-plane HA.
 Worker/observer health and revision are trustworthy, stage mutation is
 idempotent across restart, and the incident/alert timeline is deterministic.
 B cannot run a live canary unless both A and D exits pass.
+
+Scenario D exit is satisfied for local host-process recovery. This does not
+remove B's separate single-GPU dual-model admission and maintenance boundaries.
 
 ## Scenario B: Invalid Model Canary And Rollback
 

@@ -1,7 +1,7 @@
 # Scenario D: Lifecycle Supervision Recovery
 
 Issue: `EVM-269 / SCRUM-175`
-State: D0 contract ready; implementation and proof not started.
+State: Implemented and validated for the admitted local scope.
 
 ## Purpose
 
@@ -67,3 +67,31 @@ entrypoint.
 
 Detailed contract:
 `docs/status/2026-08-02-scenario-d-lifecycle-supervision-contract.md`.
+
+## Executable Proof
+
+The current exact-child proof command is:
+
+```powershell
+$env:PYTHONPATH = (Resolve-Path src).Path
+$head = (git rev-parse HEAD).Trim()
+$branch = (git branch --show-current).Trim()
+C:\Users\opop0\miniconda3\python.exe -m evm.operations.scenario_d_live `
+  --policy configs\operations\scenario_d_supervision.toml `
+  --project-root . `
+  --output-root F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\operations\scenario-d `
+  --source-commit $head `
+  --source-branch $branch `
+  --sequence lifecycle_worker,kubernetes_observer,lifecycle_worker `
+  --cooldown-seconds 10
+```
+
+Run only with no active lifecycle work, a clean pushed revision, available
+restart budget, exact single-process identities, healthy production CUDA
+inference, GPU/device-plugin `1 / 1`, Prometheus `up`, and an explicit bounded
+maintenance approval. The runner rejects any other sequence or cooldown.
+
+Authoritative result and RCAs:
+
+- `docs/status/2026-08-02-scenario-d-lifecycle-supervision-closure.md`;
+- `docs/status/2026-08-02-scenario-d-heartbeat-closure-rca.md`.
