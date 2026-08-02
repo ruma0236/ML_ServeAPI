@@ -15,6 +15,7 @@ from evm.control_panel.lifecycle_quality_guard import (
     apply_quality_review_action,
     authorize_training,
     load_quality_review,
+    quality_review_path,
     register_quality_review,
 )
 from evm.operations.scenario_c_quality import (
@@ -199,6 +200,23 @@ def test_registration_deduplicates_exact_and_stale_signals(tmp_path: Path) -> No
     assert stale.event_id == first.event_id == duplicate.event_id
     assert stale.candidate_id == first.candidate_id == duplicate.candidate_id
     assert load_quality_review(run) == stale
+
+
+def test_quality_review_uses_configured_writable_lifecycle_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run, request, _paths = fixture_bundle(tmp_path)
+    writable_root = tmp_path / "api-artifacts" / "w7" / "lifecycle_runs"
+    monkeypatch.setenv("EVM_LIFECYCLE_RUN_ROOT", str(writable_root))
+
+    review, created = register_quality_review(run, request)
+
+    expected = writable_root / run.run_id / "quality" / "scenario-c-review.json"
+    assert created is True
+    assert quality_review_path(run) == expected
+    assert expected.is_file()
+    assert load_quality_review(run) == review
 
 
 def test_manual_hold_then_independent_approval_is_consumed_once(tmp_path: Path) -> None:

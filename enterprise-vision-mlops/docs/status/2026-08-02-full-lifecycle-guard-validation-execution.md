@@ -418,6 +418,14 @@ Airflow task, Kubernetes Job, MLflow run or deployment intent was created.
 The wrapper now resolves only an import-capable project Python. This attempt is
 retained as harness RCA, not a guard pass.
 
+Scenario C attempt 2 at source `bd01cdc` produced another fresh CUDA guard
+PASS in `18.102172372 s`, then found an API persistence boundary defect before
+any lifecycle stage was queued. The quality review attempted to write through
+read-only `/mnt/evm-data`; the isolated run was cancelled with zero
+Airflow/Kubernetes/MLflow/deployment effect. The remediation writes lifecycle
+quality state through `EVM_LIFECYCLE_RUN_ROOT` and adds regression coverage for
+separate read-only data and writable API artifact mounts.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -435,6 +443,7 @@ retained as harness RCA, not a guard pass.
 | `lifecycle-20260802T202558-a50d19fe` | `7f253ac` | PASS: 11/11 checks, 10/10 stages, worker detection 6.9141254 s, recovery 10.0661301 s, same training Job, MLflow, CT, approval, deploy, CUDA serve and two-distinct-scrape restoration 28.9677976 s | exact intended delta: Jobs +2, MLflow +1, candidate +1, intent +1; eight unique committed effects; B0 same UID 1/1 CUDA/plugin/Prometheus restored | accepted controlled local Scenario D closure; 16/16 hashes; proceed to Scenario C without HA or distributed exactly-once claim |
 | Scenario C contract and runner checkpoint | `25ba10a` plus pending runner commit | exact-run quality evidence, pre-training hold, single-use approved-for-training action, rejected branch and source-bound integrated runner implemented; 480/480 tests | none; runtime proof not started | commit/deploy runner, then run a fresh source-bound CUDA lifecycle attempt |
 | Scenario C attempt 1 | `427b400` | fresh CUDA drift PASS in 18.476526197 s, then wrapper selected Python 3.14 without `evm` and stopped before lifecycle admission | none; no LifecycleRun or external lifecycle side effect | retain harness RCA; pin import-capable project Python and rerun from a new source revision |
+| Scenario C attempt 2 | `bd01cdc` | fresh CUDA drift PASS in 18.102172372 s; isolated rejection review then returned HTTP 500 because quality state targeted read-only `/mnt/evm-data` | none; run cancelled before data/training/MLflow/CT/deployment dispatch | retain storage-boundary RCA; use writable lifecycle root, test split mount semantics, rerun from a new source revision |
 
 ## Synchronization Rule
 

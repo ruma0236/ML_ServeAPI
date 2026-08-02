@@ -179,6 +179,14 @@ def utc_now() -> datetime:
 
 
 def quality_review_path(run: LifecycleRunIdentity) -> Path:
+    lifecycle_root = os.getenv("EVM_LIFECYCLE_RUN_ROOT")
+    if lifecycle_root:
+        return (
+            Path(lifecycle_root)
+            / run.run_id
+            / "quality"
+            / "scenario-c-review.json"
+        )
     return runtime_path(run.artifact_root) / "quality" / "scenario-c-review.json"
 
 

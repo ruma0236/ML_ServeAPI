@@ -97,3 +97,21 @@ failure, not a Scenario C guard result. The wrapper now selects only a Python
 runtime that successfully imports both `evm` and `pydantic`, preferring the
 configured or project Conda runtime. A new commit-bound CUDA proof and
 lifecycle attempt are required.
+
+## Attempt 2 RCA
+
+Source `bd01cdc` produced a fresh real CUDA drift proof in `18.102172372 s`
+(`scenario-c-20260802T212544Z-bd01cdcf`). Known-good stayed
+`within_policy`; shifted data became `review_required`; no deployment intent
+or production mutation was created.
+
+The isolated rejection run `lifecycle-20260802T212614-e8f1d96a` then failed
+closed before registration. The API attempted to persist its review under the
+read-only `/mnt/evm-data` mount and returned HTTP 500. The run never queued
+data, training, MLflow, CT, or deployment work and was explicitly cancelled.
+
+Root cause was a storage-boundary error: `quality_review_path()` mapped the
+host artifact URI through the generic read path instead of the API's writable
+`EVM_LIFECYCLE_RUN_ROOT`. Quality evidence now uses the configured writable
+lifecycle root, with a regression test that separates host/read-only and
+API/write mount semantics. A new source-bound run remains required.
