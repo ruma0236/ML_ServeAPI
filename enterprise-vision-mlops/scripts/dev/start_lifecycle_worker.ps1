@@ -15,6 +15,7 @@ $DataRoot = if ($env:EVM_HOST_DATA_ROOT) {
 $ArtifactsRoot = Join-Path $DataRoot "artifacts"
 $LifecycleRoot = Join-Path $ArtifactsRoot "w7\lifecycle_runs"
 $PidPath = Join-Path $LifecycleRoot "worker.pid"
+$IdentityPath = Join-Path $LifecycleRoot "worker.identity.json"
 $StdoutPath = Join-Path $LifecycleRoot "worker.stdout.log"
 $StderrPath = Join-Path $LifecycleRoot "worker.stderr.log"
 
@@ -40,6 +41,19 @@ function Get-OwnedWorkerProcess {
     return $process
 }
 
+function Read-JsonFile {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+    try {
+        return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+}
+
 if (Test-Path -LiteralPath $PidPath) {
     $existingPid = 0
     [void][int]::TryParse((Get-Content -LiteralPath $PidPath -Raw).Trim(), [ref]$existingPid)
@@ -49,10 +63,16 @@ if (Test-Path -LiteralPath $PidPath) {
         exit 0
     }
     if ($existing) {
+        $identity = Read-JsonFile -Path $IdentityPath
+        if (-not $identity -or $identity.pid -ne $existingPid -or `
+            $identity.child_name -ne "lifecycle_worker") {
+            throw "Lifecycle worker restart blocked because exact process identity is missing or mismatched."
+        }
         Stop-Process -Id $existingPid -Force
         Start-Sleep -Milliseconds 500
     }
     Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $IdentityPath -Force -ErrorAction SilentlyContinue
 }
 
 $pythonCandidates = [System.Collections.Generic.List[string]]::new()
@@ -92,6 +112,8 @@ $env:EVM_DATA_MOUNT_ROOT = "/mnt/evm-data"
 $env:EVM_PIPELINE_PROFILE_ROOT = Join-Path $ArtifactsRoot "w7\pipeline_profiles"
 $env:EVM_PIPELINE_PROFILE_RUNTIME_ROOT = "/mnt/evm-data/artifacts/w7/pipeline_profiles"
 $env:EVM_LIFECYCLE_RUN_ROOT = $LifecycleRoot
+$env:EVM_LIFECYCLE_CLAIM_ROOT = Join-Path $LifecycleRoot "_claims"
+$env:EVM_LIFECYCLE_CLAIM_TTL_SECONDS = "30"
 $env:EVM_LIFECYCLE_RUNTIME_ROOT = "/mnt/evm-data/artifacts/w7/lifecycle_runs"
 $env:EVM_KUBERNETES_GENERATED_MANIFEST_ROOT = $LifecycleRoot
 $env:EVM_CONTROL_PANEL_LEDGER_ROOT = Join-Path $ArtifactsRoot "w7\operations"
@@ -116,6 +138,13 @@ if (-not $env:EVM_GIT_BRANCH) {
     $env:EVM_GIT_BRANCH = (git -C $ProjectRoot rev-parse --abbrev-ref HEAD).Trim()
 }
 $env:EVM_EXPECTED_CI_COMMIT = $env:EVM_GIT_COMMIT
+if (-not $env:EVM_SUPERVISOR_LEASE_ID) {
+    $env:EVM_SUPERVISOR_LEASE_ID = "standalone-$([Guid]::NewGuid().ToString('N'))"
+}
+if (-not $env:EVM_SUPERVISOR_FENCING_TOKEN) {
+    $env:EVM_SUPERVISOR_FENCING_TOKEN = "1"
+}
+$env:EVM_PROCESS_INSTANCE_ID = [Guid]::NewGuid().ToString("N")
 
 $heartbeat = Join-Path $LifecycleRoot "_worker.json"
 $previousHeartbeatWrite = if (Test-Path -LiteralPath $heartbeat) {
@@ -155,11 +184,27 @@ do {
     if ($heartbeatFresh) {
         $payload = Get-Content -LiteralPath $heartbeat -Raw | ConvertFrom-Json
         $heartbeatFresh = $payload.pid -eq $process.Id -and `
-            $payload.source_commit -eq $env:EVM_GIT_COMMIT
+            $payload.source_commit -eq $env:EVM_GIT_COMMIT -and `
+            $payload.process_instance_id -eq $env:EVM_PROCESS_INSTANCE_ID -and `
+            $payload.supervisor_lease_id -eq $env:EVM_SUPERVISOR_LEASE_ID -and `
+            $payload.fencing_token -eq [int]$env:EVM_SUPERVISOR_FENCING_TOKEN -and `
+            -not [string]::IsNullOrWhiteSpace([string]$payload.started_at)
     }
 } while (-not $heartbeatFresh -and [DateTimeOffset]::UtcNow -lt $deadline)
 if (-not $heartbeatFresh) {
     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     throw "Lifecycle worker did not produce a revision-matched heartbeat within 15 seconds: $heartbeat"
 }
+$identity = [ordered]@{
+    child_name = "lifecycle_worker"
+    pid = $process.Id
+    process_started_at = $payload.started_at
+    process_instance_id = $payload.process_instance_id
+    source_commit = $payload.source_commit
+    supervisor_lease_id = $payload.supervisor_lease_id
+    fencing_token = $payload.fencing_token
+}
+$identityTemporary = "$IdentityPath.tmp"
+$identity | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $identityTemporary -Encoding utf8
+Move-Item -LiteralPath $identityTemporary -Destination $IdentityPath -Force
 Write-Host "Lifecycle worker PID=$($process.Id) heartbeat=$heartbeat"

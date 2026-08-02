@@ -2613,6 +2613,9 @@
           "source_commit": {"type": ["string", "null"]},
           "source_branch": {"type": ["string", "null"]},
           "started_at": {"type": ["string", "null"]},
+          "process_instance_id": {"type": ["string", "null"]},
+          "supervisor_lease_id": {"type": ["string", "null"]},
+          "fencing_token": {"type": ["integer", "null"], "minimum": 1},
           "last_seen_at": {"type": ["string", "null"]},
           "current_run_id": {"type": ["string", "null"]},
           "message": {"type": ["string", "null"]}

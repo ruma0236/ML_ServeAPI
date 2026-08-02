@@ -25,6 +25,7 @@ from evm.control_panel.schemas import (
     RuntimeResourceList,
     State,
 )
+from evm.operations.scenario_d_supervision import current_process_started_at
 
 
 KubectlRunner = Callable[[list[str]], dict[str, Any]]
@@ -899,6 +900,8 @@ def observer_loop(
     interval_seconds: float,
     max_history: int,
 ) -> None:
+    process_started_at = current_process_started_at().isoformat()
+    process_instance_id = os.getenv("EVM_PROCESS_INSTANCE_ID") or f"observer-{os.getpid()}"
     while True:
         iteration_started = time.monotonic()
         observed = utc_now()
@@ -908,6 +911,18 @@ def observer_loop(
             cluster_context=cluster_context,
             now=observed,
             compute_telemetry=compute_telemetry,
+        )
+        snapshot = snapshot.model_copy(
+            update={
+                "observer_id": os.getenv("EVM_OBSERVER_ID") or "windows-docker-desktop-observer",
+                "pid": os.getpid(),
+                "process_started_at": process_started_at,
+                "process_instance_id": process_instance_id,
+                "source_commit": os.getenv("EVM_GIT_COMMIT") or None,
+                "source_branch": os.getenv("EVM_GIT_BRANCH") or None,
+                "supervisor_lease_id": os.getenv("EVM_SUPERVISOR_LEASE_ID") or None,
+                "fencing_token": int(os.getenv("EVM_SUPERVISOR_FENCING_TOKEN", "0")) or None,
+            }
         )
         try:
             write_snapshot(snapshot, output_path, history_root=history_root, max_history=max_history)

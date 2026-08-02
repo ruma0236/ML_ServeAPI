@@ -178,6 +178,14 @@ class KubernetesResourceSnapshot(ContractModel):
     observed_at: str
     collection_status: Literal["pass", "fail"]
     resource_status: State
+    observer_id: str | None = None
+    pid: int | None = None
+    process_started_at: str | None = None
+    process_instance_id: str | None = None
+    source_commit: str | None = None
+    source_branch: str | None = None
+    supervisor_lease_id: str | None = None
+    fencing_token: int | None = None
     message: str | None = None
     resources: list[RuntimeResource] = Field(default_factory=list)
     compute_telemetry: ComputeTelemetry | None = None

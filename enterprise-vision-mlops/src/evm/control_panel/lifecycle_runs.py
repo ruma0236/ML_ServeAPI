@@ -194,6 +194,9 @@ class LifecycleWorkerState(ContractModel):
     source_commit: str | None = None
     source_branch: str | None = None
     started_at: str | None = None
+    process_instance_id: str | None = None
+    supervisor_lease_id: str | None = None
+    fencing_token: int | None = None
     last_seen_at: str | None = None
     current_run_id: str | None = None
     message: str | None = None
