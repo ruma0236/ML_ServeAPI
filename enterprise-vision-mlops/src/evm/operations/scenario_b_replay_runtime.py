@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 import requests
 
+from evm.control_panel.readiness_evaluator import runtime_path
 from evm.operations.failure_evidence import (
     ApprovalEvidence,
     ArtifactEvidence,
@@ -464,7 +465,8 @@ def load_replay_records(
             relative_path = str(metadata.get("relative_path") or "")
             request_id = str(payload.get("ct_record_id") or payload.get("id") or "")
             content_digest = str(payload.get("content_sha256") or "").lower()
-            image_path = Path(str(payload.get("image_path") or ""))
+            image_path_value = str(payload.get("image_path") or "")
+            image_path = runtime_path(image_path_value) if image_path_value else Path("")
             if not request_id or not relative_path or not image_path.is_absolute():
                 raise ValueError("replay_manifest_record_incomplete")
             if verify_content:

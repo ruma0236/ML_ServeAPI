@@ -468,6 +468,15 @@ through failed candidates and explicitly discovers the established F-drive
 CUDA runtime. The failed invocation is RCA evidence, not Scenario B evidence;
 both branches remain fresh-run requirements.
 
+The next fresh quality run reached the release boundary after real Airflow,
+CUDA training, MLflow, readiness and isolated CT, then failed closed before
+replay because the Windows runner treated the CT manifest's `/mnt/evm-ct`
+image URI as a native host path. Intended pre-release delta was Jobs +2,
+MLflow +1, candidate +1 and deployment intent 0. Automatic cancellation
+restored active runs 0 and preserved exact B0 CUDA/Prometheus identity. The
+loader now applies the shared CT host/mount mapping before path and digest
+checks; both B branches still require fresh execution.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -488,6 +497,7 @@ both branches remain fresh-run requirements.
 | Scenario C attempt 2 | `bd01cdc` | fresh CUDA drift PASS in 18.102172372 s; isolated rejection review then returned HTTP 500 because quality state targeted read-only `/mnt/evm-data` | none; run cancelled before data/training/MLflow/CT/deployment dispatch | retain storage-boundary RCA; use writable lifecycle root, test split mount semantics, rerun from a new source revision |
 | `lifecycle-20260802T213202-1c0776fc` | `39d4cd2` | PASS: 18/18 guards; rejection audit; Airflow; hold at training attempt 0; single-use governed resume; real CUDA training, MLflow, readiness and isolated CT; stop at independent release approval | Jobs +2, MLflow +1, candidate +1, intent 0; exact B0 CUDA/plugin/Prometheus restored in 29.0953264 s | accepted controlled local Scenario C closure; source 17/17 and integrated 21/21 hashes; proceed to Scenario B |
 | Scenario B pre-launch attempt 1 | `fabe6a2` | wrapper stopped during Python discovery because Conda base lacked Torch and native stderr terminated fallback | none; no LifecycleRun, Airflow, Kubernetes, MLflow, candidate, replay or intent | retain harness RCA; discover F-drive CUDA Python safely and run both branches fresh from the corrected revision |
+| `lifecycle-20260802T222607-175d2b88` | `ab72f9f` | Airflow 18/18, CUDA training, MLflow, readiness and CT passed; replay then failed closed because `/mnt/evm-ct` was not mapped to the Windows host path | intended pre-release Jobs +2, MLflow +1, candidate +1, intent 0; automatic cancel; B0 1/1 CUDA/Prometheus unchanged | retain mount-boundary RCA; map CT mount paths before path/digest validation and rerun both branches fresh |
 
 ## Synchronization Rule
 

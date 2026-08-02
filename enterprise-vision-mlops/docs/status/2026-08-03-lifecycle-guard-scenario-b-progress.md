@@ -88,6 +88,36 @@ runtime.
   Scenario B lifecycle branches must still start fresh from the corrected,
   committed source revision.
 
+## Attempt 2 Replay Mount-Boundary RCA
+
+Source `ab72f9f` reached the independent release boundary on a fresh real
+quality lifecycle, then the replay loader failed closed with
+`replay_manifest_record_incomplete` before replay or guard registration.
+
+- Lifecycle: `lifecycle-20260802T222607-175d2b88`; Airflow 18/18 in about
+  521 seconds, real CUDA training early-stopped at epoch 4/20, MLflow run
+  `9c6838726cf846e5923c5201ef7ca210`, readiness 13/13 and isolated CT 2,181.
+- Measured candidate: accuracy `0.962079`, F1 `0.823529`, AUROC `0.973746`,
+  training `124.344 s`, peak GPU memory `2846.96 MiB`.
+- Root cause: the immutable CT manifest correctly stores image paths beneath
+  `/mnt/evm-ct`, but the Windows host replay loader checked that Linux mount
+  string as a native drive-absolute path without applying the established
+  CT host/mount mapping.
+- Side effects: intended pre-release delta only, Jobs +2, MLflow +1, candidate
+  +1, deployment intents 0. Replay, release guard and approval did not run.
+- Safety closure: automatic cancellation left active runs 0; exact production
+  B0 remained 1/1 with the same deployment UID and model digest, CUDA ready,
+  supervisor healthy and Prometheus up.
+- Evidence index SHA-256:
+  `8755646e798121a45fe79674465a3c8ba99a18ba86c50fdf80071a4f5022d6a5`.
+- Correction: resolve manifest image paths with the shared runtime host/mount
+  mapping before absolute-path and content-digest validation. A dedicated
+  `/mnt/evm-ct` fixture prevents recurrence.
+
+Attempt 2 is immutable integrated-pipeline RCA evidence, not Scenario B guard
+acceptance. Quality and runtime branches must both run fresh on the corrected
+source revision.
+
 ## Claim Boundary
 
 The implementation supports controlled local release validation. It is not a

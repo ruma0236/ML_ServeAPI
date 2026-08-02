@@ -95,6 +95,44 @@ def test_load_replay_records_binds_ct_and_source_paths(tmp_path: Path) -> None:
     )
 
 
+def test_load_replay_records_maps_ct_mount_path_to_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ct_root = tmp_path / "ct"
+    image = ct_root / "snapshots" / "snapshot-1" / "objects" / "image.jpg"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"image")
+    import hashlib
+
+    digest = hashlib.sha256(b"image").hexdigest()
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        json.dumps(
+            {
+                "ct_record_id": "ct-mounted-1",
+                "content_sha256": digest,
+                "image_path": "/mnt/evm-ct/snapshots/snapshot-1/objects/image.jpg",
+                "label": "normal",
+                "metadata": {"relative_path": "pcb1/Data/Images/Normal/1.JPG"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EVM_HOST_CT_ROOT", str(ct_root))
+    monkeypatch.setenv("EVM_CT_MOUNT_ROOT", "/mnt/evm-ct")
+
+    records = load_replay_records(
+        manifest,
+        count=1,
+        host_data_root="F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+        verify_content=True,
+    )
+
+    assert records[0].challenger_image_path == image
+    assert records[0].request.content_digest == digest
+
+
 def test_failure_overlay_only_changes_deterministic_challenger_requests() -> None:
     model = ModelIdentity(
         candidate_id="candidate",
