@@ -47,7 +47,7 @@ traffic, or a production SLA.
 | 1 | `EVM-266` | `SCRUM-172` | A: GPU and serving failure | To do | master contract |
 | 2 | `EVM-269` | `SCRUM-175` | D: lifecycle worker/observer failure | To do | master contract |
 | 3 | `EVM-267` | `SCRUM-173` | B: invalid model canary and rollback | To do | A and `EVM-244` router |
-| 4 | `EVM-270` | `SCRUM-176` | E: data/artifact integrity | To do | shared validator |
+| 4 | `EVM-270` | `SCRUM-176` | E: data/artifact integrity | In progress | E0 contract fixed; implementation/proof open |
 | 5 | `EVM-268` | `SCRUM-174` | C: quality degradation and retraining gate | To do | E, then B for limited release |
 | 6 | future child | not created | cross-scenario injection | Blocked | A-E passed |
 | 7 | future child | not created | VisA end-to-end operations drill | Blocked | cross-scenario passed |

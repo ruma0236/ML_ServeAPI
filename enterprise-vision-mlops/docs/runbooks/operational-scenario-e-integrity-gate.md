@@ -1,7 +1,10 @@
 # Scenario E: Data and Artifact Integrity Gate
 
 Issue: `EVM-270 / SCRUM-176`
-State: contract defined; implementation and execution not started.
+State: E0 contract complete; implementation and execution pending.
+
+Authoritative contract:
+`docs/status/2026-08-02-scenario-e-data-artifact-integrity-contract.md`.
 
 ## Purpose
 
@@ -13,6 +16,10 @@ and model artifact mismatch before downstream mutation.
 Immutable source/split/CT manifests, expected counts, lineage, MLflow run, model
 card, artifact/image digests and rollback identity are readable. Canonical data
 is mounted or treated read-only.
+
+The validator distinguishes the byte checksum of a changing operational
+manifest from its stable semantic dataset identity. A versioned Ed25519 public
+key verifies the signed trust manifest; its private key remains outside Git.
 
 ## Safe Injection Matrix
 
@@ -27,6 +34,9 @@ Create isolated copies under the scenario evidence root:
 | disconnected lineage parent | `lineage_parent_missing` |
 | wrong model artifact bytes | `model_artifact_digest_mismatch` |
 | MLflow/model-card mismatch | `model_identity_mismatch` |
+| invalid/unknown trust signature | `trust_signature_invalid` |
+| expired signed manifest | `trust_manifest_stale` |
+| container digest mismatch | `container_image_digest_mismatch` |
 
 Blocker names are part of the planned implementation contract and must remain
 stable once tests and UI consume them.
@@ -44,6 +54,8 @@ command-intent audit and proof that no downstream work was queued.
 - Canonical source/artifact digests do not change.
 - Corrected isolated copies pass the same validator.
 - Repeated validation returns the same decision and fingerprint.
+- A blocked validation creates zero deployment intents through the E admission
+  fence.
 
 ## Failure and Mitigation
 

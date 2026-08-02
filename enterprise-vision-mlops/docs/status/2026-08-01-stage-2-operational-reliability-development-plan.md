@@ -429,6 +429,12 @@ deployment cannot close without B's safe release path.
 Issue: `EVM-270 / SCRUM-176`
 Runbook: `docs/runbooks/operational-scenario-e-integrity-gate.md`
 
+Execution update `2026-08-02`: E0 is fixed in
+`docs/status/2026-08-02-scenario-e-data-artifact-integrity-contract.md`.
+Implementation and non-disruptive proof remain open. The contract separates
+manifest byte checksums from semantic dataset identity and adds an Ed25519
+local trust root, exact legacy-exception scope and zero-intent admission fence.
+
 ### 1. Baseline And Gap
 
 Readiness already checks contracts, split, lineage, MLflow, model card and
