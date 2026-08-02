@@ -518,6 +518,7 @@ The source plan is
 | `EVM-282` | Scenario A post-promotion GPU serving recovery | Planned / To Do / approval gated | Post-Sprint 178 | Jira `SCRUM-190`; two-phase M0-to-M1 replacement, exact target-bound approval, M1 Pod recovery and separate M0 rollback proof with CUDA/Prometheus evidence |
 | `EVM-283` | Integrated single-scenario lifecycle evidence closure | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-191`; every A-E guard reaches its real injection point, has three deterministic decision replays, full hash closure and immutable RCA; blocks EVM-274 until PASS |
 | `EVM-284` | Final VisA lifecycle operations drill | Planned / To Do / final gate | Post-Sprint 178 | Jira `SCRUM-192`; after EVM-283 and EVM-274/275: operator-only success, failure, containment, replacement, recovery and rollback series with exact identity and honest local limits |
+| `EVM-285` | Full lifecycle guard validation execution ledger | In Progress | Post-Sprint 178 | Jira `SCRUM-193` under Epic `SCRUM-183`; separate versioned execution section for prerequisite implementation, no-fault golden path, E/D/C/B/A lifecycle attempts, immutable RCA, measured acceptance, and four-system checkpoint synchronization; no integrated result claimed at creation |
 
 The original dependency order was `A/D -> B -> E -> C -> cross-scenario`.
 Current execution evidence has closed A-E independently. Cross-scenario
@@ -712,6 +713,7 @@ Jira live sync 기준 mapping이다.
 | `EVM-282` | `SCRUM-190` | Task | https://opop0236.atlassian.net/browse/SCRUM-190 |
 | `EVM-283` | `SCRUM-191` | Task | https://opop0236.atlassian.net/browse/SCRUM-191 |
 | `EVM-284` | `SCRUM-192` | Task | https://opop0236.atlassian.net/browse/SCRUM-192 |
+| `EVM-285` | `SCRUM-193` | Task | https://opop0236.atlassian.net/browse/SCRUM-193 |
 | `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
