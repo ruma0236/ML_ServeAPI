@@ -504,6 +504,7 @@ def write_controlled_replay_evidence(
     root: Path,
     result: ControlledReplayResult,
     requests: list[ReplayRequest],
+    additional_artifacts: dict[str, Path] | None = None,
 ) -> Path:
     run_root = root / result.run_id
     selected = _request_subset(requests, result.policy.total_replay_requests)
@@ -550,6 +551,13 @@ def write_controlled_replay_evidence(
     atomic_write_json(artifacts["rollback"], result.rollback.model_dump(mode="json"))
     atomic_write_json(artifacts["report_core"], result.model_dump(mode="json"))
 
+    for role, path in (additional_artifacts or {}).items():
+        if role in artifacts:
+            raise ValueError(f"duplicate_evidence_role:{role}")
+        if not path.is_file():
+            raise FileNotFoundError(f"additional evidence is missing: {path}")
+        artifacts[role] = path
+
     index_path = run_root / "evidence-index.json"
     index = {
         "schema_version": "evm.scenario_b_evidence_index.v1",
@@ -565,4 +573,3 @@ def write_controlled_replay_evidence(
     }
     atomic_write_json(index_path, index)
     return index_path
-
