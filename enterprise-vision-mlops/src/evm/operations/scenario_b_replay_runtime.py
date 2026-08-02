@@ -209,6 +209,15 @@ def _scenario_b_report(
             observed=stable_after["readiness"],
         ),
         CheckEvidence(
+            check_id="post_replay_inference",
+            passed=(
+                stable_after.get("inference", {}).get("succeeded") is True
+                and stable_after.get("inference", {}).get("model_digest")
+                == result.stable.model_digest
+            ),
+            observed=stable_after.get("inference"),
+        ),
+        CheckEvidence(
             check_id="prometheus_after",
             passed=stable_after["prometheus"].get("health") == "up",
             observed=stable_after["prometheus"],
@@ -837,6 +846,17 @@ def execute_real_replay(
         raise ValueError("post_replay_stable_identity_mismatch")
     if after["prometheus"].get("health") != "up":
         raise ValueError("post_replay_prometheus_target_not_up")
+    post_replay_inference = collect_stable_observations(
+        records[:1],
+        predict_url=stable_predict_url,
+        expected=stable,
+    )[0]
+    if (
+        not post_replay_inference.succeeded
+        or post_replay_inference.model_digest != stable.model_digest
+    ):
+        raise ValueError("post_replay_inference_failed")
+    after["inference"] = post_replay_inference.model_dump(mode="json")
     recovery_monotonic_ns = time.monotonic_ns()
     if result.decision.state != expected_state or result.decision.blocker_codes != [
         expected_blocker

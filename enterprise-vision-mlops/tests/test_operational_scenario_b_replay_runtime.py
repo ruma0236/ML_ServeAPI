@@ -200,6 +200,15 @@ def test_scenario_b_report_passes_common_live_proof_contract(tmp_path: Path) -> 
             "model_sha256": stable.model_digest,
         },
         "prometheus": {"health": "up"},
+        "inference": {
+            "request_id": "r-0",
+            "model_digest": stable.model_digest,
+            "latency_ms": 4,
+            "succeeded": True,
+            "prediction": "normal",
+            "confidence": 0.9,
+            "failure_code": None,
+        },
     }
     report = _scenario_b_report(
         result=result,
@@ -246,4 +255,7 @@ def test_scenario_b_report_passes_common_live_proof_contract(tmp_path: Path) -> 
     assert report.status == "passed"
     assert report.decision.observed == "rolled_back"
     assert report.injection.performed is True
+    assert any(
+        item.check_id == "post_replay_inference" and item.passed for item in report.postconditions
+    )
     assert validate_closure(report, "live_proof") == []
