@@ -85,4 +85,23 @@ describe("GuardIncidentTimeline", () => {
     await act(async () => root.unmount());
     container.remove();
   });
+
+  it("renders stale snapshots as historical instead of an active recovery", async () => {
+    const client = vi.fn().mockResolvedValue({ ...snapshot, status: "stale" });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<GuardIncidentTimeline client={client} pollMs={60_000} />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Snapshot stale");
+    expect(container.textContent).toContain("Historical incident state");
+    expect(container.querySelector(".incident-row")?.className).toContain("state-warn");
+    expect(container.querySelector(".incident-row .status-badge")?.textContent).toBe("stale");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
 });

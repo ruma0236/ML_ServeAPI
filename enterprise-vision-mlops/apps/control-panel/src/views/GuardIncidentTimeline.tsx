@@ -45,12 +45,6 @@ export function GuardIncidentTimeline({
     () => snapshot?.leases.filter((lease) => lease.state === "active").length || 0,
     [snapshot]
   );
-  const planeTone = snapshot?.status === "live"
-    ? "pass"
-    : snapshot?.status === "stale"
-      ? "warn"
-      : "blocked";
-
   return (
     <section className="incident-workspace" aria-label="Guard incident timeline">
       <header className="incident-hero">
@@ -63,7 +57,7 @@ export function GuardIncidentTimeline({
           </div>
         </div>
         <div className="incident-sync">
-          <StatusBadge status={refreshing ? "running" : planeTone} />
+          <StatusBadge status={refreshing ? "running" : snapshot?.status || "unavailable"} />
           <span>{snapshot ? formatTime(snapshot.generated_at_utc) : "waiting for snapshot"}</span>
         </div>
       </header>
@@ -76,6 +70,12 @@ export function GuardIncidentTimeline({
       </div>
 
       {error ? <div className="incident-alert" role="alert"><AlertTriangle size={16} />{error}</div> : null}
+      {snapshot?.status === "stale" ? (
+        <div className="incident-alert warning" role="status">
+          <AlertTriangle size={16} />
+          <span>Snapshot stale. Incident states are historical and cannot authorize recovery.</span>
+        </div>
+      ) : null}
       {snapshot?.active_blockers.length ? (
         <div className="incident-alert warning" role="status">
           <AlertTriangle size={16} />
@@ -85,7 +85,7 @@ export function GuardIncidentTimeline({
 
       <div className="incident-timeline">
         {(snapshot?.incidents || []).map((incident) => (
-          <IncidentRow key={incident.incident_id} incident={incident} />
+          <IncidentRow key={incident.incident_id} incident={incident} snapshotStatus={snapshot?.status} />
         ))}
         {!refreshing && !snapshot?.incidents.length ? (
           <div className="incident-empty">
@@ -106,7 +106,14 @@ export function GuardIncidentTimeline({
   );
 }
 
-function IncidentRow({ incident }: { incident: GuardIncident }) {
+function IncidentRow({
+  incident,
+  snapshotStatus
+}: {
+  incident: GuardIncident;
+  snapshotStatus?: GuardIncidentPlane["status"];
+}) {
+  const rowTone = snapshotStatus === "live" ? incidentTone(incident) : "warn";
   const timing = [
     { label: "Collect", value: milliseconds(incident.timing.collection_delay_ms) },
     { label: "Correlate", value: milliseconds(incident.timing.correlation_overhead_ms) },
@@ -114,7 +121,7 @@ function IncidentRow({ incident }: { incident: GuardIncident }) {
     { label: "Recover", value: seconds(incident.timing.recovery_seconds) }
   ];
   return (
-    <article className={`incident-row state-${incidentTone(incident)}`}>
+    <article className={`incident-row state-${rowTone}`}>
       <div className="incident-rail" aria-hidden="true"><i /></div>
       <div className="incident-main">
         <header>
@@ -123,7 +130,7 @@ function IncidentRow({ incident }: { incident: GuardIncident }) {
             <strong>{humanize(incident.state)}</strong>
             <span>{incident.owner_id || "No recovery owner"}{incident.fencing_token ? ` / fence ${incident.fencing_token}` : ""}</span>
           </div>
-          <StatusBadge status={incidentTone(incident)} compact />
+          <StatusBadge status={snapshotStatus === "live" ? incidentTone(incident) : snapshotStatus} compact />
         </header>
         <div className="incident-timing" aria-label="Incident timing breakdown">
           {timing.map((item, index) => (
@@ -136,7 +143,11 @@ function IncidentRow({ incident }: { incident: GuardIncident }) {
           <span>{incident.event_count} events</span>
           <span>{incident.causal_edge_count} causal edges</span>
           <span>{incident.authorized_recommendation_count} recommendations</span>
-          <span>{incident.blockers.length ? incident.blockers.map(humanize).join(", ") : "No active blocker"}</span>
+          <span>{snapshotStatus !== "live"
+            ? "Historical incident state"
+            : incident.blockers.length
+              ? incident.blockers.map(humanize).join(", ")
+              : "No active blocker"}</span>
         </div>
         <details className="incident-evidence">
           <summary>Identity and evidence</summary>
