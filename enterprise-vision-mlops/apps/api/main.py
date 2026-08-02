@@ -18,6 +18,10 @@ from apps.api.control_panel_ct import router as control_panel_ct_router
 from apps.api.control_panel_deployments import router as control_panel_deployments_router
 from apps.api.control_panel_experiments import router as control_panel_experiments_router
 from apps.api.control_panel_governance import router as control_panel_governance_router
+from apps.api.control_panel_incidents import (
+    refresh_incident_plane_metrics,
+    router as control_panel_incidents_router,
+)
 from apps.api.control_panel_lifecycle import router as control_panel_lifecycle_router
 from apps.api.control_panel_orchestrators import router as control_panel_orchestrators_router
 from apps.api.control_panel_profiles import router as control_panel_profiles_router
@@ -237,6 +241,7 @@ app.include_router(control_panel_ct_router)
 app.include_router(control_panel_deployments_router)
 app.include_router(control_panel_experiments_router)
 app.include_router(control_panel_governance_router)
+app.include_router(control_panel_incidents_router)
 app.include_router(control_panel_lifecycle_router)
 app.include_router(control_panel_orchestrators_router)
 app.include_router(control_panel_profiles_router)
@@ -493,6 +498,10 @@ def metrics() -> Response:
             OPERATIONAL_METRICS.update(load_metric_projection(OPERATIONAL_METRICS_PATH))
         except Exception:
             LOGGER.exception("Operational reliability metric refresh failed")
+    try:
+        refresh_incident_plane_metrics()
+    except Exception:
+        LOGGER.exception("Guard incident metric refresh failed")
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

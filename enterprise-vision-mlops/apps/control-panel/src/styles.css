@@ -7072,3 +7072,130 @@ h3 {
   .component-contract-state { grid-template-columns: auto minmax(0, 1fr); }
   .source-mode-control { width: 100%; }
 }
+.incident-workspace {
+  display: grid;
+  gap: 16px;
+}
+
+.incident-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.incident-title,
+.incident-sync,
+.incident-kpi,
+.incident-boundary,
+.incident-alert {
+  display: flex;
+  align-items: center;
+}
+
+.incident-title { gap: 14px; }
+.incident-title h2 { margin: 2px 0 4px; font-size: 24px; letter-spacing: 0; }
+.incident-title p,
+.incident-title small,
+.incident-sync span { margin: 0; color: var(--text-muted); }
+.incident-title small { text-transform: uppercase; font-size: 11px; }
+.incident-sync { gap: 10px; font-size: 12px; }
+
+.incident-pulse {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--accent);
+  background: var(--surface-raised);
+}
+
+.incident-pulse.live::after {
+  position: absolute;
+  inset: -5px;
+  content: "";
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 50%;
+  animation: incident-pulse 2s ease-out infinite;
+}
+
+@keyframes incident-pulse {
+  0% { opacity: 0.8; transform: scale(0.86); }
+  80%, 100% { opacity: 0; transform: scale(1.14); }
+}
+
+.incident-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.incident-kpi { gap: 12px; min-height: 78px; padding: 14px 16px; border-right: 1px solid var(--line); }
+.incident-kpi:last-child { border-right: 0; }
+.incident-kpi > span { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--surface-raised); color: var(--accent); }
+.incident-kpi div { display: grid; gap: 2px; }
+.incident-kpi small { color: var(--text-muted); }
+.incident-kpi strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+
+.incident-alert { gap: 8px; min-height: 42px; padding: 10px 12px; border: 1px solid var(--danger); color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.incident-alert.warning { border-color: var(--warning); color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, transparent); }
+
+.incident-timeline { display: grid; border-top: 1px solid var(--line); }
+.incident-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); min-height: 164px; border-bottom: 1px solid var(--line); }
+.incident-rail { position: relative; display: flex; justify-content: center; }
+.incident-rail::before { position: absolute; top: 0; bottom: 0; width: 1px; content: ""; background: var(--line-strong); }
+.incident-rail i { z-index: 1; width: 11px; height: 11px; margin-top: 29px; border: 2px solid var(--surface-muted); border-radius: 50%; background: var(--warning); box-shadow: 0 0 0 1px var(--warning); }
+.incident-row.state-pass .incident-rail i { background: var(--success); box-shadow: 0 0 0 1px var(--success); }
+.incident-row.state-running .incident-rail i { background: var(--accent); box-shadow: 0 0 0 1px var(--accent); animation: incident-node 1.4s ease-in-out infinite; }
+.incident-row.state-blocked .incident-rail i { background: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+@keyframes incident-node { 50% { transform: scale(1.35); } }
+
+.incident-main { min-width: 0; padding: 20px 0 18px 10px; }
+.incident-main > header { display: flex; justify-content: space-between; gap: 16px; }
+.incident-main > header div { display: grid; gap: 3px; }
+.incident-main > header small { color: var(--text-muted); text-transform: uppercase; }
+.incident-main > header strong { font-size: 17px; }
+.incident-main > header span { color: var(--text-muted); font-size: 12px; }
+
+.incident-timing { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 18px 0 12px; }
+.incident-timing div { position: relative; display: grid; gap: 4px; padding-right: 18px; }
+.incident-timing span { color: var(--text-muted); font-size: 11px; text-transform: uppercase; }
+.incident-timing strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+.incident-timing div > i { position: absolute; top: 16px; right: 12px; width: calc(100% - 66px); height: 2px; background: var(--line-strong); overflow: hidden; }
+.incident-timing .measured > i::after { display: block; width: 45%; height: 100%; content: ""; background: var(--accent); animation: incident-flow 1.8s linear infinite; }
+@keyframes incident-flow { from { transform: translateX(-110%); } to { transform: translateX(260%); } }
+
+.incident-facts { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--text-muted); font-size: 12px; }
+.incident-evidence { margin-top: 14px; }
+.incident-evidence summary { cursor: pointer; color: var(--text-muted); font-size: 12px; }
+.incident-evidence dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.incident-evidence dl div { min-width: 0; }
+.incident-evidence dt { color: var(--text-muted); font-size: 10px; text-transform: uppercase; }
+.incident-evidence dd { margin: 3px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
+.incident-evidence code { display: block; margin-top: 5px; color: var(--text-muted); font-size: 11px; }
+
+.incident-empty { display: grid; place-items: center; gap: 7px; min-height: 220px; color: var(--text-muted); }
+.incident-boundary { gap: 9px; padding: 12px 0; color: var(--text-muted); font-size: 12px; }
+.incident-boundary strong { color: var(--success); }
+.incident-boundary code { margin-left: auto; }
+
+@media (max-width: 820px) {
+  .incident-hero { align-items: flex-start; flex-direction: column; }
+  .incident-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .incident-kpi:nth-child(2) { border-right: 0; }
+  .incident-kpi:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
+  .incident-timing { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .incident-evidence dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .incident-pulse.live::after,
+  .incident-row.state-running .incident-rail i,
+  .incident-timing .measured > i::after { animation: none; }
+}

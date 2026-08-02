@@ -15,6 +15,7 @@ import type {
   DeploymentTransitionRequest,
   DriftReviewTransitionRequest,
   DriftReviewWorkflow,
+  GuardIncidentPlane,
   EnterpriseScenarioCatalog,
   ExperimentRun,
   LifecycleActionRequest,
@@ -62,6 +63,16 @@ export async function fetchLatestCycle(baseUrl = API_BASE): Promise<CycleRun> {
     throw new Error(`CycleRun request failed: ${response.status}`);
   }
   return (await response.json()) as CycleRun;
+}
+
+export async function fetchGuardIncidents(baseUrl = API_BASE): Promise<GuardIncidentPlane> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/guard-incidents?limit=100`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`Guard incident request failed: ${response.status}`);
+  }
+  return (await response.json()) as GuardIncidentPlane;
 }
 
 export async function fetchCycles(baseUrl = API_BASE): Promise<CycleRunList> {

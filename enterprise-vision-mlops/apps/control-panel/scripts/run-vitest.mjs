@@ -13,6 +13,7 @@ const defaultTests = [
   "tests/control-panel/deployment-intent.contract.test.ts",
   "tests/control-panel/enterprise-readiness.contract.test.ts",
   "tests/control-panel/gate-risk.contract.test.ts",
+  "tests/control-panel/guard-incident-timeline.view.test.tsx",
   "tests/control-panel/governance-diagnostics.contract.test.ts",
   "tests/control-panel/kubernetes-topology.contract.test.ts",
   "tests/control-panel/lifecycle-runs.contract.test.tsx",

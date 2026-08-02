@@ -20,6 +20,75 @@ export type DeploymentIntentState =
   | "failed"
   | "rolled_back";
 
+export type GuardIncidentPlaneStatus = "live" | "stale" | "unavailable";
+
+export interface GuardIncidentTiming {
+  collection_delay_ms?: number | null;
+  correlation_overhead_ms?: number | null;
+  containment_seconds?: number | null;
+  recovery_seconds?: number | null;
+}
+
+export interface GuardIncident {
+  incident_id: string;
+  correlation_id: string;
+  state: string;
+  root_fingerprint: string;
+  event_count: number;
+  causal_edge_count: number;
+  blockers: string[];
+  target_class?: string | null;
+  target_identity_digest?: string | null;
+  owner_id?: string | null;
+  fencing_token?: number | null;
+  lease_expires_at_utc?: string | null;
+  authorized_recommendation_count: number;
+  timing: GuardIncidentTiming;
+  child_evidence_uris: string[];
+  created_at_utc: string;
+  updated_at_utc: string;
+}
+
+export interface RecoveryLeaseView {
+  lease_id: string;
+  incident_id: string;
+  owner_id: string;
+  fencing_token: number;
+  state: "active" | "released" | "expired" | "fenced";
+  expires_at_utc: string;
+  target: {
+    target_class: string;
+    identity_digest: string;
+  };
+}
+
+export interface RecoveryActionView {
+  action_key: string;
+  incident_id: string;
+  target_class: string;
+  owner_id: string;
+  fencing_token: number;
+  action: string;
+  state: "authorized_recommendation";
+  recorded_at_utc: string;
+  external_mutation_dispatched: false;
+}
+
+export interface GuardIncidentPlane {
+  schema_version: "evm.guard_incident_plane.v1";
+  status: GuardIncidentPlaneStatus;
+  generated_at_utc: string;
+  source_revision: string;
+  policy_version: string;
+  mutation_endpoint_available: false;
+  incidents: GuardIncident[];
+  leases: RecoveryLeaseView[];
+  actions: RecoveryActionView[];
+  blocked_decision_count: number;
+  active_blockers: string[];
+  evidence_root?: string | null;
+}
+
 export interface Metric {
   name: string;
   value: number;

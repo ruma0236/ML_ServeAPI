@@ -40,6 +40,7 @@ import { CycleOverview } from "./views/CycleOverview";
 import { DataModelReadiness } from "./views/DataModelReadiness";
 import { GateAndRiskPanel } from "./views/GateAndRiskPanel";
 import { GovernancePanel } from "./views/GovernancePanel";
+import { GuardIncidentTimeline } from "./views/GuardIncidentTimeline";
 import { LifecycleRuns } from "./views/LifecycleRuns";
 import { PipelineTimeline } from "./views/PipelineTimeline";
 import { PipelineProfileStudio } from "./views/PipelineProfileStudio";
@@ -47,7 +48,7 @@ import { ReleaseControl } from "./views/ReleaseControl";
 import { StageWorkbench } from "./views/StageWorkbench";
 import { TaskAuthoring } from "./views/TaskAuthoring";
 
-type TabKey = "overview" | "configure" | "stages" | "runs" | "readiness" | "timeline" | "operate" | "gates" | "release" | "governance";
+type TabKey = "overview" | "configure" | "stages" | "runs" | "readiness" | "timeline" | "operate" | "gates" | "release" | "incidents" | "governance";
 type WorkspaceKey = "overview" | "build" | "deploy" | "govern";
 
 const workspaces: Array<{
@@ -90,7 +91,10 @@ const workspaces: Array<{
     key: "govern",
     label: "Govern",
     icon: BookOpenCheck,
-    views: [{ key: "governance", label: "Decisions" }]
+    views: [
+      { key: "incidents", label: "Incidents" },
+      { key: "governance", label: "Decisions" }
+    ]
   }
 ];
 
@@ -406,6 +410,7 @@ export function App() {
         onPromote={(selection) => void openCandidatePromotion(selection)}
       />
     );
+    if (tab === "incidents") return <GuardIncidentTimeline />;
     if (tab === "governance") return <GovernancePanel cycle={cycle} lifecycleRun={lifecycleContext} registry={decisionRegistry} onRefresh={() => loadCycle(true, true)} />;
     return (
       <CycleOverview

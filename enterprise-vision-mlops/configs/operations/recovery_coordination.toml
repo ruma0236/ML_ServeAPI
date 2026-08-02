@@ -1,0 +1,8 @@
+[recovery_coordination]
+schema_version = "evm.recovery_coordination_policy.v1"
+policy_version = "recovery-coordination-v1"
+source_revision = "0000000"
+lease_ttl_seconds = 20
+renewal_interval_seconds = 5
+approval_ttl_seconds = 300
+allowed_actions = ["hold", "recommend-exact-restart", "recommend-rollback"]
