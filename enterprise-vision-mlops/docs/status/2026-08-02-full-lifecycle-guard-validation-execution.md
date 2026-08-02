@@ -1,8 +1,8 @@
 # Full Lifecycle Guard Validation Execution
 
 Date: 2026-08-02
-Status: In Progress; tracking and `EVM-272` correlation prerequisite complete;
-recovery ownership and integrated lifecycle fault injection remain open.
+Status: In Progress; tracking, `EVM-272` correlation, and `EVM-273` recovery
+ownership prerequisites complete; integrated lifecycle execution remains open.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -93,7 +93,7 @@ They are not golden-path or scenario acceptance.
 |---|---|---|---|
 | tracking and runtime baseline | complete | Git/Jira/Notion/Obsidian execution section plus read-only runtime observations | implement `SCRUM-179` |
 | normalized event/correlation/dedupe | complete | source `627209a`; 12 focused, 98 A-E regression, and 407 full tests passed; three independent 1,000-event replays, 300 unrelated events, zero false merge/duplicate parent/action; p95 30.183-32.374 ms; F-drive artifact hashes 625/625 | `SCRUM-180` |
-| recovery ownership/read-only incident plane | not started | pending | `SCRUM-185` |
+| recovery ownership/read-only incident plane | complete | source `c905d7d`, stale-state UI correction `3467315`; 16 focused and 423 full Python tests at implementation, 16 files/51 Control Panel tests after UI correction; three independent recommendation-only series, 41/41 artifact hash closure, zero mutation; GET-only APIs, low-cardinality metrics, browser proof, CUDA B0 and runtime invariants preserved | `SCRUM-185` |
 | no-fault golden lifecycle | not started | pending | E guard |
 | E lifecycle guard | not started | pending | D guard |
 | D lifecycle guard | not started | pending | C guard |
@@ -104,9 +104,9 @@ They are not golden-path or scenario acceptance.
 
 ## Current Findings
 
-1. `SCRUM-179` now has a tested implementation and replay closure.
-   `SCRUM-180` still has only a design contract and remains the next real
-   blocker.
+1. `SCRUM-179` and `SCRUM-180` now have tested implementation and replay
+   closure. The incident plane is deliberately read-only; its static proof
+   snapshot becomes visibly stale and cannot authorize recovery.
 2. Existing A-E evidence is reusable only as baseline and fixtures. It cannot
    close any integrated lifecycle attempt.
 3. Stable-serving identity must be target-scoped. The general API registry
@@ -118,6 +118,10 @@ They are not golden-path or scenario acceptance.
    transient SSD spool and hash-verified canonical publication to F. This
    retains audit integrity but is not an F-drive ingestion throughput claim;
    the failed partial attempt remains immutable RCA evidence.
+6. The host supervisor and both children are healthy and mutually revision
+   matched, but still execute baseline revision `37ec89d6...`. `SCRUM-185`
+   must reconcile them to its sealed source revision before starting L0-L7;
+   otherwise the lifecycle gate fails closed.
 
 ## Synchronization Rule
 
