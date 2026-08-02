@@ -1,7 +1,7 @@
 # Stage 2 Operational Reliability Development Plan
 
 Date: 2026-08-01
-Status: plan complete; implementation and fault injection not started.
+Status: plan complete; A-E independent execution complete; cross-scenario not started.
 Parent: `EVM-265 / SCRUM-171`
 Scenario issues: `EVM-266..270 / SCRUM-172..176`
 Predecessor:
@@ -11,8 +11,13 @@ Jira timebox: Sprint `178`, `EVM S2 A-E 2026-08-01~08-02`, active from
 
 Jira schedules the five scenario subtasks through parent `SCRUM-171` because
 subtasks cannot be assigned independently. The timebox covers readiness,
-implementation start, and non-disruptive validation. It does not change the
-unstarted A0-A7 state or authorize A8/live mutation.
+implementation start, and non-disruptive validation. At planning time it did
+not change the unstarted A0-A7 state or authorize A8/live mutation.
+
+Execution update on `2026-08-02`: Scenarios A-E now have independent local
+closure evidence. Scenario A used its separately approved bounded maintenance
+action; B-E remained non-disruptive. Cross-scenario validation and the final
+VisA operations drill remain open, so the parent master stays In Progress.
 
 ## Objective
 

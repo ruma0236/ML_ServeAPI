@@ -458,17 +458,18 @@ The Stage 2 development plan is
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
 | `EVM-264` | P0 local runtime recovery | Done | 2026-08-01 | automatic WSL NVIDIA driver discovery, corrected GPU readiness, supervised worker/observer startup and revision injection restored GPU 1/1, device-plugin 1/1, production serving 1/1, real CUDA VisA inference, Prometheus up, live worker/observer, and 57 focused tests; evidence is `docs/status/2026-08-01-p0-local-runtime-recovery.md` |
-| `EVM-265` | Operational failure validation master contract | In Progress | Post-W8 | shared evidence/safety/claim contract and five runbooks remain authoritative. Scenarios A, B, C, and D have independent local closure evidence with explicit claim boundaries; Scenario E and cross-scenario validation remain open, so the master must not close yet. |
+| `EVM-265` | Operational failure validation master contract | In Progress | Post-W8 | shared evidence/safety/claim contract and five runbooks remain authoritative. Scenarios A-E now have independent local closure evidence with explicit claim boundaries. Cross-scenario correlation and the final VisA operations drill remain open, so the master must not close yet. |
 | `EVM-266` | Scenario A GPU and serving failure recovery | Done | Sprint 178 | Jira `SCRUM-172` completion comment `10444`; A0-A8 complete: 49 focused tests and Ruff pass; real production-candidate CUDA CT has 2,181 holdout records and zero overlap; three independent UID-preconditioned B0 Pod recovery runs detected in 0.170-0.200 s, interrupted the endpoint for 9.872-9.904 s, recovered in 10.082-25.087 s, restored exact identity and CUDA inference, and returned the exact Prometheus target to up; the earlier malformed-path run remains immutable RCA evidence |
 | `EVM-267` | Scenario B invalid model canary and rollback | Done | Sprint 178 | Jira `SCRUM-173` closure comment `10460`; B0-B7 non-disruptive closure is recorded in `docs/status/2026-08-02-scenario-b-controlled-replay-closure.md`: real under-threshold B7 rejected, strong B7 runtime breach contained, stable and raw CUDA observations each 1,000 with zero raw errors, exact 100/1,000 routing and identity, detection 0.0048-0.0091 s, verified recovery 0.0392-0.0498 s, exact post-replay B0 inference, 16/16 hashes and common live-proof PASS per run. Git/Jira/Notion/Obsidian claim audit is synchronized. Failed attempts remain immutable RCA evidence. Production Kubernetes canary remains separately blocked; no business A/B or HA claim. |
-| `EVM-268` | Scenario C quality degradation and retraining gate | Done | Sprint 178 | Non-disruptive closure is recorded in `docs/status/2026-08-02-scenario-c-quality-degradation-closure.md`: real CUDA VisA windows `2,136 / 2,181 / 205`, known-good `within_policy`, deterministic `pcb3` shift `review_required`, decision `37.891 s`, one event/candidate after three duplicate/stale attempts, zero deployment intents, manual hold, `17 / 17` hashes, common live-proof PASS, `62 / 62` tests, and unchanged exact production B0. Scenario E still blocks real candidate training, MLflow, isolated CT, and limited release; those are not claimed complete. |
+| `EVM-268` | Scenario C quality degradation and retraining gate | Done | Sprint 178 | Non-disruptive closure is recorded in `docs/status/2026-08-02-scenario-c-quality-degradation-closure.md`: real CUDA VisA windows `2,136 / 2,181 / 205`, known-good `within_policy`, deterministic `pcb3` shift `review_required`, decision `37.891 s`, one event/candidate after three duplicate/stale attempts, zero deployment intents, manual hold, `17 / 17` hashes, common live-proof PASS, `62 / 62` tests, and unchanged exact production B0. Scenario E is now independently closed; real candidate training, MLflow, isolated CT and limited release remain cross-scenario/final-drill work and are not claimed complete. |
 | `EVM-269` | Scenario D lifecycle supervision recovery | Done | Sprint 178 | Closure is `docs/status/2026-08-02-scenario-d-lifecycle-supervision-closure.md`: 13/13 deterministic fixtures, fenced claims, exact identity and restart controls, live API/Prometheus/Grafana observability, and source-`37ec89d` worker/observer/worker proof. Detection max `5.870 s`, recovery max `9.049 s`, healthy heartbeat p95 max `5.0 s`; every run passes 10/10 postconditions, 9/9 hashes, exact CUDA/production invariants, and common closure. The earlier heartbeat-closure omission remains immutable RCA evidence; local single-node scope is explicit. |
-| `EVM-270` | Scenario E data and artifact integrity gate | In Progress | Sprint 178 | E0-E5 implement the Ed25519 local trust root, byte-versus-semantic identity tuple, exact exception boundary, full VisA/shard/CT/model/MLflow checks, 14-case isolated fixture harness, deployment-intent fence, evidence/metrics/alert projection and 395-test regression pass. Attempt 1 failed closed on timestamp-dependent fingerprints and was corrected. The next formal matrix passed, but pre-closure review rejected its 30-day admission window; signed one-hour TTL hardening now requires a fresh clean-revision E6-E8 proof. Both earlier runs remain immutable history, not closure. |
+| `EVM-270` | Scenario E data and artifact integrity gate | Done | Sprint 178 | Closure is `docs/status/2026-08-02-scenario-e-data-artifact-integrity-closure.md`: source `89c93a5`, real VisA 10,821 records/23 shards/CT 2,181, canonical 3/3, 14 fixtures and 42/42 deterministic replays, corrupted 39/39 blocked, signed one-hour admission TTL, 36/36 hashes, zero intent delta, exact CUDA/production invariants, live API/Prometheus proof and 395/395 tests. Timestamp-fingerprint failure and the rejected 30-day pre-closure run remain immutable RCA history. Local Ed25519/single-node claim boundaries are explicit. |
 
 The original dependency order was `A/D -> B -> E -> C -> cross-scenario`.
-Current execution evidence has closed A, B, C, and D independently; E remains
-the next hard integrity dependency before cross-scenario validation. C does not
-waive E: its candidate remains on manual hold with zero deployment intents.
+Current execution evidence has closed A-E independently. Cross-scenario
+correlation is now the next dependency. C's candidate remains on manual hold
+with zero deployment intents; independent scenario closure does not imply a
+combined release drill or automatic promotion.
 
 ### Current Jira Timebox And Hierarchy
 
@@ -479,9 +480,10 @@ waive E: its candidate remains on manual hold with zero deployment intents.
   `2026-08-01 23:07:32 KST` to `2026-08-02 23:59 KST`.
 - Jira requires scenario subtasks `SCRUM-172..176` to inherit sprint membership
   from parent `SCRUM-171`; the hierarchy and work statuses remain unchanged.
-- The sprint remains a readiness, implementation-start, and non-disruptive
-  validation timebox for A-E overall. Scenario A received separate maintenance
-  approval and completed A0-A8; Scenarios B-E are not implicitly complete.
+- The sprint was defined as a readiness, implementation-start, and
+  non-disruptive validation timebox. Scenario A received separate maintenance
+  approval; A-E are now independently complete from their own evidence. This
+  does not complete cross-scenario or final end-to-end work.
 - Roadmap hierarchy is now explicit: `SCRUM-123..127 -> SCRUM-119`,
   `SCRUM-128..130 -> SCRUM-120`, `SCRUM-131..133 -> SCRUM-121`, and
   `SCRUM-134..135 -> SCRUM-122`.

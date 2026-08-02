@@ -54,6 +54,10 @@ traffic, or a production SLA.
 
 Jira execution order follows dependencies rather than issue-number order.
 
+Execution update on `2026-08-02`: A-E now have independent local closure
+evidence. The master remains In Progress because cross-scenario validation and
+the final VisA operations drill are not complete.
+
 ## Deployment Experiment Vocabulary
 
 | Method | Response path | Assignment | Valid claim in this lab |
