@@ -6,9 +6,12 @@ import hashlib
 import json
 import os
 import re
+import sys
+import time
 import tomllib
 import uuid
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
@@ -35,7 +38,17 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+@lru_cache(maxsize=1)
 def current_process_started_at() -> datetime:
+    if sys.platform.startswith("linux"):
+        stat = Path("/proc/self/stat").read_text(encoding="utf-8")
+        fields = stat[stat.rfind(")") + 2 :].split()
+        started_ticks = int(fields[19])
+        ticks_per_second = int(os.sysconf("SC_CLK_TCK"))
+        boot_elapsed = time.clock_gettime(time.CLOCK_BOOTTIME)
+        return utc_now() - timedelta(
+            seconds=max(0.0, boot_elapsed - (started_ticks / ticks_per_second))
+        )
     if os.name != "nt":
         return utc_now()
 

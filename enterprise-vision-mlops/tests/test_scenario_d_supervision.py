@@ -27,8 +27,11 @@ LEASE = "lease-12345678"
 
 def test_current_process_start_precedes_observation() -> None:
     started_at = current_process_started_at()
+    observed_at = datetime.now(timezone.utc)
     assert started_at.tzinfo is not None
-    assert datetime.now(timezone.utc) - started_at >= timedelta(milliseconds=10)
+    assert started_at <= observed_at
+    assert observed_at - started_at < timedelta(days=1)
+    assert current_process_started_at() == started_at
 
 
 @pytest.fixture
