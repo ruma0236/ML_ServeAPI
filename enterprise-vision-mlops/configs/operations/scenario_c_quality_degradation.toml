@@ -1,0 +1,87 @@
+[policy]
+schema_version = "evm.scenario_c_policy.v1"
+policy_id = "scenario-c-visa-b0-v1"
+max_batch_decision_seconds = 300.0
+max_missing_required_fields = 0
+max_duplicate_sample_ids = 0
+max_duplicate_content_digests = 0
+min_label_coverage = 1.0
+min_content_digest_coverage = 1.0
+max_input_category_js = 0.10
+max_predicted_class_js = 0.05
+max_confidence_psi = 0.10
+max_mean_confidence_drop = 0.05
+max_low_confidence_rate_increase = 0.10
+max_accuracy_drop = 0.05
+max_f1_drop = 0.10
+low_confidence_threshold = 0.70
+signal_precedence = ["identity", "schema", "data_distribution", "model_quality"]
+
+[identity]
+dataset_id = "manufacturing_visual_inspection"
+dataset_version = "visa-open-data-e35d93d5561f"
+shard_index_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/validated/visa/shards/shard_index.json"
+shard_index_sha256 = "8b6f281abc93e735545e060b0f6d8b8b7e506d8a0e296f45c84347cb44a91115"
+baseline_candidate_id = "effnet-b0-img224-expedited-adamw"
+baseline_architecture = "efficientnet-b0"
+baseline_model_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/model.pt"
+baseline_model_sha256 = "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f"
+ct_snapshot_id = "ct-visa-open-data-e35d93d5561f-test-c6b466afb907"
+ct_manifest_path = "F:/EnterpriseMLOps_CT/enterprise-vision-mlops/snapshots/ct-visa-open-data-e35d93d5561f-test-c6b466afb907/holdout_manifest.jsonl"
+ct_manifest_sha256 = "7635a75aa7d5a5fd66b4dbb121203a809eceef637f8909c153899c53b4492566"
+
+[windows.baseline]
+window_id = "visa-validation-all-products-c0"
+split = "validation"
+class_names = []
+min_records = 2000
+max_records = 0
+
+[windows.known_good]
+window_id = "visa-test-all-products-c0"
+split = "test"
+class_names = []
+min_records = 2000
+max_records = 0
+
+[windows.shifted]
+window_id = "visa-test-pcb3-category-shift-c0"
+split = "test"
+class_names = ["pcb3"]
+min_records = 150
+max_records = 0
+
+[shift]
+recipe_id = "visa-category-mix-pcb3-v1"
+method = "deterministic_category_selection"
+seed = 20260802
+mutates_source = false
+
+[candidate]
+profile_id = "visa-b0-drift-retraining-v1"
+architecture = "efficientnet-b0"
+framework = "torch"
+seed = 20260802
+max_epochs = 20
+early_stop_patience = 4
+metric_names = ["accuracy", "f1", "auroc"]
+automatic_training = false
+automatic_deployment = false
+automatic_promotion = false
+
+[dependencies]
+scenario_b_release_controls_passed = true
+scenario_e_integrity_passed = false
+production_live_canary_authorized = false
+
+[execution]
+require_cuda = true
+batch_size = 64
+num_workers = 4
+retry_count = 3
+actor = "ml-platform"
+reviewer = "data-quality-owner"
+approver = "ai-infra-approver"
+
+[outputs]
+artifact_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/scenario-c"

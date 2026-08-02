@@ -1,7 +1,8 @@
 # Scenario C: Data and Model Quality Degradation
 
 Issue: `EVM-268 / SCRUM-174`
-State: contract defined; blocked on Scenario E and limited-release controls.
+State: C0 contract passed; non-disruptive implementation in progress. Scenario
+E remains a hard blocker for limited release, not for isolated evaluator work.
 
 ## Purpose
 
@@ -10,7 +11,8 @@ retraining candidate without automatically replacing production.
 
 ## Preconditions
 
-- Scenario E integrity gate passed.
+- Scenario E integrity gate is required before limited release. Until then the
+  candidate/evaluation workflow may run, but release eligibility is false.
 - Baseline dataset/model distributions and policy are versioned.
 - Train, validation and isolated CT identities are immutable.
 - Stable production model and rollback reference remain available.
