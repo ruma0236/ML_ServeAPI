@@ -723,6 +723,15 @@
         }
       }
     },
+    "/control-panel/v1/runtime-supervisor": {
+      "get": {
+        "summary": "Return exact-identity host supervisor and child health.",
+        "operationId": "getRuntimeSupervisor",
+        "responses": {
+          "200": {"description": "runtime supervisor health", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HostRuntimeSupervisorHealth"}}}}
+        }
+      }
+    },
     "/control-panel/v1/stage-handoffs": {
       "get": {
         "summary": "List stage work items with immutable inputs, outputs, blockers, and eligible continuation actions.",
@@ -2619,6 +2628,48 @@
           "last_seen_at": {"type": ["string", "null"]},
           "current_run_id": {"type": ["string", "null"]},
           "message": {"type": ["string", "null"]}
+        }
+      },
+      "HostRuntimeChildHealth": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": {"type": "string", "enum": ["lifecycle_worker", "kubernetes_observer"]},
+          "status": {"type": "string", "enum": ["starting", "live", "suspect", "recovering", "backoff", "blocked", "circuit_open", "disabled"]},
+          "reason": {"type": ["string", "null"]},
+          "pid": {"type": ["integer", "null"]},
+          "process_count": {"type": "integer", "minimum": 0},
+          "exact_identity": {"type": "boolean"},
+          "heartbeat_age_seconds": {"type": ["number", "null"], "minimum": 0},
+          "revision_matches": {"type": "boolean"},
+          "lease_matches": {"type": "boolean"},
+          "fencing_matches": {"type": "boolean"},
+          "source_commit": {"type": ["string", "null"]},
+          "process_instance_id": {"type": ["string", "null"]},
+          "incident_fingerprint": {"type": ["string", "null"]}
+        }
+      },
+      "HostRuntimeSupervisorHealth": {
+        "type": "object",
+        "required": ["status", "snapshot_uri"],
+        "properties": {
+          "schema_version": {"type": "string", "const": "evm.host_runtime_health.v1"},
+          "status": {"type": "string", "enum": ["healthy", "degraded", "stale", "unavailable"]},
+          "message": {"type": ["string", "null"]},
+          "supervisor_pid": {"type": ["integer", "null"]},
+          "supervisor_started_at": {"type": ["string", "null"]},
+          "source_commit": {"type": ["string", "null"]},
+          "source_branch": {"type": ["string", "null"]},
+          "lease_id": {"type": ["string", "null"]},
+          "fencing_token": {"type": ["integer", "null"]},
+          "last_seen_at": {"type": ["string", "null"]},
+          "heartbeat_age_seconds": {"type": ["number", "null"], "minimum": 0},
+          "check_interval_seconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+          "heartbeat_stale_seconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+          "children": {"type": "array", "items": {"$ref": "#/components/schemas/HostRuntimeChildHealth"}},
+          "restart_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+          "errors": {"type": "array", "items": {"type": "string"}},
+          "snapshot_uri": {"type": "string"}
         }
       },
       "FoldResult": {

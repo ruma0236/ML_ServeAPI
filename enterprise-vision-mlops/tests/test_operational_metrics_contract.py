@@ -85,6 +85,11 @@ def test_prometheus_rule_and_dashboard_contracts_are_versioned() -> None:
         "EVMOperationalServingTargetDown",
         "EVMOperationalIdentityMismatch",
         "EVMOperationalRecoveryBudgetExceeded",
+        "EVMHostRuntimeSupervisorUnhealthy",
+        "EVMHostRuntimeChildNotLive",
+        "EVMHostRuntimeHeartbeatStale",
+        "EVMHostRuntimeRevisionMismatch",
+        "EVMHostRuntimeProcessCountInvalid",
     ):
         assert alert in rules
     assert dashboard["uid"] == "evm-operational-reliability"
@@ -94,4 +99,8 @@ def test_prometheus_rule_and_dashboard_contracts_are_versioned() -> None:
         "Detection And Recovery Seconds",
         "Active Blockers",
         "Validation Result",
+        "Runtime Supervisor",
+        "Worker And Observer State",
+        "Heartbeat Age",
+        "Process And Restart Counts",
     }

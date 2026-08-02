@@ -37,3 +37,38 @@ groups:
           severity: warning
         annotations:
           summary: Scenario A local recovery exceeded the 300 second engineering target
+      - alert: EVMHostRuntimeSupervisorUnhealthy
+        expr: evm_control_panel_runtime_supervisor_healthy == 0
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: Local lifecycle host supervisor is stale, unavailable, or degraded
+      - alert: EVMHostRuntimeChildNotLive
+        expr: evm_control_panel_runtime_child_state{state=~"suspect|recovering|backoff|blocked|circuit_open"} == 1
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: A supervised lifecycle host child is not live
+      - alert: EVMHostRuntimeHeartbeatStale
+        expr: evm_control_panel_runtime_child_heartbeat_age_seconds > 20
+        for: 5s
+        labels:
+          severity: warning
+        annotations:
+          summary: A lifecycle worker or observer heartbeat exceeded the stale threshold
+      - alert: EVMHostRuntimeRevisionMismatch
+        expr: evm_control_panel_runtime_child_revision_match == 0
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: A supervised child is not running the supervisor source revision
+      - alert: EVMHostRuntimeProcessCountInvalid
+        expr: evm_control_panel_runtime_child_process_count != 1
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: A supervised child has zero or multiple command-matched processes

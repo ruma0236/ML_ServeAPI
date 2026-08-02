@@ -13,6 +13,7 @@ def test_api_exposes_guarded_lifecycle_run_routes() -> None:
 
     assert "/control-panel/v1/lifecycle-runs" in paths
     assert "/control-panel/v1/lifecycle-runs/worker" in paths
+    assert "/control-panel/v1/runtime-supervisor" in paths
     assert "/control-panel/v1/stage-handoffs" in paths
     assert "/control-panel/v1/lifecycle-runs/{run_id}" in paths
     assert "/control-panel/v1/lifecycle-runs/{run_id}/queue" in paths

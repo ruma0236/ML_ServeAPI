@@ -52,6 +52,7 @@ from evm.control_panel.lifecycle_runs import (
     LifecycleStage,
     LifecycleWorkerState,
 )
+from evm.control_panel.host_runtime import HostRuntimeChildHealth, HostRuntimeSupervisorHealth
 from evm.control_panel.model_candidates import (
     ModelCandidateCatalog,
     ModelCandidateRecord,
@@ -177,6 +178,7 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "reproducibility_digest" in schemas["PipelineProfileRecord"]["properties"]
     assert "/control-panel/v1/lifecycle-runs" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/worker" in openapi["paths"]
+    assert "/control-panel/v1/runtime-supervisor" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/queue" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/continue" in openapi["paths"]
@@ -229,6 +231,12 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert set(LifecycleStage.model_fields).issubset(schemas["LifecycleStage"]["properties"])
     assert set(LifecycleWorkerState.model_fields).issubset(
         schemas["LifecycleWorkerState"]["properties"]
+    )
+    assert set(HostRuntimeChildHealth.model_fields).issubset(
+        schemas["HostRuntimeChildHealth"]["properties"]
+    )
+    assert set(HostRuntimeSupervisorHealth.model_fields).issubset(
+        schemas["HostRuntimeSupervisorHealth"]["properties"]
     )
     assert set(LifecycleRunRequest.model_fields).issubset(
         schemas["LifecycleRunRequest"]["properties"]

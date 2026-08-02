@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from evm.control_panel.host_runtime import HostRuntimeSupervisorHealth, read_host_runtime_supervisor
 from evm.control_panel.lifecycle_runs import (
     LifecycleActionRequest,
     LifecycleApprovalRequest,
@@ -34,6 +35,11 @@ def list_lifecycle_runs() -> LifecycleRunList:
 @router.get("/lifecycle-runs/worker", response_model=LifecycleWorkerState)
 def lifecycle_worker_health() -> LifecycleWorkerState:
     return read_worker_state()
+
+
+@router.get("/runtime-supervisor", response_model=HostRuntimeSupervisorHealth)
+def runtime_supervisor_health() -> HostRuntimeSupervisorHealth:
+    return read_host_runtime_supervisor()
 
 
 @router.get("/stage-handoffs", response_model=StageHandoffCatalog)

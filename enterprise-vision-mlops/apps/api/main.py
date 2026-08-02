@@ -123,6 +123,35 @@ CONTROL_PANEL_WORKER_ONLINE = Gauge(
     "evm_control_panel_lifecycle_worker_online",
     "Whether the host lifecycle worker heartbeat is online.",
 )
+CONTROL_PANEL_RUNTIME_SUPERVISOR_HEALTHY = Gauge(
+    "evm_control_panel_runtime_supervisor_healthy",
+    "Whether the local host runtime supervisor and enabled children are healthy.",
+)
+CONTROL_PANEL_RUNTIME_CHILD_STATE = Gauge(
+    "evm_control_panel_runtime_child_state",
+    "Current lifecycle host child state as a one-hot gauge.",
+    ["child", "state"],
+)
+CONTROL_PANEL_RUNTIME_CHILD_HEARTBEAT_AGE = Gauge(
+    "evm_control_panel_runtime_child_heartbeat_age_seconds",
+    "Age of the latest exact-identity child heartbeat.",
+    ["child"],
+)
+CONTROL_PANEL_RUNTIME_CHILD_REVISION_MATCH = Gauge(
+    "evm_control_panel_runtime_child_revision_match",
+    "Whether child source revision matches the supervisor revision.",
+    ["child"],
+)
+CONTROL_PANEL_RUNTIME_CHILD_PROCESS_COUNT = Gauge(
+    "evm_control_panel_runtime_child_process_count",
+    "Number of command-matched processes for a supervised child.",
+    ["child"],
+)
+CONTROL_PANEL_RUNTIME_CHILD_RESTART_COUNT = Gauge(
+    "evm_control_panel_runtime_child_restart_count",
+    "Persistent restart attempt count for a supervised child.",
+    ["child"],
+)
 CONTROL_PANEL_METRIC_REFRESH_SUCCESS = Gauge(
     "evm_control_panel_metric_refresh_success",
     "Whether the latest control-plane metric refresh completed successfully.",
@@ -471,6 +500,7 @@ def refresh_control_panel_metrics() -> None:
     from collections import Counter as ValueCounter
 
     from apps.api.control_panel import model_candidate_catalog_snapshot
+    from evm.control_panel.host_runtime import read_host_runtime_supervisor
     from evm.control_panel.lifecycle_runs import read_runs, read_worker_state
     from evm.control_panel.stage_handoffs import build_stage_handoff_catalog
 
@@ -495,6 +525,11 @@ def refresh_control_panel_metrics() -> None:
         CONTROL_PANEL_STAGE_PROGRESS.clear()
         CONTROL_PANEL_HANDOFFS.clear()
         CONTROL_PANEL_MODEL_CANDIDATES.clear()
+        CONTROL_PANEL_RUNTIME_CHILD_STATE.clear()
+        CONTROL_PANEL_RUNTIME_CHILD_HEARTBEAT_AGE.clear()
+        CONTROL_PANEL_RUNTIME_CHILD_REVISION_MATCH.clear()
+        CONTROL_PANEL_RUNTIME_CHILD_PROCESS_COUNT.clear()
+        CONTROL_PANEL_RUNTIME_CHILD_RESTART_COUNT.clear()
         for (state, execution_mode), value in run_counts.items():
             CONTROL_PANEL_LIFECYCLE_RUNS.labels(state=state, execution_mode=execution_mode).set(value)
         for (stage, state, runtime), value in stage_counts.items():
@@ -511,3 +546,20 @@ def refresh_control_panel_metrics() -> None:
                 selectable=selectable,
             ).set(value)
         CONTROL_PANEL_WORKER_ONLINE.set(1 if read_worker_state().status == "online" else 0)
+        supervisor = read_host_runtime_supervisor()
+        CONTROL_PANEL_RUNTIME_SUPERVISOR_HEALTHY.set(1 if supervisor.status == "healthy" else 0)
+        for child in supervisor.children:
+            CONTROL_PANEL_RUNTIME_CHILD_STATE.labels(child=child.name, state=child.status).set(1)
+            if child.heartbeat_age_seconds is not None:
+                CONTROL_PANEL_RUNTIME_CHILD_HEARTBEAT_AGE.labels(child=child.name).set(
+                    child.heartbeat_age_seconds
+                )
+            CONTROL_PANEL_RUNTIME_CHILD_REVISION_MATCH.labels(child=child.name).set(
+                1 if child.revision_matches else 0
+            )
+            CONTROL_PANEL_RUNTIME_CHILD_PROCESS_COUNT.labels(child=child.name).set(
+                child.process_count
+            )
+            CONTROL_PANEL_RUNTIME_CHILD_RESTART_COUNT.labels(child=child.name).set(
+                supervisor.restart_counts.get(child.name, 0)
+            )
