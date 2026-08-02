@@ -155,7 +155,7 @@ def lifecycle_guard_directory(run: LifecycleRun) -> Path:
         and run.correlation_id
     ):
         raise LifecycleStageBlocked("lifecycle_guard_identity_missing")
-    return Path(run.identity_envelope_uri).parent
+    return runtime_path(run.identity_envelope_uri).parent
 
 
 def reserve_external_action(

@@ -1041,7 +1041,7 @@ def lifecycle_guard_decision(
             runtime_revisions.setdefault("kubernetes_observer", None)
     try:
         return dispatch_lifecycle_guard(
-            directory=Path(run.identity_envelope_uri).parent,
+            directory=runtime_path(run.identity_envelope_uri).parent,
             stage_id=stage_id,
             transition=transition,
             run_identity={

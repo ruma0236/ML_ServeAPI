@@ -12,6 +12,7 @@ from evm.control_panel.lifecycle_kubernetes import CTBundle, ServingBundle
 from evm.control_panel.lifecycle_orchestrator import (
     LifecycleStageBlocked,
     clear_prometheus_target,
+    lifecycle_guard_directory,
     process_artifact_readiness,
     process_approval,
     process_ci_ct_gate,
@@ -49,6 +50,26 @@ class FakeResponse:
 
     def read(self) -> bytes:
         return json.dumps(self.payload).encode("utf-8")
+
+
+def test_lifecycle_guard_directory_maps_container_uri_for_host_worker(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    host_root = tmp_path / "data"
+    expected = host_root / "artifacts" / "w7" / "lifecycle_runs" / "run-1"
+    expected.mkdir(parents=True)
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(host_root))
+    run = SimpleNamespace(
+        identity_envelope_uri=(
+            "/app/artifacts/w7/lifecycle_runs/run-1/identity.envelope.json"
+        ),
+        lifecycle_series_id="series-12345678",
+        attempt_id="attempt-12345678",
+        correlation_id="correlation-12345678",
+    )
+
+    assert lifecycle_guard_directory(run) == expected
 
 
 def queued_run(
