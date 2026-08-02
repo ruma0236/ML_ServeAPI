@@ -115,3 +115,13 @@ host artifact URI through the generic read path instead of the API's writable
 `EVM_LIFECYCLE_RUN_ROOT`. Quality evidence now uses the configured writable
 lifecycle root, with a regression test that separates host/read-only and
 API/write mount semantics. A new source-bound run remains required.
+
+## Superseding Closure
+
+Scenario C is now closed by source `39d4cd2`, series
+`scenario-c-lifecycle-20260802T213154Z-39d4cd2e`, and lifecycle
+`lifecycle-20260802T213202-1c0776fc`. The run passed all `18 / 18` checks,
+source hashes `17 / 17`, integrated hashes and sizes `21 / 21`, real CUDA
+training/MLflow/isolated CT, and exact B0 restoration. Deployment intents
+remained zero and the run stopped at independent release approval. See
+`docs/status/2026-08-03-lifecycle-guard-scenario-c-closure.md`.

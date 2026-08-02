@@ -426,6 +426,16 @@ Airflow/Kubernetes/MLflow/deployment effect. The remediation writes lifecycle
 quality state through `EVM_LIFECYCLE_RUN_ROOT` and adds regression coverage for
 separate read-only data and writable API artifact mounts.
 
+Accepted Scenario C source `39d4cd2`, series
+`scenario-c-lifecycle-20260802T213154Z-39d4cd2e`, and lifecycle
+`lifecycle-20260802T213202-1c0776fc` passed all `18 / 18` guard checks. Hold
+kept training at attempt 0 with zero training/release effects; independent
+approval resumed the same run through real CUDA training, MLflow and isolated
+CT, then stopped at release approval with deployment intents still zero. The
+exact external delta was Jobs +2, MLflow +1 and candidate +1. Source hashes
+matched 17/17 and integrated hashes/sizes 21/21. Exact B0 CUDA, plugin and two
+Prometheus scrapes restored in `29.0953264 s`.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -444,6 +454,7 @@ separate read-only data and writable API artifact mounts.
 | Scenario C contract and runner checkpoint | `25ba10a` plus pending runner commit | exact-run quality evidence, pre-training hold, single-use approved-for-training action, rejected branch and source-bound integrated runner implemented; 480/480 tests | none; runtime proof not started | commit/deploy runner, then run a fresh source-bound CUDA lifecycle attempt |
 | Scenario C attempt 1 | `427b400` | fresh CUDA drift PASS in 18.476526197 s, then wrapper selected Python 3.14 without `evm` and stopped before lifecycle admission | none; no LifecycleRun or external lifecycle side effect | retain harness RCA; pin import-capable project Python and rerun from a new source revision |
 | Scenario C attempt 2 | `bd01cdc` | fresh CUDA drift PASS in 18.102172372 s; isolated rejection review then returned HTTP 500 because quality state targeted read-only `/mnt/evm-data` | none; run cancelled before data/training/MLflow/CT/deployment dispatch | retain storage-boundary RCA; use writable lifecycle root, test split mount semantics, rerun from a new source revision |
+| `lifecycle-20260802T213202-1c0776fc` | `39d4cd2` | PASS: 18/18 guards; rejection audit; Airflow; hold at training attempt 0; single-use governed resume; real CUDA training, MLflow, readiness and isolated CT; stop at independent release approval | Jobs +2, MLflow +1, candidate +1, intent 0; exact B0 CUDA/plugin/Prometheus restored in 29.0953264 s | accepted controlled local Scenario C closure; source 17/17 and integrated 21/21 hashes; proceed to Scenario B |
 
 ## Synchronization Rule
 
