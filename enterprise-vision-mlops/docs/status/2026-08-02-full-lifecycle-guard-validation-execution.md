@@ -460,6 +460,14 @@ and build pass, and touched-file Ruff passes. Runtime proof is not started, so
 Scenario B remains In Progress. Detailed contract and progress are in
 `docs/status/2026-08-03-lifecycle-guard-scenario-b-progress.md`.
 
+The first integrated invocation stopped before LifecycleRun creation because
+the wrapper selected a Conda base runtime without Torch and PowerShell promoted
+the failed import probe to a terminating error. No Airflow, Kubernetes, MLflow,
+candidate, replay or deployment-intent effect occurred. The wrapper now falls
+through failed candidates and explicitly discovers the established F-drive
+CUDA runtime. The failed invocation is RCA evidence, not Scenario B evidence;
+both branches remain fresh-run requirements.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -479,6 +487,7 @@ Scenario B remains In Progress. Detailed contract and progress are in
 | Scenario C attempt 1 | `427b400` | fresh CUDA drift PASS in 18.476526197 s, then wrapper selected Python 3.14 without `evm` and stopped before lifecycle admission | none; no LifecycleRun or external lifecycle side effect | retain harness RCA; pin import-capable project Python and rerun from a new source revision |
 | Scenario C attempt 2 | `bd01cdc` | fresh CUDA drift PASS in 18.102172372 s; isolated rejection review then returned HTTP 500 because quality state targeted read-only `/mnt/evm-data` | none; run cancelled before data/training/MLflow/CT/deployment dispatch | retain storage-boundary RCA; use writable lifecycle root, test split mount semantics, rerun from a new source revision |
 | `lifecycle-20260802T213202-1c0776fc` | `39d4cd2` | PASS: 18/18 guards; rejection audit; Airflow; hold at training attempt 0; single-use governed resume; real CUDA training, MLflow, readiness and isolated CT; stop at independent release approval | Jobs +2, MLflow +1, candidate +1, intent 0; exact B0 CUDA/plugin/Prometheus restored in 29.0953264 s | accepted controlled local Scenario C closure; source 17/17 and integrated 21/21 hashes; proceed to Scenario B |
+| Scenario B pre-launch attempt 1 | `fabe6a2` | wrapper stopped during Python discovery because Conda base lacked Torch and native stderr terminated fallback | none; no LifecycleRun, Airflow, Kubernetes, MLflow, candidate, replay or intent | retain harness RCA; discover F-drive CUDA Python safely and run both branches fresh from the corrected revision |
 
 ## Synchronization Rule
 

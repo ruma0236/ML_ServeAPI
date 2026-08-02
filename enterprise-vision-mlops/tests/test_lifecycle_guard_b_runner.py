@@ -13,6 +13,9 @@ from evm.operations.lifecycle_guard_b_runner import (
 )
 
 
+WRAPPER = Path("scripts/dev/lifecycle_guard_b_integrated_proof.ps1")
+
+
 def write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -90,3 +93,12 @@ def test_approval_denial_requires_release_guard_error(monkeypatch: pytest.Monkey
     )
 
     assert result["status_code"] == 422
+
+
+def test_wrapper_falls_through_invalid_python_candidates_to_cuda_runtime() -> None:
+    script = WRAPPER.read_text(encoding="utf-8")
+
+    assert '"F:\\evm_w7_torch\\python.exe"' in script
+    assert '$ErrorActionPreference = "Continue"' in script
+    assert "$probeExitCode = $LASTEXITCODE" in script
+    assert "if ($probeExitCode -eq 0)" in script

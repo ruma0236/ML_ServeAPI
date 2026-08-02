@@ -12,6 +12,7 @@ $env:PYTHONPATH = Join-Path $ProjectRoot "src"
 function Resolve-ProjectPython {
     $candidates = @(
         $PythonPath,
+        "F:\evm_w7_torch\python.exe",
         $(if ($env:CONDA_PREFIX) { Join-Path $env:CONDA_PREFIX "python.exe" }),
         $(if ($env:USERPROFILE) { Join-Path $env:USERPROFILE "miniconda3\python.exe" }),
         "C:\Users\opop0\miniconda3\python.exe"
@@ -20,8 +21,17 @@ function Resolve-ProjectPython {
         if (-not (Test-Path -LiteralPath $candidate)) {
             continue
         }
-        & $candidate -c "import evm, pydantic, torch" 2>$null
-        if ($LASTEXITCODE -eq 0) {
+        $probeErrorActionPreference = $ErrorActionPreference
+        $probeExitCode = 1
+        try {
+            $ErrorActionPreference = "Continue"
+            & $candidate -c "import evm, pydantic, torch" 2>$null
+            $probeExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $probeErrorActionPreference
+        }
+        if ($probeExitCode -eq 0) {
             return (Resolve-Path -LiteralPath $candidate).Path
         }
     }

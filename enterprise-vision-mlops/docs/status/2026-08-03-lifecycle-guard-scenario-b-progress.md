@@ -69,6 +69,25 @@ the approval stage must remain waiting and deployment intent must remain zero.
 - Real lifecycle and replay execution have not started from this revision, so
   `EVM-281` remains In Progress and no closure claim is allowed.
 
+## Attempt 1 Pre-Launch RCA
+
+The first wrapper invocation stopped during Python discovery, before creating a
+LifecycleRun. `C:\Users\opop0\miniconda3\python.exe` could import the project
+package and Pydantic but did not contain Torch. With PowerShell native errors
+treated as terminating, that failed probe prevented fallback to another
+runtime.
+
+- External lifecycle effects: zero. No Airflow run, Kubernetes Job, MLflow run,
+  candidate, replay, approval or deployment intent was created.
+- Root cause: the wrapper neither listed the established F-drive CUDA Conda
+  runtime nor safely continued after a candidate import failure.
+- Correction: add `F:\evm_w7_torch\python.exe` as an explicit candidate and
+  inspect each probe exit code under a temporary non-terminating native-error
+  policy. The selected runtime reports Torch `2.13.0+cu126` and CUDA available.
+- Acceptance consequence: this attempt is immutable harness RCA only. Both
+  Scenario B lifecycle branches must still start fresh from the corrected,
+  committed source revision.
+
 ## Claim Boundary
 
 The implementation supports controlled local release validation. It is not a
