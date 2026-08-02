@@ -377,6 +377,9 @@ def run_exact_reconciliation_fixture(
         ledger = LifecycleSideEffectLedger.model_validate(
             read_json(guard_dir / "side_effect_ledger.json")
         )
+    semantic_blockers = [
+        item for item in sorted(set(blockers)) if not item.startswith("side_effect_key:")
+    ]
     mutating_commands = [
         command
         for command in runner.calls
@@ -386,7 +389,7 @@ def run_exact_reconciliation_fixture(
         "decision": decision,
         "blockers": sorted(set(blockers)),
         "decision_fingerprint": canonical_digest(
-            {"decision": decision, "blockers": sorted(set(blockers))}
+            {"decision": decision, "semantic_blockers": semantic_blockers}
         ),
         "elapsed_seconds": round(time.monotonic() - started, 6),
         "task_state": task_state,

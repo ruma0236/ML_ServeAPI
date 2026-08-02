@@ -282,6 +282,13 @@ failure in its nested isolated evidence root. No external or process mutation
 occurred. The immutable failed attempt is retained, and only isolated generated
 manifest/operation paths were shortened for the next clean-source attempt.
 
+The second attempt, `scenario-d-lifecycle-20260802T181928Z-8b8f9f67`, passed
+all branch, runtime and external-identity checks but was rejected because its
+wrong-observation stability fingerprint included the unique per-attempt
+`side_effect_key`. Semantic blockers were identical and side-effect delta was
+zero. The audit key remains recorded; only the cross-attempt decision
+fingerprint is normalized to semantic blocker fields for the next attempt.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |

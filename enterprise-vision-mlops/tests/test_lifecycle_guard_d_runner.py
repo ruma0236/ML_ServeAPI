@@ -83,3 +83,21 @@ def test_wrong_observation_blocks_without_kubectl_mutation(tmp_path: Path) -> No
     assert result["side_effect_state"] == "reserved"
     assert result["runtime_id"] is None
     assert result["mutating_commands"] == []
+
+
+def test_wrong_observation_fingerprint_ignores_attempt_specific_side_effect_key(
+    tmp_path: Path,
+) -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    results = [
+        run_exact_reconciliation_fixture(
+            tmp_path / f"wrong-replay-{replay}",
+            project_root=project_root,
+            source_revision="1" * 40,
+            wrong_candidate=True,
+        )
+        for replay in range(1, 4)
+    ]
+
+    assert len({item["side_effect_key"] for item in results}) == 3
+    assert len({item["decision_fingerprint"] for item in results}) == 1

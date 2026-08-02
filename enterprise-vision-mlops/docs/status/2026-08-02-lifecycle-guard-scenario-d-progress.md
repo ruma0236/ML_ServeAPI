@@ -66,6 +66,13 @@ mutation occurred. The partial attempt is retained as immutable RCA evidence.
 Generated manifests and isolated operation ledgers now use a short run-root
 path; canonical and external locations are unchanged.
 
+Attempt `scenario-d-lifecycle-20260802T181928Z-8b8f9f67` completed every
+runtime, external-identity and branch safety check, but final acceptance rejected
+the wrong-observation replay because the decision fingerprint included each
+independent attempt's `side_effect_key`. The semantic blocker was identical and
+external identity delta remained zero. The key remains in audit evidence, while
+the stability fingerprint now excludes attempt-specific key fields.
+
 ## Remaining Exit Work
 
 This checkpoint does not close Scenario D. The remaining proof must:
