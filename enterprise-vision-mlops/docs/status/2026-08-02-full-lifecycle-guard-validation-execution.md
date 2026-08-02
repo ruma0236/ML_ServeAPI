@@ -289,6 +289,21 @@ wrong-observation stability fingerprint included the unique per-attempt
 zero. The audit key remains recorded; only the cross-attempt decision
 fingerprint is normalized to semantic blocker fields for the next attempt.
 
+Accepted D replay `scenario-d-lifecycle-20260802T182104Z-fdcf0047` passed
+seven checks with 18 deterministic branch decisions, zero Kubernetes Job,
+MLflow, candidate or deployment-intent identity delta, unchanged runtime, and
+`62 / 62` evidence hashes. Exact-child series
+`scenario-d-series-20260802T182356Z-fdcf0047` then passed
+worker/observer/worker with maximum detection `5.212014 s`, recovery
+`8.6442343 s`, heartbeat p95 `5.0 s`, and `24 / 24` artifact hashes.
+
+Scenario D remains open because those proofs were separate. A dedicated
+integrated runner is implemented and tested to terminate the exact worker only
+after a real lifecycle training task is running, one exact Job UID is admitted,
+and its durable side effect remains `reserved`. It then observes autonomous
+same-Job reconciliation and full lifecycle completion. The full suite passes
+`461 / 461`; clean-source runtime execution is the remaining D exit gate.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |

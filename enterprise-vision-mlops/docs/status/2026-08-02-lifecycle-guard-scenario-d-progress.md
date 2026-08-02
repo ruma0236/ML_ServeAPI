@@ -73,6 +73,31 @@ independent attempt's `side_effect_key`. The semantic blocker was identical and
 external identity delta remained zero. The key remains in audit evidence, while
 the stability fingerprint now excludes attempt-specific key fields.
 
+### Accepted non-disruptive and child-live proofs
+
+- Non-disruptive attempt
+  `scenario-d-lifecycle-20260802T182104Z-fdcf0047` passed all seven checks.
+  Golden terminal ledger, duplicate key, wrong run, terminal-state regression,
+  exact observation, and wrong observation each ran three times. Kubernetes
+  Job `25`, MLflow run `79`, candidate `27`, and intent `11` identity sets had
+  zero delta. Production/runtime identity was unchanged and evidence re-hashed
+  `62 / 62`; index SHA-256 is
+  `2a60818436ad9dcbce015cdab1a9b2b429754f46d56e2db2bf7fb9f6193542e9`.
+- Exact-child series
+  `scenario-d-series-20260802T182356Z-fdcf0047` passed worker/observer/worker.
+  Maximum detection was `5.212014 s`, maximum recovery `8.6442343 s`, and
+  heartbeat p95 `5.0 s`. Every run passed preflight `12 / 12` and
+  postconditions `10 / 10`; artifact hashes re-matched `24 / 24`.
+- The source, API, supervisor, worker, and observer converged on `fdcf004`.
+  Production B0, CUDA, GPU/device-plugin, and Prometheus recovered unchanged.
+
+These proofs are intentionally separate. They do not yet prove a worker exit
+while the real lifecycle training Job is active. A dedicated integrated runner
+is implemented to create and queue profile v9, inject only when the task is
+running, the exact Job UID exists, and its side effect is `reserved`, then wait
+without manual repair for training, MLflow, CT, staging, CUDA, Prometheus, and
+production restoration. Full Python verification is now `461 / 461`.
+
 ## Remaining Exit Work
 
 This checkpoint does not close Scenario D. The remaining proof must:
