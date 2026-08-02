@@ -26,6 +26,8 @@ if (-not $targetUid) {
     throw "Production B0 deployment UID is unavailable."
 }
 
+$previousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 $output = & docker run --rm --gpus all --read-only `
     --shm-size 2g `
     --tmpfs "/tmp:rw,noexec,nosuid,size=2g" `
@@ -49,9 +51,11 @@ $output = & docker run --rm --gpus all --read-only `
     $TrainingImage `
     python /app/scripts/dev/run_scenario_c_quality.py `
         --config /app/configs/operations/scenario_c_quality_degradation.toml 2>&1
+$dockerExitCode = $LASTEXITCODE
+$ErrorActionPreference = $previousErrorActionPreference
 
 $output | ForEach-Object { Write-Host $_ }
-if ($LASTEXITCODE -ne 0) {
+if ($dockerExitCode -ne 0) {
     throw "Scenario C quality proof failed."
 }
 
