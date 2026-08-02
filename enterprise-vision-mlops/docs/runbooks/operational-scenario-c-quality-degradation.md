@@ -1,8 +1,8 @@
 # Scenario C: Data and Model Quality Degradation
 
 Issue: `EVM-268 / SCRUM-174`
-State: C0 contract passed; non-disruptive implementation in progress. Scenario
-E remains a hard blocker for limited release, not for isolated evaluator work.
+State: non-disruptive local batch proof passed on `2026-08-02`. Scenario E
+remains a hard blocker for real candidate training and limited release.
 
 ## Purpose
 
@@ -60,3 +60,18 @@ the stable model active and record the blocker.
   label delay; deduplication; CT contamination.
 - Claim allowed: controlled degradation and candidate workflow.
 - Claim prohibited: proven production concept drift or business impact.
+
+## Latest Verified Run
+
+- source: `3c165ef8b44bcf1340c8688355414a0d77dd2942`
+- run: `scenario-c-20260802T051154Z-3c165ef8`
+- result: known-good `within_policy`; deterministic `pcb3` shift
+  `review_required`;
+- volume: baseline `2,136`, known-good `2,181`, shifted `205` records;
+- idempotency: three attempts, one event, one candidate;
+- release: manual hold, zero deployment intents, production B0 unchanged;
+- validation: `17 / 17` artifact hashes, common live-proof PASS, `62 / 62`
+  related tests.
+
+Closure detail:
+`docs/status/2026-08-02-scenario-c-quality-degradation-closure.md`.

@@ -489,6 +489,13 @@ cannot start its derived-data proof before E exits.
 Issue: `EVM-268 / SCRUM-174`
 Runbook: `docs/runbooks/operational-scenario-c-quality-degradation.md`
 
+Execution update `2026-08-02`: the admitted non-disruptive scope passed with
+real VisA CUDA evidence, one idempotent review event/candidate, manual hold,
+zero deployment intents, and unchanged production B0. Closure is
+`docs/status/2026-08-02-scenario-c-quality-degradation-closure.md`. The release
+branch (real candidate training, MLflow, isolated CT, and limited deployment)
+remains blocked by Scenario E and is not part of this pass.
+
 ### 1. Baseline And Gap
 
 Measured drift state, `review_required` workflow, diagnostics and no-auto-retrain
