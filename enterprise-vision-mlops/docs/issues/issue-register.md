@@ -71,6 +71,8 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-EPIC-19` | Human-Tunable Pipeline Control | Post-W7 | In Progress | Versioned profile control, dependency-aware lifecycle orchestration, CV/search, and isolated CT promotion enforcement are operational; A/B canary routing remains the explicit follow-up boundary |
 | `EVM-EPIC-20` | Operator-Centered Reproducible Control Plane | 2026-07-W8 | Done | purpose-based operator workspaces, focused animated lifecycle views, immutable Run Blueprints, approved model-component onboarding, and deterministic user-scenario replay completed with desktop/mobile and F-drive evidence |
 | `EVM-EPIC-21` | Multi-Domain Governed MLOps Evidence | Post-W8 | In Progress | governed scenario catalog, real multi-domain intake, operator-launched Airflow execution, and portfolio evidence are complete; text/VLM runtime, tenancy, and production resilience remain explicit follow-up work |
+| `EVM-EPIC-22` | Cross-Scenario Correlation And Recovery Validation | Post-W8 | In Progress | plan/design PASS; normalized correlation, single-owner recovery, pairwise proof and maintenance-gated closure remain EVM-272..275 |
+| `EVM-EPIC-23` | Full Lifecycle Guard Integration And VisA Operations Drill | Post-W8 | Planning | integrate A-E guards with actual data, training, MLflow, CT, replacement, CUDA serving and monitoring without hidden repair |
 
 ## Backlog
 
@@ -489,6 +491,33 @@ The workstream is separate from Sprint 178 and does not change A-E Done states.
 | `EVM-273` | Fail-closed recovery ownership and read-only incident plane | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-180`; fenced CAS lease/approval binding, one recovery owner per exact target, action ledger, low-cardinality metrics/alerts, read-only API and Control Panel timeline; no mutation endpoint admitted |
 | `EVM-274` | Non-disruptive pairwise correlation proof | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-181`; D+E, C+E, and B+C each pass three independent isolated/replay runs plus negative anti-merge fixtures, full hash closure, zero production/process/data mutation, and immutable RCA history |
 | `EVM-275` | Maintenance-gated live pair and cross-scenario closure | Planned / To Do / approval gated | Post-Sprint 178 | Jira `SCRUM-182`; only after EVM-274 PASS: exact-target A+D then A+B proof under a new single-use maintenance approval, one owner/action, known-good rollback, child SLO plus coordinator-overhead reporting, and explicit single-node limitations |
+
+### Phase 24. Full Lifecycle Guard Integration And VisA Operations Drill
+
+Goal:
+
+- run A-E guards through the actual VisA intake, Torch training, MLflow,
+  isolated CT, approval, controlled release, model replacement, CUDA serving
+  and monitoring graph;
+- prove guard stage placement, fail-closed action, exactly-once side effects,
+  governed resume/rollback, exact identity and no hidden repair;
+- keep planning separate from later lifecycle execution and maintenance-gated
+  development-production replacement.
+
+The source plan is
+`docs/status/2026-08-02-full-lifecycle-guard-integration-validation-plan.md`.
+
+| ID | Task | Status | Target | Acceptance Criteria |
+|---|---|---|---:|---|
+| `EVM-276` | Full lifecycle guard master contract and design validation | In Progress | Post-Sprint 178 | golden path, stage/authority matrix, A-E injections, immutable retry, real model policy, SLI/SLO, evidence and UI operator contract; planning only |
+| `EVM-277` | Common lifecycle identity envelope, guard dispatcher and golden path | Planned | Post-Sprint 178 | after EVM-272/273: one sealed L0-L7 VisA/B0 run, exact identity and revision map, one Job/MLflow/candidate, staging and rollback dry-run, no hidden repair |
+| `EVM-278` | Scenario E lifecycle data and artifact guards | Planned | Post-Sprint 178 | wrong data/CT input blocks before training and wrong artifact identity blocks before approval/replacement; corrected immutable attempts pass; zero unintended intents |
+| `EVM-279` | Scenario D exactly-once lifecycle continuity | Planned | Post-Sprint 178 | exact worker recovery during training reconciliation and observer stale hold before approval; duplicate Job/MLflow/candidate/intent zero |
+| `EVM-280` | Scenario C lifecycle quality/drift hold and governed resume | Planned | Post-Sprint 178 | one measured review event/candidate, hold/reject/approved-for-training audit, duplicate/stale idempotency and no automatic release |
+| `EVM-281` | Scenario B lifecycle candidate release and stable rollback | Planned | Post-Sprint 178 | real quality rejection plus 1,000-request controlled runtime breach; zero challenger allocation and exact stable route/identity recovery |
+| `EVM-282` | Scenario A post-promotion GPU serving recovery | Planned / approval gated | Post-Sprint 178 | two-phase M0-to-M1 replacement, exact target-bound approval, M1 Pod recovery and separate M0 rollback proof with CUDA/Prometheus evidence |
+| `EVM-283` | Integrated single-scenario lifecycle evidence closure | Planned | Post-Sprint 178 | every A-E guard reaches its real injection point, has three deterministic decision replays, full hash closure and immutable RCA; blocks EVM-274 until PASS |
+| `EVM-284` | Final VisA lifecycle operations drill | Planned / final gate | Post-Sprint 178 | after EVM-283 and EVM-274/275: operator-only success, failure, containment, replacement, recovery and rollback series with exact identity and honest local limits |
 
 The original dependency order was `A/D -> B -> E -> C -> cross-scenario`.
 Current execution evidence has closed A-E independently. Cross-scenario

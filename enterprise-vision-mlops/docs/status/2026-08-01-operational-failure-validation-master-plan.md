@@ -52,7 +52,7 @@ traffic, or a production SLA.
 | 4 | `EVM-270` | `SCRUM-176` | E: data/artifact integrity | In progress | E0 contract fixed; implementation/proof open |
 | 5 | `EVM-268` | `SCRUM-174` | C: quality degradation and retraining gate | To do | E, then B for limited release |
 | 6 | `EVM-EPIC-22 / EVM-271..275` | `SCRUM-177..182` | cross-scenario correlation and recovery | plan/design PASS; implementation To Do | A-E passed |
-| 7 | future child | not created | VisA end-to-end operations drill | Blocked | cross-scenario passed |
+| 7 | `EVM-EPIC-23 / EVM-276..284` | Jira pending | full lifecycle guard integration and VisA operations drill | planning in progress; execution blocked | `EVM-272..275` plus lifecycle guard gates |
 
 Jira execution order follows dependencies rather than issue-number order.
 
@@ -67,6 +67,12 @@ Done states of `SCRUM-172..176`. Planning and design validation do not imply
 that correlation code, combined fault injection, or runtime mutation exists.
 Its read-only design review is
 `docs/status/2026-08-02-cross-scenario-correlation-recovery-design-validation.md`.
+
+The successor full-lifecycle guard plan is
+`docs/status/2026-08-02-full-lifecycle-guard-integration-validation-plan.md`.
+It validates E, D, C, B and A in that dependency order inside the real VisA
+data/train/MLflow/CT/release/serving flow. Planning does not authorize training,
+model replacement, fault injection or runtime mutation.
 
 ## Deployment Experiment Vocabulary
 
