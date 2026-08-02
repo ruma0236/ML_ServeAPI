@@ -1,8 +1,8 @@
 # Full Lifecycle Guard Validation Execution
 
 Date: 2026-08-02
-Status: In Progress; baseline and tracking section created; implementation and
-integrated fault injection not yet complete.
+Status: In Progress; tracking and `EVM-272` correlation prerequisite complete;
+recovery ownership and integrated lifecycle fault injection remain open.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -92,7 +92,7 @@ They are not golden-path or scenario acceptance.
 | Checkpoint | State | Evidence | Next gate |
 |---|---|---|---|
 | tracking and runtime baseline | complete | Git/Jira/Notion/Obsidian execution section plus read-only runtime observations | implement `SCRUM-179` |
-| normalized event/correlation/dedupe | not started | pending | `SCRUM-180` |
+| normalized event/correlation/dedupe | complete | source `627209a`; 12 focused, 98 A-E regression, and 407 full tests passed; three independent 1,000-event replays, 300 unrelated events, zero false merge/duplicate parent/action; p95 30.183-32.374 ms; F-drive artifact hashes 625/625 | `SCRUM-180` |
 | recovery ownership/read-only incident plane | not started | pending | `SCRUM-185` |
 | no-fault golden lifecycle | not started | pending | E guard |
 | E lifecycle guard | not started | pending | D guard |
@@ -104,14 +104,20 @@ They are not golden-path or scenario acceptance.
 
 ## Current Findings
 
-1. `SCRUM-179` and `SCRUM-180` have design contracts but no integrated
-   implementation. They remain real blockers, not paperwork dependencies.
+1. `SCRUM-179` now has a tested implementation and replay closure.
+   `SCRUM-180` still has only a design contract and remains the next real
+   blocker.
 2. Existing A-E evidence is reusable only as baseline and fixtures. It cannot
    close any integrated lifecycle attempt.
 3. Stable-serving identity must be target-scoped. The general API registry
    readiness and Kubernetes B0 production deployment are distinct runtimes.
 4. The current single GPU has insufficient evidence for shared CT admission;
    resource arbitration must be explicit before L5.
+5. Direct per-event durable writes to the capacity-oriented F drive exceeded
+   the initial five-minute replay command limit. The accepted proof used a
+   transient SSD spool and hash-verified canonical publication to F. This
+   retains audit integrity but is not an F-drive ingestion throughput claim;
+   the failed partial attempt remains immutable RCA evidence.
 
 ## Synchronization Rule
 
