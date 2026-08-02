@@ -107,6 +107,27 @@ def runtime_path(value: str | Path) -> Path:
         "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
     ).replace("\\", "/").rstrip("/")
     mount_root = os.getenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data").replace("\\", "/").rstrip("/")
+    ct_host_root = os.getenv(
+        "EVM_HOST_CT_ROOT",
+        "F:/EnterpriseMLOps_CT/enterprise-vision-mlops",
+    ).replace("\\", "/").rstrip("/")
+    ct_mount_root = os.getenv("EVM_CT_MOUNT_ROOT", "/mnt/evm-ct").replace(
+        "\\", "/"
+    ).rstrip("/")
+    if normalized.lower().startswith(ct_host_root.lower()):
+        if Path(ct_host_root).exists():
+            return path
+        suffix = normalized[len(ct_host_root) :]
+        mounted = Path(f"{ct_mount_root}{suffix}")
+        if Path(ct_mount_root).exists():
+            return mounted
+    if normalized.lower().startswith(ct_mount_root.lower()):
+        suffix = normalized[len(ct_mount_root) :]
+        host_path = Path(f"{ct_host_root}{suffix}")
+        if Path(ct_host_root).exists():
+            return host_path
+        if Path(ct_mount_root).exists():
+            return path
     if normalized.lower().startswith(host_root.lower()) and Path(host_root).exists():
         return path
     if normalized.lower().startswith("/app/artifacts"):

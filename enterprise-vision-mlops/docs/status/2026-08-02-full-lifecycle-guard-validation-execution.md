@@ -342,6 +342,25 @@ Only `NotFound` is now transient during admission; all other kubectl and
 identity failures remain fail closed. Focused tests pass `16 / 16`, full tests
 `465 / 465`; another immutable attempt is required.
 
+The fourth combined attempt at source `b82f6b4`, series
+`scenario-d-training-20260802T193451Z-b82f6b49`, reached the intended live
+fault boundary. The exact approved worker exited while Job UID
+`c28d3d36-8cf3-49e6-9fff-9a3a0fe64fe1` and its reserved side effect were
+active. Detection took `2.3490377 s`, recovery `5.631701 s`, replacement PID
+`41968` retained the same revision/lease/fencing identity, and the same Job
+completed epoch 4/20 and step 102/102 without redispatch. MLflow run
+`4bf93169cc174e989ab18a2d8f59164b`, readiness 13/13, and isolated CT over
+2,181 records also completed.
+
+The lifecycle then failed closed at independent release approval with HTTP
+422. The release seal validates on the host, but the API container did not map
+the CT host URI under `F:/EnterpriseMLOps_CT/enterprise-vision-mlops` to the
+already-mounted `/mnt/evm-ct` evidence root. Automatic cancellation restored
+production B0 1/1 and CUDA, with no approval, deployment intent, or candidate
+serving mutation. CT host/mount runtime-path resolution and bounded API error
+evidence are now implemented; focused tests pass 30/30 and the full suite
+466/466. D remains open until container validation and a fresh 10/10 attempt.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -354,6 +373,7 @@ identity failures remain fail closed. Focused tests pass `16 / 16`, full tests
 | `lifecycle-20260802T183833-47cdc111` | `7a68097` | Airflow 18/18 terminal; training blocked before Job admission with `gpu_handoff_approval_missing:training` | none; no worker termination or resource handoff; production B0 remained CUDA-ready | retain immutable RCA; runner now pre-issues exact phase approvals and independently approves the sealed release; retry from a new source revision |
 | `lifecycle-20260802T190057-c8cae6d4` | `649114f` | Airflow 18/18 terminal; exact training approval consumed and Job admitted; blocked before worker termination on stale run-label expectation | bounded production handoff occurred; automatic cancel deleted Job and released handoff in 48 s; B0 returned 1/1 CUDA; no MLflow/candidate/CT/intent | retain immutable RCA; unify runner/reconciler/fixtures on canonical `short_run_id()` and exact manifest identity; retry from a new source revision |
 | `lifecycle-20260802T192014-183e0bc1` | `689b775` | Airflow 18/18 terminal; training handoff began; admission poll hit the normal pre-persistence Job `NotFound` window | no worker termination; automatic cancel released handoff in 10 s and restored B0 CUDA; no downstream outcome | retain immutable RCA; wait only on `NotFound` during bounded admission while every other error remains fail closed; retry from a new source revision |
+| `lifecycle-20260802T193458-04b6cb7b` | `b82f6b4` | Airflow 18/18; exact worker detection 2.3490377 s and recovery 5.631701 s; same training Job completed; MLflow, readiness 13/13 and CT 2,181 completed; release approval returned 422 because API could not resolve the CT host URI through `/mnt/evm-ct` | exact approved worker only; no Job redispatch; automatic cancellation restored B0 1/1 CUDA; no release approval, deployment intent or candidate serving mutation | retain immutable integrated recovery/RCA evidence; map configured CT host and mount roots, validate inside API, then retry full 10/10 lifecycle |
 
 ## Synchronization Rule
 

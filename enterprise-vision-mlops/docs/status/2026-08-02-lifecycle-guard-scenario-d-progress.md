@@ -171,22 +171,59 @@ poll as transient. Authentication, context, malformed JSON, ambiguous identity,
 wrong labels/workload, and every other kubectl failure still fail closed.
 Focused tests pass `16 / 16`; the full suite passes `465 / 465`.
 
+### Fourth combined active-training attempt RCA
+
+Source `b82f6b4` attempt
+`scenario-d-training-20260802T193451Z-b82f6b49` created run
+`lifecycle-20260802T193458-04b6cb7b`. Real Airflow completed 18/18 tasks and
+the runner consumed the exact worker-fault approval only after the training
+task was `running`, side effect was `reserved`, and Job UID
+`c28d3d36-8cf3-49e6-9fff-9a3a0fe64fe1` was observed. The supervisor detected
+the exact worker exit in `2.3490377 s`, recovered it in `5.631701 s`, and
+started replacement PID `41968` with the same source revision, lease, and
+fencing identity. The same Kubernetes Job continued without redispatch and
+finished epoch `4 / 20`, step `102 / 102`.
+
+The recovered lifecycle then created MLflow run
+`4bf93169cc174e989ab18a2d8f59164b`, passed readiness `13 / 13`, and completed
+isolated CT over 2,181 real records as evaluation
+`ct-eval-2f48e705cd1aef45`. Independent release approval was nevertheless
+blocked with HTTP `422`. Host-side validation of the sealed submission passed,
+but the API container could not resolve the CT URI rooted at
+`F:/EnterpriseMLOps_CT/enterprise-vision-mlops` through its existing
+`/mnt/evm-ct` Compose mount. It therefore reported the CT identity fields as
+missing or mismatched. This is a cross-runtime evidence-path defect discovered
+after the Scenario D worker recovery, not a worker-recovery failure.
+
+Automatic cancellation preserved the failed attempt and restored production
+B0 `1/1`, CUDA inference, and the single-GPU holder. No release approval,
+deployment intent, or staging/production candidate mutation occurred. Runtime
+path resolution now treats the host CT root and CT mount as one configured
+identity namespace, while retaining fail-closed behavior when neither root is
+available. API errors also retain bounded response details in immutable runner
+evidence. Focused contract tests pass `30 / 30`; the full suite passes
+`466 / 466`.
+
 ## Remaining Exit Work
 
 This checkpoint does not close Scenario D. The remaining proof must:
 
-1. execute a new source-bound combined attempt with all exact single-use
+1. rebuild the API from the corrected source and prove the fourth attempt's
+   sealed release submission validates identically inside the API container;
+2. execute a new source-bound combined attempt with all exact single-use
    handoff approvals present;
-2. terminate only the exact supervisor-owned worker while the real training
+3. terminate only the exact supervisor-owned worker while the real training
    Job is active and its side effect remains `reserved`;
-3. prove same-Job read-only reconciliation, autonomous 10/10 lifecycle
+4. prove same-Job read-only reconciliation, autonomous 10/10 lifecycle
    completion, revision convergence, and production/GPU/CUDA/Prometheus
    restoration;
-4. hash-close the dedicated F-drive evidence attempt and synchronize the final
+5. hash-close the dedicated F-drive evidence attempt and synchronize the final
    result across Git, Jira, Notion, and Obsidian.
 
 ## Claim Boundary
 
-This checkpoint proves tested reconciliation logic, not an integrated live
-recovery result. It does not claim distributed exactly-once execution, HA,
+This checkpoint proves exact-worker recovery and same-Job continuation through
+real training, MLflow, readiness, and isolated CT in one integrated attempt.
+It does not yet prove the autonomous release/deploy/serving tail or close the
+10/10 lifecycle. It does not claim distributed exactly-once execution, HA,
 multi-node failover, or uninterrupted production traffic.

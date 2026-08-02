@@ -103,6 +103,22 @@ def test_runtime_path_prefers_writable_application_artifact_mount(monkeypatch):
     assert runtime_path(target) == target
 
 
+def test_runtime_path_maps_host_ct_uri_to_available_container_mount(
+    tmp_path, monkeypatch
+):
+    configured_host = tmp_path / "missing-host-ct"
+    mounted_ct = tmp_path / "mounted-ct"
+    evidence = mounted_ct / "evaluations" / "ct-eval-1" / "ct_evaluation.json"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("EVM_HOST_CT_ROOT", str(configured_host))
+    monkeypatch.setenv("EVM_CT_MOUNT_ROOT", str(mounted_ct))
+
+    assert runtime_path(
+        configured_host / "evaluations" / "ct-eval-1" / "ct_evaluation.json"
+    ) == evidence
+
+
 def write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

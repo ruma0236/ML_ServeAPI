@@ -67,7 +67,15 @@ def api_request(
         json=payload,
         timeout=timeout,
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        detail = response.text[:2000].replace("\n", " ")
+        raise requests.HTTPError(
+            f"lifecycle_api_error:{path}:status={response.status_code}:body={detail}",
+            response=response,
+            request=response.request,
+        ) from exc
     body = response.json()
     if not isinstance(body, dict):
         raise RuntimeError(f"lifecycle_api_object_required:{path}")
