@@ -230,25 +230,26 @@ consecutive successful Prometheus scrape timestamps. Repeated reads of one
 scrape do not satisfy the gate, and timeout remains fail closed. Focused tests
 pass `14 / 14`; the full suite passes `468 / 468`.
 
-## Remaining Exit Work
+## Accepted Closure
 
-This checkpoint does not close Scenario D. The remaining proof must:
+Source `7f253ac` series
+`scenario-d-training-20260802T202554Z-7f253ace` completed lifecycle
+`lifecycle-20260802T202558-a50d19fe` with `11 / 11` checks and `10 / 10`
+stages. Exact-worker detection was `6.9141254 s`, recovery `10.0661301 s`, and
+the same training Job continued without redispatch. Final runtime restoration
+passed in `28.9677976 s` after two distinct successful Prometheus scrapes.
 
-1. commit and deploy the bounded distinct-scrape restoration contract;
-2. execute a new source-bound combined attempt with all exact single-use
-   handoff approvals present;
-3. terminate only the exact supervisor-owned worker while the real training
-   Job is active and its side effect remains `reserved`;
-4. prove same-Job read-only reconciliation, autonomous 10/10 lifecycle
-   completion, revision convergence, and production/GPU/CUDA/Prometheus
-   restoration;
-5. hash-close the dedicated F-drive evidence attempt and synchronize the final
-   result across Git, Jira, Notion, and Obsidian.
+All eight side effects were unique and committed; one Airflow run, one
+training Job, one CT Job, one MLflow run, one candidate, and one deployment
+intent were observed. The original B0 UID returned `1 / 1` with CUDA,
+device-plugin `1 / 1`, Prometheus `up`, zero active lifecycle runs, and one
+live worker and observer. Independent re-hashing matched `16 / 16` evidence
+artifacts. Closure is recorded in
+`docs/status/2026-08-03-lifecycle-guard-scenario-d-closure.md`.
 
 ## Claim Boundary
 
-This checkpoint proves exact-worker recovery and same-Job continuation through
-real training, MLflow, readiness, and isolated CT in one integrated attempt.
-It does not yet prove the autonomous release/deploy/serving tail or close the
-10/10 lifecycle. It does not claim distributed exactly-once execution, HA,
-multi-node failover, or uninterrupted production traffic.
+This closure proves a controlled local single-node lifecycle with one exact
+worker termination during a real admitted GPU training Job. It does not claim
+distributed exactly-once execution, HA, multi-node failover, real-user traffic
+continuity, or an enterprise production SLA.
