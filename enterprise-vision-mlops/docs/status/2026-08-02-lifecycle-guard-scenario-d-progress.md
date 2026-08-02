@@ -38,14 +38,23 @@ revision-matched even though the supervision source was not healthy.
 
 ## Verification At This Checkpoint
 
-- focused lifecycle, Kubernetes executor, and run-state tests: `40 / 40` pass;
-- full repository Python suite: `453 / 453` pass;
+- focused lifecycle, Kubernetes executor, run-state, ledger, and Scenario D
+  runner tests: `50 / 50` pass;
+- full repository Python suite: `458 / 458` pass;
 - Ruff: all touched Python modules and tests pass;
 - wrong lifecycle Job label produces a deterministic identity blocker and no
   reconciliation evidence or mutation;
 - a matching running Job is observed before resumed execution and the durable
   side-effect entry reaches `completed` with the same runtime identity;
 - a degraded supervisor is rejected by the runtime-revision guard.
+
+The dedicated runner now covers three independent replays for the accepted
+golden ledger, duplicate keys, wrong run identity, terminal-state regression,
+exact running-Job observation, and wrong candidate observation. It snapshots
+Kubernetes Job, MLflow run, candidate, deployment-intent, production serving,
+GPU, supervisor, observer, worker, and Prometheus identities before and after.
+The runner itself is implemented but its immutable F-drive execution remains
+pending a clean pushed revision.
 
 ## Remaining Exit Work
 

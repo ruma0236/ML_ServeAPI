@@ -183,3 +183,66 @@ def test_side_effect_ledger_returns_same_key_and_suppresses_duplicate(tmp_path: 
     )
     assert len(ledger.entries) == 1
     assert ledger.entries[0].runtime_id == "evm-staging/job/train-b0"
+
+
+def test_side_effect_ledger_rejects_duplicate_key_and_wrong_run_identity(
+    tmp_path: Path,
+) -> None:
+    envelope, _, _ = seal_fixture(tmp_path)
+    request = {
+        "directory": tmp_path,
+        "lifecycle_series_id": envelope.lifecycle_series_id,
+        "run_id": envelope.lifecycle_run_id,
+        "attempt_id": envelope.attempt_id,
+        "correlation_id": envelope.correlation_id,
+        "stage_id": "model_training",
+        "action": "dispatch_kubernetes_job",
+        "action_payload": {"namespace": "evm-staging", "name": "train-b0"},
+    }
+    first, _ = reserve_side_effect(**request)
+    path = tmp_path / "side_effect_ledger.json"
+    duplicate = json.loads(path.read_text(encoding="utf-8"))
+    duplicate["entries"].append(dict(duplicate["entries"][0]))
+    path.write_text(json.dumps(duplicate), encoding="utf-8")
+
+    with pytest.raises(LifecycleGuardBlocked, match="side_effect_ledger_invalid"):
+        reserve_side_effect(**request)
+
+    duplicate["entries"] = [duplicate["entries"][0]]
+    duplicate["entries"][0]["lifecycle_run_id"] = "wrong-run"
+    path.write_text(json.dumps(duplicate), encoding="utf-8")
+    with pytest.raises(LifecycleGuardBlocked, match="side_effect_ledger_invalid"):
+        complete_side_effect(
+            directory=tmp_path,
+            side_effect_key=first.side_effect_key,
+            state="completed",
+        )
+
+
+def test_completed_side_effect_cannot_move_back_to_reconciled(tmp_path: Path) -> None:
+    envelope, _, _ = seal_fixture(tmp_path)
+    first, _ = reserve_side_effect(
+        directory=tmp_path,
+        lifecycle_series_id=envelope.lifecycle_series_id,
+        run_id=envelope.lifecycle_run_id,
+        attempt_id=envelope.attempt_id,
+        correlation_id=envelope.correlation_id,
+        stage_id="model_training",
+        action="dispatch_kubernetes_job",
+        action_payload={"namespace": "evm-staging", "name": "train-b0"},
+    )
+    complete_side_effect(
+        directory=tmp_path,
+        side_effect_key=first.side_effect_key,
+        state="completed",
+    )
+
+    with pytest.raises(
+        LifecycleGuardBlocked,
+        match="side_effect_state_transition_invalid:completed:reconciled",
+    ):
+        complete_side_effect(
+            directory=tmp_path,
+            side_effect_key=first.side_effect_key,
+            state="reconciled",
+        )

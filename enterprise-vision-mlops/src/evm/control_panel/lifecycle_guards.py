@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import ContractModel
@@ -131,6 +131,15 @@ class LifecycleSideEffectLedger(ContractModel):
     )
     lifecycle_run_id: str
     entries: list[LifecycleSideEffect] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_identity_uniqueness(self):
+        keys = [entry.side_effect_key for entry in self.entries]
+        if len(keys) != len(set(keys)):
+            raise ValueError("side_effect_key_duplicate")
+        if any(entry.lifecycle_run_id != self.lifecycle_run_id for entry in self.entries):
+            raise ValueError("side_effect_run_identity_mismatch")
+        return self
 
 
 class LifecycleGuardBlocked(RuntimeError):
@@ -525,11 +534,29 @@ def complete_side_effect(
     for index, entry in enumerate(ledger.entries):
         if entry.side_effect_key != side_effect_key:
             continue
+        allowed_transitions: dict[SideEffectState, set[SideEffectState]] = {
+            "reserved": {"completed", "failed", "reconciled"},
+            "reconciled": {"reconciled", "completed", "failed"},
+            "completed": {"completed"},
+            "failed": {"failed"},
+        }
+        if state not in allowed_transitions[entry.state]:
+            raise LifecycleGuardBlocked(
+                [f"side_effect_state_transition_invalid:{entry.state}:{state}"]
+            )
+        next_runtime_id = runtime_id or entry.runtime_id
+        next_evidence_uri = evidence_uri or entry.evidence_uri
+        if (
+            state == entry.state
+            and next_runtime_id == entry.runtime_id
+            and next_evidence_uri == entry.evidence_uri
+        ):
+            return entry
         updated = entry.model_copy(
             update={
                 "state": state,
-                "runtime_id": runtime_id or entry.runtime_id,
-                "evidence_uri": evidence_uri or entry.evidence_uri,
+                "runtime_id": next_runtime_id,
+                "evidence_uri": next_evidence_uri,
                 "updated_at": utc_now(),
             }
         )

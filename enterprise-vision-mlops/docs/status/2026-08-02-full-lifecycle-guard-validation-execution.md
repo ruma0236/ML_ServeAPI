@@ -266,10 +266,13 @@ manifest; any missing or mismatched observation fails closed without apply,
 delete or redispatch. Degraded supervisor state also now invalidates runtime
 revision admission instead of trusting retained child revision strings.
 
-Focused tests pass `40 / 40`, the full Python suite passes `453 / 453`, and
-Ruff passes for touched files. This is an implementation checkpoint only. The
-dedicated F-drive replay, side-effect identity delta proof and bounded exact
-worker/observer live recovery remain required before Scenario D can close.
+Focused tests pass `50 / 50`, the full Python suite passes `458 / 458`, and
+Ruff passes for touched files. A dedicated runner now exercises three
+independent golden-ledger, duplicate-key, wrong-run, terminal-regression,
+exact-observation and wrong-observation branches while snapshotting external
+and runtime identities. This is an implementation checkpoint only. The runner
+still must execute from a clean pushed revision, and bounded exact
+worker/observer live recovery remains required before Scenario D can close.
 Detailed progress is in
 `docs/status/2026-08-02-lifecycle-guard-scenario-d-progress.md`.
 
