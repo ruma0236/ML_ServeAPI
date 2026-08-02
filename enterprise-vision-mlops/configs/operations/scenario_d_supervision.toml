@@ -1,0 +1,51 @@
+[policy]
+schema_version = "evm.scenario_d_policy.v1"
+check_interval_seconds = 5.0
+heartbeat_interval_seconds = 5.0
+heartbeat_stale_seconds = 20.0
+stale_debounce_samples = 2
+max_restarts_per_window = 3
+restart_window_seconds = 300.0
+restart_backoff_seconds = [1.0, 2.0, 4.0]
+max_detection_seconds = 10.0
+max_stale_detection_seconds = 25.0
+max_recovery_seconds = 60.0
+max_heartbeat_p95_seconds = 7.5
+run_claim_ttl_seconds = 30.0
+
+[children.lifecycle_worker]
+command_marker = "evm.control_panel.lifecycle_worker"
+pid_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/lifecycle_runs/worker.pid"
+heartbeat_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/lifecycle_runs/_worker.json"
+heartbeat_property = "last_seen_at"
+
+[children.kubernetes_observer]
+command_marker = "evm.control_panel.kubernetes_observer"
+pid_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/kubernetes_observer/observer.pid"
+heartbeat_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/kubernetes_observer/latest.json"
+heartbeat_property = "observed_at"
+
+[runtime]
+supervisor_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/host_runtime/supervisor.json"
+lease_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/host_runtime/supervisor.lease.json"
+state_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/host_runtime/supervisor-state.json"
+audit_path = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/host_runtime/supervisor-audit.jsonl"
+lifecycle_claim_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/lifecycle_runs/_claims"
+
+[preflight]
+production_ready_url = "http://127.0.0.1:30800/ready"
+prometheus_targets_url = "http://127.0.0.1:9090/api/v1/targets"
+control_panel_worker_url = "http://127.0.0.1:8000/control-panel/v1/lifecycle-runs/worker"
+control_panel_resources_url = "http://127.0.0.1:8000/control-panel/v1/orchestrators/resources"
+production_namespace = "evm-production"
+production_deployment = "evm-b0-production"
+production_prometheus_job = "evm-b0-production"
+
+[proof]
+termination_sequence = ["lifecycle_worker", "kubernetes_observer", "lifecycle_worker"]
+cooldown_seconds = 10.0
+require_no_active_lifecycle_run = true
+require_clean_worktree = true
+
+[outputs]
+artifact_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/scenario-d"

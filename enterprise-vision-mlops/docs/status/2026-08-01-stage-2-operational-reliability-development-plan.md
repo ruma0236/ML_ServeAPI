@@ -235,6 +235,13 @@ live validation while A is failed or has an unsafe rollback path.
 Issue: `EVM-269 / SCRUM-175`
 Runbook: `docs/runbooks/operational-scenario-d-lifecycle-supervision.md`
 
+Execution update `2026-08-02`: D0 is fixed by
+`docs/status/2026-08-02-scenario-d-lifecycle-supervision-contract.md`. A/P0 is
+baseline-only. The implementation must bind exact process-start/command/source/
+lease/fence identity, persistent restart budgeting, fenced run claims, API and
+Prometheus state, deterministic fixtures, and three fresh exact-child recovery
+runs before D can close.
+
 ### 1. Baseline And Gap
 
 P0 proved lifecycle-worker termination and automatic restart. Observer loss,
