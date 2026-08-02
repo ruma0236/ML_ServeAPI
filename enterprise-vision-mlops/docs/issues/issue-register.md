@@ -499,7 +499,7 @@ Goal:
 - run A-E guards through the actual VisA intake, Torch training, MLflow,
   isolated CT, approval, controlled release, model replacement, CUDA serving
   and monitoring graph;
-- prove guard stage placement, fail-closed action, exactly-once side effects,
+- prove guard stage placement, fail-closed action, idempotent side-effect outcomes,
   governed resume/rollback, exact identity and no hidden repair;
 - keep planning separate from later lifecycle execution and maintenance-gated
   development-production replacement.
@@ -509,15 +509,15 @@ The source plan is
 
 | ID | Task | Status | Target | Acceptance Criteria |
 |---|---|---|---:|---|
-| `EVM-276` | Full lifecycle guard master contract and design validation | In Progress | Post-Sprint 178 | golden path, stage/authority matrix, A-E injections, immutable retry, real model policy, SLI/SLO, evidence and UI operator contract; planning only |
-| `EVM-277` | Common lifecycle identity envelope, guard dispatcher and golden path | Planned | Post-Sprint 178 | after EVM-272/273: one sealed L0-L7 VisA/B0 run, exact identity and revision map, one Job/MLflow/candidate, staging and rollback dry-run, no hidden repair |
-| `EVM-278` | Scenario E lifecycle data and artifact guards | Planned | Post-Sprint 178 | wrong data/CT input blocks before training and wrong artifact identity blocks before approval/replacement; corrected immutable attempts pass; zero unintended intents |
-| `EVM-279` | Scenario D exactly-once lifecycle continuity | Planned | Post-Sprint 178 | exact worker recovery during training reconciliation and observer stale hold before approval; duplicate Job/MLflow/candidate/intent zero |
-| `EVM-280` | Scenario C lifecycle quality/drift hold and governed resume | Planned | Post-Sprint 178 | one measured review event/candidate, hold/reject/approved-for-training audit, duplicate/stale idempotency and no automatic release |
-| `EVM-281` | Scenario B lifecycle candidate release and stable rollback | Planned | Post-Sprint 178 | real quality rejection plus 1,000-request controlled runtime breach; zero challenger allocation and exact stable route/identity recovery |
-| `EVM-282` | Scenario A post-promotion GPU serving recovery | Planned / approval gated | Post-Sprint 178 | two-phase M0-to-M1 replacement, exact target-bound approval, M1 Pod recovery and separate M0 rollback proof with CUDA/Prometheus evidence |
-| `EVM-283` | Integrated single-scenario lifecycle evidence closure | Planned | Post-Sprint 178 | every A-E guard reaches its real injection point, has three deterministic decision replays, full hash closure and immutable RCA; blocks EVM-274 until PASS |
-| `EVM-284` | Final VisA lifecycle operations drill | Planned / final gate | Post-Sprint 178 | after EVM-283 and EVM-274/275: operator-only success, failure, containment, replacement, recovery and rollback series with exact identity and honest local limits |
+| `EVM-276` | Full lifecycle guard master contract and design validation | Done | Post-Sprint 178 | Jira `SCRUM-184` under Epic `SCRUM-183`; golden path, stage/authority matrix, A-E injections, immutable retry, real model policy, SLI/SLO, evidence and UI operator contract passed a planning-only design validation; no implementation or runtime mutation |
+| `EVM-277` | Common lifecycle identity envelope, guard dispatcher and golden path | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-185`; after EVM-272/273: one sealed L0-L7 VisA/B0 run, exact identity and revision map, one Job/MLflow/candidate, staging and rollback dry-run, no hidden repair |
+| `EVM-278` | Scenario E lifecycle data and artifact guards | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-186`; wrong data/CT input blocks before training and wrong artifact identity blocks before approval/replacement; corrected immutable attempts pass; zero unintended intents |
+| `EVM-279` | Scenario D idempotent lifecycle continuity and side-effect reconciliation | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-187`; deterministic side-effect key, exact worker recovery during training reconciliation and observer stale hold before approval; duplicate Job/MLflow/candidate/intent zero without a distributed exactly-once claim |
+| `EVM-280` | Scenario C lifecycle quality/drift hold and governed resume | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-188`; one measured review event/candidate, hold/reject/approved-for-training audit, duplicate/stale idempotency and no automatic release |
+| `EVM-281` | Scenario B lifecycle candidate release and stable rollback | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-189`; real quality rejection plus 1,000-request controlled runtime breach; zero challenger allocation and exact stable route/identity recovery |
+| `EVM-282` | Scenario A post-promotion GPU serving recovery | Planned / To Do / approval gated | Post-Sprint 178 | Jira `SCRUM-190`; two-phase M0-to-M1 replacement, exact target-bound approval, M1 Pod recovery and separate M0 rollback proof with CUDA/Prometheus evidence |
+| `EVM-283` | Integrated single-scenario lifecycle evidence closure | Planned / To Do | Post-Sprint 178 | Jira `SCRUM-191`; every A-E guard reaches its real injection point, has three deterministic decision replays, full hash closure and immutable RCA; blocks EVM-274 until PASS |
+| `EVM-284` | Final VisA lifecycle operations drill | Planned / To Do / final gate | Post-Sprint 178 | Jira `SCRUM-192`; after EVM-283 and EVM-274/275: operator-only success, failure, containment, replacement, recovery and rollback series with exact identity and honest local limits |
 
 The original dependency order was `A/D -> B -> E -> C -> cross-scenario`.
 Current execution evidence has closed A-E independently. Cross-scenario
@@ -702,6 +702,16 @@ Jira live sync 기준 mapping이다.
 | `EVM-273` | `SCRUM-180` | Task | https://opop0236.atlassian.net/browse/SCRUM-180 |
 | `EVM-274` | `SCRUM-181` | Task | https://opop0236.atlassian.net/browse/SCRUM-181 |
 | `EVM-275` | `SCRUM-182` | Task | https://opop0236.atlassian.net/browse/SCRUM-182 |
+| `EVM-EPIC-23` | `SCRUM-183` | Epic | https://opop0236.atlassian.net/browse/SCRUM-183 |
+| `EVM-276` | `SCRUM-184` | Task | https://opop0236.atlassian.net/browse/SCRUM-184 |
+| `EVM-277` | `SCRUM-185` | Task | https://opop0236.atlassian.net/browse/SCRUM-185 |
+| `EVM-278` | `SCRUM-186` | Task | https://opop0236.atlassian.net/browse/SCRUM-186 |
+| `EVM-279` | `SCRUM-187` | Task | https://opop0236.atlassian.net/browse/SCRUM-187 |
+| `EVM-280` | `SCRUM-188` | Task | https://opop0236.atlassian.net/browse/SCRUM-188 |
+| `EVM-281` | `SCRUM-189` | Task | https://opop0236.atlassian.net/browse/SCRUM-189 |
+| `EVM-282` | `SCRUM-190` | Task | https://opop0236.atlassian.net/browse/SCRUM-190 |
+| `EVM-283` | `SCRUM-191` | Task | https://opop0236.atlassian.net/browse/SCRUM-191 |
+| `EVM-284` | `SCRUM-192` | Task | https://opop0236.atlassian.net/browse/SCRUM-192 |
 | `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |

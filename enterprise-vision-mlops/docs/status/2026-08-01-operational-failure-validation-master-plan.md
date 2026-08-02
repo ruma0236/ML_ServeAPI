@@ -52,7 +52,7 @@ traffic, or a production SLA.
 | 4 | `EVM-270` | `SCRUM-176` | E: data/artifact integrity | In progress | E0 contract fixed; implementation/proof open |
 | 5 | `EVM-268` | `SCRUM-174` | C: quality degradation and retraining gate | To do | E, then B for limited release |
 | 6 | `EVM-EPIC-22 / EVM-271..275` | `SCRUM-177..182` | cross-scenario correlation and recovery | plan/design PASS; implementation To Do | A-E passed |
-| 7 | `EVM-EPIC-23 / EVM-276..284` | Jira pending | full lifecycle guard integration and VisA operations drill | planning in progress; execution blocked | `EVM-272..275` plus lifecycle guard gates |
+| 7 | `EVM-EPIC-23 / EVM-276..284` | `SCRUM-183..192` | full lifecycle guard integration and VisA operations drill | planning in progress; execution blocked | `EVM-272..275` plus lifecycle guard gates |
 
 Jira execution order follows dependencies rather than issue-number order.
 

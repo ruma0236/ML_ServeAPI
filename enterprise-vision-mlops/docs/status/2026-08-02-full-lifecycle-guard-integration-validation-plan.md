@@ -1,12 +1,15 @@
 # Full Lifecycle Guard Integration Validation Plan
 
 Date: 2026-08-02
-Status: planning and design validation in progress; implementation, lifecycle
-execution, fault injection, model training, and runtime mutation not started.
+Status: plan complete; design validation PASS for implementation planning;
+implementation, lifecycle execution, fault injection, model training, and
+runtime mutation not started.
 Parent program: `EVM-265 / SCRUM-171`
 Cross-scenario dependency: `EVM-EPIC-22 / SCRUM-177`
-Planned workstream epic: `EVM-EPIC-23 / Jira pending`
-Planning issue: `EVM-276 / Jira pending`
+Workstream epic: `EVM-EPIC-23 / SCRUM-183`
+Planning issue: `EVM-276 / SCRUM-184`
+Design validation:
+`docs/status/2026-08-02-full-lifecycle-guard-integration-design-validation.md`
 
 ## Objective
 
@@ -31,7 +34,7 @@ The following results are inputs, not acceptance for this workstream:
 | A | three exact-UID B0 Pod recoveries | recovery of a newly promoted candidate is unproven |
 | B | real controlled replay and exact stable-route recovery | release guard is not yet driven by the complete lifecycle state machine |
 | C | real CUDA shift, one review event/candidate, manual hold | hold, governed resume, training and later release are not connected end to end |
-| D | exact worker/observer recovery | exactly-once reconciliation during a real training/release run is unproven |
+| D | exact worker/observer recovery | idempotent side-effect reconciliation during a real training/release run is unproven |
 | E | real VisA identity and 42 corruption replays | data and model-artifact blockers have not been exercised at both lifecycle admission points |
 | cross-scenario | `EVM-271`: planning/design PASS | `EVM-272..275` implementation and proof are not started |
 
@@ -52,15 +55,15 @@ The planning source baseline is Git `e247efd133a2c486e81a1e700aa68133876770a9`.
 
 | Order | Internal ID | Jira | Unit | State after planning | Dependency |
 |---:|---|---|---|---|---|
-| 0 | `EVM-276` | pending | lifecycle guard master contract and design validation | planned for Done | A-E independent evidence |
-| 1 | `EVM-277` | pending | common lifecycle identity envelope, guard dispatcher, and no-fault golden path | To Do | `EVM-272`, `EVM-273`, `EVM-276` |
-| 2 | `EVM-278` | pending | E data and artifact integrity guard in the lifecycle | To Do | `EVM-277` |
-| 3 | `EVM-279` | pending | D exactly-once lifecycle continuity guard | To Do | `EVM-278` |
-| 4 | `EVM-280` | pending | C quality/drift review, hold, and governed resume | To Do | `EVM-279` |
-| 5 | `EVM-281` | pending | B candidate release guardrail and stable rollback | To Do | `EVM-280` |
-| 6 | `EVM-282` | pending | A post-promotion GPU serving recovery | To Do, maintenance gated | `EVM-281` |
-| 7 | `EVM-283` | pending | single-scenario integrated evidence closure | To Do | `EVM-282` |
-| 8 | `EVM-284` | pending | final VisA operations drill | To Do, final gate | `EVM-283`, `EVM-274`, `EVM-275` |
+| 0 | `EVM-276` | `SCRUM-184` | lifecycle guard master contract and design validation | Done after four-system synchronization | A-E independent evidence |
+| 1 | `EVM-277` | `SCRUM-185` | common lifecycle identity envelope, guard dispatcher, and no-fault golden path | To Do | `EVM-272`, `EVM-273`, `EVM-276` |
+| 2 | `EVM-278` | `SCRUM-186` | E data and artifact integrity guard in the lifecycle | To Do | `EVM-277` |
+| 3 | `EVM-279` | `SCRUM-187` | D idempotent lifecycle continuity and side-effect reconciliation | To Do | `EVM-278` |
+| 4 | `EVM-280` | `SCRUM-188` | C quality/drift review, hold, and governed resume | To Do | `EVM-279` |
+| 5 | `EVM-281` | `SCRUM-189` | B candidate release guardrail and stable rollback | To Do | `EVM-280` |
+| 6 | `EVM-282` | `SCRUM-190` | A post-promotion GPU serving recovery | To Do, maintenance gated | `EVM-281` |
+| 7 | `EVM-283` | `SCRUM-191` | single-scenario integrated evidence closure | To Do | `EVM-282` |
+| 8 | `EVM-284` | `SCRUM-192` | final VisA operations drill | To Do, final gate | `EVM-283`, `EVM-274`, `EVM-275` |
 
 `EVM-283` must block the pairwise proof `EVM-274`: each guard must work inside
 the real lifecycle before two guards are combined. `EVM-284` is the final
@@ -121,7 +124,8 @@ declares the exact expected value for each component.
 - remote worker preflight must prove host identity, MPS/runtime capability,
   source revision, profile digest, storage path, artifact transfer digest and
   heartbeat freshness;
-- local CUDA performs isolated CT, controlled replay and serving verification.
+- local CUDA performs isolated CT, controlled replay and serving verification
+  only through the resource-arbitration contract below.
 
 This mode may prove service continuity during remote training, but not HA.
 
@@ -136,6 +140,24 @@ This mode may prove service continuity during remote training, but not HA.
 The execution mode is selected before the run and cannot change after a guard
 fails.
 
+### Local GPU Validation Arbitration
+
+Remote training and local stable serving may overlap, but local candidate CT or
+staging validation cannot assume a second schedulable GPU. Before L5, one of two
+sealed modes is required:
+
+1. `serial_cuda_validation_handoff`: an approved bounded handoff releases local
+   stable GPU ownership, runs candidate CT/serving verification, then restores
+   or replaces the stable target. Interruption is measured and no concurrent
+   availability claim is allowed.
+2. `shared_cuda_validation`: allowed only after an explicit VRAM/concurrency
+   preflight proves both immutable workloads fit, exact process/container
+   identity is visible, and an abort threshold is bound. Ad hoc Docker sharing
+   outside the resource policy is forbidden.
+
+If neither mode passes, L5 is `blocked_resource_admission`. The system cannot
+silently move CT to CPU or change execution mode after launch.
+
 ## Real Model And Data Policy
 
 - dataset: real VisA, `10,821` records and `23` current shards;
@@ -145,8 +167,11 @@ fails.
   preflight;
 - positive candidate `M1`: new Torch EfficientNet-B0 run with a new immutable
   model identity;
-- negative release candidate `Mbad`: a separately declared real stress-training
-  profile or a real under-threshold immutable candidate; never a mocked metric;
+- negative release candidate `Mbad`: real EfficientNet-B0 profile
+  `b-quality-negative-v1`, with a fixed frozen backbone and a newly initialized
+  head trained for exactly `3` epochs on the unchanged training split. It is a
+  real model run intended to produce an observed release-metric breach without
+  corrupting labels, data identity or metric output;
 - fixed seed, split and environment; minimum `3`, maximum `8` epochs;
 - early stop is admitted only after the minimum depth and two consecutive
   validation observations meet accuracy `>=0.93`, F1 `>=0.75`, AUROC `>=0.80`;
@@ -156,6 +181,9 @@ fails.
 
 If a positive candidate misses a threshold, the run becomes valid B/C blocker
 evidence. The policy is not lowered during execution to force promotion.
+If `Mbad` unexpectedly passes every release threshold, that attempt is valid
+evidence but does not close the B-quality negative test. A new versioned stress
+profile requires design review; metrics or thresholds are never altered.
 
 ## No-Hidden-Repair Operator Contract
 
@@ -212,10 +240,44 @@ replacement is reserved for Scenario A entry after all earlier guards pass.
 | Guard | Owns | Must block | May resume/contain | Must never do |
 |---|---|---|---|---|
 | E integrity | trust of data, split, CT, model, artifact, image and lineage | any dependent training, approval or replacement using untrusted identity | admit a new immutable corrected attempt after full revalidation | repair canonical input or waive a digest mismatch |
-| D continuity | freshness, ownership, exactly-once stage execution | mutating transition under stale/duplicate/revision-mismatched control | recover one exact owned worker/observer and reconcile the current stage | global restart, PID-only kill or duplicate external side effect |
+| D continuity | freshness, ownership and idempotent stage continuity | mutating transition under stale/duplicate/revision-mismatched control | recover one exact owned worker/observer and reconcile the current stage | global restart, PID-only kill, optimistic retry or duplicate external side effect |
 | C quality | measured data/model quality review and candidate governance | automatic training/promotion after review-required state | hold, create one candidate profile, accept an independent reviewed decision | equate drift with automatic deployment |
 | B release | candidate release admission, allocation and stable rollback | challenger allocation or replacement after metric/runtime/identity breach | reduce allocation to zero and restore exact stable route | override E/D/C or call controlled replay business A/B |
 | A serving | health and exact recovery of the committed stable serving target | ambiguous/global serving recovery | recreate exact committed workload/model identity | promote a candidate or choose rollback policy |
+
+### Signal Ownership And Conflict Routing
+
+| Signal class | Primary guard | Secondary effect |
+|---|---|---|
+| schema, checksum, lineage, split/CT leakage, artifact/image/model-card identity | E | all dependent transitions held |
+| worker/observer heartbeat, revision, owner lease, duplicate side effect | D | mutation frozen until exact reconciliation |
+| input distribution, delayed-label quality, prediction distribution/confidence | C | review/hold and candidate governance only |
+| concrete candidate CT metrics, latency, error rate and allocation identity | B | reject candidate or contain/rollback route |
+| committed stable target readiness, CUDA inference and scrape health | A | recover exact committed serving identity |
+
+One signal has one primary decision owner. C may explain why a future candidate
+is needed, but B alone decides whether a concrete candidate is releasable. A
+restores the already committed stable target and cannot select a candidate.
+E/D blockers outrank all risk-increasing transitions. If multiple guards fire,
+each decision remains a separate causal child under one incident; the system
+does not duplicate actions or let a lower guard clear a higher blocker.
+
+## Fault Injection Safety Envelope
+
+Every injection is an immutable manifest bound to scenario, lifecycle
+run/attempt, exact target identity, expected current state, action digest,
+actor, approval where required, expiry, maximum blast radius, abort condition,
+rollback target and forbidden resources.
+
+- E/C/B injections use only derived data, candidate or controlled replay state.
+- D may terminate only one exact supervisor-owned PID/lease.
+- A may restart only one exact committed serving Pod UID.
+- device-plugin, cluster-wide resources, canonical data, unrelated processes
+  and real user traffic are always excluded.
+- zero/multiple target matches, dirty source, revision mismatch, stale baseline,
+  missing rollback or expired approval blocks injection.
+- an independent observer captures before/after invariants; the injector cannot
+  certify its own success.
 
 ## Scenario E: Lifecycle Integrity Guard
 
@@ -256,7 +318,24 @@ Expected guard action:
   stable identity delta: `0`; decision target `<=30 s`;
 - both data-entry and release-entry E gates must pass before EVM-278 closes.
 
-## Scenario D: Exactly-Once Lifecycle Continuity Guard
+## Scenario D: Idempotent Lifecycle Continuity Guard
+
+External Kubernetes, MLflow and object-storage writes do not share one atomic
+transaction. The valid objective is one observable side-effect outcome through
+idempotent dispatch and reconciliation, not a distributed exactly-once claim.
+
+Each mutating operation uses:
+
+```text
+side_effect_key = sha256(
+  lifecycle_run_id + attempt_id + stage_id + action_type + target_identity
+)
+```
+
+The durable state is `planned -> dispatched -> externally_observed ->
+committed`. After restart, the worker queries Kubernetes/MLflow/storage by the
+same key before dispatch. An ambiguous external result enters `held_unknown`;
+it never retries optimistically.
 
 ### D-Worker Injection At L3/L4
 
@@ -369,6 +448,15 @@ Scenario A begins only after E, D, C and B integrated guards pass and a golden
 If apply or verify fails, rollback restores `M0`; an unverified `M1` never
 becomes the committed stable pointer.
 
+| Failure point | Required result |
+|---|---|
+| before apply | no workload or stable-pointer change |
+| apply fails | delete/contain only the attempted M1 revision; M0 stays stable |
+| readiness/inference/metrics verify fails | rollback exact M0 workload and prove serving health; pointer remains M0 |
+| pointer CAS commit fails after M1 verifies | freeze further actions, reconcile current workload, then restore M0 unless the transaction can prove a single committed owner |
+| observer becomes stale during apply/verify | hold commit and rollback through the exact B/D owner policy; never infer success |
+| commit succeeds but later serving fails | A recovers committed M1; B rollback to M0 requires a separate action decision |
+
 ### A Injection At L9
 
 - after `M1` is committed and cooldown passes, restart only its exact serving
@@ -403,6 +491,12 @@ Expected guard action:
 - every retry records reason, actor, source/profile/policy revisions and
   `supersedes_attempt_id`;
 - a later PASS cannot replace a failed report or RCA.
+
+Scenario attempts branch from the same sealed G3 golden snapshot. A terminal E,
+C or B blocker in one attempt is never cleared so that the next scenario can
+run. The next scenario receives a new attempt ID and an exact reference to the
+same immutable golden inputs. This prevents a previous failure from leaking
+state into another guard's acceptance.
 
 ## SLI, SLO And Invariants
 
