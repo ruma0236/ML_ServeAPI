@@ -334,11 +334,14 @@ GPU-requesting Pods from running concurrently.
 
 ### 3. Units And Dependencies
 
-B0 requires A and D exits. B1 implements EVM-244 policy/router contracts. B2
-adds shadow replay. B3 adds metric-window evaluator and stop state. B4 binds
-deployment intent and rollback. B5 adds dashboard/alerts/UI. B6 benchmarks
-single-GPU co-residency. B7 selects a truthful live mode or records hardware
-blockage. B8 runs the approved controlled replay.
+B0 uses A as a baseline reference and admits non-disruptive implementation.
+Scenario D exit is required only for live production routing. B1 implements
+EVM-244 policy/router contracts. B2 adds shadow replay. B3 adds metric-window
+evaluation and stop state. B4 binds rollback evidence. B5 adds evidence
+validation. B6 runs the isolated controlled replay. B7 records the truthful
+closure. B8-live remains blocked until D, GPU admission and maintenance approval
+pass. The exact B0 contract is
+`docs/status/2026-08-02-scenario-b-controlled-canary-contract.md`.
 
 ### 4. Validation Stages
 
@@ -367,8 +370,9 @@ replay cannot prove model accuracy.
 
 ### 6. Acceptance
 
-Shadow never changes the response path; canary does not start without A/D,
-CT, readiness, approval and rollback; allocation stays bounded; sample/window
+Shadow never changes the response path; production canary does not start without
+A/D, CT, readiness, approval and rollback; isolated replay allocation stays
+bounded; sample/window
 evidence is complete; a real configured guardrail breach stops traffic; exact
 stable identity returns; shared-failure-domain or hardware-blocked status is
 explicit; no business A/B claim appears.

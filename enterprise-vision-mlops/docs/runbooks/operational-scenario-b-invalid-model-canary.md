@@ -1,7 +1,8 @@
 # Scenario B: Invalid Model Canary and Rollback
 
 Issue: `EVM-267 / SCRUM-173`
-State: contract defined; blocked on Scenario A and `EVM-244`.
+State: B0 contract passed; non-disruptive EVM-244 implementation admitted.
+Contract: `docs/status/2026-08-02-scenario-b-controlled-canary-contract.md`
 
 ## Purpose
 
@@ -10,7 +11,7 @@ silently replacing the stable model, and prove exact rollback.
 
 ## Preconditions
 
-- Scenario A passed.
+- Scenario A passed and is referenced only as baseline evidence.
 - Stable/challenger artifact and image digests are immutable.
 - CT data is isolated from training and tuning.
 - Approval identity differs from the initiating actor where policy requires it.
@@ -19,8 +20,9 @@ silently replacing the stable model, and prove exact rollback.
 ## Traffic Sequence
 
 1. Shadow: duplicate controlled VisA requests; discard challenger responses.
-2. Canary: after shadow/readiness/CT pass, route at most 10% of controlled
-   staging replay requests to the challenger.
+2. Isolated controlled canary: after shadow/readiness/CT pass, select at most
+   10% of evidence-only replay responses from the challenger. This cannot alter
+   the production endpoint.
 3. Stop: breach of quality, p95 latency or error-rate policy sets challenger
    allocation to zero.
 4. Rollback: restore the exact captured stable digest and verify inference.
@@ -51,9 +53,11 @@ rollback artifact. Health without digest equality is failure.
 
 ## Experiment Boundary
 
-This is an operational canary over controlled replay traffic. It is not a
-business A/B experiment: there are no real users, sticky cohorts, power
-analysis, business KPIs, or production exposure.
+This is an isolated operational canary over controlled replay traffic. It is
+not a business A/B experiment: there are no real users, sticky cohorts, power
+analysis, business KPIs, or production exposure. A Kubernetes production
+canary remains blocked by the incomplete Scenario D exit, single-GPU admission,
+and a separate maintenance approval.
 
 ## Interview Evidence
 
