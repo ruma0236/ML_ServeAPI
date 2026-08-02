@@ -2,17 +2,24 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from evm.control_panel import lifecycle_runs
+from evm.control_panel.lifecycle_quality_guard import (
+    LifecycleQualityGuardBlocked,
+    LifecycleQualityReviewActionRequest,
+    LifecycleQualityReviewRegistration,
+)
 from evm.control_panel.lifecycle_runs import (
     LifecycleActionRequest,
     LifecycleApprovalRequest,
     LifecycleRunError,
     LifecycleRunRequest,
+    apply_lifecycle_quality_review_action,
     approve_lifecycle_run,
     continue_lifecycle_run,
     create_lifecycle_run,
@@ -20,6 +27,7 @@ from evm.control_panel.lifecycle_runs import (
     lifecycle_deployment_name,
     queue_lifecycle_run,
     read_runs,
+    register_lifecycle_quality_review,
     transition_stage,
     update_run_evidence,
 )
@@ -141,6 +149,138 @@ def test_degraded_supervisor_fails_runtime_revision_guard_closed(
 
     with pytest.raises(LifecycleRunError, match="runtime_revision_unavailable"):
         lifecycle_runs.lifecycle_guard_decision(run, "approval", "approve")
+
+
+def quality_registration(version: int) -> LifecycleQualityReviewRegistration:
+    return LifecycleQualityReviewRegistration(
+        actor="drift-monitor",
+        reason="Bind exact measured quality evidence to this lifecycle run",
+        expected_version=version,
+        policy_uri="F:/evidence/policy.json",
+        policy_sha256="1" * 64,
+        identity_uri="F:/evidence/identity.json",
+        identity_sha256="2" * 64,
+        review_event_uri="F:/evidence/event.json",
+        review_event_sha256="3" * 64,
+        retraining_candidate_uri="F:/evidence/candidate.json",
+        retraining_candidate_sha256="4" * 64,
+        derived_manifest_uri="F:/evidence/derived.jsonl",
+        derived_manifest_sha256="5" * 64,
+        observed_at=datetime.now(UTC),
+    )
+
+
+def quality_review(state: str = "review_required"):
+    return SimpleNamespace(
+        state=state,
+        event_id="quality-review-1",
+        candidate_id="retrain-1",
+        candidate_digest="6" * 64,
+        registration_attempts=1,
+        duplicate_attempts=0,
+        stale_attempts=0,
+        action_digest="7" * 64,
+    )
+
+
+def test_lifecycle_quality_registration_and_action_are_audited(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run = new_run(tmp_path, monkeypatch)
+    review_path = tmp_path / "quality" / "review.json"
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "register_quality_review",
+        lambda _run, _request: (quality_review(), True),
+    )
+    monkeypatch.setattr(lifecycle_runs, "quality_review_path", lambda _run: review_path)
+
+    registered = register_lifecycle_quality_review(
+        run.run_id,
+        quality_registration(run.version),
+    )
+    approved_review = quality_review("approved_for_training")
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "apply_quality_review_action",
+        lambda _run, _request: approved_review,
+    )
+    approved = apply_lifecycle_quality_review_action(
+        run.run_id,
+        LifecycleQualityReviewActionRequest(
+            actor="quality-owner",
+            reason="Approve the exact versioned training plan after review",
+            expected_version=registered.version,
+            expected_review_version=1,
+            action="approve_for_training",
+            candidate_id="retrain-1",
+            candidate_digest="6" * 64,
+        ),
+    )
+
+    assert registered.quality_review_uri == str(review_path)
+    assert registered.quality_review_state == "review_required"
+    assert registered.audit[-1].event == "lifecycle_quality_review_registered"
+    assert approved.quality_review_state == "approved_for_training"
+    assert approved.retraining_candidate_id == "retrain-1"
+    assert approved.audit[-1].event == "lifecycle_quality_review_action"
+
+
+def test_training_retry_requires_quality_approval(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run = new_run(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "register_quality_review",
+        lambda _run, _request: (quality_review(), True),
+    )
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "quality_review_path",
+        lambda _run: tmp_path / "quality-review.json",
+    )
+    registered = register_lifecycle_quality_review(
+        run.run_id,
+        quality_registration(run.version),
+    )
+    queued = queue_run(registered, monkeypatch)
+    transition_stage(queued.run_id, "data_pipeline", "running", actor="worker")
+    ready = transition_stage(
+        queued.run_id,
+        "data_pipeline",
+        "completed",
+        actor="worker",
+    )
+    blocked = transition_stage(
+        ready.run_id,
+        "model_training",
+        "blocked",
+        actor="worker",
+        blockers=["quality_review_state:review_required"],
+    )
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "authorize_training",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            LifecycleQualityGuardBlocked(
+                "quality_review_training_hold",
+                ["quality_review_state:review_required"],
+            )
+        ),
+    )
+
+    with pytest.raises(LifecycleRunError, match="quality_review_state:review_required"):
+        lifecycle_runs.retry_lifecycle_run(
+            blocked.run_id,
+            LifecycleActionRequest(
+                actor="quality-owner",
+                reason="Retry only after exact quality approval",
+                expected_version=blocked.version,
+            ),
+        )
 
 
 def test_dry_run_creates_immutable_runtime_snapshot(tmp_path: Path, monkeypatch) -> None:

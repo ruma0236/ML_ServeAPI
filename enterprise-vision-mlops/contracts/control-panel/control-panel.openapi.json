@@ -792,6 +792,24 @@
         "responses": {"202": {"description": "stage retry queued", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "409": {"description": "attempts exhausted or transition rejected"}}
       }
     },
+    "/control-panel/v1/lifecycle-runs/{run_id}/quality-review": {
+      "post": {
+        "summary": "Bind immutable measured quality evidence to one exact lifecycle run before training admission.",
+        "operationId": "registerLifecycleQualityReview",
+        "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleQualityReviewRegistration"}}}},
+        "responses": {"202": {"description": "quality review bound", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "422": {"description": "evidence or exact-run identity rejected"}}
+      }
+    },
+    "/control-panel/v1/lifecycle-runs/{run_id}/quality-review/action": {
+      "post": {
+        "summary": "Record an independent hold, rejection, or approved-for-training quality decision.",
+        "operationId": "applyLifecycleQualityReviewAction",
+        "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleQualityReviewActionRequest"}}}},
+        "responses": {"202": {"description": "quality action recorded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "422": {"description": "stale, mismatched, expired, or self-approved action rejected"}}
+      }
+    },
     "/control-panel/v1/lifecycle-runs/{run_id}/approve": {
       "post": {
         "summary": "Record independent approval and release the deployment dependency.",
@@ -2541,6 +2559,40 @@
           }
         ]
       },
+      "LifecycleQualityReviewRegistration": {
+        "type": "object",
+        "required": ["actor", "reason", "expected_version", "policy_uri", "policy_sha256", "identity_uri", "identity_sha256", "review_event_uri", "review_event_sha256", "retraining_candidate_uri", "retraining_candidate_sha256", "derived_manifest_uri", "derived_manifest_sha256", "observed_at"],
+        "properties": {
+          "actor": {"type": "string", "minLength": 2},
+          "reason": {"type": "string", "minLength": 8},
+          "expected_version": {"type": "integer", "minimum": 1},
+          "policy_uri": {"type": "string", "minLength": 1},
+          "policy_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "identity_uri": {"type": "string", "minLength": 1},
+          "identity_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "review_event_uri": {"type": "string", "minLength": 1},
+          "review_event_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "retraining_candidate_uri": {"type": "string", "minLength": 1},
+          "retraining_candidate_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "derived_manifest_uri": {"type": "string", "minLength": 1},
+          "derived_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "observed_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "LifecycleQualityReviewActionRequest": {
+        "type": "object",
+        "required": ["actor", "reason", "expected_version", "expected_review_version", "action", "candidate_id", "candidate_digest"],
+        "properties": {
+          "actor": {"type": "string", "minLength": 2},
+          "reason": {"type": "string", "minLength": 8},
+          "expected_version": {"type": "integer", "minimum": 1},
+          "expected_review_version": {"type": "integer", "minimum": 1},
+          "action": {"type": "string", "enum": ["manual_hold", "reject", "approve_for_training"]},
+          "candidate_id": {"type": "string", "minLength": 1},
+          "candidate_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "approval_ttl_seconds": {"type": "integer", "minimum": 60, "maximum": 604800, "default": 3600}
+        }
+      },
       "LifecycleStage": {
         "type": "object",
         "required": ["stage_id", "label", "runtime", "state", "progress", "attempt", "max_attempts", "blockers"],
@@ -2611,6 +2663,11 @@
           "ct_snapshot_uri": {"type": ["string", "null"]},
           "ct_evaluation_uri": {"type": ["string", "null"]},
           "data_integrity_uri": {"type": ["string", "null"]},
+          "quality_review_uri": {"type": ["string", "null"]},
+          "quality_review_state": {"type": ["string", "null"], "enum": ["review_required", "manual_hold", "rejected", "approved_for_training", null]},
+          "quality_review_event_id": {"type": ["string", "null"]},
+          "retraining_candidate_id": {"type": ["string", "null"]},
+          "retraining_candidate_digest": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
           "release_submission_uri": {"type": ["string", "null"]},
           "resource_handoff_uri": {"type": ["string", "null"]},
           "deployment_intent_id": {"type": ["string", "null"]},

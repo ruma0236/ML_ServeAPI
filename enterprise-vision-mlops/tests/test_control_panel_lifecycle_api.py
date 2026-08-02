@@ -20,6 +20,10 @@ def test_api_exposes_guarded_lifecycle_run_routes() -> None:
     assert "/control-panel/v1/lifecycle-runs/{run_id}/cancel" in paths
     assert "/control-panel/v1/lifecycle-runs/{run_id}/continue" in paths
     assert "/control-panel/v1/lifecycle-runs/{run_id}/retry" in paths
+    assert "/control-panel/v1/lifecycle-runs/{run_id}/quality-review" in paths
+    assert (
+        "/control-panel/v1/lifecycle-runs/{run_id}/quality-review/action" in paths
+    )
     assert "/control-panel/v1/lifecycle-runs/{run_id}/approve" in paths
     assert "/control-panel/v1/lifecycle-runs/{run_id}/complete" not in paths
     assert "/control-panel/v1/lifecycle-runs/{run_id}/transition-stage" not in paths

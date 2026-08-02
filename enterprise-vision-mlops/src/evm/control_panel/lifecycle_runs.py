@@ -28,6 +28,15 @@ from evm.control_panel.lifecycle_integrity import (
     LifecycleIntegrityBlocked,
     validate_lifecycle_release_submission,
 )
+from evm.control_panel.lifecycle_quality_guard import (
+    LifecycleQualityGuardBlocked,
+    LifecycleQualityReviewActionRequest,
+    LifecycleQualityReviewRegistration,
+    apply_quality_review_action,
+    authorize_training,
+    quality_review_path,
+    register_quality_review,
+)
 from evm.control_panel.pipeline_profiles import (
     PipelineProfileRecord,
     get_profile,
@@ -196,6 +205,19 @@ class LifecycleRun(ContractModel):
     ct_snapshot_uri: str | None = None
     ct_evaluation_uri: str | None = None
     data_integrity_uri: str | None = None
+    quality_review_uri: str | None = None
+    quality_review_state: Literal[
+        "review_required",
+        "manual_hold",
+        "rejected",
+        "approved_for_training",
+    ] | None = None
+    quality_review_event_id: str | None = None
+    retraining_candidate_id: str | None = None
+    retraining_candidate_digest: str | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
     release_submission_uri: str | None = None
     resource_handoff_uri: str | None = None
     deployment_intent_id: str | None = None
@@ -901,6 +923,14 @@ def retry_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
             raise LifecycleRunError("lifecycle_stage_not_found", "No retryable stage was found.")
         if stage.stage_id == "model_training":
             reject_run_quality_review(run.run_id, run.profile_digest)
+            try:
+                authorize_training(run, consume=False)
+            except LifecycleQualityGuardBlocked as exc:
+                raise LifecycleRunError(
+                    exc.code,
+                    ", ".join(exc.blockers),
+                    status_code=422,
+                ) from exc
         if stage.attempt >= stage.max_attempts:
             raise LifecycleRunError(
                 "lifecycle_stage_attempts_exhausted",
@@ -940,6 +970,113 @@ def retry_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
         return run
 
     return mutate_run(run_id, request.expected_version, update)
+
+
+def register_lifecycle_quality_review(
+    run_id: str,
+    request: LifecycleQualityReviewRegistration,
+) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        training = run.stages[stage_index(run, "model_training")]
+        if training.state != "not_started" or training.task_id:
+            raise LifecycleRunError(
+                "quality_review_registration_too_late",
+                "Quality review signals must bind before model training admission.",
+                status_code=422,
+            )
+        try:
+            review, created = register_quality_review(run, request)
+        except LifecycleQualityGuardBlocked as exc:
+            raise LifecycleRunError(
+                exc.code,
+                ", ".join(exc.blockers),
+                status_code=422,
+            ) from exc
+        run.quality_review_uri = str(quality_review_path(run))
+        run.quality_review_state = review.state
+        run.quality_review_event_id = review.event_id
+        run.retraining_candidate_id = review.candidate_id
+        run.retraining_candidate_digest = review.candidate_digest
+        run.audit.append(
+            audit(
+                request.actor,
+                "lifecycle_quality_review_registered"
+                if created
+                else "lifecycle_quality_review_signal_replayed",
+                reason=request.reason,
+                quality_review_event_id=review.event_id,
+                retraining_candidate_id=review.candidate_id,
+                registration_attempts=review.registration_attempts,
+                duplicate_attempts=review.duplicate_attempts,
+                stale_attempts=review.stale_attempts,
+            )
+        )
+        return run
+
+    return mutate_run(run_id, request.expected_version, update)
+
+
+def apply_lifecycle_quality_review_action(
+    run_id: str,
+    request: LifecycleQualityReviewActionRequest,
+) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        try:
+            review = apply_quality_review_action(run, request)
+        except LifecycleQualityGuardBlocked as exc:
+            raise LifecycleRunError(
+                exc.code,
+                ", ".join(exc.blockers),
+                status_code=422,
+            ) from exc
+        run.quality_review_uri = str(quality_review_path(run))
+        run.quality_review_state = review.state
+        run.quality_review_event_id = review.event_id
+        run.retraining_candidate_id = review.candidate_id
+        run.retraining_candidate_digest = review.candidate_digest
+        run.audit.append(
+            audit(
+                request.actor,
+                "lifecycle_quality_review_action",
+                action=request.action,
+                reason=request.reason,
+                action_digest=review.action_digest,
+                quality_review_state=review.state,
+                retraining_candidate_id=review.candidate_id,
+            )
+        )
+        return run
+
+    return mutate_run(run_id, request.expected_version, update)
+
+
+def authorize_lifecycle_quality_training(run_id: str) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        try:
+            review, consumed = authorize_training(run)
+        except LifecycleQualityGuardBlocked as exc:
+            raise LifecycleRunError(
+                exc.code,
+                ", ".join(exc.blockers),
+                status_code=422,
+            ) from exc
+        if review is None:
+            return run
+        run.quality_review_uri = str(quality_review_path(run))
+        run.quality_review_state = review.state
+        if consumed:
+            run.audit.append(
+                audit(
+                    "lifecycle-worker",
+                    "lifecycle_quality_training_approval_consumed",
+                    action_digest=review.action_digest,
+                    quality_review_event_id=review.event_id,
+                    retraining_candidate_id=review.candidate_id,
+                )
+            )
+        return run
+
+    return mutate_run(run_id, None, update)
 
 
 def transition_stage(

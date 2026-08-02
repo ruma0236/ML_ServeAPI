@@ -52,6 +52,10 @@ from evm.control_panel.lifecycle_runs import (
     LifecycleStage,
     LifecycleWorkerState,
 )
+from evm.control_panel.lifecycle_quality_guard import (
+    LifecycleQualityReviewActionRequest,
+    LifecycleQualityReviewRegistration,
+)
 from evm.control_panel.host_runtime import HostRuntimeChildHealth, HostRuntimeSupervisorHealth
 from evm.control_panel.model_candidates import (
     ModelCandidateCatalog,
@@ -183,7 +187,18 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "/control-panel/v1/lifecycle-runs/{run_id}/queue" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/continue" in openapi["paths"]
     assert "/control-panel/v1/lifecycle-runs/{run_id}/retry" in openapi["paths"]
+    assert "/control-panel/v1/lifecycle-runs/{run_id}/quality-review" in openapi["paths"]
+    assert (
+        "/control-panel/v1/lifecycle-runs/{run_id}/quality-review/action"
+        in openapi["paths"]
+    )
     assert "/control-panel/v1/lifecycle-runs/{run_id}/approve" in openapi["paths"]
+    assert set(LifecycleQualityReviewRegistration.model_fields).issubset(
+        schemas["LifecycleQualityReviewRegistration"]["properties"]
+    )
+    assert set(LifecycleQualityReviewActionRequest.model_fields).issubset(
+        schemas["LifecycleQualityReviewActionRequest"]["properties"]
+    )
     assert set(LifecycleRun.model_fields).issubset(
         schemas["LifecycleRun"]["properties"]
     )

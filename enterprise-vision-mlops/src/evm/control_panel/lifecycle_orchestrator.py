@@ -55,6 +55,7 @@ from evm.control_panel.lifecycle_runs import (
     LifecycleRun,
     LifecycleRunError,
     approve_lifecycle_run,
+    authorize_lifecycle_quality_training,
     get_lifecycle_run,
     lifecycle_root,
     mark_lifecycle_rollback,
@@ -668,6 +669,11 @@ def process_model_training(
     http_client: HttpClient,
 ) -> LifecycleRun:
     del http_client
+    if run.quality_review_uri:
+        try:
+            run = authorize_lifecycle_quality_training(run.run_id)
+        except LifecycleRunError as exc:
+            raise LifecycleStageBlocked(exc.code, [str(exc)]) from exc
     ensure_generated_manifest_root()
     bundle = materialize_training_bundle(run)
     stage = stage_for(run, "model_training")

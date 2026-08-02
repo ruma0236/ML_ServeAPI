@@ -184,6 +184,59 @@ def test_airflow_success_advances_lifecycle_to_model_training(tmp_path, monkeypa
     assert len({item["side_effect_key"] for item in side_effects}) == 2
 
 
+def test_quality_review_blocks_before_training_bundle_or_external_task(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run = queued_run(tmp_path, monkeypatch)
+    transition_stage(run.run_id, "data_pipeline", "running", actor="test")
+    run = transition_stage(run.run_id, "data_pipeline", "completed", actor="test")
+
+    def bind_quality_review(current):
+        current.quality_review_uri = str(tmp_path / "quality-review.json")
+        current.quality_review_state = "review_required"
+        current.quality_review_event_id = "quality-review-integrated"
+        current.retraining_candidate_id = "retrain-integrated"
+        current.retraining_candidate_digest = "a" * 64
+        return current
+
+    run = lifecycle_runs.mutate_run(run.run_id, run.version, bind_quality_review)
+    monkeypatch.setattr(
+        lifecycle_orchestrator,
+        "authorize_lifecycle_quality_training",
+        lambda _run_id: (_ for _ in ()).throw(
+            lifecycle_runs.LifecycleRunError(
+                "quality_review_training_hold",
+                "quality_review_state:review_required",
+                status_code=422,
+            )
+        ),
+    )
+
+    def unexpected_bundle(_run):
+        raise AssertionError("training bundle must not materialize while review is held")
+
+    monkeypatch.setattr(
+        lifecycle_orchestrator,
+        "materialize_training_bundle",
+        unexpected_bundle,
+    )
+    before_tasks = len(operations.read_tasks().tasks)
+
+    blocked = process_lifecycle_run(run.run_id)
+
+    training = next(
+        stage for stage in blocked.stages if stage.stage_id == "model_training"
+    )
+    assert blocked.state == "blocked"
+    assert training.state == "blocked"
+    assert training.attempt == 0
+    assert training.task_id is None
+    assert training.runtime_id is None
+    assert blocked.blockers == ["quality_review_state:review_required"]
+    assert len(operations.read_tasks().tasks) == before_tasks
+
+
 def test_running_kubernetes_side_effect_is_reconciled_before_worker_resume(
     tmp_path,
     monkeypatch,

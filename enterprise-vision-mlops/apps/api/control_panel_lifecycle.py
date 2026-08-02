@@ -3,6 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from evm.control_panel.host_runtime import HostRuntimeSupervisorHealth, read_host_runtime_supervisor
+from evm.control_panel.lifecycle_quality_guard import (
+    LifecycleQualityReviewActionRequest,
+    LifecycleQualityReviewRegistration,
+)
 from evm.control_panel.lifecycle_runs import (
     LifecycleActionRequest,
     LifecycleApprovalRequest,
@@ -12,6 +16,7 @@ from evm.control_panel.lifecycle_runs import (
     LifecycleRunRequest,
     LifecycleWorkerState,
     approve_lifecycle_run,
+    apply_lifecycle_quality_review_action,
     cancel_lifecycle_run,
     continue_lifecycle_run,
     create_lifecycle_run,
@@ -19,6 +24,7 @@ from evm.control_panel.lifecycle_runs import (
     queue_lifecycle_run,
     read_runs,
     read_worker_state,
+    register_lifecycle_quality_review,
     retry_lifecycle_run,
 )
 from evm.control_panel.stage_handoffs import StageHandoffCatalog, build_stage_handoff_catalog
@@ -81,6 +87,34 @@ def continue_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
 @router.post("/lifecycle-runs/{run_id}/retry", response_model=LifecycleRun, status_code=202)
 def retry_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
     return lifecycle_operation(lambda: retry_lifecycle_run(run_id, request))
+
+
+@router.post(
+    "/lifecycle-runs/{run_id}/quality-review",
+    response_model=LifecycleRun,
+    status_code=202,
+)
+def register_quality_review(
+    run_id: str,
+    request: LifecycleQualityReviewRegistration,
+) -> LifecycleRun:
+    return lifecycle_operation(
+        lambda: register_lifecycle_quality_review(run_id, request)
+    )
+
+
+@router.post(
+    "/lifecycle-runs/{run_id}/quality-review/action",
+    response_model=LifecycleRun,
+    status_code=202,
+)
+def quality_review_action(
+    run_id: str,
+    request: LifecycleQualityReviewActionRequest,
+) -> LifecycleRun:
+    return lifecycle_operation(
+        lambda: apply_lifecycle_quality_review_action(run_id, request)
+    )
 
 
 @router.post("/lifecycle-runs/{run_id}/approve", response_model=LifecycleRun, status_code=202)
