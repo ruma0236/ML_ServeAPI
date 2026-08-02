@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from evm.operations.failure_evidence import validate_closure
 from evm.operations.scenario_b_canary import (
     CanaryPolicy,
     InferenceObservation,
     ModelIdentity,
+    QualityMetrics,
     ReplayRequest,
     build_assignment_routes,
+    run_controlled_replay,
 )
 from evm.operations.scenario_b_replay_runtime import (
+    ReplayExecutionContext,
+    _scenario_b_report,
     inject_controlled_errors,
     load_replay_records,
     source_image_uri,
@@ -123,3 +129,121 @@ def test_failure_overlay_only_changes_deterministic_challenger_requests() -> Non
     assert injection["raw_observations_mutated"] is False
     assert injection["production_endpoint_mutated"] is False
 
+
+def test_scenario_b_report_passes_common_live_proof_contract(tmp_path: Path) -> None:
+    policy = _policy()
+    requests = _requests()
+    stable = ModelIdentity(
+        candidate_id="stable",
+        architecture="efficientnet-b0",
+        dataset_version="dataset-v1",
+        model_digest="a" * 64,
+        image_digest="b" * 64,
+    )
+    challenger = ModelIdentity(
+        candidate_id="challenger",
+        architecture="efficientnet-b7",
+        dataset_version="dataset-v2",
+        model_digest="c" * 64,
+        image_digest=stable.image_digest,
+    )
+    stable_observations = [
+        InferenceObservation(
+            request_id=request.request_id,
+            model_digest=stable.model_digest,
+            latency_ms=4,
+            succeeded=True,
+            prediction="normal",
+            confidence=0.9,
+        )
+        for request in requests
+    ]
+    raw_challenger = [
+        InferenceObservation(
+            request_id=request.request_id,
+            model_digest=challenger.model_digest,
+            latency_ms=5,
+            succeeded=True,
+            prediction="normal",
+            confidence=0.9,
+        )
+        for request in requests
+    ]
+    effective, injection = inject_controlled_errors(
+        raw_challenger,
+        requests=requests,
+        policy=policy,
+        count=1,
+    )
+    started = datetime(2026, 8, 2, 3, 0, tzinfo=timezone.utc)
+    result = run_controlled_replay(
+        run_id="scenario-b-report-test",
+        policy=policy,
+        stable=stable,
+        challenger=challenger,
+        requests=requests,
+        stable_observations=stable_observations,
+        challenger_observations=effective,
+        challenger_quality=QualityMetrics(accuracy=0.9, f1=0.8, auroc=0.9),
+        started_at=started,
+        stop_seconds=1,
+        rollback_seconds=2,
+    )
+    run_root = tmp_path / "scenario-b-report-test"
+    run_root.mkdir()
+    runtime_path = run_root / "runtime.json"
+    runtime_path.write_text("{}", encoding="utf-8")
+    readiness = {
+        "readiness": {
+            "status": "ok",
+            "cuda_available": True,
+            "model_sha256": stable.model_digest,
+        },
+        "prometheus": {"health": "up"},
+    }
+    report = _scenario_b_report(
+        result=result,
+        expected_state="rolled_back",
+        expected_blocker="runtime_error_rate_exceeded",
+        context=ReplayExecutionContext(
+            source_commit="abcdef1",
+            source_branch="test",
+            source_dirty=False,
+            api_revision="runtime1",
+            worker_revision="runtime1",
+            observer_revision="runtime1",
+            cluster_context="docker-desktop",
+            node="docker-desktop",
+            target_namespace="evm-production",
+            target_name="evm-b0-production",
+            target_uid="uid-1",
+            actor="pytest",
+        ),
+        stable_before=readiness,
+        stable_after=readiness,
+        cuda_runtime={
+            "cuda_device_name": "test-gpu",
+            "gpu_memory_peak_mb": 128,
+            "torch_version": "test",
+            "torchvision_version": "test",
+        },
+        injection=injection,
+        manifest_digest="d" * 64,
+        candidate_summary_digest="e" * 64,
+        raw_challenger=raw_challenger,
+        artifact_paths={"runtime": runtime_path},
+        runtime_root=run_root,
+        canonical_root=tmp_path,
+        audit_started_at=started,
+        audit_finished_at=started + timedelta(seconds=4),
+        monotonic_started_ns=1_000_000_000,
+        injection_monotonic_ns=2_000_000_000,
+        detection_monotonic_ns=3_000_000_000,
+        recovery_monotonic_ns=4_000_000_000,
+        monotonic_finished_ns=5_000_000_000,
+    )
+
+    assert report.status == "passed"
+    assert report.decision.observed == "rolled_back"
+    assert report.injection.performed is True
+    assert validate_closure(report, "live_proof") == []

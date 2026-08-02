@@ -8,11 +8,27 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 import requests
 
-from evm.operations.failure_evidence import sha256_file
+from evm.operations.failure_evidence import (
+    ApprovalEvidence,
+    ArtifactEvidence,
+    CheckEvidence,
+    ClosureEvidence,
+    DecisionEvidence,
+    EnvironmentEvidence,
+    IdentityEvidence,
+    InjectionEvidence,
+    OperationalFailureReport,
+    PortfolioEvidence,
+    RecoveryEvidence,
+    SignalEvidence,
+    SourceEvidence,
+    TimingEvidence,
+    sha256_file,
+)
 from evm.operations.failure_scenarios import atomic_write_json
 from evm.operations.scenario_b_canary import (
     CanaryPolicy,
@@ -31,6 +47,370 @@ from evm.operations.scenario_b_canary import (
 class ReplayRecord:
     request: ReplayRequest
     challenger_image_path: Path
+
+
+@dataclass(frozen=True)
+class ReplayExecutionContext:
+    source_commit: str
+    source_branch: str
+    source_dirty: bool
+    api_revision: str
+    worker_revision: str
+    observer_revision: str
+    cluster_context: str
+    node: str
+    target_namespace: str
+    target_name: str
+    target_uid: str
+    actor: str
+
+
+def _scenario_b_report(
+    *,
+    result: ControlledReplayResult,
+    expected_state: Literal["blocked_admission", "canary_passed", "rolled_back"],
+    expected_blocker: str,
+    context: ReplayExecutionContext,
+    stable_before: dict[str, Any],
+    stable_after: dict[str, Any],
+    cuda_runtime: dict[str, Any],
+    injection: dict[str, Any],
+    manifest_digest: str,
+    candidate_summary_digest: str,
+    raw_challenger: list[InferenceObservation],
+    artifact_paths: dict[str, Path],
+    runtime_root: Path,
+    canonical_root: Path,
+    audit_started_at: datetime,
+    audit_finished_at: datetime,
+    monotonic_started_ns: int,
+    injection_monotonic_ns: int,
+    detection_monotonic_ns: int,
+    recovery_monotonic_ns: int,
+    monotonic_finished_ns: int,
+) -> OperationalFailureReport:
+    quality_block = expected_state == "blocked_admission"
+    metric_window = result.metric_window
+    detection_seconds = (detection_monotonic_ns - injection_monotonic_ns) / 1_000_000_000
+    recovery_seconds = (recovery_monotonic_ns - injection_monotonic_ns) / 1_000_000_000
+    decision_exact = result.decision.state == expected_state and result.decision.blocker_codes == [
+        expected_blocker
+    ]
+    raw_errors = sum(not item.succeeded for item in raw_challenger)
+    routing_passed = (
+        len(result.assignment_ledger) == 0 and metric_window is None
+        if quality_block
+        else (
+            metric_window is not None
+            and metric_window.total_requests == result.policy.total_replay_requests
+            and metric_window.challenger_requests == result.policy.challenger_requests
+            and metric_window.challenger_fraction <= result.policy.max_challenger_fraction
+            and metric_window.identity_match_fraction == 1
+        )
+    )
+    preconditions = [
+        CheckEvidence(
+            check_id="source_clean",
+            passed=not context.source_dirty,
+            observed={"commit": context.source_commit, "dirty": context.source_dirty},
+        ),
+        CheckEvidence(
+            check_id="stable_identity_before",
+            passed=(
+                stable_before["readiness"].get("model_sha256") == result.stable.model_digest
+                and stable_before["readiness"].get("status") == "ok"
+                and stable_before["readiness"].get("cuda_available") is True
+            ),
+            observed=stable_before["readiness"],
+        ),
+        CheckEvidence(
+            check_id="prometheus_before",
+            passed=stable_before["prometheus"].get("health") == "up",
+            observed=stable_before["prometheus"],
+        ),
+        CheckEvidence(
+            check_id="immutable_input_identities",
+            passed=all(
+                (
+                    manifest_digest,
+                    candidate_summary_digest,
+                    result.challenger.model_digest,
+                    result.stable.image_digest,
+                )
+            ),
+            observed={
+                "manifest_digest": manifest_digest,
+                "candidate_summary_digest": candidate_summary_digest,
+                "challenger_model_digest": result.challenger.model_digest,
+                "stable_image_digest": result.stable.image_digest,
+            },
+        ),
+    ]
+    postconditions = [
+        CheckEvidence(
+            check_id="expected_guardrail_decision",
+            passed=decision_exact,
+            observed={
+                "expected_state": expected_state,
+                "observed_state": result.decision.state,
+                "expected_blocker": expected_blocker,
+                "observed_blockers": result.decision.blocker_codes,
+            },
+        ),
+        CheckEvidence(
+            check_id="shadow_sample_complete",
+            passed=len(result.shadow_ledger) >= result.policy.min_shadow_requests,
+            observed={
+                "actual": len(result.shadow_ledger),
+                "minimum": result.policy.min_shadow_requests,
+            },
+        ),
+        CheckEvidence(
+            check_id="bounded_routing_identity",
+            passed=routing_passed,
+            observed=(
+                metric_window.model_dump(mode="json")
+                if metric_window
+                else {"challenger_assignments": 0, "admission_blocked": True}
+            ),
+        ),
+        CheckEvidence(
+            check_id="raw_cuda_observations_clean",
+            passed=raw_errors == 0,
+            observed={"observations": len(raw_challenger), "errors": raw_errors},
+        ),
+        CheckEvidence(
+            check_id="stop_budget",
+            passed=detection_seconds <= result.policy.stop_budget_seconds,
+            observed={
+                "actual_seconds": detection_seconds,
+                "maximum_seconds": result.policy.stop_budget_seconds,
+            },
+        ),
+        CheckEvidence(
+            check_id="rollback_budget_and_identity",
+            passed=(
+                recovery_seconds <= result.policy.rollback_budget_seconds
+                and result.rollback.exact_identity_restored
+                and result.rollback.restored_model_digest == result.stable.model_digest
+            ),
+            observed={
+                **result.rollback.model_dump(mode="json"),
+                "verified_recovery_seconds": recovery_seconds,
+            },
+        ),
+        CheckEvidence(
+            check_id="stable_identity_after",
+            passed=(
+                stable_after["readiness"].get("model_sha256") == result.stable.model_digest
+                and stable_after["readiness"].get("status") == "ok"
+                and stable_after["readiness"].get("cuda_available") is True
+            ),
+            observed=stable_after["readiness"],
+        ),
+        CheckEvidence(
+            check_id="prometheus_after",
+            passed=stable_after["prometheus"].get("health") == "up",
+            observed=stable_after["prometheus"],
+        ),
+        CheckEvidence(
+            check_id="production_not_mutated",
+            passed=result.production_mutated is False,
+            observed={
+                "production_mutated": result.production_mutated,
+                "target_uid": context.target_uid,
+            },
+        ),
+    ]
+    failed = [item.check_id for item in preconditions + postconditions if not item.passed]
+    if failed:
+        raise ValueError(f"scenario_b_closure_checks_failed:{','.join(failed)}")
+
+    def canonical_uri(path: Path) -> str:
+        return str((canonical_root / result.run_id / path.relative_to(runtime_root)).as_posix())
+
+    artifacts = [
+        ArtifactEvidence(
+            uri=canonical_uri(path),
+            sha256=sha256_file(path),
+            media_type=("application/x-ndjson" if path.suffix == ".jsonl" else "application/json"),
+            evidence_role="run_evidence",
+        )
+        for path in artifact_paths.values()
+    ]
+    injection_method = (
+        "immutable_invalid_candidate_admission" if quality_block else str(injection["method"])
+    )
+    injection_action = (
+        "submit_digest_pinned_candidate_to_quality_gate"
+        if quality_block
+        else "overlay_controlled_transport_failures_on_effective_observations"
+    )
+    expected_effect = (
+        "block before challenger allocation"
+        if quality_block
+        else "breach runtime error guardrail and restore exact stable route"
+    )
+    completed_at = audit_finished_at
+    readiness_ids = [item.check_id for item in preconditions]
+    live_ids = [item.check_id for item in postconditions]
+    return OperationalFailureReport(
+        schema_version="evm.operational_failure_evidence.v1",
+        scenario_id="B",
+        run_id=result.run_id,
+        claim_class="local_operational_validation",
+        status="passed",
+        started_at=audit_started_at,
+        finished_at=audit_finished_at,
+        actor=context.actor,
+        approval=ApprovalEvidence(required=False, decision="not_required"),
+        source=SourceEvidence(
+            commit=context.source_commit,
+            branch=context.source_branch,
+            dirty=context.source_dirty,
+            api_revision=context.api_revision,
+            worker_revision=context.worker_revision,
+            observer_revision=context.observer_revision,
+        ),
+        environment=EnvironmentEvidence(
+            cluster_context=context.cluster_context,
+            node=context.node,
+            namespaces=[context.target_namespace],
+            hardware={
+                "gpu": cuda_runtime.get("cuda_device_name"),
+                "gpu_memory_peak_mb": cuda_runtime.get("gpu_memory_peak_mb"),
+                "single_gpu": True,
+            },
+            runtime_versions={
+                "torch": str(cuda_runtime.get("torch_version")),
+                "torchvision": str(cuda_runtime.get("torchvision_version")),
+            },
+        ),
+        identities=IdentityEvidence(
+            dataset_version=result.stable.dataset_version,
+            split_digest=manifest_digest,
+            model_digest=result.challenger.model_digest,
+            artifact_digest=candidate_summary_digest,
+            image_digest=result.stable.image_digest,
+            ct_digest=manifest_digest,
+            rollback_digest=result.stable.model_digest,
+        ),
+        identity_requirements=[
+            "dataset_version",
+            "split_digest",
+            "model_digest",
+            "artifact_digest",
+            "image_digest",
+            "ct_digest",
+            "rollback_digest",
+        ],
+        preconditions=preconditions,
+        injection=InjectionEvidence(
+            method=injection_method,
+            action=injection_action,
+            target={
+                "namespace": context.target_namespace,
+                "name": context.target_name,
+                "uid": context.target_uid,
+            },
+            expected_effect=expected_effect,
+            blast_radius="isolated replay evidence only; production endpoint unchanged",
+            performed=True,
+        ),
+        signals=[
+            SignalEvidence(
+                signal_id="guardrail_decision",
+                source="scenario_b_evaluator",
+                observed_at=completed_at,
+                healthy=decision_exact,
+                detail=result.decision.model_dump(mode="json"),
+            ),
+            SignalEvidence(
+                signal_id="stable_readiness",
+                source="production_b0_readiness",
+                observed_at=completed_at,
+                healthy=True,
+                detail=stable_after["readiness"],
+            ),
+            SignalEvidence(
+                signal_id="prometheus_target",
+                source="prometheus_active_targets",
+                observed_at=completed_at,
+                healthy=True,
+                detail=stable_after["prometheus"],
+            ),
+        ],
+        decision=DecisionEvidence(
+            expected=expected_state,
+            observed=result.decision.state,
+            blocker_codes=result.decision.blocker_codes,
+        ),
+        mitigation={
+            "challenger_allocation_after": result.decision.challenger_allocation_after,
+            "production_mutated": result.production_mutated,
+            "action": result.rollback.action,
+        },
+        recovery=RecoveryEvidence(
+            action=result.rollback.action,
+            target_identity={
+                "candidate_id": result.stable.candidate_id,
+                "model_digest": result.stable.model_digest,
+                "target_uid": context.target_uid,
+            },
+            result="passed",
+        ),
+        postconditions=postconditions,
+        artifacts=artifacts,
+        limitations=result.limitations,
+        portfolio=PortfolioEvidence(
+            competencies=[
+                "fail-closed model admission and deterministic replay routing",
+                "real CUDA evidence with immutable model and CT identities",
+                "guardrail containment and exact stable-route restoration",
+            ],
+            interview_questions=[
+                "How do offline quality gates differ from runtime canary guardrails?",
+                "How is route-to-response identity proved during controlled replay?",
+                "Why is production Kubernetes canary blocked on a single-GPU host?",
+            ],
+            trade_offs=[
+                "isolated replay protects the single production replica but cannot prove user traffic behavior",
+                "deterministic transport overlays improve reproducibility but are not organic service failures",
+            ],
+            factual_claims=[
+                "local single-node VisA/CUDA controlled replay rejected an under-threshold candidate",
+                "bounded replay detected a deterministic runtime error breach and restored the exact B0 route identity",
+            ],
+            prohibited_claims=[
+                "production user A/B test",
+                "high availability or zero-downtime canary",
+                "multi-node isolation or enterprise SLA validation",
+            ],
+        ),
+        timing=TimingEvidence(
+            audit_started_at=audit_started_at,
+            audit_finished_at=audit_finished_at,
+            monotonic_started_ns=monotonic_started_ns,
+            monotonic_finished_ns=monotonic_finished_ns,
+            injection_monotonic_ns=injection_monotonic_ns,
+            detection_monotonic_ns=detection_monotonic_ns,
+            recovery_monotonic_ns=recovery_monotonic_ns,
+            detection_seconds=detection_seconds,
+            recovery_seconds=recovery_seconds,
+            sample_cadence_seconds=1.0,
+            signal_precedence=list(result.policy.signal_precedence),
+        ),
+        readiness_closure=ClosureEvidence(
+            decision="passed",
+            required_check_ids=readiness_ids,
+            completed_at=completed_at,
+        ),
+        live_proof_closure=ClosureEvidence(
+            decision="passed",
+            required_check_ids=live_ids,
+            completed_at=completed_at,
+        ),
+    )
 
 
 def load_runtime_config(path: Path) -> tuple[CanaryPolicy, ModelIdentity, dict[str, Any]]:
@@ -370,16 +750,21 @@ def execute_real_replay(
     host_data_root: str,
     warmup_requests: int,
     inject_error_count: int,
+    expected_state: Literal["blocked_admission", "canary_passed", "rolled_back"],
+    expected_blocker: str,
+    execution_context: ReplayExecutionContext,
 ) -> tuple[ControlledReplayResult, Path]:
+    audit_started_at = datetime.now(timezone.utc)
+    monotonic_started_ns = time.monotonic_ns()
+    if execution_context.source_dirty:
+        raise ValueError("scenario_b_source_worktree_dirty")
     policy, stable, replay_config = load_runtime_config(config_path)
     challenger, quality, summary = load_candidate_identity(
         candidate_summary_path=candidate_summary_path,
         model_path=model_path,
         image_digest=stable.image_digest,
     )
-    if sha256_file(manifest_path) != str(
-        replay_config.get("manifest_sha256") or ""
-    ):
+    if sha256_file(manifest_path) != str(replay_config.get("manifest_sha256") or ""):
         raise ValueError("replay_manifest_digest_mismatch")
     records = load_replay_records(
         manifest_path,
@@ -410,13 +795,13 @@ def execute_real_replay(
         model_path=model_path,
         warmup_requests=warmup_requests,
     )
+    injection_monotonic_ns = time.monotonic_ns()
     effective_challenger, injection = inject_controlled_errors(
         raw_challenger,
         requests=[record.request for record in records],
         policy=policy,
         count=inject_error_count,
     )
-    detection_started = time.monotonic()
     result = run_controlled_replay(
         run_id=run_id,
         policy=policy,
@@ -430,7 +815,8 @@ def execute_real_replay(
         stop_seconds=0,
         rollback_seconds=0,
     )
-    measured_decision_seconds = time.monotonic() - detection_started
+    detection_monotonic_ns = time.monotonic_ns()
+    measured_decision_seconds = (detection_monotonic_ns - injection_monotonic_ns) / 1_000_000_000
     result = result.model_copy(
         update={
             "decision": result.decision.model_copy(
@@ -451,6 +837,15 @@ def execute_real_replay(
         raise ValueError("post_replay_stable_identity_mismatch")
     if after["prometheus"].get("health") != "up":
         raise ValueError("post_replay_prometheus_target_not_up")
+    recovery_monotonic_ns = time.monotonic_ns()
+    if result.decision.state != expected_state or result.decision.blocker_codes != [
+        expected_blocker
+    ]:
+        raise ValueError(
+            "scenario_b_unexpected_decision:"
+            f"expected={expected_state}/{expected_blocker},"
+            f"actual={result.decision.state}/{result.decision.blocker_codes}"
+        )
 
     run_root = evidence_root / run_id
     stable_path = run_root / "stable-observations.jsonl"
@@ -459,6 +854,8 @@ def execute_real_replay(
     injection_path = run_root / "failure-injection.json"
     runtime_path = run_root / "runtime.json"
     summary_path = run_root / "candidate-summary-reference.json"
+    report_path = run_root / "report.json"
+    postconditions_path = run_root / "postconditions.json"
     _write_jsonl(stable_path, stable_observations)
     _write_jsonl(raw_path, raw_challenger)
     _write_jsonl(effective_path, effective_challenger)
@@ -477,9 +874,71 @@ def execute_real_replay(
             "cuda": cuda_runtime,
             "decision_seconds": measured_decision_seconds,
             "production_mutated": False,
+            "source": {
+                "commit": execution_context.source_commit,
+                "branch": execution_context.source_branch,
+                "dirty": execution_context.source_dirty,
+                "api_revision": execution_context.api_revision,
+                "worker_revision": execution_context.worker_revision,
+                "observer_revision": execution_context.observer_revision,
+            },
+            "target": {
+                "namespace": execution_context.target_namespace,
+                "name": execution_context.target_name,
+                "uid": execution_context.target_uid,
+            },
+            "timing": {
+                "audit_started_at": audit_started_at.isoformat(),
+                "monotonic_started_ns": monotonic_started_ns,
+                "injection_monotonic_ns": injection_monotonic_ns,
+                "detection_monotonic_ns": detection_monotonic_ns,
+                "recovery_monotonic_ns": recovery_monotonic_ns,
+            },
         },
     )
     atomic_write_json(summary_path, summary)
+    audit_finished_at = datetime.now(timezone.utc)
+    monotonic_finished_ns = time.monotonic_ns()
+    report_artifacts = {
+        "stable_observations": stable_path,
+        "challenger_observations_raw": raw_path,
+        "challenger_observations_effective": effective_path,
+        "failure_injection": injection_path,
+        "runtime": runtime_path,
+        "candidate_summary_reference": summary_path,
+    }
+    report = _scenario_b_report(
+        result=result,
+        expected_state=expected_state,
+        expected_blocker=expected_blocker,
+        context=execution_context,
+        stable_before=before,
+        stable_after=after,
+        cuda_runtime=cuda_runtime,
+        injection=injection,
+        manifest_digest=str(replay_config["manifest_sha256"]),
+        candidate_summary_digest=sha256_file(candidate_summary_path),
+        raw_challenger=raw_challenger,
+        artifact_paths=report_artifacts,
+        runtime_root=run_root,
+        canonical_root=Path(str(replay_config["evidence_root"])),
+        audit_started_at=audit_started_at,
+        audit_finished_at=audit_finished_at,
+        monotonic_started_ns=monotonic_started_ns,
+        injection_monotonic_ns=injection_monotonic_ns,
+        detection_monotonic_ns=detection_monotonic_ns,
+        recovery_monotonic_ns=recovery_monotonic_ns,
+        monotonic_finished_ns=monotonic_finished_ns,
+    )
+    atomic_write_json(report_path, report.model_dump(mode="json"))
+    atomic_write_json(
+        postconditions_path,
+        {
+            "schema_version": "evm.scenario_b_postconditions.v1",
+            "run_id": result.run_id,
+            "checks": [item.model_dump(mode="json") for item in report.postconditions],
+        },
+    )
     index_path = write_controlled_replay_evidence(
         root=evidence_root,
         result=result,
@@ -491,6 +950,8 @@ def execute_real_replay(
             "failure_injection": injection_path,
             "runtime": runtime_path,
             "candidate_summary_reference": summary_path,
+            "postconditions": postconditions_path,
+            "report": report_path,
         },
         canonical_evidence_root=Path(str(replay_config["evidence_root"])),
     )
