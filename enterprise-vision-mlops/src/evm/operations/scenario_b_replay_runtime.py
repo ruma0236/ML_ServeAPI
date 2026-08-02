@@ -768,6 +768,7 @@ def execute_real_replay(
     expected_state: Literal["blocked_admission", "canary_passed", "rolled_back"],
     expected_blocker: str,
     execution_context: ReplayExecutionContext,
+    lifecycle_binding: dict[str, Any] | None = None,
 ) -> tuple[ControlledReplayResult, Path]:
     audit_started_at = datetime.now(timezone.utc)
     monotonic_started_ns = time.monotonic_ns()
@@ -885,6 +886,7 @@ def execute_real_replay(
     injection_path = run_root / "failure-injection.json"
     runtime_path = run_root / "runtime.json"
     summary_path = run_root / "candidate-summary-reference.json"
+    binding_path = run_root / "lifecycle-binding.json"
     report_path = run_root / "report.json"
     postconditions_path = run_root / "postconditions.json"
     _write_jsonl(stable_path, stable_observations)
@@ -928,6 +930,8 @@ def execute_real_replay(
         },
     )
     atomic_write_json(summary_path, summary)
+    if lifecycle_binding is not None:
+        atomic_write_json(binding_path, lifecycle_binding)
     audit_finished_at = datetime.now(timezone.utc)
     monotonic_finished_ns = time.monotonic_ns()
     report_artifacts = {
@@ -971,20 +975,23 @@ def execute_real_replay(
             "checks": [item.model_dump(mode="json") for item in report.postconditions],
         },
     )
+    additional_artifacts = {
+        "stable_observations": stable_path,
+        "challenger_observations_raw": raw_path,
+        "challenger_observations_effective": effective_path,
+        "failure_injection": injection_path,
+        "runtime": runtime_path,
+        "candidate_summary_reference": summary_path,
+        "postconditions": postconditions_path,
+        "report": report_path,
+    }
+    if lifecycle_binding is not None:
+        additional_artifacts["lifecycle_binding"] = binding_path
     index_path = write_controlled_replay_evidence(
         root=evidence_root,
         result=result,
         requests=[record.request for record in records],
-        additional_artifacts={
-            "stable_observations": stable_path,
-            "challenger_observations_raw": raw_path,
-            "challenger_observations_effective": effective_path,
-            "failure_injection": injection_path,
-            "runtime": runtime_path,
-            "candidate_summary_reference": summary_path,
-            "postconditions": postconditions_path,
-            "report": report_path,
-        },
+        additional_artifacts=additional_artifacts,
         canonical_evidence_root=Path(str(replay_config["evidence_root"])),
     )
     return result, index_path

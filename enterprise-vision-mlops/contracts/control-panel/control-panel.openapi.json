@@ -810,6 +810,15 @@
         "responses": {"202": {"description": "quality action recorded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "422": {"description": "stale, mismatched, expired, or self-approved action rejected"}}
       }
     },
+    "/control-panel/v1/lifecycle-runs/{run_id}/release-guard": {
+      "post": {
+        "summary": "Bind an immutable Scenario B controlled replay decision to the exact lifecycle release boundary.",
+        "operationId": "registerLifecycleReleaseGuard",
+        "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleReleaseGuardRegistration"}}}},
+        "responses": {"202": {"description": "release guard bound", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LifecycleRun"}}}}, "422": {"description": "replay evidence, release identity, or stage rejected"}}
+      }
+    },
     "/control-panel/v1/lifecycle-runs/{run_id}/approve": {
       "post": {
         "summary": "Record independent approval and release the deployment dependency.",
@@ -2329,7 +2338,7 @@
       },
       "GateProfile": {
         "type": "object",
-        "required": ["promotion_min_accuracy", "promotion_min_f1", "promotion_min_auroc", "isolated_ct_dataset_required", "ct_dataset_split", "require_ci", "require_cd", "require_ct", "require_drift_review", "approval_policy", "target_environment", "target_namespace"],
+        "required": ["promotion_min_accuracy", "promotion_min_f1", "promotion_min_auroc", "isolated_ct_dataset_required", "ct_dataset_split", "require_ci", "require_cd", "require_ct", "require_drift_review", "require_controlled_replay", "approval_policy", "target_environment", "target_namespace"],
         "properties": {
           "promotion_min_accuracy": {"type": "number", "minimum": 0, "maximum": 1},
           "promotion_min_f1": {"type": "number", "minimum": 0, "maximum": 1},
@@ -2340,6 +2349,7 @@
           "require_cd": {"type": "boolean"},
           "require_ct": {"type": "boolean"},
           "require_drift_review": {"type": "boolean"},
+          "require_controlled_replay": {"type": "boolean"},
           "approval_policy": {"type": "string", "enum": ["manual", "two_person", "change_ticket", "automated_non_production"]},
           "target_environment": {"type": "string", "enum": ["dev", "test", "staging", "pre-production", "production"]},
           "target_namespace": {"type": "string"}
@@ -2593,6 +2603,17 @@
           "approval_ttl_seconds": {"type": "integer", "minimum": 60, "maximum": 604800, "default": 3600}
         }
       },
+      "LifecycleReleaseGuardRegistration": {
+        "type": "object",
+        "required": ["actor", "reason", "expected_version", "evidence_index_uri", "evidence_index_sha256"],
+        "properties": {
+          "actor": {"type": "string", "minLength": 2},
+          "reason": {"type": "string", "minLength": 8},
+          "expected_version": {"type": "integer", "minimum": 1},
+          "evidence_index_uri": {"type": "string", "minLength": 1},
+          "evidence_index_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      },
       "LifecycleStage": {
         "type": "object",
         "required": ["stage_id", "label", "runtime", "state", "progress", "attempt", "max_attempts", "blockers"],
@@ -2669,6 +2690,11 @@
           "retraining_candidate_id": {"type": ["string", "null"]},
           "retraining_candidate_digest": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
           "release_submission_uri": {"type": ["string", "null"]},
+          "release_guard_required": {"type": "boolean"},
+          "release_guard_uri": {"type": ["string", "null"]},
+          "release_guard_id": {"type": ["string", "null"]},
+          "release_guard_state": {"type": ["string", "null"], "enum": ["rejected_release", "rolled_back", "approved_for_release", null]},
+          "release_guard_replay_run_id": {"type": ["string", "null"]},
           "resource_handoff_uri": {"type": ["string", "null"]},
           "deployment_intent_id": {"type": ["string", "null"]},
           "approver": {"type": ["string", "null"]},

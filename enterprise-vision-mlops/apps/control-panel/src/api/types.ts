@@ -981,6 +981,7 @@ export interface PipelineGateProfile {
   require_cd: boolean;
   require_ct: boolean;
   require_drift_review: boolean;
+  require_controlled_replay: boolean;
   approval_policy: "manual" | "two_person" | "change_ticket" | "automated_non_production";
   target_environment: EnvironmentTier;
   target_namespace: string;
@@ -1183,6 +1184,11 @@ export interface LifecycleRun {
   ct_evaluation_uri?: string | null;
   data_integrity_uri?: string | null;
   release_submission_uri?: string | null;
+  release_guard_required: boolean;
+  release_guard_uri?: string | null;
+  release_guard_id?: string | null;
+  release_guard_state?: "rejected_release" | "rolled_back" | "approved_for_release" | null;
+  release_guard_replay_run_id?: string | null;
   resource_handoff_uri?: string | null;
   deployment_intent_id?: string | null;
   approver?: string | null;

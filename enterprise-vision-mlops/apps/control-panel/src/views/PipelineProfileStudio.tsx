@@ -534,6 +534,7 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
                 <Toggle label="Require CT" checked={profile.gates.require_ct} onChange={(value) => updateProfile({ ...profile, gates: { ...profile.gates, require_ct: value } })} />
                 <Toggle label="Isolated CT Dataset" checked={profile.gates.isolated_ct_dataset_required} onChange={(value) => updateProfile({ ...profile, gates: { ...profile.gates, isolated_ct_dataset_required: value } })} />
                 <Toggle label="Drift Review" checked={profile.gates.require_drift_review} onChange={(value) => updateProfile({ ...profile, gates: { ...profile.gates, require_drift_review: value } })} />
+                <Toggle label="Controlled Replay" checked={profile.gates.require_controlled_replay} onChange={(value) => updateProfile({ ...profile, gates: { ...profile.gates, require_controlled_replay: value } })} />
                 <Toggle label="A/B Test" checked={profile.experiment.ab_test_enabled} onChange={(value) => updateProfile({ ...profile, experiment: { ...profile.experiment, ab_test_enabled: value } })} />
               </div>
               {profile.experiment.ab_test_enabled ? (

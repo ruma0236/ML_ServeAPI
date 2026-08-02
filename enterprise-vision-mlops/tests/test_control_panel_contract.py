@@ -192,6 +192,10 @@ def test_openapi_components_expose_enterprise_readiness_fields():
         "/control-panel/v1/lifecycle-runs/{run_id}/quality-review/action"
         in openapi["paths"]
     )
+    assert (
+        "/control-panel/v1/lifecycle-runs/{run_id}/release-guard"
+        in openapi["paths"]
+    )
     assert "/control-panel/v1/lifecycle-runs/{run_id}/approve" in openapi["paths"]
     assert set(LifecycleQualityReviewRegistration.model_fields).issubset(
         schemas["LifecycleQualityReviewRegistration"]["properties"]

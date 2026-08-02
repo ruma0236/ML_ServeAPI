@@ -7,6 +7,7 @@ from evm.control_panel.lifecycle_quality_guard import (
     LifecycleQualityReviewActionRequest,
     LifecycleQualityReviewRegistration,
 )
+from evm.control_panel.lifecycle_release_guard import LifecycleReleaseGuardRegistration
 from evm.control_panel.lifecycle_runs import (
     LifecycleActionRequest,
     LifecycleApprovalRequest,
@@ -25,6 +26,7 @@ from evm.control_panel.lifecycle_runs import (
     read_runs,
     read_worker_state,
     register_lifecycle_quality_review,
+    register_lifecycle_release_guard,
     retry_lifecycle_run,
 )
 from evm.control_panel.stage_handoffs import StageHandoffCatalog, build_stage_handoff_catalog
@@ -114,6 +116,20 @@ def quality_review_action(
 ) -> LifecycleRun:
     return lifecycle_operation(
         lambda: apply_lifecycle_quality_review_action(run_id, request)
+    )
+
+
+@router.post(
+    "/lifecycle-runs/{run_id}/release-guard",
+    response_model=LifecycleRun,
+    status_code=202,
+)
+def register_release_guard(
+    run_id: str,
+    request: LifecycleReleaseGuardRegistration,
+) -> LifecycleRun:
+    return lifecycle_operation(
+        lambda: register_lifecycle_release_guard(run_id, request)
     )
 
 

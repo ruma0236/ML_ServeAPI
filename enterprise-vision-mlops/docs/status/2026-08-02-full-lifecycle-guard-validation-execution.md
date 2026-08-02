@@ -96,9 +96,9 @@ They are not golden-path or scenario acceptance.
 | recovery ownership/read-only incident plane | complete | source `c905d7d`, stale-state UI correction `3467315`; 16 focused and 423 full Python tests at implementation, 16 files/51 Control Panel tests after UI correction; three independent recommendation-only series, 41/41 artifact hash closure, zero mutation; GET-only APIs, low-cardinality metrics, browser proof, CUDA B0 and runtime invariants preserved | `SCRUM-185` |
 | no-fault golden lifecycle | complete | attempt `lifecycle-20260802T165525-279cf1dc` at `85867e1` passed 11/11 preflight, Airflow 18/18, real RTX 4080 SUPER CUDA training, MLflow, readiness 13/13, isolated CT 18/18, approval, staging deployment, CUDA inference and Prometheus; all 10 stages, 23 guard decisions and 8 side effects completed; cleanup restored exact production B0 1/1 and staging 0/0; a post-run phase-evidence overwrite was remediated with independent training/CT handoff files and 437 full tests | `SCRUM-186` E guard |
 | E lifecycle guard | complete | source `bc726d9`; real VisA 10,821 records/23 shards; six canonical/corrupt/corrected branches and 18/18 deterministic replays; zero Kubernetes Job, MLflow, candidate or intent delta; runtime/canonical identity delta zero; evidence hashes 133/133 | `SCRUM-187` D guard |
-| D lifecycle guard | not started | pending | C guard |
-| C lifecycle guard | not started | pending | B guard |
-| B lifecycle guard | not started | pending | A maintenance preflight |
+| D lifecycle guard | complete | source `7f253ac`; full lifecycle 10/10, exact-worker detection/recovery `6.9141254 / 10.0661301 s`, same Job without redispatch, B0/Prometheus restored | C guard |
+| C lifecycle guard | complete | source `39d4cd2`; 18/18 checks, real drift hold/resume, CUDA training, MLflow, isolated CT, intent zero and 21/21 integrated hashes | B guard |
+| B lifecycle guard | in progress | exact-run release guard, immutable profile requirement, evidence closure, two-branch runner and 54 focused tests implemented; fresh lifecycle execution pending | A maintenance preflight |
 | A lifecycle guard | maintenance gated | pending | integrated closure |
 | final integrated closure | not started | pending | cross-scenario handoff |
 
@@ -435,6 +435,30 @@ CT, then stopped at release approval with deployment intents still zero. The
 exact external delta was Jobs +2, MLflow +1 and candidate +1. Source hashes
 matched 17/17 and integrated hashes/sizes 21/21. Exact B0 CUDA, plugin and two
 Prometheus scrapes restored in `29.0953264 s`.
+
+## Scenario B Lifecycle Release Checkpoint
+
+Scenario B entered implementation under `SCRUM-189 / EVM-281`. The previous
+standalone quality rejection and runtime rollback remain baseline evidence and
+cannot close this lifecycle attempt.
+
+The current implementation adds an immutable `require_controlled_replay`
+profile policy, copies it into each LifecycleRun and binds one Scenario B
+evidence index at the release-approval boundary. Every artifact hash and the
+run/series/attempt/correlation, profile/config, source, candidate/model,
+isolated CT and sealed submission identity must match. A quality rejection or
+runtime rollback then denies approval before any deployment intent.
+
+Two predeclared policies and a source-bound runner create separate fresh
+quality and runtime lifecycle runs. Each must complete real Airflow,
+Kubernetes GPU training, MLflow, readiness and isolated CT before using 1,000
+real holdout requests. The quality branch requires measured F1 below fixed
+`0.90`; the runtime branch assigns exactly 100 requests and injects two
+isolated challenger failures. Stable B0 mutation and real-user traffic remain
+excluded. Focused Python tests pass 54/54, Control Panel tests 52/52, typecheck
+and build pass, and touched-file Ruff passes. Runtime proof is not started, so
+Scenario B remains In Progress. Detailed contract and progress are in
+`docs/status/2026-08-03-lifecycle-guard-scenario-b-progress.md`.
 
 ## Golden Attempt Log
 

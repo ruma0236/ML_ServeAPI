@@ -14,6 +14,7 @@ from evm.control_panel.lifecycle_quality_guard import (
     LifecycleQualityReviewActionRequest,
     LifecycleQualityReviewRegistration,
 )
+from evm.control_panel.lifecycle_release_guard import LifecycleReleaseGuardBlocked
 from evm.control_panel.lifecycle_runs import (
     LifecycleActionRequest,
     LifecycleApprovalRequest,
@@ -625,6 +626,66 @@ def test_two_person_approval_advances_waiting_run(tmp_path: Path, monkeypatch) -
     assert approved.stages[6].state == "completed"
     assert approved.stages[6].runtime_state == "approved"
     assert approved.progress == pytest.approx(0.7)
+
+
+def test_release_guard_blocks_approval_before_deployment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = queue_run(new_run(tmp_path, monkeypatch), monkeypatch)
+    for stage_id in (
+        "data_pipeline",
+        "model_training",
+        "model_evaluation",
+        "artifact_readiness",
+        "ci_ct_gate",
+    ):
+        transition_stage(run.run_id, stage_id, "running", actor="worker")
+        run = transition_stage(run.run_id, stage_id, "completed", actor="worker")
+    run = transition_stage(
+        run.run_id,
+        "approval",
+        "waiting_approval",
+        actor="worker",
+    )
+    submission = tmp_path / "release-submission.json"
+    submission.write_text("{}", encoding="utf-8")
+    run = update_run_evidence(
+        run.run_id,
+        actor="worker",
+        release_submission_uri=str(submission),
+    )
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "validate_lifecycle_release_submission",
+        lambda *_args, **_kwargs: {"decision": "pass"},
+    )
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "authorize_release_guard",
+        lambda _run: (_ for _ in ()).throw(
+            LifecycleReleaseGuardBlocked(
+                "release_guard_release_blocked",
+                ["release_guard_state:rolled_back"],
+            )
+        ),
+    )
+
+    with pytest.raises(LifecycleRunError, match="release_guard_state:rolled_back") as exc_info:
+        approve_lifecycle_run(
+            run.run_id,
+            LifecycleApprovalRequest(
+                actor="release-approver@example.com",
+                approver="release-approver@example.com",
+                reason="Attempt an exact guarded release",
+                expected_version=run.version,
+            ),
+        )
+
+    assert exc_info.value.code == "release_guard_release_blocked"
+    persisted = lifecycle_runs.get_lifecycle_run(run.run_id)
+    assert persisted is not None
+    assert persisted.current_stage == "approval"
+    assert persisted.deployment_intent_id is None
 
 
 def test_invalid_stage_transition_is_rejected(tmp_path: Path, monkeypatch) -> None:

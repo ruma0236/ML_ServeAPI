@@ -89,6 +89,7 @@ const profile = {
     require_cd: true,
     require_ct: true,
     require_drift_review: true,
+    require_controlled_replay: false,
     approval_policy: "two_person",
     target_environment: "staging",
     target_namespace: "evm-staging"

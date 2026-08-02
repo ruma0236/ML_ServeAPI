@@ -37,6 +37,13 @@ from evm.control_panel.lifecycle_quality_guard import (
     quality_review_path,
     register_quality_review,
 )
+from evm.control_panel.lifecycle_release_guard import (
+    LifecycleReleaseGuardBlocked,
+    LifecycleReleaseGuardRegistration,
+    authorize_release_guard,
+    register_release_guard,
+    release_guard_path,
+)
 from evm.control_panel.pipeline_profiles import (
     PipelineProfileRecord,
     get_profile,
@@ -219,6 +226,15 @@ class LifecycleRun(ContractModel):
         pattern=r"^[a-f0-9]{64}$",
     )
     release_submission_uri: str | None = None
+    release_guard_required: bool = False
+    release_guard_uri: str | None = None
+    release_guard_id: str | None = None
+    release_guard_state: Literal[
+        "rejected_release",
+        "rolled_back",
+        "approved_for_release",
+    ] | None = None
+    release_guard_replay_run_id: str | None = None
     resource_handoff_uri: str | None = None
     deployment_intent_id: str | None = None
     approver: str | None = None
@@ -445,6 +461,7 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
         guard_decision="pass",
         guard_authorities=["D", "E"],
         guard_blockers=[],
+        release_guard_required=record.profile.gates.require_controlled_replay,
         blockers=[] if source_commit else ["source_revision_missing"],
         stages=stages,
         audit=[
@@ -856,6 +873,14 @@ def approve_lifecycle_run(
                 ", ".join(exc.blockers),
                 status_code=422,
             ) from exc
+        try:
+            authorize_release_guard(run)
+        except LifecycleReleaseGuardBlocked as exc:
+            raise LifecycleRunError(
+                exc.code,
+                ", ".join(exc.blockers),
+                status_code=422,
+            ) from exc
         decision = lifecycle_guard_decision(run, "approval", "approve")
         now = utc_now()
         run.stages[index] = stage.model_copy(
@@ -1009,6 +1034,46 @@ def register_lifecycle_quality_review(
                 registration_attempts=review.registration_attempts,
                 duplicate_attempts=review.duplicate_attempts,
                 stale_attempts=review.stale_attempts,
+            )
+        )
+        return run
+
+    return mutate_run(run_id, request.expected_version, update)
+
+
+def register_lifecycle_release_guard(
+    run_id: str,
+    request: LifecycleReleaseGuardRegistration,
+) -> LifecycleRun:
+    def update(run: LifecycleRun) -> LifecycleRun:
+        if run.state != "waiting_approval" or run.current_stage != "approval":
+            raise LifecycleRunError(
+                "release_guard_registration_stage_invalid",
+                "Controlled replay evidence binds only at the release approval boundary.",
+                status_code=422,
+            )
+        try:
+            guard = register_release_guard(run, request)
+        except LifecycleReleaseGuardBlocked as exc:
+            raise LifecycleRunError(
+                exc.code,
+                ", ".join(exc.blockers),
+                status_code=422,
+            ) from exc
+        run.release_guard_uri = str(release_guard_path(run))
+        run.release_guard_id = guard.guard_id
+        run.release_guard_state = guard.state
+        run.release_guard_replay_run_id = guard.replay_run_id
+        run.guard_authorities = sorted(set([*run.guard_authorities, "B"]))
+        run.audit.append(
+            audit(
+                request.actor,
+                "lifecycle_release_guard_registered",
+                reason=request.reason,
+                release_guard_id=guard.guard_id,
+                replay_run_id=guard.replay_run_id,
+                release_guard_state=guard.state,
+                blocker_codes=",".join(guard.blocker_codes),
             )
         )
         return run

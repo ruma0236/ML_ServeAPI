@@ -121,6 +121,7 @@ class GateProfile(ContractModel):
     require_cd: bool = True
     require_ct: bool = True
     require_drift_review: bool = True
+    require_controlled_replay: bool = False
     approval_policy: Literal[
         "manual",
         "two_person",
@@ -485,6 +486,13 @@ def capability_matrix(profile: PipelineRunProfile) -> list[PipelineCapability]:
             "not_wired",
             profile.experiment.ab_test_enabled,
             "Candidate metadata is modeled, but no KServe/Ingress traffic split mutation exists.",
+        ),
+        capability(
+            "controlled_replay_guard",
+            "Controlled replay release guard",
+            "wired",
+            profile.gates.require_controlled_replay,
+            "A run-bound isolated replay validates candidate identity, quality, latency, errors, and exact stable restoration before approval.",
         ),
         capability(
             "full_lifecycle_orchestrator",
