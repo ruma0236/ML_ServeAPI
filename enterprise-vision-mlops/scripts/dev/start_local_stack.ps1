@@ -32,6 +32,7 @@ try {
     $env:EVM_GIT_COMMIT = $commit
     $env:EVM_GIT_BRANCH = $branch
     $env:EVM_EXPECTED_CI_COMMIT = $commit
+    $env:EVM_LIFECYCLE_GUARD_REQUIRE_RUNTIME_MATCH = "true"
 
     $artifactRoot = if ($env:EVM_HOST_ARTIFACTS_ROOT) {
         $env:EVM_HOST_ARTIFACTS_ROOT

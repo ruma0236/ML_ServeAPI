@@ -466,6 +466,9 @@ $env:PYTHONPATH = "$ProjectRoot\src;$ProjectRoot"
 $env:EVM_GIT_COMMIT = $commit
 $env:EVM_GIT_BRANCH = $branch
 $env:EVM_EXPECTED_CI_COMMIT = $commit
+if (-not $env:EVM_LIFECYCLE_GUARD_REQUIRE_RUNTIME_MATCH) {
+    $env:EVM_LIFECYCLE_GUARD_REQUIRE_RUNTIME_MATCH = "true"
+}
 $EnginePython = Resolve-PythonRuntime
 
 if (-not $Run) {

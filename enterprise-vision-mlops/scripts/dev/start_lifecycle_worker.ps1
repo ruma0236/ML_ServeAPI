@@ -138,6 +138,9 @@ if (-not $env:EVM_GIT_BRANCH) {
     $env:EVM_GIT_BRANCH = (git -C $ProjectRoot rev-parse --abbrev-ref HEAD).Trim()
 }
 $env:EVM_EXPECTED_CI_COMMIT = $env:EVM_GIT_COMMIT
+if (-not $env:EVM_LIFECYCLE_GUARD_REQUIRE_RUNTIME_MATCH) {
+    $env:EVM_LIFECYCLE_GUARD_REQUIRE_RUNTIME_MATCH = "true"
+}
 if (-not $env:EVM_SUPERVISOR_LEASE_ID) {
     $env:EVM_SUPERVISOR_LEASE_ID = "standalone-$([Guid]::NewGuid().ToString('N'))"
 }
