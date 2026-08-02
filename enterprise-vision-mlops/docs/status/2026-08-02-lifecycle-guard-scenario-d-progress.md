@@ -2,8 +2,8 @@
 
 Date: 2026-08-02
 Issue: `EVM-279 / SCRUM-187`
-Status: In Progress; implementation checkpoint complete, integrated replay and
-exact child-process recovery proof pending
+Status: In Progress; non-disruptive replay and exact child-process recovery
+accepted, combined active-training recovery retry pending
 
 ## Integration Gap Confirmed
 
@@ -98,19 +98,43 @@ running, the exact Job UID exists, and its side effect is `reserved`, then wait
 without manual repair for training, MLflow, CT, staging, CUDA, Prometheus, and
 production restoration. Full Python verification is now `461 / 461`.
 
+### First combined active-training attempt RCA
+
+Source `7a68097` attempt
+`scenario-d-training-20260802T183826Z-7a68097a` created run
+`lifecycle-20260802T183833-47cdc111`. The real Airflow data stage completed all
+18 terminal tasks, including the F-drive intake audit (`326.018 s`) and image
+quality gate (`285.105 s`). Before any worker termination or Kubernetes Job
+creation, the training stage failed closed with
+`gpu_handoff_approval_missing:training`.
+
+The attempt had not issued the three single-use resource-handoff approvals
+required by the existing single-GPU contract. No exact-worker fault injection,
+Kubernetes Job, production scale, MLflow run, candidate, or deployment intent
+occurred. Production B0 remained `1/1` with CUDA inference, and the attempt is
+retained unchanged as RCA evidence.
+
+The runner now issues `training`, `isolated_ct`, and `staging_deployment`
+approval receipts against the exact run, source revision, active holder UID,
+action digest, and bounded TTL before queueing. The later lifecycle release
+approval is performed by a requester-independent validation actor using the
+sealed candidate, model digest, and CT evaluation identity. Missing identity,
+replayed approval, or missing receipt remains fail closed. Future runner
+failures also persist the exact error and run snapshot. Focused approval and
+orchestration tests pass `32 / 32`; the full Python suite passes `463 / 463`.
+
 ## Remaining Exit Work
 
 This checkpoint does not close Scenario D. The remaining proof must:
 
-1. run deterministic side-effect replay against an isolated copy of the real
-   accepted lifecycle evidence;
-2. prove zero delta in Kubernetes Job, MLflow run, candidate, and deployment
-   intent identity sets;
-3. perform bounded live termination of only the exact supervisor-owned worker
-   and observer after source/runtime convergence;
-4. measure detection, recovery, revision convergence, duplicate-process and
-   production/GPU/CUDA/Prometheus invariants;
-5. hash-close the dedicated F-drive evidence attempt and synchronize the final
+1. execute a new source-bound combined attempt with all exact single-use
+   handoff approvals present;
+2. terminate only the exact supervisor-owned worker while the real training
+   Job is active and its side effect remains `reserved`;
+3. prove same-Job read-only reconciliation, autonomous 10/10 lifecycle
+   completion, revision convergence, and production/GPU/CUDA/Prometheus
+   restoration;
+4. hash-close the dedicated F-drive evidence attempt and synchronize the final
    result across Git, Jira, Notion, and Obsidian.
 
 ## Claim Boundary

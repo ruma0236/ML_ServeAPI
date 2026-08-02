@@ -304,6 +304,19 @@ and its durable side effect remains `reserved`. It then observes autonomous
 same-Job reconciliation and full lifecycle completion. The full suite passes
 `461 / 461`; clean-source runtime execution is the remaining D exit gate.
 
+The first combined attempt at source `7a68097`, runner series
+`scenario-d-training-20260802T183826Z-7a68097a`, completed the real Airflow
+data stage with all 18 tasks terminal, then failed closed before worker
+termination or Kubernetes Job creation with
+`gpu_handoff_approval_missing:training`. Production B0 remained `1/1` with
+CUDA and there was no Job, MLflow, candidate, intent, or process mutation.
+This exposed a harness admission gap, not a Scenario D recovery result. The
+runner now issues three exact, bounded, single-use GPU handoff approvals before
+queueing and binds the later independent release approval to the sealed
+candidate/model/CT tuple. Missing or replayed evidence still blocks. Focused
+tests pass `32 / 32` and the full suite passes `463 / 463`; a new immutable
+source-bound attempt is required.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -313,6 +326,7 @@ same-Job reconciliation and full lifecycle completion. The full suite passes
 | `lifecycle-20260802T161927-4992f133` | `1e1e251` | 11/11 preflight pass, then `runtime_revision_unavailable` for worker and observer before data dispatch | none; no Airflow task assignment was created | retain run; supervisor URI-path RCA fixed at `1d39845`; create a new source-bound attempt |
 | `lifecycle-20260802T163003-ec64fa8c` | `51731ed` | 11/11 preflight and Airflow 18/18 pass; training handoff then failed on a label-wide delete wait that included two historical Failed Pods | approved B0 1-to-0 handoff occurred; automatic rollback restored 1/1; no training Job, model, or deployment intent was created | retain run and failure artifact; exact active-Pod fix at `4d716a2`; create a new source-bound attempt |
 | `lifecycle-20260802T165525-279cf1dc` | `85867e1` | PASS: 11/11 preflight, Airflow 18/18, real CUDA training, MLflow, readiness 13/13, isolated CT 18/18, local-staging approval/deploy, CUDA serving and Prometheus; 10/10 stages complete | eight intended side effects; bounded single-GPU handoffs; cleanup restored exact production B0 1/1 and staging 0/0 | accepted golden baseline; result under F-drive `validation/integrated-attempt-result.json`; proceed to E on a new immutable attempt |
+| `lifecycle-20260802T183833-47cdc111` | `7a68097` | Airflow 18/18 terminal; training blocked before Job admission with `gpu_handoff_approval_missing:training` | none; no worker termination or resource handoff; production B0 remained CUDA-ready | retain immutable RCA; runner now pre-issues exact phase approvals and independently approves the sealed release; retry from a new source revision |
 
 ## Synchronization Rule
 

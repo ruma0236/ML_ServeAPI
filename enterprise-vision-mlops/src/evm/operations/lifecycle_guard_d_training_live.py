@@ -11,11 +11,14 @@ from typing import Any
 
 import requests
 
+from evm.control_panel.lifecycle_gpu_handoff import issue_gpu_handoff_approval
 from evm.control_panel.lifecycle_guards import (
     LifecycleSideEffectLedger,
     canonical_digest,
     file_digest,
 )
+from evm.control_panel.lifecycle_runs import LifecycleRun
+from evm.control_panel.readiness_evaluator import runtime_path
 from evm.operations.lifecycle_guard_e_runner import (
     DEFAULT_INFERENCE_IMAGE_URI,
     build_evidence_index,
@@ -43,6 +46,7 @@ DEFAULT_OUTPUT_ROOT = Path(
     "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/"
     "lifecycle_guard_d_training_live"
 )
+HANDOFF_PHASES = ("training", "isolated_ct", "staging_deployment")
 
 
 def api_request(
@@ -77,6 +81,99 @@ def kubectl_json(command: list[str]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError("kubectl_object_required")
     return payload
+
+
+def docker_desktop_kubectl(
+    command: list[str], **kwargs: Any
+) -> subprocess.CompletedProcess[str]:
+    if not command or command[0] != "kubectl":
+        raise RuntimeError("docker_desktop_kubectl_command_required")
+    return subprocess.run(
+        ["kubectl", "--context", "docker-desktop", *command[1:]],
+        **kwargs,
+    )
+
+
+def issue_run_handoff_approvals(
+    created: dict[str, Any],
+    *,
+    run_root: Path,
+    ttl_seconds: int,
+) -> dict[str, Any]:
+    run = LifecycleRun.model_validate(created)
+    approvals: dict[str, Any] = {}
+    for phase in HANDOFF_PHASES:
+        reference_path = issue_gpu_handoff_approval(
+            run,
+            phase=phase,
+            approver="scenario-d-resource-approver",
+            reason=(
+                "Pre-authorized bounded single-GPU handoff for Scenario D "
+                "integrated lifecycle validation"
+            ),
+            ttl_seconds=ttl_seconds,
+            runner=docker_desktop_kubectl,
+        )
+        approvals[phase] = {
+            "reference_uri": str(reference_path.resolve()),
+            "reference": read_json(reference_path),
+        }
+        write_json(run_root / "gpu-handoff-approvals.json", approvals)
+    return approvals
+
+
+def release_approval_request(
+    run: dict[str, Any], submission: dict[str, Any]
+) -> dict[str, Any]:
+    candidate_id = str(submission.get("candidate_id") or "")
+    model_digest = str(submission.get("model_digest") or "")
+    ct_evaluation_id = str(submission.get("ct_evaluation_id") or "")
+    if (
+        run.get("state") != "waiting_approval"
+        or run.get("current_stage") != "approval"
+        or not candidate_id
+        or len(model_digest) != 64
+        or not ct_evaluation_id
+    ):
+        raise RuntimeError("release_approval_identity_incomplete")
+    return {
+        "actor": "scenario-d-release-approver",
+        "approver": "scenario-d-release-approver",
+        "reason": (
+            "Approve the sealed local-staging release for the pre-authorized "
+            "Scenario D integrated lifecycle validation"
+        ),
+        "candidate_id": candidate_id,
+        "model_digest": model_digest,
+        "ct_evaluation_id": ct_evaluation_id,
+        "expected_version": run["version"],
+    }
+
+
+def handoff_consumption_snapshot(approvals: dict[str, Any]) -> dict[str, Any]:
+    consumed: dict[str, Any] = {}
+    for phase in HANDOFF_PHASES:
+        reference = approvals.get(phase, {}).get("reference", {})
+        approval_uri = str(reference.get("approval_path") or "")
+        if not approval_uri:
+            consumed[phase] = {
+                "approval_id": reference.get("approval_id"),
+                "consumed_uri": None,
+                "consumed": False,
+                "receipt": None,
+            }
+            continue
+        approval_path = Path(approval_uri)
+        consumed_path = approval_path.with_name(
+            f"{approval_path.stem}.consumed.json"
+        )
+        consumed[phase] = {
+            "approval_id": reference.get("approval_id"),
+            "consumed_uri": str(consumed_path.resolve()),
+            "consumed": consumed_path.is_file(),
+            "receipt": read_json(consumed_path) if consumed_path.is_file() else None,
+        }
+    return consumed
 
 
 def active_run_ids() -> list[str]:
@@ -255,6 +352,7 @@ def wait_for_terminal(
     *,
     timeout_seconds: float,
     timeline: list[dict[str, Any]],
+    run_root: Path,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + timeout_seconds
     last_state: tuple[str, str, str] | None = None
@@ -287,6 +385,39 @@ def wait_for_terminal(
             "rolled_back",
         }:
             return run
+        if run.get("state") == "waiting_approval" and current == "approval":
+            approval_path = run_root / "release-approval.json"
+            if approval_path.exists():
+                raise RuntimeError("release_approval_replay_blocked")
+            submission_uri = str(run.get("release_submission_uri") or "")
+            if not submission_uri:
+                raise RuntimeError("release_submission_missing_at_approval")
+            submission = read_json(runtime_path(submission_uri))
+            request = release_approval_request(run, submission)
+            approved = api_request(
+                "POST",
+                f"/lifecycle-runs/{run_id}/approve",
+                request,
+            )
+            write_json(
+                approval_path,
+                {
+                    "request": request,
+                    "submission_uri": submission_uri,
+                    "submission_digest": submission.get("submission_digest"),
+                    "response": approved,
+                },
+            )
+            timeline.append(
+                {
+                    "observed_at": utc_now().isoformat(),
+                    "phase": "sealed_release_approved",
+                    "run_state": approved.get("state"),
+                    "current_stage": approved.get("current_stage"),
+                    "runtime_state": "approved",
+                    "progress": approved.get("progress"),
+                }
+            )
         time.sleep(2)
     raise TimeoutError("lifecycle_completion_timeout")
 
@@ -340,6 +471,7 @@ def run(
     source_branch: str,
     admission_timeout_seconds: float,
     completion_timeout_seconds: float,
+    handoff_approval_ttl_seconds: int,
     inference_image_uri: str,
 ) -> Path:
     head = git_text(project_root, "rev-parse", "HEAD")
@@ -383,6 +515,11 @@ def run(
     )
     run_id = str(created["run_id"])
     write_json(run_root / "created-run.json", created)
+    handoff_approvals = issue_run_handoff_approvals(
+        created,
+        run_root=run_root,
+        ttl_seconds=handoff_approval_ttl_seconds,
+    )
     queued = api_request(
         "POST",
         f"/lifecycle-runs/{run_id}/queue",
@@ -466,10 +603,20 @@ def run(
             run_id,
             timeout_seconds=completion_timeout_seconds,
             timeline=timeline,
+            run_root=run_root,
         )
-    except Exception:
+    except Exception as exc:
         try:
             current = api_request("GET", f"/lifecycle-runs/{run_id}")
+            write_json(
+                run_root / "failure.json",
+                {
+                    "failed_at": utc_now().isoformat(),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "run": current,
+                },
+            )
             cancelled = safe_cancel(
                 current,
                 "Scenario D integrated proof failed or timed out; request automatic safe cleanup",
@@ -487,6 +634,8 @@ def run(
     write_json(run_root / "after-runtime.json", after_runtime)
     write_json(run_root / "after-side-effects.json", after_effects)
     final_ledger, ledger_path = side_effect_ledger(terminal)
+    handoff_consumption = handoff_consumption_snapshot(handoff_approvals)
+    write_json(run_root / "gpu-handoff-consumption.json", handoff_consumption)
     training_entry = exact_training_entry(final_ledger)
     tasks = tasks_for_run(run_id)
     jobs = run_job_identities(run_id)
@@ -526,6 +675,14 @@ def run(
             and any(item["namespace"] == "evm-validation" for item in jobs)
         ),
         "approval_consumed_once": approval["decision"] == "consumed",
+        "gpu_handoff_approvals_consumed_once": (
+            set(handoff_consumption) == set(HANDOFF_PHASES)
+            and all(item["consumed"] for item in handoff_consumption.values())
+            and all(
+                item["receipt"].get("run_id") == run_id
+                for item in handoff_consumption.values()
+            )
+        ),
         "runtime_revision_converged": (
             after_runtime["supervisor"].get("source_commit") == source_commit
             and all(
@@ -604,6 +761,7 @@ def main() -> int:
     parser.add_argument("--source-branch", required=True)
     parser.add_argument("--admission-timeout-seconds", type=float, default=900)
     parser.add_argument("--completion-timeout-seconds", type=float, default=3600)
+    parser.add_argument("--handoff-approval-ttl-seconds", type=int, default=7200)
     parser.add_argument("--inference-image-uri", default=DEFAULT_INFERENCE_IMAGE_URI)
     args = parser.parse_args()
     result = run(
@@ -616,6 +774,7 @@ def main() -> int:
         source_branch=args.source_branch,
         admission_timeout_seconds=args.admission_timeout_seconds,
         completion_timeout_seconds=args.completion_timeout_seconds,
+        handoff_approval_ttl_seconds=args.handoff_approval_ttl_seconds,
         inference_image_uri=args.inference_image_uri,
     )
     print(json.dumps({"result_uri": str(result.resolve())}, sort_keys=True))
