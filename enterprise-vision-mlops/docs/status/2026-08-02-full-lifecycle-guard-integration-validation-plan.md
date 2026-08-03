@@ -61,8 +61,8 @@ The planning source baseline is Git `e247efd133a2c486e81a1e700aa68133876770a9`.
 | 3 | `EVM-279` | `SCRUM-187` | D idempotent lifecycle continuity and side-effect reconciliation | Done | `EVM-278` |
 | 4 | `EVM-280` | `SCRUM-188` | C quality/drift review, hold, and governed resume | Done | `EVM-279` |
 | 5 | `EVM-281` | `SCRUM-189` | B candidate release guardrail and stable rollback | Done; two fresh real lifecycle branches PASS | `EVM-280` |
-| 6 | `EVM-282` | `SCRUM-190` | A post-promotion GPU serving recovery | In Progress; first live attempt retained as failed RCA, exact M0 recovered, path/reconcile remediation awaiting fresh proof | `EVM-281` |
-| 7 | `EVM-283` | `SCRUM-191` | single-scenario integrated evidence closure | To Do | `EVM-282` |
+| 6 | `EVM-282` | `SCRUM-190` | A post-promotion GPU serving recovery | Done; fresh M1 transaction/recovery/M0 rollback PASS, 38/38 hashes | `EVM-281` |
+| 7 | `EVM-283` | `SCRUM-191` | single-scenario integrated evidence closure | In Progress; A-E evidence validator and lifecycle-reachability audit next | `EVM-282` |
 | 8 | `EVM-284` | `SCRUM-192` | final VisA operations drill | To Do, final gate | `EVM-283`, `EVM-274`, `EVM-275` |
 
 `EVM-283` must block the pairwise proof `EVM-274`: each guard must work inside
@@ -485,12 +485,13 @@ Expected guard action:
 - a rollback exercise separately proves exact `M0` restoration without
   rewriting the successful `M1` recovery evidence.
 
-Implementation checkpoint: the source-bound transaction runner, fixed M0/M1
-configuration, exact resourceVersion patch, single-use apply/rollback
-approvals, M1 stable-pointer CAS, existing UID-preconditioned recovery engine,
-and evidence index are implemented. The accepted Scenario D lifecycle package
-is independently re-hashed as M1; 497/497 Python tests and touched-file Ruff
-pass. No M1 apply, Pod restart or rollback has yet occurred at this checkpoint.
+Closure PASS at source `d121c9c`: fresh M1 apply/verify/commit completed in
+`18.173018 s`; exact M1 Pod loss was detected in `0.2045879 s` and recovered in
+`10.0966768 s` with `9.8788259 s` endpoint interruption; separate M0 rollback
+completed in `57.634592 s`. The Recreate zero-Pod condition exercised the new
+exact reconcile guard. Final M0/CUDA/Prometheus/plugin state passed and 38/38
+evidence hashes matched. See
+`docs/status/2026-08-03-lifecycle-guard-scenario-a-closure.md`.
 
 ## Retry, Resume And Immutability Rules
 

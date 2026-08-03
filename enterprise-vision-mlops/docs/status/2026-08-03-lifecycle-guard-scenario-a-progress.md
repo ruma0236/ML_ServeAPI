@@ -1,6 +1,6 @@
 # Lifecycle Guard Scenario A Integrated Progress
 
-Status: In Progress
+Status: PASS; superseded by `2026-08-03-lifecycle-guard-scenario-a-closure.md`
 Jira: `SCRUM-190 / EVM-282`, entry comment `10555`
 Current remediation commit: `9c98bfd`
 
@@ -70,3 +70,12 @@ recovery is operational RCA evidence only.
   resourceVersion, strategy or replica-intent mismatch remains fail closed.
 - The next acceptance attempt must use a new source revision, approvals and
   immutable run root. Attempt 1 cannot be resumed or relabeled as passed.
+
+## Accepted Closure
+
+Fresh run `scenario-a-lifecycle-20260803T003224Z-d121c9c5-351ae3c7` passed M1
+apply/verify/commit, exact committed-M1 Pod recovery and separate M0 rollback.
+Detection was `0.2045879 s`, recovery `10.0966768 s`, interruption
+`9.8788259 s`, and rollback `57.634592 s`. Independent evidence closure passed
+`38/38`; final M0/CUDA/Prometheus/device-plugin state is healthy. See
+`docs/status/2026-08-03-lifecycle-guard-scenario-a-closure.md`.

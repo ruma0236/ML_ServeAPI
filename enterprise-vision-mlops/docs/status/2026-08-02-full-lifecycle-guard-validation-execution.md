@@ -99,8 +99,8 @@ They are not golden-path or scenario acceptance.
 | D lifecycle guard | complete | source `7f253ac`; full lifecycle 10/10, exact-worker detection/recovery `6.9141254 / 10.0661301 s`, same Job without redispatch, B0/Prometheus restored | C guard |
 | C lifecycle guard | complete | source `39d4cd2`; 18/18 checks, real drift hold/resume, CUDA training, MLflow, isolated CT, intent zero and 21/21 integrated hashes | B guard |
 | B lifecycle guard | in progress | exact-run release guard, immutable profile requirement, evidence closure, two-branch runner and 54 focused tests implemented; fresh lifecycle execution pending | A maintenance preflight |
-| A lifecycle guard | maintenance gated | pending | integrated closure |
-| final integrated closure | not started | pending | cross-scenario handoff |
+| A lifecycle guard | complete | fresh M1 transaction, exact M1 Pod recovery, separate M0 rollback and 38/38 hashes PASS | integrated closure |
+| final integrated closure | in progress | A-E lifecycle-reachability and evidence validator pending | cross-scenario handoff |
 
 ## Current Findings
 
@@ -538,6 +538,7 @@ implemented for a fresh attempt. `SCRUM-190 / EVM-282` remains In Progress.
 | `scenario-a-lifecycle-20260803T000920Z-0209bac1-47eaa66e` | `0209bac` | M1 apply/verify/pointer PASS in 35.879184 s; failed before M1 restart because nested atomic state path was 275 characters | M1 rollout committed; emergency M0 patch; Recreate rollout then stalled at zero active Pods | immutable failed attempt; no acceptance credit; compact path and rollout reconciliation RCA required |
 | `rollback-recovery-20260803T001831Z` | `0209bac` | delayed M0 recovery PASS: exact CUDA inference and two distinct Prometheus scrapes in 30.560015 s | one exact Deployment reconcile annotation under the already-consumed rollback approval; device-plugin/data/cluster unchanged | pointer revision 2 restored M0; operational recovery evidence only, not Scenario A acceptance |
 | Scenario A remediation checkpoint | `9c98bfd` | compact recovery ID/root, 240-character atomic path preflight and exact Recreate rollout reconciliation; 7/7 focused and 499/499 full tests | none after delayed rollback closure | converge runtime and start a fresh immutable attempt |
+| `scenario-a-lifecycle-20260803T003224Z-d121c9c5-351ae3c7` | `d121c9c` | PASS: M1 apply/commit 18.173018 s; exact M1 Pod detection/recovery 0.2045879/10.0966768 s; interruption 9.8788259 s; M0 rollback 57.634592 s | two exact model rollouts, one exact M1 Pod restart; device-plugin/data/registry/cluster-wide zero | accepted Scenario A closure; 38/38 hashes; exact M0 1/1 CUDA/Prometheus/plugin restored; proceed to EVM-283 |
 
 ## Synchronization Rule
 
