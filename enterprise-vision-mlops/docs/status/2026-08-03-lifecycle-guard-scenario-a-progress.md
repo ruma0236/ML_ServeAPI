@@ -2,6 +2,7 @@
 
 Status: In Progress
 Jira: `SCRUM-190 / EVM-282`, entry comment `10555`
+Current remediation commit: `9c98bfd`
 
 ## Acceptance Boundary
 
