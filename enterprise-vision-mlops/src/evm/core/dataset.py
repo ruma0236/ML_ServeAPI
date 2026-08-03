@@ -73,6 +73,7 @@ def shard_index_identity_digest(payload: dict[str, Any]) -> str:
                 "record_count",
                 "first_sample_id",
                 "last_sample_id",
+                "sha256",
             )
         }
         for shard in shards

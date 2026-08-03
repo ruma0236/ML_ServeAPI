@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Sequence
 from typing import Any
 
-from evm.core.config import get_nested
 from evm.core.dataset import shard_index_identity_digest
 from evm.core.image_quality import stable_split, summarize_counts
 from evm.core.pipeline import (
@@ -71,6 +71,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
                     "record_count": len(chunk),
                     "first_sample_id": _record_key(chunk[0]) if chunk else "",
                     "last_sample_id": _record_key(chunk[-1]) if chunk else "",
+                    "sha256": hashlib.sha256(shard_path.read_bytes()).hexdigest(),
                 }
             )
             shard_index += 1
@@ -91,7 +92,17 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "trace": ctx.trace.to_dict(),
     }
     index_payload["identity_sha256"] = shard_index_identity_digest(index_payload)
-    write_json(index_path, index_payload)
+    reuse_existing_index = False
+    if index_path.is_file():
+        existing = json.loads(index_path.read_text(encoding="utf-8-sig"))
+        if not isinstance(existing, dict):
+            raise ValueError("existing_shard_index_object_required")
+        reuse_existing_index = (
+            existing.get("schema_version") == index_payload["schema_version"]
+            and existing.get("identity_sha256") == index_payload["identity_sha256"]
+        )
+    if not reuse_existing_index:
+        write_json(index_path, index_payload)
     write_json(ctx.run_dir / "summary.json", index_payload)
     write_markdown_report(
         ctx,

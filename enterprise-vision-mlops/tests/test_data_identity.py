@@ -171,4 +171,56 @@ def test_dataset_shard_index_records_split_policy(tmp_path: Path, monkeypatch) -
 
     assert result["split_seed"] == 20260706
     assert result["split_ratios"] == {"train": 0.6, "validation": 0.2, "test": 0.2}
+    assert all(len(shard["sha256"]) == 64 for shard in result["shards"])
     assert result["identity_sha256"] == shard_index_identity_digest(result)
+
+
+def test_dataset_shards_preserves_canonical_index_for_same_identity(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='tmp'\n", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    manifest = tmp_path / "quality.jsonl"
+    manifest.write_text(
+        "".join(
+            json.dumps({"sample_id": f"sample-{index}", "label": "normal"})
+            + "\n"
+            for index in range(10)
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "shards"
+    index_path = output / "shard_index.json"
+    config = tmp_path / "config.toml"
+    config.write_text(
+        "\n".join(
+            [
+                "[project]",
+                'name = "tmp"',
+                "",
+                "[paths]",
+                f'artifacts_root = "{(tmp_path / "artifacts").as_posix()}"',
+                f'reports_root = "{(tmp_path / "reports").as_posix()}"',
+                "",
+                "[pipelines.dataset_shards]",
+                f'input_manifest = "{manifest.as_posix()}"',
+                f'output_dir = "{output.as_posix()}"',
+                f'index_path = "{index_path.as_posix()}"',
+                "records_per_shard = 4",
+                "split_seed = 20260706",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("EVM_TRACE_ID", "trace-first")
+    first = run_dataset_shards(str(config))
+    canonical = index_path.read_bytes()
+    monkeypatch.setenv("EVM_TRACE_ID", "trace-second")
+    second = run_dataset_shards(str(config))
+
+    assert first["identity_sha256"] == second["identity_sha256"]
+    assert first["trace"]["trace_id"] == "trace-first"
+    assert second["trace"]["trace_id"] == "trace-second"
+    assert index_path.read_bytes() == canonical

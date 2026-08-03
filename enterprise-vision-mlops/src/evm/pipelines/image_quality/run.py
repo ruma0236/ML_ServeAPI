@@ -209,7 +209,6 @@ def _enrich_record(
             "blur_proxy": blur_proxy,
             "diagnostics": diagnostics,
         },
-        "quality_checked_at": utc_now(),
     }
     return enriched, diagnostics
 
@@ -287,6 +286,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     quality_pass = gate_decision.status == "pass"
     report = {
         "status": "pass" if quality_pass else "fail",
+        "evaluated_at": utc_now(),
         "gate_decision": gate_decision.to_dict(),
         "quality_policy": policy.to_report(),
         "etl_recipe": etl_recipe_summary,

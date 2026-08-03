@@ -125,6 +125,8 @@ fail_on_error = true
     assert records[0]["image_quality"]["image_readable"] is True
     assert records[0]["image_quality"]["detected_width"] == 2
     assert records[0]["image_quality"]["detected_height"] == 3
+    assert "quality_checked_at" not in records[0]
+    assert report["evaluated_at"].endswith("Z")
 
 
 def test_image_quality_rejects_empty_input_without_overwriting_outputs(tmp_path, monkeypatch):

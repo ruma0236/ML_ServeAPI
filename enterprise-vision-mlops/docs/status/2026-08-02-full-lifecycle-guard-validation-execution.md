@@ -82,11 +82,21 @@ candidate so it does not reuse a run already injected by Scenario D.
   the same run.
 - **SLI/SLO:** guard decision within policy timeout; duplicate/stale signal
   creates no duplicate candidate or side effect.
-- **Result/evidence:** pending.
-- **RCA/remediation:** pending; any failed attempt remains immutable.
+- **Result/evidence:** attempt 0 stopped before LifecycleRun creation with
+  `shard_index_digest_mismatch`: expected `8b6f281a...`, observed
+  `df1271df...`. Airflow, Kubernetes Job, MLflow, candidate and intent delta
+  are all zero.
+- **RCA/remediation:** the daily image-quality stage wrote a new
+  `quality_checked_at` into every canonical record and dataset-shards wrote a
+  new trace into the same index path. The existing shard identity omitted
+  shard content hashes, so it remained `64043ade...` while all 23 shard byte
+  hashes changed. Remediation separates evaluation time from canonical
+  records, includes each shard SHA-256 in the stable identity, and preserves
+  the canonical index when that complete identity is unchanged. The corrected
+  pipeline must regenerate and re-seal the current manifest before retry.
 - **Invariants:** production B0, canonical data and unrelated runtime unchanged.
 - **Claim boundary:** local batch drift validation, not online business drift.
-- **Status:** pending.
+- **Status:** remediation in progress; no integration injection credit.
 
 ### Scenario B
 
