@@ -2,7 +2,7 @@
 
 Date: 2026-08-03
 Jira: `SCRUM-191 / EVM-283`
-Status: IMPLEMENTED; integrated runtime proof pending
+Status: PASS; integrated runtime and A-E closure accepted
 
 ## Purpose
 
@@ -67,7 +67,7 @@ Two implementation defects were found and fixed before runtime execution:
    Run-local contract, claim, receipt and derived-release names were shortened
    without weakening identity binding.
 
-## Pending Acceptance
+## Superseded Pending Acceptance
 
 No integrated runtime PASS is claimed at this checkpoint. The next action is to
 commit and deploy this exact revision to the supervised local control plane,
@@ -98,6 +98,42 @@ RCA evidence and receives no acceptance credit.
 Remediation maps the receipt URI through the shared runtime-path contract and
 re-hashes the derived submission against the receipt before replay. A new
 source-bound run is required; the failed attempt is not relabeled as PASS.
+
+## Accepted Attempt And Closure
+
+Fresh series `scenario-e-integrated-20260803T030435Z-55e9f243` passed all
+`20/20` integrated checks at source `55e9f2432185580215b426a4f9c383e9ec27994d`.
+
+- Data run `lifecycle-20260803T030442-5aed7911` completed real Airflow in
+  `525 s`, blocked at L2 on `integrity_shard_index_identity_mismatch`, kept
+  training attempt zero and produced zero external side effects.
+- Corrected run `lifecycle-20260803T031337-7a609762` completed real Airflow in
+  `523 s`, CUDA training in `148 s`, MLflow run
+  `f603be0afe8140308bc1a0aa549d6536`, readiness and isolated CT
+  `ct-eval-9263131a46cf1f85` in `41 s`.
+- Canonical release passed three identical decisions. The run-local wrong
+  model identity produced three identical blocked decisions and the actual
+  approval plus duplicate use both returned HTTP 422.
+- External delta was Kubernetes Jobs `+2`, MLflow runs `+1`, candidates `+1`
+  and deployment intents `0`. Canonical dataset hashes and exact production
+  B0 identity were unchanged; active lifecycle runs returned to zero.
+- Integrated result SHA-256 is
+  `2eebbf212393f6957bd5b725cfcdff44a26f1a8de2bf516e0372471a4b5c3dd2`.
+  Its 32-artifact evidence-index SHA-256 is
+  `7fc7321392a7a2cb3d1cca974ae85f09e91d0a27b3324539669a3487ab693c33`.
+
+The final A-E audit `closure-20260803T032754Z-55e9f243` passed every scenario,
+all runtime-restoration checks and admitted the next gate. Scenario E closed
+two indexes and `165` artifacts. Closure result SHA-256 is
+`fb8650adab5895bc232caba7f5c884eb8295204b5f2d279a49f53fbb98f6ff55`;
+closure evidence-index SHA-256 is
+`1663ffd624b4c1cb5f802dd496b980a49c1c7cd070bdb8a4b0dfbf73998c0ce9`.
+
+Final regression is focused `54/54` and full Python `515/515`. Ruff passes for
+all Scenario E and closure files changed by this work, and both PowerShell
+entrypoints parse successfully. Repository-wide Ruff still reports nine
+pre-existing findings in unrelated files; this closure does not relabel that
+separate lint debt as green.
 
 ## Claim Boundary
 

@@ -1,7 +1,7 @@
 schema_version = "evm.lifecycle_guard_closure_contract.v1"
 evidence_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations"
 output_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/lifecycle_guard_closure"
-expected_runtime_revision = "d121c9c5305ea40f18f94603d195f55df8ccba2c"
+expected_runtime_revision = "55e9f2432185580215b426a4f9c383e9ec27994d"
 
 [scenario_a]
 root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/lifecycle_guard_a/scenario-a-lifecycle-20260803T003224Z-d121c9c5-351ae3c7"
@@ -44,5 +44,5 @@ observer_reports = [
 
 [scenario_e]
 root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/lifecycle_guard_validation/scenario-e-lifecycle-20260802T175222Z-bc726d96"
+integrated_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/lifecycle_guard_e_integrated/scenario-e-integrated-20260803T030435Z-55e9f243"
 required_live_mode = "lifecycle_stage_injection"
-

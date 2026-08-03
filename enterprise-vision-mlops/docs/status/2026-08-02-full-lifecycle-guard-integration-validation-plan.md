@@ -62,7 +62,7 @@ The planning source baseline is Git `e247efd133a2c486e81a1e700aa68133876770a9`.
 | 4 | `EVM-280` | `SCRUM-188` | C quality/drift review, hold, and governed resume | Done | `EVM-279` |
 | 5 | `EVM-281` | `SCRUM-189` | B candidate release guardrail and stable rollback | Done; two fresh real lifecycle branches PASS | `EVM-280` |
 | 6 | `EVM-282` | `SCRUM-190` | A post-promotion GPU serving recovery | Done; fresh M1 transaction/recovery/M0 rollback PASS, 38/38 hashes | `EVM-281` |
-| 7 | `EVM-283` | `SCRUM-191` | single-scenario integrated evidence closure | In Progress: A-D and current runtime PASS; E exact L2/L4/L6 hooks and runner implemented, integrated runtime proof pending | `EVM-282` |
+| 7 | `EVM-283` | `SCRUM-191` | single-scenario integrated evidence closure | Done: A-E reachability/determinism/hash/claim and exact runtime restoration PASS at `closure-20260803T032754Z-55e9f243` | `EVM-282` |
 | 8 | `EVM-284` | `SCRUM-192` | final VisA operations drill | To Do, final gate | `EVM-283`, `EVM-274`, `EVM-275` |
 
 `EVM-283` must block the pairwise proof `EVM-274`: each guard must work inside

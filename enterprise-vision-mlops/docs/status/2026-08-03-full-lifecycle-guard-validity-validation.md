@@ -2,7 +2,7 @@
 
 Date: 2026-08-03
 Jira: `SCRUM-191 / EVM-283`
-Status: BLOCKED; A-D and current runtime PASS, E lifecycle reachability open
+Status: PASS; A-E lifecycle reachability, evidence and runtime restoration accepted
 
 ## Design
 
@@ -31,7 +31,7 @@ cannot satisfy lifecycle reachability.
   scenario-specific reachability rules, runtime projection and regression
   tests are implemented in this checkpoint.
 
-## Final Result
+## Historical Blocked Result
 
 The accepted audit is
 `closure-20260803T010400Z-b62d29f8`. Its result SHA-256 is
@@ -73,8 +73,8 @@ registry, data or deployment-intent mutation.
 5. Re-run this closure validator and admit `EVM-274/EVM-284` only if E reports
    actual lifecycle reachability and every A-E axis is PASS.
 
-Until then, `SCRUM-191 / EVM-283` remains In Progress and the next gate is
-closed. This is a valid negative test result, not an incomplete hash audit.
+This was a valid negative test result, not an incomplete hash audit. It remains
+immutable RCA and is superseded only by the fresh accepted evidence below.
 
 ## Integrated Remediation Checkpoint
 
@@ -85,6 +85,38 @@ Focused tests are `53 / 53` and the full Python suite is `514 / 514`. The
 historical closure result above remains unchanged and authoritative until the
 new integrated LifecycleRuns and closure audit complete; implementation alone
 does not clear the blocker.
+
+## Accepted Closure
+
+Scenario E integrated series
+`scenario-e-integrated-20260803T030435Z-55e9f243` passed at source `55e9f243`.
+The L2 run completed real Airflow and blocked before training. The corrected
+run completed real Airflow, CUDA B0 training, MLflow, readiness and isolated
+CT, then the actual approval endpoint failed closed on a run-local wrong model
+identity before deployment intent creation. All three data, canonical-release
+and corrupt-release replays had stable fingerprints.
+
+The final audit is `closure-20260803T032754Z-55e9f243`:
+
+| Scenario | Reachability | Decision and hash evidence | Result |
+|---|---|---|---|
+| A | L9 committed-target recovery | 3 decisions; 38 + 27 artifacts | PASS |
+| B | real L5/L7 branches | quality/runtime 3 each; 67 + 64 artifacts | PASS |
+| C | real L2/L3/L6 | 3 decisions; 21 + 51 artifacts | PASS |
+| D | real L3 worker continuity | worker/observer 3 each; 16 + 44 artifacts | PASS |
+| E | real L2/L4/L6 | 3 per branch; replay + integrated 165 artifacts | PASS |
+
+Runtime restoration also passed exact M0 1/1, CUDA, GPU allocatable 1,
+device-plugin 1/1, Prometheus API/B0 targets up, supervisor children live and
+revision `55e9f243`. Result SHA-256 is
+`fb8650adab5895bc232caba7f5c884eb8295204b5f2d279a49f53fbb98f6ff55`;
+evidence-index SHA-256 is
+`1663ffd624b4c1cb5f802dd496b980a49c1c7cd070bdb8a4b0dfbf73998c0ce9`.
+The next technical gate is admitted.
+
+Final regression is focused `54/54` and full Python `515/515`. Changed-file
+Ruff and both PowerShell parsers pass. Repository-wide Ruff has nine existing
+findings outside this change and remains separate follow-up debt.
 
 ## Claim Boundary
 
