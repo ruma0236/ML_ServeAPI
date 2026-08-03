@@ -173,6 +173,9 @@ def test_dataset_shard_index_records_split_policy(tmp_path: Path, monkeypatch) -
     assert result["split_ratios"] == {"train": 0.6, "validation": 0.2, "test": 0.2}
     assert all(len(shard["sha256"]) == 64 for shard in result["shards"])
     assert result["identity_sha256"] == shard_index_identity_digest(result)
+    assert b"\r\n" not in (output / "shard_index.json").read_bytes()
+    for shard in result["shards"]:
+        assert b"\r\n" not in Path(str(shard["path"])).read_bytes()
 
 
 def test_dataset_shards_preserves_canonical_index_for_same_identity(

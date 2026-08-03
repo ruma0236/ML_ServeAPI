@@ -153,6 +153,25 @@ def resolve_local_image(
     return first_candidate
 
 
+def canonical_runtime_image_path(
+    local_image: Path | None,
+    *,
+    host_data_root: Path | None,
+    data_mount_root: str | Path | None,
+) -> str:
+    if local_image is None:
+        return ""
+    normalized = str(local_image).replace("\\", "/")
+    host_root = str(host_data_root or "").replace("\\", "/").rstrip("/")
+    mount_root = str(data_mount_root or "").replace("\\", "/").rstrip("/")
+    if host_root and mount_root and (
+        normalized.lower() == host_root.lower()
+        or normalized.lower().startswith(f"{host_root.lower()}/")
+    ):
+        return f"{mount_root}{normalized[len(host_root):]}"
+    return normalized
+
+
 def stable_split(sample_id: str, ratios: dict[str, float]) -> str:
     value = int(hashlib.sha256(sample_id.encode("utf-8")).hexdigest()[:8], 16) / 0xFFFFFFFF
     train_cutoff = float(ratios.get("train", 0.6))

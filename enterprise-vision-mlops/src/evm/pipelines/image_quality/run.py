@@ -9,6 +9,7 @@ from typing import Any
 
 from evm.core.image_quality import (
     byte_quality_proxies,
+    canonical_runtime_image_path,
     read_image_dimensions,
     resolve_local_image,
     sha256_file,
@@ -68,6 +69,7 @@ def _enrich_record(
     dataset_version: str,
     raw_image_root: Path,
     local_image: Path | None,
+    output_image_path: str,
     actual_content_sha256: str,
     policy: QualityPolicy,
     hash_counts: dict[str, int],
@@ -204,7 +206,7 @@ def _enrich_record(
         "dataset_version": dataset_version,
         "sample_id": sample_id,
         "image_uri": image_uri,
-        "image_path": str(local_image) if local_image else "",
+        "image_path": output_image_path,
         "split": split,
         "label": label,
         "label_type": str(record.get("label_type") or _label_type(label)),
@@ -277,7 +279,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         or f"{cfg.get('dataset_name', 'dataset')}-unversioned"
     )
     hash_counts: dict[str, int] = Counter()
-    prepared_records: list[tuple[Path | None, str]] = []
+    prepared_records: list[tuple[Path | None, str, str]] = []
     for record in records:
         local_image = resolve_local_image(
             record,
@@ -289,7 +291,12 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         if local_image and local_image.exists():
             actual_content_sha256 = sha256_file(local_image)
             hash_counts[actual_content_sha256] += 1
-        prepared_records.append((local_image, actual_content_sha256))
+        output_image_path = canonical_runtime_image_path(
+            local_image,
+            host_data_root=host_data_root,
+            data_mount_root=data_mount_root,
+        )
+        prepared_records.append((local_image, actual_content_sha256, output_image_path))
 
     enriched_records: list[dict[str, Any]] = []
     diagnostics_by_level: dict[str, int] = defaultdict(int)
@@ -299,7 +306,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     local_image_count = 0
     readable_image_count = 0
     for index, (record, prepared) in enumerate(zip(records, prepared_records, strict=True)):
-        local_image, actual_content_sha256 = prepared
+        local_image, actual_content_sha256, output_image_path = prepared
         enriched, diagnostics = _enrich_record(
             record,
             index=index,
@@ -307,6 +314,7 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
             dataset_version=dataset_version,
             raw_image_root=raw_image_root,
             local_image=local_image,
+            output_image_path=output_image_path,
             actual_content_sha256=actual_content_sha256,
             policy=policy,
             hash_counts=hash_counts,

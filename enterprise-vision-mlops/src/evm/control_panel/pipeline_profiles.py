@@ -58,7 +58,7 @@ class DataProfile(ContractModel):
         "shards/shard_index.json"
     )
     split_manifest_sha256: str = (
-        "500bdaecdc6e3678af268bf5e4616175c76089d4d1f9f56512f7191e71813000"
+        "204f08ce5136a3e38bad5eed51a6a2429da5d0a6b1eb16419c53376032bae53d"
     )
     fail_on_empty: bool = True
     fail_on_quality_error: bool = True

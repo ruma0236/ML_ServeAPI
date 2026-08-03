@@ -46,10 +46,8 @@ def build_context(pipeline_name: str, config_path: str | Path) -> PipelineContex
     run_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
     trace = TraceContext.from_environment(pipeline_name, rid)
-    (run_dir / "trace.json").write_text(
-        json.dumps(trace.to_dict(), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    with (run_dir / "trace.json").open("w", encoding="utf-8", newline="\n") as fp:
+        fp.write(json.dumps(trace.to_dict(), indent=2, ensure_ascii=False) + "\n")
     return PipelineContext(
         name=pipeline_name,
         run_id=rid,
@@ -63,7 +61,8 @@ def build_context(pipeline_name: str, config_path: str | Path) -> PipelineContex
 
 def write_json(path: Path, payload: dict[str, Any] | list[Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    with path.open("w", encoding="utf-8", newline="\n") as fp:
+        fp.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
 
 
 def display_path(path: Path, root: Path) -> str:
@@ -87,7 +86,7 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fp:
+    with path.open("w", encoding="utf-8", newline="\n") as fp:
         for record in records:
             fp.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -124,5 +123,6 @@ def write_markdown_report(
         lines.append(f"- `{key}`: `{value}`")
     if extra_lines:
         lines.extend(["", *extra_lines])
-    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with report_path.open("w", encoding="utf-8", newline="\n") as fp:
+        fp.write("\n".join(lines) + "\n")
     return report_path

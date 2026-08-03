@@ -1,9 +1,10 @@
 # Full Lifecycle Guard Validation Execution
 
 Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
-Status: In Progress; the first fresh suite stopped safely before Scenario C
-LifecycleRun creation. Deterministic data-identity remediation is being sealed;
-B, D, and A remain unstarted in this suite.
+Status: In Progress; the pre-migration E proof remains historical and the first
+post-migration E re-seal stopped safely on a cross-runtime identity mismatch.
+The second deterministic identity remediation is locally verified; C, B, D,
+and A remain unstarted in the replacement suite.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -37,8 +38,8 @@ candidate so it does not reuse a run already injected by Scenario D.
 
 | Scenario | State | Fresh lifecycle/injection | Result |
 |---|---|---|---|
-| E | historical PASS; re-seal required | fresh L2/L4/L6 run identities are bound and 32/32 artifacts re-hashed | accepted against the pre-remediation canonical identity; a new suite must re-run E after the identity migration |
-| C | remediation | fresh quality/drift injection and governed hold/resume required | attempt 0 stopped before LifecycleRun creation; no acceptance credit |
+| E | remediation; re-seal required | post-migration L2 injection blocked correctly, but the corrected release branch stopped before training | no current acceptance credit; host/container path and newline identity RCA is locally verified |
+| C | pending behind E | fresh quality/drift injection and governed hold/resume required | attempt 0 stopped before LifecycleRun creation; no acceptance credit |
 | B | pending | fresh quality and runtime branches, one release injection per run | not started |
 | D | pending | fresh run; exact worker stop only at reserved/running training side effect | not started |
 | A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
@@ -48,32 +49,47 @@ candidate so it does not reuse a run already injected by Scenario D.
 - **Purpose:** prove data/artifact identity fails closed at real L2 and L6
   boundaries while a corrected branch reaches real CUDA training, MLflow and
   isolated CT.
-- **Injection point:** accepted fresh evidence
-  `scenario-e-integrated-20260803T030435Z-55e9f243`.
-- **Pre-state/identity:** exact VisA manifest/shards, source `55e9f24`, stable
-  B0 UID/model, GPU/plugin and Prometheus snapshot.
-- **Intentional failure:** corrupt run-local data identity and release identity;
-  no canonical data mutation.
-- **Expected guard:** training and release approval fail closed; deployment
-  intent remains zero.
-- **SLI/SLO:** identity/hash closure 100%; unintended mutation zero.
-- **Result/evidence:** PASS in suite
-  `full-lifecycle-actual-injection-20260803T050000Z-cbbbbb77`; exact runs
-  `lifecycle-20260803T030442-5aed7911` and
-  `lifecycle-20260803T031337-7a609762`; result SHA-256
-  `2eebbf212393f6957bd5b725cfcdff44a26f1a8de2bf516e0372471a4b5c3dd2`;
-  evidence index SHA-256
-  `7fc7321392a7a2cb3d1cca974ae85f09e91d0a27b3324539669a3487ab693c33`;
-  artifacts matched `32 / 32`.
-- **RCA/remediation:** prior unmapped `/app/artifacts` receipt attempt remains
-  immutable no-credit RCA; accepted proof contains the path-mapping fix.
-- **Invariants:** canonical data and exact B0/GPU/plugin/Prometheus unchanged.
-- **Claim boundary:** controlled local single-node VisA/CUDA proof, not live
-  customer production, HA, business A/B, or an SLA.
-- **Status:** historical PASS for suite
-  `full-lifecycle-actual-injection-20260803T050000Z-cbbbbb77`. The subsequent
-  canonical identity remediation means a new suite must re-run E before C;
-  this accepted evidence is not relabeled or reused across the migration.
+- **Injection point:** corrupt only run-local data identity, then submit an
+  independently corrected branch through the same real lifecycle transitions.
+- **Pre-state/identity:** profile version `10`, source `8be0fcc`, exact VisA
+  manifest/shards, stable B0 UID/model, GPU/plugin and Prometheus snapshot.
+- **Intentional failure:** run `lifecycle-20260803T051832-661661ae` injected the
+  L2 shard identity mismatch and was blocked as expected; canonical data was not
+  mutated.
+- **Expected guard:** the injected branch fails closed, the corrected branch
+  reaches real CUDA/MLflow/CT, deployment intent remains zero, and all identities
+  and evidence hashes close at 100%.
+- **SLI/SLO:** identity/hash closure 100%; unintended external mutation zero.
+- **Result/evidence:** the post-migration re-seal attempt at
+  `scenario-e-integrated-20260803T051824Z-8be0fcc2` is **FAIL / no acceptance
+  credit**. The corrected run `lifecycle-20260803T052856-a9753485` stopped at
+  `model_training` before task dispatch with
+  `lifecycle_shard_identity_mismatch`. Failure SHA-256 is
+  `2435b30e0b6252fbebf27e9e048948d53891c30a206774e29b17ef6ee29d8466`;
+  evidence-index SHA-256 is
+  `975bbe18e4b2da3d3e8bd855dc6265aa3176c6d2f9e5b8f08b0de875a2f6a249`.
+  Cleanup returned active LifecycleRuns to zero; Kubernetes Job, MLflow run,
+  candidate and deployment-intent deltas were each zero.
+- **RCA/remediation:** host regeneration serialized `F:/...` image paths and
+  CRLF, while Airflow serialized the same 10,821 records as
+  `/mnt/evm-data/...` with LF. Canonical output now always records the runtime
+  mount path and all JSON/JSONL/Markdown evidence writers force LF. A real VisA
+  regeneration read and hashed `10,821 / 10,821` images, produced zero
+  errors/warnings, and matched the prior Airflow quality-manifest SHA-256
+  `e7dea282b17ebd5487153cdd836fd715e07234cde1fe23507c81bee848418e4b`.
+  It produced 23 shards, full-index SHA-256
+  `b15d7d3cb7fa32d73affd6635436c4161095b412dea23df65334fa84910c4a11`
+  and semantic identity
+  `204f08ce5136a3e38bad5eed51a6a2429da5d0a6b1eb16419c53376032bae53d`;
+  a trace-distinct replay preserved all three identities with zero shard
+  mismatches and no CRLF.
+- **Invariants:** production B0, GPU/device-plugin, Prometheus and raw VisA are
+  unchanged; only deterministic derived quality/shard artifacts were rebuilt.
+- **Claim boundary:** controlled local single-node VisA/CUDA validation, not
+  live customer production, HA, business A/B, or an SLA.
+- **Status:** remediation passes Ruff, focused tests `20 / 20`, and full Python
+  tests `519 / 519`; commit/runtime profile migration and a fresh E re-seal are
+  required before Scenario C.
 
 ### Scenario C
 
@@ -106,17 +122,18 @@ candidate so it does not reuse a run already injected by Scenario D.
 - **Additional remediation and proof:** mount-to-host path resolution now works
   in both runtime directions; the VisA policy treats missing local images and
   content-hash mismatches as blocking; local-image coverage is an explicit
-  threshold. A same-source real-data run read and hashed `10,821 / 10,821`
-  images (`1.0` local and readable coverage), produced zero errors/warnings and
-  zero duplicate hashes in `64.853 s`. Shard regeneration produced `10,821`
-  records, `23` shards, split counts `6504 / 2136 / 2181`, and all shard hashes
-  matched. A second trace-distinct replay preserved the exact canonical index
-  SHA-256 `3584b706...7395f`, mtime and identity
-  `500bdaec...13000`; shard mismatches were zero.
-- **Regression:** touched-file Ruff passed; focused data/profile/Scenario C
-  tests `47 / 47` and full Python tests `519 / 519` passed.
+  threshold. Cross-runtime canonicalization additionally records mount-relative
+  paths and LF only. A same-source real-data run read and hashed
+  `10,821 / 10,821` images (`1.0` local and readable coverage), produced zero
+  errors/warnings and zero duplicate hashes in `68.195 s`. Shard regeneration
+  produced `10,821` records, `23` shards, split counts `6504 / 2136 / 2181`,
+  full-index SHA-256 `b15d7d3c...c4a11` and semantic identity
+  `204f08ce...ae53d`. A trace-distinct replay preserved the exact index bytes,
+  mtime and identity; shard mismatches and CRLF occurrences were zero.
+- **Regression:** touched-file Ruff passed; focused tests `20 / 20` and full
+  Python tests `519 / 519` passed.
 - **Next gate:** commit and deploy the remediation, migrate the pinned current
-  profile identity, re-seal E against the new content-bound identity, and only
+  profile identity, re-seal E against the new cross-runtime identity, and only
   then retry C with a fresh LifecycleRun.
 - **Invariants:** production B0, raw VisA source and unrelated runtime unchanged;
   only deterministic derived quality/shard artifacts were regenerated.

@@ -124,11 +124,13 @@ fail_on_error = true
     assert records[0]["image_quality"]["image_readable"] is True
     assert records[0]["image_quality"]["detected_width"] == 2
     assert records[0]["image_quality"]["detected_height"] == 3
+    assert records[0]["image_path"] == "/mnt/evm-data/raw/sample.png"
     assert "quality_checked_at" not in records[0]
     assert report["evaluated_at"].endswith("Z")
     assert report["local_image_count"] == 1
     assert report["local_image_coverage"] == 1.0
     assert report["readable_image_coverage"] == 1.0
+    assert b"\r\n" not in quality_manifest.read_bytes()
 
     record["content_sha256"] = "0" * 64
     manifest_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
