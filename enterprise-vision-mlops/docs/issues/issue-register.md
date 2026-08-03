@@ -518,14 +518,15 @@ The source plan is
 | `EVM-282` | Scenario A post-promotion GPU serving recovery | Done / fresh live proof PASS | Post-Sprint 178 | Jira `SCRUM-190`; accepted source `d121c9c`, run `scenario-a-lifecycle-20260803T003224Z-d121c9c5-351ae3c7`. M1 apply 18.173018 s, exact Pod detection/recovery 0.2045879/10.0966768 s, interruption 9.8788259 s, M0 rollback 57.634592 s, hashes 38/38. Exact M0/CUDA/Prometheus/plugin restored; prior path failure remains immutable RCA. |
 | `EVM-283` | Integrated single-scenario lifecycle evidence closure | Done | Post-Sprint 178 | Jira `SCRUM-191`; accepted E series `scenario-e-integrated-20260803T030435Z-55e9f243` passes actual L2 Airflow-to-integrity block, corrected L4 CUDA/MLflow/readiness/CT and actual L6 HTTP 422 before intent. Delta Jobs +2, MLflow +1, candidate +1, intent 0; 20/20 checks, 32 integrated artifacts, canonical data/B0 unchanged. A-E audit `closure-20260803T032754Z-55e9f243` passes all scenarios, E replay+integrated 165 artifacts and exact runtime restoration. Attempt 1 path-mapping failure remains immutable no-credit RCA. |
 | `EVM-284` | Final VisA lifecycle operations drill | Planned / To Do / final gate | Post-Sprint 178 | Jira `SCRUM-192`; after EVM-283 and EVM-274/275: operator-only success, failure, containment, replacement, recovery and rollback series with exact identity and honest local limits |
-| `EVM-285` | Full lifecycle guard validation execution ledger | In Progress | Post-Sprint 178 | Jira `SCRUM-193` under Epic `SCRUM-183`; replacement suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` runs `E -> C -> B -> D -> A`, one fresh run/injection at a time. E is PASS at source `e0b2b0f`: actual L2 block, corrected real Airflow/CUDA/MLflow/CT, actual L6 HTTP 422, 20/20 checks, 32/32 hashes, Jobs +2/MLflow +1/candidate +1/intent 0, exact B0/CUDA/GPU/plugin/Prometheus restored. The preceding cross-runtime failure remains immutable RCA. C is next; B/D/A are unstarted. |
+| `EVM-285` | Full lifecycle guard validation execution ledger | In Progress | Post-Sprint 178 | Jira `SCRUM-193` under Epic `SCRUM-183`; replacement suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` runs `E -> C -> B -> D -> A`, one fresh run/injection at a time. E is PASS at source `e0b2b0f`: actual L2 block, corrected real Airflow/CUDA/MLflow/CT, actual L6 HTTP 422, 20/20 checks, 32/32 hashes, Jobs +2/MLflow +1/candidate +1/intent 0, exact B0/CUDA/GPU/plugin/Prometheus restored. The preceding cross-runtime failure remains immutable RCA. C preflight then found and remediated API force-recreate dependency churn before any C run was created; C remains next and B/D/A are unstarted. |
 
 The original independent-scenario dependency order was
 `A/D -> B -> E -> C -> cross-scenario`; EVM-278..283 retain that historical
 evidence. EVM-285 is a separate fresh integration suite ordered
 `E -> C -> B -> D -> A`, with one intentional injection per LifecycleRun. Its
-first post-migration E re-seal is an immutable failed attempt and no later
-scenario has acceptance credit. Independent scenario closure does not imply a
+first post-migration E re-seal remains an immutable failed attempt; the second
+fresh E re-seal is accepted, while no C/B/D/A scenario has acceptance credit.
+Independent scenario closure does not imply a
 combined release drill, automatic promotion, customer production, or HA.
 
 ### Current Jira Timebox And Hierarchy

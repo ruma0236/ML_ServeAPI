@@ -9,7 +9,7 @@ def test_start_local_stack_builds_shared_images_once_and_checks_failures() -> No
     assert '"enterprise-vision-mlops-airflow:local" = "airflow-init"' in script
     assert 'Invoke-Docker -Arguments @("compose", "build", $target)' in script
     assert 'Invoke-Docker -Arguments @("compose", "up", "-d", "--no-build")' in script
-    assert '"--force-recreate", "--no-build", "api"' in script
+    assert '"--no-deps", "--force-recreate", "--no-build", "api"' in script
     assert "$commit = (git rev-parse HEAD).Trim()" in script
     assert "$env:EVM_EXPECTED_CI_COMMIT = $commit" in script
     assert '"configure_docker_desktop_kubernetes_gpu.ps1"' in script

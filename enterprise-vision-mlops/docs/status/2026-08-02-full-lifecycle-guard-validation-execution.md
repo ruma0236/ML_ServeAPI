@@ -137,8 +137,17 @@ candidate so it does not reuse a run already injected by Scenario D.
   mtime and identity; shard mismatches and CRLF occurrences were zero.
 - **Regression:** touched-file Ruff passed; focused tests `20 / 20` and full
   Python tests `519 / 519` passed.
+- **C pre-run runtime convergence RCA:** after the E record commit, the API
+  force-recreate call re-evaluated the one-shot MinIO initializer through its
+  dependency graph and left the API in `Created`. No C LifecycleRun existed.
+  The bounded recovery started only the API with `--no-deps`, stopped the
+  completed initializer at exit code zero, and restored API plus exact
+  supervisor children. `start_local_stack.ps1` now permanently applies
+  `--no-deps` to the API-only force recreate so source identity remains injected
+  by the parent script without rerunning healthy dependencies. PowerShell parse,
+  focused `1 / 1`, Ruff and full Python `519 / 519` pass.
 - **Next gate:** Scenario E is re-sealed at the cross-runtime identity. Retry C
-  only as a fresh LifecycleRun under the replacement suite.
+  only as a fresh LifecycleRun after the corrected startup path converges.
 - **Invariants:** production B0, raw VisA source and unrelated runtime unchanged;
   only deterministic derived quality/shard artifacts were regenerated.
 - **Claim boundary:** local batch drift validation, not online business drift.

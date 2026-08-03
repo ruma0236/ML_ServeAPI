@@ -72,7 +72,9 @@ try {
     }
 
     Invoke-Docker -Arguments @("compose", "up", "-d", "--no-build")
-    Invoke-Docker -Arguments @("compose", "up", "-d", "--force-recreate", "--no-build", "api")
+    Invoke-Docker -Arguments @(
+        "compose", "up", "-d", "--no-deps", "--force-recreate", "--no-build", "api"
+    )
 
     if (-not $NoAirflowRecreate) {
         Invoke-Docker -Arguments @(
