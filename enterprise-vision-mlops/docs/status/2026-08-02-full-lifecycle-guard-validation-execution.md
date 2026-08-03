@@ -1,10 +1,9 @@
 # Full Lifecycle Guard Validation Execution
 
 Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
-Status: In Progress; the pre-migration E proof remains historical and the first
-post-migration E re-seal stopped safely on a cross-runtime identity mismatch.
-The second deterministic identity remediation is locally verified; C, B, D,
-and A remain unstarted in the replacement suite.
+Status: In Progress; Scenario E is PASS in the replacement suite after one
+immutable failed re-seal and cross-runtime identity remediation. Scenario C is
+the next admitted injection; B, D, and A remain unstarted in this suite.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -38,8 +37,8 @@ candidate so it does not reuse a run already injected by Scenario D.
 
 | Scenario | State | Fresh lifecycle/injection | Result |
 |---|---|---|---|
-| E | remediation; re-seal required | post-migration L2 injection blocked correctly, but the corrected release branch stopped before training | no current acceptance credit; host/container path and newline identity RCA is locally verified |
-| C | pending behind E | fresh quality/drift injection and governed hold/resume required | attempt 0 stopped before LifecycleRun creation; no acceptance credit |
+| E | PASS | fresh L2 injection plus independently corrected L4/L6 run; 20/20 checks and 32/32 artifacts | accepted in suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` |
+| C | next / pending | fresh quality/drift injection and governed hold/resume required | prior attempt 0 has no acceptance credit; fresh execution admitted by E PASS |
 | B | pending | fresh quality and runtime branches, one release injection per run | not started |
 | D | pending | fresh run; exact worker stop only at reserved/running training side effect | not started |
 | A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
@@ -51,26 +50,30 @@ candidate so it does not reuse a run already injected by Scenario D.
   isolated CT.
 - **Injection point:** corrupt only run-local data identity, then submit an
   independently corrected branch through the same real lifecycle transitions.
-- **Pre-state/identity:** profile version `10`, source `8be0fcc`, exact VisA
+- **Pre-state/identity:** base profile version `11`, Scenario E profile version
+  `3`, source `e0b2b0f`, semantic split identity `204f08ce...ae53d`, exact VisA
   manifest/shards, stable B0 UID/model, GPU/plugin and Prometheus snapshot.
-- **Intentional failure:** run `lifecycle-20260803T051832-661661ae` injected the
-  L2 shard identity mismatch and was blocked as expected; canonical data was not
-  mutated.
+- **Intentional failure:** run `lifecycle-20260803T060048-2c45977a` injected the
+  L2 shard identity mismatch and was blocked as expected; canonical data was
+  not mutated.
 - **Expected guard:** the injected branch fails closed, the corrected branch
   reaches real CUDA/MLflow/CT, deployment intent remains zero, and all identities
   and evidence hashes close at 100%.
 - **SLI/SLO:** identity/hash closure 100%; unintended external mutation zero.
-- **Result/evidence:** the post-migration re-seal attempt at
-  `scenario-e-integrated-20260803T051824Z-8be0fcc2` is **FAIL / no acceptance
-  credit**. The corrected run `lifecycle-20260803T052856-a9753485` stopped at
-  `model_training` before task dispatch with
-  `lifecycle_shard_identity_mismatch`. Failure SHA-256 is
-  `2435b30e0b6252fbebf27e9e048948d53891c30a206774e29b17ef6ee29d8466`;
+- **Result/evidence:** **PASS** in replacement suite
+  `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0`. Corrected run
+  `lifecycle-20260803T061016-df8855ee` reached real Airflow, CUDA training,
+  MLflow, model sealing/readiness and isolated CT before the real L6 approval
+  failed closed. All `20 / 20` acceptance checks passed; result SHA-256 is
+  `0d00790e790e579484d62efdb0487ce06d8a58bf827bb617fc4720f5dd214fa2`;
   evidence-index SHA-256 is
-  `975bbe18e4b2da3d3e8bd855dc6265aa3176c6d2f9e5b8f08b0de875a2f6a249`.
-  Cleanup returned active LifecycleRuns to zero; Kubernetes Job, MLflow run,
-  candidate and deployment-intent deltas were each zero.
-- **RCA/remediation:** host regeneration serialized `F:/...` image paths and
+  `4f80074d0b6c341f9bbaa546f5ccf10cc2fb7afffea84ee4d832eec4bd270e40`;
+  artifacts re-hashed `32 / 32`. Intended delta was Kubernetes Jobs `+2`,
+  MLflow runs `+1`, model candidates `+1`, deployment intents `0`.
+- **RCA/remediation:** failed attempt
+  `scenario-e-integrated-20260803T051824Z-8be0fcc2` remains immutable no-credit
+  evidence: its corrected run stopped before training because host regeneration
+  serialized `F:/...` image paths and
   CRLF, while Airflow serialized the same 10,821 records as
   `/mnt/evm-data/...` with LF. Canonical output now always records the runtime
   mount path and all JSON/JSONL/Markdown evidence writers force LF. A real VisA
@@ -83,13 +86,15 @@ candidate so it does not reuse a run already injected by Scenario D.
   `204f08ce5136a3e38bad5eed51a6a2429da5d0a6b1eb16419c53376032bae53d`;
   a trace-distinct replay preserved all three identities with zero shard
   mismatches and no CRLF.
-- **Invariants:** production B0, GPU/device-plugin, Prometheus and raw VisA are
-  unchanged; only deterministic derived quality/shard artifacts were rebuilt.
+- **Invariants:** cleanup left no active suite runs. Production deployment UID
+  `cfdab424-dcc5-4d5f-a46f-ae7530441ef4` remained 1/1 on model SHA
+  `abcb8504...a27f`; real CUDA inference returned `normal` at confidence
+  `0.998909` in `12.754 ms`; GPU allocatable and plugin ready were `1 / 1` and
+  Prometheus was `up`. Raw VisA was unchanged.
 - **Claim boundary:** controlled local single-node VisA/CUDA validation, not
   live customer production, HA, business A/B, or an SLA.
-- **Status:** remediation passes Ruff, focused tests `20 / 20`, and full Python
-  tests `519 / 519`; commit/runtime profile migration and a fresh E re-seal are
-  required before Scenario C.
+- **Status:** PASS; remediation passed Ruff, focused tests `20 / 20`, and full
+  Python tests `519 / 519`. Scenario C is admitted on a new LifecycleRun.
 
 ### Scenario C
 
@@ -132,13 +137,13 @@ candidate so it does not reuse a run already injected by Scenario D.
   mtime and identity; shard mismatches and CRLF occurrences were zero.
 - **Regression:** touched-file Ruff passed; focused tests `20 / 20` and full
   Python tests `519 / 519` passed.
-- **Next gate:** commit and deploy the remediation, migrate the pinned current
-  profile identity, re-seal E against the new cross-runtime identity, and only
-  then retry C with a fresh LifecycleRun.
+- **Next gate:** Scenario E is re-sealed at the cross-runtime identity. Retry C
+  only as a fresh LifecycleRun under the replacement suite.
 - **Invariants:** production B0, raw VisA source and unrelated runtime unchanged;
   only deterministic derived quality/shard artifacts were regenerated.
 - **Claim boundary:** local batch drift validation, not online business drift.
-- **Status:** remediation in progress; no integration injection credit.
+- **Status:** pending fresh integration injection; prior attempt 0 remains
+  no-credit RCA and is not resumed across revisions.
 
 ### Scenario B
 
@@ -720,6 +725,8 @@ implemented for a fresh attempt. `SCRUM-190 / EVM-282` remains In Progress.
 | `scenario-e-integrated-20260803T023734Z-c7a08409` | `c7a0840` | actual L2 block and corrected Airflow/CUDA/MLflow/CT/L6 HTTP 422 passed; host three-replay evidence failed on unmapped `/app/artifacts` URI | Jobs +2, MLflow +1, candidate +1, intent 0; cleanup active runs 0; B0/plugin/Prometheus healthy | immutable failed RCA, no acceptance credit; runtime-map receipt URI and re-hash before a fresh run |
 | `scenario-e-integrated-20260803T030435Z-55e9f243` | `55e9f24` | PASS: real L2 integrity block; corrected L4 Airflow/CUDA/MLflow/readiness/CT; real L6 approval and duplicate HTTP 422; 20/20 checks | Jobs +2, MLflow +1, candidate +1, intent 0; canonical data and exact B0 unchanged; 32/32 integrated artifacts | accepted Scenario E integrated closure; proceed to independent A-E audit |
 | `closure-20260803T032754Z-55e9f243` | `55e9f24` | PASS: A-E reachability, deterministic decisions, evidence hash closure and claim boundaries; E 165 artifacts | read-only closure audit; exact M0 1/1 CUDA/GPU/plugin/Prometheus/supervisor revision PASS | accepted EVM-283; next technical gate admitted |
+| `scenario-e-integrated-20260803T051824Z-8be0fcc2` | `8be0fcc` | injected L2 branch blocked correctly; corrected branch failed before training on host/Airflow path and newline identity divergence | Job/MLflow/candidate/intent delta all zero; cleanup and runtime restoration passed | immutable no-credit RCA; canonical mount-path and LF remediation at `e0b2b0f` |
+| `scenario-e-integrated-20260803T060041Z-e0b2b0fe` | `e0b2b0f` | PASS: new L2 block plus corrected Airflow/CUDA/MLflow/readiness/CT and actual L6 HTTP 422; 20/20 | Jobs +2, MLflow +1, candidate +1, intent 0; 32/32 hashes; exact B0/CUDA/GPU/plugin/Prometheus restored | accepted E entry in replacement suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0`; proceed to fresh C |
 
 ## Synchronization Rule
 
