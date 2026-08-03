@@ -1,6 +1,6 @@
 # Lifecycle Guard Scenario A Integrated Progress
 
-Status: In Progress  
+Status: In Progress
 Jira: `SCRUM-190 / EVM-282`, entry comment `10555`
 
 ## Acceptance Boundary
