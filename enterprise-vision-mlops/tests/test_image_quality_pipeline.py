@@ -35,22 +35,17 @@ def test_image_quality_uses_policy_and_writes_enriched_manifest(tmp_path, monkey
     _write_png_header(image_path, 2, 3)
 
     manifest_path = validated_dir / "validated_manifest.jsonl"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "id": "sample_1",
-                "sample_id": "sample_1",
-                "image_uri": "file:///sample.png",
-                "image_path": str(image_path),
-                "label": "normal",
-                "split": "train",
-                "width": 2,
-                "height": 3,
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    record = {
+        "id": "sample_1",
+        "sample_id": "sample_1",
+        "image_uri": "file:///sample.png",
+        "image_path": "/mnt/evm-data/raw/sample.png",
+        "label": "normal",
+        "split": "train",
+        "width": 2,
+        "height": 3,
+    }
+    manifest_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
     metadata_path = validated_dir / "dataset_version.json"
     metadata_path.write_text('{"dataset_version":"fixture-v1"}\n', encoding="utf-8")
     policy_path = tmp_path / "quality_policy.toml"
@@ -65,6 +60,9 @@ def test_image_quality_uses_policy_and_writes_enriched_manifest(tmp_path, monkey
                 "",
                 "[severity]",
                 'duplicate_content_hash = "warn"',
+                "",
+                "[thresholds]",
+                "local_image_coverage_minimum = 1.0",
             ]
         ),
         encoding="utf-8",
@@ -96,6 +94,7 @@ name = "tmp"
 [paths]
 artifacts_root = "{artifacts_dir.as_posix()}"
 reports_root = "{(artifacts_dir / "reports").as_posix()}"
+external_storage_root = "{tmp_path.as_posix()}"
 
 [pipelines.image_quality]
 dataset_id = "fixture"
@@ -127,6 +126,19 @@ fail_on_error = true
     assert records[0]["image_quality"]["detected_height"] == 3
     assert "quality_checked_at" not in records[0]
     assert report["evaluated_at"].endswith("Z")
+    assert report["local_image_count"] == 1
+    assert report["local_image_coverage"] == 1.0
+    assert report["readable_image_coverage"] == 1.0
+
+    record["content_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="image quality validation failed"):
+        run(str(config_path))
+    blocked_report = json.loads(
+        (validated_dir / "quality_report.json").read_text(encoding="utf-8")
+    )
+    assert blocked_report["status"] == "fail"
+    assert blocked_report["diagnostics_by_code"]["content_hash_mismatch"] == 1
 
 
 def test_image_quality_rejects_empty_input_without_overwriting_outputs(tmp_path, monkeypatch):

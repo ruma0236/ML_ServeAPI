@@ -1,7 +1,8 @@
 # Full Lifecycle Guard Validation Execution
 
 Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
-Status: In Progress; fresh-suite Scenario E linkage PASS. Scenario C is next;
+Status: In Progress; the first fresh suite stopped safely before Scenario C
+LifecycleRun creation. Deterministic data-identity remediation is being sealed;
 B, D, and A remain unstarted in this suite.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
@@ -36,8 +37,8 @@ candidate so it does not reuse a run already injected by Scenario D.
 
 | Scenario | State | Fresh lifecycle/injection | Result |
 |---|---|---|---|
-| E | PASS | fresh L2/L4/L6 run identities are bound and 32/32 artifacts re-hashed | suite manifest entry complete |
-| C | pending | fresh quality/drift injection and governed hold/resume required | not started |
+| E | historical PASS; re-seal required | fresh L2/L4/L6 run identities are bound and 32/32 artifacts re-hashed | accepted against the pre-remediation canonical identity; a new suite must re-run E after the identity migration |
+| C | remediation | fresh quality/drift injection and governed hold/resume required | attempt 0 stopped before LifecycleRun creation; no acceptance credit |
 | B | pending | fresh quality and runtime branches, one release injection per run | not started |
 | D | pending | fresh run; exact worker stop only at reserved/running training side effect | not started |
 | A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
@@ -69,7 +70,10 @@ candidate so it does not reuse a run already injected by Scenario D.
 - **Invariants:** canonical data and exact B0/GPU/plugin/Prometheus unchanged.
 - **Claim boundary:** controlled local single-node VisA/CUDA proof, not live
   customer production, HA, business A/B, or an SLA.
-- **Status:** PASS; admits Scenario C.
+- **Status:** historical PASS for suite
+  `full-lifecycle-actual-injection-20260803T050000Z-cbbbbb77`. The subsequent
+  canonical identity remediation means a new suite must re-run E before C;
+  this accepted evidence is not relabeled or reused across the migration.
 
 ### Scenario C
 
@@ -92,9 +96,30 @@ candidate so it does not reuse a run already injected by Scenario D.
   shard content hashes, so it remained `64043ade...` while all 23 shard byte
   hashes changed. Remediation separates evaluation time from canonical
   records, includes each shard SHA-256 in the stable identity, and preserves
-  the canonical index when that complete identity is unchanged. The corrected
-  pipeline must regenerate and re-seal the current manifest before retry.
-- **Invariants:** production B0, canonical data and unrelated runtime unchanged.
+  the canonical index when that complete identity is unchanged.
+- **Additional pre-run blocker:** the first deterministic regeneration exposed
+  `local_image_missing=10821/10821` while the quality gate still returned
+  `pass_with_warnings`. Windows host execution did not translate
+  `/mnt/evm-data/...` record paths to the configured F-drive host root, so the
+  former gate trusted manifest metadata without reading image bytes. The
+  invalid quality output was not sharded or admitted.
+- **Additional remediation and proof:** mount-to-host path resolution now works
+  in both runtime directions; the VisA policy treats missing local images and
+  content-hash mismatches as blocking; local-image coverage is an explicit
+  threshold. A same-source real-data run read and hashed `10,821 / 10,821`
+  images (`1.0` local and readable coverage), produced zero errors/warnings and
+  zero duplicate hashes in `64.853 s`. Shard regeneration produced `10,821`
+  records, `23` shards, split counts `6504 / 2136 / 2181`, and all shard hashes
+  matched. A second trace-distinct replay preserved the exact canonical index
+  SHA-256 `3584b706...7395f`, mtime and identity
+  `500bdaec...13000`; shard mismatches were zero.
+- **Regression:** touched-file Ruff passed; focused data/profile/Scenario C
+  tests `47 / 47` and full Python tests `519 / 519` passed.
+- **Next gate:** commit and deploy the remediation, migrate the pinned current
+  profile identity, re-seal E against the new content-bound identity, and only
+  then retry C with a fresh LifecycleRun.
+- **Invariants:** production B0, raw VisA source and unrelated runtime unchanged;
+  only deterministic derived quality/shard artifacts were regenerated.
 - **Claim boundary:** local batch drift validation, not online business drift.
 - **Status:** remediation in progress; no integration injection credit.
 

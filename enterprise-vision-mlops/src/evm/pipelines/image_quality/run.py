@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from pathlib import Path
@@ -66,15 +67,17 @@ def _enrich_record(
     cfg: dict[str, Any],
     dataset_version: str,
     raw_image_root: Path,
+    local_image: Path | None,
+    actual_content_sha256: str,
     policy: QualityPolicy,
     hash_counts: dict[str, int],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     sample_id = str(record.get("sample_id") or record.get("id") or f"sample_{index + 1:06d}")
     image_uri = str(record.get("image_uri", "") or "")
     label = str(record.get("label", "") or "unknown")
-    local_image = resolve_local_image(record, raw_image_root)
     diagnostics: list[dict[str, Any]] = []
-    content_sha256 = str(record.get("content_sha256", "") or "")
+    declared_content_sha256 = str(record.get("content_sha256", "") or "").lower()
+    content_sha256 = actual_content_sha256 or declared_content_sha256
     detected_width = 0
     detected_height = 0
     brightness_proxy = 0.0
@@ -91,7 +94,19 @@ def _enrich_record(
         )
 
     if local_image and local_image.exists():
-        content_sha256 = content_sha256 or sha256_file(local_image)
+        if declared_content_sha256 and declared_content_sha256 != actual_content_sha256:
+            diagnostics.append(
+                _issue(
+                    policy,
+                    "error",
+                    "content_hash_mismatch",
+                    (
+                        f"{sample_id} declared content_sha256={declared_content_sha256}, "
+                        f"actual={actual_content_sha256}"
+                    ),
+                    sample_id=sample_id,
+                )
+            )
         dimensions = read_image_dimensions(local_image)
         if dimensions:
             detected_width, detected_height = dimensions
@@ -222,6 +237,16 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     report_path = ctx.path(str(cfg.get("report_path", "data/validated/mvi_quality_report.json")))
     baseline_path = ctx.path(str(cfg.get("baseline_path", "data/validated/mvi_quality_baseline.json")))
     raw_image_root = ctx.path(str(cfg.get("raw_image_root", "data/raw/images")))
+    paths_config = ctx.config.get("paths")
+    paths_config = paths_config if isinstance(paths_config, dict) else {}
+    host_data_root_value = str(
+        os.getenv("EVM_HOST_DATA_ROOT")
+        or paths_config.get("external_storage_root")
+        or paths_config.get("data_root")
+        or ""
+    )
+    host_data_root = ctx.path(host_data_root_value) if host_data_root_value else None
+    data_mount_root = os.getenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
     duplicate_severity = str(cfg.get("duplicate_hash_severity", "warn"))
     dimension_mismatch_severity = str(cfg.get("dimension_mismatch_severity", "warn"))
     fail_on_error = bool(cfg.get("fail_on_error", True))
@@ -252,33 +277,72 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         or f"{cfg.get('dataset_name', 'dataset')}-unversioned"
     )
     hash_counts: dict[str, int] = Counter()
+    prepared_records: list[tuple[Path | None, str]] = []
     for record in records:
-        local_image = resolve_local_image(record, raw_image_root)
+        local_image = resolve_local_image(
+            record,
+            raw_image_root,
+            host_data_root=host_data_root,
+            data_mount_root=data_mount_root,
+        )
+        actual_content_sha256 = ""
         if local_image and local_image.exists():
-            hash_counts[sha256_file(local_image)] += 1
+            actual_content_sha256 = sha256_file(local_image)
+            hash_counts[actual_content_sha256] += 1
+        prepared_records.append((local_image, actual_content_sha256))
 
     enriched_records: list[dict[str, Any]] = []
     diagnostics_by_level: dict[str, int] = defaultdict(int)
     diagnostics_by_code: dict[str, int] = defaultdict(int)
     diagnostic_examples: list[dict[str, Any]] = []
     all_diagnostics: list[dict[str, Any]] = []
-    for index, record in enumerate(records):
+    local_image_count = 0
+    readable_image_count = 0
+    for index, (record, prepared) in enumerate(zip(records, prepared_records, strict=True)):
+        local_image, actual_content_sha256 = prepared
         enriched, diagnostics = _enrich_record(
             record,
             index=index,
             cfg=cfg,
             dataset_version=dataset_version,
             raw_image_root=raw_image_root,
+            local_image=local_image,
+            actual_content_sha256=actual_content_sha256,
             policy=policy,
             hash_counts=hash_counts,
         )
         enriched_records.append(enriched)
+        if local_image and local_image.exists():
+            local_image_count += 1
+        if enriched["image_quality"]["image_readable"]:
+            readable_image_count += 1
         for item in diagnostics:
             all_diagnostics.append(item)
             diagnostics_by_level[item["level"]] += 1
             diagnostics_by_code[item["code"]] += 1
             if len(diagnostic_examples) < 20:
                 diagnostic_examples.append(item)
+
+    local_image_coverage = local_image_count / len(records) if records else 0.0
+    minimum_local_image_coverage = float(
+        policy.thresholds.get("local_image_coverage_minimum", 0.0)
+    )
+    if local_image_coverage < minimum_local_image_coverage:
+        coverage_issue = _issue(
+            policy,
+            "error",
+            "local_image_coverage_below_minimum",
+            (
+                f"local image coverage={local_image_coverage:.6f}, "
+                f"minimum={minimum_local_image_coverage:.6f}"
+            ),
+            check_id="image_quality_coverage",
+        )
+        all_diagnostics.append(coverage_issue)
+        diagnostics_by_level[coverage_issue["level"]] += 1
+        diagnostics_by_code[coverage_issue["code"]] += 1
+        if len(diagnostic_examples) < 20:
+            diagnostic_examples.append(coverage_issue)
 
     error_count = diagnostics_by_level.get("error", 0)
     warning_count = diagnostics_by_level.get("warn", 0)
@@ -296,6 +360,10 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
         "output_manifest": display_path(output_manifest, ctx.project_root),
         "record_count": len(records),
         "quality_records": len(enriched_records),
+        "local_image_count": local_image_count,
+        "local_image_coverage": round(local_image_coverage, 6),
+        "readable_image_count": readable_image_count,
+        "readable_image_coverage": round(readable_image_count / len(records), 6) if records else 0.0,
         "error_count": error_count,
         "warning_count": warning_count,
         "diagnostics_by_level": dict(diagnostics_by_level),

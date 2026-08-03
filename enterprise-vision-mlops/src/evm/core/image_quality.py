@@ -5,6 +5,7 @@ import struct
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 
 def sha256_file(path: Path) -> str:
@@ -80,16 +81,76 @@ def image_filename_from_uri(image_uri: str) -> str:
     return normalized.rsplit("/", 1)[-1]
 
 
-def resolve_local_image(record: dict[str, Any], raw_image_root: Path) -> Path | None:
-    for field in ("image_path", "local_path", "file_path"):
+def _decode_file_path(value: str) -> str:
+    if not value.startswith("file://"):
+        return value
+    parsed = urlparse(value)
+    decoded = unquote(parsed.path)
+    if parsed.netloc and len(parsed.netloc) == 2 and parsed.netloc.endswith(":"):
+        decoded = f"{parsed.netloc}{decoded}"
+    if decoded.startswith("/") and len(decoded) > 3 and decoded[2] == ":":
+        decoded = decoded[1:]
+    return decoded
+
+
+def _map_runtime_path(
+    value: str,
+    *,
+    host_data_root: Path | None,
+    data_mount_root: str | Path | None,
+) -> Path:
+    decoded = _decode_file_path(value).replace("\\", "/")
+    direct = Path(decoded)
+    if direct.exists():
+        return direct
+
+    host_root = str(host_data_root or "").replace("\\", "/").rstrip("/")
+    mount_root = str(data_mount_root or "").replace("\\", "/").rstrip("/")
+    if host_root and mount_root and (
+        decoded.lower() == mount_root.lower()
+        or decoded.lower().startswith(f"{mount_root.lower()}/")
+    ):
+        return Path(f"{host_root}{decoded[len(mount_root):]}")
+    return direct
+
+
+def resolve_local_image(
+    record: dict[str, Any],
+    raw_image_root: Path,
+    *,
+    host_data_root: Path | None = None,
+    data_mount_root: str | Path | None = None,
+) -> Path | None:
+    first_candidate: Path | None = None
+    for field in ("image_path", "local_path", "file_path", "image_uri"):
         value = str(record.get(field, "") or "")
-        if value:
-            path = Path(value)
-            return path if path.is_absolute() else raw_image_root.parent / path
+        if not value:
+            continue
+        candidate = _map_runtime_path(
+            value,
+            host_data_root=host_data_root,
+            data_mount_root=data_mount_root,
+        )
+        if candidate.exists():
+            return candidate
+        first_candidate = first_candidate or candidate
+
+    metadata = record.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    relative_path = str(metadata.get("relative_path") or "").replace("\\", "/").lstrip("/")
+    if relative_path:
+        candidate = raw_image_root / Path(relative_path)
+        if candidate.exists():
+            return candidate
+        first_candidate = first_candidate or candidate
+
     filename = image_filename_from_uri(str(record.get("image_uri", "") or ""))
     if filename:
-        return raw_image_root / filename
-    return None
+        candidate = raw_image_root / filename
+        if candidate.exists():
+            return candidate
+        first_candidate = first_candidate or candidate
+    return first_candidate
 
 
 def stable_split(sample_id: str, ratios: dict[str, float]) -> str:
