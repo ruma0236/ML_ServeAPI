@@ -61,7 +61,7 @@ The planning source baseline is Git `e247efd133a2c486e81a1e700aa68133876770a9`.
 | 3 | `EVM-279` | `SCRUM-187` | D idempotent lifecycle continuity and side-effect reconciliation | Done | `EVM-278` |
 | 4 | `EVM-280` | `SCRUM-188` | C quality/drift review, hold, and governed resume | Done | `EVM-279` |
 | 5 | `EVM-281` | `SCRUM-189` | B candidate release guardrail and stable rollback | Done; two fresh real lifecycle branches PASS | `EVM-280` |
-| 6 | `EVM-282` | `SCRUM-190` | A post-promotion GPU serving recovery | To Do, maintenance gated | `EVM-281` |
+| 6 | `EVM-282` | `SCRUM-190` | A post-promotion GPU serving recovery | In Progress; implementation and regression PASS, live maintenance proof pending | `EVM-281` |
 | 7 | `EVM-283` | `SCRUM-191` | single-scenario integrated evidence closure | To Do | `EVM-282` |
 | 8 | `EVM-284` | `SCRUM-192` | final VisA operations drill | To Do, final gate | `EVM-283`, `EVM-274`, `EVM-275` |
 
@@ -484,6 +484,13 @@ Expected guard action:
 - post-recovery model/data/image identity matches committed `M1`;
 - a rollback exercise separately proves exact `M0` restoration without
   rewriting the successful `M1` recovery evidence.
+
+Implementation checkpoint: the source-bound transaction runner, fixed M0/M1
+configuration, exact resourceVersion patch, single-use apply/rollback
+approvals, M1 stable-pointer CAS, existing UID-preconditioned recovery engine,
+and evidence index are implemented. The accepted Scenario D lifecycle package
+is independently re-hashed as M1; 497/497 Python tests and touched-file Ruff
+pass. No M1 apply, Pod restart or rollback has yet occurred at this checkpoint.
 
 ## Retry, Resume And Immutability Rules
 

@@ -1,0 +1,32 @@
+[target]
+namespace = "evm-production"
+deployment = "evm-b0-production"
+pod_label = "app.kubernetes.io/name=evm-b0-production"
+container = "serving"
+
+[m0]
+scenario_config_path = "configs/operations/local_failure_validation.toml"
+candidate_id = "effnet-b0-img224-expedited-adamw"
+dataset_version = "visa-open-data-e35d93d5561f"
+model_sha256 = "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f"
+image_digest = "enterprise-vision-mlops-efficientnet-serving@sha256:227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a"
+
+[m1]
+lifecycle_run_id = "lifecycle-20260802T202558-a50d19fe"
+lifecycle_run_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/lifecycle_runs/lifecycle-20260802T202558-a50d19fe"
+source_revision = "7f253ace37bd33d9b693cb0ce32d09278bc84531"
+candidate_id = "efficientnet-b0-profile-standard-b0-manual-tuning-v9"
+dataset_version = "visa-open-data-e35d93d5561f"
+model_sha256 = "2df0b78a0f792e17b7711e7415380f4f5c17960d8fd8ba57d986a5c65692707e"
+image_digest = "enterprise-vision-mlops-efficientnet-serving@sha256:227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a"
+ct_report_path = "F:/EnterpriseMLOps_CT/enterprise-vision-mlops/evaluations/ct-eval-ef1b2504186b3c5e/ct_evaluation.json"
+sample_image_uri = "file:///F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/raw/industrial/visa/candle/Data/Images/Anomaly/000.JPG"
+expected_prediction = "anomaly"
+
+[execution]
+evidence_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/operations/lifecycle_guard_a"
+detection_budget_seconds = 30.0
+recovery_budget_seconds = 300.0
+sample_cadence_seconds = 5.0
+prometheus_convergence_seconds = 90.0
+approval_ttl_seconds = 3600

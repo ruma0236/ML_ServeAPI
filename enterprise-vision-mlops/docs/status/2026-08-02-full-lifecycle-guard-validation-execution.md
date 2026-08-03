@@ -495,6 +495,17 @@ and exact B0 UID/model/CUDA/Prometheus identity was retained. Independent
 re-hash matched 95/95 artifacts across five indexes. Scenario A is now the next
 dependency.
 
+Scenario A implementation now seals the current exact B0 package as M0 and the
+accepted Scenario D lifecycle package as M1. It binds Deployment UID and
+resourceVersion, current active Pod UID, source revision, lifecycle
+series/run/attempt/correlation, MLflow, CT, model/data/image hashes and
+single-use apply/rollback action digests. M1 can become the local stable pointer
+only after CUDA inference and two distinct Prometheus scrapes pass. The existing
+UID-preconditioned Scenario A engine then restarts the committed M1 Pod, after
+which a separate approved transaction must restore exact M0. Focused tests pass
+14/14, full Python tests pass 497/497, Ruff and PowerShell parsing pass. No live
+mutation has occurred; `SCRUM-190 / EVM-282` remains In Progress.
+
 ## Golden Attempt Log
 
 | Attempt | Source | Result | External mutation | Disposition |
@@ -518,6 +529,7 @@ dependency.
 | `lifecycle-20260802T222607-175d2b88` | `ab72f9f` | Airflow 18/18, CUDA training, MLflow, readiness and CT passed; replay then failed closed because `/mnt/evm-ct` was not mapped to the Windows host path | intended pre-release Jobs +2, MLflow +1, candidate +1, intent 0; automatic cancel; B0 1/1 CUDA/Prometheus unchanged | retain mount-boundary RCA; map CT mount paths before path/digest validation and rerun both branches fresh |
 | `lifecycle-20260802T224642-da79b5a0` | `ec2ce22` | full quality lifecycle and corrected replay manifest preflight passed; one Prometheus snapshot caught the post-CT B0 restart window before replay | Jobs +2, MLflow +1, candidate +1, intent 0; target autonomously up on a distinct scrape about 22 s later; exact B0 unchanged | retain convergence RCA; require exact runtime plus two distinct up scrapes before replay and rerun both branches fresh |
 | `lifecycle-20260802T230714-5e948d45` plus `lifecycle-20260802T232208-c58e1e77` | `1e541de` | PASS: two fresh full lifecycles; measured quality rejection; 100/1,000 runtime replay with two errors; approval HTTP 422 for both | each branch Jobs +2, MLflow +1, candidate +1, intent 0; exact B0 UID/model/CUDA/plugin/Prometheus retained | accepted Scenario B closure; 95/95 indexed artifacts; proceed to Scenario A |
+| Scenario A transaction implementation | pending implementation commit | M0/M1 package sealing, target/resourceVersion binding, single-use approvals, M1 pointer CAS, exact M1 Pod recovery and separate M0 rollback runner; 497/497 tests | none; read-only M1 package validation only | implementation checkpoint; converge runtime to commit before maintenance preflight |
 
 ## Synchronization Rule
 
