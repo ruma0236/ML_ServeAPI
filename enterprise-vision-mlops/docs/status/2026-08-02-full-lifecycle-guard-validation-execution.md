@@ -1,8 +1,8 @@
 # Full Lifecycle Guard Validation Execution
 
-Date: 2026-08-02
-Status: In Progress; tracking, `EVM-272` correlation, and `EVM-273` recovery
-ownership prerequisites complete; integrated lifecycle execution remains open.
+Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
+Status: In Progress; the earlier A-E closure is baseline only for this fresh
+suite. Scenario E linkage is being revalidated before new C, B, D, and A runs.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -18,6 +18,125 @@ measured runs, and final closure.
 
 No result in the planning documents closes this execution ledger. Each phase
 below requires new evidence bound to this execution series.
+
+## Canonical Actual Injection Suite
+
+This file is the single Git status ledger for the 2026-08-03 fresh A-E suite.
+Jira `SCRUM-193`, the matching Notion execution page, and the matching Obsidian
+work log are the other canonical views. Scenario-specific documents are
+evidence references only and do not replace this ledger.
+
+Execution order is `E -> C -> B -> D -> A`. Every new LifecycleRun carries at
+most one intentional scenario injection. A scenario advances only after its
+result, evidence hashes, cleanup, runtime invariants, and four-system checkpoint
+are complete. Scenario A additionally creates a fresh no-fault lifecycle
+candidate so it does not reuse a run already injected by Scenario D.
+
+### Cross-Suite Summary
+
+| Scenario | State | Fresh lifecycle/injection | Result |
+|---|---|---|---|
+| E | verifying accepted fresh proof linkage | accepted L2/L4/L6 run identities are being bound to this suite | pending suite manifest entry |
+| C | pending | fresh quality/drift injection and governed hold/resume required | not started |
+| B | pending | fresh quality and runtime branches, one release injection per run | not started |
+| D | pending | fresh run; exact worker stop only at reserved/running training side effect | not started |
+| A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
+
+### Scenario E
+
+- **Purpose:** prove data/artifact identity fails closed at real L2 and L6
+  boundaries while a corrected branch reaches real CUDA training, MLflow and
+  isolated CT.
+- **Injection point:** accepted fresh evidence
+  `scenario-e-integrated-20260803T030435Z-55e9f243`.
+- **Pre-state/identity:** exact VisA manifest/shards, source `55e9f24`, stable
+  B0 UID/model, GPU/plugin and Prometheus snapshot.
+- **Intentional failure:** corrupt run-local data identity and release identity;
+  no canonical data mutation.
+- **Expected guard:** training and release approval fail closed; deployment
+  intent remains zero.
+- **SLI/SLO:** identity/hash closure 100%; unintended mutation zero.
+- **Result/evidence:** linkage verification in progress; result SHA-256
+  `2eebbf212393f6957bd5b725cfcdff44a26f1a8de2bf516e0372471a4b5c3dd2`.
+- **RCA/remediation:** prior unmapped `/app/artifacts` receipt attempt remains
+  immutable no-credit RCA; accepted proof contains the path-mapping fix.
+- **Invariants:** canonical data and exact B0/GPU/plugin/Prometheus unchanged.
+- **Claim boundary:** controlled local single-node VisA/CUDA proof, not live
+  customer production, HA, business A/B, or an SLA.
+- **Status:** verifying.
+
+### Scenario C
+
+- **Purpose:** validate drift/quality review, hold and governed retraining resume.
+- **Injection point:** pre-training quality review on a fresh LifecycleRun.
+- **Pre-state/identity:** pending fresh snapshot.
+- **Intentional failure:** deterministic VisA quality/distribution violation.
+- **Expected guard:** review hold, training attempt zero before approval, no
+  automatic deployment intent; independent single-use approval may resume only
+  the same run.
+- **SLI/SLO:** guard decision within policy timeout; duplicate/stale signal
+  creates no duplicate candidate or side effect.
+- **Result/evidence:** pending.
+- **RCA/remediation:** pending; any failed attempt remains immutable.
+- **Invariants:** production B0, canonical data and unrelated runtime unchanged.
+- **Claim boundary:** local batch drift validation, not online business drift.
+- **Status:** pending.
+
+### Scenario B
+
+- **Purpose:** reject a bad candidate and contain a controlled runtime breach.
+- **Injection point:** release admission after real Airflow, CUDA training,
+  MLflow, readiness and isolated CT.
+- **Pre-state/identity:** pending fresh snapshot.
+- **Intentional failure:** one measured quality breach and one deterministic
+  challenger error-rate breach, each in its own fresh LifecycleRun.
+- **Expected guard:** HTTP 422 admission denial or zero-allocation rollback;
+  deployment intent zero and stable identity retained.
+- **SLI/SLO:** detection <=30 s, recovery <=300 s, request identity 100%.
+- **Result/evidence:** pending.
+- **RCA/remediation:** pending; no branch may borrow evidence from the other.
+- **Invariants:** exact production B0 and real-user traffic unchanged.
+- **Claim boundary:** controlled replay, not business A/B or production canary.
+- **Status:** pending.
+
+### Scenario D
+
+- **Purpose:** validate idempotent lifecycle continuity across worker loss.
+- **Injection point:** exact training Job and side-effect key both
+  reserved/running on a fresh LifecycleRun.
+- **Pre-state/identity:** pending fresh PID/lease/fence/Job/task/key snapshot.
+- **Intentional failure:** stop only the exact owned lifecycle worker process.
+- **Expected guard:** supervisor recovers one worker and the same Job/task/key
+  completes without redispatch or duplicate effects.
+- **SLI/SLO:** detection <=10 s, worker recovery <=60 s, runtime restoration
+  <=90 s, duplicate effects zero.
+- **Result/evidence:** pending.
+- **RCA/remediation:** pending; ambiguous ownership blocks the stop.
+- **Invariants:** production B0, device-plugin, data and cluster-wide resources
+  unchanged.
+- **Claim boundary:** local process recovery, not distributed exactly-once or HA.
+- **Status:** pending.
+
+### Scenario A
+
+- **Purpose:** validate serving recovery after a fresh candidate lifecycle and
+  bounded model transition.
+- **Injection point:** exact committed-M1 B0 Pod after a fresh no-fault
+  LifecycleRun creates the M1 package.
+- **Pre-state/identity:** pending fresh candidate plus exact M0 Deployment UID,
+  Pod UID, model/image/data/CT/source and rollback target.
+- **Intentional failure:** restart only the exact committed-M1 Pod.
+- **Expected guard:** detection, exact identity recovery, CUDA inference and
+  Prometheus recovery, followed by a separately approved exact M0 rollback.
+- **SLI/SLO:** detection <=30 s, recovery <=300 s, identity 100%.
+- **Result/evidence:** pending.
+- **RCA/remediation:** pending; any ambiguous target or rollback identity blocks
+  mutation.
+- **Invariants:** device-plugin, cluster-wide resources, canonical data and real
+  user traffic unchanged.
+- **Claim boundary:** approved local single-replica maintenance interruption,
+  not zero downtime, HA, customer production, or an SLA.
+- **Status:** pending.
 
 ## Execution Series
 
