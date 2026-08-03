@@ -1,8 +1,8 @@
 # Full Lifecycle Guard Validation Execution
 
 Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
-Status: In Progress; the earlier A-E closure is baseline only for this fresh
-suite. Scenario E linkage is being revalidated before new C, B, D, and A runs.
+Status: In Progress; fresh-suite Scenario E linkage PASS. Scenario C is next;
+B, D, and A remain unstarted in this suite.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -36,7 +36,7 @@ candidate so it does not reuse a run already injected by Scenario D.
 
 | Scenario | State | Fresh lifecycle/injection | Result |
 |---|---|---|---|
-| E | verifying accepted fresh proof linkage | accepted L2/L4/L6 run identities are being bound to this suite | pending suite manifest entry |
+| E | PASS | fresh L2/L4/L6 run identities are bound and 32/32 artifacts re-hashed | suite manifest entry complete |
 | C | pending | fresh quality/drift injection and governed hold/resume required | not started |
 | B | pending | fresh quality and runtime branches, one release injection per run | not started |
 | D | pending | fresh run; exact worker stop only at reserved/running training side effect | not started |
@@ -56,14 +56,20 @@ candidate so it does not reuse a run already injected by Scenario D.
 - **Expected guard:** training and release approval fail closed; deployment
   intent remains zero.
 - **SLI/SLO:** identity/hash closure 100%; unintended mutation zero.
-- **Result/evidence:** linkage verification in progress; result SHA-256
-  `2eebbf212393f6957bd5b725cfcdff44a26f1a8de2bf516e0372471a4b5c3dd2`.
+- **Result/evidence:** PASS in suite
+  `full-lifecycle-actual-injection-20260803T050000Z-cbbbbb77`; exact runs
+  `lifecycle-20260803T030442-5aed7911` and
+  `lifecycle-20260803T031337-7a609762`; result SHA-256
+  `2eebbf212393f6957bd5b725cfcdff44a26f1a8de2bf516e0372471a4b5c3dd2`;
+  evidence index SHA-256
+  `7fc7321392a7a2cb3d1cca974ae85f09e91d0a27b3324539669a3487ab693c33`;
+  artifacts matched `32 / 32`.
 - **RCA/remediation:** prior unmapped `/app/artifacts` receipt attempt remains
   immutable no-credit RCA; accepted proof contains the path-mapping fix.
 - **Invariants:** canonical data and exact B0/GPU/plugin/Prometheus unchanged.
 - **Claim boundary:** controlled local single-node VisA/CUDA proof, not live
   customer production, HA, business A/B, or an SLA.
-- **Status:** verifying.
+- **Status:** PASS; admits Scenario C.
 
 ### Scenario C
 
