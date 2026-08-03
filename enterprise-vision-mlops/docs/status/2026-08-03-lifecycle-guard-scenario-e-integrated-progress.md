@@ -74,6 +74,31 @@ commit and deploy this exact revision to the supervised local control plane,
 execute both LifecycleRuns, seal the F-drive evidence graph and rerun the A-E
 closure validator. `SCRUM-191` remains In Progress until that audit is PASS.
 
+## Attempt 1 RCA
+
+Attempt `scenario-e-integrated-20260803T023734Z-c7a08409` is immutable failed
+RCA evidence and receives no acceptance credit.
+
+- Data run `lifecycle-20260803T023740-fe17425c` reached real Airflow and was
+  blocked at L2 on `integrity_shard_index_identity_mismatch`; training attempt
+  remained zero.
+- Corrected run `lifecycle-20260803T024632-4b0bb495` completed real Airflow,
+  CUDA training, MLflow run `a83a82ad048f4f0ea7d614a7bee6a6cd`, readiness
+  and isolated CT `ct-eval-53c70c908221a37d`.
+- Actual approval returned HTTP 422 with five model-identity mismatches; repeat
+  use of the injection contract returned HTTP 422 as already consumed; the
+  deployment intent remained zero.
+- The runner then failed its host-side three-replay assertion because the
+  receipt's container URI `/app/artifacts/...` was opened directly on Windows
+  and collapsed to `release_submission_invalid`. The guard itself had already
+  produced the expected semantic blockers.
+- Automatic cleanup left active runs zero. Exact production B0 remained 1/1,
+  the device-plugin remained 1/1 and Prometheus API/B0 targets remained up.
+
+Remediation maps the receipt URI through the shared runtime-path contract and
+re-hashes the derived submission against the receipt before replay. A new
+source-bound run is required; the failed attempt is not relabeled as PASS.
+
 ## Claim Boundary
 
 This work can prove controlled local single-node VisA/CUDA lifecycle guard

@@ -352,6 +352,17 @@ def evidence_references(paths: dict[str, Path]) -> dict[str, Any]:
     }
 
 
+def receipt_derived_submission(receipt: dict[str, Any]) -> Path:
+    uri = str(receipt.get("derived_submission_uri") or "")
+    expected_sha = str(receipt.get("derived_submission_sha256") or "")
+    path = runtime_path(uri)
+    if not path.is_file():
+        raise RuntimeError("scenario_e_derived_release_submission_missing")
+    if len(expected_sha) != 64 or file_digest(path) != expected_sha:
+        raise RuntimeError("scenario_e_derived_release_submission_digest_mismatch")
+    return path
+
+
 def run(
     *,
     project_root: Path,
@@ -567,7 +578,7 @@ def run(
             LifecycleRun.model_validate(release_run), RELEASE_ACTION
         )
         receipt_payload = read_json(release_receipt)
-        derived_submission = Path(str(receipt_payload["derived_submission_uri"]))
+        derived_submission = receipt_derived_submission(receipt_payload)
         blocked_replays = replay_release_decision(
             derived_submission,
             run=release_run,
