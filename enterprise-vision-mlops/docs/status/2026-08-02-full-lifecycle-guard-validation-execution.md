@@ -495,16 +495,22 @@ and exact B0 UID/model/CUDA/Prometheus identity was retained. Independent
 re-hash matched 95/95 artifacts across five indexes. Scenario A is now the next
 dependency.
 
-Scenario A implementation now seals the current exact B0 package as M0 and the
+Scenario A implementation seals the current exact B0 package as M0 and the
 accepted Scenario D lifecycle package as M1. It binds Deployment UID and
 resourceVersion, current active Pod UID, source revision, lifecycle
 series/run/attempt/correlation, MLflow, CT, model/data/image hashes and
 single-use apply/rollback action digests. M1 can become the local stable pointer
 only after CUDA inference and two distinct Prometheus scrapes pass. The existing
 UID-preconditioned Scenario A engine then restarts the committed M1 Pod, after
-which a separate approved transaction must restore exact M0. Focused tests pass
-14/14, full Python tests pass 497/497, Ruff and PowerShell parsing pass. No live
-mutation has occurred; `SCRUM-190 / EVM-282` remains In Progress.
+which a separate approved transaction must restore exact M0. The first live
+attempt applied and verified M1 but failed before the exact M1 Pod restart when
+a 275-character Windows atomic state path exceeded the host limit. Emergency
+rollback patched M0 but the `Recreate` controller stalled with zero active Pods;
+an exact bounded reconcile completed M0 recovery, CUDA inference, two distinct
+Prometheus scrapes and pointer restoration. The failed attempt and delayed
+rollback remain immutable non-acceptance RCA. Compact recovery storage, a
+240-character pre-mutation path budget and exact M0 rollout reconciliation are
+implemented for a fresh attempt. `SCRUM-190 / EVM-282` remains In Progress.
 
 ## Golden Attempt Log
 
@@ -529,7 +535,9 @@ mutation has occurred; `SCRUM-190 / EVM-282` remains In Progress.
 | `lifecycle-20260802T222607-175d2b88` | `ab72f9f` | Airflow 18/18, CUDA training, MLflow, readiness and CT passed; replay then failed closed because `/mnt/evm-ct` was not mapped to the Windows host path | intended pre-release Jobs +2, MLflow +1, candidate +1, intent 0; automatic cancel; B0 1/1 CUDA/Prometheus unchanged | retain mount-boundary RCA; map CT mount paths before path/digest validation and rerun both branches fresh |
 | `lifecycle-20260802T224642-da79b5a0` | `ec2ce22` | full quality lifecycle and corrected replay manifest preflight passed; one Prometheus snapshot caught the post-CT B0 restart window before replay | Jobs +2, MLflow +1, candidate +1, intent 0; target autonomously up on a distinct scrape about 22 s later; exact B0 unchanged | retain convergence RCA; require exact runtime plus two distinct up scrapes before replay and rerun both branches fresh |
 | `lifecycle-20260802T230714-5e948d45` plus `lifecycle-20260802T232208-c58e1e77` | `1e541de` | PASS: two fresh full lifecycles; measured quality rejection; 100/1,000 runtime replay with two errors; approval HTTP 422 for both | each branch Jobs +2, MLflow +1, candidate +1, intent 0; exact B0 UID/model/CUDA/plugin/Prometheus retained | accepted Scenario B closure; 95/95 indexed artifacts; proceed to Scenario A |
-| Scenario A transaction implementation | pending implementation commit | M0/M1 package sealing, target/resourceVersion binding, single-use approvals, M1 pointer CAS, exact M1 Pod recovery and separate M0 rollback runner; 497/497 tests | none; read-only M1 package validation only | implementation checkpoint; converge runtime to commit before maintenance preflight |
+| `scenario-a-lifecycle-20260803T000920Z-0209bac1-47eaa66e` | `0209bac` | M1 apply/verify/pointer PASS in 35.879184 s; failed before M1 restart because nested atomic state path was 275 characters | M1 rollout committed; emergency M0 patch; Recreate rollout then stalled at zero active Pods | immutable failed attempt; no acceptance credit; compact path and rollout reconciliation RCA required |
+| `rollback-recovery-20260803T001831Z` | `0209bac` | delayed M0 recovery PASS: exact CUDA inference and two distinct Prometheus scrapes in 30.560015 s | one exact Deployment reconcile annotation under the already-consumed rollback approval; device-plugin/data/cluster unchanged | pointer revision 2 restored M0; operational recovery evidence only, not Scenario A acceptance |
+| Scenario A remediation checkpoint | pending remediation commit | compact recovery ID/root, 240-character atomic path preflight and exact Recreate rollout reconciliation; focused regression PASS | none after delayed rollback closure | run full regression, commit/push, converge runtime and start a fresh immutable attempt |
 
 ## Synchronization Rule
 

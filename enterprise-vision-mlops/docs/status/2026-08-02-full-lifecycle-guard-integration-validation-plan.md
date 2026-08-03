@@ -61,7 +61,7 @@ The planning source baseline is Git `e247efd133a2c486e81a1e700aa68133876770a9`.
 | 3 | `EVM-279` | `SCRUM-187` | D idempotent lifecycle continuity and side-effect reconciliation | Done | `EVM-278` |
 | 4 | `EVM-280` | `SCRUM-188` | C quality/drift review, hold, and governed resume | Done | `EVM-279` |
 | 5 | `EVM-281` | `SCRUM-189` | B candidate release guardrail and stable rollback | Done; two fresh real lifecycle branches PASS | `EVM-280` |
-| 6 | `EVM-282` | `SCRUM-190` | A post-promotion GPU serving recovery | In Progress; implementation and regression PASS, live maintenance proof pending | `EVM-281` |
+| 6 | `EVM-282` | `SCRUM-190` | A post-promotion GPU serving recovery | In Progress; first live attempt retained as failed RCA, exact M0 recovered, path/reconcile remediation awaiting fresh proof | `EVM-281` |
 | 7 | `EVM-283` | `SCRUM-191` | single-scenario integrated evidence closure | To Do | `EVM-282` |
 | 8 | `EVM-284` | `SCRUM-192` | final VisA operations drill | To Do, final gate | `EVM-283`, `EVM-274`, `EVM-275` |
 

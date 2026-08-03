@@ -66,6 +66,9 @@ class ScenarioAIntegrationError(RuntimeError):
     pass
 
 
+WINDOWS_ATOMIC_PATH_BUDGET = 240
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -211,13 +214,20 @@ def validate_m1_package(config: IntegrationConfig) -> M1Package:
     serving = read_json(serving_path)
     monitoring = read_json(monitoring_path)
 
-    _require(release.get("schema_version") == "evm.lifecycle_release_submission.v1", "m1_release_schema_invalid")
+    _require(
+        release.get("schema_version") == "evm.lifecycle_release_submission.v1",
+        "m1_release_schema_invalid",
+    )
     _require(release.get("run_id") == expected.lifecycle_run_id, "m1_release_run_mismatch")
     _require(release.get("source_commit") == expected.source_revision, "m1_release_source_mismatch")
     _require(release.get("candidate_id") == expected.candidate_id, "m1_release_candidate_mismatch")
-    _require(release.get("dataset_version") == expected.dataset_version, "m1_release_dataset_mismatch")
+    _require(
+        release.get("dataset_version") == expected.dataset_version, "m1_release_dataset_mismatch"
+    )
     _require(release.get("model_digest") == expected.model_sha256, "m1_release_model_mismatch")
-    _require(release.get("container_image_digest") == expected.image_digest, "m1_release_image_mismatch")
+    _require(
+        release.get("container_image_digest") == expected.image_digest, "m1_release_image_mismatch"
+    )
 
     evidence = release.get("evidence") or {}
     required_evidence = {"readiness", "model_matrix", "ct_evaluation", "model_artifact"}
@@ -239,12 +249,20 @@ def validate_m1_package(config: IntegrationConfig) -> M1Package:
     model_path = Path(str(release.get("model_artifact_uri") or ""))
     checked_file(model_path, expected.model_sha256)
     _require(model_path.resolve().is_relative_to(root), "m1_model_outside_lifecycle_root")
-    _require(Path(artifact_paths["readiness"]).resolve() == readiness_path.resolve(), "m1_readiness_reference_mismatch")
-    _require(Path(artifact_paths["ct_evaluation"]).resolve() == expected.ct_report_path.resolve(), "m1_ct_reference_mismatch")
+    _require(
+        Path(artifact_paths["readiness"]).resolve() == readiness_path.resolve(),
+        "m1_readiness_reference_mismatch",
+    )
+    _require(
+        Path(artifact_paths["ct_evaluation"]).resolve() == expected.ct_report_path.resolve(),
+        "m1_ct_reference_mismatch",
+    )
 
     stages = lifecycle.get("stages") or []
     _require(lifecycle.get("run_id") == expected.lifecycle_run_id, "m1_lifecycle_run_mismatch")
-    _require(lifecycle.get("source_commit") == expected.source_revision, "m1_lifecycle_source_mismatch")
+    _require(
+        lifecycle.get("source_commit") == expected.source_revision, "m1_lifecycle_source_mismatch"
+    )
     _require(len(stages) == 10, "m1_lifecycle_stage_cardinality")
     _require(all(item.get("state") == "completed" for item in stages), "m1_lifecycle_not_complete")
     required_stages = {
@@ -259,13 +277,27 @@ def validate_m1_package(config: IntegrationConfig) -> M1Package:
         "serving_validation",
         "monitoring",
     }
-    _require({str(item.get("stage_id")) for item in stages} == required_stages, "m1_lifecycle_stage_identity_mismatch")
+    _require(
+        {str(item.get("stage_id")) for item in stages} == required_stages,
+        "m1_lifecycle_stage_identity_mismatch",
+    )
 
-    _require(readiness.get("decision") == "ready" and readiness.get("status") == "pass", "m1_readiness_not_ready")
-    _require(readiness.get("candidate_id") == expected.candidate_id, "m1_readiness_candidate_mismatch")
-    _require(readiness.get("dataset_version") == expected.dataset_version, "m1_readiness_dataset_mismatch")
+    _require(
+        readiness.get("decision") == "ready" and readiness.get("status") == "pass",
+        "m1_readiness_not_ready",
+    )
+    _require(
+        readiness.get("candidate_id") == expected.candidate_id, "m1_readiness_candidate_mismatch"
+    )
+    _require(
+        readiness.get("dataset_version") == expected.dataset_version,
+        "m1_readiness_dataset_mismatch",
+    )
     _require(len(readiness.get("checks") or []) == 13, "m1_readiness_check_cardinality")
-    _require(all(item.get("status") == "pass" for item in readiness.get("checks") or []), "m1_readiness_check_failed")
+    _require(
+        all(item.get("status") == "pass" for item in readiness.get("checks") or []),
+        "m1_readiness_check_failed",
+    )
 
     ct = read_json(expected.ct_report_path)
     _require(ct.get("status") == "pass" and ct.get("decision") == "pass", "m1_ct_not_passed")
@@ -287,7 +319,9 @@ def validate_m1_package(config: IntegrationConfig) -> M1Package:
     candidate = read_json(candidate_path)
     split = read_json(split_path)
     _require(candidate.get("status") == "pass", "m1_candidate_not_pass")
-    _require(candidate.get("candidate_id") == expected.candidate_id, "m1_candidate_identity_mismatch")
+    _require(
+        candidate.get("candidate_id") == expected.candidate_id, "m1_candidate_identity_mismatch"
+    )
     _require(candidate.get("model_sha256") == expected.model_sha256, "m1_candidate_model_mismatch")
     _require(not candidate.get("promotion_blockers"), "m1_candidate_has_blockers")
     _require(split.get("dataset_version") == expected.dataset_version, "m1_split_dataset_mismatch")
@@ -297,15 +331,24 @@ def validate_m1_package(config: IntegrationConfig) -> M1Package:
 
     for name, payload in (("serving", serving), ("monitoring", monitoring)):
         _require(payload.get("status") == "pass", f"m1_{name}_not_passed")
-    _require((serving.get("ready") or {}).get("candidate_id") == expected.candidate_id, "m1_serving_candidate_mismatch")
-    _require((serving.get("ready") or {}).get("model_sha256") == expected.model_sha256, "m1_serving_model_mismatch")
+    _require(
+        (serving.get("ready") or {}).get("candidate_id") == expected.candidate_id,
+        "m1_serving_candidate_mismatch",
+    )
+    _require(
+        (serving.get("ready") or {}).get("model_sha256") == expected.model_sha256,
+        "m1_serving_model_mismatch",
+    )
     _require((serving.get("ready") or {}).get("device") == "cuda", "m1_serving_not_cuda")
 
     for name, path_text in artifact_paths.items():
         artifact_sha256.setdefault(name, checked_file(Path(path_text)))
     submission_digest = str(release.get("submission_digest") or "")
     release_material = {key: value for key, value in release.items() if key != "submission_digest"}
-    _require(payload_digest(release_material) == submission_digest, "m1_release_submission_digest_mismatch")
+    _require(
+        payload_digest(release_material) == submission_digest,
+        "m1_release_submission_digest_mismatch",
+    )
 
     return M1Package(
         identity=ModelIdentity(
@@ -347,25 +390,64 @@ def kubectl_json(*args: str) -> dict[str, Any]:
 
 
 def active_pod(items: list[dict[str, Any]]) -> dict[str, Any]:
-    active = [
-        item
-        for item in items
-        if not pod_is_historical(item) and not (item.get("metadata") or {}).get("deletionTimestamp")
-    ]
+    active = active_pods(items)
     if len(active) != 1:
         raise ScenarioAIntegrationError(f"active_pod_cardinality:{len(active)}")
     return active[0]
 
 
+def active_pods(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in items
+        if not pod_is_historical(item) and not (item.get("metadata") or {}).get("deletionTimestamp")
+    ]
+
+
 def container_identity(deployment: dict[str, Any], container_name: str) -> ModelIdentity:
-    containers = (((deployment.get("spec") or {}).get("template") or {}).get("spec") or {}).get("containers") or []
+    containers = (((deployment.get("spec") or {}).get("template") or {}).get("spec") or {}).get(
+        "containers"
+    ) or []
     selected = [item for item in containers if item.get("name") == container_name]
     if len(selected) != 1:
         raise ScenarioAIntegrationError(f"serving_container_cardinality:{len(selected)}")
     container = selected[0]
     env_items = container.get("env") or []
     env = {str(item.get("name")): str(item.get("value") or "") for item in env_items}
-    required = ["EVM_MODEL_CANDIDATE_ID", "EVM_DATASET_VERSION", "EVM_MODEL_SHA256", "EVM_MODEL_PATH"]
+    required = [
+        "EVM_MODEL_CANDIDATE_ID",
+        "EVM_DATASET_VERSION",
+        "EVM_MODEL_SHA256",
+        "EVM_MODEL_PATH",
+    ]
+    missing = [name for name in required if not env.get(name)]
+    if missing:
+        raise ScenarioAIntegrationError(f"serving_env_missing:{','.join(missing)}")
+    return ModelIdentity(
+        candidate_id=env["EVM_MODEL_CANDIDATE_ID"],
+        dataset_version=env["EVM_DATASET_VERSION"],
+        model_sha256=env["EVM_MODEL_SHA256"],
+        image_digest=str(container.get("image") or ""),
+        model_path=env["EVM_MODEL_PATH"],
+    )
+
+
+def pod_container_identity(pod: dict[str, Any], container_name: str) -> ModelIdentity:
+    containers = ((pod.get("spec") or {}).get("containers") or [])
+    selected = [item for item in containers if item.get("name") == container_name]
+    if len(selected) != 1:
+        raise ScenarioAIntegrationError(f"serving_container_cardinality:{len(selected)}")
+    container = selected[0]
+    env = {
+        str(item.get("name")): str(item.get("value") or "")
+        for item in container.get("env") or []
+    }
+    required = [
+        "EVM_MODEL_CANDIDATE_ID",
+        "EVM_DATASET_VERSION",
+        "EVM_MODEL_SHA256",
+        "EVM_MODEL_PATH",
+    ]
     missing = [name for name in required if not env.get(name)]
     if missing:
         raise ScenarioAIntegrationError(f"serving_env_missing:{','.join(missing)}")
@@ -391,7 +473,9 @@ def _prometheus_target(config: ScenarioAConfig, http: HttpAdapter) -> dict[str, 
     )
 
 
-def capture_target(config: ScenarioAConfig, expected: IntegrationM0 | ModelIdentity) -> TargetSnapshot:
+def capture_target(
+    config: ScenarioAConfig, expected: IntegrationM0 | ModelIdentity
+) -> TargetSnapshot:
     kube = KubernetesAdapter()
     http = HttpAdapter()
     deployment = kube.get_named(
@@ -418,18 +502,34 @@ def capture_target(config: ScenarioAConfig, expected: IntegrationM0 | ModelIdent
         else expected
     )
     _require(identity.candidate_id == expected_identity.candidate_id, "target_candidate_mismatch")
-    _require(identity.dataset_version == expected_identity.dataset_version, "target_dataset_mismatch")
+    _require(
+        identity.dataset_version == expected_identity.dataset_version, "target_dataset_mismatch"
+    )
     _require(identity.model_sha256 == expected_identity.model_sha256, "target_model_mismatch")
     _require(identity.image_digest == expected_identity.image_digest, "target_image_mismatch")
     ready = http.get_json(config.http.readiness_url)
-    _require(ready.get("candidate_id") == expected_identity.candidate_id, "target_ready_candidate_mismatch")
-    _require(ready.get("model_sha256") == expected_identity.model_sha256, "target_ready_model_mismatch")
-    _require(ready.get("dataset_version") == expected_identity.dataset_version, "target_ready_dataset_mismatch")
-    _require(ready.get("device") == "cuda" and ready.get("cuda_available") is True, "target_ready_not_cuda")
+    _require(
+        ready.get("candidate_id") == expected_identity.candidate_id,
+        "target_ready_candidate_mismatch",
+    )
+    _require(
+        ready.get("model_sha256") == expected_identity.model_sha256, "target_ready_model_mismatch"
+    )
+    _require(
+        ready.get("dataset_version") == expected_identity.dataset_version,
+        "target_ready_dataset_mismatch",
+    )
+    _require(
+        ready.get("device") == "cuda" and ready.get("cuda_available") is True,
+        "target_ready_not_cuda",
+    )
     prediction = post_inference(config)
     _require(validate_inference(config, prediction).passed, "target_inference_mismatch")
     prometheus = _prometheus_target(config, http)
-    _require(prometheus.get("health") == "up" and not prometheus.get("lastError"), "target_prometheus_not_up")
+    _require(
+        prometheus.get("health") == "up" and not prometheus.get("lastError"),
+        "target_prometheus_not_up",
+    )
     metadata = deployment.get("metadata") or {}
     pod_metadata = pod.get("metadata") or {}
     return TargetSnapshot(
@@ -485,6 +585,29 @@ def build_deployment_patch(
     }
 
 
+def build_recreate_reconcile_patch(
+    *,
+    resource_version: str,
+    transaction_id: str,
+    target: ModelIdentity,
+    nonce: str,
+) -> dict[str, Any]:
+    return {
+        "metadata": {"resourceVersion": resource_version},
+        "spec": {
+            "template": {
+                "metadata": {
+                    "annotations": {
+                        "evm.openai.local/lifecycle-guard-a-reconcile": (
+                            f"{transaction_id}:rollback_m0:{target.model_sha256[:12]}:{nonce}"
+                        )
+                    }
+                }
+            }
+        },
+    }
+
+
 def patch_deployment(
     config: IntegrationConfig,
     snapshot: TargetSnapshot,
@@ -508,7 +631,10 @@ def patch_deployment(
         str(metadata.get("resourceVersion") or "") == snapshot.deployment_resource_version,
         "deployment_resource_version_changed",
     )
-    _require(container_identity(current, config.target.container) == snapshot.identity, "deployment_identity_changed")
+    _require(
+        container_identity(current, config.target.container) == snapshot.identity,
+        "deployment_identity_changed",
+    )
     patch = build_deployment_patch(
         snapshot,
         target,
@@ -532,8 +658,126 @@ def patch_deployment(
         timeout=60,
     )
     payload = json.loads(output)
-    _require(str((payload.get("metadata") or {}).get("uid") or "") == snapshot.deployment_uid, "patched_deployment_uid_changed")
+    _require(
+        str((payload.get("metadata") or {}).get("uid") or "") == snapshot.deployment_uid,
+        "patched_deployment_uid_changed",
+    )
     return payload
+
+
+def ensure_recreate_rollout_started(
+    config: IntegrationConfig,
+    *,
+    deployment_uid: str,
+    target: ModelIdentity,
+    transaction_id: str,
+    grace_seconds: float = 15.0,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + grace_seconds
+    last_active_count = 0
+    while time.monotonic() < deadline:
+        deployment = kubectl_json(
+            "get",
+            "deployment",
+            config.target.deployment,
+            "-n",
+            config.target.namespace,
+            "-o",
+            "json",
+        )
+        metadata = deployment.get("metadata") or {}
+        _require(str(metadata.get("uid") or "") == deployment_uid, "deployment_uid_changed")
+        _require(
+            container_identity(deployment, config.target.container) == target,
+            "deployment_identity_changed",
+        )
+        pods_payload = kubectl_json(
+            "get",
+            "pods",
+            "-n",
+            config.target.namespace,
+            "-l",
+            config.target.pod_label,
+            "-o",
+            "json",
+        )
+        active = active_pods(pods_payload.get("items") or [])
+        last_active_count = len(active)
+        _require(last_active_count <= 1, f"active_pod_cardinality:{last_active_count}")
+        if last_active_count == 1 and pod_container_identity(active[0], config.target.container) == target:
+            return {
+                "decision": "not_required",
+                "active_pod_uid": str((active[0].get("metadata") or {}).get("uid") or ""),
+            }
+        time.sleep(min(config.execution.sample_cadence_seconds, 2.0))
+
+    deployment = kubectl_json(
+        "get",
+        "deployment",
+        config.target.deployment,
+        "-n",
+        config.target.namespace,
+        "-o",
+        "json",
+    )
+    metadata = deployment.get("metadata") or {}
+    _require(str(metadata.get("uid") or "") == deployment_uid, "deployment_uid_changed")
+    _require(
+        container_identity(deployment, config.target.container) == target,
+        "deployment_identity_changed",
+    )
+    _require(
+        str(((deployment.get("spec") or {}).get("strategy") or {}).get("type") or "") == "Recreate",
+        "reconcile_requires_recreate_strategy",
+    )
+    _require(
+        int((deployment.get("spec") or {}).get("replicas") or 0) == 1,
+        "reconcile_replica_intent_changed",
+    )
+    patch = build_recreate_reconcile_patch(
+        resource_version=str(metadata.get("resourceVersion") or ""),
+        transaction_id=transaction_id,
+        target=target,
+        nonce=uuid.uuid4().hex[:12],
+    )
+    output = _run(
+        [
+            "kubectl",
+            "patch",
+            "deployment",
+            config.target.deployment,
+            "-n",
+            config.target.namespace,
+            "--type=strategic",
+            "-p",
+            json.dumps(patch, separators=(",", ":")),
+            "-o",
+            "json",
+        ],
+        timeout=60,
+    )
+    patched = json.loads(output)
+    _require(
+        str((patched.get("metadata") or {}).get("uid") or "") == deployment_uid,
+        "reconciled_deployment_uid_changed",
+    )
+    _require(
+        container_identity(patched, config.target.container) == target,
+        "reconciled_deployment_identity_changed",
+    )
+    return {
+        "decision": "requested",
+        "reason": "recreate_rollout_had_no_active_pod_after_grace",
+        "grace_seconds": grace_seconds,
+        "active_pod_count_before": last_active_count,
+        "deployment_generation": int((patched.get("metadata") or {}).get("generation") or 0),
+        "deployment_resource_version": str(
+            (patched.get("metadata") or {}).get("resourceVersion") or ""
+        ),
+        "annotation": (((patched.get("spec") or {}).get("template") or {}).get("metadata") or {})
+        .get("annotations", {})
+        .get("evm.openai.local/lifecycle-guard-a-reconcile"),
+    }
 
 
 def build_model_config(
@@ -747,7 +991,12 @@ def consume_approval(
         replay_blocked = True
     _require(replay_blocked, "approval_replay_not_blocked")
     receipt = read_json(store.root / f"{approval_id}.consumed.json")
-    return {**approval, "consumed": True, "consumed_at": receipt["consumed_at"], "replay_blocked": True}
+    return {
+        **approval,
+        "consumed": True,
+        "consumed_at": receipt["consumed_at"],
+        "replay_blocked": True,
+    }
 
 
 def prepare_recovery(
@@ -762,7 +1011,9 @@ def prepare_recovery(
         project_root=project_root,
         run_id=run_id,
     )
-    _require(baseline.decision == "passed", f"recovery_baseline_blocked:{','.join(baseline.blockers)}")
+    _require(
+        baseline.decision == "passed", f"recovery_baseline_blocked:{','.join(baseline.blockers)}"
+    )
     run_root = baseline.run_root
     kube = KubernetesAdapter()
     before = kube.get_named(
@@ -772,9 +1023,13 @@ def prepare_recovery(
     )
     atomic_write_json(run_root / "device-plugin-before.json", before)
     plan = plan_device_plugin_reconciliation(before, discover_wsl_driver_paths())
-    _require(plan.decision in {"no_change", "change_required"}, "device_plugin_reconciliation_blocked")
+    _require(
+        plan.decision in {"no_change", "change_required"}, "device_plugin_reconciliation_blocked"
+    )
     _require(plan.mutation_performed is False, "device_plugin_reconciliation_mutated")
-    atomic_write_json(run_root / "device-plugin-reconciliation-plan.json", plan.model_dump(mode="json"))
+    atomic_write_json(
+        run_root / "device-plugin-reconciliation-plan.json", plan.model_dump(mode="json")
+    )
     after = kube.get_named(
         kind="daemonset",
         namespace=config.target.device_plugin_namespace,
@@ -794,7 +1049,9 @@ def prepare_recovery(
         project_root=project_root,
         run_id=run_id,
     )
-    _require(preflight.decision == "passed", f"recovery_preflight_blocked:{','.join(preflight.blockers)}")
+    _require(
+        preflight.decision == "passed", f"recovery_preflight_blocked:{','.join(preflight.blockers)}"
+    )
     approval = issue_scenario_a_approval(
         config=config,
         run_id=run_id,
@@ -832,6 +1089,23 @@ def evidence_index(root: Path) -> dict[str, Any]:
     return payload
 
 
+def recovery_storage_plan(run_root: Path, transaction_id: str) -> dict[str, Any]:
+    recovery_root = run_root / "r"
+    recovery_id = f"a8-{hashlib.sha256(transaction_id.encode('utf-8')).hexdigest()[:12]}"
+    atomic_temp_probe = (
+        recovery_root / "A" / recovery_id / f".state.json.{('f' * 32)}.tmp"
+    ).resolve()
+    observed_length = len(str(atomic_temp_probe))
+    return {
+        "decision": "passed" if observed_length <= WINDOWS_ATOMIC_PATH_BUDGET else "blocked",
+        "evidence_root": str(recovery_root.resolve()),
+        "run_id": recovery_id,
+        "longest_atomic_path_probe": str(atomic_temp_probe),
+        "observed_path_length": observed_length,
+        "path_budget": WINDOWS_ATOMIC_PATH_BUDGET,
+    }
+
+
 def run_integrated_scenario_a(
     *,
     config: IntegrationConfig,
@@ -853,7 +1127,10 @@ def run_integrated_scenario_a(
     base = load_scenario_a_config((project_root / config.m0.scenario_config_path).resolve())
     source = collect_runtime_source(project_root=project_root, config=base)
     _require(source.revision_converged, "runtime_revision_not_converged")
-    _require(source.source.commit == source_revision and not source.source.dirty, "runtime_source_mismatch")
+    _require(
+        source.source.commit == source_revision and not source.source.dirty,
+        "runtime_source_mismatch",
+    )
     m0 = capture_target(base, config.m0)
     target = TargetRef(
         namespace=config.target.namespace,
@@ -873,15 +1150,26 @@ def run_integrated_scenario_a(
             "detection_seconds": config.execution.detection_budget_seconds,
             "recovery_seconds": config.execution.recovery_budget_seconds,
         },
-        "excluded_mutations": ["device_plugin", "data", "registry", "cluster_wide", "unrelated_workloads"],
+        "excluded_mutations": [
+            "device_plugin",
+            "data",
+            "registry",
+            "cluster_wide",
+            "unrelated_workloads",
+        ],
     }
     contract_digest = payload_digest(contract)
     atomic_write_json(run_root / "contract.json", {**contract, "contract_digest": contract_digest})
     atomic_write_json(run_root / "m0-snapshot.json", m0.model_dump(mode="json"))
     atomic_write_json(run_root / "m1-package.json", package.model_dump(mode="json"))
+    recovery_storage = recovery_storage_plan(run_root, transaction_id)
+    atomic_write_json(run_root / "recovery-storage-preflight.json", recovery_storage)
+    _require(recovery_storage["decision"] == "passed", "recovery_storage_path_budget_exceeded")
     pointer_path = config.execution.evidence_root / "_state" / "stable-pointer.json"
     existing_pointer = read_json(pointer_path) if pointer_path.is_file() else None
-    expected_pointer = str((existing_pointer or {}).get("identity", {}).get("model_sha256") or "") or None
+    expected_pointer = (
+        str((existing_pointer or {}).get("identity", {}).get("model_sha256") or "") or None
+    )
     if expected_pointer is not None:
         _require(expected_pointer == m0.identity.model_sha256, "stable_pointer_not_m0")
 
@@ -916,7 +1204,7 @@ def run_integrated_scenario_a(
         base,
         package,
         config,
-        run_root / "recovery-proof",
+        Path(recovery_storage["evidence_root"]),
     )
     result: dict[str, Any] = {
         "schema_version": "evm.lifecycle_guard_a_result.v1",
@@ -981,7 +1269,7 @@ def run_integrated_scenario_a(
             }
         )
 
-        recovery_id = f"{transaction_id}-m1-restart"
+        recovery_id = str(recovery_storage["run_id"])
         recovery_preflight = prepare_recovery(
             m1_config,
             project_root=project_root,
@@ -1021,6 +1309,13 @@ def run_integrated_scenario_a(
             action="rollback_m0",
         )
         atomic_write_json(run_root / "m0-rollback-patched-deployment.json", rollback_patched)
+        rollback_reconcile = ensure_recreate_rollout_started(
+            config,
+            deployment_uid=m0.deployment_uid,
+            target=m0.identity,
+            transaction_id=transaction_id,
+        )
+        atomic_write_json(run_root / "m0-rollback-reconcile.json", rollback_reconcile)
         rollback_health = wait_for_exact_health(
             base,
             m0.identity,
@@ -1088,6 +1383,15 @@ def run_integrated_scenario_a(
                     m0.identity,
                     transaction_id=transaction_id,
                     action="rollback_m0",
+                )
+                emergency_reconcile = ensure_recreate_rollout_started(
+                    config,
+                    deployment_uid=m0.deployment_uid,
+                    target=m0.identity,
+                    transaction_id=transaction_id,
+                )
+                atomic_write_json(
+                    run_root / "emergency-rollback-reconcile.json", emergency_reconcile
                 )
                 emergency = wait_for_exact_health(
                     base,

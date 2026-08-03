@@ -38,3 +38,34 @@ registry, staging and unrelated workloads are excluded. The single replica
 means M1 apply, exact-Pod restart and M0 rollback can each interrupt the local
 endpoint. Results support only a controlled local maintenance-drill claim, not
 HA, zero downtime, real production traffic or an SLA.
+
+## Attempt 1: Immutable RCA
+
+Run `scenario-a-lifecycle-20260803T000920Z-0209bac1-47eaa66e` is retained as a
+failed attempt and receives no acceptance credit. M1 apply, exact CUDA
+inference, two distinct Prometheus scrapes and stable-pointer revision 1 passed
+in `35.879184 s`. Before the exact M1 Pod restart, the nested recovery state
+path reached 275 characters and Windows rejected the atomic temporary file.
+
+The consumed emergency rollback restored the M0 Deployment template, but the
+Kubernetes `Recreate` controller scaled M1 to zero and did not create an active
+M0 ReplicaSet before the 90-second convergence window. A UID-, resourceVersion-,
+model-digest- and replica-intent-bound reconcile annotation completed that
+already-approved rollback. Separate recovery evidence at
+`rollback-recovery-20260803T001831Z` proves M0 on Pod
+`501c43c8-1f66-435d-a932-a2f406115e79`, CUDA inference, two distinct successful
+Prometheus scrapes in `30.560015 s`, and stable-pointer revision 2. This delayed
+recovery is operational RCA evidence only.
+
+## Remediation Checkpoint
+
+- The M1 recovery scope now uses a deterministic compact run ID and `r/A/...`
+  evidence root.
+- A pre-mutation storage contract blocks an atomic evidence path longer than
+  240 characters.
+- M0 rollback waits for an active Pod with the exact target identity. If a
+  `Recreate` rollout has no such Pod after a bounded grace period, one exact
+  Deployment reconcile is allowed; zero/multiple targets or any UID, identity,
+  resourceVersion, strategy or replica-intent mismatch remains fail closed.
+- The next acceptance attempt must use a new source revision, approvals and
+  immutable run root. Attempt 1 cannot be resumed or relabeled as passed.

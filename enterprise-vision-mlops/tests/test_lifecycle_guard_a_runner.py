@@ -10,9 +10,12 @@ from evm.operations.lifecycle_guard_a_runner import (
     TargetSnapshot,
     active_pod,
     build_deployment_patch,
+    build_recreate_reconcile_patch,
     consume_approval,
     container_identity,
     issue_approval,
+    pod_container_identity,
+    recovery_storage_plan,
     write_pointer,
 )
 from evm.operations.failure_scenarios import TargetRef
@@ -71,6 +74,8 @@ def snapshot() -> TargetSnapshot:
 
 def test_container_identity_is_exact() -> None:
     assert container_identity(deployment(), "serving") == identity()
+    pod = {"spec": deployment()["spec"]["template"]["spec"]}
+    assert pod_container_identity(pod, "serving") == identity()
 
 
 def test_active_pod_excludes_historical_and_requires_one() -> None:
@@ -100,6 +105,36 @@ def test_patch_binds_resource_version_and_model_identity() -> None:
         "EVM_MODEL_CANDIDATE_ID": "candidate-m2",
         "EVM_DATASET_VERSION": "dataset-v1",
     }
+
+
+def test_recreate_reconcile_patch_is_resource_version_and_identity_bound() -> None:
+    target = identity("c" * 64)
+    patch = build_recreate_reconcile_patch(
+        resource_version="21",
+        transaction_id="transaction-1",
+        target=target,
+        nonce="nonce-1",
+    )
+    assert patch["metadata"]["resourceVersion"] == "21"
+    annotation = patch["spec"]["template"]["metadata"]["annotations"]
+    assert annotation == {
+        "evm.openai.local/lifecycle-guard-a-reconcile": (
+            "transaction-1:rollback_m0:" + ("c" * 12) + ":nonce-1"
+        )
+    }
+
+
+def test_recovery_storage_plan_compacts_and_enforces_path_budget(tmp_path: Path) -> None:
+    short = recovery_storage_plan(tmp_path / "run", "transaction-1")
+    assert short["decision"] == "passed"
+    assert short["run_id"].startswith("a8-")
+    assert len(short["run_id"]) == 15
+    assert short["observed_path_length"] <= short["path_budget"]
+
+    long_root = tmp_path / ("x" * 80) / ("y" * 80) / ("z" * 80)
+    blocked = recovery_storage_plan(long_root, "transaction-1")
+    assert blocked["decision"] == "blocked"
+    assert blocked["observed_path_length"] > blocked["path_budget"]
 
 
 def test_stable_pointer_uses_compare_and_swap(tmp_path: Path) -> None:
