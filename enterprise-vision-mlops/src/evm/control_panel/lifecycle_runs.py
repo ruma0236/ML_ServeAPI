@@ -28,6 +28,10 @@ from evm.control_panel.lifecycle_integrity import (
     LifecycleIntegrityBlocked,
     validate_lifecycle_release_submission,
 )
+from evm.control_panel.lifecycle_integrity_injection import (
+    LifecycleIntegrityInjectionBlocked,
+    release_submission_for_admission,
+)
 from evm.control_panel.lifecycle_quality_guard import (
     LifecycleQualityGuardBlocked,
     LifecycleQualityReviewActionRequest,
@@ -859,14 +863,24 @@ def approve_lifecycle_run(
                 status_code=422,
             )
         try:
-            validate_lifecycle_release_submission(
+            admission_submission = release_submission_for_admission(
+                run,
                 runtime_path(run.release_submission_uri),
+            )
+            validate_lifecycle_release_submission(
+                admission_submission,
                 run_id=run.run_id,
                 source_commit=str(run.source_commit or ""),
                 expected_candidate_id=request.candidate_id,
                 expected_model_digest=request.model_digest,
                 expected_ct_evaluation_id=request.ct_evaluation_id,
             )
+        except LifecycleIntegrityInjectionBlocked as exc:
+            raise LifecycleRunError(
+                "lifecycle_integrity_injection_blocked",
+                ", ".join(exc.blockers),
+                status_code=422,
+            ) from exc
         except LifecycleIntegrityBlocked as exc:
             raise LifecycleRunError(
                 "lifecycle_release_integrity_blocked",

@@ -42,6 +42,10 @@ from evm.control_panel.lifecycle_integrity import (
     validate_lifecycle_data_integrity,
     validate_lifecycle_release_submission,
 )
+from evm.control_panel.lifecycle_integrity_injection import (
+    LifecycleIntegrityInjectionBlocked,
+    consume_data_integrity_injection,
+)
 from evm.control_panel.lifecycle_kubernetes import (
     LifecycleKubernetesError,
     ServingBundle,
@@ -562,6 +566,13 @@ def process_data_pipeline(
                 runtime_state=task.runtime_state,
             )
         provenance_path = validate_data_pipeline_provenance(current)
+        try:
+            consume_data_integrity_injection(current)
+        except LifecycleIntegrityInjectionBlocked as exc:
+            raise LifecycleStageBlocked(
+                "lifecycle_integrity_injection_blocked",
+                exc.blockers,
+            ) from exc
         try:
             integrity_path = validate_lifecycle_data_integrity(
                 Path(current.artifact_root)

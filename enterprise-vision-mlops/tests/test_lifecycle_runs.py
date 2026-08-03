@@ -9,6 +9,12 @@ from types import SimpleNamespace
 import pytest
 
 from evm.control_panel import lifecycle_runs
+from evm.control_panel.lifecycle_integrity import LifecycleIntegrityBlocked
+from evm.control_panel.lifecycle_integrity_injection import (
+    RELEASE_ACTION,
+    injection_receipt_path,
+    issue_lifecycle_integrity_injection,
+)
 from evm.control_panel.lifecycle_quality_guard import (
     LifecycleQualityGuardBlocked,
     LifecycleQualityReviewActionRequest,
@@ -626,6 +632,71 @@ def test_two_person_approval_advances_waiting_run(tmp_path: Path, monkeypatch) -
     assert approved.stages[6].state == "completed"
     assert approved.stages[6].runtime_state == "approved"
     assert approved.progress == pytest.approx(0.7)
+
+
+def test_release_injection_is_consumed_at_actual_approval_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = queue_run(new_run(tmp_path, monkeypatch), monkeypatch)
+    for stage_id in (
+        "data_pipeline",
+        "model_training",
+        "model_evaluation",
+        "artifact_readiness",
+        "ci_ct_gate",
+    ):
+        transition_stage(run.run_id, stage_id, "running", actor="worker")
+        run = transition_stage(run.run_id, stage_id, "completed", actor="worker")
+    run = transition_stage(
+        run.run_id,
+        "approval",
+        "waiting_approval",
+        actor="worker",
+    )
+    submission = Path(run.artifact_root) / "validation" / "release-submission.json"
+    submission.parent.mkdir(parents=True, exist_ok=True)
+    submission.write_text(json.dumps({"model_digest": "b" * 64}), encoding="utf-8")
+    run = update_run_evidence(
+        run.run_id,
+        actor="worker",
+        release_submission_uri=str(submission),
+    )
+    issue_lifecycle_integrity_injection(
+        run,
+        action=RELEASE_ACTION,
+        actor="scenario-e-test",
+        reason="Exercise actual release approval integrity admission",
+    )
+    observed: dict[str, Path] = {}
+
+    def blocked_validation(path: Path, **_kwargs):
+        observed["path"] = path
+        raise LifecycleIntegrityBlocked(["release_model_artifact_digest_mismatch"])
+
+    monkeypatch.setattr(
+        lifecycle_runs,
+        "validate_lifecycle_release_submission",
+        blocked_validation,
+    )
+
+    with pytest.raises(LifecycleRunError) as exc_info:
+        approve_lifecycle_run(
+            run.run_id,
+            LifecycleApprovalRequest(
+                actor="release-approver@example.com",
+                approver="release-approver@example.com",
+                reason="Attempt the exact injected release admission",
+                expected_version=run.version,
+            ),
+        )
+
+    assert exc_info.value.code == "lifecycle_release_integrity_blocked"
+    assert observed["path"] != submission
+    assert injection_receipt_path(run, RELEASE_ACTION).is_file()
+    current = get_lifecycle_run(run.run_id)
+    assert current is not None
+    assert current.state == "waiting_approval"
+    assert current.deployment_intent_id is None
 
 
 def test_release_guard_blocks_approval_before_deployment(

@@ -76,6 +76,16 @@ registry, data or deployment-intent mutation.
 Until then, `SCRUM-191 / EVM-283` remains In Progress and the next gate is
 closed. This is a valid negative test result, not an incomplete hash audit.
 
+## Integrated Remediation Checkpoint
+
+The exact L2/L4/L6 remediation is now implemented and regression-tested at the
+source checkpoint recorded in
+`docs/status/2026-08-03-lifecycle-guard-scenario-e-integrated-progress.md`.
+Focused tests are `53 / 53` and the full Python suite is `514 / 514`. The
+historical closure result above remains unchanged and authoritative until the
+new integrated LifecycleRuns and closure audit complete; implementation alone
+does not clear the blocker.
+
 ## Claim Boundary
 
 Even a PASS proves only controlled local single-node lifecycle guard behavior

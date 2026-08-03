@@ -116,6 +116,62 @@ def test_scenario_e_replay_only_is_not_live_lifecycle_reachability(tmp_path: Pat
     assert "e_actual_lifecycle_injection_missing:controlled_branch_replay_only" in result["blockers"]
 
 
+def test_scenario_e_requires_replay_and_actual_lifecycle_reachability(
+    tmp_path: Path,
+) -> None:
+    replay_root = tmp_path / "replay"
+    integrated_root = tmp_path / "integrated"
+    replay_root.mkdir()
+    integrated_root.mkdir()
+    replay_result = replay_root / "result.json"
+    integrated_result = integrated_root / "result.json"
+    write_json(
+        replay_result,
+        {
+            "status": "pass",
+            "mode": "non_disruptive_controlled_branch_replay",
+            "checks": {"canonical_three_replays": True},
+        },
+    )
+    write_json(
+        integrated_result,
+        {
+            "status": "pass",
+            "mode": "lifecycle_stage_injection",
+            "lifecycle_run_id": "release-run",
+            "data_blocked_run_id": "data-run",
+            "release_blocked_run_id": "release-run",
+            "source_revision": "a" * 40,
+            "lifecycle_reachability": {"L2": "data", "L4": "training", "L6": "release"},
+            "checks": {"data_guard": True, "release_guard": True},
+            "claim_boundary": (
+                "Controlled local single-node lifecycle validation. No HA, SLA, "
+                "real-user traffic, production replacement, or business A/B claim."
+            ),
+        },
+    )
+    write_index(replay_root, [replay_result])
+    write_index(integrated_root, [integrated_result])
+
+    result = _e_result(
+        {
+            "root": str(replay_root),
+            "integrated_root": str(integrated_root),
+            "required_live_mode": "lifecycle_stage_injection",
+        },
+        tmp_path,
+    )
+
+    assert result["status"] == "pass"
+    assert result["decision_determinism"]["passed"] is True
+    assert result["lifecycle_reachability"]["passed"] is True
+    assert result["lifecycle_reachability"]["observed_stages"] == {
+        "L2": "data",
+        "L4": "training",
+        "L6": "release",
+    }
+
+
 def test_runtime_validation_requires_exact_model_and_live_control_plane() -> None:
     digest = "a" * 64
     snapshot = {

@@ -506,15 +506,33 @@ def _d_result(config: dict[str, Any], evidence_root: Path) -> dict[str, Any]:
 
 
 def _e_result(config: dict[str, Any], evidence_root: Path) -> dict[str, Any]:
-    root = Path(config["root"])
-    result = read_json(root / "result.json")
-    deterministic = result.get("status") == "pass" and _all_true(result.get("checks"))
-    actual_lifecycle_injection = (
-        result.get("mode") == config["required_live_mode"]
-        and bool(result.get("lifecycle_run_id"))
+    replay_root = Path(config["root"])
+    replay_result = read_json(replay_root / "result.json")
+    integrated_root = Path(config.get("integrated_root") or replay_root)
+    integrated_result = read_json(integrated_root / "result.json")
+    deterministic = replay_result.get("status") == "pass" and _all_true(
+        replay_result.get("checks")
     )
-    graph = validate_evidence_graph([root / "evidence-index.json"], evidence_root)
-    claim_boundary = _claim_boundary_valid(result.get("claim_boundary"))
+    reachability = integrated_result.get("lifecycle_reachability") or {}
+    actual_lifecycle_injection = (
+        integrated_result.get("status") == "pass"
+        and _all_true(integrated_result.get("checks"))
+        and integrated_result.get("mode") == config["required_live_mode"]
+        and bool(integrated_result.get("lifecycle_run_id"))
+        and all(bool(reachability.get(stage)) for stage in ("L2", "L4", "L6"))
+    )
+    graph = validate_evidence_graph(
+        list(
+            dict.fromkeys(
+                [
+                    replay_root / "evidence-index.json",
+                    integrated_root / "evidence-index.json",
+                ]
+            )
+        ),
+        evidence_root,
+    )
+    claim_boundary = _claim_boundary_valid(integrated_result.get("claim_boundary"))
     blockers = []
     if not deterministic:
         blockers.append("e_three_run_integrity_decision_determinism_not_proven")
@@ -529,15 +547,22 @@ def _e_result(config: dict[str, Any], evidence_root: Path) -> dict[str, Any]:
         "lifecycle_reachability": {
             "passed": actual_lifecycle_injection,
             "required_stages": ["L2", "L4", "L6"],
-            "observed_mode": result.get("mode"),
-            "golden_run_id": result.get("golden_run_id"),
+            "observed_mode": integrated_result.get("mode"),
+            "lifecycle_run_id": integrated_result.get("lifecycle_run_id"),
+            "data_blocked_run_id": integrated_result.get("data_blocked_run_id"),
+            "release_blocked_run_id": integrated_result.get("release_blocked_run_id"),
+            "observed_stages": reachability,
         },
         "decision_determinism": {"passed": deterministic, "replays_per_branch": 3},
-        "hash_closure": {"integrated": graph},
-        "claim_boundary": {"passed": claim_boundary, "text": result.get("claim_boundary")},
+        "hash_closure": {"replay_and_integrated": graph},
+        "claim_boundary": {
+            "passed": claim_boundary,
+            "text": integrated_result.get("claim_boundary"),
+        },
         "blockers": blockers,
-        "source_revision": result.get("source_revision"),
-        "result_uri": str((root / "result.json").resolve()),
+        "source_revision": integrated_result.get("source_revision"),
+        "replay_result_uri": str((replay_root / "result.json").resolve()),
+        "result_uri": str((integrated_root / "result.json").resolve()),
     }
 
 

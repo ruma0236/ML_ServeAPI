@@ -11,6 +11,11 @@ import pytest
 from evm.control_panel import lifecycle_orchestrator, lifecycle_runs, operations
 from evm.control_panel.lifecycle_kubernetes import CTBundle, ServingBundle
 from evm.control_panel.lifecycle_integrity import build_lifecycle_release_submission
+from evm.control_panel.lifecycle_integrity_injection import (
+    DATA_ACTION,
+    injection_receipt_path,
+    issue_lifecycle_integrity_injection,
+)
 from evm.control_panel.lifecycle_orchestrator import (
     LifecycleStageBlocked,
     clear_prometheus_target,
@@ -182,6 +187,39 @@ def test_airflow_success_advances_lifecycle_to_model_training(tmp_path, monkeypa
     ]
     assert all(item["state"] == "completed" for item in side_effects)
     assert len({item["side_effect_key"] for item in side_effects}) == 2
+
+
+def test_airflow_success_consumes_exact_run_local_integrity_injection(
+    tmp_path, monkeypatch
+) -> None:
+    run = queued_run(tmp_path, monkeypatch)
+    write_data_provenance(run)
+    issue_lifecycle_integrity_injection(
+        run,
+        action=DATA_ACTION,
+        actor="scenario-e-test",
+        reason="Exercise the actual post-Airflow L2 guard boundary",
+    )
+    responses = iter(
+        [
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "queued"}),
+            FakeResponse({"dag_run_id": "cp__lifecycle", "state": "success"}),
+        ]
+    )
+    monkeypatch.setattr(operations, "urlopen", lambda *_args, **_kwargs: next(responses))
+
+    result = process_lifecycle_run(run.run_id)
+
+    data_stage = next(item for item in result.stages if item.stage_id == "data_pipeline")
+    training = next(item for item in result.stages if item.stage_id == "model_training")
+    assert result.state == "blocked"
+    assert result.current_stage == "data_pipeline"
+    assert data_stage.state == "blocked"
+    assert "integrity_shard_index_identity_mismatch" in data_stage.blockers
+    assert training.state == "not_started"
+    assert training.attempt == 0
+    assert training.task_id is None
+    assert injection_receipt_path(result, DATA_ACTION).is_file()
 
 
 def test_quality_review_blocks_before_training_bundle_or_external_task(
