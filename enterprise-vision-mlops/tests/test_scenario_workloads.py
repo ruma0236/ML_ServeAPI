@@ -108,7 +108,13 @@ def install_scenario(tmp_path: Path, monkeypatch, *, quality: str = "pass") -> P
     return output_root
 
 
-def request(*, dry_run: bool = False, dirty: bool = False, disposition: str | None = None):
+def request(
+    *,
+    dry_run: bool = False,
+    dirty: bool = False,
+    disposition: str | None = None,
+    data_view: str | None = None,
+):
     return ScenarioWorkloadRequest(
         scenario_id="scienceqa-test",
         model_family="vlm",
@@ -121,6 +127,7 @@ def request(*, dry_run: bool = False, dirty: bool = False, disposition: str | No
         source_commit=None if dry_run else SOURCE_REVISION,
         dirty_worktree=dirty,
         quality_disposition_uri=disposition,
+        data_view_uri=data_view,
     )
 
 
@@ -193,6 +200,63 @@ def test_quality_review_requires_identity_bound_disposition(tmp_path: Path, monk
     run = create_workload_run(request(disposition=str(disposition)))
     assert run.identity.quality_status == "approved"
     assert run.identity.quality_disposition_uri == str(disposition)
+
+
+def test_quality_disposition_and_same_derived_data_view_compose(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output = install_scenario(tmp_path, monkeypatch, quality="review_required")
+    source_manifest = output / "processed" / "normalized_manifest.jsonl"
+    derived_root = tmp_path / "derived"
+    derived_manifest = derived_root / "processed" / "normalized_manifest.jsonl"
+    derived_split = derived_root / "evidence" / "split_manifest.json"
+    derived_manifest.parent.mkdir(parents=True)
+    derived_split.parent.mkdir(parents=True)
+    derived_manifest.write_text(source_manifest.read_text(encoding="utf-8"), encoding="utf-8")
+    derived_split.write_text(
+        json.dumps({"identity_sha256": "e" * 64}), encoding="utf-8"
+    )
+    disposition = derived_root / "evidence" / "quality_disposition.json"
+    disposition.write_text(
+        json.dumps(
+            {
+                "schema_version": "evm.scenario_quality_disposition.v1",
+                "decision": "approved",
+                "dataset_version": "scienceqa-test-v1",
+                "input_manifest_sha256": sha256(source_manifest),
+                "output_manifest_uri": str(derived_manifest),
+                "output_manifest_sha256": sha256(derived_manifest),
+                "output_split_manifest_uri": str(derived_split),
+                "output_identity_sha256": "e" * 64,
+                "approver": "data-steward",
+                "approved_at": "2026-08-05T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    view = derived_root / "evidence" / "data_view.json"
+    view.write_text(
+        json.dumps(
+            {
+                "schema_version": "evm.scenario_data_view.v1",
+                "status": "pass",
+                "source_dataset_version": "scienceqa-test-v1",
+                "input_manifest_sha256": sha256(source_manifest),
+                "output_manifest_uri": str(derived_manifest),
+                "output_manifest_sha256": sha256(derived_manifest),
+                "output_split_manifest_uri": str(derived_split),
+                "output_identity_sha256": "e" * 64,
+                "recipe_id": "bounded-approved-view-v1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run = create_workload_run(request(disposition=str(disposition), data_view=str(view)))
+
+    assert run.identity.quality_status == "approved"
+    assert run.identity.manifest_uri == str(derived_manifest)
+    assert run.identity.data_identity_sha256 == "e" * 64
 
 
 def test_stage_dependencies_and_completion_are_fail_closed(tmp_path: Path, monkeypatch) -> None:

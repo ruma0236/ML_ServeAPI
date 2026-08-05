@@ -340,6 +340,7 @@ def resolve_workload_identity(
     split_path = mapped_path(scenario.dataset.split_manifest_uri)
     quality_path = quality_report_path(scenario)
     manifest_sha256 = require_file_sha256(manifest_path, "scenario_manifest")
+    source_manifest_sha256 = manifest_sha256
     split_sha256 = require_file_sha256(split_path, "scenario_split_manifest")
     split = read_json_object(split_path, "scenario_split_manifest")
     quality = read_json_object(quality_path, "scenario_quality_report")
@@ -394,7 +395,7 @@ def resolve_workload_identity(
         view = validate_data_view(
             request.data_view_uri,
             dataset_version=scenario.dataset.dataset_version,
-            input_manifest_sha256=manifest_sha256,
+            input_manifest_sha256={source_manifest_sha256, manifest_sha256},
         )
         data_view_uri = request.data_view_uri
         manifest_path = mapped_path(str(view["output_manifest_uri"]))
@@ -490,7 +491,7 @@ def validate_data_view(
     uri: str,
     *,
     dataset_version: str,
-    input_manifest_sha256: str,
+    input_manifest_sha256: str | set[str],
 ) -> dict[str, Any]:
     payload = read_json_object(mapped_path(uri), "scenario_data_view")
     blockers: list[str] = []
@@ -500,7 +501,12 @@ def validate_data_view(
         blockers.append("data_view_not_passing")
     if payload.get("source_dataset_version") != dataset_version:
         blockers.append("data_view_dataset_version_mismatch")
-    if payload.get("input_manifest_sha256") != input_manifest_sha256:
+    accepted_input_digests = (
+        {input_manifest_sha256}
+        if isinstance(input_manifest_sha256, str)
+        else input_manifest_sha256
+    )
+    if payload.get("input_manifest_sha256") not in accepted_input_digests:
         blockers.append("data_view_input_manifest_mismatch")
     for key in ("output_manifest_sha256", "output_identity_sha256"):
         if not is_sha256(str(payload.get(key) or "")):
