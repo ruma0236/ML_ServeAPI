@@ -45,7 +45,7 @@ candidate so it does not reuse a run already injected by Scenario D.
 | C | PASS | fresh run `lifecycle-20260805T074015-7cede1b5` plus isolated rejected branch; real drift hold/resume, Airflow, CUDA, MLflow, readiness and CT | 18/18 checks, source 17/17 and integrated 21/21 hashes; accepted after immutable DNS RCA |
 | B | PASS | fresh quality `lifecycle-20260805T081750-856eac8c` and runtime `lifecycle-20260805T083919-905b427d` branches; one release injection per run | measured F1 admission block and 100/1,000 controlled replay containment; approval HTTP 422, intent 0, 33/33 artifacts |
 | D | PASS | fresh `lifecycle-20260805T100537-143a9ff8`; exact worker stop at reserved/running training side effect | 11/11, detection 5.141 s, recovery 8.344 s, same-Job continuity, 16/16 hashes; accepted after immutable detection and stale-API RCAs |
-| A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
+| A | candidate PASS / live maintenance pending | fresh no-fault `lifecycle-20260805T104249-7d184e13`; exact B0 serving restart still pending | candidate 10/10 and 14/14 hashes |
 
 ### Scenario E
 
@@ -388,7 +388,23 @@ candidate so it does not reuse a run already injected by Scenario D.
 - **Expected guard:** detection, exact identity recovery, CUDA inference and
   Prometheus recovery, followed by a separately approved exact M0 rollback.
 - **SLI/SLO:** detection <=30 s, recovery <=300 s, identity 100%.
-- **Result/evidence:** pending.
+- **Fresh candidate PASS:** source `1ee8aaf`, series
+  `scenario-a-candidate-20260805T104242Z-1ee8aaf1`, lifecycle
+  `lifecycle-20260805T104249-7d184e13`. API selected and sealed profile v11,
+  digest `2808e31a...77cbf`. The run completed all 10/10 stages through real
+  Airflow, RTX 4080 CUDA training, MLflow `488df2c9d53a4e6bb747ab95513ed56f`,
+  readiness, isolated CT `ct-eval-25e0ea2b28373b47`, approval, staging serving
+  and Prometheus.
+- **Candidate model/evidence:** EfficientNet-B0 early-stopped at epoch 4/20,
+  408 optimizer steps and `127.946 s`; validation accuracy/F1/AUROC
+  `0.962079 / 0.823529 / 0.973746`, peak GPU `2,846.96 MiB`. Model SHA is
+  `27033027...74d3f6`. External delta is Jobs +2, MLflow +1, candidate +1,
+  intent +1; side effects are unique/committed. Candidate result/index re-hash
+  is 14/14; result SHA `b8063e7e...f4dbe`, index SHA
+  `c11d0ca4...a71d`.
+- **Live A state:** pending exact M1 apply/commit, exact committed-M1 Pod
+  restart, CUDA/Prometheus recovery and separate M0 rollback. Candidate PASS
+  alone gives no serving-recovery acceptance credit.
 - **Pre-run attempt 1 RCA:** at source `90209f4`, the candidate runner stopped
   before LifecycleRun creation with `split_manifest_identity_mismatch`. Active
   runs remained zero and no Airflow, Kubernetes Job, MLflow, deployment intent,
