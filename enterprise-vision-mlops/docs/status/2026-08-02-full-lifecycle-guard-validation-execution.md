@@ -4,9 +4,10 @@ Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
 Status: In Progress; Scenarios E, C and B are PASS in the replacement suite.
 Scenario C retained one immutable DNS fail-closed run, remediated transient CI
 lookup at `f88aabd`, and passed on an independently fresh source-bound run.
-Scenario B passed on two independent fresh source-bound runs. Scenario D is
-in remediation after one immutable detection-SLO failure; A remains unstarted
-in this suite.
+Scenario B passed on two independent fresh source-bound runs. Scenario D
+retains one immutable detection-SLO failure; cadence remediation is implemented
+and verified at `6e2ec01`, with a fresh source-bound retry still required. A
+remains unstarted in this suite.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -43,7 +44,7 @@ candidate so it does not reuse a run already injected by Scenario D.
 | E | PASS | fresh L2 injection plus independently corrected L4/L6 run; 20/20 checks and 32/32 artifacts | accepted in suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` |
 | C | PASS | fresh run `lifecycle-20260805T074015-7cede1b5` plus isolated rejected branch; real drift hold/resume, Airflow, CUDA, MLflow, readiness and CT | 18/18 checks, source 17/17 and integrated 21/21 hashes; accepted after immutable DNS RCA |
 | B | PASS | fresh quality `lifecycle-20260805T081750-856eac8c` and runtime `lifecycle-20260805T083919-905b427d` branches; one release injection per run | measured F1 admission block and 100/1,000 controlled replay containment; approval HTTP 422, intent 0, 33/33 artifacts |
-| D | blocked / remediation | fresh `lifecycle-20260805T091303-98a14793`; exact worker stop at reserved/running training side effect | 10/10 lifecycle and same-Job continuity passed, but detection 11.032 s exceeded <=10 s; immutable no-credit RCA |
+| D | remediation verified / retry pending | fresh `lifecycle-20260805T091303-98a14793`; exact worker stop at reserved/running training side effect | immutable 10/11 RCA retained; `6e2ec01` sets a shared 3 s cadence, enforces detection margin, and passes 24 focused plus 524 full tests |
 | A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
 
 ### Scenario E
@@ -310,11 +311,19 @@ candidate so it does not reuse a run already injected by Scenario D.
   contract to `3 s`, add regression coverage that configuration and runtime
   cadence agree, restart only supervised host children, then retry D from a new
   clean pushed revision. Ambiguous ownership still blocks the stop.
+- **Remediation checkpoint:** pushed source `6e2ec01` changes both the
+  supervisor default and Scenario D policy to `3 s`, rejects any policy where
+  two polling intervals consume the detection SLO, and locks the PowerShell and
+  TOML defaults together in a contract test. PowerShell parsing, `24 / 24`
+  focused Scenario D tests, `524 / 524` full Python tests and touched-file Ruff
+  all pass. This is implementation readiness only and gives no live-proof
+  credit; the supervisor children must converge to `6e2ec01` before a fresh D
+  injection is admitted.
 - **Invariants:** production B0, device-plugin, data and cluster-wide resources
   unchanged.
 - **Claim boundary:** local process recovery, not distributed exactly-once or HA.
-- **Status:** blocked / remediation; do not append D to the suite until a new
-  independent run passes every check.
+- **Status:** remediation verified / fresh retry pending; do not append D to the
+  suite until a new independent run passes every check.
 
 ### Scenario A
 
