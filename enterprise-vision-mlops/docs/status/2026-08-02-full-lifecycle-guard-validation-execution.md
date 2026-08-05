@@ -5,7 +5,8 @@ Status: In Progress; Scenarios E, C and B are PASS in the replacement suite.
 Scenario C retained one immutable DNS fail-closed run, remediated transient CI
 lookup at `f88aabd`, and passed on an independently fresh source-bound run.
 Scenario B passed on two independent fresh source-bound runs. Scenario D is
-next; A remains unstarted in this suite.
+in remediation after one immutable detection-SLO failure; A remains unstarted
+in this suite.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -42,7 +43,7 @@ candidate so it does not reuse a run already injected by Scenario D.
 | E | PASS | fresh L2 injection plus independently corrected L4/L6 run; 20/20 checks and 32/32 artifacts | accepted in suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` |
 | C | PASS | fresh run `lifecycle-20260805T074015-7cede1b5` plus isolated rejected branch; real drift hold/resume, Airflow, CUDA, MLflow, readiness and CT | 18/18 checks, source 17/17 and integrated 21/21 hashes; accepted after immutable DNS RCA |
 | B | PASS | fresh quality `lifecycle-20260805T081750-856eac8c` and runtime `lifecycle-20260805T083919-905b427d` branches; one release injection per run | measured F1 admission block and 100/1,000 controlled replay containment; approval HTTP 422, intent 0, 33/33 artifacts |
-| D | pending | fresh run; exact worker stop only at reserved/running training side effect | not started |
+| D | blocked / remediation | fresh `lifecycle-20260805T091303-98a14793`; exact worker stop at reserved/running training side effect | 10/10 lifecycle and same-Job continuity passed, but detection 11.032 s exceeded <=10 s; immutable no-credit RCA |
 | A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
 
 ### Scenario E
@@ -285,12 +286,35 @@ candidate so it does not reuse a run already injected by Scenario D.
   completes without redispatch or duplicate effects.
 - **SLI/SLO:** detection <=10 s, worker recovery <=60 s, runtime restoration
   <=90 s, duplicate effects zero.
-- **Result/evidence:** pending.
-- **RCA/remediation:** pending; ambiguous ownership blocks the stop.
+- **Attempt 1 result/evidence:** source `2d5f056`, series
+  `scenario-d-training-20260805T091258Z-2d5f0562`, run
+  `lifecycle-20260805T091303-98a14793`. The exact approved worker PID `54376`
+  was stopped only after Job UID `c56826b3-9b2a-4bd9-9523-44afecc897d7`, task
+  `task-20260805T092728-8bc0b65c` and side-effect key
+  `3f80741b...1f286f` were bound and the single-use approval was consumed.
+  Supervisor restored one worker as PID `68368` on the same source, lease and
+  fence; the same training Job completed without mutation or redispatch. The
+  full lifecycle completed 10/10 with two unique Job identities, three tasks,
+  eight unique committed side effects, one MLflow run, one candidate and one
+  deployment intent. Exact B0/CUDA/GPU/plugin/Prometheus and supervisor state
+  restored in `18.250 s`.
+- **Attempt 1 blocker:** detection was `11.032 s`, exceeding the fixed
+  `<=10 s` SLO by `1.032 s`; recovery was `13.579 s` and passed `<=60 s`.
+  Therefore checks were `10 / 11` and the attempt is immutable no-credit RCA.
+  Result/evidence-index SHA-256 are
+  `05fd6f88da4672e6407b8e724b5fd0849e0c7149cd35ae5ae8942f84a64ee8fd`
+  and `ab6c64d8d43c122717bb631ee9efbf362515b4944a8bd0866cf5796af2472cd1`.
+- **RCA/remediation:** policy and supervisor polling were both `5 s` while the
+  detection SLO was exactly `10 s`, leaving no scheduling or process-state
+  propagation margin. Preserve the 10-second SLO, reduce the supervised polling
+  contract to `3 s`, add regression coverage that configuration and runtime
+  cadence agree, restart only supervised host children, then retry D from a new
+  clean pushed revision. Ambiguous ownership still blocks the stop.
 - **Invariants:** production B0, device-plugin, data and cluster-wide resources
   unchanged.
 - **Claim boundary:** local process recovery, not distributed exactly-once or HA.
-- **Status:** pending.
+- **Status:** blocked / remediation; do not append D to the suite until a new
+  independent run passes every check.
 
 ### Scenario A
 
