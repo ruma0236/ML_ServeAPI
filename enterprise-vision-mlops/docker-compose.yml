@@ -293,6 +293,8 @@ services:
       EVM_CONTROL_PANEL_DIAGNOSTIC_ROOT: /app/artifacts/w7/control_panel_diagnostics
       EVM_DRIFT_REVIEW_ROOT: /app/artifacts/w7/drift_review
       EVM_DECISION_REGISTRY_ROOT: /app/artifacts/governance/decisions
+      EVM_SCENARIO_WORKLOAD_ROOT: /app/artifacts/scenario_workloads
+      EVM_SCENARIO_GPU_LEASE_ROOT: /mnt/evm-data/runtime/gpu-lease
     ports:
       - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:8000:8000"
     volumes:

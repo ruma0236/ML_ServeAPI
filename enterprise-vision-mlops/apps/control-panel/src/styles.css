@@ -5268,6 +5268,118 @@ h3 {
   }
 }
 
+/* Governed VLM/LLM workload ledger */
+.scenario-workloads { display: grid; gap: 18px; }
+.scenario-workload-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 0 16px; border-bottom: 1px solid var(--line); }
+.scenario-workload-header h2 { margin: 2px 0 4px; font-size: 24px; letter-spacing: 0; }
+.scenario-workload-header p { margin: 0; color: var(--text-muted); }
+.scenario-sync { display: flex; align-items: center; gap: 9px; color: var(--text-muted); }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+.sync-dot.live { background: var(--success); box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 12%, transparent); }
+.sync-dot.error { background: var(--danger); }
+
+.scenario-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--surface); }
+.scenario-kpi { display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 14px 16px; border-right: 1px solid var(--line); color: var(--text-muted); }
+.scenario-kpi:last-child { border-right: 0; }
+.scenario-kpi > span { display: grid; gap: 2px; }
+.scenario-kpi small { text-transform: uppercase; }
+.scenario-kpi strong { color: var(--text); font-size: 22px; font-variant-numeric: tabular-nums; }
+.scenario-kpi.tone-good > svg { color: var(--success); }
+.scenario-kpi.tone-run > svg { color: var(--accent); }
+.scenario-kpi.tone-bad > svg { color: var(--danger); }
+
+.scenario-workload-layout { display: grid; grid-template-columns: minmax(260px, 0.32fr) minmax(0, 1fr); min-height: 560px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.scenario-run-list { border-right: 1px solid var(--line); }
+.scenario-run-list > button { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; width: 100%; min-height: 72px; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line); color: var(--text); background: transparent; text-align: left; cursor: pointer; }
+.scenario-run-list > button:hover { background: var(--surface-raised); }
+.scenario-run-list > button.active { box-shadow: inset 2px 0 var(--accent); background: var(--surface); }
+.scenario-run-list > button > span:nth-child(2) { display: grid; min-width: 0; gap: 3px; }
+.scenario-run-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-run-list small { color: var(--text-muted); }
+.family-mark { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--accent); font-size: 9px; font-weight: 700; }
+.family-mark.llm { color: var(--warning); }
+.scenario-empty { padding: 24px 14px; color: var(--text-muted); }
+
+.scenario-workload-detail { min-width: 0; padding: 22px 24px; }
+.scenario-workload-detail > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.scenario-workload-detail h2 { margin: 3px 0 5px; font-size: 24px; letter-spacing: 0; }
+.scenario-workload-detail header p { max-width: 720px; margin: 0; color: var(--text-muted); }
+.scenario-run-state { display: flex; align-items: center; gap: 12px; }
+.scenario-run-state strong { font-size: 24px; font-variant-numeric: tabular-nums; }
+.scenario-progress { height: 4px; margin: 18px 0 24px; overflow: hidden; background: var(--line); }
+.scenario-progress i { display: block; height: 100%; background: var(--accent); transition: width 350ms ease; }
+.scenario-progress.state-completed i { background: var(--success); }
+.scenario-progress.state-failed i,
+.scenario-progress.state-blocked i { background: var(--danger); }
+.scenario-progress.state-running i { background: linear-gradient(90deg, var(--accent), var(--text)); background-size: 180% 100%; animation: scenario-progress-flow 1.4s linear infinite; }
+@keyframes scenario-progress-flow { from { background-position: 100% 0; } to { background-position: -80% 0; } }
+
+.scenario-stage-flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line); }
+.scenario-stage { position: relative; display: grid; gap: 4px; min-height: 82px; padding: 16px 12px 12px 28px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.scenario-stage:nth-child(5n) { border-right: 0; }
+.scenario-stage:nth-child(n + 6) { border-bottom: 0; }
+.scenario-stage > i { position: absolute; top: 19px; left: 11px; width: 8px; height: 8px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--surface); }
+.scenario-stage span { font-size: 12px; font-weight: 650; }
+.scenario-stage small { color: var(--text-muted); font-size: 10px; text-transform: uppercase; }
+.scenario-stage.state-completed > i { border-color: var(--success); background: var(--success); }
+.scenario-stage.state-running > i { border-color: var(--accent); background: var(--accent); animation: scenario-stage-pulse 1.4s ease-in-out infinite; }
+.scenario-stage.state-failed > i,
+.scenario-stage.state-blocked > i { border-color: var(--danger); background: var(--danger); }
+@keyframes scenario-stage-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 12%, transparent); } }
+
+.scenario-blockers { display: flex; gap: 10px; margin-top: 16px; padding: 12px; border: 1px solid var(--danger); color: var(--danger); background: color-mix(in srgb, var(--danger) 7%, transparent); }
+.scenario-blockers div { display: grid; gap: 5px; min-width: 0; }
+.scenario-blockers code { overflow-wrap: anywhere; color: inherit; font-size: 11px; }
+.scenario-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 20px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.scenario-fact { display: flex; gap: 10px; min-width: 0; padding: 16px 14px; border-right: 1px solid var(--line); }
+.scenario-fact:last-child { border-right: 0; }
+.scenario-fact > svg { flex: 0 0 auto; color: var(--accent); }
+.scenario-fact > span { display: grid; min-width: 0; gap: 3px; }
+.scenario-fact small { color: var(--text-muted); text-transform: uppercase; }
+.scenario-fact strong,
+.scenario-fact code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-fact code { color: var(--text-muted); font-size: 10px; }
+.scenario-evidence-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; align-items: center; gap: 14px; padding: 16px 0; }
+.scenario-evidence-strip > div { display: grid; min-width: 0; gap: 4px; }
+.scenario-evidence-strip span { color: var(--text-muted); font-size: 10px; text-transform: uppercase; }
+.scenario-evidence-strip code,
+.scenario-evidence-strip strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.scenario-evidence-strip a { display: inline-flex; align-items: center; gap: 5px; color: var(--accent); }
+
+@media (max-width: 1050px) {
+  .scenario-workload-layout { grid-template-columns: 1fr; }
+  .scenario-run-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-right: 0; border-bottom: 1px solid var(--line); }
+  .scenario-stage-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scenario-stage:nth-child(n) { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .scenario-stage:nth-child(2n) { border-right: 0; }
+  .scenario-stage:nth-last-child(-n + 2) { border-bottom: 0; }
+  .scenario-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scenario-fact:nth-child(2) { border-right: 0; }
+  .scenario-fact:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
+  .scenario-evidence-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 680px) {
+  .scenario-workload-header { align-items: flex-start; flex-direction: column; }
+  .scenario-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scenario-kpi:nth-child(2) { border-right: 0; }
+  .scenario-kpi:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
+  .scenario-run-list { grid-template-columns: 1fr; }
+  .scenario-workload-detail { padding: 18px 12px; }
+  .scenario-workload-detail > header { flex-direction: column; }
+  .scenario-stage-flow,
+  .scenario-facts { grid-template-columns: 1fr; }
+  .scenario-stage:nth-child(n),
+  .scenario-fact:nth-child(n) { border-right: 0; border-bottom: 1px solid var(--line); }
+  .scenario-stage:last-child,
+  .scenario-fact:last-child { border-bottom: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scenario-progress.state-running i,
+  .scenario-stage.state-running > i { animation: none; }
+}
+
 /* W8 operator workspaces and reproducible Blueprint surface */
 .navigation-shell {
   display: grid;

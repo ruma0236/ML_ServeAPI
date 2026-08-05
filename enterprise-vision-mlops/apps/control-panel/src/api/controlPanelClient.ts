@@ -45,6 +45,8 @@ import type {
   RuntimeResourceList,
   State,
   ScenarioIntakeLaunchRequest,
+  ScenarioWorkloadRun,
+  ScenarioWorkloadRunList,
   StageHandoffCatalog,
   TaskAssignment,
   TaskAssignmentList,
@@ -483,6 +485,28 @@ export async function fetchLifecycleRuns(baseUrl = API_BASE): Promise<LifecycleR
   });
   if (!response.ok) throw await controlPanelError(response, "LifecycleRun list failed");
   return (await response.json()) as LifecycleRunList;
+}
+
+export async function fetchScenarioWorkloads(
+  baseUrl = API_BASE
+): Promise<ScenarioWorkloadRunList> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/scenario-workloads?limit=100`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw await controlPanelError(response, "Scenario workload list failed");
+  return (await response.json()) as ScenarioWorkloadRunList;
+}
+
+export async function fetchScenarioWorkload(
+  runId: string,
+  baseUrl = API_BASE
+): Promise<ScenarioWorkloadRun> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/scenario-workloads/${encodeURIComponent(runId)}`,
+    { headers: { Accept: "application/json" } }
+  );
+  if (!response.ok) throw await controlPanelError(response, "Scenario workload request failed");
+  return (await response.json()) as ScenarioWorkloadRun;
 }
 
 export async function fetchExperimentRun(

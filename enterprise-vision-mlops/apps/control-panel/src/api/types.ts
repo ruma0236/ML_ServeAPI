@@ -1213,6 +1213,94 @@ export interface LifecycleWorkerState {
   message?: string | null;
 }
 
+export type ScenarioWorkloadRunState =
+  | "dry_run"
+  | "queued"
+  | "running"
+  | "waiting_approval"
+  | "blocked"
+  | "failed"
+  | "completed"
+  | "cancelled";
+
+export interface ScenarioWorkloadIdentity {
+  scenario_id: string;
+  dataset_id: string;
+  dataset_version: string;
+  manifest_uri: string;
+  manifest_sha256: string;
+  split_manifest_uri: string;
+  split_manifest_sha256: string;
+  data_identity_sha256: string;
+  quality_status: string;
+  quality_report_uri: string;
+  quality_disposition_uri?: string | null;
+  data_view_uri?: string | null;
+  model_family: "vlm" | "llm";
+  model_repository: string;
+  model_revision: string;
+  processor_revision: string;
+  source_commit?: string | null;
+  source_branch?: string | null;
+  dirty_worktree: boolean;
+  compute_backend: "windows-host-cuda";
+  identity_sha256: string;
+}
+
+export interface ScenarioWorkloadStage {
+  stage_id: string;
+  label: string;
+  runtime: "airflow" | "control-plane" | "windows-host-cuda" | "mlflow" | "serving" | "prometheus";
+  state: LifecycleStageState;
+  progress: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+  evidence_uri?: string | null;
+  detail?: string | null;
+  blockers: string[];
+}
+
+export interface ScenarioWorkloadRun {
+  schema_version: "evm.scenario_workload_run.v1";
+  run_id: string;
+  state: ScenarioWorkloadRunState;
+  version: number;
+  actor: string;
+  reason: string;
+  dry_run: boolean;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  current_stage?: string | null;
+  progress: number;
+  identity: ScenarioWorkloadIdentity;
+  adaptation_method: "lora" | "qlora" | "inference_only";
+  quantization_requested: "none" | "int8" | "int4_nf4";
+  quantization_observed?: string | null;
+  artifact_root: string;
+  gpu_lease_state: "not_acquired" | "active" | "released";
+  mlflow_run_id?: string | null;
+  model_artifact_uri?: string | null;
+  model_artifact_sha256?: string | null;
+  evaluation_uri?: string | null;
+  serving_endpoint?: string | null;
+  metrics_endpoint?: string | null;
+  runtime_versions: Record<string, string>;
+  peak_gpu_allocated_mib?: number | null;
+  peak_gpu_reserved_mib?: number | null;
+  evidence_index_uri?: string | null;
+  evidence_index_sha256?: string | null;
+  blockers: string[];
+  stages: ScenarioWorkloadStage[];
+  audit: AuditEvent[];
+}
+
+export interface ScenarioWorkloadRunList {
+  runs: ScenarioWorkloadRun[];
+  total: number;
+}
+
 export type ExperimentRunState =
   | "planned"
   | "running"

@@ -45,10 +45,11 @@ import { LifecycleRuns } from "./views/LifecycleRuns";
 import { PipelineTimeline } from "./views/PipelineTimeline";
 import { PipelineProfileStudio } from "./views/PipelineProfileStudio";
 import { ReleaseControl } from "./views/ReleaseControl";
+import { ScenarioWorkloads } from "./views/ScenarioWorkloads";
 import { StageWorkbench } from "./views/StageWorkbench";
 import { TaskAuthoring } from "./views/TaskAuthoring";
 
-type TabKey = "overview" | "configure" | "stages" | "runs" | "readiness" | "timeline" | "operate" | "gates" | "release" | "incidents" | "governance";
+type TabKey = "overview" | "configure" | "workloads" | "stages" | "runs" | "readiness" | "timeline" | "operate" | "gates" | "release" | "incidents" | "governance";
 type WorkspaceKey = "overview" | "build" | "deploy" | "govern";
 
 const workspaces: Array<{
@@ -73,6 +74,7 @@ const workspaces: Array<{
     icon: SlidersHorizontal,
     views: [
       { key: "configure", label: "Pipeline Studio" },
+      { key: "workloads", label: "AI Workloads" },
       { key: "stages", label: "Handoffs" },
       { key: "operate", label: "Runtime Tasks" }
     ]
@@ -386,6 +388,7 @@ export function App() {
         }}
       />
     );
+    if (tab === "workloads") return <ScenarioWorkloads />;
     if (!cycle) return null;
     if (tab === "stages") return <StageWorkbench onPromote={(selection) => void openCandidatePromotion(selection)} />;
     if (tab === "configure") return (
