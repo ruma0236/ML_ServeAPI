@@ -44,7 +44,7 @@ candidate so it does not reuse a run already injected by Scenario D.
 | E | PASS | fresh L2 injection plus independently corrected L4/L6 run; 20/20 checks and 32/32 artifacts | accepted in suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` |
 | C | PASS | fresh run `lifecycle-20260805T074015-7cede1b5` plus isolated rejected branch; real drift hold/resume, Airflow, CUDA, MLflow, readiness and CT | 18/18 checks, source 17/17 and integrated 21/21 hashes; accepted after immutable DNS RCA |
 | B | PASS | fresh quality `lifecycle-20260805T081750-856eac8c` and runtime `lifecycle-20260805T083919-905b427d` branches; one release injection per run | measured F1 admission block and 100/1,000 controlled replay containment; approval HTTP 422, intent 0, 33/33 artifacts |
-| D | remediation verified / retry pending | fresh `lifecycle-20260805T091303-98a14793`; exact worker stop at reserved/running training side effect | immutable 10/11 RCA retained; `6e2ec01` sets a shared 3 s cadence, enforces detection margin, and passes 24 focused plus 524 full tests |
+| D | source gate verified / retry pending | fresh `lifecycle-20260805T091303-98a14793`; exact worker stop at reserved/running training side effect | immutable 10/11 RCA retained; cadence and API/child source preflight remediations pass 31 focused plus 527 full tests; fresh live retry required |
 | A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
 
 ### Scenario E
@@ -330,10 +330,18 @@ candidate so it does not reuse a run already injected by Scenario D.
   acceptance credit occurred. Remediation is to expose the API source revision
   in readiness, add a pre-run exact-revision gate to the D runner, then perform
   bounded API-only `--no-deps` recreation before another fresh retry.
+- **API source-gate checkpoint:** pushed code `ed29285` exposes API commit and
+  branch in `/ready`, includes that identity in the runtime snapshot, and
+  requires API, supervisor, lifecycle worker, and Kubernetes observer to match
+  the requested 40-character source before a LifecycleRun is created. Focused
+  tests pass `31 / 31`, full Python `527 / 527`, and Ruff passes. Against the
+  intentionally stale runtime, the runner reported exact API/child revision
+  blockers and lifecycle catalog count stayed `74 -> 74`, proving zero run or
+  approval creation before convergence.
 - **Invariants:** production B0, device-plugin, data and cluster-wide resources
   unchanged.
 - **Claim boundary:** local process recovery, not distributed exactly-once or HA.
-- **Status:** fail-closed pre-injection RCA / API revision preflight remediation;
+- **Status:** API source gate verified / exact runtime convergence and fresh retry pending;
   do not append D to the suite until a new independent run passes every check.
 
 ### Scenario A
