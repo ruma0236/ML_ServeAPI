@@ -2,7 +2,10 @@
 
 Date: 2026-08-05
 Epic: `EVM-EPIC-24 / SCRUM-194`
-Status: In Progress; execution contract accepted, implementation not yet credited
+Status: Complete; real local VLM and LLM lifecycle proofs accepted
+
+Accepted execution results are recorded in
+`docs/status/2026-08-05-real-vlm-llm-lifecycle-validation-results.md`.
 
 ## Objective
 
@@ -195,9 +198,9 @@ Verification at this checkpoint:
 - changed-file Ruff: PASS;
 - `git diff --check`: PASS.
 
-This checkpoint does not close `EVM-286`: API/worker execution, real GPU
-adapter invocation and fresh workload evidence remain required. It creates no
-GPU lease or runtime mutation during tests.
+This checkpoint was superseded by the accepted VLM and LLM executions in the
+validation-results ledger. It remains useful as implementation-history
+evidence and must not be read as the current status.
 
 ## Transformer Runtime And Data-View Checkpoint
 
@@ -232,3 +235,18 @@ and workload tests pass `8/8`; Ruff passes. A one-record real SmolVLM CUDA
 inference also returned `Answer: 1` for expected option `1` with approximately
 `3,374 MiB` peak allocated, `3,928 MiB` peak reserved and `0.99 s` generation.
 This is a runtime preflight, not the accepted VLM lifecycle run.
+
+## Closure
+
+`EVM-286..289` are accepted for the bounded local scope. The final proof uses
+real Airflow intake, exact identity and quality gates, an exclusive RTX 4080
+lease, real CUDA LoRA/QLoRA adaptation, MLflow, held-out evaluation, artifact
+re-hash, identity-bound local-staging approval, real CUDA inference and a
+Prometheus scrape. The Control Panel exposes both accepted and failed runs and
+does not render partial execution as complete.
+
+No production target was changed. The bounded staging server was retired after
+each proof, and the GPU lease was released. ScienceQA results are not a
+benchmark, Dolly filtering is not a complete privacy audit, and this remains a
+single-node portfolio validation rather than HA or production-throughput
+evidence.
