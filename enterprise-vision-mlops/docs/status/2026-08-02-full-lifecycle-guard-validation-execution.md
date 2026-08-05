@@ -1,13 +1,14 @@
 # Full Lifecycle Guard Validation Execution
 
 Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
-Status: In Progress; Scenarios E, C, B and D are PASS in the replacement suite.
+Status: PASS; Scenarios E, C, B, D and A are PASS in the replacement suite.
 Scenario C retained one immutable DNS fail-closed run, remediated transient CI
 lookup at `f88aabd`, and passed on an independently fresh source-bound run.
 Scenario B passed on two independent fresh source-bound runs. Scenario D
 retains immutable detection-SLO and stale-API admission RCAs, then passed a
-fresh source-bound retry after cadence and source-preflight remediation. A is
-the remaining suite scenario.
+fresh source-bound retry after cadence and source-preflight remediation.
+Scenario A then passed a fresh candidate lifecycle, exact committed-M1 Pod
+restart, bounded recovery and separately approved M0 rollback.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -45,7 +46,15 @@ candidate so it does not reuse a run already injected by Scenario D.
 | C | PASS | fresh run `lifecycle-20260805T074015-7cede1b5` plus isolated rejected branch; real drift hold/resume, Airflow, CUDA, MLflow, readiness and CT | 18/18 checks, source 17/17 and integrated 21/21 hashes; accepted after immutable DNS RCA |
 | B | PASS | fresh quality `lifecycle-20260805T081750-856eac8c` and runtime `lifecycle-20260805T083919-905b427d` branches; one release injection per run | measured F1 admission block and 100/1,000 controlled replay containment; approval HTTP 422, intent 0, 33/33 artifacts |
 | D | PASS | fresh `lifecycle-20260805T100537-143a9ff8`; exact worker stop at reserved/running training side effect | 11/11, detection 5.141 s, recovery 8.344 s, same-Job continuity, 16/16 hashes; accepted after immutable detection and stale-API RCAs |
-| A | candidate PASS / live maintenance pending | fresh no-fault `lifecycle-20260805T104249-7d184e13`; exact B0 serving restart still pending | candidate 10/10 and 14/14 hashes |
+| A | PASS | fresh no-fault `lifecycle-20260805T104249-7d184e13`; exact committed-M1 B0 Pod restart followed by separate M0 rollback | detection 0.219 s, interruption 9.860 s, recovery 10.079 s, rollback 32.774 s; 38/38 artifacts |
+
+The completed suite is
+`full-lifecycle-actual-injection-20260803T062614Z-d83a51f0`. Its manifest and
+suite-index SHA-256 values are
+`84a28605113c4615688d335bf5d7ab532219735c28bb698f08f9e77d496bc61e`
+and `dff5294ca2d137c7cbf9f5bdbf35ecd127cae7b9ff82c6dde735bbffe38ae705`.
+All 11 referenced result, evidence-index and companion-result files were
+independently re-hashed with zero mismatch.
 
 ### Scenario E
 
@@ -374,7 +383,8 @@ candidate so it does not reuse a run already injected by Scenario D.
   at 1/1 with CUDA, plugin 1/1, one worker/observer, Prometheus singular/up,
   and active runs zero.
 - **Claim boundary:** local process recovery, not distributed exactly-once or HA.
-- **Status:** PASS in ordered replacement suite; proceed to fresh Scenario A.
+- **Status:** PASS in the ordered replacement suite; Scenario A subsequently
+  completed and closed the suite.
 
 ### Scenario A
 
@@ -382,8 +392,10 @@ candidate so it does not reuse a run already injected by Scenario D.
   bounded model transition.
 - **Injection point:** exact committed-M1 B0 Pod after a fresh no-fault
   LifecycleRun creates the M1 package.
-- **Pre-state/identity:** pending fresh candidate plus exact M0 Deployment UID,
-  Pod UID, model/image/data/CT/source and rollback target.
+- **Pre-state/identity:** exact Deployment UID
+  `cfdab424-dcc5-4d5f-a46f-ae7530441ef4`, sealed M0 model SHA
+  `abcb8504...a27f`, fresh M1 model SHA `27033027...74d3f6`, candidate lifecycle,
+  image/data/CT/source identities and separately bound rollback target.
 - **Intentional failure:** restart only the exact committed-M1 Pod.
 - **Expected guard:** detection, exact identity recovery, CUDA inference and
   Prometheus recovery, followed by a separately approved exact M0 rollback.
@@ -402,9 +414,22 @@ candidate so it does not reuse a run already injected by Scenario D.
   intent +1; side effects are unique/committed. Candidate result/index re-hash
   is 14/14; result SHA `b8063e7e...f4dbe`, index SHA
   `c11d0ca4...a71d`.
-- **Live A state:** pending exact M1 apply/commit, exact committed-M1 Pod
-  restart, CUDA/Prometheus recovery and separate M0 rollback. Candidate PASS
-  alone gives no serving-recovery acceptance credit.
+- **Live A result:** **PASS** at source `30c68f5`, transaction
+  `scenario-a-lifecycle-20260805T110845Z-30c68f5f-7e14f128`. M1
+  apply/verify/commit completed in `41.308262 s` at stable-pointer revision 5.
+  The exact committed-M1 Pod changed from UID
+  `c9d2e52c-c6ac-4ba3-b4ba-590ad72ea7d5` to
+  `f962f862-5a86-4c41-8798-c702a5fa20c1`; detection was `0.219 s`, endpoint
+  interruption `9.860 s`, and recovery `10.079 s`. A separate single-use
+  approval restored exact M0 in `32.773590 s` at pointer revision 6 and final
+  Pod UID `843b9acd-3b72-4e93-9809-34a1d6904dbe`.
+- **Acceptance/evidence:** apply and rollback approvals were consumed once and
+  replay was blocked. Independent re-hash matched `38 / 38` artifacts. Result
+  and evidence-index SHA-256 are
+  `ff227442d93f3e0cb82209ddddcf9795ea514ff2a595c1d0b7c3cc8ede9649a0`
+  and `87ef565249d44c5126b3542e271a327b46bdd10bcb6ed24269adb89952497098`.
+  The fresh-candidate companion result SHA-256 is
+  `b8063e7e45d4c8b6425a70b4951b67cf9f967252a8b53d9672a9c325e38f4dbe`.
 - **Pre-run attempt 1 RCA:** at source `90209f4`, the candidate runner stopped
   before LifecycleRun creation with `split_manifest_identity_mismatch`. Active
   runs remained zero and no Airflow, Kubernetes Job, MLflow, deployment intent,
@@ -418,11 +443,16 @@ candidate so it does not reuse a run already injected by Scenario D.
   candidate is required after commit, push, CI and runtime revision convergence.
 - **RCA/remediation boundary:** any invalid profile, ambiguous target or
   rollback identity blocks mutation.
-- **Invariants:** device-plugin, cluster-wide resources, canonical data and real
-  user traffic unchanged.
+- **Invariants:** intended mutations were two exact model rollouts and one exact
+  M1 Pod restart. Device-plugin, cluster-wide resources, canonical data,
+  registry and real user traffic were unchanged. Final exact M0 was 1/1
+  Ready/Available with CUDA inference, one singular/up Prometheus target, GPU
+  allocatable/plugin `1 / 1`, and zero active LifecycleRuns.
 - **Claim boundary:** approved local single-replica maintenance interruption,
   not zero downtime, HA, customer production, or an SLA.
-- **Status:** pending.
+- **Status:** PASS in the ordered replacement suite. This is controlled local
+  single-node maintenance evidence, not HA, zero-downtime customer production,
+  or an SLA claim.
 
 ## Execution Series
 
@@ -897,8 +927,8 @@ branch registered `rejected_release`; the runtime branch registered
 `rolled_back` after 100/1,000 assignments and two controlled errors. Both
 approval requests returned HTTP 422, both deployment-intent deltas were zero,
 and exact B0 UID/model/CUDA/Prometheus identity was retained. Independent
-re-hash matched 95/95 artifacts across five indexes. Scenario A is now the next
-dependency.
+re-hash matched 95/95 artifacts across five indexes. At that historical
+checkpoint Scenario A was the next dependency; it is now complete above.
 
 Scenario A implementation seals the current exact B0 package as M0 and the
 accepted Scenario D lifecycle package as M1. It binds Deployment UID and
