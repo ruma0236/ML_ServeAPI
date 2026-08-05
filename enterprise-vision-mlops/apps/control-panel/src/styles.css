@@ -5408,6 +5408,8 @@ h3 {
   align-items: center;
   gap: 4px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 
 .workspace-nav button,
@@ -5432,8 +5434,10 @@ h3 {
 }
 
 .view-nav button {
+  flex: 0 0 auto;
   min-height: 34px;
   padding: 7px 13px;
+  scroll-snap-align: start;
   white-space: nowrap;
 }
 
@@ -5842,7 +5846,10 @@ h3 {
   .view-mode-nav button { min-width: 0; padding-inline: 7px; }
   .workspace-nav button { min-height: 44px; padding: 6px 4px; gap: 4px; }
   .workspace-nav button span { font-size: 0.68rem; }
-  .view-nav { justify-content: flex-start; }
+  .view-nav {
+    justify-content: flex-start;
+    scroll-snap-type: x proximity;
+  }
   .blueprint-step-nav { grid-template-columns: repeat(5, minmax(54px, 1fr)); }
   .blueprint-step-nav button { grid-template-columns: 1fr; justify-items: center; gap: 2px; padding: 6px 3px; text-align: center; }
   .blueprint-step-nav button > span { display: none; }
