@@ -198,3 +198,37 @@ Verification at this checkpoint:
 This checkpoint does not close `EVM-286`: API/worker execution, real GPU
 adapter invocation and fresh workload evidence remain required. It creates no
 GPU lease or runtime mutation during tests.
+
+## Transformer Runtime And Data-View Checkpoint
+
+The host runtime now has a versioned pin set at
+`infra/runtime/scenario-transformers/requirements.txt`. The existing
+`F:/evm_w7_torch` environment proves the following versions in one process:
+
+- PyTorch `2.13.0+cu126`, CUDA runtime `12.6`;
+- Transformers `4.57.6`, PEFT `0.18.0`, Accelerate `1.12.0`;
+- bitsandbytes `0.49.2` on Windows;
+- RTX 4080 SUPER compute capability `8.9` and a real CUDA matrix kernel PASS.
+
+This proves runtime import and CUDA execution, not 4-bit model loading; a
+quantization claim remains blocked until the Qwen workload performs that exact
+operation.
+
+`scenario_preparation` adds immutable, idempotent derived views without
+changing canonical intake data:
+
+- ScienceQA local-adaptation view: source 512 -> 48 records (`32/8/8`), output
+  manifest `b4d5b881...224cf`, identity `8bce3a7a...ed7a1`;
+- every selected image is re-hashed before view creation;
+- `source_split=test` remains explicit and the view states that it is not a
+  ScienceQA benchmark;
+- Dolly preparation requires a named approver and reason, removes all rows with
+  PII flags, writes an identity-bound quality disposition and refuses overwrite
+  conflicts.
+
+The ScienceQA command was executed twice against the same F-drive root and
+returned the original `created_at` and digests on the second call. Preparation
+and workload tests pass `8/8`; Ruff passes. A one-record real SmolVLM CUDA
+inference also returned `Answer: 1` for expected option `1` with approximately
+`3,374 MiB` peak allocated, `3,928 MiB` peak reserved and `0.99 s` generation.
+This is a runtime preflight, not the accepted VLM lifecycle run.

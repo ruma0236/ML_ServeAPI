@@ -118,6 +118,7 @@ class ScenarioWorkloadRequest(ContractModel):
     source_branch: str | None = None
     dirty_worktree: bool = False
     quality_disposition_uri: str | None = None
+    data_view_uri: str | None = None
 
 
 class WorkloadIdentity(ContractModel):
@@ -132,6 +133,7 @@ class WorkloadIdentity(ContractModel):
     quality_status: str
     quality_report_uri: str
     quality_disposition_uri: str | None = None
+    data_view_uri: str | None = None
     model_family: WorkloadModelFamily
     model_repository: str
     model_revision: str = Field(pattern=r"^[a-f0-9]{40}$")
@@ -387,6 +389,32 @@ def resolve_workload_identity(
                 status_code=422,
             )
         quality_status = "approved"
+    data_view_uri: str | None = None
+    if request.data_view_uri:
+        view = validate_data_view(
+            request.data_view_uri,
+            dataset_version=scenario.dataset.dataset_version,
+            input_manifest_sha256=manifest_sha256,
+        )
+        data_view_uri = request.data_view_uri
+        manifest_path = mapped_path(str(view["output_manifest_uri"]))
+        split_path = mapped_path(str(view["output_split_manifest_uri"]))
+        manifest_sha256 = require_file_sha256(manifest_path, "data_view_manifest")
+        split_sha256 = require_file_sha256(split_path, "data_view_split_manifest")
+        if manifest_sha256 != view["output_manifest_sha256"]:
+            raise ScenarioWorkloadError(
+                "data_view_manifest_mismatch",
+                "Data-view manifest digest does not match bytes.",
+                status_code=422,
+            )
+        view_split = read_json_object(split_path, "data_view_split_manifest")
+        data_identity = str(view_split.get("identity_sha256") or "")
+        if data_identity != view["output_identity_sha256"]:
+            raise ScenarioWorkloadError(
+                "data_view_identity_mismatch",
+                "Data-view split identity does not match the contract.",
+                status_code=422,
+            )
     processor_revision = request.processor_revision or request.model_revision
     material = {
         "scenario_id": scenario.scenario_id,
@@ -395,6 +423,7 @@ def resolve_workload_identity(
         "manifest_sha256": manifest_sha256,
         "split_manifest_sha256": split_sha256,
         "data_identity_sha256": data_identity,
+        "data_view_uri": data_view_uri or "",
         "model_family": request.model_family,
         "model_repository": request.model_repository,
         "model_revision": request.model_revision,
@@ -416,6 +445,7 @@ def resolve_workload_identity(
         quality_status=quality_status,
         quality_report_uri=str(quality_path),
         quality_disposition_uri=disposition_uri,
+        data_view_uri=data_view_uri,
         model_family=request.model_family,
         model_repository=request.model_repository,
         model_revision=request.model_revision,
@@ -453,6 +483,33 @@ def validate_quality_disposition(
         raise ScenarioWorkloadError(
             "quality_disposition_invalid", ",".join(sorted(blockers)), status_code=422
         )
+    return payload
+
+
+def validate_data_view(
+    uri: str,
+    *,
+    dataset_version: str,
+    input_manifest_sha256: str,
+) -> dict[str, Any]:
+    payload = read_json_object(mapped_path(uri), "scenario_data_view")
+    blockers: list[str] = []
+    if payload.get("schema_version") != "evm.scenario_data_view.v1":
+        blockers.append("data_view_schema_invalid")
+    if payload.get("status") != "pass":
+        blockers.append("data_view_not_passing")
+    if payload.get("source_dataset_version") != dataset_version:
+        blockers.append("data_view_dataset_version_mismatch")
+    if payload.get("input_manifest_sha256") != input_manifest_sha256:
+        blockers.append("data_view_input_manifest_mismatch")
+    for key in ("output_manifest_sha256", "output_identity_sha256"):
+        if not is_sha256(str(payload.get(key) or "")):
+            blockers.append(f"{key}_invalid")
+    for key in ("output_manifest_uri", "output_split_manifest_uri", "recipe_id"):
+        if not str(payload.get(key) or "").strip():
+            blockers.append(f"{key}_missing")
+    if blockers:
+        raise ScenarioWorkloadError("data_view_invalid", ",".join(sorted(blockers)), status_code=422)
     return payload
 
 

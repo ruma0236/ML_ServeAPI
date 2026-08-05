@@ -1,0 +1,9 @@
+# Host CUDA runtime for the bounded VLM/LLM scenario proofs.
+# PyTorch is intentionally managed separately by F:/evm_w7_torch.
+accelerate==1.12.0
+bitsandbytes==0.49.2
+huggingface-hub==0.36.0
+peft==0.18.0
+safetensors==0.6.2
+sentencepiece==0.2.1
+transformers==4.57.6
