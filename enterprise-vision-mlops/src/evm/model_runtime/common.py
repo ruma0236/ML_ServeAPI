@@ -184,6 +184,7 @@ def log_mlflow_evidence(
     params: dict[str, Any],
     metrics: dict[str, Any],
     tags: dict[str, str],
+    artifact_paths: list[Path] | None = None,
 ) -> str:
     client = MlflowRestClient(tracking_uri)
     if not client.health():
@@ -201,6 +202,18 @@ def log_mlflow_evidence(
     for key, value in sorted(metrics.items()):
         if isinstance(value, int | float) and not client.log_metric(run_id, key, float(value)):
             failures.append(f"metric:{key}")
+    if artifact_paths:
+        from mlflow.tracking import MlflowClient
+
+        artifact_client = MlflowClient(tracking_uri=tracking_uri)
+        for path in artifact_paths:
+            if not path.is_file():
+                failures.append(f"artifact_missing:{path.name}")
+                continue
+            try:
+                artifact_client.log_artifact(run_id, str(path), artifact_path="evidence")
+            except Exception as exc:  # MLflow clients expose backend-specific exceptions.
+                failures.append(f"artifact:{path.name}:{type(exc).__name__}")
     if failures:
         client.terminate_run(run_id, status="KILLED")
         raise ModelRuntimeError(f"mlflow_write_failed:{','.join(failures)}")

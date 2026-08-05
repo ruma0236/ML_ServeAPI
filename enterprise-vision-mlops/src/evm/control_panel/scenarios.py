@@ -99,6 +99,7 @@ class ScenarioIntakeLaunchRequest(ContractModel):
     actor: str = "ml-platform"
     reason: str = "Acquire and preprocess an approved enterprise scenario dataset"
     dry_run: bool = True
+    source_commit: str | None = Field(default=None, pattern=r"^[a-f0-9]{7,40}$")
 
 
 class ScenarioCatalogError(RuntimeError):
@@ -165,6 +166,7 @@ def launch_scenario_intake(
                 "dataset_version": scenario.dataset.dataset_version,
                 "pipeline_config_uri": scenario.runtime_config_uri,
                 "reason": request.reason,
+                "source_commit": request.source_commit or "",
             },
         )
     )
