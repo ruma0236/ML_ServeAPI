@@ -749,7 +749,7 @@ function resourceKey(resource: ResourceRef): string {
 }
 
 export function statusTone(status: State | string | null | undefined): "good" | "warn" | "bad" | "idle" | "run" {
-  if (status === "pass" || status === "done" || status === "verified" || status === "ready" || status === "data_ready" || status === "verified_full_lifecycle") return "good";
+  if (status === "pass" || status === "done" || status === "completed" || status === "verified" || status === "ready" || status === "data_ready" || status === "verified_full_lifecycle") return "good";
   if (status === "warn" || status === "review_required" || status === "intake_ready" || status === "not_implemented") return "warn";
   if (status === "fail" || status === "failed" || status === "blocked" || status === "cancelled") return "bad";
   if (status === "running" || status === "queued" || status === "dry_run" || status === "pending_confirmation") return "run";

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from threading import RLock
+from time import monotonic
 
 from evm.control_panel.readiness_evaluator import canonical_evidence_uri, runtime_path
 from evm.control_panel.schemas import CycleRun, CycleRunList, CycleRunSummary, EnvironmentTier, State
@@ -18,6 +20,26 @@ CYCLE_FILENAMES = {
     "cycle_run_final.json",
     "cycle.snapshot.json",
 }
+
+_HISTORY_CACHE_LOCK = RLock()
+_HISTORY_CACHE_ROOT = ""
+_HISTORY_CACHE_AT = 0.0
+_HISTORY_CACHE: list[tuple[Path, CycleRun]] = []
+
+
+def cycle_history_cache_ttl() -> float:
+    try:
+        return max(0.0, float(os.getenv("EVM_CYCLE_HISTORY_CACHE_TTL_SECONDS", "30")))
+    except ValueError:
+        return 30.0
+
+
+def invalidate_cycle_history_cache() -> None:
+    global _HISTORY_CACHE_ROOT, _HISTORY_CACHE_AT, _HISTORY_CACHE
+    with _HISTORY_CACHE_LOCK:
+        _HISTORY_CACHE_ROOT = ""
+        _HISTORY_CACHE_AT = 0.0
+        _HISTORY_CACHE = []
 
 
 def cycle_history_root() -> Path:
@@ -57,6 +79,28 @@ def load_cycle(path: Path) -> CycleRun | None:
         return None
 
 
+def historical_cycles(root: Path | None = None) -> list[tuple[Path, CycleRun]]:
+    global _HISTORY_CACHE_ROOT, _HISTORY_CACHE_AT, _HISTORY_CACHE
+    selected_root = root or cycle_history_root()
+    root_key = str(selected_root.resolve())
+    with _HISTORY_CACHE_LOCK:
+        now = monotonic()
+        if (
+            _HISTORY_CACHE_ROOT == root_key
+            and now - _HISTORY_CACHE_AT < cycle_history_cache_ttl()
+        ):
+            return list(_HISTORY_CACHE)
+        loaded: list[tuple[Path, CycleRun]] = []
+        for path in candidate_cycle_paths(selected_root):
+            cycle = load_cycle(path)
+            if cycle is not None:
+                loaded.append((path, cycle))
+        _HISTORY_CACHE_ROOT = root_key
+        _HISTORY_CACHE_AT = monotonic()
+        _HISTORY_CACHE = loaded
+        return list(_HISTORY_CACHE)
+
+
 def summarize_cycle(cycle: CycleRun, *, source_uri: str | None, live: bool) -> CycleRunSummary:
     progress = (
         sum(stage.progress for stage in cycle.stages) / len(cycle.stages)
@@ -94,9 +138,8 @@ def build_cycle_catalog(
     summaries: dict[str, CycleRunSummary] = {
         live_cycle.cycle_id: summarize_cycle(live_cycle, source_uri=None, live=True)
     }
-    for path in candidate_cycle_paths(root):
-        cycle = load_cycle(path)
-        if cycle is None or cycle.cycle_id in summaries:
+    for path, cycle in historical_cycles(root):
+        if cycle.cycle_id in summaries:
             continue
         summaries[cycle.cycle_id] = summarize_cycle(
             cycle,
@@ -144,8 +187,7 @@ def build_cycle_catalog(
 def find_cycle(cycle_id: str, live_cycle: CycleRun, *, root: Path | None = None) -> CycleRun | None:
     if cycle_id == live_cycle.cycle_id:
         return live_cycle
-    for path in candidate_cycle_paths(root):
-        cycle = load_cycle(path)
-        if cycle is not None and cycle.cycle_id == cycle_id:
+    for _path, cycle in historical_cycles(root):
+        if cycle.cycle_id == cycle_id:
             return cycle
     return None

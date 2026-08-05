@@ -40,6 +40,10 @@ _CYCLE_CACHE_LOCK = RLock()
 _CYCLE_CACHE: CycleRun | None = None
 _CYCLE_CACHE_AT = 0.0
 _CYCLE_CACHE_BUILDER_ID = 0
+_CYCLE_CATALOG_CACHE_LOCK = RLock()
+_CYCLE_CATALOG_CACHE: dict[
+    tuple[str, str, str, int, str], tuple[float, CycleRunList]
+] = {}
 _MODEL_CANDIDATE_CACHE_LOCK = RLock()
 _MODEL_CANDIDATE_CACHE: ModelCandidateCatalog | None = None
 _MODEL_CANDIDATE_CACHE_AT = 0.0
@@ -56,6 +60,13 @@ def cycle_cache_ttl() -> float:
 def model_candidate_cache_ttl() -> float:
     try:
         return max(0.0, float(os.getenv("EVM_MODEL_CANDIDATE_CACHE_TTL_SECONDS", "30")))
+    except ValueError:
+        return 30.0
+
+
+def cycle_catalog_cache_ttl() -> float:
+    try:
+        return max(0.0, float(os.getenv("EVM_CYCLE_CATALOG_CACHE_TTL_SECONDS", "30")))
     except ValueError:
         return 30.0
 
@@ -93,6 +104,42 @@ def invalidate_model_candidate_cache() -> None:
         _MODEL_CANDIDATE_CACHE_CYCLE_ID = ""
 
 
+def invalidate_cycle_catalog_cache() -> None:
+    with _CYCLE_CATALOG_CACHE_LOCK:
+        _CYCLE_CATALOG_CACHE.clear()
+
+
+def cycle_catalog_snapshot(
+    *,
+    status: State | None = None,
+    environment: EnvironmentTier | None = None,
+    query: str | None = None,
+    limit: int = 50,
+) -> CycleRunList:
+    live_cycle = cycle_snapshot()
+    key = (
+        status.value if status else "",
+        environment.value if environment else "",
+        (query or "").strip().lower(),
+        limit,
+        live_cycle.cycle_id,
+    )
+    with _CYCLE_CATALOG_CACHE_LOCK:
+        now = monotonic()
+        cached = _CYCLE_CATALOG_CACHE.get(key)
+        if cached and now - cached[0] < cycle_catalog_cache_ttl():
+            return cached[1]
+        catalog = build_cycle_catalog(
+            live_cycle,
+            status=status,
+            environment=environment,
+            query=query,
+            limit=limit,
+        )
+        _CYCLE_CATALOG_CACHE[key] = (monotonic(), catalog)
+        return catalog
+
+
 def model_candidate_catalog_snapshot(*, limit: int = 200) -> ModelCandidateCatalog:
     global _MODEL_CANDIDATE_CACHE, _MODEL_CANDIDATE_CACHE_AT, _MODEL_CANDIDATE_CACHE_CYCLE_ID
     live_cycle = cycle_snapshot()
@@ -123,8 +170,7 @@ def list_cycles(
     query: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
 ) -> CycleRunList:
-    return build_cycle_catalog(
-        cycle_snapshot(),
+    return cycle_catalog_snapshot(
         status=status,
         environment=environment,
         query=query,

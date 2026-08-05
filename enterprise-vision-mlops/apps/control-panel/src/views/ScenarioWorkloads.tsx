@@ -5,7 +5,9 @@ import {
   Database,
   ExternalLink,
   FileCheck2,
+  Gauge,
   RefreshCcw,
+  ShieldCheck,
   TriangleAlert
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -146,6 +148,8 @@ function WorkloadDetail({ run }: { run: ScenarioWorkloadRun }) {
         </section>
       ) : null}
 
+      <EvaluationPanel run={run} />
+
       <section className="scenario-facts">
         <Fact icon={Database} label="Data" value={run.identity.dataset_version} detail={shortHash(run.identity.data_identity_sha256)} />
         <Fact icon={Cpu} label="Compute" value={run.runtime_versions.gpu_name || run.identity.compute_backend} detail={memoryLabel(run)} />
@@ -165,6 +169,73 @@ function WorkloadDetail({ run }: { run: ScenarioWorkloadRun }) {
         ) : null}
       </section>
     </main>
+  );
+}
+
+
+function EvaluationPanel({ run }: { run: ScenarioWorkloadRun }) {
+  const summary = run.evaluation_summary;
+  if (!summary) {
+    return (
+      <section className="scenario-evaluation scenario-evaluation-empty" aria-label="Evaluation metrics unavailable">
+        <Gauge size={18} />
+        <div>
+          <strong>Evaluation metrics unavailable</strong>
+          <span>{run.evaluation_uri ? "Evidence could not be resolved" : "Evaluation has not completed"}</span>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section className="scenario-evaluation" aria-label={`${summary.model_family.toUpperCase()} evaluation metrics`}>
+      <header>
+        <div>
+          <span className="eyebrow">{summary.model_family.toUpperCase()} metric schema</span>
+          <h3>Evaluation & release evidence</h3>
+        </div>
+        <div className="scenario-gate-state" title={summary.release_gate.policy_source}>
+          <ShieldCheck size={16} />
+          <span>Release gate</span>
+          <StatusBadge status={summary.release_gate.status} compact />
+        </div>
+      </header>
+      <div className="scenario-metric-groups">
+        <MetricGroup
+          label="Model quality"
+          metrics={summary.quality_metrics}
+          emptyLabel="No supported quality metric"
+        />
+        <MetricGroup
+          label="Runtime & evaluation"
+          metrics={summary.operational_metrics}
+          emptyLabel="No runtime metric"
+        />
+      </div>
+      <footer>
+        <code>{summary.schema_version}</code>
+        <span>{summary.evaluated_at ? `evaluated ${formatTime(summary.evaluated_at)}` : "evaluation timestamp unavailable"}</span>
+        {summary.release_gate.blockers.length ? <strong>{summary.release_gate.blockers.join(", ")}</strong> : <strong>policy evidence passed</strong>}
+      </footer>
+    </section>
+  );
+}
+
+
+function MetricGroup({ label, metrics, emptyLabel }: { label: string; metrics: Record<string, number>; emptyLabel: string }) {
+  const entries = Object.entries(metrics);
+  return (
+    <section className="scenario-metric-group" aria-label={label}>
+      <span>{label}</span>
+      <div>
+        {entries.map(([name, value]) => (
+          <div className="scenario-metric" key={name} title={metricDefinition(name)}>
+            <small>{metricLabel(name)}</small>
+            <strong>{formatMetric(name, value)}</strong>
+          </div>
+        ))}
+        {!entries.length ? <em>{emptyLabel}</em> : null}
+      </div>
+    </section>
   );
 }
 
@@ -198,6 +269,48 @@ function shortHash(value: string): string {
 function memoryLabel(run: ScenarioWorkloadRun): string {
   if (run.peak_gpu_allocated_mib === null || run.peak_gpu_allocated_mib === undefined) return "GPU profile pending";
   return `${(run.peak_gpu_allocated_mib / 1024).toFixed(2)} GiB peak allocated`;
+}
+
+
+function metricLabel(name: string): string {
+  return ({
+    accuracy: "Accuracy",
+    parse_rate: "Parse rate",
+    validation_loss: "Validation loss",
+    mean_token_f1: "Token F1",
+    nonempty_rate: "Non-empty rate",
+    p95_latency_seconds: "P95 latency",
+    evaluated_records: "Evaluated",
+    peak_gpu_allocated_mib: "Peak VRAM",
+    training_seconds: "Training time"
+  } as Record<string, string>)[name] || name.replaceAll("_", " ");
+}
+
+
+function metricDefinition(name: string): string {
+  return ({
+    accuracy: "Correct VLM choices divided by held-out records.",
+    parse_rate: "Parseable VLM answers divided by generated held-out answers.",
+    validation_loss: "Cross-entropy loss measured on held-out validation records.",
+    mean_token_f1: "Mean token-overlap F1 across generated LLM answers.",
+    nonempty_rate: "Non-empty LLM generations divided by evaluated prompts.",
+    p95_latency_seconds: "95th percentile generation latency on held-out evaluation.",
+    evaluated_records: "Held-out records used by the recorded evaluation.",
+    peak_gpu_allocated_mib: "Peak CUDA memory allocated during adaptation.",
+    training_seconds: "Measured bounded adaptation wall time."
+  } as Record<string, string>)[name] || "Metric recorded by the workload evaluation artifact.";
+}
+
+
+function formatMetric(name: string, value: number): string {
+  if (["accuracy", "parse_rate", "mean_token_f1", "nonempty_rate"].includes(name)) {
+    return `${(value * 100).toFixed(1)}%`;
+  }
+  if (name === "p95_latency_seconds") return `${value.toFixed(2)} s`;
+  if (name === "peak_gpu_allocated_mib") return `${(value / 1024).toFixed(2)} GiB`;
+  if (name === "training_seconds") return `${value.toFixed(1)} s`;
+  if (name === "evaluated_records") return String(Math.round(value));
+  return value.toFixed(3);
 }
 
 

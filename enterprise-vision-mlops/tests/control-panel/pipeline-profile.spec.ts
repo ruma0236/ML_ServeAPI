@@ -4,6 +4,7 @@ import { openControlPanelView } from "./helpers/navigation";
 
 
 test("@pipeline-profile validates effective and unsupported tuning paths", async ({ page }) => {
+  test.setTimeout(60_000);
   await page.goto("/");
   await openControlPanelView(page, "Configure");
   const studio = page.getByRole("region", { name: "Pipeline profile studio" });

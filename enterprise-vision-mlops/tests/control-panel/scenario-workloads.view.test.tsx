@@ -22,8 +22,8 @@ describe("AI Workloads view", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.fetchScenarioWorkloads.mockResolvedValue({
-      runs: [workload("completed"), workload("failed")],
-      total: 2
+      runs: [workload("vlm", "completed"), workload("llm", "completed"), workload("llm", "failed")],
+      total: 3
     });
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -44,13 +44,32 @@ describe("AI Workloads view", () => {
     expect(container.textContent).toContain("0.75 GiB peak allocated");
     expect(container.textContent).toContain("retired_after_validation");
     expect(container.textContent).toContain("GPU lease released");
+    expect(container.textContent).toContain("VLM metric schema");
+    expect(container.textContent).toContain("Accuracy75.0%");
+    expect(container.textContent).toContain("Parse rate100.0%");
+    expect(container.textContent).toContain("P95 latency0.49 s");
+  });
+
+  it("switches to the LLM-specific metric schema without inventing VLM metrics", async () => {
+    await act(async () => root.render(<ScenarioWorkloads />));
+    await flushUpdates();
+    const completedLlm = [...container.querySelectorAll<HTMLButtonElement>("aside button")].find(
+      (button) => button.textContent?.includes("Qwen2.5") && button.textContent?.includes("completed")
+    );
+    await act(async () => completedLlm?.click());
+
+    expect(container.textContent).toContain("LLM metric schema");
+    expect(container.textContent).toContain("Validation loss1.918");
+    expect(container.textContent).toContain("Token F134.4%");
+    expect(container.textContent).toContain("Non-empty rate100.0%");
+    expect(container.textContent).not.toContain("Parse rate");
   });
 
   it("surfaces the failed run blocker after selection", async () => {
     await act(async () => root.render(<ScenarioWorkloads />));
     await flushUpdates();
     const failed = [...container.querySelectorAll<HTMLButtonElement>("aside button")].find(
-      (button) => button.textContent?.includes("Qwen2.5")
+      (button) => button.textContent?.includes("Qwen2.5") && button.textContent?.includes("failed")
     );
     await act(async () => failed?.click());
 
@@ -60,11 +79,10 @@ describe("AI Workloads view", () => {
 });
 
 
-function workload(state: "completed" | "failed"): ScenarioWorkloadRun {
-  const family = state === "completed" ? "vlm" : "llm";
+function workload(family: "vlm" | "llm", state: "completed" | "failed"): ScenarioWorkloadRun {
   return {
     schema_version: "evm.scenario_workload_run.v1",
-    run_id: `${family}-run-1`,
+    run_id: `${family}-${state}-run-1`,
     state,
     version: 2,
     actor: "operator",
@@ -101,6 +119,33 @@ function workload(state: "completed" | "failed"): ScenarioWorkloadRun {
     gpu_lease_state: "released",
     mlflow_run_id: "mlflow-run-1",
     model_artifact_sha256: "1".repeat(64),
+    evaluation_uri: state === "completed" ? "F:/artifacts/run-1/model/adapted-evaluation.json" : null,
+    evaluation_summary: state === "completed" ? {
+      schema_version: family === "vlm" ? "evm.scenario_vlm_evaluation.v1" : "evm.scenario_llm_evaluation.v1",
+      model_family: family,
+      quality_metrics: family === "vlm" ? {
+        accuracy: 0.75,
+        parse_rate: 1
+      } : {
+        validation_loss: 1.918441,
+        mean_token_f1: 0.34365,
+        nonempty_rate: 1
+      },
+      operational_metrics: {
+        p95_latency_seconds: family === "vlm" ? 0.492075 : 5.113666,
+        evaluated_records: 8,
+        peak_gpu_allocated_mib: 768,
+        training_seconds: 12.5
+      },
+      release_gate: {
+        status: "pass",
+        blockers: [],
+        policy_source: "F:/artifacts/run-1/model/training-result.json"
+      },
+      evaluated_at: "2026-08-05T00:01:00Z",
+      evidence_uri: "F:/artifacts/run-1/model/adapted-evaluation.json",
+      claim_boundary: "Bounded local evaluation."
+    } : null,
     runtime_versions: {
       gpu_name: "NVIDIA GeForce RTX 4080 SUPER",
       staging_runtime_state: state === "completed" ? "retired_after_validation" : "not_started"

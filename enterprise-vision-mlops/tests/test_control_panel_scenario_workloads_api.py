@@ -12,6 +12,38 @@ def test_scenario_workload_api_lists_persisted_runs(tmp_path: Path, monkeypatch)
     monkeypatch.setenv("EVM_SCENARIO_WORKLOAD_ROOT", str(tmp_path))
     run_root = tmp_path / "run-1"
     run_root.mkdir()
+    model_root = run_root / "model"
+    model_root.mkdir()
+    evaluation_path = model_root / "adapted-evaluation.json"
+    evaluation_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "evm.scenario_vlm_evaluation.v1",
+                "metrics": {
+                    "record_count": 8,
+                    "accuracy": 0.75,
+                    "parse_rate": 1.0,
+                    "p95_latency_seconds": 0.49,
+                },
+                "evaluated_at": "2026-08-05T00:00:02Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (model_root / "training-result.json").write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "metrics": {
+                    "peak_gpu_allocated_mib": 768,
+                    "training_seconds": 12.5,
+                },
+                "promotion_blockers": [],
+                "claim_boundary": "Bounded local VLM evaluation.",
+            }
+        ),
+        encoding="utf-8",
+    )
     (run_root / "workload_run.json").write_text(
         json.dumps(
             {
@@ -48,6 +80,7 @@ def test_scenario_workload_api_lists_persisted_runs(tmp_path: Path, monkeypatch)
                 "adaptation_method": "lora",
                 "quantization_requested": "none",
                 "artifact_root": str(run_root),
+                "evaluation_uri": str(evaluation_path),
                 "stages": [],
                 "audit": [],
             }
@@ -59,6 +92,18 @@ def test_scenario_workload_api_lists_persisted_runs(tmp_path: Path, monkeypatch)
 
     assert listed.total == 1
     assert listed.runs[0].identity.model_family == "vlm"
+    assert listed.runs[0].evaluation_summary is not None
+    assert listed.runs[0].evaluation_summary.quality_metrics == {
+        "accuracy": 0.75,
+        "parse_rate": 1.0,
+    }
+    assert listed.runs[0].evaluation_summary.operational_metrics == {
+        "p95_latency_seconds": 0.49,
+        "evaluated_records": 8.0,
+        "peak_gpu_allocated_mib": 768.0,
+        "training_seconds": 12.5,
+    }
+    assert listed.runs[0].evaluation_summary.release_gate.status == "pass"
     assert scenario_workload_run("run-1").state == "completed"
 
 

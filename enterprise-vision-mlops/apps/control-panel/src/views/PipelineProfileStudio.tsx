@@ -93,6 +93,7 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
   const [registeredComponent, setRegisteredComponent] = useState<ModelComponent | null>(null);
   const [activeStep, setActiveStep] = useState<BlueprintStep>("intent");
   const [busy, setBusy] = useState(false);
+  const [savingVersion, setSavingVersion] = useState(false);
   const [error, setError] = useState("");
   const [rawOpen, setRawOpen] = useState(false);
   const [rawText, setRawText] = useState("");
@@ -233,6 +234,7 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
 
   async function saveVersion() {
     setBusy(true);
+    setSavingVersion(true);
     setError("");
     const sequence = ++validationSequence.current;
     try {
@@ -245,6 +247,7 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
     } catch (reason) {
       setError(message(reason));
     } finally {
+      setSavingVersion(false);
       setBusy(false);
     }
   }
@@ -565,11 +568,11 @@ export function PipelineProfileStudio({ cycle, profileTarget }: PipelineProfileS
                 <TextField className="field-wide" label="Model Base Config" value={profile.base_model_config} onChange={(value) => updateProfile({ ...profile, base_model_config: value })} />
               </div>
               <SectionHeading icon={<LockKeyhole />} title="Replay Integrity" />
-              <div className="replay-verification" data-status={replayValidation?.status || "unsaved"}>
+              <div className="replay-verification" data-status={savingVersion ? "processing" : replayValidation?.status || "unsaved"}>
                 <div>
-                  <StatusBadge status={replayValidation?.status || "unknown"} compact />
-                  <strong>{replayValidation ? `${replayValidation.checks.filter((check) => check.status === "pass").length}/${replayValidation.checks.length} identities sealed` : "Save a version to seal runtime identities"}</strong>
-                  <span>{replayValidation?.reproducibility_digest.slice(0, 20) || "Profile, data, split, configs, catalog and container images"}</span>
+                  <StatusBadge status={savingVersion ? "processing" : replayValidation?.status || "unknown"} compact />
+                  <strong>{savingVersion ? "Sealing runtime identities" : replayValidation ? `${replayValidation.checks.filter((check) => check.status === "pass").length}/${replayValidation.checks.length} identities sealed` : "Save a version to seal runtime identities"}</strong>
+                  <span>{savingVersion ? "Persisting the profile and verifying replay evidence" : replayValidation?.reproducibility_digest.slice(0, 20) || "Profile, data, split, configs, catalog and container images"}</span>
                 </div>
                 {replayValidation ? (
                   <details>

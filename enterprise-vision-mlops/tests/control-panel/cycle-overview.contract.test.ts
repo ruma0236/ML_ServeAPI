@@ -32,6 +32,7 @@ describe("Control Panel CycleRun bindings", () => {
 
   it("keeps blocked, running, and passing states visually distinct", () => {
     expect(statusTone("pass")).toBe("good");
+    expect(statusTone("completed")).toBe("good");
     expect(statusTone("running")).toBe("run");
     expect(statusTone("blocked")).toBe("bad");
     expect(statusTone("unknown")).toBe("idle");

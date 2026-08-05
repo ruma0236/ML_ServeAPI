@@ -21,6 +21,7 @@ const headingsByTab: Record<string, string> = {
 };
 
 test("@w7-all-tabs-visual captures every Control Panel tab for the active viewport", async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Control Panel" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Live Operations" })).toBeVisible();

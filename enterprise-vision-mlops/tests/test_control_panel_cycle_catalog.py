@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from apps.api import control_panel as control_panel_api
+from evm.control_panel import cycle_catalog
 from evm.control_panel.cycle_catalog import build_cycle_catalog, find_cycle
-from evm.control_panel.schemas import CycleRun
+from evm.control_panel.schemas import CycleRun, CycleRunList
 
 
 def example_cycle() -> CycleRun:
@@ -63,3 +65,47 @@ def test_catalog_indexes_lifecycle_cycle_snapshots(tmp_path):
 
     assert [item.cycle_id for item in catalog.cycles] == ["cycle-live", "cycle-lifecycle"]
     assert find_cycle("cycle-lifecycle", live, root=tmp_path) == lifecycle
+
+
+def test_api_catalog_reuses_expensive_history_scan(monkeypatch) -> None:
+    cycle = example_cycle().model_copy(update={"cycle_id": "cycle-live"})
+    expected = CycleRunList(cycles=[], latest_cycle_id=cycle.cycle_id, total=0)
+    calls = 0
+
+    def build_catalog(_live_cycle, **_filters):
+        nonlocal calls
+        calls += 1
+        return expected
+
+    monkeypatch.setenv("EVM_CYCLE_CATALOG_CACHE_TTL_SECONDS", "30")
+    monkeypatch.setattr(control_panel_api, "cycle_snapshot", lambda: cycle)
+    monkeypatch.setattr(control_panel_api, "build_cycle_catalog", build_catalog)
+    control_panel_api.invalidate_cycle_catalog_cache()
+
+    first = control_panel_api.cycle_catalog_snapshot(limit=100)
+    second = control_panel_api.cycle_catalog_snapshot(limit=100)
+
+    assert calls == 1
+    assert first == second == expected
+
+
+def test_detail_lookup_reuses_catalog_history_index(tmp_path, monkeypatch) -> None:
+    live = example_cycle().model_copy(update={"cycle_id": "cycle-live"})
+    history = example_cycle().model_copy(update={"cycle_id": "cycle-history"})
+    write_cycle(tmp_path, "history", history)
+    calls = 0
+    original_load_cycle = cycle_catalog.load_cycle
+
+    def count_loads(path: Path):
+        nonlocal calls
+        calls += 1
+        return original_load_cycle(path)
+
+    monkeypatch.setattr(cycle_catalog, "load_cycle", count_loads)
+    cycle_catalog.invalidate_cycle_history_cache()
+
+    build_cycle_catalog(live, root=tmp_path)
+    loaded = find_cycle(history.cycle_id, live, root=tmp_path)
+
+    assert loaded == history
+    assert calls == 1

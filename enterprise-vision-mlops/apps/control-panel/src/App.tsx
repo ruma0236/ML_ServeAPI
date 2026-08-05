@@ -1,9 +1,14 @@
 import {
   Activity,
   AlertCircle,
+  BrainCircuit,
   BookOpenCheck,
+  Database,
+  GitBranch,
+  LineChart,
   Moon,
   RefreshCcw,
+  Rocket,
   ShieldCheck,
   SlidersHorizontal,
   Sun,
@@ -102,6 +107,56 @@ const workspaces: Array<{
 
 const tabs = workspaces.flatMap((workspace) => workspace.views);
 
+const lifecycleNavigation: Array<{
+  key: string;
+  label: string;
+  detail: string;
+  target: TabKey;
+  views: TabKey[];
+  icon: LucideIcon;
+}> = [
+  {
+    key: "intake",
+    label: "Intake",
+    detail: "Data contract",
+    target: "configure",
+    views: ["configure"],
+    icon: Database
+  },
+  {
+    key: "pipeline",
+    label: "Pipeline",
+    detail: "Validate & hand off",
+    target: "stages",
+    views: ["stages", "operate"],
+    icon: GitBranch
+  },
+  {
+    key: "train",
+    label: "Train / Evaluate",
+    detail: "Runs & evidence",
+    target: "workloads",
+    views: ["workloads", "runs"],
+    icon: BrainCircuit
+  },
+  {
+    key: "release",
+    label: "Release / Deploy",
+    detail: "Gate & promote",
+    target: "release",
+    views: ["readiness", "gates", "release"],
+    icon: Rocket
+  },
+  {
+    key: "observe",
+    label: "Observe",
+    detail: "Runtime & decisions",
+    target: "overview",
+    views: ["overview", "timeline", "incidents", "governance"],
+    icon: LineChart
+  }
+];
+
 const sourceDefinitions = [
   { source_id: "catalog", label: "Cycle Catalog" },
   { source_id: "cycle", label: "Selected Cycle" },
@@ -161,6 +216,7 @@ export function App() {
   const [initialSyncComplete, setInitialSyncComplete] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState("");
   const activeRefresh = useRef<Promise<void> | null>(null);
+  const activeCatalogRefresh = useRef<Promise<void> | null>(null);
   const selectionVersion = useRef(0);
 
   function applyResourceSnapshot(next: RuntimeResourceList) {
@@ -172,6 +228,38 @@ export function App() {
       }
       return next;
     });
+  }
+
+  async function loadCatalog(): Promise<void> {
+    if (activeCatalogRefresh.current) return activeCatalogRefresh.current;
+    const operation = (async () => {
+      try {
+        const nextCatalog = await fetchCycles();
+        const synchronizedAt = new Date().toISOString();
+        setCatalog(nextCatalog);
+        if (!selectedCycleRef.current) {
+          selectedCycleRef.current = nextCatalog.latest_cycle_id;
+          setSelectedCycleId(nextCatalog.latest_cycle_id);
+        }
+        setSyncSources((current) => current.map((source) => source.source_id === "catalog"
+          ? { ...source, status: "live", last_success_at: synchronizedAt, error: undefined }
+          : source));
+      } catch (catalogError) {
+        setSyncSources((current) => current.map((source) => source.source_id === "catalog"
+          ? {
+              ...source,
+              status: source.last_success_at ? "stale" : "error",
+              error: errorMessage(catalogError)
+            }
+          : source));
+      }
+    })();
+    activeCatalogRefresh.current = operation;
+    try {
+      await operation;
+    } finally {
+      if (activeCatalogRefresh.current === operation) activeCatalogRefresh.current = null;
+    }
   }
 
   async function loadCycle(background = false, queueAfterActive = false): Promise<void> {
@@ -188,7 +276,6 @@ export function App() {
       const requestedCycleId = selectedCycleRef.current;
       try {
         const results = await Promise.allSettled([
-          fetchCycles(),
           requestedCycleId ? fetchCycle(requestedCycleId) : fetchLatestCycle(),
           fetchRuntimeResources(),
           fetchOrchestrators(),
@@ -198,12 +285,21 @@ export function App() {
         ]);
         const synchronizedAt = new Date().toISOString();
         const selectionRequestIsCurrent = requestSelectionVersion === selectionVersion.current;
+        const resultIndex: Record<string, number> = {
+          cycle: 0,
+          resources: 1,
+          orchestrators: 2,
+          diagnostics: 3,
+          drift: 4,
+          decisions: 5
+        };
         setSyncSources((current) => sourceDefinitions.map((source, index) => {
           const previous = current.find((item) => item.source_id === source.source_id);
+          if (source.source_id === "catalog") return previous || { ...source, status: "stale" };
           if (["cycle", "diagnostics"].includes(source.source_id) && !selectionRequestIsCurrent) {
             return previous || { ...source, status: "stale" };
           }
-          const result = results[index];
+          const result = results[resultIndex[source.source_id] ?? index];
           if (result.status === "fulfilled") {
             return { ...source, status: "live", last_success_at: synchronizedAt };
           }
@@ -216,7 +312,6 @@ export function App() {
         }));
 
         const [
-          catalogResult,
           cycleResult,
           resourceResult,
           orchestratorResult,
@@ -224,13 +319,6 @@ export function App() {
           driftResult,
           decisionsResult
         ] = results;
-        if (catalogResult.status === "fulfilled") {
-          setCatalog(catalogResult.value);
-          if (!selectedCycleRef.current) {
-            selectedCycleRef.current = catalogResult.value.latest_cycle_id;
-            setSelectedCycleId(catalogResult.value.latest_cycle_id);
-          }
-        }
         if (cycleResult.status === "fulfilled" && selectionRequestIsCurrent) {
           setCycle(cycleResult.value);
           if (!selectedCycleRef.current) {
@@ -268,9 +356,13 @@ export function App() {
 
   useEffect(() => {
     LEGACY_VIEW_KEYS.forEach(removeLocalValue);
-    void loadCycle();
-    const interval = window.setInterval(() => void loadCycle(true), 5000);
-    return () => window.clearInterval(interval);
+    void loadCycle().finally(() => void loadCatalog());
+    const liveInterval = window.setInterval(() => void loadCycle(true), 5000);
+    const catalogInterval = window.setInterval(() => void loadCatalog(), 30_000);
+    return () => {
+      window.clearInterval(liveInterval);
+      window.clearInterval(catalogInterval);
+    };
   }, []);
 
   useEffect(() => {
@@ -321,7 +413,8 @@ export function App() {
     cycleId: string,
     preserveLifecycleContext = false,
     runId = "",
-    preserveModelSelection = false
+    preserveModelSelection = false,
+    nextModelSelectionId = modelSelectionId
   ) {
     if (!preserveLifecycleContext) {
       setLifecycleContext(null);
@@ -335,18 +428,21 @@ export function App() {
     writeViewLocation({
       cycleId: liveSelection && !runId ? "" : cycleId,
       runId: preserveLifecycleContext ? runId : "",
-      modelSelectionId: preserveModelSelection ? modelSelectionId : ""
+      modelSelectionId: preserveModelSelection ? nextModelSelectionId : ""
     });
     setLoading(true);
     try {
-      const [selected, selectedDiagnostics] = await Promise.all([
-        fetchCycle(cycleId),
-        fetchControlPanelDiagnostics(cycleId)
-      ]);
+      const selected = await fetchCycle(cycleId);
       if (requestSelectionVersion !== selectionVersion.current) return;
       setCycle(selected);
-      setDiagnostics(selectedDiagnostics);
       setError("");
+      void fetchControlPanelDiagnostics(cycleId)
+        .then((selectedDiagnostics) => {
+          if (requestSelectionVersion === selectionVersion.current) {
+            setDiagnostics(selectedDiagnostics);
+          }
+        })
+        .catch(() => undefined);
     } catch (selectionError) {
       if (requestSelectionVersion === selectionVersion.current) {
         setError(errorMessage(selectionError));
@@ -427,7 +523,6 @@ export function App() {
 
   async function openCandidatePromotion(selection: ModelCandidateSelection) {
     setModelSelectionId(selection.selection_id);
-    await selectCycle(selection.cycle_id, false, "", true);
     setTab("release");
     writeViewLocation({
       cycleId: selection.cycle_id,
@@ -435,6 +530,7 @@ export function App() {
       modelSelectionId: selection.selection_id,
       tab: "release"
     });
+    await selectCycle(selection.cycle_id, false, "", true, selection.selection_id);
   }
 
   const criticalSyncError = syncSources.some(
@@ -540,6 +636,31 @@ export function App() {
           ))}
         </nav>
       </section>
+
+      <nav className="lifecycle-map" aria-label="Lifecycle navigation">
+        {lifecycleNavigation.map((stage, index) => {
+          const Icon = stage.icon;
+          const active = stage.views.includes(tab);
+          return (
+            <button
+              key={stage.key}
+              type="button"
+              className={active ? "active" : ""}
+              onClick={() => selectTab(stage.target)}
+              aria-current={active ? "step" : undefined}
+              aria-label={`${stage.label}: ${stage.detail}`}
+            >
+              <span className="lifecycle-map-index">{String(index + 1).padStart(2, "0")}</span>
+              <Icon size={16} />
+              <span className="lifecycle-map-copy">
+                <strong>{stage.label}</strong>
+                <small>{stage.detail}</small>
+              </span>
+              {index < lifecycleNavigation.length - 1 ? <i aria-hidden="true" /> : null}
+            </button>
+          );
+        })}
+      </nav>
 
       {error ? (
         <section className="error-state" role="alert">

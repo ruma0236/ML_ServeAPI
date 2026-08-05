@@ -1260,6 +1260,23 @@ export interface ScenarioWorkloadStage {
   blockers: string[];
 }
 
+export interface ScenarioWorkloadReleaseGateSummary {
+  status: "pass" | "blocked" | "unavailable";
+  blockers: string[];
+  policy_source: string;
+}
+
+export interface ScenarioWorkloadEvaluationSummary {
+  schema_version: string;
+  model_family: "vlm" | "llm";
+  quality_metrics: Record<string, number>;
+  operational_metrics: Record<string, number>;
+  release_gate: ScenarioWorkloadReleaseGateSummary;
+  evaluated_at?: string | null;
+  evidence_uri: string;
+  claim_boundary?: string | null;
+}
+
 export interface ScenarioWorkloadRun {
   schema_version: "evm.scenario_workload_run.v1";
   run_id: string;
@@ -1291,6 +1308,7 @@ export interface ScenarioWorkloadRun {
   peak_gpu_reserved_mib?: number | null;
   evidence_index_uri?: string | null;
   evidence_index_sha256?: string | null;
+  evaluation_summary?: ScenarioWorkloadEvaluationSummary | null;
   blockers: string[];
   stages: ScenarioWorkloadStage[];
   audit: AuditEvent[];
