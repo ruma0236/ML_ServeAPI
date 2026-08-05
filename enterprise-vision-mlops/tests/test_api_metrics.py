@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from prometheus_client import generate_latest
 
@@ -79,3 +80,15 @@ def test_metrics_remains_available_when_control_plane_refresh_fails(monkeypatch)
 
     assert response.status_code == 200
     assert "evm_control_panel_metric_refresh_success 0.0" in payload
+
+
+def test_ready_exposes_control_plane_source_revision(monkeypatch):
+    monkeypatch.setenv("EVM_GIT_COMMIT", "a" * 40)
+    monkeypatch.setenv("EVM_GIT_BRANCH", "codex/source-proof")
+    monkeypatch.setattr(api.requests, "get", lambda *_args, **_kwargs: SimpleNamespace(ok=True))
+    monkeypatch.setattr(api, "refresh_model_state", lambda: None)
+
+    payload = api.ready()
+
+    assert payload["source_commit"] == "a" * 40
+    assert payload["source_branch"] == "codex/source-proof"

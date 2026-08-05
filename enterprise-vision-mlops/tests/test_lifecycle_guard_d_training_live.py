@@ -14,6 +14,7 @@ from evm.operations.lifecycle_guard_d_training_live import (
     exact_training_entry,
     exact_training_job,
     release_approval_request,
+    runtime_preflight_blockers,
     training_job_state,
     wait_for_runtime_restoration,
 )
@@ -240,6 +241,51 @@ def runtime_sample(
             "last_scrape": scrape,
         },
     }
+
+
+def preflight_sample(source_commit: str = "a" * 40) -> dict[str, object]:
+    return {
+        "supervisor": {
+            "status": "healthy",
+            "source_commit": source_commit,
+            "children": [
+                {"name": "lifecycle_worker", "source_commit": source_commit},
+                {"name": "kubernetes_observer", "source_commit": source_commit},
+            ],
+        },
+        "control_plane_ready": {
+            "status": "ok",
+            "source_commit": source_commit,
+        },
+        "worker_api": {"source_commit": source_commit},
+        "production_inference": {"device": "cuda"},
+    }
+
+
+def test_runtime_preflight_requires_exact_api_and_child_revisions() -> None:
+    expected = "a" * 40
+    assert runtime_preflight_blockers(preflight_sample(expected), expected) == []
+
+    stale = preflight_sample(expected)
+    stale["control_plane_ready"]["source_commit"] = "b" * 40
+
+    assert runtime_preflight_blockers(stale, expected) == [
+        f"runtime_revision_mismatch:api:{'b' * 40}"
+    ]
+
+
+def test_runtime_preflight_fails_closed_on_missing_or_duplicate_child() -> None:
+    expected = "a" * 40
+    snapshot = preflight_sample(expected)
+    snapshot["supervisor"]["children"] = [
+        {"name": "lifecycle_worker", "source_commit": expected},
+        {"name": "lifecycle_worker", "source_commit": expected},
+    ]
+
+    assert runtime_preflight_blockers(snapshot, expected) == [
+        "runtime_child_count_invalid:kubernetes_observer:0",
+        "runtime_child_count_invalid:lifecycle_worker:2",
+    ]
 
 
 def test_runtime_restoration_requires_two_distinct_consecutive_scrapes() -> None:

@@ -56,6 +56,44 @@ RUNTIME_RESTORATION_CADENCE_SECONDS = 5.0
 RUNTIME_RESTORATION_REQUIRED_SCRAPES = 2
 
 
+def runtime_preflight_blockers(
+    snapshot: dict[str, Any], expected_source_commit: str
+) -> list[str]:
+    blockers: list[str] = []
+    supervisor = snapshot.get("supervisor") or {}
+    control_plane = snapshot.get("control_plane_ready") or {}
+    worker = snapshot.get("worker_api") or {}
+
+    observed_revisions = {
+        "api": str(control_plane.get("source_commit") or ""),
+        "supervisor": str(supervisor.get("source_commit") or ""),
+        "lifecycle_worker": str(worker.get("source_commit") or ""),
+    }
+    for child_name in ("lifecycle_worker", "kubernetes_observer"):
+        matches = [
+            child
+            for child in supervisor.get("children") or []
+            if child.get("name") == child_name
+        ]
+        if len(matches) != 1:
+            blockers.append(f"runtime_child_count_invalid:{child_name}:{len(matches)}")
+            continue
+        observed_revisions[child_name] = str(matches[0].get("source_commit") or "")
+
+    for component, observed in observed_revisions.items():
+        if observed != expected_source_commit:
+            blockers.append(
+                f"runtime_revision_mismatch:{component}:{observed or 'missing'}"
+            )
+    if supervisor.get("status") != "healthy":
+        blockers.append("runtime_supervisor_not_healthy")
+    if control_plane.get("status") != "ok":
+        blockers.append("runtime_api_not_ready")
+    if snapshot.get("production_inference", {}).get("device") != "cuda":
+        blockers.append("runtime_production_inference_not_cuda")
+    return sorted(set(blockers))
+
+
 def api_request(
     method: str,
     path: str,
@@ -626,13 +664,12 @@ def run(
         raise RuntimeError(f"active_lifecycle_runs_present:{active_run_ids()}")
     policy = ScenarioDPolicy.from_toml(policy_path)
     before_runtime = runtime_snapshot(inference_image_uri=inference_image_uri)
-    supervisor = before_runtime["supervisor"]
-    if (
-        supervisor.get("status") != "healthy"
-        or supervisor.get("source_commit") != source_commit
-        or before_runtime["production_inference"].get("device") != "cuda"
-    ):
-        raise RuntimeError("scenario_d_training_runtime_preflight_failed")
+    preflight_blockers = runtime_preflight_blockers(before_runtime, source_commit)
+    if preflight_blockers:
+        raise RuntimeError(
+            "scenario_d_training_runtime_preflight_failed:"
+            + ",".join(preflight_blockers)
+        )
     before_effects = external_side_effect_snapshot()
     started = utc_now()
     series_id = f"scenario-d-training-{started.strftime('%Y%m%dT%H%M%SZ')}-{head[:8]}"

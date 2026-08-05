@@ -284,6 +284,7 @@ def lifecycle_claim_state() -> dict[str, Any]:
 def runtime_snapshot(*, inference_image_uri: str) -> dict[str, Any]:
     return {
         "supervisor": read_json(SUPERVISOR_PATH),
+        "control_plane_ready": request_json("http://127.0.0.1:8000/ready"),
         "worker_api": request_json(
             "http://127.0.0.1:8000/control-panel/v1/lifecycle-runs/worker"
         ),
