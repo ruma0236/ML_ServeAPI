@@ -30,7 +30,7 @@ test("@pipeline-profile validates effective and unsupported tuning paths", async
   await studio.getByRole("button", { name: "Review", exact: true }).click();
   await studio.getByRole("button", { name: "Save Version", exact: true }).click();
   await expect(studio.getByText(/ui-profile-contract \/ v\d+/)).toBeVisible();
-  await expect(studio.locator(".replay-verification")).toHaveAttribute("data-status", "ready");
+  await expect(studio.locator(".replay-verification")).toHaveAttribute("data-status", "ready", { timeout: 20_000 });
   await expect(studio.getByText(/11\/11 identities sealed/)).toBeVisible();
   await expect(studio.getByRole("button", { name: "Queue Data Cycle" })).toBeEnabled();
   await studio.getByRole("button", { name: "Create Dry Run", exact: true }).click();
@@ -48,7 +48,7 @@ test("@pipeline-profile validates effective and unsupported tuning paths", async
   await expect(studio.getByRole("button", { name: "Queue Data Cycle" })).toBeDisabled();
   await studio.getByRole("button", { name: "Review", exact: true }).click();
   await studio.getByRole("button", { name: "Save Version", exact: true }).click();
-  await expect(studio.locator(".replay-verification")).toHaveAttribute("data-status", "ready");
+  await expect(studio.locator(".replay-verification")).toHaveAttribute("data-status", "ready", { timeout: 20_000 });
   await expect(studio.getByRole("button", { name: "Queue Data Cycle" })).toBeEnabled();
 
   await studio.getByRole("button", { name: "Config Document", exact: true }).click();

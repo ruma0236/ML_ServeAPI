@@ -76,6 +76,25 @@ describe("AI Workloads view", () => {
     expect(container.textContent).toContain("mlflow_write_failed");
     expect(container.textContent).toContain("Bounded Model Adaptation");
   });
+
+  it("filters successful and attention runs without discarding history", async () => {
+    await act(async () => root.render(<ScenarioWorkloads />));
+    await flushUpdates();
+
+    const completed = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Show completed workloads"]'
+    );
+    await act(async () => completed?.click());
+    expect(container.querySelectorAll("aside button")).toHaveLength(2);
+    expect(container.textContent).not.toContain("mlflow_write_failed");
+
+    const attention = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Show attention workloads"]'
+    );
+    await act(async () => attention?.click());
+    expect(container.querySelectorAll("aside button")).toHaveLength(1);
+    expect(container.textContent).toContain("mlflow_write_failed");
+  });
 });
 
 

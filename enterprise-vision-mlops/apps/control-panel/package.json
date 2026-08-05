@@ -8,6 +8,7 @@
     "lint": "tsc --noEmit",
     "test": "node scripts/run-vitest.mjs",
     "build": "tsc --noEmit && vite build",
+    "capture:editorial-demo": "node scripts/capture-editorial-demo.mjs",
     "test:e2e": "node scripts/run-playwright.mjs"
   },
   "dependencies": {

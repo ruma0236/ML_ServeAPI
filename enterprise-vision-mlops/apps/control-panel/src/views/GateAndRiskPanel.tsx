@@ -1,4 +1,4 @@
-import { AlertTriangle, GitPullRequestArrow } from "lucide-react";
+import { AlertTriangle, CheckCircle2, GitPullRequestArrow } from "lucide-react";
 
 import type { CycleRun, DriftReviewWorkflow } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
@@ -12,8 +12,9 @@ interface GateAndRiskPanelProps {
 }
 
 export function GateAndRiskPanel({ cycle, workflow, onRefresh }: GateAndRiskPanelProps) {
+  const blockers = cycle.promotion_gate?.blockers || [];
   return (
-    <section className="two-column" aria-label="Gate and risk state">
+    <section className="two-column gate-risk-layout" aria-label="Gate and risk state">
       <div className="panel">
         <div className="panel-heading">
           <div>
@@ -24,12 +25,18 @@ export function GateAndRiskPanel({ cycle, workflow, onRefresh }: GateAndRiskPane
         </div>
         <StatusBadge status={cycle.promotion_gate?.status} />
         <div className="blocker-list">
-          {(cycle.promotion_gate?.blockers.length ? cycle.promotion_gate.blockers : ["no blockers recorded"]).map((blocker) => (
+          {blockers.map((blocker) => (
             <div key={blocker} className="blocker-item">
               <AlertTriangle />
               <span>{blocker}</span>
             </div>
           ))}
+          {!blockers.length ? (
+            <div className="blocker-item blocker-clear">
+              <CheckCircle2 />
+              <span>no blockers recorded</span>
+            </div>
+          ) : null}
         </div>
       </div>
 

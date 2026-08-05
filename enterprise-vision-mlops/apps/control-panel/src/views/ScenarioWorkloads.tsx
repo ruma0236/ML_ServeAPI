@@ -22,6 +22,7 @@ import { StatusBadge } from "../components/StatusBadge";
 
 
 const activeStates: ScenarioWorkloadRunState[] = ["queued", "running", "waiting_approval"];
+type WorkloadFilter = "all" | "active" | "completed" | "attention";
 
 
 export function ScenarioWorkloads() {
@@ -30,6 +31,7 @@ export function ScenarioWorkloads() {
   const selectedRef = useRef("");
   const [error, setError] = useState("");
   const [syncedAt, setSyncedAt] = useState("");
+  const [filter, setFilter] = useState<WorkloadFilter>("all");
 
   async function load() {
     try {
@@ -53,9 +55,15 @@ export function ScenarioWorkloads() {
     return () => window.clearInterval(interval);
   }, []);
 
+  const visibleRuns = useMemo(() => runs.filter((run) => {
+    if (filter === "active") return activeStates.includes(run.state);
+    if (filter === "completed") return run.state === "completed";
+    if (filter === "attention") return ["failed", "blocked"].includes(run.state);
+    return true;
+  }), [filter, runs]);
   const selected = useMemo(
-    () => runs.find((run) => run.run_id === selectedId) || runs[0] || null,
-    [runs, selectedId]
+    () => visibleRuns.find((run) => run.run_id === selectedId) || visibleRuns[0] || null,
+    [selectedId, visibleRuns]
   );
   const completed = runs.filter((run) => run.state === "completed").length;
   const active = runs.filter((run) => activeStates.includes(run.state)).length;
@@ -83,16 +91,16 @@ export function ScenarioWorkloads() {
         </div>
       </header>
 
-      <div className="scenario-kpis">
-        <Kpi icon={Box} label="Runs" value={runs.length} />
-        <Kpi icon={Activity} label="Active" value={active} tone="run" />
-        <Kpi icon={FileCheck2} label="Completed" value={completed} tone="good" />
-        <Kpi icon={TriangleAlert} label="Attention" value={attention} tone={attention ? "bad" : "idle"} />
+      <div className="scenario-kpis" role="group" aria-label="Workload status filter">
+        <Kpi icon={Box} label="Runs" value={runs.length} active={filter === "all"} onClick={() => setFilter("all")} />
+        <Kpi icon={Activity} label="Active" value={active} tone="run" active={filter === "active"} onClick={() => setFilter("active")} />
+        <Kpi icon={FileCheck2} label="Completed" value={completed} tone="good" active={filter === "completed"} onClick={() => setFilter("completed")} />
+        <Kpi icon={TriangleAlert} label="Attention" value={attention} tone={attention ? "bad" : "idle"} active={filter === "attention"} onClick={() => setFilter("attention")} />
       </div>
 
       <div className="scenario-workload-layout">
         <aside className="scenario-run-list" aria-label="AI workload history">
-          {runs.map((run) => (
+          {visibleRuns.map((run) => (
             <button
               type="button"
               key={run.run_id}
@@ -107,7 +115,7 @@ export function ScenarioWorkloads() {
               <StatusBadge status={run.state} />
             </button>
           ))}
-          {!runs.length ? <div className="scenario-empty">No governed transformer run has been recorded.</div> : null}
+          {!visibleRuns.length ? <div className="scenario-empty">No {filter === "all" ? "governed" : filter} transformer run is available.</div> : null}
         </aside>
 
         {selected ? <WorkloadDetail run={selected} /> : null}
@@ -251,8 +259,18 @@ function StageNode({ stage }: { stage: ScenarioWorkloadStage }) {
 }
 
 
-function Kpi({ icon: Icon, label, value, tone = "idle" }: { icon: typeof Activity; label: string; value: number; tone?: string }) {
-  return <div className={`scenario-kpi tone-${tone}`}><Icon size={18} /><span><small>{label}</small><strong>{value}</strong></span></div>;
+function Kpi({ icon: Icon, label, value, tone = "idle", active, onClick }: { icon: typeof Activity; label: string; value: number; tone?: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`scenario-kpi tone-${tone} ${active ? "active" : ""}`}
+      aria-label={`Show ${label.toLowerCase()} workloads`}
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      <Icon size={18} /><span><small>{label}</small><strong>{value}</strong></span>
+    </button>
+  );
 }
 
 
