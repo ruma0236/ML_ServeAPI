@@ -73,6 +73,7 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-EPIC-21` | Multi-Domain Governed MLOps Evidence | Post-W8 | In Progress | governed scenario catalog, real multi-domain intake, operator-launched Airflow execution, and portfolio evidence are complete; text/VLM runtime, tenancy, and production resilience remain explicit follow-up work |
 | `EVM-EPIC-22` | Cross-Scenario Correlation And Recovery Validation | Post-W8 | In Progress | plan/design, normalized correlation, and single-owner recovery/read-only incident plane complete; pairwise proof and maintenance-gated closure remain EVM-274..275 |
 | `EVM-EPIC-23` | Full Lifecycle Guard Integration And VisA Operations Drill | Post-W8 | In Progress | execution ledger active; integrate A-E guards with actual data, training, MLflow, CT, replacement, CUDA serving and monitoring without hidden repair |
+| `EVM-EPIC-24` | Real VLM And LLM Scenario Lifecycle Expansion | Post-W8 | In Progress | model-family-neutral lifecycle contract and sequential RTX 4080 proofs for real ScienceQA/SmolVLM and governed Dolly/Qwen workloads; no mock-only or automatic production promotion credit |
 
 ## Backlog
 
@@ -520,6 +521,20 @@ The source plan is
 | `EVM-284` | Final VisA lifecycle operations drill | Planned / To Do / final gate | Post-Sprint 178 | Jira `SCRUM-192`; after EVM-283 and EVM-274/275: operator-only success, failure, containment, replacement, recovery and rollback series with exact identity and honest local limits |
 | `EVM-285` | Full lifecycle guard validation execution ledger | Done | Post-Sprint 178 | Jira `SCRUM-193` under Epic `SCRUM-183`; replacement suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` completed `E -> C -> B -> D -> A` with one fresh run/injection at a time. Fresh A candidate `lifecycle-20260805T104249-7d184e13` completed 10/10 real Airflow/CUDA/MLflow/readiness/CT/approval/staging/Prometheus stages. Exact committed-M1 Pod restart then passed at source `30c68f5`: detection `0.219 s`, interruption `9.860 s`, recovery `10.079 s`, separate M0 rollback `32.774 s`; 38/38 artifacts matched. Final M0 is 1/1 with CUDA, GPU/plugin and singular Prometheus target healthy; active runs 0; device-plugin/data/registry/cluster-wide mutation 0. Suite manifest/index are `84a28605...c61e` / `dff5294c...e705`; all 11 references re-hash. Controlled local single-node evidence only, not HA, zero-downtime production traffic or SLA. |
 
+### Real VLM And LLM Scenario Lifecycle Expansion
+
+| ID | Task | Status | Window | Evidence / Exit Criteria |
+|---|---|---|---|---|
+| `EVM-286` | Generic scenario workload lifecycle contract and RTX 4080 executor | In Progress | Post-Sprint 178 | Jira `SCRUM-195` under Epic `SCRUM-194`; contract/state/evidence identity, F-drive roots, exclusive GPU lease, resumability and fail-closed tests; no model run is credited yet |
+| `EVM-287` | Real ScienceQA SmolVLM lifecycle validation | Planned | Post-Sprint 178 | Jira `SCRUM-196`; real pinned SmolVLM weights, image-text records, bounded PEFT adaptation, MLflow, isolated evaluation, staging inference, Prometheus, GPU profile and artifact re-hash |
+| `EVM-288` | Governed Dolly Qwen LLM lifecycle validation | Planned | Post-Sprint 178 | Jira `SCRUM-197`; versioned PII-review disposition, real pinned Qwen adaptation, honest LoRA/QLoRA claim, MLflow, isolated generation evaluation, quantized staging inference and artifact re-hash |
+| `EVM-289` | Cross-family deployment, observability and evidence closure | Planned | Post-Sprint 178 | Jira `SCRUM-198`; API/UI lifecycle progress and blocker cause, classification/VLM/LLM inventory, Prometheus/MLflow lineage and four-system evidence closure |
+
+The versioned execution contract is
+`docs/status/2026-08-05-real-vlm-llm-scenario-lifecycle-expansion.md`.
+The workloads are serialized `VLM -> teardown -> LLM`; the existing production
+B0, device plugin and canonical source data are outside the mutation scope.
+
 The original independent-scenario dependency order was
 `A/D -> B -> E -> C -> cross-scenario`; EVM-278..283 retain that historical
 evidence. EVM-285 is a separate fresh integration suite ordered
@@ -717,6 +732,11 @@ Jira live sync 기준 mapping이다.
 | `EVM-283` | `SCRUM-191` | Task | https://opop0236.atlassian.net/browse/SCRUM-191 |
 | `EVM-284` | `SCRUM-192` | Task | https://opop0236.atlassian.net/browse/SCRUM-192 |
 | `EVM-285` | `SCRUM-193` | Task | https://opop0236.atlassian.net/browse/SCRUM-193 |
+| `EVM-EPIC-24` | `SCRUM-194` | Epic | https://opop0236.atlassian.net/browse/SCRUM-194 |
+| `EVM-286` | `SCRUM-195` | Task | https://opop0236.atlassian.net/browse/SCRUM-195 |
+| `EVM-287` | `SCRUM-196` | Task | https://opop0236.atlassian.net/browse/SCRUM-196 |
+| `EVM-288` | `SCRUM-197` | Task | https://opop0236.atlassian.net/browse/SCRUM-197 |
+| `EVM-289` | `SCRUM-198` | Task | https://opop0236.atlassian.net/browse/SCRUM-198 |
 | `EVM-123` | `SCRUM-137` | Task | https://opop0236.atlassian.net/browse/SCRUM-137 |
 | `EVM-BUG-002` | `SCRUM-53` | Bug | https://opop0236.atlassian.net/browse/SCRUM-53 |
 | `EVM-BUG-003` | `SCRUM-54` | Bug | https://opop0236.atlassian.net/browse/SCRUM-54 |
