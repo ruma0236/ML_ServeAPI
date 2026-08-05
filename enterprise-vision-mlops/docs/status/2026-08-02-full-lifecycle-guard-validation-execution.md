@@ -1,13 +1,13 @@
 # Full Lifecycle Guard Validation Execution
 
 Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
-Status: In Progress; Scenarios E, C and B are PASS in the replacement suite.
+Status: In Progress; Scenarios E, C, B and D are PASS in the replacement suite.
 Scenario C retained one immutable DNS fail-closed run, remediated transient CI
 lookup at `f88aabd`, and passed on an independently fresh source-bound run.
 Scenario B passed on two independent fresh source-bound runs. Scenario D
-retains one immutable detection-SLO failure; cadence remediation is implemented
-and verified at `6e2ec01`, with a fresh source-bound retry still required. A
-remains unstarted in this suite.
+retains immutable detection-SLO and stale-API admission RCAs, then passed a
+fresh source-bound retry after cadence and source-preflight remediation. A is
+the remaining suite scenario.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -44,7 +44,7 @@ candidate so it does not reuse a run already injected by Scenario D.
 | E | PASS | fresh L2 injection plus independently corrected L4/L6 run; 20/20 checks and 32/32 artifacts | accepted in suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` |
 | C | PASS | fresh run `lifecycle-20260805T074015-7cede1b5` plus isolated rejected branch; real drift hold/resume, Airflow, CUDA, MLflow, readiness and CT | 18/18 checks, source 17/17 and integrated 21/21 hashes; accepted after immutable DNS RCA |
 | B | PASS | fresh quality `lifecycle-20260805T081750-856eac8c` and runtime `lifecycle-20260805T083919-905b427d` branches; one release injection per run | measured F1 admission block and 100/1,000 controlled replay containment; approval HTTP 422, intent 0, 33/33 artifacts |
-| D | source gate verified / retry pending | fresh `lifecycle-20260805T091303-98a14793`; exact worker stop at reserved/running training side effect | immutable 10/11 RCA retained; cadence and API/child source preflight remediations pass 31 focused plus 527 full tests; fresh live retry required |
+| D | PASS | fresh `lifecycle-20260805T100537-143a9ff8`; exact worker stop at reserved/running training side effect | 11/11, detection 5.141 s, recovery 8.344 s, same-Job continuity, 16/16 hashes; accepted after immutable detection and stale-API RCAs |
 | A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
 
 ### Scenario E
@@ -345,11 +345,36 @@ candidate so it does not reuse a run already injected by Scenario D.
   `8167608` now uses the same `GIT_* -> EVM_GIT_*` precedence as lifecycle run
   sealing and tests both primary and fallback aliases. Focused tests pass
   `14 / 14`, full Python `528 / 528`, and Ruff passes.
+- **Accepted fresh retry:** source `070adc8`, series
+  `scenario-d-training-20260805T100532Z-070adc8b`, run
+  `lifecycle-20260805T100537-143a9ff8`. Exact worker PID `64064`, process
+  instance `5311d66b...54a22`, was stopped only after Job UID
+  `5e1b16e8-cf15-4a46-bb6e-088e93ceaa49`, task
+  `task-20260805T101803-129482a7`, and side-effect key
+  `1aee9bfc...2f5e96` were bound. Supervisor restored exactly one worker PID
+  `8140` at the same source/lease/fence. Detection was `5.141 s`, recovery
+  `8.344 s`, and exact runtime restoration `17.797 s`.
+- **Lifecycle/effects:** 10/10 stages completed through real Airflow, CUDA B0
+  early-stop training, MLflow `b5cd19337ade463cbc9e59eda7a7764b`, readiness
+  13/13, isolated CT `ct-eval-005982721a1e5bc8` on 2,181 records, approval,
+  staging CUDA serving and Prometheus. The same training Job reconciled without
+  redispatch; three task identities, exactly one training plus one CT Job, and
+  eight unique committed side effects passed. Exact delta was Jobs `+2`,
+  MLflow `+1`, candidate `+1`, intent `+1`.
+- **Acceptance/evidence:** all `11 / 11` checks pass. Independent re-hash matches
+  `16 / 16`; result/index SHA-256 are
+  `36b8c016b94cadb86d71cc5673ce4473bf10f7c645fb5d642dcf2d470c48ee35`
+  and `78ae446d1fe423bece89867896cbf8afdb946cb52654765f2b1ec1d6eb32fb5e`.
+  Ordered suite manifest/index SHA-256 after D are
+  `04398cd1ba8359df9b39a20e7f88499882829891288215099b57d04b67254a6b`
+  and `e0a70b7d40f55baee04f4394f74759a739332090263a6e46edcc2a0ad9d5275a`;
+  all eight references re-hash correctly.
 - **Invariants:** production B0, device-plugin, data and cluster-wide resources
-  unchanged.
+  unchanged; exact B0 UID remained `cfdab424-dcc5-4d5f-a46f-ae7530441ef4`
+  at 1/1 with CUDA, plugin 1/1, one worker/observer, Prometheus singular/up,
+  and active runs zero.
 - **Claim boundary:** local process recovery, not distributed exactly-once or HA.
-- **Status:** API source gate verified / exact runtime convergence and fresh retry pending;
-  do not append D to the suite until a new independent run passes every check.
+- **Status:** PASS in ordered replacement suite; proceed to fresh Scenario A.
 
 ### Scenario A
 
