@@ -203,8 +203,12 @@ def log_mlflow_evidence(
         if isinstance(value, int | float) and not client.log_metric(run_id, key, float(value)):
             failures.append(f"metric:{key}")
     if artifact_paths:
+        import mlflow
         from mlflow.tracking import MlflowClient
 
+        # Artifact repositories resolve through MLflow's process-wide tracking URI.
+        # Keep it aligned with the explicit metadata client used above.
+        mlflow.set_tracking_uri(tracking_uri)
         artifact_client = MlflowClient(tracking_uri=tracking_uri)
         for path in artifact_paths:
             if not path.is_file():
@@ -213,7 +217,9 @@ def log_mlflow_evidence(
             try:
                 artifact_client.log_artifact(run_id, str(path), artifact_path="evidence")
             except Exception as exc:  # MLflow clients expose backend-specific exceptions.
-                failures.append(f"artifact:{path.name}:{type(exc).__name__}")
+                failures.append(
+                    f"artifact:{path.name}:{type(exc).__name__}:{str(exc)[:240]}"
+                )
     if failures:
         client.terminate_run(run_id, status="KILLED")
         raise ModelRuntimeError(f"mlflow_write_failed:{','.join(failures)}")
