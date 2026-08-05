@@ -691,7 +691,7 @@ export function App() {
       <DiagnosticsDrawer diagnostics={diagnostics} clientSources={syncSources} />
 
       <footer className="footer-line">
-        <span>{cycle?.cycle_id || "cycle not loaded"}</span>
+        <span>{tab === "workloads" ? "AI workload ledger / independent run evidence" : cycle?.cycle_id || "cycle not loaded"}</span>
         <span>{refreshedAt ? `refreshed ${refreshedAt}` : "waiting"}</span>
       </footer>
     </main>

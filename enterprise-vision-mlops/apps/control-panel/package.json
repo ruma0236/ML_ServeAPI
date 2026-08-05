@@ -9,6 +9,7 @@
     "test": "node scripts/run-vitest.mjs",
     "build": "tsc --noEmit && vite build",
     "capture:editorial-demo": "node scripts/capture-editorial-demo.mjs",
+    "capture:editorial-demo-60fps": "node scripts/capture-editorial-demo-60fps.mjs",
     "test:e2e": "node scripts/run-playwright.mjs"
   },
   "dependencies": {

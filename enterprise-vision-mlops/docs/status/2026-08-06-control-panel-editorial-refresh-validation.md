@@ -124,6 +124,10 @@ Artifact root:
 - Final video: `video/final/control-panel-vlm-llm-demo.mp4`.
 - Recording manifest: `video/recording-manifest.json`.
 - Seek proof frame: `video/final/seek-proof-00m30s.png`.
+- Transformer-only 60 fps video:
+  `video/60fps/final/control-panel-vlm-llm-demo-60fps.mp4`.
+- 60 fps recording manifest: `video/60fps/recording-manifest-60fps.json`.
+- 60 fps visual review frames: `video/60fps/final/review-frames/final-*.png`.
 - Accepted VLM lifecycle log: `validation/real-vlm-lifecycle-retry.log`.
 - Failed wrapper evidence:
   `artifacts/scenario_workloads/scenario-workload-20260805T210910-68a82698/failure.json`
@@ -133,6 +137,35 @@ The final video is 67.53 seconds at 1440x900. It uses H.264 High/yuv420p at
 30 fps, AAC-LC stereo, a fixed two-second keyframe cadence and a front-loaded
 `moov` atom (`moov` byte 36, `mdat` byte 75,649). A direct seek to 30 seconds
 decoded the VLM metric frame successfully.
+
+### Transformer-Only 60 FPS Correction
+
+The 60 fps delivery is a separate corrected recording. It does not visit the
+global EfficientNet deployment, readiness or drift views. The sequence is the
+completed SmolVLM lifecycle and VLM metric schema, its data/compute/artifact
+identity, the completed Qwen lifecycle and LLM metric schema, and the exact
+MLflow FINISHED runs for experiments `9` and `10`. The selected workload view
+also labels its footer as an independent run-evidence context instead of
+repeating the unrelated classification CycleRun identifier.
+
+- VLM run: `scenario-workload-20260805T211030-dcd99a4b`.
+- LLM run: `scenario-workload-20260805T121811-dcee8c89`.
+- Source capture: `3,521` frames over `58.75` seconds, measured `59.932 fps`,
+  zero duplicated frames and zero dropped frames.
+- Delivery: 1440x900 H.264 Main/yuv420p at exact 60 fps with AAC-LC stereo,
+  two-second GOP and front-loaded `moov` (`moov` byte `36`, `mdat` byte
+  `95,437`).
+- Cadence normalization: `minterpolate=fps=60:mi_mode=blend`; the source and
+  delivery cadence are recorded separately rather than presenting the
+  normalized stream as a native 60.000 fps capture.
+- Browser console/page errors: `0`; shell right edge `1,419` inside a
+  1,440-pixel viewport; direct 30-second seek and nonblank pixel proof PASS.
+- Video SHA-256:
+  `1CB91CAC59682733CA1B68C568526D0C47711EEAB5AD5257F84212BD40365BD6`.
+
+Earlier experimental 60 fps captures that showed the wrong desktop window,
+clipped the right edge, mixed global EfficientNet views, or produced excessive
+cadence loss are not accepted evidence. They were used only for capture RCA.
 
 ## Claim Boundary
 
