@@ -1,12 +1,10 @@
 # Full Lifecycle Guard Validation Execution
 
 Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
-Status: In Progress; Scenario E is PASS in the replacement suite after one
-immutable failed re-seal and cross-runtime identity remediation. Scenario C
-attempt 1 reached real CUDA training and MLflow but failed closed at the CI
-evidence boundary on a transient DNS lookup. The run is sealed as cancelled,
-the network retry defect is fixed at `f88aabd`, and a fresh C attempt is next.
-B, D, and A remain unstarted in this suite.
+Status: In Progress; Scenarios E and C are PASS in the replacement suite.
+Scenario C retained one immutable DNS fail-closed run, remediated transient CI
+lookup at `f88aabd`, and passed on an independently fresh source-bound run.
+Scenario B is next; D and A remain unstarted in this suite.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -41,8 +39,8 @@ candidate so it does not reuse a run already injected by Scenario D.
 | Scenario | State | Fresh lifecycle/injection | Result |
 |---|---|---|---|
 | E | PASS | fresh L2 injection plus independently corrected L4/L6 run; 20/20 checks and 32/32 artifacts | accepted in suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` |
-| C | failed closed / remediation ready | run `lifecycle-20260803T064511-e4d9c069` reached governed hold/resume, real Airflow, CUDA training, MLflow and readiness, then blocked at exact CI evidence lookup | no acceptance credit; run sealed `cancelled` at version 59, retry fix `f88aabd`, entirely fresh run required |
-| B | pending | fresh quality and runtime branches, one release injection per run | not started |
+| C | PASS | fresh run `lifecycle-20260805T074015-7cede1b5` plus isolated rejected branch; real drift hold/resume, Airflow, CUDA, MLflow, readiness and CT | 18/18 checks, source 17/17 and integrated 21/21 hashes; accepted after immutable DNS RCA |
+| B | next / pending | fresh quality and runtime branches, one release injection per run | admitted by C PASS; not started |
 | D | pending | fresh run; exact worker stop only at reserved/running training side effect | not started |
 | A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
 
@@ -173,14 +171,48 @@ candidate so it does not reuse a run already injected by Scenario D.
   tests pass; focused CI tests are `8 / 8`, full Python tests `522 / 522`, and
   Ruff passes. The failed run was never resumed and is sealed `cancelled` at
   version `59`; matching active Jobs are zero.
-- **Next gate:** rebuild and converge API, supervisor, worker and observer to
-  exact source `f88aabd`, require exact-commit CI evidence, and retry C only as
-  a completely new LifecycleRun. B, D and A remain stopped until C passes.
-- **Invariants:** production B0, raw VisA source and unrelated runtime unchanged;
-  only deterministic derived quality/shard artifacts were regenerated.
-- **Claim boundary:** local batch drift validation, not online business drift.
-- **Status:** failed closed / remediation ready; attempts 0 and 1 remain
-  no-credit immutable RCA and are not resumed across revisions.
+- **Accepted fresh result:** API, supervisor, worker and observer converged to
+  exact source `f159273`, and exact GitHub CI run `30985363659` synchronized
+  and validated. Source guard `scenario-c-20260805T073909Z-f1592737` decided
+  `review_required` in `39.305385253 s`, produced event
+  `quality-review-584dc14d47266957b9fa` and candidate
+  `retrain-b64e027a2d53f25017ee`, and preserved one event/candidate across three
+  registrations. Isolated rejected run
+  `lifecycle-20260805T074009-f9c73e22` never queued downstream work. Main run
+  `lifecycle-20260805T074015-7cede1b5` proved manual hold at training attempt
+  zero, consumed one exact training approval, completed the 18-task real
+  Airflow path, one CUDA training Job, MLflow
+  `5b5b565b7d3b41faaf6940b892004ea4`, 13-check readiness, and isolated CUDA CT
+  on `2,181` records with overlap zero. It stopped at independent release
+  approval and was cancelled by bounded cleanup; deployment intent remained
+  zero.
+- **Model/CT evidence:** EfficientNet-B0 early-stopped at epoch `4 / 20` after
+  `408` optimizer steps and `124.121 s`; validation accuracy/F1/AUROC were
+  `0.962079 / 0.823529 / 0.973746`, peak GPU memory `2,846.96 MiB`. CT
+  `ct-eval-804708fa3de7db41` passed `18 / 18` checks with accuracy/F1/AUROC
+  `0.962403 / 0.807512 / 0.982720`, CUDA peak `697.411 MiB`, and exact model
+  SHA-256 `27033027...4d3f6`.
+- **Acceptance/evidence:** integrated checks `18 / 18`, source hashes `17 / 17`,
+  integrated artifacts `21 / 21`. External delta is Jobs `+2`, MLflow `+1`,
+  candidate `+1`, deployment intents `0`. Result SHA-256 is
+  `122978ca5350a4eed95a2676df4d2f992b620471a5b36bab62de2f96dd62607d`;
+  evidence-index SHA-256 is
+  `a07cfb1612465e16fd7dcc5caf583dd29c02a3f00c1fdaaee1e3991a69ac44bf`.
+  Suite manifest SHA-256 after C admission is
+  `60afbe8c45fd2ba5df7642bb44f79b3a0ace1b0471b17c3a18880d9d3dc34da2`.
+- **Invariants:** runtime restoration passed in `25.016 s` with two distinct
+  Prometheus scrapes. Exact production UID
+  `cfdab424-dcc5-4d5f-a46f-ae7530441ef4`, model SHA `abcb8504...a27f`, B0 1/1,
+  CUDA inference, GPU/plugin 1/1, Prometheus 3/3 and exact supervisor children
+  were restored. Canonical/raw VisA was unchanged. Nine July `dry_run` catalog
+  records have no task, claim or active Job; they are historical UI/catalog
+  hygiene debt, not active execution or C side effects.
+- **Claim boundary:** controlled local single-node batch drift and governed
+  retraining proof, not online business drift, automatic production promotion,
+  real-user traffic, HA, or an SLA.
+- **Status:** PASS in suite
+  `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0`; prior attempts
+  remain immutable no-credit RCA. Scenario B is admitted on fresh runs.
 
 ### Scenario B
 
