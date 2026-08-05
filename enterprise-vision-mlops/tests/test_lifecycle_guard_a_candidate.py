@@ -3,7 +3,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-from evm.operations.lifecycle_guard_a_candidate import render_integration_config
+from evm.operations.lifecycle_guard_a_candidate import build_parser, render_integration_config
 
 
 def test_render_integration_config_binds_fresh_lifecycle_identity(tmp_path: Path) -> None:
@@ -62,3 +62,23 @@ def test_render_integration_config_binds_fresh_lifecycle_identity(tmp_path: Path
     assert parsed["m1"]["model_sha256"] == "c" * 64
     assert parsed["m0"]["candidate_id"] == "m0"
     assert parsed["execution"]["recovery_budget_seconds"] == 300.0
+
+
+def test_candidate_cli_uses_latest_profile_unless_version_is_pinned() -> None:
+    parser = build_parser()
+    required = [
+        "--project-root",
+        ".",
+        "--base-config",
+        "base.toml",
+        "--source-commit",
+        "a" * 40,
+        "--source-branch",
+        "main",
+    ]
+
+    latest = parser.parse_args(required)
+    pinned = parser.parse_args([*required, "--profile-version", "11"])
+
+    assert latest.profile_version is None
+    assert pinned.profile_version == 11

@@ -143,7 +143,7 @@ def run(
     base_config_path: Path,
     output_root: Path,
     profile_id: str,
-    profile_version: int,
+    profile_version: int | None,
     source_commit: str,
     source_branch: str,
     completion_timeout_seconds: float,
@@ -298,6 +298,9 @@ def run(
         "lifecycle_run_root": str(lifecycle_root),
         "source_commit": source_commit,
         "source_branch": source_branch,
+        "profile_id": created["profile_id"],
+        "profile_version": created["profile_version"],
+        "profile_digest": created["profile_digest"],
         "candidate_id": release["candidate_id"],
         "model_digest": release["model_digest"],
         "ct_evaluation_id": release["ct_evaluation_id"],
@@ -326,7 +329,7 @@ def run(
     return result_path
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Create a fresh no-fault lifecycle candidate for Scenario A."
     )
@@ -334,13 +337,24 @@ def main() -> int:
     parser.add_argument("--base-config", required=True, type=Path)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--profile-id", default="standard-b0-manual-tuning")
-    parser.add_argument("--profile-version", type=int, default=9)
+    parser.add_argument(
+        "--profile-version",
+        type=int,
+        help=(
+            "Pin an exact profile version. If omitted, the API selects the latest "
+            "version and seals its version and digest into the LifecycleRun."
+        ),
+    )
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--source-branch", required=True)
     parser.add_argument("--completion-timeout-seconds", type=float, default=3600)
     parser.add_argument("--handoff-approval-ttl-seconds", type=int, default=7200)
     parser.add_argument("--inference-image-uri", default=DEFAULT_INFERENCE_IMAGE_URI)
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
     result = run(
         project_root=args.project_root.resolve(),
         base_config_path=args.base_config.resolve(),

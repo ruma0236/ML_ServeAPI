@@ -389,8 +389,19 @@ candidate so it does not reuse a run already injected by Scenario D.
   Prometheus recovery, followed by a separately approved exact M0 rollback.
 - **SLI/SLO:** detection <=30 s, recovery <=300 s, identity 100%.
 - **Result/evidence:** pending.
-- **RCA/remediation:** pending; any ambiguous target or rollback identity blocks
-  mutation.
+- **Pre-run attempt 1 RCA:** at source `90209f4`, the candidate runner stopped
+  before LifecycleRun creation with `split_manifest_identity_mismatch`. Active
+  runs remained zero and no Airflow, Kubernetes Job, MLflow, deployment intent,
+  serving restart or data mutation occurred. The canonical shard identity is
+  still `204f08ce...ae53d` and latest profile v11 validates `ready`; the runner
+  had incorrectly pinned historical profile v9 as its CLI default.
+- **Remediation:** omit the profile version by default so the API resolves the
+  latest active profile atomically and seals the selected version and digest in
+  the LifecycleRun and candidate evidence. An explicit version remains a hard
+  pin and invalid historical versions still fail closed. A completely fresh
+  candidate is required after commit, push, CI and runtime revision convergence.
+- **RCA/remediation boundary:** any invalid profile, ambiguous target or
+  rollback identity blocks mutation.
 - **Invariants:** device-plugin, cluster-wide resources, canonical data and real
   user traffic unchanged.
 - **Claim boundary:** approved local single-replica maintenance interruption,
