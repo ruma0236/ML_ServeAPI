@@ -435,8 +435,8 @@ def ready() -> dict[str, Any]:
     REQUEST_COUNT.labels(endpoint="/ready", status=status).inc()
     payload: dict[str, Any] = {
         "status": status,
-        "source_commit": os.getenv("EVM_GIT_COMMIT") or None,
-        "source_branch": os.getenv("EVM_GIT_BRANCH") or None,
+        "source_commit": os.getenv("GIT_COMMIT") or os.getenv("EVM_GIT_COMMIT") or None,
+        "source_branch": os.getenv("GIT_BRANCH") or os.getenv("EVM_GIT_BRANCH") or None,
         "mlflow_tracking_uri": MLFLOW_TRACKING_URI,
         "mlflow_ready": mlflow_ready,
         "model_loaded": model_loaded,
