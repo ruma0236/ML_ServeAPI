@@ -2,8 +2,11 @@
 
 Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
 Status: In Progress; Scenario E is PASS in the replacement suite after one
-immutable failed re-seal and cross-runtime identity remediation. Scenario C is
-the next admitted injection; B, D, and A remain unstarted in this suite.
+immutable failed re-seal and cross-runtime identity remediation. Scenario C
+attempt 1 reached real CUDA training and MLflow but failed closed at the CI
+evidence boundary on a transient DNS lookup. The run is sealed as cancelled,
+the network retry defect is fixed at `f88aabd`, and a fresh C attempt is next.
+B, D, and A remain unstarted in this suite.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -38,7 +41,7 @@ candidate so it does not reuse a run already injected by Scenario D.
 | Scenario | State | Fresh lifecycle/injection | Result |
 |---|---|---|---|
 | E | PASS | fresh L2 injection plus independently corrected L4/L6 run; 20/20 checks and 32/32 artifacts | accepted in suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` |
-| C | next / pending | fresh quality/drift injection and governed hold/resume required | prior attempt 0 has no acceptance credit; fresh execution admitted by E PASS |
+| C | failed closed / remediation ready | run `lifecycle-20260803T064511-e4d9c069` reached governed hold/resume, real Airflow, CUDA training, MLflow and readiness, then blocked at exact CI evidence lookup | no acceptance credit; run sealed `cancelled` at version 59, retry fix `f88aabd`, entirely fresh run required |
 | B | pending | fresh quality and runtime branches, one release injection per run | not started |
 | D | pending | fresh run; exact worker stop only at reserved/running training side effect | not started |
 | A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
@@ -110,7 +113,18 @@ candidate so it does not reuse a run already injected by Scenario D.
 - **Result/evidence:** attempt 0 stopped before LifecycleRun creation with
   `shard_index_digest_mismatch`: expected `8b6f281a...`, observed
   `df1271df...`. Airflow, Kubernetes Job, MLflow, candidate and intent delta
-  are all zero.
+  are all zero. Fresh attempt 1 at source `88c0884` generated CUDA-backed
+  drift evidence in `17.739399262 s`, candidate
+  `retrain-f31d2c865c8b5775cbbf` and event
+  `quality-review-f2837d633cdd8937c2ff`. The known-good window was
+  `within_policy`; the shifted window was `review_required` on category JS,
+  confidence PSI and mean-confidence drop. The isolated rejection branch was
+  cancelled without downstream work. Main run
+  `lifecycle-20260803T064511-e4d9c069` held before training, consumed the exact
+  single-use training approval, completed real Airflow, CUDA training, MLflow
+  run `85b190506f9a458698d01bbcbb5190f6`, evaluation and 13-check readiness,
+  then failed closed at `ci_ct_gate` with
+  `github_ci_runs_query_failed`. It receives no suite acceptance credit.
 - **RCA/remediation:** the daily image-quality stage wrote a new
   `quality_checked_at` into every canonical record and dataset-shards wrote a
   new trace into the same index path. The existing shard identity omitted
@@ -146,13 +160,27 @@ candidate so it does not reuse a run already injected by Scenario D.
   `--no-deps` to the API-only force recreate so source identity remains injected
   by the parent script without rerunning healthy dependencies. PowerShell parse,
   focused `1 / 1`, Ruff and full Python `519 / 519` pass.
-- **Next gate:** Scenario E is re-sealed at the cross-runtime identity. Retry C
-  only as a fresh LifecycleRun after the corrected startup path converges.
+- **C attempt 1 CI RCA/remediation:** immutable evidence
+  `ci/ci-evidence-sync.json` records Windows `getaddrinfo` error `11001` while
+  querying the exact GitHub Actions run. A host recheck immediately resolved
+  `api.github.com` and returned HTTP 200, so this is classified as a transient
+  network failure rather than a data, model, approval or identity bypass. The
+  worker correctly blocked before CT, release approval or deployment intent.
+  Commit `f88aabd` adds a three-attempt exponential backoff only for transient
+  `OSError` network failures across run, artifact-list and artifact-download
+  calls. HTTP policy errors and JSON/ZIP integrity errors remain immediate
+  fail-closed conditions. Retry-success, retry-exhaustion and HTTP-no-retry
+  tests pass; focused CI tests are `8 / 8`, full Python tests `522 / 522`, and
+  Ruff passes. The failed run was never resumed and is sealed `cancelled` at
+  version `59`; matching active Jobs are zero.
+- **Next gate:** rebuild and converge API, supervisor, worker and observer to
+  exact source `f88aabd`, require exact-commit CI evidence, and retry C only as
+  a completely new LifecycleRun. B, D and A remain stopped until C passes.
 - **Invariants:** production B0, raw VisA source and unrelated runtime unchanged;
   only deterministic derived quality/shard artifacts were regenerated.
 - **Claim boundary:** local batch drift validation, not online business drift.
-- **Status:** pending fresh integration injection; prior attempt 0 remains
-  no-credit RCA and is not resumed across revisions.
+- **Status:** failed closed / remediation ready; attempts 0 and 1 remain
+  no-credit immutable RCA and are not resumed across revisions.
 
 ### Scenario B
 
