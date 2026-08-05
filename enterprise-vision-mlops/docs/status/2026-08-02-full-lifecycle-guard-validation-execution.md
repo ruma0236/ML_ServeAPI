@@ -319,11 +319,22 @@ candidate so it does not reuse a run already injected by Scenario D.
   all pass. This is implementation readiness only and gives no live-proof
   credit; the supervisor children must converge to `6e2ec01` before a fresh D
   injection is admitted.
+- **Retry admission RCA:** after runtime convergence to canonical source
+  `e02bdd7`, pre-injection run `lifecycle-20260805T094807-749cbdd5` failed
+  closed at queue admission with HTTP 422
+  `runtime_revision_mismatch:kubernetes_observer,lifecycle_worker`. The API
+  container still carried source `2d5f056`, so it sealed the run to that stale
+  revision while supervisor/worker/observer correctly reported `e02bdd7`.
+  State remained `dry_run`; no Airflow dispatch, Kubernetes Job, worker stop,
+  GPU work, MLflow run, candidate, intent, B0/device-plugin/data mutation, or
+  acceptance credit occurred. Remediation is to expose the API source revision
+  in readiness, add a pre-run exact-revision gate to the D runner, then perform
+  bounded API-only `--no-deps` recreation before another fresh retry.
 - **Invariants:** production B0, device-plugin, data and cluster-wide resources
   unchanged.
 - **Claim boundary:** local process recovery, not distributed exactly-once or HA.
-- **Status:** remediation verified / fresh retry pending; do not append D to the
-  suite until a new independent run passes every check.
+- **Status:** fail-closed pre-injection RCA / API revision preflight remediation;
+  do not append D to the suite until a new independent run passes every check.
 
 ### Scenario A
 
