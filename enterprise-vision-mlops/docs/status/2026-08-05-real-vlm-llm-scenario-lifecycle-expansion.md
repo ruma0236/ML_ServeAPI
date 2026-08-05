@@ -170,3 +170,31 @@ The workstream synchronizes Git, Jira, Notion and Obsidian after: contract
 acceptance; generic runtime implementation; each fresh VLM/LLM lifecycle;
 cross-family closure. Planned work remains To Do and is never marked complete
 from configuration or mock evidence alone.
+
+## Generic Runtime Implementation Checkpoint
+
+`src/evm/control_panel/scenario_workloads.py` now implements the first
+`EVM-286` boundary:
+
+- exact scenario/data/model/source identity resolution and digesting;
+- fail-closed manifest/split/quality-disposition validation;
+- dependency-aware workload stage transitions whose final stage cannot by
+  itself mark a run completed;
+- an exclusive cross-process GPU lease with run binding, fencing token,
+  expiry, idempotent same-run acquisition and exact-identity release;
+- immutable stage evidence re-hash and model artifact verification before the
+  final evidence index and `completed` state are written;
+- explicit `windows-host-cuda`, LoRA/QLoRA and quantization fields without
+  claiming an unproved Kubernetes or quantized runtime.
+
+Verification at this checkpoint:
+
+- `tests/test_scenario_workloads.py`: `6 passed`;
+- workload plus existing scenario-intake regression: `11 passed`;
+- Control Panel contract regression: `8 passed`;
+- changed-file Ruff: PASS;
+- `git diff --check`: PASS.
+
+This checkpoint does not close `EVM-286`: API/worker execution, real GPU
+adapter invocation and fresh workload evidence remain required. It creates no
+GPU lease or runtime mutation during tests.
