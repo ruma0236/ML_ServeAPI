@@ -1,10 +1,11 @@
 # Full Lifecycle Guard Validation Execution
 
 Date: 2026-08-02; canonical actual-injection suite resumed 2026-08-03
-Status: In Progress; Scenarios E and C are PASS in the replacement suite.
+Status: In Progress; Scenarios E, C and B are PASS in the replacement suite.
 Scenario C retained one immutable DNS fail-closed run, remediated transient CI
 lookup at `f88aabd`, and passed on an independently fresh source-bound run.
-Scenario B is next; D and A remain unstarted in this suite.
+Scenario B passed on two independent fresh source-bound runs. Scenario D is
+next; A remains unstarted in this suite.
 Parent plan: `EVM-276 / SCRUM-184`
 Execution ledger: `EVM-285 / SCRUM-193`
 Workstream Epic: `EVM-EPIC-23 / SCRUM-183`
@@ -40,7 +41,7 @@ candidate so it does not reuse a run already injected by Scenario D.
 |---|---|---|---|
 | E | PASS | fresh L2 injection plus independently corrected L4/L6 run; 20/20 checks and 32/32 artifacts | accepted in suite `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0` |
 | C | PASS | fresh run `lifecycle-20260805T074015-7cede1b5` plus isolated rejected branch; real drift hold/resume, Airflow, CUDA, MLflow, readiness and CT | 18/18 checks, source 17/17 and integrated 21/21 hashes; accepted after immutable DNS RCA |
-| B | next / pending | fresh quality and runtime branches, one release injection per run | admitted by C PASS; not started |
+| B | PASS | fresh quality `lifecycle-20260805T081750-856eac8c` and runtime `lifecycle-20260805T083919-905b427d` branches; one release injection per run | measured F1 admission block and 100/1,000 controlled replay containment; approval HTTP 422, intent 0, 33/33 artifacts |
 | D | pending | fresh run; exact worker stop only at reserved/running training side effect | not started |
 | A | pending | fresh no-fault candidate run, then exact B0 serving restart | not started |
 
@@ -219,17 +220,59 @@ candidate so it does not reuse a run already injected by Scenario D.
 - **Purpose:** reject a bad candidate and contain a controlled runtime breach.
 - **Injection point:** release admission after real Airflow, CUDA training,
   MLflow, readiness and isolated CT.
-- **Pre-state/identity:** pending fresh snapshot.
+- **Pre-state/identity:** exact source and validated GitHub CI
+  `01bc7bf751797bcc5ce07a65cb7772e6bae6d56b`, guarded profile
+  `scenario-b-controlled-replay-b0` version `2`, production Deployment UID
+  `cfdab424-dcc5-4d5f-a46f-ae7530441ef4`, stable model SHA-256
+  `abcb8504...a27f`, B0 1/1 on CUDA, GPU/plugin 1/1, Prometheus up, active
+  LifecycleRuns zero and exact supervisor/worker/observer revision match.
 - **Intentional failure:** one measured quality breach and one deterministic
   challenger error-rate breach, each in its own fresh LifecycleRun.
 - **Expected guard:** HTTP 422 admission denial or zero-allocation rollback;
   deployment intent zero and stable identity retained.
 - **SLI/SLO:** detection <=30 s, recovery <=300 s, request identity 100%.
-- **Result/evidence:** pending.
-- **RCA/remediation:** pending; no branch may borrow evidence from the other.
-- **Invariants:** exact production B0 and real-user traffic unchanged.
-- **Claim boundary:** controlled replay, not business A/B or production canary.
-- **Status:** pending.
+- **Quality result:** run `lifecycle-20260805T081750-856eac8c` completed the
+  real 18-task Airflow path, CUDA training, MLflow
+  `e9d8d86a3a26498f8cd8fa2e3075c289`, 13-check readiness and isolated CT
+  `ct-eval-96798f0a57f8b777`. EfficientNet-B0 early-stopped at epoch `4 / 20`
+  after `408` steps and `126.990 s`; validation accuracy/F1/AUROC were
+  `0.962079 / 0.823529 / 0.973746`, with peak GPU memory `2,846.96 MiB`.
+  The fixed release minimum F1 `0.90` produced `rejected_release` and
+  `quality_f1_below_minimum`; assignment stayed zero, exact approval returned
+  HTTP 422 and deployment intent remained zero.
+- **Runtime result:** independent run `lifecycle-20260805T083919-905b427d`
+  repeated the full real path with MLflow
+  `d3e0fe5f25894396bc8f188a8dcf5f16` and CT
+  `ct-eval-bb8802ab8a984f35`. Training early-stopped at epoch `4 / 20`, `408`
+  steps and `127.334 s` with the same measured model metrics. Controlled replay
+  assigned exactly `100 / 1,000` requests to the challenger and injected two
+  bounded errors. Identity matched `1,000 / 1,000`; challenger error rate was
+  `0.02`, p95 latency `16.702 ms`, and the guard reached `rolled_back` with
+  zero final allocation in `0.016 s`. Exact approval returned HTTP 422 and
+  deployment intent remained zero.
+- **Evidence:** both branch checks and all suite checks passed. Each branch
+  produced Jobs `+2`, MLflow `+1`, candidate `+1`, intent `0`. The integrated
+  series re-hashed `33 / 33` artifacts. Result SHA-256 is
+  `0d2873ed3759625ac5acfb088f859b6c9732f3aba56ae50b88df7a521cd9ed22`;
+  evidence-index SHA-256 is
+  `2126e069eaec9669e718241ddf01ebc00cd0830fed3aca9ab3bde1f00bc677ba`.
+  Suite manifest/index SHA-256 after B admission are
+  `d5e8270ab8f671f5e5f823678f57820519ea2d6c72fba0c644d29a05df759355`
+  and `54e15e5be3c8295b766362c74076c9d8700cde6cea566327055e905c62263b57`.
+- **RCA/remediation:** no new B failure occurred in this replacement-suite
+  execution. Historical Python discovery, CT mount mapping and single-scrape
+  convergence failures remain immutable no-credit RCA; their fixes were
+  exercised by both fresh branches. Neither branch borrowed the other's run or
+  evidence.
+- **Invariants:** both bounded cleanups left active runs zero. Exact production
+  UID/model, B0 1/1 CUDA, GPU/plugin 1/1, Prometheus and exact supervisor
+  children were restored; per-branch restoration completed in `9.562 s` and
+  `9.438 s`. Canonical/raw VisA and real-user traffic were unchanged.
+- **Claim boundary:** controlled local single-node VisA/CUDA replay, not
+  business A/B, production canary traffic, HA, zero downtime or an SLA.
+- **Status:** PASS in suite
+  `full-lifecycle-actual-injection-20260803T062614Z-d83a51f0`. Scenario D is
+  admitted on a new LifecycleRun; A remains pending.
 
 ### Scenario D
 
