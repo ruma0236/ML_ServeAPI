@@ -5,10 +5,12 @@ import json
 import os
 import re
 import subprocess
+import time
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Callable, Literal
+from typing import Callable, Literal, TypeVar
+from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
@@ -24,6 +26,12 @@ from evm.control_panel.schemas import CIEvidenceBundle, CIEvidenceValidation
 
 OpenUrl = Callable[..., object]
 CredentialRunner = Callable[..., subprocess.CompletedProcess[str]]
+Sleeper = Callable[[float], None]
+RequestValue = TypeVar("RequestValue")
+
+
+class TransientRequestExhausted(OSError):
+    pass
 
 
 class CrossHostAuthorizationStrippingRedirectHandler(HTTPRedirectHandler):
@@ -73,6 +81,9 @@ def synchronize_ci_evidence(
     opener: OpenUrl = urlopen,
     token: str | None = None,
     credential_runner: CredentialRunner = subprocess.run,
+    request_attempts: int = 3,
+    retry_delay_seconds: float = 1.0,
+    sleeper: Sleeper = time.sleep,
 ) -> CIEvidenceSyncResult:
     evidence_path = Path(
         os.getenv(
@@ -114,7 +125,12 @@ def synchronize_ci_evidence(
     query = urlencode({"branch": branch, "per_page": 30})
     runs_url = f"https://api.github.com/repos/{repository}/actions/runs?{query}"
     try:
-        run_payload = request_json(runs_url, headers, opener)
+        run_payload = with_transient_retries(
+            lambda: request_json(runs_url, headers, opener),
+            attempts=request_attempts,
+            initial_delay_seconds=retry_delay_seconds,
+            sleeper=sleeper,
+        )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return blocked("github_ci_runs_query_failed", str(exc))
     workflows = run_payload.get("workflow_runs", [])
@@ -152,7 +168,12 @@ def synchronize_ci_evidence(
         f"https://api.github.com/repos/{repository}/actions/runs/{run_id}/artifacts"
     )
     try:
-        artifacts_payload = request_json(artifacts_url, headers, opener)
+        artifacts_payload = with_transient_retries(
+            lambda: request_json(artifacts_url, headers, opener),
+            attempts=request_attempts,
+            initial_delay_seconds=retry_delay_seconds,
+            sleeper=sleeper,
+        )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return blocked(
             "github_ci_artifacts_query_failed",
@@ -192,7 +213,12 @@ def synchronize_ci_evidence(
             workflow_url=workflow_url,
         )
     try:
-        archive = request_bytes(archive_url, headers, opener)
+        archive = with_transient_retries(
+            lambda: request_bytes(archive_url, headers, opener),
+            attempts=request_attempts,
+            initial_delay_seconds=retry_delay_seconds,
+            sleeper=sleeper,
+        )
         payload = evidence_payload_from_zip(archive)
         bundle = CIEvidenceBundle.model_validate(payload)
     except (OSError, ValueError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
@@ -312,6 +338,31 @@ def request_bytes(url: str, headers: dict[str, str], opener: OpenUrl) -> bytes:
     if len(payload) > 2_000_000:
         raise ValueError("github_response_size_limit_exceeded")
     return payload
+
+
+def with_transient_retries(
+    operation: Callable[[], RequestValue],
+    *,
+    attempts: int,
+    initial_delay_seconds: float,
+    sleeper: Sleeper,
+) -> RequestValue:
+    if attempts < 1:
+        raise ValueError("request_attempts_must_be_positive")
+    if initial_delay_seconds < 0:
+        raise ValueError("retry_delay_seconds_must_be_non_negative")
+    for attempt in range(1, attempts + 1):
+        try:
+            return operation()
+        except HTTPError:
+            raise
+        except OSError as exc:
+            if attempt == attempts:
+                raise TransientRequestExhausted(
+                    f"transient_request_exhausted attempts={attempts}: {exc}"
+                ) from exc
+            sleeper(initial_delay_seconds * (2 ** (attempt - 1)))
+    raise AssertionError("unreachable")
 
 
 def evidence_payload_from_zip(archive: bytes) -> dict[str, object]:

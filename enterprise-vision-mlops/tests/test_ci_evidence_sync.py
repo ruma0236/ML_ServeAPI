@@ -4,6 +4,7 @@ import io
 import json
 import zipfile
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
 from evm.control_panel.cdct import atomic_write_json, with_ci_bundle_digest
@@ -209,3 +210,83 @@ def test_sync_reports_running_workflow_as_pending(tmp_path, monkeypatch) -> None
     assert result.status == "pending"
     assert result.workflow_run_id == RUN_ID
     assert result.blockers == []
+
+
+def test_sync_retries_transient_runs_query_then_succeeds(tmp_path, monkeypatch) -> None:
+    configure_paths(tmp_path, monkeypatch)
+    upstream = GitHubOpener()
+    attempts = 0
+    delays: list[float] = []
+
+    def flaky_opener(request: Request, **kwargs) -> FakeResponse:
+        nonlocal attempts
+        if "/actions/runs?" in request.full_url:
+            attempts += 1
+            if attempts < 3:
+                raise URLError(OSError(11001, "getaddrinfo failed"))
+        return upstream(request, **kwargs)
+
+    result = synchronize_ci_evidence(
+        COMMIT,
+        "codex/mac-mini-worker",
+        opener=flaky_opener,
+        token="secret-token",
+        sleeper=delays.append,
+    )
+
+    assert result.status == "ready"
+    assert attempts == 3
+    assert delays == [1.0, 2.0]
+
+
+def test_sync_blocks_after_transient_retry_budget_is_exhausted(
+    tmp_path, monkeypatch
+) -> None:
+    configure_paths(tmp_path, monkeypatch)
+    attempts = 0
+    delays: list[float] = []
+
+    def unavailable(_request: Request, **_kwargs) -> FakeResponse:
+        nonlocal attempts
+        attempts += 1
+        raise URLError(OSError(11001, "getaddrinfo failed"))
+
+    result = synchronize_ci_evidence(
+        COMMIT,
+        "codex/mac-mini-worker",
+        opener=unavailable,
+        token="secret-token",
+        request_attempts=3,
+        retry_delay_seconds=0.25,
+        sleeper=delays.append,
+    )
+
+    assert result.status == "blocked"
+    assert result.blockers == ["github_ci_runs_query_failed"]
+    assert "transient_request_exhausted attempts=3" in result.message
+    assert attempts == 3
+    assert delays == [0.25, 0.5]
+
+
+def test_sync_does_not_retry_http_policy_failure(tmp_path, monkeypatch) -> None:
+    configure_paths(tmp_path, monkeypatch)
+    attempts = 0
+    delays: list[float] = []
+
+    def forbidden(request: Request, **_kwargs) -> FakeResponse:
+        nonlocal attempts
+        attempts += 1
+        raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
+
+    result = synchronize_ci_evidence(
+        COMMIT,
+        "codex/mac-mini-worker",
+        opener=forbidden,
+        token="secret-token",
+        sleeper=delays.append,
+    )
+
+    assert result.status == "blocked"
+    assert result.blockers == ["github_ci_runs_query_failed"]
+    assert attempts == 1
+    assert delays == []
