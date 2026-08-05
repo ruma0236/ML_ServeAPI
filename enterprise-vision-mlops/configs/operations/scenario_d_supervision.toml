@@ -1,6 +1,6 @@
 [policy]
 schema_version = "evm.scenario_d_policy.v1"
-check_interval_seconds = 5.0
+check_interval_seconds = 3.0
 heartbeat_interval_seconds = 5.0
 heartbeat_stale_seconds = 20.0
 stale_debounce_samples = 2

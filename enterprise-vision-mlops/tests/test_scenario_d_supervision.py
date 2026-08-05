@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from evm.operations.scenario_d_supervision import (
     ChildHeartbeat,
@@ -38,7 +39,7 @@ def test_current_process_start_precedes_observation() -> None:
 def policy() -> ScenarioDPolicy:
     return ScenarioDPolicy(
         schema_version="evm.scenario_d_policy.v1",
-        check_interval_seconds=5,
+        check_interval_seconds=3,
         heartbeat_interval_seconds=5,
         heartbeat_stale_seconds=20,
         stale_debounce_samples=2,
@@ -51,6 +52,25 @@ def policy() -> ScenarioDPolicy:
         max_heartbeat_p95_seconds=7.5,
         run_claim_ttl_seconds=30,
     )
+
+
+def test_policy_rejects_polling_cadence_without_detection_margin() -> None:
+    with pytest.raises(ValidationError, match="more than two polling intervals"):
+        ScenarioDPolicy(
+            schema_version="evm.scenario_d_policy.v1",
+            check_interval_seconds=5,
+            heartbeat_interval_seconds=5,
+            heartbeat_stale_seconds=20,
+            stale_debounce_samples=2,
+            max_restarts_per_window=3,
+            restart_window_seconds=300,
+            restart_backoff_seconds=[1, 2, 4],
+            max_detection_seconds=10,
+            max_stale_detection_seconds=25,
+            max_recovery_seconds=60,
+            max_heartbeat_p95_seconds=7.5,
+            run_claim_ttl_seconds=30,
+        )
 
 
 def observation(

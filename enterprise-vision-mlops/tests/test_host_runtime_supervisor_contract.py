@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import re
+import tomllib
 from pathlib import Path
 
 
 SUPERVISOR = Path("scripts/dev/start_host_runtime_supervisor.ps1")
 WORKER = Path("scripts/dev/start_lifecycle_worker.ps1")
 OBSERVER = Path("scripts/dev/start_kubernetes_observer.ps1")
+POLICY = Path("configs/operations/scenario_d_supervision.toml")
 
 
 def test_supervisor_uses_fail_closed_scenario_d_engine_and_exact_restart() -> None:
@@ -24,6 +27,16 @@ def test_supervisor_uses_fail_closed_scenario_d_engine_and_exact_restart() -> No
     assert "Assert-AndStopExactTarget" in script
     assert 'if ($Decision.action -ne "restart_exact")' in script
     assert "restart_counts" in script
+
+
+def test_supervisor_default_cadence_matches_scenario_d_policy() -> None:
+    script = SUPERVISOR.read_text(encoding="utf-8")
+    policy = tomllib.loads(POLICY.read_text(encoding="utf-8"))["policy"]
+    default_match = re.search(r"\[int\]\$CheckIntervalSeconds = (\d+)", script)
+
+    assert default_match is not None
+    assert int(default_match.group(1)) == policy["check_interval_seconds"] == 3
+    assert policy["check_interval_seconds"] * 2 < policy["max_detection_seconds"]
 
 
 def test_host_launchers_only_terminate_owned_processes_and_wait_for_fresh_state() -> None:

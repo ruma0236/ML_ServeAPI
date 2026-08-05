@@ -1,5 +1,5 @@
 param(
-    [int]$CheckIntervalSeconds = 5,
+    [int]$CheckIntervalSeconds = 3,
     [int]$HeartbeatStaleSeconds = 20,
     [string]$PythonPath = $env:EVM_PYTHON_PATH,
     [string]$PolicyPath = "",

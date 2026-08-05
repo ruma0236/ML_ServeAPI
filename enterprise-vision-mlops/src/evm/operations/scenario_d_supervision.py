@@ -15,7 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from evm.operations.failure_scenarios import atomic_write_json, exclusive_lock
 
@@ -107,6 +107,15 @@ class ScenarioDPolicy(StrictModel):
     max_recovery_seconds: float = Field(gt=0)
     max_heartbeat_p95_seconds: float = Field(gt=0)
     run_claim_ttl_seconds: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_detection_margin(self) -> ScenarioDPolicy:
+        if self.check_interval_seconds * 2 >= self.max_detection_seconds:
+            raise ValueError(
+                "check_interval_seconds must leave more than two polling intervals "
+                "inside max_detection_seconds"
+            )
+        return self
 
     @classmethod
     def from_toml(cls, path: Path) -> ScenarioDPolicy:
