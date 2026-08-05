@@ -338,6 +338,13 @@ candidate so it does not reuse a run already injected by Scenario D.
   intentionally stale runtime, the runner reported exact API/child revision
   blockers and lifecycle catalog count stayed `74 -> 74`, proving zero run or
   approval creation before convergence.
+- **Readiness alias RCA/remediation:** the first API-only deployment of the
+  source gate returned `source_commit=null` because Compose injects
+  `GIT_COMMIT/GIT_BRANCH`, while the new readiness fields initially read only
+  the `EVM_GIT_*` aliases. No run or external mutation occurred. Code
+  `8167608` now uses the same `GIT_* -> EVM_GIT_*` precedence as lifecycle run
+  sealing and tests both primary and fallback aliases. Focused tests pass
+  `14 / 14`, full Python `528 / 528`, and Ruff passes.
 - **Invariants:** production B0, device-plugin, data and cluster-wide resources
   unchanged.
 - **Claim boundary:** local process recovery, not distributed exactly-once or HA.
