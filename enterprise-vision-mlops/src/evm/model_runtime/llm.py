@@ -52,8 +52,8 @@ def instruction_content(record: dict[str, Any]) -> str:
         raise ModelRuntimeError("dolly_instruction_missing")
     context = str(record.get("context") or "").strip()
     if context:
-        return f"Context:\n{context[:4096]}\n\nInstruction:\n{instruction[:2048]}"
-    return instruction[:4096]
+        return f"Context:\n{context[:768]}\n\nInstruction:\n{instruction[:768]}"
+    return instruction[:1536]
 
 
 def instruction_messages(
@@ -365,8 +365,18 @@ def evaluate_qwen(
 
     model.eval()
     losses: list[float] = []
-    for record in records["validation"][:evaluation_records]:
-        inputs = training_inputs(tokenizer, record, max_length=max_length)
+    validation_cursor = 0
+    while len(losses) < evaluation_records:
+        if validation_cursor >= len(records["validation"]):
+            raise ModelRuntimeError("llm_validation_records_insufficient")
+        record = records["validation"][validation_cursor]
+        validation_cursor += 1
+        try:
+            inputs = training_inputs(tokenizer, record, max_length=max_length)
+        except ModelRuntimeError as exc:
+            if str(exc) == "llm_supervised_tokens_empty":
+                continue
+            raise
         inputs = {key: value.to("cuda") for key, value in inputs.items()}
         with torch.inference_mode():
             output = model(**inputs)

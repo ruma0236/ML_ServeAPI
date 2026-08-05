@@ -22,3 +22,13 @@ def test_token_f1_is_bounded_and_order_independent() -> None:
     assert token_f1("Paris", "Paris") == 1.0
     assert token_f1("Paris France", "France Paris") == 1.0
     assert token_f1("unknown", "Paris") == 0.0
+
+
+def test_instruction_contract_bounds_long_context_for_label_budget() -> None:
+    payload = record()
+    payload["context"] = "x" * 10_000
+    payload["instruction"] = "y" * 10_000
+    content = instruction_content(payload)
+    context, instruction = content.removeprefix("Context:\n").split("\n\nInstruction:\n")
+    assert context == "x" * 768
+    assert instruction == "y" * 768
