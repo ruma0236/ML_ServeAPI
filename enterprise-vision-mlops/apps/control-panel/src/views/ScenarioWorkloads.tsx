@@ -46,7 +46,7 @@ const activeStates: ScenarioWorkloadRunState[] = ["queued", "running", "waiting_
 const activeProductionStates = [
   "pending_approval", "queued", "applying", "applied", "rollback_requested", "rolling_back"
 ];
-type WorkloadFilter = "all" | "active" | "completed" | "attention";
+type WorkloadFilter = "latest" | "all" | "active" | "completed" | "attention";
 
 
 export function ScenarioWorkloads() {
@@ -59,7 +59,7 @@ export function ScenarioWorkloads() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [syncedAt, setSyncedAt] = useState("");
-  const [filter, setFilter] = useState<WorkloadFilter>("all");
+  const [filter, setFilter] = useState<WorkloadFilter>("latest");
   const [busyAction, setBusyAction] = useState("");
   const [presetId, setPresetId] = useState("");
   const [requester, setRequester] = useState("ml-engineer");
@@ -112,7 +112,7 @@ export function ScenarioWorkloads() {
     if (filter === "completed") return run.state === "completed";
     if (filter === "attention") return ["failed", "blocked"].includes(run.state);
     return true;
-  }), [filter, runs]);
+  }).slice(0, filter === "latest" ? 1 : undefined), [filter, runs]);
   const selected = useMemo(
     () => visibleRuns.find((run) => run.run_id === selectedId) || visibleRuns[0] || null,
     [selectedId, visibleRuns]
@@ -214,6 +214,7 @@ export function ScenarioWorkloads() {
       </section>
 
       <div className="scenario-kpis" role="group" aria-label="Workload status filter">
+        <Kpi icon={Gauge} label="Latest" value={runs.length ? 1 : 0} active={filter === "latest"} onClick={() => setFilter("latest")} />
         <Kpi icon={Box} label="Runs" value={runs.length} active={filter === "all"} onClick={() => setFilter("all")} />
         <Kpi icon={Activity} label="Active" value={active} tone="run" active={filter === "active"} onClick={() => setFilter("active")} />
         <Kpi icon={FileCheck2} label="Completed" value={completed} tone="good" active={filter === "completed"} onClick={() => setFilter("completed")} />

@@ -94,6 +94,7 @@ describe("AI Workloads view", () => {
   it("switches to the LLM-specific metric schema without inventing VLM metrics", async () => {
     await act(async () => root.render(<ScenarioWorkloads />));
     await flushUpdates();
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Show runs workloads"]')?.click());
     const completedLlm = [...container.querySelectorAll<HTMLButtonElement>("aside button")].find(
       (button) => button.textContent?.includes("Qwen2.5") && button.textContent?.includes("completed")
     );
@@ -109,6 +110,7 @@ describe("AI Workloads view", () => {
   it("surfaces the failed run blocker after selection", async () => {
     await act(async () => root.render(<ScenarioWorkloads />));
     await flushUpdates();
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Show runs workloads"]')?.click());
     const failed = [...container.querySelectorAll<HTMLButtonElement>("aside button")].find(
       (button) => button.textContent?.includes("Qwen2.5") && button.textContent?.includes("failed")
     );
@@ -135,6 +137,17 @@ describe("AI Workloads view", () => {
     await act(async () => attention?.click());
     expect(container.querySelectorAll("aside button")).toHaveLength(1);
     expect(container.textContent).toContain("mlflow_write_failed");
+  });
+
+  it("opens on the latest run while preserving the full ledger behind Runs", async () => {
+    await act(async () => root.render(<ScenarioWorkloads />));
+    await flushUpdates();
+
+    expect(container.querySelectorAll("aside button")).toHaveLength(1);
+    expect(container.textContent).toContain("SmolVLM-500M-Instruct");
+
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Show runs workloads"]')?.click());
+    expect(container.querySelectorAll("aside button")).toHaveLength(3);
   });
 
   it("launches the governed SmolVLM preset through the real-workload control", async () => {

@@ -5330,7 +5330,7 @@ h3 {
 .sync-dot.live { background: var(--success); box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 12%, transparent); }
 .sync-dot.error { background: var(--danger); }
 
-.scenario-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--surface); }
+.scenario-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--surface); }
 .scenario-kpi { display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 14px 16px; border-right: 1px solid var(--line); color: var(--text-muted); }
 .scenario-kpi:last-child { border-right: 0; }
 .scenario-kpi > span { display: grid; gap: 2px; }
