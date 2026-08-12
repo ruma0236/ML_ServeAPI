@@ -7,6 +7,7 @@ import os
 import random
 import re
 import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
@@ -74,7 +75,17 @@ def atomic_write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    try:
+        for attempt in range(8):
+            try:
+                temporary.replace(path)
+                return
+            except PermissionError:
+                if attempt == 7:
+                    raise
+                time.sleep(0.025 * (attempt + 1))
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def set_reproducible_seed(seed: int) -> None:
