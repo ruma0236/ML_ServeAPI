@@ -15,19 +15,28 @@ const sourcePath = path.join(
   "smolvlm-live-local-production-lifecycle-60fps.mp4"
 );
 const finalRoot = path.join(sessionRoot, "video", "final");
-const outputPath = path.join(finalRoot, "smolvlm-live-local-production-lifecycle-60fps-editorial.mp4");
-const subtitlePath = path.join(finalRoot, "smolvlm-live-local-production-lifecycle-ko.ass");
-const manifestPath = path.join(sessionRoot, "editorial-edit-manifest.json");
-const ffmpegLogPath = path.join(sessionRoot, "logs", "ffmpeg-editorial-edit.log");
-const contactSheetPath = path.join(finalRoot, "editorial-timeline-contact-sheet.png");
-const seekProofPath = path.join(finalRoot, "editorial-seek-proof.png");
+const outputPath = path.join(finalRoot, "smolvlm-live-local-production-lifecycle-60fps-editorial-v2.mp4");
+const subtitlePath = path.join(finalRoot, "smolvlm-live-local-production-lifecycle-ko-v2.ass");
+const manifestPath = path.join(sessionRoot, "editorial-edit-manifest-v2.json");
+const ffmpegLogPath = path.join(sessionRoot, "logs", "ffmpeg-editorial-edit-v2.log");
+const contactSheetPath = path.join(finalRoot, "editorial-v2-timeline-contact-sheet.png");
+const seekProofPath = path.join(finalRoot, "editorial-v2-seek-proof.png");
+const lateCaptionProofs = [145, 154].map((second) => ({
+  second,
+  path: path.join(finalRoot, `editorial-v2-caption-proof-${second}s.png`)
+}));
 const transitionSeconds = 0.25;
 
 // Only confirmed sub-0.7-second refresh/navigation flashes are omitted. Every lifecycle action remains in order.
 const keptSegments = [
-  { source_start: 0.000, source_end: 60.033, reason: "launch through staging serving" },
+  { source_start: 0.000, source_end: 51.483, reason: "launch through staging approval" },
+  { source_start: 52.050, source_end: 60.033, reason: "staging serving after scroll reset" },
   { source_start: 60.600, source_end: 82.983, reason: "staging observation after refresh flash" },
-  { source_start: 83.533, source_end: 133.150, reason: "release and production deployment" },
+  { source_start: 83.533, source_end: 93.583, reason: "release evidence and production request" },
+  { source_start: 94.117, source_end: 98.217, reason: "production pending approval" },
+  { source_start: 98.750, source_end: 101.617, reason: "production approval accepted" },
+  { source_start: 102.167, source_end: 123.333, reason: "production applying" },
+  { source_start: 123.867, source_end: 133.150, reason: "production applied" },
   { source_start: 133.300, source_end: 142.370, reason: "MLflow loading and exact-run evidence" },
   { source_start: 142.559, source_end: 147.600, reason: "production readiness evidence" },
   { source_start: 147.733, source_end: 156.383, reason: "Prometheus loading and target evidence" },
@@ -48,11 +57,11 @@ const captions = [
   [83.621, 88.671, "정확도 75%, parse rate 100%와 latency·VRAM을 함께 확인해 release gate를 판정합니다."],
   [88.671, 98.737, "검증 artifact와 CI 결과를 다시 확인한 뒤 프로덕션 배포 요청을 만들고 별도 승인을 받습니다."],
   [98.737, 123.853, "승인된 모델 identity를 한 번 더 대조한 뒤 local-production serving을 시작합니다."],
-  [123.853, 136.872, "SmolVLM 배포가 완료됐습니다. UI 상태, readiness, CUDA 추론, 모니터링 결과가 모두 일치합니다."],
-  [136.872, 142.370, "MLflow에서 이번 Run의 파라미터, metric, adapter artifact를 독립적으로 확인합니다."],
+  [123.853, 133.150, "SmolVLM 배포가 완료됐습니다. UI 상태, readiness, CUDA 추론, 모니터링 결과가 모두 일치합니다."],
+  [133.300, 142.370, "MLflow로 이동해 이번 Run의 파라미터, metric, adapter artifact를 독립적으로 확인합니다."],
   [142.559, 147.550, "/ready 응답에서 모델 revision, adapter digest, 데이터 identity, CUDA 상태를 확인합니다."],
-  [151.333, 156.330, "Prometheus가 새 프로덕션 endpoint를 UP 상태로 수집하고 있습니다."],
-  [166.223, 172.330, "데이터 수집부터 학습·검증·승인·배포·모니터링까지 하나의 Run으로 완료했습니다."]
+  [147.733, 156.383, "Prometheus로 이동해 새 프로덕션 endpoint가 UP 상태로 수집되는지 확인합니다."],
+  [156.433, 172.330, "Control Panel로 돌아왔습니다. 데이터 수집부터 배포·모니터링까지 하나의 Run으로 완료했습니다."]
 ];
 const editedCaptions = mapCaptionsToEditedTimeline(captions, keptSegments, transitionSeconds);
 
@@ -112,9 +121,17 @@ const seekResult = run(ffmpegPath, [
 ]);
 if (seekResult.status !== 0) throw new Error("Seek proof generation failed");
 
+for (const proof of lateCaptionProofs) {
+  const result = run(ffmpegPath, [
+    "-y", "-ss", String(proof.second), "-i", outputPath,
+    "-frames:v", "1", "-update", "1", proof.path
+  ]);
+  if (result.status !== 0) throw new Error(`Caption proof generation failed at ${proof.second}s`);
+}
+
 const sourceManifest = JSON.parse(await readFile(path.join(sessionRoot, "recording-manifest.json"), "utf8"));
 const manifest = {
-  schema_version: "evm.smolvlm_lifecycle_editorial_edit.v1",
+  schema_version: "evm.smolvlm_lifecycle_editorial_edit.v2",
   edited_at: new Date().toISOString(),
   source: {
     path: sourcePath,
@@ -133,7 +150,8 @@ const manifest = {
     audio_codec: "AAC",
     faststart,
     seek_proof: seekProofPath,
-    contact_sheet: contactSheetPath
+    contact_sheet: contactSheetPath,
+    late_caption_proofs: lateCaptionProofs
   },
   edit_policy: {
     original_preserved: true,
@@ -147,7 +165,7 @@ const manifest = {
     ).toFixed(3)),
     dissolve_overlap_seconds: Number((transitionSeconds * (keptSegments.length - 1)).toFixed(3)),
     transition: "250 ms dissolve between stable views",
-    subtitle_policy: "Original baked captions are covered and replaced with concise Korean operator-facing explanations."
+    subtitle_policy: "Original baked captions are covered per page and replaced immediately with compact Korean operator-facing explanations."
   },
   kept_segments: keptSegments,
   removed_segments: invertSegments(keptSegments, 172.330),
@@ -157,7 +175,9 @@ const manifest = {
     declared_60_fps: /60 fps/.test(mediaProbe.stderr),
     h264: /Video: h264/.test(mediaProbe.stderr),
     aac: /Audio: aac/.test(mediaProbe.stderr),
-    faststart
+    faststart,
+    caption_visible_at_145s: captionCovers(editedCaptions, 145),
+    caption_visible_at_154s: captionCovers(editedCaptions, 154)
   }
 };
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -173,7 +193,11 @@ function buildFilterGraph(segments, transition, assPath) {
   const escapedAssPath = assPath.replaceAll("\\", "/").replace(":", "\\:").replaceAll("'", "\\'");
   const splitOutputs = segments.map((_, index) => `[source${index}]`).join("");
   const filters = [
-    "[0:v]fps=60,settb=AVTB,drawbox=x=300:y=798:w=840:h=82:color=black@1.0:t=fill,drawbox=x=300:y=798:w=840:h=82:color=0x9cff32@0.72:t=1[clean]",
+    "[0:v]fps=60,settb=AVTB" +
+      ",drawbox=x=348:y=808:w=744:h=70:color=0x050605@1.0:t=fill:enable='between(t,0,133.150)+between(t,166.223,172.330)'" +
+      ",drawbox=x=348:y=808:w=744:h=70:color=0x11181d@1.0:t=fill:enable='between(t,136.872,142.370)'" +
+      ",drawbox=x=348:y=808:w=744:h=70:color=0x111111@1.0:t=fill:enable='between(t,142.559,147.600)'" +
+      ",drawbox=x=348:y=808:w=744:h=70:color=0x181d20@1.0:t=fill:enable='between(t,151.333,156.383)'[clean]",
     `[clean]split=${segments.length}${splitOutputs}`
   ];
 
@@ -209,11 +233,9 @@ function mapCaptionsToEditedTimeline(entries, segments, transition) {
       if (overlapEnd - overlapStart < 0.05) return;
       let editedStart = editedSegmentStart + overlapStart - segment.source_start;
       let editedEnd = editedSegmentStart + overlapEnd - segment.source_start;
-      if (segmentIndex > 0 && Math.abs(overlapStart - segment.source_start) < 0.001) {
-        editedStart += transition + 0.05;
-      }
-      if (segmentIndex < segments.length - 1 && Math.abs(overlapEnd - segment.source_end) < 0.001) {
-        editedEnd -= transition + 0.05;
+      if (segmentIndex < segments.length - 1) {
+        const transitionStart = editedSegmentStart + segment.source_end - segment.source_start - transition;
+        editedEnd = Math.min(editedEnd, transitionStart);
       }
       if (editedEnd - editedStart >= 0.35) mapped.push([editedStart, editedEnd, text]);
     });
@@ -233,11 +255,16 @@ function mapCaptionsToEditedTimeline(entries, segments, transition) {
 
 
 function buildAss(entries) {
-  const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: 1440\nPlayResY: 900\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Malgun Gothic,24,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,2,330,330,35,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
+  const header = `[Script Info]\nScriptType: v4.00+\nPlayResX: 1440\nPlayResY: 900\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Malgun Gothic,20,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,10,0,2,60,60,31,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
   const events = entries.map(([start, end, text]) =>
-    `Dialogue: 0,${assTime(start)},${assTime(end)},Default,,0,0,0,,{\\fad(120,120)}${escapeAss(text)}`
+    `Dialogue: 0,${assTime(start)},${assTime(end)},Default,,0,0,0,,${escapeAss(text)}`
   );
   return `${header}${events.join("\n")}\n`;
+}
+
+
+function captionCovers(entries, second) {
+  return entries.some(([start, end, text]) => start <= second && second < end && text.trim().length > 0);
 }
 
 
