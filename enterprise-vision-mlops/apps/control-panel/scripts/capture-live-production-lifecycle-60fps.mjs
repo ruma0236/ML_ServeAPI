@@ -62,6 +62,7 @@ if (process.env.EVM_CAPTURE_PREFLIGHT_ONLY === "1") {
 }
 
 const browserErrors = [];
+const browserAdvisories = [];
 const captions = [];
 const scenes = [];
 const lifecycleEvents = [];
@@ -98,9 +99,25 @@ try {
   });
   const page = context.pages()[0] || await context.newPage();
   page.on("console", (message) => {
-    if (message.type() === "error") browserErrors.push(`console:${message.text()}`);
+    if (message.type() !== "error") return;
+    const detail = `console:${message.text()}`;
+    if (/Failed to load resource: the server responded with a status of 404/.test(message.text())) {
+      browserAdvisories.push(detail);
+      return;
+    }
+    browserErrors.push(detail);
   });
   page.on("pageerror", (error) => browserErrors.push(`page:${error.message}`));
+  page.on("response", (response) => {
+    if (response.status() < 400) return;
+    const detail = `http:${response.status()}:${response.url()}`;
+    const url = new URL(response.url());
+    if (response.status() === 404 && url.pathname === "/favicon.ico") {
+      browserAdvisories.push(detail);
+      return;
+    }
+    browserErrors.push(detail);
+  });
 
   await page.goto(targetUrl, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "AI Workloads", exact: true }).waitFor();
@@ -436,6 +453,7 @@ try {
     scenes,
     captions,
     browser_errors: browserErrors,
+    browser_advisories: browserAdvisories,
     initial_preflight: initialPreflight,
     final_postconditions: finalEvidence.postconditions,
     file_hashes: fileHashes,
@@ -474,6 +492,7 @@ try {
     runtime_after_failure: runtimeAfterFailure,
     lifecycle_events: lifecycleEvents,
     browser_errors: browserErrors,
+    browser_advisories: browserAdvisories,
     raw_capture: rawPath
   };
   await writeJson(failurePath, failure).catch(() => {});
@@ -1002,7 +1021,8 @@ async function validateFinalMedia() {
     faststart: moovOffset >= 0 && mdatOffset >= 0 && moovOffset < mdatOffset,
     seek_proof_seconds: seekSeconds,
     seek_proof_path: seekProofPath,
-    browser_errors: browserErrors
+    browser_errors: browserErrors,
+    browser_advisories: browserAdvisories
   };
   if (!validation.declared_60_fps || !validation.h264 || !validation.aac || !validation.faststart || browserErrors.length) {
     throw new Error(`Final media validation failed: ${JSON.stringify(validation)}`);

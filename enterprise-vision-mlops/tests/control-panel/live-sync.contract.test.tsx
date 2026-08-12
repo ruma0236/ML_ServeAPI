@@ -26,7 +26,11 @@ const api = vi.hoisted(() => ({
   fetchExperimentRun: vi.fn(),
   fetchLifecycleRun: vi.fn(),
   fetchLifecycleRuns: vi.fn(),
-  fetchLifecycleWorker: vi.fn()
+  fetchLifecycleWorker: vi.fn(),
+  fetchScenarioProductionIntents: vi.fn(),
+  fetchScenarioWorkloadPresets: vi.fn(),
+  fetchScenarioWorkloadWorker: vi.fn(),
+  fetchScenarioWorkloads: vi.fn()
 }));
 
 vi.mock("../../apps/control-panel/src/api/controlPanelClient", async (importOriginal) => ({
@@ -146,6 +150,19 @@ describe("Control Panel source synchronization", () => {
     api.fetchExperimentRun.mockResolvedValue(null);
     api.fetchLifecycleRuns.mockResolvedValue({ runs: [], total: 0 });
     api.fetchLifecycleWorker.mockResolvedValue({ status: "online", worker_id: "worker-1" });
+    api.fetchScenarioWorkloads.mockResolvedValue({ runs: [], total: 0 });
+    api.fetchScenarioWorkloadPresets.mockResolvedValue({
+      schema_version: "evm.scenario_workload_preset_catalog.v1",
+      presets: []
+    });
+    api.fetchScenarioWorkloadWorker.mockResolvedValue({
+      schema_version: "evm.scenario_workload_worker.v1",
+      status: "online",
+      worker_id: "worker-1",
+      source_commit: "e".repeat(40),
+      heartbeat_age_seconds: 1
+    });
+    api.fetchScenarioProductionIntents.mockResolvedValue({ intents: [], total: 0 });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -319,6 +336,19 @@ describe("Control Panel source synchronization", () => {
     expect(container.querySelector(".footer-line")?.textContent).toContain(exampleCycle.cycle_id);
     expect(container.querySelector(".footer-line")?.textContent).not.toContain(historical.cycle_id);
     expect(new URLSearchParams(window.location.search).has("cycle")).toBe(false);
+  });
+
+  it("isolates the transformer workload ledger from an unrelated selected CV cycle", async () => {
+    window.history.replaceState({}, "", "/?view=workloads");
+
+    await act(async () => root.render(<App />));
+    await flushUpdates();
+
+    expect(container.textContent).toContain("Transformer workload ledger");
+    expect(container.textContent).toContain("AI Workloads");
+    expect(container.querySelector(".cycle-selector")).toBeNull();
+    expect(container.querySelector(".diagnostics-drawer")).toBeNull();
+    expect(container.querySelector(".topbar .status-badge")).toBeNull();
   });
 });
 

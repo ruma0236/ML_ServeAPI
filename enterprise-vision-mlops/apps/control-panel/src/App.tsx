@@ -551,6 +551,7 @@ export function App() {
         ? "Partial"
         : "Unavailable";
   const activeWorkspace = workspaceForTab(tab);
+  const workloadContext = tab === "workloads";
 
   function selectTab(nextTab: TabKey) {
     setTab(nextTab);
@@ -568,26 +569,39 @@ export function App() {
           <span className="eyebrow">Enterprise Vision MLOps</span>
           <h1>Control Panel</h1>
         </div>
-        <CycleSelector
-          catalog={catalog}
-          selectedCycleId={selectedCycleId}
-          loading={loading}
-          onSelect={(cycleId) => void selectCycle(cycleId)}
-          onReturnLive={() => void returnToLive()}
-        />
+        {workloadContext ? (
+          <div className="workload-context" aria-label="AI workload execution context">
+            <span className="workload-context-icon"><BrainCircuit size={18} /></span>
+            <span>
+              <small>Execution context</small>
+              <strong>Transformer workload ledger</strong>
+            </span>
+            <em>Identity-bound</em>
+          </div>
+        ) : (
+          <CycleSelector
+            catalog={catalog}
+            selectedCycleId={selectedCycleId}
+            loading={loading}
+            onSelect={(cycleId) => void selectCycle(cycleId)}
+            onReturnLive={() => void returnToLive()}
+          />
+        )}
         <div className="topbar-actions">
-          {lifecycleContext ? (
+          {!workloadContext && lifecycleContext ? (
             <div className={`execution-context run-context-${lifecycleContext.state}`} title={lifecycleContext.run_id}>
               <span>Run</span>
               <strong>{formatLifecycleState(lifecycleContext.state)}</strong>
               <em>{Math.round(lifecycleContext.progress * 100)}%</em>
             </div>
           ) : null}
-          <div className="sync-indicator" title="Control Panel source synchronization">
-            <i className={syncMode} />
-            <span>{syncLabel}</span>
-          </div>
-          {cycle ? <StatusBadge status={cycle.status} /> : null}
+          {!workloadContext ? (
+            <div className="sync-indicator" title="Control Panel source synchronization">
+              <i className={syncMode} />
+              <span>{syncLabel}</span>
+            </div>
+          ) : null}
+          {!workloadContext && cycle ? <StatusBadge status={cycle.status} /> : null}
           <button
             type="button"
             className="icon-button"
@@ -597,9 +611,11 @@ export function App() {
           >
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <button type="button" className="icon-button" onClick={() => void loadCycle(false, true)} aria-label="Refresh cycle">
-            <RefreshCcw size={18} />
-          </button>
+          {!workloadContext ? (
+            <button type="button" className="icon-button" onClick={() => void loadCycle(false, true)} aria-label="Refresh cycle">
+              <RefreshCcw size={18} />
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -662,7 +678,7 @@ export function App() {
         })}
       </nav>
 
-      {error ? (
+      {error && !workloadContext ? (
         <section className="error-state" role="alert">
           <AlertCircle />
           <div>
@@ -681,14 +697,14 @@ export function App() {
         </section>
       ) : null}
 
-      {loading && !cycle ? (
+      {loading && !cycle && !workloadContext ? (
         <section className="loading-state" aria-live="polite">
           <i aria-hidden="true" />
           <span>Synchronizing CycleRun</span>
         </section>
       ) : activeView}
 
-      <DiagnosticsDrawer diagnostics={diagnostics} clientSources={syncSources} />
+      {!workloadContext ? <DiagnosticsDrawer diagnostics={diagnostics} clientSources={syncSources} /> : null}
 
       <footer className="footer-line">
         <span>{tab === "workloads" ? "AI workload ledger / independent run evidence" : cycle?.cycle_id || "cycle not loaded"}</span>

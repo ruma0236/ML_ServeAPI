@@ -166,6 +166,12 @@ def run_worker(*, once: bool, poll_interval: float, worker_id: str) -> int:
                 )
                 production = reconcile_applied_intent(production)
                 current_intent_id[0] = None
+                write_heartbeat(
+                    worker_id=worker_id,
+                    started_at=started_at,
+                    current_run_id=None,
+                    current_intent_id=None,
+                )
 
             for intent_id in queued_intent_ids():
                 current_intent_id[0] = intent_id

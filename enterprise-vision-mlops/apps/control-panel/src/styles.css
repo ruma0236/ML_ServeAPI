@@ -137,6 +137,58 @@ h3 {
   background: #f5f8f9;
   font-size: 0.66rem;
 }
+
+.workload-context {
+  display: grid;
+  grid-template-columns: 34px minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: min(680px, 52vw);
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.workload-context-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--accent-strong);
+  background: var(--accent-muted);
+}
+
+.workload-context > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.workload-context small {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.workload-context strong {
+  overflow: hidden;
+  font-size: 0.79rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workload-context em {
+  color: var(--success);
+  font-size: 0.65rem;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
 .execution-context span { color: #66777e; font-weight: 800; text-transform: uppercase; }
 .execution-context strong { max-width: 104px; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
 .execution-context em { color: #5f7077; font-style: normal; font-weight: 900; }
