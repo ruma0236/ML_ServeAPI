@@ -106,6 +106,7 @@ def main() -> int:
                 "tests/test_workload_gpu_handoff.py",
                 "tests/test_scenario_workloads.py",
                 "tests/test_scenario_workload_runner.py",
+                "tests/test_scenario_workload_worker.py",
                 "tests/test_control_panel_scenario_workloads_api.py",
             ],
         ),
