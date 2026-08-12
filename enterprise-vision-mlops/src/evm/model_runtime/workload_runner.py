@@ -91,8 +91,7 @@ class RunningServer:
 
 
 def run_real_scenario_lifecycle(config: ScenarioExecutionConfig) -> dict[str, Any]:
-    if not config.model_dir.is_dir():
-        raise ModelRuntimeError(f"base_model_missing:{config.model_dir}")
+    model_bundle = verify_base_model_bundle(config)
     if not port_available(config.serving_port):
         raise ModelRuntimeError(f"serving_port_unavailable:{config.serving_port}")
     if config.run_id:
@@ -138,6 +137,7 @@ def run_real_scenario_lifecycle(config: ScenarioExecutionConfig) -> dict[str, An
                     run.identity.split_manifest_sha256,
                 ),
             },
+            "base_model_bundle": model_bundle,
             "observed_at": utc_now(),
         }
         complete_stage(
@@ -348,6 +348,41 @@ def run_real_scenario_lifecycle(config: ScenarioExecutionConfig) -> dict[str, An
             except (ModelRuntimeError, OSError, ValueError):
                 pass
         raise
+
+
+def verify_base_model_bundle(config: ScenarioExecutionConfig) -> dict[str, Any]:
+    if not config.model_dir.is_dir():
+        raise ModelRuntimeError(f"base_model_missing:{config.model_dir}")
+    if config.model_dir.name != config.model_revision:
+        raise ModelRuntimeError(
+            "base_model_revision_path_mismatch:"
+            f"expected={config.model_revision}:actual={config.model_dir.name}"
+        )
+
+    common = ["config.json"]
+    family_files = (
+        ["preprocessor_config.json", "processor_config.json", "tokenizer_config.json"]
+        if config.model_family == "vlm"
+        else ["tokenizer_config.json"]
+    )
+    missing = [name for name in [*common, *family_files] if not (config.model_dir / name).is_file()]
+    weight_files = sorted(config.model_dir.glob("*.safetensors"))
+    if not weight_files:
+        missing.append("*.safetensors")
+    if missing:
+        raise ModelRuntimeError("base_model_bundle_incomplete:" + ",".join(missing))
+
+    verified_paths = [*(config.model_dir / name for name in [*common, *family_files]), *weight_files]
+    return {
+        "status": "pass",
+        "model_repository": config.model_repository,
+        "model_revision": config.model_revision,
+        "model_dir": str(config.model_dir),
+        "files": {
+            path.name: {"size_bytes": path.stat().st_size, "sha256": file_sha256(path)}
+            for path in verified_paths
+        },
+    }
 
 
 def assert_requested_run_identity(config: ScenarioExecutionConfig, run: Any) -> None:

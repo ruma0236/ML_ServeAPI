@@ -3,9 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from evm.model_runtime.common import ModelRuntimeError
 from evm.model_runtime.workload_runner import (
     ScenarioExecutionConfig,
     staging_approval,
+    verify_base_model_bundle,
     write_prometheus_target,
 )
 
@@ -29,6 +33,26 @@ def config(tmp_path: Path) -> ScenarioExecutionConfig:
     )
 
 
+def model_config(tmp_path: Path, *, family: str = "vlm") -> ScenarioExecutionConfig:
+    revision = "a" * 40
+    model_dir = tmp_path / revision
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "model.safetensors").write_bytes(b"model-weights")
+    (model_dir / "tokenizer_config.json").write_text("{}", encoding="utf-8")
+    if family == "vlm":
+        (model_dir / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+        (model_dir / "processor_config.json").write_text("{}", encoding="utf-8")
+    return ScenarioExecutionConfig(
+        **{
+            **config(tmp_path).__dict__,
+            "model_family": family,
+            "model_revision": revision,
+            "model_dir": model_dir,
+        }
+    )
+
+
 def test_staging_approval_binds_run_identity_artifact_and_source(tmp_path: Path) -> None:
     run = SimpleNamespace(
         run_id="run-1",
@@ -48,3 +72,27 @@ def test_prometheus_target_is_run_scoped(tmp_path: Path) -> None:
     payload = path.read_text(encoding="utf-8")
     assert "host.docker.internal:30920" in payload
     assert '"evm_run_id": "run-1"' in payload
+
+
+@pytest.mark.parametrize("family", ["vlm", "llm"])
+def test_base_model_bundle_binds_exact_revision_and_family_files(
+    tmp_path: Path, family: str
+) -> None:
+    verified = verify_base_model_bundle(model_config(tmp_path, family=family))
+
+    assert verified["status"] == "pass"
+    assert verified["model_revision"] == "a" * 40
+    assert len(verified["files"]["model.safetensors"]["sha256"]) == 64
+
+
+def test_base_model_bundle_fails_closed_before_runtime_side_effects(tmp_path: Path) -> None:
+    invalid = model_config(tmp_path)
+    (invalid.model_dir / "preprocessor_config.json").unlink()
+    with pytest.raises(ModelRuntimeError, match="base_model_bundle_incomplete"):
+        verify_base_model_bundle(invalid)
+
+    mismatched = ScenarioExecutionConfig(
+        **{**invalid.__dict__, "model_revision": "b" * 40}
+    )
+    with pytest.raises(ModelRuntimeError, match="base_model_revision_path_mismatch"):
+        verify_base_model_bundle(mismatched)
