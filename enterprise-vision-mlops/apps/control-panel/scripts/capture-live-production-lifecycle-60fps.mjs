@@ -151,7 +151,7 @@ try {
   await holdScene("fresh-run-identity", 3500);
 
   const gpuButton = page.getByRole("button", { name: /Authorize GPU handoff/ });
-  await waitForEnabled(gpuButton, 60_000);
+  await waitForRunControl(gpuButton, runId, 60_000, "GPU handoff");
   await setOverlay(
     page,
     "단일 RTX 4080의 현재 소유자인 B0 Deployment를 정확한 UID로 확인한 뒤, 이 run에만 한 번 사용할 수 있는 GPU handoff를 승인합니다.",
@@ -1051,6 +1051,23 @@ async function waitForEnabled(locator, timeoutMs) {
     await delay(200);
   }
   throw new Error("Timed out waiting for an enabled UI control");
+}
+
+
+async function waitForRunControl(locator, runIdValue, timeoutMs, controlLabel) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const run = await fetchJson(
+      `${apiUrl}/control-panel/v1/scenario-workloads/${encodeURIComponent(runIdValue)}`
+    );
+    if (["blocked", "failed", "cancelled"].includes(run.state)) {
+      const blockers = (run.blockers || []).join(",") || run.current_stage || "unknown";
+      throw new Error(`${controlLabel} unavailable because workload ${run.state}: ${blockers}`);
+    }
+    if (await locator.isEnabled().catch(() => false)) return;
+    await delay(250);
+  }
+  throw new Error(`Timed out waiting for ${controlLabel} control`);
 }
 
 
