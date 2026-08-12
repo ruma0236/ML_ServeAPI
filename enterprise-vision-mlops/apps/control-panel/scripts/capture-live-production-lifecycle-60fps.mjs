@@ -12,6 +12,7 @@ const mlflowUrl = process.env.EVM_MLFLOW_URL || "http://127.0.0.1:5000";
 const prometheusUrl = process.env.EVM_PROMETHEUS_URL || "http://127.0.0.1:9090";
 const projectRoot = process.env.EVM_PROJECT_ROOT || process.cwd().replace(/[\\/]apps[\\/]control-panel$/, "");
 const expectedExecutionCommit = process.env.EVM_EXPECTED_EXECUTION_COMMIT || gitRevision(projectRoot);
+const expectedExecutionBranch = process.env.EVM_EXPECTED_EXECUTION_BRANCH || gitBranch(projectRoot);
 const outputBase = process.env.EVM_LIVE_LIFECYCLE_VIDEO_ROOT ||
   "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/control-panel-live-production-lifecycle/2026-08-12";
 const ffmpegPath = process.env.EVM_FFMPEG_PATH ||
@@ -48,6 +49,7 @@ assertInitialPreflight(initialPreflight);
 await writeJson(path.join(evidenceRoot, "runtime-preflight.json"), initialPreflight);
 reportProgress("preflight-passed", {
   execution_revision: initialPreflight.control_plane.source_commit,
+  execution_branch: initialPreflight.control_plane.source_branch,
   worker_revision: initialPreflight.worker.source_commit,
   gpu_allocatable: initialPreflight.gpu_allocatable,
   b0_ready: initialPreflight.b0.available,
@@ -603,8 +605,14 @@ function assertInitialPreflight(preflight) {
   if (preflight.control_plane.source_commit !== expectedExecutionCommit) {
     throw new Error(`Control-plane revision mismatch: ${preflight.control_plane.source_commit}`);
   }
+  if (preflight.control_plane.source_branch !== expectedExecutionBranch) {
+    throw new Error(`Control-plane branch mismatch: ${preflight.control_plane.source_branch}`);
+  }
   if (preflight.worker.source_commit !== expectedExecutionCommit) {
     throw new Error(`Scenario worker revision mismatch: ${preflight.worker.source_commit}`);
+  }
+  if (preflight.worker.source_branch !== expectedExecutionBranch) {
+    throw new Error(`Scenario worker branch mismatch: ${preflight.worker.source_branch}`);
   }
   if (preflight.worker.status !== "online" || preflight.worker.current_run_id || preflight.worker.current_intent_id) {
     throw new Error(`Scenario worker is not idle and online: ${preflight.worker.status}`);
@@ -1189,6 +1197,13 @@ function gitRevision(cwd) {
   const result = spawnSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8", windowsHide: true });
   if (result.status !== 0) throw new Error(`Unable to resolve Git revision: ${result.stderr || result.stdout}`);
   return result.stdout.trim();
+}
+
+
+function gitBranch(cwd) {
+  const result = spawnSync("git", ["branch", "--show-current"], { cwd, encoding: "utf8", windowsHide: true });
+  if (result.status !== 0) throw new Error(`Unable to resolve Git branch: ${result.stderr || result.stdout}`);
+  return result.stdout.trim() || "detached";
 }
 
 
