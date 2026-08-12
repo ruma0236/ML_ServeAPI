@@ -81,6 +81,24 @@ class ScenarioWorkloadExecutionRequest(ContractModel):
     request_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+EXECUTION_REQUEST_SIGNED_FIELDS = (
+    "run_id",
+    "preset",
+    "source_commit",
+    "source_branch",
+    "requested_by",
+    "reason",
+    "requested_at",
+)
+
+
+def execution_request_digest_material(
+    request: ScenarioWorkloadExecutionRequest | dict[str, object],
+) -> dict[str, object]:
+    payload = request.model_dump(mode="json") if isinstance(request, ContractModel) else request
+    return {field: payload[field] for field in EXECUTION_REQUEST_SIGNED_FIELDS}
+
+
 class ScenarioWorkloadWorkerHealth(ContractModel):
     schema_version: Literal["evm.scenario_workload_worker.v1"] = (
         "evm.scenario_workload_worker.v1"
@@ -206,7 +224,7 @@ def launch_workload(
     }
     execution = ScenarioWorkloadExecutionRequest(
         **material,
-        request_sha256=payload_sha256(material),
+        request_sha256=payload_sha256(execution_request_digest_material(material)),
     )
     atomic_write_json(
         workload_artifact_path(run.artifact_root) / "execution-request.json",
@@ -228,7 +246,7 @@ def load_execution_request(run_id: str) -> ScenarioWorkloadExecutionRequest:
         )
     except (OSError, ValueError) as exc:
         raise ScenarioWorkloadError("workload_execution_request_invalid", str(exc)) from exc
-    material = request.model_dump(mode="json", exclude={"request_sha256"})
+    material = execution_request_digest_material(request)
     if payload_sha256(material) != request.request_sha256:
         raise ScenarioWorkloadError("workload_execution_request_digest_mismatch", run_id)
     if request.run_id != run.run_id or request.source_commit != run.identity.source_commit:

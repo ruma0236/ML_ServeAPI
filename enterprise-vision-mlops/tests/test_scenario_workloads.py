@@ -6,6 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from evm.control_panel.scenario_workload_control import (
+    ScenarioWorkloadLaunchRequest,
+    launch_workload,
+    load_execution_request,
+)
 from evm.control_panel.scenario_workloads import (
     ScenarioWorkloadError,
     ScenarioWorkloadRequest,
@@ -153,6 +158,64 @@ def test_create_run_seals_exact_data_and_model_identity(tmp_path: Path, monkeypa
         "staging_serving",
         "observability",
     ]
+
+
+def test_execution_request_round_trip_and_tamper_detection(
+    tmp_path: Path, monkeypatch
+) -> None:
+    install_scenario(tmp_path, monkeypatch)
+    monkeypatch.setenv("EVM_SCENARIO_WORKLOAD_CANONICAL_ROOT", str(tmp_path / "runs"))
+    presets = tmp_path / "presets.json"
+    presets.write_text(
+        json.dumps(
+            {
+                "schema_version": "evm.scenario_workload_preset_catalog.v1",
+                "presets": [
+                    {
+                        "preset_id": "smolvlm-test",
+                        "label": "SmolVLM test",
+                        "model_family": "vlm",
+                        "scenario_id": "scienceqa-test",
+                        "model_repository": "HuggingFaceTB/SmolVLM-500M-Instruct",
+                        "model_revision": MODEL_REVISION,
+                        "model_dir": str(tmp_path / "model"),
+                        "data_view_uri": "",
+                        "adaptation_method": "lora",
+                        "quantization_requested": "none",
+                        "max_steps": 8,
+                        "staging_port": 30920,
+                        "production_port": 31020,
+                        "record_counts": {"train": 1, "validation": 0, "test": 0},
+                        "quality_metrics": ["accuracy", "parse_rate"],
+                        "claim_boundary": "Test-only bounded lifecycle.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EVM_SCENARIO_WORKLOAD_PRESETS", str(presets))
+
+    run = launch_workload(
+        ScenarioWorkloadLaunchRequest(
+            preset_id="smolvlm-test",
+            actor="test-operator",
+            reason="Validate the signed execution request round trip",
+        ),
+        source_commit=SOURCE_REVISION,
+        source_branch="codex/test",
+    )
+
+    loaded = load_execution_request(run.run_id)
+    assert loaded.run_id == run.run_id
+    assert loaded.preset.record_counts["train"] == 1
+    request_path = Path(run.artifact_root) / "execution-request.json"
+    tampered = json.loads(request_path.read_text(encoding="utf-8"))
+    tampered["reason"] = "Tampered after the signed request was persisted"
+    request_path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(ScenarioWorkloadError) as error:
+        load_execution_request(run.run_id)
+    assert error.value.code == "workload_execution_request_digest_mismatch"
 
 
 def test_executable_run_fails_closed_for_dirty_or_mismatched_input(

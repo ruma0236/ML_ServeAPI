@@ -80,7 +80,8 @@ def block_unstarted_run(run_id: str, exc: Exception) -> None:
         if run.state != "queued":
             return
         evidence_path = workload_artifact_path(run.artifact_root) / "worker-admission-block.json"
-        blocker = f"scenario_workload_worker_admission_blocked:{type(exc).__name__}:{exc}"
+        error_code = getattr(exc, "code", type(exc).__name__)
+        blocker = f"scenario_workload_worker_admission_blocked:{error_code}:{exc}"
         atomic_write_json(
             evidence_path,
             {
@@ -88,6 +89,9 @@ def block_unstarted_run(run_id: str, exc: Exception) -> None:
                 "status": "blocked",
                 "run_id": run_id,
                 "source_commit": run.identity.source_commit,
+                "error_code": error_code,
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
                 "blockers": [blocker],
                 "observed_at": utc_now(),
             },
@@ -244,6 +248,7 @@ def run_worker(*, once: bool, poll_interval: float, worker_id: str) -> int:
                             {
                                 "run_id": run_id,
                                 "worker_error": str(exc),
+                                "error_code": getattr(exc, "code", None),
                                 "error_type": type(exc).__name__,
                             }
                         ),
