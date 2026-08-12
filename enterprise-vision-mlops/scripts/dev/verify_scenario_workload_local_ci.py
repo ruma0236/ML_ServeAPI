@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -23,23 +24,33 @@ def utc_now() -> str:
 
 def run(command: list[str], *, root: Path, name: str) -> dict[str, Any]:
     started = time.perf_counter()
-    result = subprocess.run(
-        command,
-        cwd=root,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    stdout = result.stdout[-12000:]
-    stderr = result.stderr[-12000:]
+    executable = shutil.which(command[0])
+    if executable is None and sys.platform == "win32":
+        executable = shutil.which(f"{command[0]}.cmd")
+    effective_command = [executable or command[0], *command[1:]]
+    try:
+        result = subprocess.run(
+            effective_command,
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        return_code = result.returncode
+        stdout = result.stdout[-12000:]
+        stderr = result.stderr[-12000:]
+    except OSError as exc:
+        return_code = 127
+        stdout = ""
+        stderr = f"{type(exc).__name__}:{exc}"
     material = (stdout + "\n" + stderr).encode("utf-8")
     return {
         "name": name,
-        "command": command,
-        "status": "pass" if result.returncode == 0 else "fail",
-        "exit_code": result.returncode,
+        "command": effective_command,
+        "status": "pass" if return_code == 0 else "fail",
+        "exit_code": return_code,
         "duration_seconds": round(time.perf_counter() - started, 3),
         "output_sha256": hashlib.sha256(material).hexdigest(),
         "stdout_tail": stdout,
