@@ -1,7 +1,43 @@
 # Live SmolVLM Local-Production Lifecycle Recording
 
 Date: 2026-08-12 KST
-Status: implementation and non-disruptive contract tests complete; live capture requires the recorded preflight to pass
+Status: live execution and media validation passed
+
+## Executed Result
+
+- Source revision: `d6444b542d183bbd51a7782c561cbc962ec0d6b3`
+  on `codex/control-panel-editorial-refresh`.
+- Fresh workload run: `scenario-workload-20260812T141100-b7b5bf5b`,
+  completed `10/10` lifecycle stages.
+- Production intent: `scenario-deploy-ab1e3cb4d4e14d29`, state `applied`.
+- Data: bounded ScienceQA image view with `32/8/8` train, validation and test
+  records. These are counts and are not a benchmark-scale claim.
+- Training: real SmolVLM LoRA on an RTX 4080 SUPER, `8/8` optimizer steps,
+  `6.71512 s`, peak allocated VRAM `7268.164 MiB`.
+- Held-out evaluation: accuracy `0.75`, parse rate `1.0`, p95 latency
+  `0.542367 s` over `8` records. This passes the predeclared bounded local
+  guardrail and is not a general model-quality benchmark.
+- MLflow run: `76332e2680354c60b5649f70f03d8655`, status `FINISHED`.
+- Adapter digest:
+  `9135f9045b92f2bb5914818e47d168187c327307b2ff2826a4d319b78cb6534b`.
+- Final checks: exact `/ready` identity, real CUDA inference, Prometheus target
+  `up`, one allocatable GPU and device plugin `1/1` all passed.
+- Recording: `172.33 s`, `1440x900`, declared `60 fps`, H.264/AAC, faststart,
+  seek proof, `23` scenes, `23` captions, and zero functional browser errors.
+- Canonical session root:
+  `F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/control-panel-live-production-lifecycle/2026-08-12/sessions/smolvlm-20260812t141036z`.
+
+One advisory was retained rather than hidden: the browser requested
+`/favicon.ico` from the standalone production readiness endpoint and received
+HTTP `404`. The serving log binds that advisory to the favicon path; readiness,
+inference and metrics requests all passed.
+
+During the first successful capture QA, a transient Windows reader lock on the
+F-drive heartbeat JSON terminated the workload worker after production apply.
+The shared runtime atomic writer now retries bounded `PermissionError` failures
+and removes temporary files. A deterministic regression test passes, and the
+final execution retained an online idle heartbeat across eight independent
+five-second samples after capture.
 
 ## Purpose And Claim Boundary
 
