@@ -8,6 +8,7 @@ import pytest
 from evm.model_runtime.common import ModelRuntimeError
 from evm.model_runtime.workload_runner import (
     ScenarioExecutionConfig,
+    mark_stage_failed,
     staging_approval,
     verify_base_model_bundle,
     write_prometheus_target,
@@ -96,3 +97,30 @@ def test_base_model_bundle_fails_closed_before_runtime_side_effects(tmp_path: Pa
     )
     with pytest.raises(ModelRuntimeError, match="base_model_revision_path_mismatch"):
         verify_base_model_bundle(mismatched)
+
+
+def test_post_stage_closure_failure_marks_run_terminal(tmp_path: Path, monkeypatch) -> None:
+    failure = tmp_path / "failure.json"
+    failure.write_text("{}", encoding="utf-8")
+    run = SimpleNamespace(
+        stages=[SimpleNamespace(stage_id="observability", state="completed")]
+    )
+    calls: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        "evm.model_runtime.workload_runner.get_workload_run",
+        lambda _run_id: run,
+    )
+    monkeypatch.setattr(
+        "evm.model_runtime.workload_runner.fail_workload_run",
+        lambda _run_id, **kwargs: calls.append(kwargs),
+    )
+
+    mark_stage_failed("run-1", "observability", failure, RuntimeError("seal failed"))
+
+    assert calls == [
+        {
+            "actor": "scenario-workload-runtime",
+            "blocker": "RuntimeError:seal failed",
+            "evidence_uri": str(failure),
+        }
+    ]

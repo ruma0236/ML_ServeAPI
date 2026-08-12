@@ -20,6 +20,7 @@ from evm.control_panel.scenario_workloads import (
     acquire_gpu_lease,
     assert_gpu_lease_owner,
     create_workload_run,
+    fail_workload_run,
     get_workload_run,
     release_gpu_lease,
     seal_workload_run,
@@ -524,6 +525,14 @@ def mark_stage_failed(run_id: str, stage_id: str, path: Path, exc: Exception) ->
     try:
         run = get_workload_run(run_id)
         stage = next(item for item in run.stages if item.stage_id == stage_id)
+        if stage.state in {"completed", "skipped"}:
+            fail_workload_run(
+                run_id,
+                actor="scenario-workload-runtime",
+                blocker=f"{type(exc).__name__}:{exc}",
+                evidence_uri=str(path),
+            )
+            return
         target_state = "blocked" if stage.state == "waiting_approval" else "failed"
         transition_workload_stage(
             run_id,

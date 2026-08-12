@@ -268,6 +268,24 @@ def canonical_data_path(value: str | Path) -> Path:
     return Path(normalized)
 
 
+def resolve_existing_data_path(value: str | Path) -> Path:
+    candidates = (
+        workload_artifact_path(value),
+        canonical_data_path(value),
+        map_runtime_data_path(value),
+        Path(value),
+    )
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate).replace("\\", "/").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
 def gpu_lease_root() -> Path:
     return Path(
         os.getenv(
@@ -791,7 +809,7 @@ def seal_workload_run(run_id: str, *, actor: str) -> ScenarioWorkloadRun:
                 raise ScenarioWorkloadError(
                     "workload_stage_evidence_missing", stage.stage_id
                 )
-            path = mapped_path(stage.evidence_uri)
+            path = resolve_existing_data_path(stage.evidence_uri)
             digest = require_file_sha256(path, f"stage_{stage.stage_id}_evidence")
             entries.append(
                 {
@@ -801,7 +819,7 @@ def seal_workload_run(run_id: str, *, actor: str) -> ScenarioWorkloadRun:
                     "sha256": digest,
                 }
             )
-        artifact_path = mapped_path(str(run.model_artifact_uri))
+        artifact_path = resolve_existing_data_path(str(run.model_artifact_uri))
         artifact_digest = require_file_sha256(artifact_path, "model_artifact")
         if artifact_digest != run.model_artifact_sha256:
             raise ScenarioWorkloadError(
@@ -832,6 +850,35 @@ def seal_workload_run(run_id: str, *, actor: str) -> ScenarioWorkloadRun:
                 "scenario_workload_evidence_sealed",
                 evidence_index_sha256=index_sha256,
                 entry_count=len(entries),
+            )
+        )
+        write_run(run)
+        return run
+
+
+def fail_workload_run(
+    run_id: str,
+    *,
+    actor: str,
+    blocker: str,
+    evidence_uri: str,
+) -> ScenarioWorkloadRun:
+    with file_lock(workload_root() / run_id / ".transition.lock", "workload_failure"):
+        run = get_workload_run(run_id)
+        if run.state in {"failed", "blocked", "completed", "cancelled"}:
+            return run
+        now = utc_now()
+        run.state = "failed"
+        run.blockers = sorted(set([*run.blockers, blocker]))
+        run.finished_at = now
+        run.updated_at = now
+        run.version += 1
+        run.audit.append(
+            audit(
+                actor,
+                "scenario_workload_closure_failed",
+                blocker=blocker,
+                evidence_uri=evidence_uri,
             )
         )
         write_run(run)

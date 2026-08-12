@@ -19,6 +19,7 @@ from evm.control_panel.scenario_workloads import (
     create_workload_run,
     get_workload_run,
     release_gpu_lease,
+    resolve_existing_data_path,
     seal_workload_run,
     transition_workload_stage,
     update_workload_results,
@@ -428,3 +429,21 @@ def test_evidence_seal_rehashes_all_stages_and_model_artifact(
     index = json.loads(index_path.read_text(encoding="utf-8"))
     assert index["entry_count"] == 10
     assert completed.evidence_index_sha256 == sha256(index_path)
+
+
+def test_existing_data_path_resolves_host_and_mount_forms(
+    tmp_path: Path, monkeypatch
+) -> None:
+    host_root = tmp_path / "host-data"
+    evidence = host_root / "artifacts" / "runs" / "evidence.json"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(host_root))
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
+    monkeypatch.setenv("EVM_SCENARIO_WORKLOAD_CANONICAL_ROOT", str(host_root / "artifacts"))
+    monkeypatch.setenv("EVM_SCENARIO_WORKLOAD_ROOT", str(host_root / "artifacts"))
+
+    assert resolve_existing_data_path(evidence) == evidence
+    assert resolve_existing_data_path(
+        "/mnt/evm-data/artifacts/runs/evidence.json"
+    ) == evidence
