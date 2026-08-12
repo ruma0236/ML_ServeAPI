@@ -407,10 +407,12 @@ def read_worker_health(*, stale_after_seconds: float = 15.0) -> ScenarioWorkload
         status = str(payload.get("status") or "offline")
         if age > stale_after_seconds:
             status = "stale"
-        return ScenarioWorkloadWorkerHealth(
-            **payload,
-            status=status,
-            heartbeat_age_seconds=age,
+        return ScenarioWorkloadWorkerHealth.model_validate(
+            {
+                **payload,
+                "status": status,
+                "heartbeat_age_seconds": age,
+            }
         )
     except (KeyError, OSError, TypeError, ValueError) as exc:
         return ScenarioWorkloadWorkerHealth(status="offline", message=f"invalid heartbeat: {exc}")

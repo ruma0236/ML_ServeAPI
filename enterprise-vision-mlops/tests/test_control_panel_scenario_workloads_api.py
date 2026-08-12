@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import HTTPException
 
 from apps.api.control_panel_workloads import scenario_workload_run, scenario_workload_runs
+from evm.control_panel.scenario_workload_control import read_worker_health
 
 
 def test_scenario_workload_api_lists_persisted_runs(tmp_path: Path, monkeypatch) -> None:
@@ -115,3 +117,35 @@ def test_scenario_workload_api_maps_missing_run_to_404(tmp_path: Path, monkeypat
         assert exc.status_code == 404
     else:
         raise AssertionError("missing workload must return HTTP 404")
+
+
+def test_scenario_workload_worker_health_overrides_persisted_status(
+    tmp_path: Path, monkeypatch
+) -> None:
+    heartbeat = tmp_path / "worker.json"
+    heartbeat.write_text(
+        json.dumps(
+            {
+                "schema_version": "evm.scenario_workload_worker.v1",
+                "status": "online",
+                "worker_id": "worker-1",
+                "pid": 42,
+                "source_commit": "a" * 40,
+                "source_branch": "codex/test",
+                "started_at": "2026-08-12T00:00:00Z",
+                "last_seen_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "current_run_id": None,
+                "current_intent_id": None,
+                "message": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EVM_SCENARIO_WORKLOAD_WORKER_PATH", str(heartbeat))
+
+    health = read_worker_health(stale_after_seconds=15)
+
+    assert health.status == "online"
+    assert health.worker_id == "worker-1"
+    assert health.heartbeat_age_seconds is not None
+    assert health.heartbeat_age_seconds < 15
