@@ -1,0 +1,50 @@
+{
+  "schema_version": "evm.scenario_workload_preset_catalog.v1",
+  "presets": [
+    {
+      "preset_id": "smolvlm-scienceqa-local-production",
+      "label": "SmolVLM / ScienceQA",
+      "model_family": "vlm",
+      "scenario_id": "scienceqa-vlm-evaluation",
+      "model_repository": "HuggingFaceTB/SmolVLM-500M-Instruct",
+      "model_revision": "a7da5b986cb59b408707209984f360a5f4ad7e47",
+      "model_dir": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/models/base/smolvlm-500m-instruct",
+      "data_view_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenario_workloads/scienceqa-vlm-evaluation/scienceqa-local-adapt-v1-48/evidence/data_view.json",
+      "adaptation_method": "lora",
+      "quantization_requested": "none",
+      "max_steps": 8,
+      "staging_port": 30920,
+      "production_port": 31020,
+      "record_counts": {
+        "train": 32,
+        "validation": 8,
+        "test": 8
+      },
+      "quality_metrics": ["accuracy", "parse_rate"],
+      "claim_boundary": "Bounded real SmolVLM LoRA validation and local-production serving on one RTX 4080; not a ScienceQA benchmark or HA claim."
+    },
+    {
+      "preset_id": "qwen-dolly-local-production",
+      "label": "Qwen 0.5B / Dolly",
+      "model_family": "llm",
+      "scenario_id": "dolly-instruction-tuning",
+      "model_repository": "Qwen/Qwen2.5-0.5B-Instruct",
+      "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+      "model_dir": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/models/base/qwen2.5-0.5b-instruct",
+      "data_view_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenario_workloads/dolly-instruction-tuning/dolly-qlora-v1-320/evidence/data_view.json",
+      "quality_disposition_uri": "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/data/scenario_workloads/dolly-instruction-tuning/dolly-qlora-v1-320/evidence/quality_disposition.json",
+      "adaptation_method": "qlora",
+      "quantization_requested": "int4_nf4",
+      "max_steps": 24,
+      "staging_port": 30921,
+      "production_port": 31021,
+      "record_counts": {
+        "train": 256,
+        "validation": 32,
+        "test": 32
+      },
+      "quality_metrics": ["validation_loss", "mean_token_f1", "nonempty_rate"],
+      "claim_boundary": "Bounded real Qwen QLoRA validation and local-production serving on one RTX 4080; not a privacy audit, HA, or throughput claim."
+    }
+  ]
+}

@@ -7633,6 +7633,216 @@ summary:focus-visible {
   gap: 12px;
 }
 
+.scenario-production-banner,
+.scenario-command-center,
+.scenario-action-rail,
+.scenario-production-intent,
+.scenario-training-progress {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.scenario-production-banner {
+  display: grid;
+  grid-template-columns: minmax(230px, 1.25fr) minmax(140px, 0.8fr) minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  min-height: 58px;
+  padding: 9px 13px;
+  border-left: 3px solid var(--line-strong);
+}
+
+.scenario-production-banner.is-live { border-left-color: var(--success); }
+.scenario-production-banner > div { display: grid; min-width: 0; gap: 2px; }
+.scenario-production-banner > div:first-child { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 9px; }
+.scenario-production-banner > div:first-child > span { display: grid; min-width: 0; }
+.scenario-production-banner small,
+.scenario-production-banner > div > span { color: var(--text-muted); font-size: 0.58rem; text-transform: uppercase; }
+.scenario-production-banner strong,
+.scenario-production-banner code { overflow: hidden; font-size: 0.7rem; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-production-banner.is-live > div:first-child > svg { color: var(--success); }
+
+.scenario-command-center {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+}
+
+.scenario-command-center > header,
+.scenario-action-rail > header,
+.scenario-production-intent > header,
+.scenario-training-progress > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.scenario-command-center > header > div,
+.scenario-action-rail > header > div,
+.scenario-production-intent > header > div,
+.scenario-training-progress > header > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.scenario-command-center > header > div > div,
+.scenario-action-rail > header > div > div,
+.scenario-production-intent > header span,
+.scenario-training-progress > header span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.command-index {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  color: var(--accent-strong);
+  font: 800 0.62rem var(--mono);
+}
+
+.scenario-command-center header strong,
+.scenario-action-rail header strong { font-size: 0.78rem; }
+.scenario-command-center header small,
+.scenario-action-rail header small,
+.scenario-production-intent header small,
+.scenario-training-progress header small { color: var(--text-muted); font-size: 0.61rem; }
+
+.scenario-worker {
+  display: flex;
+  min-width: 180px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.scenario-worker > i { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+.scenario-worker.worker-online > i,
+.scenario-worker.worker-busy > i { background: var(--success); box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 13%, transparent); }
+.scenario-worker.worker-busy > i { animation: scenario-stage-pulse 1.2s infinite; }
+.scenario-worker.worker-stale > i { background: var(--warning); }
+.scenario-worker > span { display: grid; gap: 1px; }
+.scenario-worker strong { font-size: 0.67rem; text-transform: uppercase; }
+.scenario-worker small { max-width: 210px; overflow: hidden; color: var(--text-muted); font-size: 0.58rem; text-overflow: ellipsis; white-space: nowrap; }
+
+.scenario-command-grid {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.85fr) minmax(140px, 0.55fr) minmax(300px, 1.5fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.scenario-command-grid label,
+.scenario-approval-fields label { display: grid; min-width: 0; gap: 4px; }
+.scenario-command-grid label > span,
+.scenario-approval-fields label > span { color: var(--text-muted); font-size: 0.57rem; font-weight: 800; text-transform: uppercase; }
+.scenario-command-grid input,
+.scenario-command-grid select,
+.scenario-approval-fields input {
+  width: 100%;
+  min-height: 35px;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface-raised);
+  font: inherit;
+  font-size: 0.69rem;
+}
+.scenario-command-grid .primary-action { min-height: 35px; white-space: nowrap; }
+
+.scenario-preset-summary {
+  display: grid;
+  grid-template-columns: 44px minmax(220px, 1fr) auto auto;
+  align-items: center;
+  gap: 11px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.scenario-preset-summary > div { display: grid; min-width: 0; gap: 2px; }
+.scenario-preset-summary > div > strong { overflow: hidden; font-size: 0.7rem; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-preset-summary > div > small,
+.scenario-preset-summary > code { color: var(--text-muted); font-size: 0.6rem; }
+.preset-splits { display: flex !important; flex-direction: row; gap: 12px !important; }
+.preset-splits > span { display: grid; gap: 1px; text-align: right; }
+.preset-splits small { color: var(--text-muted); font-size: 0.53rem; text-transform: uppercase; }
+.preset-splits strong { font: 800 0.68rem var(--mono); }
+.command-boundary,
+.scenario-notice { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--text-muted); font-size: 0.64rem; }
+.command-boundary code { color: var(--accent-strong); }
+.scenario-notice { color: var(--success); }
+
+.scenario-action-rail {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border-left: 3px solid var(--accent);
+}
+.scenario-action-rail > header > code { color: var(--text-muted); font-size: 0.6rem; }
+.scenario-approval-fields { display: grid; grid-template-columns: minmax(170px, 0.5fr) minmax(280px, 1.5fr); gap: 8px; }
+.scenario-action-buttons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.scenario-action {
+  display: flex;
+  min-width: 0;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--text);
+  background: var(--surface-raised);
+  text-align: left;
+  cursor: pointer;
+}
+.scenario-action > span { display: grid; min-width: 0; gap: 2px; }
+.scenario-action strong,
+.scenario-action small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-action strong { font-size: 0.65rem; }
+.scenario-action small { color: var(--text-muted); font-size: 0.55rem; text-transform: capitalize; }
+.scenario-action:not(:disabled):hover { border-color: var(--accent); background: var(--accent-muted); }
+.scenario-action:disabled { cursor: not-allowed; opacity: 0.5; }
+.scenario-action.is-done { border-color: color-mix(in srgb, var(--success) 50%, var(--line)); color: var(--success); opacity: 1; }
+
+.scenario-training-progress {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border-left: 3px solid var(--accent);
+}
+.scenario-training-progress > div { height: 6px; overflow: hidden; border-radius: 999px; background: var(--line); }
+.scenario-training-progress > div > i { display: block; height: 100%; border-radius: inherit; background-color: var(--accent); background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.25) 0 7px, transparent 7px 14px); background-size: 22px 22px; animation: scenario-progress-flow 1.2s linear infinite; transition: width .3s ease; }
+.scenario-training-progress > header > strong { font: 900 0.88rem var(--mono); }
+.scenario-training-progress footer { display: flex; gap: 24px; color: var(--text-muted); font-size: 0.59rem; }
+.scenario-training-progress footer strong { color: var(--text); font-family: var(--mono); }
+
+.scenario-production-intent { display: grid; gap: 11px; margin-top: 14px; padding: 12px; border-left: 3px solid var(--warning); }
+.scenario-production-intent.state-applied { border-left-color: var(--success); }
+.scenario-production-intent.state-failed { border-left-color: var(--danger); }
+.scenario-production-intent header svg { color: var(--accent-strong); }
+.scenario-production-intent header code { color: var(--text-muted); font-size: 0.6rem; }
+.intent-flow { display: grid; grid-template-columns: auto minmax(20px, 1fr) auto minmax(20px, 1fr) auto minmax(20px, 1fr) auto; align-items: center; gap: 7px; }
+.intent-flow span { color: var(--text-muted); font-size: 0.58rem; font-weight: 800; text-transform: uppercase; }
+.intent-flow span.done { color: var(--success); }
+.intent-flow i { height: 2px; background: var(--line); }
+.scenario-production-intent footer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: 10px; }
+.scenario-production-intent footer > span { display: grid; min-width: 0; gap: 3px; }
+.scenario-production-intent footer small { color: var(--text-muted); font-size: 0.55rem; text-transform: uppercase; }
+.scenario-production-intent footer code { overflow: hidden; font-size: 0.59rem; text-overflow: ellipsis; white-space: nowrap; }
+.intent-blockers { display: grid; gap: 3px; color: var(--danger); }
+.intent-blockers code { font-size: 0.59rem; overflow-wrap: anywhere; }
+.spin { animation: scenario-spin .8s linear infinite; }
+@keyframes scenario-spin { to { transform: rotate(360deg); } }
+
 .scenario-workload-header {
   min-height: 68px;
   padding: 11px 0 10px;
@@ -7977,6 +8187,11 @@ summary:focus-visible {
   .lifecycle-map button {
     min-width: 158px;
   }
+
+  .scenario-command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scenario-command-grid .primary-action { align-self: stretch; }
+  .scenario-action-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scenario-production-banner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {

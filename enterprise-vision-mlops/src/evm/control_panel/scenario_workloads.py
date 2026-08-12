@@ -240,6 +240,34 @@ def workload_root() -> Path:
     )
 
 
+def canonical_workload_root() -> Path:
+    return Path(
+        os.getenv(
+            "EVM_SCENARIO_WORKLOAD_CANONICAL_ROOT",
+            str(workload_root()),
+        )
+    )
+
+
+def workload_artifact_path(value: str | Path) -> Path:
+    normalized = str(value).replace("\\", "/")
+    canonical = str(canonical_workload_root()).replace("\\", "/").rstrip("/")
+    runtime = workload_root()
+    if canonical and normalized.lower().startswith(canonical.lower()):
+        relative = normalized[len(canonical) :].lstrip("/")
+        return runtime / Path(relative)
+    return map_runtime_data_path(value)
+
+
+def canonical_data_path(value: str | Path) -> Path:
+    normalized = str(value).replace("\\", "/")
+    host_root = os.getenv("EVM_HOST_DATA_ROOT", "").replace("\\", "/").rstrip("/")
+    mount_root = os.getenv("EVM_DATA_MOUNT_ROOT", "").replace("\\", "/").rstrip("/")
+    if host_root and mount_root and normalized.lower().startswith(mount_root.lower()):
+        normalized = f"{host_root}{normalized[len(mount_root):]}"
+    return Path(normalized)
+
+
 def gpu_lease_root() -> Path:
     return Path(
         os.getenv(
@@ -284,7 +312,7 @@ def create_workload_run(request: ScenarioWorkloadRequest) -> ScenarioWorkloadRun
         f"scenario-workload-{created_at.replace(':', '').replace('-', '').replace('Z', '')}"
         f"-{uuid4().hex[:8]}"
     )
-    artifact_root = workload_root() / run_id
+    artifact_root = canonical_workload_root() / run_id
     stages = [
         WorkloadStage(stage_id=stage_id, label=label, runtime=runtime)
         for stage_id, label, runtime in STAGE_SPECS
@@ -438,15 +466,17 @@ def resolve_workload_identity(
         scenario_id=scenario.scenario_id,
         dataset_id=scenario.dataset.dataset_id,
         dataset_version=scenario.dataset.dataset_version,
-        manifest_uri=str(manifest_path),
+        manifest_uri=str(canonical_data_path(manifest_path)),
         manifest_sha256=manifest_sha256,
-        split_manifest_uri=str(split_path),
+        split_manifest_uri=str(canonical_data_path(split_path)),
         split_manifest_sha256=split_sha256,
         data_identity_sha256=data_identity,
         quality_status=quality_status,
-        quality_report_uri=str(quality_path),
-        quality_disposition_uri=disposition_uri,
-        data_view_uri=data_view_uri,
+        quality_report_uri=str(canonical_data_path(quality_path)),
+        quality_disposition_uri=(
+            str(canonical_data_path(disposition_uri)) if disposition_uri else None
+        ),
+        data_view_uri=str(canonical_data_path(data_view_uri)) if data_view_uri else None,
         model_family=request.model_family,
         model_repository=request.model_repository,
         model_revision=request.model_revision,
@@ -777,7 +807,7 @@ def seal_workload_run(run_id: str, *, actor: str) -> ScenarioWorkloadRun:
             raise ScenarioWorkloadError(
                 "workload_model_artifact_digest_mismatch", artifact_digest
             )
-        index_path = Path(run.artifact_root) / "evidence-index.json"
+        index_path = workload_artifact_path(run.artifact_root) / "evidence-index.json"
         payload = {
             "schema_version": "evm.scenario_workload_evidence_index.v1",
             "run_id": run.run_id,

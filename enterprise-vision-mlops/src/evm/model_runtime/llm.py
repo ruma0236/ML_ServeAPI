@@ -44,6 +44,7 @@ class QwenTrainingConfig:
     evaluation_records: int = 8
     mlflow_tracking_uri: str = "http://127.0.0.1:5000"
     mlflow_experiment_name: str = "enterprise-mlops-real-llm"
+    progress_path: Path | None = None
 
 
 def instruction_content(record: dict[str, Any]) -> str:
@@ -182,6 +183,20 @@ def train_qwen_qlora(config: QwenTrainingConfig) -> dict[str, Any]:
                 "observed_at": utc_now(),
             }
         )
+        if config.progress_path is not None:
+            atomic_write_json(
+                config.progress_path,
+                {
+                    "schema_version": "evm.scenario_training_progress.v1",
+                    "model_family": "llm",
+                    "lifecycle_run_id": config.lifecycle_run_id,
+                    "current_step": len(history),
+                    "max_steps": config.max_steps,
+                    "progress": round(len(history) / config.max_steps, 6),
+                    "latest_loss": history[-1]["loss"],
+                    "observed_at": history[-1]["observed_at"],
+                },
+            )
     training_seconds = round(time.perf_counter() - started, 6)
     model.eval()
     adapted = evaluate_qwen(

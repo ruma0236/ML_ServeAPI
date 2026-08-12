@@ -4,6 +4,7 @@ param(
     [switch]$NoKubernetesGpuReconcile,
     [switch]$NoKubernetesObserver,
     [switch]$NoLifecycleWorker,
+    [switch]$NoScenarioWorkloadWorker,
     [switch]$NoHostRuntimeSupervisor
 )
 
@@ -109,6 +110,9 @@ try {
         if (-not $NoLifecycleWorker) {
             & (Join-Path $PSScriptRoot "start_lifecycle_worker.ps1") -Restart
         }
+    }
+    if (-not $NoScenarioWorkloadWorker) {
+        & (Join-Path $PSScriptRoot "start_scenario_workload_worker.ps1") -Restart
     }
 }
 finally {

@@ -294,11 +294,15 @@ services:
       EVM_DRIFT_REVIEW_ROOT: /app/artifacts/w7/drift_review
       EVM_DECISION_REGISTRY_ROOT: /app/artifacts/governance/decisions
       EVM_SCENARIO_WORKLOAD_ROOT: /app/artifacts/scenario_workloads
+      EVM_SCENARIO_WORKLOAD_CANONICAL_ROOT: ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/scenario_workloads
+      EVM_SCENARIO_WORKLOAD_PRESETS: /app/configs/scenario_workloads/live-presets.json
+      EVM_SCENARIO_WORKLOAD_CI_EVIDENCE_PATH: /app/artifacts/scenario_workloads/_production/local-ci-evidence.json
       EVM_SCENARIO_GPU_LEASE_ROOT: /mnt/evm-data/runtime/gpu-lease
     ports:
       - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:8000:8000"
     volumes:
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}:/app/artifacts:ro
+      - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/scenario_workloads:/app/artifacts/scenario_workloads
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/w7:/app/artifacts/w7
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/w8:/app/artifacts/w8
       - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/governance:/app/artifacts/governance

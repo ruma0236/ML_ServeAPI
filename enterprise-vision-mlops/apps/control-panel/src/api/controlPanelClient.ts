@@ -47,6 +47,10 @@ import type {
   ScenarioIntakeLaunchRequest,
   ScenarioWorkloadRun,
   ScenarioWorkloadRunList,
+  ScenarioWorkloadPresetCatalog,
+  ScenarioWorkloadWorkerState,
+  ScenarioProductionIntent,
+  ScenarioProductionIntentList,
   StageHandoffCatalog,
   TaskAssignment,
   TaskAssignmentList,
@@ -507,6 +511,124 @@ export async function fetchScenarioWorkload(
   );
   if (!response.ok) throw await controlPanelError(response, "Scenario workload request failed");
   return (await response.json()) as ScenarioWorkloadRun;
+}
+
+export async function fetchScenarioWorkloadPresets(
+  baseUrl = API_BASE
+): Promise<ScenarioWorkloadPresetCatalog> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/scenario-workloads/presets`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw await controlPanelError(response, "Scenario workload presets failed");
+  return (await response.json()) as ScenarioWorkloadPresetCatalog;
+}
+
+export async function fetchScenarioWorkloadWorker(
+  baseUrl = API_BASE
+): Promise<ScenarioWorkloadWorkerState> {
+  const response = await fetch(`${baseUrl}/control-panel/v1/scenario-workloads/worker`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw await controlPanelError(response, "Scenario workload worker failed");
+  return (await response.json()) as ScenarioWorkloadWorkerState;
+}
+
+export async function launchScenarioWorkload(
+  request: { preset_id: string; actor: string; reason: string },
+  baseUrl = API_BASE
+): Promise<ScenarioWorkloadRun> {
+  return scenarioMutation("/control-panel/v1/scenario-workloads", request, "Workload launch failed", baseUrl);
+}
+
+export async function approveScenarioGpuHandoff(
+  runId: string,
+  request: { actor: string; reason: string },
+  baseUrl = API_BASE
+): Promise<ScenarioWorkloadRun> {
+  return scenarioMutation(
+    `/control-panel/v1/scenario-workloads/${encodeURIComponent(runId)}/approve-gpu-handoff`,
+    request,
+    "GPU handoff approval failed",
+    baseUrl
+  );
+}
+
+export async function approveScenarioStaging(
+  runId: string,
+  request: { actor: string; reason: string },
+  baseUrl = API_BASE
+): Promise<ScenarioWorkloadRun> {
+  return scenarioMutation(
+    `/control-panel/v1/scenario-workloads/${encodeURIComponent(runId)}/approve-staging`,
+    request,
+    "Staging approval failed",
+    baseUrl
+  );
+}
+
+export async function fetchScenarioProductionIntents(
+  baseUrl = API_BASE
+): Promise<ScenarioProductionIntentList> {
+  const response = await fetch(
+    `${baseUrl}/control-panel/v1/scenario-workloads/production-intents?limit=100`,
+    { headers: { Accept: "application/json" } }
+  );
+  if (!response.ok) throw await controlPanelError(response, "Production intent list failed");
+  return (await response.json()) as ScenarioProductionIntentList;
+}
+
+export async function createScenarioProductionIntent(
+  runId: string,
+  request: { actor: string; reason: string },
+  baseUrl = API_BASE
+): Promise<ScenarioProductionIntent> {
+  return scenarioMutation(
+    `/control-panel/v1/scenario-workloads/${encodeURIComponent(runId)}/production-intents`,
+    request,
+    "Production intent creation failed",
+    baseUrl
+  );
+}
+
+export async function approveScenarioProductionIntent(
+  intentId: string,
+  request: { actor: string; reason: string },
+  baseUrl = API_BASE
+): Promise<ScenarioProductionIntent> {
+  return scenarioMutation(
+    `/control-panel/v1/scenario-workloads/production-intents/${encodeURIComponent(intentId)}/approve`,
+    request,
+    "Production approval failed",
+    baseUrl
+  );
+}
+
+export async function rollbackScenarioProductionIntent(
+  intentId: string,
+  request: { actor: string; reason: string },
+  baseUrl = API_BASE
+): Promise<ScenarioProductionIntent> {
+  return scenarioMutation(
+    `/control-panel/v1/scenario-workloads/production-intents/${encodeURIComponent(intentId)}/rollback`,
+    request,
+    "Production rollback request failed",
+    baseUrl
+  );
+}
+
+async function scenarioMutation<T>(
+  path: string,
+  request: object,
+  label: string,
+  baseUrl: string
+): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) throw await controlPanelError(response, label);
+  return (await response.json()) as T;
 }
 
 export async function fetchExperimentRun(

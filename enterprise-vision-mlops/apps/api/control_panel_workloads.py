@@ -17,6 +17,31 @@ from evm.control_panel.scenario_workloads import (
     list_workload_runs,
     read_active_gpu_lease,
 )
+from evm.control_panel.scenario_workload_control import (
+    ScenarioWorkloadApprovalRequest,
+    ScenarioWorkloadLaunchRequest,
+    ScenarioWorkloadGpuHandoffRequest,
+    ScenarioWorkloadPresetCatalog,
+    ScenarioWorkloadWorkerHealth,
+    issue_staging_approval,
+    issue_gpu_handoff_request,
+    launch_workload,
+    load_preset_catalog,
+    read_worker_health,
+)
+from evm.control_panel.scenario_workload_production import (
+    ScenarioProductionApprovalRequest,
+    ScenarioProductionIntent,
+    ScenarioProductionIntentList,
+    ScenarioProductionRequest,
+    ScenarioProductionRollbackRequest,
+    approve_production_intent,
+    create_production_intent,
+    current_production_intent,
+    get_production_intent,
+    list_production_intents,
+    request_production_rollback,
+)
 
 
 router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-workloads"])
@@ -41,6 +66,8 @@ class WorkloadEvaluationSummary(BaseModel):
 
 class ScenarioWorkloadRunView(ScenarioWorkloadRun):
     evaluation_summary: WorkloadEvaluationSummary | None = None
+    training_progress: dict[str, object] | None = None
+    control_state: dict[str, object] = Field(default_factory=dict)
 
 
 class ScenarioWorkloadRunListView(BaseModel):
@@ -55,6 +82,117 @@ def scenario_workload_runs(limit: int = 100) -> ScenarioWorkloadRunListView:
         runs=[_workload_view(run) for run in listed.runs],
         total=listed.total,
     )
+
+
+@router.get("/scenario-workloads/presets", response_model=ScenarioWorkloadPresetCatalog)
+def scenario_workload_presets() -> ScenarioWorkloadPresetCatalog:
+    return workload_operation(load_preset_catalog)
+
+
+@router.get("/scenario-workloads/worker", response_model=ScenarioWorkloadWorkerHealth)
+def scenario_workload_worker() -> ScenarioWorkloadWorkerHealth:
+    return read_worker_health()
+
+
+@router.post("/scenario-workloads", response_model=ScenarioWorkloadRunView, status_code=202)
+def launch_scenario_workload(request: ScenarioWorkloadLaunchRequest) -> ScenarioWorkloadRunView:
+    source_commit = os.getenv("GIT_COMMIT", "").strip() or os.getenv("EVM_GIT_COMMIT", "").strip()
+    source_branch = os.getenv("GIT_BRANCH", "").strip() or os.getenv("EVM_GIT_BRANCH", "").strip()
+    return _workload_view(
+        workload_operation(
+            lambda: launch_workload(
+                request,
+                source_commit=source_commit,
+                source_branch=source_branch,
+            )
+        )
+    )
+
+
+@router.post(
+    "/scenario-workloads/{run_id}/approve-gpu-handoff",
+    response_model=ScenarioWorkloadRunView,
+    status_code=202,
+)
+def approve_scenario_workload_gpu_handoff(
+    run_id: str,
+    request: ScenarioWorkloadGpuHandoffRequest,
+) -> ScenarioWorkloadRunView:
+    workload_operation(lambda: issue_gpu_handoff_request(run_id, request))
+    return _workload_view(get_workload_run(run_id))
+
+
+@router.post(
+    "/scenario-workloads/{run_id}/approve-staging",
+    response_model=ScenarioWorkloadRunView,
+    status_code=202,
+)
+def approve_scenario_workload_staging(
+    run_id: str,
+    request: ScenarioWorkloadApprovalRequest,
+) -> ScenarioWorkloadRunView:
+    workload_operation(lambda: issue_staging_approval(run_id, request))
+    return _workload_view(get_workload_run(run_id))
+
+
+@router.get(
+    "/scenario-workloads/production-intents",
+    response_model=ScenarioProductionIntentList,
+)
+def scenario_production_intents(limit: int = 100) -> ScenarioProductionIntentList:
+    return list_production_intents(limit=limit)
+
+
+@router.get(
+    "/scenario-workloads/production-intents/current",
+    response_model=ScenarioProductionIntent | None,
+)
+def scenario_current_production_intent() -> ScenarioProductionIntent | None:
+    return current_production_intent()
+
+
+@router.post(
+    "/scenario-workloads/{run_id}/production-intents",
+    response_model=ScenarioProductionIntent,
+    status_code=202,
+)
+def create_scenario_production_intent(
+    run_id: str,
+    request: ScenarioProductionRequest,
+) -> ScenarioProductionIntent:
+    return workload_operation(lambda: create_production_intent(run_id, request))
+
+
+@router.post(
+    "/scenario-workloads/production-intents/{intent_id}/approve",
+    response_model=ScenarioProductionIntent,
+    status_code=202,
+)
+def approve_scenario_production_intent(
+    intent_id: str,
+    request: ScenarioProductionApprovalRequest,
+) -> ScenarioProductionIntent:
+    return workload_operation(lambda: approve_production_intent(intent_id, request))
+
+
+@router.post(
+    "/scenario-workloads/production-intents/{intent_id}/rollback",
+    response_model=ScenarioProductionIntent,
+    status_code=202,
+)
+def rollback_scenario_production_intent(
+    intent_id: str,
+    request: ScenarioProductionRollbackRequest,
+) -> ScenarioProductionIntent:
+    return workload_operation(lambda: request_production_rollback(intent_id, request))
+
+
+@router.get(
+    "/scenario-workloads/production-intents/{intent_id}",
+    response_model=ScenarioProductionIntent,
+)
+def scenario_production_intent(intent_id: str) -> ScenarioProductionIntent:
+    return workload_operation(lambda: get_production_intent(intent_id))
 
 
 @router.get("/scenario-workloads/gpu-lease", response_model=GpuLease | None)
@@ -73,13 +211,58 @@ def scenario_workload_run(run_id: str) -> ScenarioWorkloadRunView:
         ) from exc
 
 
+def workload_operation(operation):
+    try:
+        return operation()
+    except ScenarioWorkloadError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": str(exc)},
+        ) from exc
+
+
 def _workload_view(run: ScenarioWorkloadRun) -> ScenarioWorkloadRunView:
     return ScenarioWorkloadRunView.model_validate(
         {
             **run.model_dump(mode="json"),
             "evaluation_summary": _evaluation_summary(run),
+            "training_progress": _training_progress(run),
+            "control_state": _control_state(run),
         }
     )
+
+
+def _control_state(run: ScenarioWorkloadRun) -> dict[str, object]:
+    root = _resolve_data_path(run.artifact_root)
+    handoff = _read_json(root / "gpu-handoff-request.json")
+    staging = _read_json(root / "staging-approval.json")
+    return {
+        "gpu_handoff_state": _approval_state(handoff, consumed=True),
+        "gpu_handoff_approver": handoff.get("approver") if handoff else None,
+        "staging_approval_state": _approval_state(staging, consumed=False),
+        "staging_approver": staging.get("approver") if staging else None,
+    }
+
+
+def _approval_state(payload: dict[str, object] | None, *, consumed: bool) -> str:
+    if payload is None:
+        return "missing"
+    state = str(payload.get("state") or payload.get("decision") or "")
+    if consumed and state == "consumed":
+        return "consumed"
+    if state in {"approved", "approved_for_staging"} or payload.get("decision") == "approved":
+        return "approved"
+    return "invalid"
+
+
+def _training_progress(run: ScenarioWorkloadRun) -> dict[str, object] | None:
+    path = _resolve_data_path(str(Path(run.artifact_root) / "model" / "training-progress.json"))
+    payload = _read_json(path)
+    if payload is None or payload.get("schema_version") != "evm.scenario_training_progress.v1":
+        return None
+    if payload.get("lifecycle_run_id") != run.run_id:
+        return None
+    return payload
 
 
 def _evaluation_summary(run: ScenarioWorkloadRun) -> WorkloadEvaluationSummary | None:

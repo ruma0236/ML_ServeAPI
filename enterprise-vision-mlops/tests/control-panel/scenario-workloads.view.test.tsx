@@ -5,7 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScenarioWorkloadRun } from "../../apps/control-panel/src/api/types";
 
 
-const api = vi.hoisted(() => ({ fetchScenarioWorkloads: vi.fn() }));
+const api = vi.hoisted(() => ({
+  approveScenarioGpuHandoff: vi.fn(),
+  approveScenarioProductionIntent: vi.fn(),
+  approveScenarioStaging: vi.fn(),
+  createScenarioProductionIntent: vi.fn(),
+  fetchScenarioProductionIntents: vi.fn(),
+  fetchScenarioWorkloadPresets: vi.fn(),
+  fetchScenarioWorkloadWorker: vi.fn(),
+  fetchScenarioWorkloads: vi.fn(),
+  launchScenarioWorkload: vi.fn(),
+  rollbackScenarioProductionIntent: vi.fn()
+}));
 
 vi.mock("../../apps/control-panel/src/api/controlPanelClient", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../apps/control-panel/src/api/controlPanelClient")>()),
@@ -25,6 +36,36 @@ describe("AI Workloads view", () => {
       runs: [workload("vlm", "completed"), workload("llm", "completed"), workload("llm", "failed")],
       total: 3
     });
+    api.fetchScenarioWorkloadPresets.mockResolvedValue({
+      schema_version: "evm.scenario_workload_preset_catalog.v1",
+      presets: [{
+        preset_id: "smolvlm-scienceqa-local-production",
+        label: "SmolVLM / ScienceQA",
+        model_family: "vlm",
+        scenario_id: "scienceqa-vlm-evaluation",
+        model_repository: "HuggingFaceTB/SmolVLM-500M-Instruct",
+        model_revision: "d".repeat(40),
+        model_dir: "F:/models/smolvlm",
+        data_view_uri: "F:/data/scienceqa/data_view.json",
+        adaptation_method: "lora",
+        quantization_requested: "none",
+        max_steps: 8,
+        staging_port: 30920,
+        production_port: 31020,
+        record_counts: { train: 32, validation: 8, test: 8 },
+        quality_metrics: ["accuracy", "parse_rate"],
+        claim_boundary: "Bounded local validation."
+      }]
+    });
+    api.fetchScenarioWorkloadWorker.mockResolvedValue({
+      schema_version: "evm.scenario_workload_worker.v1",
+      status: "online",
+      worker_id: "worker-1",
+      source_commit: "e".repeat(40),
+      heartbeat_age_seconds: 1.2
+    });
+    api.fetchScenarioProductionIntents.mockResolvedValue({ intents: [], total: 0 });
+    api.launchScenarioWorkload.mockResolvedValue(workload("vlm", "completed"));
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -94,6 +135,24 @@ describe("AI Workloads view", () => {
     await act(async () => attention?.click());
     expect(container.querySelectorAll("aside button")).toHaveLength(1);
     expect(container.textContent).toContain("mlflow_write_failed");
+  });
+
+  it("launches the governed SmolVLM preset through the real-workload control", async () => {
+    await act(async () => root.render(<ScenarioWorkloads />));
+    await flushUpdates();
+
+    const launch = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Launch real workload")
+    );
+    expect(launch?.disabled).toBe(false);
+    await act(async () => launch?.click());
+    await flushUpdates();
+
+    expect(api.launchScenarioWorkload).toHaveBeenCalledWith({
+      preset_id: "smolvlm-scienceqa-local-production",
+      actor: "ml-engineer",
+      reason: "Execute an identity-bound SmolVLM lifecycle for local production validation"
+    });
   });
 });
 

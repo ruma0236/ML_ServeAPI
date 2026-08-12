@@ -25,7 +25,9 @@ from evm.control_panel.scenario_workloads import (
     seal_workload_run,
     transition_workload_stage,
     update_workload_results,
+    workload_artifact_path,
 )
+from evm.control_panel.scenario_workload_control import read_staging_approval
 from evm.control_panel.scenarios import ScenarioIntakeLaunchRequest, launch_scenario_intake
 from evm.model_runtime.common import (
     ModelRuntimeError,
@@ -38,6 +40,10 @@ from evm.model_runtime.common import (
 )
 from evm.model_runtime.llm import QwenTrainingConfig, train_qwen_qlora
 from evm.model_runtime.vlm import SmolVlmTrainingConfig, train_smolvlm_lora
+from evm.model_runtime.workload_gpu_handoff import (
+    acquire_workload_gpu_handoff,
+    release_workload_gpu_handoff,
+)
 
 
 ModelFamily = Literal["vlm", "llm"]
@@ -70,6 +76,10 @@ class ScenarioExecutionConfig:
         "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/"
         "artifacts/w7/prometheus-targets/lifecycle-serving.json"
     )
+    run_id: str | None = None
+    external_staging_approval: bool = False
+    approval_timeout_seconds: int = 3600
+    external_gpu_handoff: bool = False
 
 
 @dataclass
@@ -85,30 +95,36 @@ def run_real_scenario_lifecycle(config: ScenarioExecutionConfig) -> dict[str, An
         raise ModelRuntimeError(f"base_model_missing:{config.model_dir}")
     if not port_available(config.serving_port):
         raise ModelRuntimeError(f"serving_port_unavailable:{config.serving_port}")
-    intake = run_airflow_intake(config)
-    request = ScenarioWorkloadRequest(
-        scenario_id=config.scenario_id,
-        model_family=config.model_family,
-        model_repository=config.model_repository,
-        model_revision=config.model_revision,
-        adaptation_method="lora" if config.model_family == "vlm" else "qlora",
-        quantization_requested=config.quantization_requested,  # type: ignore[arg-type]
-        actor=config.actor,
-        reason=config.reason,
-        dry_run=False,
-        source_commit=config.source_commit,
-        source_branch=config.source_branch,
-        dirty_worktree=False,
-        quality_disposition_uri=config.quality_disposition_uri,
-        data_view_uri=config.data_view_uri,
-    )
-    run = create_workload_run(request)
+    if config.run_id:
+        run = get_workload_run(config.run_id)
+        assert_requested_run_identity(config, run)
+    else:
+        request = ScenarioWorkloadRequest(
+            scenario_id=config.scenario_id,
+            model_family=config.model_family,
+            model_repository=config.model_repository,
+            model_revision=config.model_revision,
+            adaptation_method="lora" if config.model_family == "vlm" else "qlora",
+            quantization_requested=config.quantization_requested,  # type: ignore[arg-type]
+            actor=config.actor,
+            reason=config.reason,
+            dry_run=False,
+            source_commit=config.source_commit,
+            source_branch=config.source_branch,
+            dirty_worktree=False,
+            quality_disposition_uri=config.quality_disposition_uri,
+            data_view_uri=config.data_view_uri,
+        )
+        run = create_workload_run(request)
     lease = None
+    gpu_handoff_path: Path | None = None
     server: RunningServer | None = None
     target_backup = read_optional_bytes(config.prometheus_target_path)
     active_stage = "data_intake"
     try:
-        complete_stage(run.run_id, "data_intake", intake, detail="Airflow intake completed")
+        start_stage(run.run_id, "data_intake")
+        intake = run_airflow_intake(config)
+        finish_stage(run.run_id, "data_intake", intake, detail="Airflow intake completed")
         active_stage = "identity_quality_gate"
         identity_evidence = {
             "schema_version": "evm.scenario_identity_quality_evidence.v1",
@@ -132,6 +148,11 @@ def run_real_scenario_lifecycle(config: ScenarioExecutionConfig) -> dict[str, An
         )
         active_stage = "gpu_lease"
         start_stage(run.run_id, active_stage)
+        if config.external_gpu_handoff:
+            gpu_handoff_path = acquire_workload_gpu_handoff(
+                run,
+                timeout_seconds=config.approval_timeout_seconds,
+            )
         lease = acquire_gpu_lease(run.run_id, owner_pid=os.getpid(), ttl_seconds=7200)
         lease_evidence = {
             "schema_version": "evm.scenario_gpu_lease_evidence.v1",
@@ -145,7 +166,7 @@ def run_real_scenario_lifecycle(config: ScenarioExecutionConfig) -> dict[str, An
 
         active_stage = "adaptation"
         start_stage(run.run_id, active_stage)
-        model_root = Path(run.artifact_root) / "model"
+        model_root = workload_artifact_path(run.artifact_root) / "model"
         training = train_model(config, run.run_id, run.identity.data_identity_sha256, model_root)
         if training["status"] != "pass":
             raise ModelRuntimeError(
@@ -221,7 +242,11 @@ def run_real_scenario_lifecycle(config: ScenarioExecutionConfig) -> dict[str, An
 
         active_stage = "approval"
         start_stage(run.run_id, active_stage, waiting=True)
-        approval = staging_approval(config, run, artifact_digest)
+        approval = (
+            wait_for_staging_approval(config, run)
+            if config.external_staging_approval
+            else staging_approval(config, run, artifact_digest)
+        )
         finish_stage(
             run.run_id,
             active_stage,
@@ -277,10 +302,17 @@ def run_real_scenario_lifecycle(config: ScenarioExecutionConfig) -> dict[str, An
             reason="scenario_staging_validation_completed",
         )
         lease = None
+        if gpu_handoff_path is not None:
+            release_workload_gpu_handoff(
+                run,
+                gpu_handoff_path,
+                reason="scenario_staging_validation_completed",
+            )
+            gpu_handoff_path = None
         completed = seal_workload_run(run.run_id, actor=config.actor)
         return completed.model_dump(mode="json")
     except Exception as exc:
-        failure_path = Path(run.artifact_root) / "failure.json"
+        failure_path = workload_artifact_path(run.artifact_root) / "failure.json"
         atomic_write_json(
             failure_path,
             {
@@ -306,7 +338,42 @@ def run_real_scenario_lifecycle(config: ScenarioExecutionConfig) -> dict[str, An
                 )
             except ScenarioWorkloadError:
                 pass
+        if gpu_handoff_path is not None:
+            try:
+                release_workload_gpu_handoff(
+                    run,
+                    gpu_handoff_path,
+                    reason=f"scenario_failed:{active_stage}",
+                )
+            except (ModelRuntimeError, OSError, ValueError):
+                pass
         raise
+
+
+def assert_requested_run_identity(config: ScenarioExecutionConfig, run: Any) -> None:
+    expected = {
+        "scenario_id": config.scenario_id,
+        "model_family": config.model_family,
+        "model_repository": config.model_repository,
+        "model_revision": config.model_revision,
+        "source_commit": config.source_commit,
+        "source_branch": config.source_branch,
+        "data_view_uri": config.data_view_uri,
+    }
+    actual = {
+        "scenario_id": run.identity.scenario_id,
+        "model_family": run.identity.model_family,
+        "model_repository": run.identity.model_repository,
+        "model_revision": run.identity.model_revision,
+        "source_commit": run.identity.source_commit,
+        "source_branch": run.identity.source_branch,
+        "data_view_uri": run.identity.data_view_uri,
+    }
+    mismatches = [key for key, value in expected.items() if actual.get(key) != value]
+    if run.state != "queued":
+        mismatches.append("state")
+    if mismatches:
+        raise ModelRuntimeError("scenario_execution_request_mismatch:" + ",".join(mismatches))
 
 
 def run_airflow_intake(config: ScenarioExecutionConfig) -> dict[str, Any]:
@@ -368,6 +435,7 @@ def train_model(
         "lifecycle_run_id": run_id,
         "max_steps": config.max_steps,
         "mlflow_tracking_uri": config.mlflow_tracking_uri,
+        "progress_path": output_dir / "training-progress.json",
     }
     if config.model_family == "vlm":
         return train_smolvlm_lora(SmolVlmTrainingConfig(**shared))
@@ -461,12 +529,25 @@ def staging_approval(
     }
 
 
+def wait_for_staging_approval(
+    config: ScenarioExecutionConfig,
+    run: Any,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + config.approval_timeout_seconds
+    while time.monotonic() < deadline:
+        approval = read_staging_approval(run.run_id)
+        if approval is not None:
+            return approval
+        time.sleep(2)
+    raise ModelRuntimeError("scenario_staging_approval_timeout")
+
+
 def start_staging_server(
     config: ScenarioExecutionConfig,
     run: Any,
     training: dict[str, Any],
 ) -> RunningServer:
-    log_path = Path(run.artifact_root) / "staging-serving.log"
+    log_path = workload_artifact_path(run.artifact_root) / "staging-serving.log"
     log_handle = log_path.open("w", encoding="utf-8")
     command = [
         sys.executable,

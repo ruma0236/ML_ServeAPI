@@ -56,6 +56,7 @@ class ScenarioServingConfig:
     source_commit: str
     lifecycle_run_id: str
     quantization: str = "none"
+    environment: Literal["local-staging", "local-production"] = "local-staging"
 
 
 class ScenarioModelService:
@@ -76,6 +77,7 @@ class ScenarioModelService:
             "data_identity_sha256",
             "source_commit",
             "quantization",
+            "environment",
         ]
         self.info = Gauge(
             "evm_scenario_model_info",
@@ -105,6 +107,7 @@ class ScenarioModelService:
             config.data_identity_sha256,
             config.source_commit,
             config.quantization,
+            config.environment,
         ).set(1)
         self._load()
 
@@ -167,6 +170,7 @@ class ScenarioModelService:
             "source_commit": self.config.source_commit,
             "lifecycle_run_id": self.config.lifecycle_run_id,
             "quantization": self.config.quantization,
+            "environment": self.config.environment,
             "runtime": self.runtime,
             "gpu": nvidia_smi_snapshot(),
             "started_at": self.started_at,
@@ -272,7 +276,7 @@ class ScenarioModelService:
 
 
 def create_app(service: ScenarioModelService) -> FastAPI:
-    app = FastAPI(title="EVM Scenario Staging Serving", version="1.0.0")
+    app = FastAPI(title="EVM Scenario Model Serving", version="1.0.0")
 
     @app.get("/ready")
     def ready() -> dict[str, Any]:
@@ -304,6 +308,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--lifecycle-run-id", required=True)
     parser.add_argument("--quantization", default="none")
+    parser.add_argument(
+        "--environment",
+        choices=("local-staging", "local-production"),
+        default="local-staging",
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, required=True)
     return parser
@@ -325,6 +334,7 @@ def main() -> int:
             source_commit=args.source_commit,
             lifecycle_run_id=args.lifecycle_run_id,
             quantization=args.quantization,
+            environment=args.environment,
         )
     )
     uvicorn.run(create_app(service), host=args.host, port=args.port, log_level="info")

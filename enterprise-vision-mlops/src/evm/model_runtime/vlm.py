@@ -41,6 +41,7 @@ class SmolVlmTrainingConfig:
     max_new_tokens: int = 8
     mlflow_tracking_uri: str = "http://127.0.0.1:5000"
     mlflow_experiment_name: str = "enterprise-mlops-real-vlm"
+    progress_path: Path | None = None
 
 
 def scienceqa_prompt(record: dict[str, Any]) -> str:
@@ -157,6 +158,20 @@ def train_smolvlm_lora(config: SmolVlmTrainingConfig) -> dict[str, Any]:
                 "observed_at": utc_now(),
             }
         )
+        if config.progress_path is not None:
+            atomic_write_json(
+                config.progress_path,
+                {
+                    "schema_version": "evm.scenario_training_progress.v1",
+                    "model_family": "vlm",
+                    "lifecycle_run_id": config.lifecycle_run_id,
+                    "current_step": step + 1,
+                    "max_steps": config.max_steps,
+                    "progress": round((step + 1) / config.max_steps, 6),
+                    "latest_loss": history[-1]["loss"],
+                    "observed_at": history[-1]["observed_at"],
+                },
+            )
     training_seconds = round(time.perf_counter() - started, 6)
     model.eval()
     adapted = evaluate_smolvlm(

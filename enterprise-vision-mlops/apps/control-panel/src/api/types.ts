@@ -1309,9 +1309,132 @@ export interface ScenarioWorkloadRun {
   evidence_index_uri?: string | null;
   evidence_index_sha256?: string | null;
   evaluation_summary?: ScenarioWorkloadEvaluationSummary | null;
+  training_progress?: ScenarioTrainingProgress | null;
+  control_state: ScenarioWorkloadControlState;
   blockers: string[];
   stages: ScenarioWorkloadStage[];
   audit: AuditEvent[];
+}
+
+export interface ScenarioTrainingProgress {
+  schema_version: "evm.scenario_training_progress.v1";
+  lifecycle_run_id: string;
+  model_family: "vlm" | "llm";
+  current_step: number;
+  max_steps: number;
+  progress: number;
+  latest_loss?: number | null;
+  observed_at: string;
+}
+
+export interface ScenarioWorkloadControlState {
+  gpu_handoff_state: "missing" | "approved" | "consumed" | "invalid";
+  gpu_handoff_approver?: string | null;
+  staging_approval_state: "missing" | "approved" | "invalid";
+  staging_approver?: string | null;
+}
+
+export interface ScenarioWorkloadPreset {
+  preset_id: string;
+  label: string;
+  model_family: "vlm" | "llm";
+  scenario_id: string;
+  model_repository: string;
+  model_revision: string;
+  model_dir: string;
+  data_view_uri: string;
+  quality_disposition_uri?: string | null;
+  adaptation_method: "lora" | "qlora";
+  quantization_requested: "none" | "int8" | "int4_nf4";
+  max_steps: number;
+  staging_port: number;
+  production_port: number;
+  record_counts: Record<string, number>;
+  quality_metrics: string[];
+  claim_boundary: string;
+}
+
+export interface ScenarioWorkloadPresetCatalog {
+  schema_version: "evm.scenario_workload_preset_catalog.v1";
+  presets: ScenarioWorkloadPreset[];
+}
+
+export interface ScenarioWorkloadWorkerState {
+  schema_version: "evm.scenario_workload_worker.v1";
+  status: "online" | "busy" | "stale" | "offline";
+  worker_id?: string | null;
+  pid?: number | null;
+  source_commit?: string | null;
+  source_branch?: string | null;
+  started_at?: string | null;
+  last_seen_at?: string | null;
+  heartbeat_age_seconds?: number | null;
+  current_run_id?: string | null;
+  current_intent_id?: string | null;
+  message?: string | null;
+}
+
+export type ScenarioProductionIntentState =
+  | "pending_approval"
+  | "queued"
+  | "applying"
+  | "applied"
+  | "rollback_requested"
+  | "rolling_back"
+  | "rolled_back"
+  | "failed";
+
+export interface ScenarioProductionIntent {
+  schema_version: "evm.scenario_production_intent.v1";
+  intent_id: string;
+  version: number;
+  state: ScenarioProductionIntentState;
+  run_id: string;
+  preset_id: string;
+  requested_by: string;
+  request_reason: string;
+  approved_by?: string | null;
+  approval_reason?: string | null;
+  source_commit: string;
+  source_branch: string;
+  identity_sha256: string;
+  model_family: "vlm" | "llm";
+  model_repository: string;
+  model_revision: string;
+  model_artifact_uri: string;
+  model_artifact_sha256: string;
+  evaluation_uri: string;
+  evaluation_sha256: string;
+  evidence_index_uri: string;
+  evidence_index_sha256: string;
+  ci_evidence_uri: string;
+  ci_evidence_sha256: string;
+  action_digest: string;
+  target: {
+    environment: "local-production";
+    runtime: "windows-host-cuda";
+    host: "127.0.0.1";
+    port: number;
+    endpoint: string;
+    metrics_endpoint: string;
+    gpu_holder_namespace: "evm-production";
+    gpu_holder_name: "evm-b0-production";
+  };
+  created_at: string;
+  updated_at: string;
+  approved_at?: string | null;
+  applied_at?: string | null;
+  rolled_back_at?: string | null;
+  service_pid?: number | null;
+  service_process_started_at?: string | null;
+  gpu_holder_uid?: string | null;
+  evidence_uri?: string | null;
+  blockers: string[];
+}
+
+export interface ScenarioProductionIntentList {
+  intents: ScenarioProductionIntent[];
+  total: number;
 }
 
 export interface ScenarioWorkloadRunList {

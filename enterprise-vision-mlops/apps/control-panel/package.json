@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && vite build",
     "capture:editorial-demo": "node scripts/capture-editorial-demo.mjs",
     "capture:editorial-demo-60fps": "node scripts/capture-editorial-demo-60fps.mjs",
+    "capture:live-production-lifecycle-60fps": "node scripts/capture-live-production-lifecycle-60fps.mjs",
     "test:e2e": "node scripts/run-playwright.mjs"
   },
   "dependencies": {
