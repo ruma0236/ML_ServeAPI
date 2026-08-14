@@ -23,6 +23,10 @@ scrape_configs:
           - /etc/prometheus/targets/*.json
         refresh_interval: 5s
 
+  - job_name: "evm-otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8888"]
+
   - job_name: "prometheus"
     static_configs:
       - targets: ["localhost:9090"]

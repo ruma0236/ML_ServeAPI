@@ -4,18 +4,48 @@ import time
 from typing import Any
 
 from evm.core.http import request_json
+from evm.observability.otel import trace_span
+from evm.observability.trace_context import TraceContextError, W3CTraceContext
 
 
 class MlflowRestClient:
-    def __init__(self, tracking_uri: str) -> None:
+    def __init__(
+        self,
+        tracking_uri: str,
+        *,
+        traceparent: str | None = None,
+        tracestate: str | None = None,
+    ) -> None:
         self.tracking_uri = tracking_uri.rstrip("/")
+        try:
+            self.trace_context = (
+                W3CTraceContext.parse(traceparent, tracestate=tracestate)
+                if traceparent
+                else None
+            )
+        except TraceContextError:
+            self.trace_context = None
+
+    def _request(
+        self,
+        method: str,
+        url: str,
+        payload: dict[str, Any] | None = None,
+    ) -> tuple[int, dict[str, Any] | list[Any] | str]:
+        with trace_span(
+            "mlflow.rest",
+            parent=self.trace_context,
+            kind="client",
+            attributes={"evm.stage": "mlflow", "http.request.method": method},
+        ):
+            return request_json(method, url, payload)
 
     def health(self) -> bool:
-        status, _ = request_json("GET", f"{self.tracking_uri}/health")
+        status, _ = self._request("GET", f"{self.tracking_uri}/health")
         return status == 200
 
     def get_or_create_experiment(self, name: str) -> str | None:
-        status, payload = request_json(
+        status, payload = self._request(
             "GET",
             f"{self.tracking_uri}/api/2.0/mlflow/experiments/get-by-name?experiment_name={name}",
         )
@@ -23,7 +53,7 @@ class MlflowRestClient:
             experiment = payload.get("experiment", {})
             return experiment.get("experiment_id")
 
-        status, payload = request_json(
+        status, payload = self._request(
             "POST",
             f"{self.tracking_uri}/api/2.0/mlflow/experiments/create",
             {"name": name},
@@ -45,7 +75,7 @@ class MlflowRestClient:
                 {"key": key, "value": str(value)}
                 for key, value in sorted(tags.items())
             ]
-        status, payload = request_json(
+        status, payload = self._request(
             "POST",
             f"{self.tracking_uri}/api/2.0/mlflow/runs/create",
             body,
@@ -55,7 +85,7 @@ class MlflowRestClient:
         return None
 
     def log_param(self, run_id: str, key: str, value: Any) -> bool:
-        status, _ = request_json(
+        status, _ = self._request(
             "POST",
             f"{self.tracking_uri}/api/2.0/mlflow/runs/log-parameter",
             {"run_id": run_id, "key": key, "value": str(value)},
@@ -70,7 +100,7 @@ class MlflowRestClient:
         step: int = 0,
         timestamp_ms: int | None = None,
     ) -> bool:
-        status, _ = request_json(
+        status, _ = self._request(
             "POST",
             f"{self.tracking_uri}/api/2.0/mlflow/runs/log-metric",
             {
@@ -84,7 +114,7 @@ class MlflowRestClient:
         return status == 200
 
     def terminate_run(self, run_id: str, status: str = "FINISHED") -> bool:
-        response_status, _ = request_json(
+        response_status, _ = self._request(
             "POST",
             f"{self.tracking_uri}/api/2.0/mlflow/runs/update",
             {"run_id": run_id, "status": status},

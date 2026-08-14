@@ -1,0 +1,47 @@
+{
+  "schema_version": "evm.scale_validation.implementation_checkpoint.v1",
+  "scenario_id": "S0",
+  "generated_at": "2026-08-14T21:09:10Z",
+  "status": "implementing",
+  "existing_system_baseline": "The existing ML Serve API path uses the control API, file-ledger queue, supervised lifecycle worker, Airflow, MLflow, Kubernetes serving, and Prometheus.",
+  "architecture_delta": {
+    "before": "W3C identity was sealed into lifecycle artifacts, but no Collector exported spans from the existing runtime boundaries.",
+    "after": "The existing API, queue, worker, pipeline, tracking, and serving code paths have environment-gated spans and a local OTLP Collector endpoint. Runtime-wide propagation remains unverified."
+  },
+  "implementation_checkpoint": {
+    "focused_tests_passed": 65,
+    "full_tests_passed": 583,
+    "collector_health_status": 200,
+    "collector_prometheus_target": "up",
+    "collector_probe_exported": true,
+    "collector_probe_bytes_written": 866
+  },
+  "failure_and_rca": [
+    {
+      "failure": "The first Collector start rejected a removed internal-metrics address key.",
+      "root_cause": "Collector 0.157 uses an SDK reader-based pull exporter configuration for internal Prometheus metrics.",
+      "correction": "The existing Collector configuration was changed to a pull reader with a Prometheus host and port.",
+      "retest": "Collector health returned 200, one OTLP probe was written, and the Prometheus target became up."
+    },
+    {
+      "failure": "Two local probe commands failed before application execution because of shell newline encoding and a missing module search path.",
+      "root_cause": "The command wrapper, not the tracing implementation, was malformed.",
+      "correction": "The probe was rerun with standard input and the existing source directory on the module search path.",
+      "retest": "One span was exported successfully."
+    }
+  ],
+  "acceptance_status": {
+    "S0-AC-01": "pending",
+    "S0-AC-02": "pending",
+    "S0-AC-03": "pending",
+    "S0-AC-04": "pending",
+    "S0-AC-05": "pending"
+  },
+  "unresolved": [
+    "The API, worker, Airflow pipeline, MLflow, and serving spans have not yet been observed as one fresh runtime trace.",
+    "The full bounded metric set and three independent low-load controls have not been captured.",
+    "The active serving baseline includes one stale or unhealthy fixed monitoring target that must be reconciled."
+  ],
+  "private_evidence": "Raw trace output remains outside Git. Its acceptance checksum will be captured only after the live writer is closed at an evidence checkpoint.",
+  "claim_boundary": "This proves Collector configuration and regression compatibility only. It is not S0 runtime acceptance, scale, availability, or production evidence."
+}

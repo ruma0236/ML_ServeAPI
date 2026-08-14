@@ -32,6 +32,12 @@ from evm.control_panel.schemas import (
     TaskStatus,
     TaskTransitionRequest,
 )
+from evm.observability.otel import trace_span
+from evm.observability.trace_context import (
+    TraceContextError,
+    W3CTraceContext,
+    current_trace_context,
+)
 
 
 DEFAULT_LEDGER_ROOT = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/operations"
@@ -157,6 +163,32 @@ def write_json_array(path: Path, payload: list[dict[str, object]]) -> None:
 
 @ledger_transaction
 def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
+    with trace_span(
+        "queue.enqueue",
+        kind="producer",
+        attributes={
+            "evm.stage": "queue",
+            "messaging.system": "evm-file-ledger",
+            "messaging.operation.type": "create",
+            "evm.task.type": request.task_type,
+        },
+    ) as active:
+        config_payload = dict(request.config_payload)
+        config_payload.update(
+            {
+                "trace_id": active.context.trace_id,
+                "traceparent": active.context.traceparent,
+                "tracestate": active.context.tracestate,
+            }
+        )
+        traced_request = request.model_copy(update={"config_payload": config_payload})
+        task = _create_task_assignment(traced_request)
+        active.set_attribute("evm.task.status", task.status)
+        active.set_attribute("evm.task.id", task.task_id)
+        return task
+
+
+def _create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
     tasks = read_tasks()
     status = resolve_task_status(request)
     created_at = utc_now()
@@ -224,6 +256,42 @@ def confirm_task_assignment(
 
 @ledger_transaction
 def dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
+    task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
+    parent = task_trace_context(task)
+    with trace_span(
+        "queue.dispatch",
+        parent=parent,
+        kind="consumer",
+        attributes={
+            "evm.stage": "queue",
+            "messaging.system": "evm-file-ledger",
+            "messaging.operation.type": "process",
+            "evm.task.id": task_id,
+        },
+    ) as active:
+        task = _dispatch_task_assignment(task_id)
+        if task is not None:
+            active.set_attribute("evm.task.status", task.status)
+        return task
+
+
+def task_trace_context(task: TaskAssignment | None) -> W3CTraceContext | None:
+    if task is None:
+        return None
+    traceparent = task.config_payload.get("traceparent")
+    if not isinstance(traceparent, str) or not traceparent:
+        return None
+    tracestate = task.config_payload.get("tracestate")
+    try:
+        return W3CTraceContext.parse(
+            traceparent,
+            tracestate=tracestate if isinstance(tracestate, str) else None,
+        )
+    except TraceContextError:
+        return None
+
+
+def _dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
     tasks = read_tasks()
     for index, task in enumerate(tasks.tasks):
         if task.task_id != task_id:
@@ -251,6 +319,15 @@ def dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
                 "cycle_id": task.cycle_id,
             },
         }
+        active_context = current_trace_context()
+        if active_context is not None:
+            payload["conf"].update(
+                {
+                    "trace_id": active_context.trace_id,
+                    "traceparent": active_context.traceparent,
+                    "tracestate": active_context.tracestate,
+                }
+            )
         try:
             response = airflow_api_request(
                 f"/dags/{quote(dag_id, safe='')}/dagRuns",
@@ -406,37 +483,44 @@ def airflow_api_request_url(
     password = os.getenv("EVM_AIRFLOW_API_PASSWORD", os.getenv("AIRFLOW_ADMIN_PASSWORD", "admin"))
     token = b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    request = Request(
-        url,
-        data=body,
-        method=method,
-        headers={
+    with trace_span(
+        "airflow.rest",
+        kind="client",
+        attributes={"evm.stage": "airflow", "http.request.method": method},
+    ) as active:
+        headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
             "Authorization": f"Basic {token}",
-        },
-    )
-    try:
-        with urlopen(request, timeout=10) as response:
-            parsed = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        raise TaskDispatchError(
-            "airflow_api_rejected",
-            f"Airflow API returned HTTP {exc.code}.",
-            status_code=502,
-        ) from exc
-    except (URLError, TimeoutError, OSError) as exc:
-        raise TaskDispatchError(
-            "airflow_api_unavailable",
-            f"Airflow API is unavailable: {exc}",
-            status_code=502,
-        ) from exc
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise TaskDispatchError(
-            "airflow_api_invalid_response",
-            "Airflow API returned an invalid JSON response.",
-            status_code=502,
-        ) from exc
+            **active.context.headers(),
+        }
+        request = Request(url, data=body, method=method, headers=headers)
+        try:
+            with urlopen(request, timeout=10) as response:
+                active.set_attribute(
+                    "http.response.status_code",
+                    int(getattr(response, "status", 200)),
+                )
+                parsed = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            active.set_attribute("http.response.status_code", exc.code)
+            raise TaskDispatchError(
+                "airflow_api_rejected",
+                f"Airflow API returned HTTP {exc.code}.",
+                status_code=502,
+            ) from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            raise TaskDispatchError(
+                "airflow_api_unavailable",
+                f"Airflow API is unavailable: {exc}",
+                status_code=502,
+            ) from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise TaskDispatchError(
+                "airflow_api_invalid_response",
+                "Airflow API returned an invalid JSON response.",
+                status_code=502,
+            ) from exc
     if not isinstance(parsed, dict):
         raise TaskDispatchError(
             "airflow_api_invalid_response",

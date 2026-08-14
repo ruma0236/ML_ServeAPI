@@ -57,6 +57,7 @@ from evm.control_panel.pipeline_profiles import (
 from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import AuditEvent, ContractModel
 from evm.observability.trace_context import W3CTraceContext, current_trace_context
+from evm.observability.otel import trace_span
 
 
 LifecycleRunState = Literal[
@@ -365,6 +366,25 @@ def source_revision() -> tuple[str | None, str | None]:
 
 
 def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
+    with trace_span(
+        "lifecycle.create",
+        parent=current_trace_context(),
+        kind="producer",
+        attributes={
+            "evm.stage": "queue",
+            "evm.profile.id": request.profile_id,
+            "evm.execution.mode": request.execution_mode,
+            "evm.dry_run": request.dry_run,
+        },
+    ) as active:
+        return _create_lifecycle_run(request, trace_context=active.context)
+
+
+def _create_lifecycle_run(
+    request: LifecycleRunRequest,
+    *,
+    trace_context: W3CTraceContext,
+) -> LifecycleRun:
     record = get_profile(request.profile_id, request.profile_version)
     if record is None:
         raise LifecycleRunError(
@@ -410,8 +430,6 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
 
     created_at = utc_now()
     run_id = f"lifecycle-{created_at.replace(':', '').replace('-', '').replace('Z', '')}-{uuid4().hex[:8]}"
-    parent_trace = current_trace_context()
-    trace_context = parent_trace.child() if parent_trace else W3CTraceContext.new_root()
     snapshot = prepare_runtime_snapshot(run_id, record, trace_context)
     guard_identity = seal_lifecycle_guard_artifacts(
         directory=lifecycle_root() / run_id,

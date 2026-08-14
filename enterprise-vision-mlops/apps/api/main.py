@@ -33,9 +33,8 @@ from evm.core.image_feature_model import extract_image_features, predict_with_mo
 from evm.observability.trace_context import (
     TraceContextError,
     W3CTraceContext,
-    bind_trace_context,
-    reset_trace_context,
 )
+from evm.observability.otel import configure_tracing, shutdown_tracing, trace_span
 from evm.operations.metrics import OperationalMetrics, load_metric_projection
 
 
@@ -231,8 +230,12 @@ class PredictResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    configure_tracing(APP_NAME, service_version="0.1.0")
     refresh_model_state()
-    yield
+    try:
+        yield
+    finally:
+        shutdown_tracing()
 
 
 app = FastAPI(
@@ -257,29 +260,37 @@ async def propagate_w3c_trace_context(request: Request, call_next):
     except TraceContextError:
         parent = None
         regenerated = True
-    context = parent.child() if parent is not None else W3CTraceContext.new_root()
-    token = bind_trace_context(context)
     started = time.perf_counter()
-    try:
+    with trace_span(
+        f"{request.method} {request.url.path}",
+        parent=parent,
+        kind="server",
+        attributes={
+            "http.request.method": request.method,
+            "url.path": request.url.path,
+            "evm.stage": "api",
+        },
+    ) as active:
         response = await call_next(request)
-    finally:
-        reset_trace_context(token)
-    response.headers["traceparent"] = context.traceparent
-    if context.tracestate:
-        response.headers["tracestate"] = context.tracestate
-    response.headers["x-evm-trace-id"] = context.trace_id
-    LOGGER.info(
-        "http_request_completed method=%s path=%s status=%s elapsed_ms=%.3f "
-        "trace_id=%s span_id=%s inbound_context_regenerated=%s",
-        request.method,
-        request.url.path,
-        response.status_code,
-        (time.perf_counter() - started) * 1000,
-        context.trace_id,
-        context.span_id,
-        regenerated,
-    )
-    return response
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        active.set_attribute("http.response.status_code", response.status_code)
+        active.set_attribute("evm.trace_context_regenerated", regenerated)
+        response.headers["traceparent"] = active.context.traceparent
+        if active.context.tracestate:
+            response.headers["tracestate"] = active.context.tracestate
+        response.headers["x-evm-trace-id"] = active.context.trace_id
+        LOGGER.info(
+            "http_request_completed method=%s path=%s status=%s elapsed_ms=%.3f "
+            "trace_id=%s span_id=%s inbound_context_regenerated=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+            active.context.trace_id,
+            active.context.span_id,
+            regenerated,
+        )
+        return response
 
 
 app.include_router(control_panel_router)

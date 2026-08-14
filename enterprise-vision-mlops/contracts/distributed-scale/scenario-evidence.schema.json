@@ -311,223 +311,6 @@
       "title": "ImplementationDelta",
       "type": "object"
     },
-    "ScenarioProgress": {
-      "additionalProperties": false,
-      "properties": {
-        "scenario_id": {
-          "enum": [
-            "S0",
-            "S1",
-            "S2",
-            "S3",
-            "S4",
-            "S5",
-            "S6",
-            "S7",
-            "S8"
-          ],
-          "title": "Scenario Id",
-          "type": "string"
-        },
-        "title": {
-          "minLength": 1,
-          "title": "Title",
-          "type": "string"
-        },
-        "engineering_question": {
-          "minLength": 1,
-          "title": "Engineering Question",
-          "type": "string"
-        },
-        "why_now": {
-          "minLength": 1,
-          "title": "Why Now",
-          "type": "string"
-        },
-        "observed_gap": {
-          "minLength": 1,
-          "title": "Observed Gap",
-          "type": "string"
-        },
-        "proposed_design": {
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Proposed Design",
-          "type": "array"
-        },
-        "changed_components": {
-          "items": {
-            "$ref": "#/$defs/ChangedComponent"
-          },
-          "title": "Changed Components",
-          "type": "array"
-        },
-        "implementation_summary": {
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Implementation Summary",
-          "type": "array"
-        },
-        "experiment_environment": {
-          "minLength": 1,
-          "title": "Experiment Environment",
-          "type": "string"
-        },
-        "test_or_experiment_steps": {
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Test Or Experiment Steps",
-          "type": "array"
-        },
-        "acceptance_criteria": {
-          "items": {
-            "$ref": "#/$defs/AcceptanceCriterion"
-          },
-          "minItems": 1,
-          "title": "Acceptance Criteria",
-          "type": "array"
-        },
-        "observed_result": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Observed Result"
-        },
-        "evidence_artifacts": {
-          "items": {
-            "$ref": "#/$defs/EvidenceArtifact"
-          },
-          "title": "Evidence Artifacts",
-          "type": "array"
-        },
-        "status": {
-          "enum": [
-            "planned",
-            "implementing",
-            "exercised",
-            "verified",
-            "blocked"
-          ],
-          "title": "Status",
-          "type": "string"
-        },
-        "claim_boundary": {
-          "minLength": 1,
-          "title": "Claim Boundary",
-          "type": "string"
-        },
-        "unresolved_items": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Unresolved Items",
-          "type": "array"
-        },
-        "next_action": {
-          "minLength": 1,
-          "title": "Next Action",
-          "type": "string"
-        },
-        "architecture_before": {
-          "minLength": 1,
-          "title": "Architecture Before",
-          "type": "string"
-        },
-        "architecture_after": {
-          "minLength": 1,
-          "title": "Architecture After",
-          "type": "string"
-        },
-        "existing_system_baseline": {
-          "minLength": 1,
-          "title": "Existing System Baseline",
-          "type": "string"
-        },
-        "affected_existing_components": {
-          "items": {
-            "$ref": "#/$defs/ChangedComponent"
-          },
-          "minItems": 1,
-          "title": "Affected Existing Components",
-          "type": "array"
-        },
-        "engineering_gap_and_reason": {
-          "minLength": 1,
-          "title": "Engineering Gap And Reason",
-          "type": "string"
-        },
-        "architecture_delta": {
-          "$ref": "#/$defs/ArchitectureDelta"
-        },
-        "implementation_delta": {
-          "$ref": "#/$defs/ImplementationDelta"
-        },
-        "experiment_contract": {
-          "$ref": "#/$defs/ExperimentContract"
-        },
-        "evidence_index": {
-          "items": {
-            "$ref": "#/$defs/EvidenceArtifact"
-          },
-          "title": "Evidence Index",
-          "type": "array"
-        },
-        "verdict_and_claim_boundary": {
-          "$ref": "#/$defs/VerdictAndClaimBoundary"
-        },
-        "chronological_updates": {
-          "items": {
-            "$ref": "#/$defs/ChronologicalUpdate"
-          },
-          "minItems": 1,
-          "title": "Chronological Updates",
-          "type": "array"
-        }
-      },
-      "required": [
-        "scenario_id",
-        "title",
-        "engineering_question",
-        "why_now",
-        "observed_gap",
-        "proposed_design",
-        "changed_components",
-        "implementation_summary",
-        "experiment_environment",
-        "test_or_experiment_steps",
-        "acceptance_criteria",
-        "observed_result",
-        "evidence_artifacts",
-        "status",
-        "claim_boundary",
-        "unresolved_items",
-        "next_action",
-        "architecture_before",
-        "architecture_after",
-        "existing_system_baseline",
-        "affected_existing_components",
-        "engineering_gap_and_reason",
-        "architecture_delta",
-        "implementation_delta",
-        "experiment_contract",
-        "evidence_index",
-        "verdict_and_claim_boundary",
-        "chronological_updates"
-      ],
-      "title": "ScenarioProgress",
-      "type": "object"
-    },
     "VerdictAndClaimBoundary": {
       "additionalProperties": false,
       "properties": {
@@ -564,8 +347,188 @@
   },
   "additionalProperties": false,
   "properties": {
+    "scenario_id": {
+      "enum": [
+        "S0",
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+        "S6",
+        "S7",
+        "S8"
+      ],
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "engineering_question": {
+      "minLength": 1,
+      "title": "Engineering Question",
+      "type": "string"
+    },
+    "why_now": {
+      "minLength": 1,
+      "title": "Why Now",
+      "type": "string"
+    },
+    "observed_gap": {
+      "minLength": 1,
+      "title": "Observed Gap",
+      "type": "string"
+    },
+    "proposed_design": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Proposed Design",
+      "type": "array"
+    },
+    "changed_components": {
+      "items": {
+        "$ref": "#/$defs/ChangedComponent"
+      },
+      "title": "Changed Components",
+      "type": "array"
+    },
+    "implementation_summary": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Implementation Summary",
+      "type": "array"
+    },
+    "experiment_environment": {
+      "minLength": 1,
+      "title": "Experiment Environment",
+      "type": "string"
+    },
+    "test_or_experiment_steps": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Test Or Experiment Steps",
+      "type": "array"
+    },
+    "acceptance_criteria": {
+      "items": {
+        "$ref": "#/$defs/AcceptanceCriterion"
+      },
+      "minItems": 1,
+      "title": "Acceptance Criteria",
+      "type": "array"
+    },
+    "observed_result": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Observed Result"
+    },
+    "evidence_artifacts": {
+      "items": {
+        "$ref": "#/$defs/EvidenceArtifact"
+      },
+      "title": "Evidence Artifacts",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "planned",
+        "implementing",
+        "exercised",
+        "verified",
+        "blocked"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "claim_boundary": {
+      "minLength": 1,
+      "title": "Claim Boundary",
+      "type": "string"
+    },
+    "unresolved_items": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unresolved Items",
+      "type": "array"
+    },
+    "next_action": {
+      "minLength": 1,
+      "title": "Next Action",
+      "type": "string"
+    },
+    "architecture_before": {
+      "minLength": 1,
+      "title": "Architecture Before",
+      "type": "string"
+    },
+    "architecture_after": {
+      "minLength": 1,
+      "title": "Architecture After",
+      "type": "string"
+    },
+    "existing_system_baseline": {
+      "minLength": 1,
+      "title": "Existing System Baseline",
+      "type": "string"
+    },
+    "affected_existing_components": {
+      "items": {
+        "$ref": "#/$defs/ChangedComponent"
+      },
+      "minItems": 1,
+      "title": "Affected Existing Components",
+      "type": "array"
+    },
+    "engineering_gap_and_reason": {
+      "minLength": 1,
+      "title": "Engineering Gap And Reason",
+      "type": "string"
+    },
+    "architecture_delta": {
+      "$ref": "#/$defs/ArchitectureDelta"
+    },
+    "implementation_delta": {
+      "$ref": "#/$defs/ImplementationDelta"
+    },
+    "experiment_contract": {
+      "$ref": "#/$defs/ExperimentContract"
+    },
+    "evidence_index": {
+      "items": {
+        "$ref": "#/$defs/EvidenceArtifact"
+      },
+      "title": "Evidence Index",
+      "type": "array"
+    },
+    "verdict_and_claim_boundary": {
+      "$ref": "#/$defs/VerdictAndClaimBoundary"
+    },
+    "chronological_updates": {
+      "items": {
+        "$ref": "#/$defs/ChronologicalUpdate"
+      },
+      "minItems": 1,
+      "title": "Chronological Updates",
+      "type": "array"
+    },
     "schema_version": {
-      "const": "evm.scale_validation.progress.v2",
+      "const": "evm.scale_validation.scenario_evidence.v1",
       "title": "Schema Version",
       "type": "string"
     },
@@ -574,38 +537,44 @@
       "title": "Generated At",
       "type": "string"
     },
-    "authoritative_plan": {
-      "title": "Authoritative Plan",
+    "source_progress_ledger": {
+      "title": "Source Progress Ledger",
       "type": "string"
-    },
-    "public_record": {
-      "const": true,
-      "title": "Public Record",
-      "type": "boolean"
-    },
-    "claim_boundary": {
-      "minLength": 1,
-      "title": "Claim Boundary",
-      "type": "string"
-    },
-    "scenarios": {
-      "items": {
-        "$ref": "#/$defs/ScenarioProgress"
-      },
-      "maxItems": 9,
-      "minItems": 9,
-      "title": "Scenarios",
-      "type": "array"
     }
   },
   "required": [
+    "scenario_id",
+    "title",
+    "engineering_question",
+    "why_now",
+    "observed_gap",
+    "proposed_design",
+    "changed_components",
+    "implementation_summary",
+    "experiment_environment",
+    "test_or_experiment_steps",
+    "acceptance_criteria",
+    "observed_result",
+    "evidence_artifacts",
+    "status",
+    "claim_boundary",
+    "unresolved_items",
+    "next_action",
+    "architecture_before",
+    "architecture_after",
+    "existing_system_baseline",
+    "affected_existing_components",
+    "engineering_gap_and_reason",
+    "architecture_delta",
+    "implementation_delta",
+    "experiment_contract",
+    "evidence_index",
+    "verdict_and_claim_boundary",
+    "chronological_updates",
     "schema_version",
     "generated_at",
-    "authoritative_plan",
-    "public_record",
-    "claim_boundary",
-    "scenarios"
+    "source_progress_ledger"
   ],
-  "title": "ScenarioProgressLedger",
+  "title": "ScenarioExecutionEvidence",
   "type": "object"
 }

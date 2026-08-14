@@ -20,6 +20,7 @@ from evm.operations.scenario_d_supervision import (
     LifecycleRunClaimStore,
     current_process_started_at,
 )
+from evm.observability.otel import configure_tracing, shutdown_tracing
 
 
 @dataclass
@@ -268,13 +269,17 @@ def main() -> int:
     parser.add_argument("--heartbeat-interval", type=float, default=5.0)
     parser.add_argument("--worker-id", default="windows-docker-desktop-lifecycle-worker")
     args = parser.parse_args()
-    return run_worker(
-        run_id=args.run_id,
-        once=args.once,
-        poll_interval=args.poll_interval,
-        heartbeat_interval=args.heartbeat_interval,
-        worker_id=args.worker_id,
-    )
+    configure_tracing("evm-lifecycle-worker", service_version="0.1.0")
+    try:
+        return run_worker(
+            run_id=args.run_id,
+            once=args.once,
+            poll_interval=args.poll_interval,
+            heartbeat_interval=args.heartbeat_interval,
+            worker_id=args.worker_id,
+        )
+    finally:
+        shutdown_tracing()
 
 
 if __name__ == "__main__":

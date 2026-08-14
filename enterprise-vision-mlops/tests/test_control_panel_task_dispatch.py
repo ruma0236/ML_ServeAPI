@@ -7,6 +7,7 @@ import pytest
 from evm.control_panel import operations
 from evm.control_panel.operations import TaskDispatchError
 from evm.control_panel.schemas import TaskAssignmentRequest, TaskTransitionRequest
+from evm.observability.trace_context import W3CTraceContext
 
 
 class FakeResponse:
@@ -56,6 +57,31 @@ def test_airflow_task_dispatch_and_runtime_sync(tmp_path, monkeypatch):
     assert synced.tasks[0].status == "done"
     assert synced.tasks[0].runtime_state == "success"
     assert synced.tasks[0].cycle_id == "cycle-real-1"
+
+
+def test_airflow_dispatch_propagates_enqueue_context_without_reusing_span(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("EVM_CONTROL_PANEL_LEDGER_ROOT", str(tmp_path))
+    captured = {}
+
+    def fake_urlopen(request, **_kwargs):
+        captured["request"] = request
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse({"dag_run_id": "cp__run", "state": "queued"})
+
+    monkeypatch.setattr(operations, "urlopen", fake_urlopen)
+    created = operations.create_task_assignment(request())
+    operations.dispatch_task_assignment(created.task_id)
+
+    enqueue = W3CTraceContext.parse(created.config_payload["traceparent"])
+    dispatch = W3CTraceContext.parse(captured["payload"]["conf"]["traceparent"])
+    airflow_http = W3CTraceContext.parse(
+        captured["request"].get_header("Traceparent")
+    )
+    assert enqueue.trace_id == dispatch.trace_id == airflow_http.trace_id
+    assert len({enqueue.span_id, dispatch.span_id, airflow_http.span_id}) == 3
 
 
 def test_airflow_task_progress_uses_real_task_instances(tmp_path, monkeypatch):

@@ -87,6 +87,8 @@ from evm.control_panel.schemas import (
     TaskAssignmentRequest,
 )
 from evm.core.http import request_json
+from evm.observability.otel import trace_span
+from evm.observability.trace_context import TraceContextError, W3CTraceContext
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -107,6 +109,32 @@ def process_lifecycle_run(
     http_client: HttpClient = request_json,
 ) -> LifecycleRun:
     run = required_run(run_id)
+    parent = None
+    if run.traceparent:
+        try:
+            parent = W3CTraceContext.parse(run.traceparent, tracestate=run.tracestate)
+        except TraceContextError:
+            parent = None
+    with trace_span(
+        "lifecycle.process_stage",
+        parent=parent,
+        kind="consumer",
+        attributes={
+            "evm.stage": "worker",
+            "evm.lifecycle.stage": run.current_stage or "none",
+            "evm.lifecycle.run_id": run.run_id,
+        },
+    ):
+        return _process_lifecycle_run(run, runner=runner, http_client=http_client)
+
+
+def _process_lifecycle_run(
+    run: LifecycleRun,
+    *,
+    runner: Runner,
+    http_client: HttpClient,
+) -> LifecycleRun:
+    run_id = run.run_id
     if run.state in {
         "dry_run",
         "waiting_approval",

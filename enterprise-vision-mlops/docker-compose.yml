@@ -56,6 +56,11 @@ services:
       EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
       EVM_GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       EVM_GIT_BRANCH: ${EVM_GIT_BRANCH:-}
+      EVM_OTEL_ENABLED: "true"
+      EVM_OTEL_PROCESSOR: simple
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_SERVICE_NAMESPACE: enterprise-mlops
+      OTEL_SERVICE_INSTANCE_ID: airflow-init
       EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
       EVM_DATA_MOUNT_ROOT: /mnt/evm-data
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
@@ -96,6 +101,11 @@ services:
       EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
       EVM_GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       EVM_GIT_BRANCH: ${EVM_GIT_BRANCH:-}
+      EVM_OTEL_ENABLED: "true"
+      EVM_OTEL_PROCESSOR: simple
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_SERVICE_NAMESPACE: enterprise-mlops
+      OTEL_SERVICE_INSTANCE_ID: airflow-webserver
       EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
       EVM_DATA_MOUNT_ROOT: /mnt/evm-data
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
@@ -138,6 +148,11 @@ services:
       EVM_PIPELINE_CONFIG: /opt/airflow/evm_project/configs/airflow.toml
       EVM_GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       EVM_GIT_BRANCH: ${EVM_GIT_BRANCH:-}
+      EVM_OTEL_ENABLED: "true"
+      EVM_OTEL_PROCESSOR: simple
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_SERVICE_NAMESPACE: enterprise-mlops
+      OTEL_SERVICE_INSTANCE_ID: airflow-scheduler
       EVM_HOST_DATA_ROOT: ${EVM_HOST_DATA_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops}
       EVM_DATA_MOUNT_ROOT: /mnt/evm-data
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
@@ -278,6 +293,10 @@ services:
       EVM_EXPECTED_CI_COMMIT: ${EVM_EXPECTED_CI_COMMIT:-}
       GIT_COMMIT: ${EVM_GIT_COMMIT:-}
       GIT_BRANCH: ${EVM_GIT_BRANCH:-}
+      EVM_OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_SERVICE_NAMESPACE: enterprise-mlops
+      OTEL_SERVICE_INSTANCE_ID: compose-api
       EVM_DEPLOYMENT_INTENT_ROOT: /app/artifacts/w7/deployment_intents
       EVM_REQUIRE_SCENARIO_E_INTEGRITY: "true"
       EVM_SCENARIO_E_ADMISSION_PATH: /app/artifacts/operations/scenario-e/_latest/integrity-admission.json
@@ -311,6 +330,8 @@ services:
     depends_on:
       mlflow:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
       interval: 10s
@@ -335,6 +356,20 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+    networks:
+      - mlops-local
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    container_name: evm-otel-collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:4317:4317"
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:4318:4318"
+      - "${EVM_HOST_BIND_ADDRESS:-127.0.0.1}:13133:13133"
+    volumes:
+      - ./monitoring/opentelemetry/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/scale_validation/otel:/var/lib/otel
     networks:
       - mlops-local
 

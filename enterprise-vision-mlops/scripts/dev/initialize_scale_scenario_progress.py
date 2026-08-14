@@ -9,23 +9,39 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from evm.scale_validation.catalog import SCENARIO_DEFINITIONS, validate_catalog  # noqa: E402
+from evm.scale_validation.catalog import (  # noqa: E402
+    SCENARIO_DEFINITIONS,
+    SCENARIO_IN_PLACE_CONTRACTS,
+    validate_catalog,
+)
 from evm.scale_validation.contracts import (  # noqa: E402
     BENCHMARK_SCHEMA_VERSION,
+    ArchitectureDelta,
     BenchmarkEvidence,
+    ChronologicalUpdate,
+    ExperimentContract,
+    ImplementationDelta,
     PRIVATE_INDEX_SCHEMA_VERSION,
     PROGRESS_SCHEMA_VERSION,
     SCENARIO_TITLES,
     AcceptanceCriterion,
     ChangedComponent,
+    EvidenceArtifact,
     PrivateEvidenceIndex,
+    ScenarioExecutionEvidence,
     ScenarioProgress,
     ScenarioProgressLedger,
+    VerdictAndClaimBoundary,
     render_progress_markdown,
 )
 
 
 AUTHORITATIVE_PLAN = "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md"
+PLAN_REVIEWED_AT = datetime(2026, 8, 14, 19, 34, tzinfo=UTC)
+PUBLIC_CLAIM_BOUNDARY = (
+    "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed "
+    "from this scenario. A scenario pass does not replace final cross-scenario system validation."
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,18 +70,44 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
     validate_catalog()
     scenarios: list[ScenarioProgress] = []
     for scenario_id, definition in SCENARIO_DEFINITIONS.items():
+        in_place = SCENARIO_IN_PLACE_CONTRACTS[scenario_id]
         is_s0 = scenario_id == "S0"
         changed_components = []
+        checkpoint_evidence: list[EvidenceArtifact] = []
         implementation_summary = ["Implementation has not started."]
         status = "planned"
+        updates = [
+            ChronologicalUpdate(
+                occurred_at=PLAN_REVIEWED_AT,
+                phase="design",
+                status="planned",
+                summary=(
+                    "The authoritative in-place scenario contract was reviewed against the "
+                    "existing ML Serve API system."
+                ),
+            )
+        ]
         if is_s0:
+            checkpoint_evidence = [
+                EvidenceArtifact(
+                    path="docs/status/evidence/s0-otel-implementation-checkpoint.json",
+                    sha256=(
+                        "fbef5bc797a91097e136a2510bb4740fd85c9efc5255e9cd5501e68c1fd046d7"
+                    ),
+                    generated_at=datetime(2026, 8, 14, 21, 9, 10, tzinfo=UTC),
+                    claim=(
+                        "Collector configuration, one OTLP probe, and 583-test regression passed; "
+                        "runtime-wide S0 acceptance remains pending."
+                    ),
+                )
+            ]
             changed_components = [
                 ChangedComponent(
                     component="Serving readiness contract",
                     files=["apps/api/main.py", "tests/test_api_metrics.py"],
                 ),
                 ChangedComponent(
-                    component="Scale-validation evidence contracts",
+                    component="In-place scale-validation evidence contracts",
                     files=[
                         "src/evm/scale_validation/contracts.py",
                         "src/evm/scale_validation/catalog.py",
@@ -74,12 +116,72 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "tests/test_scale_scenario_progress.py",
                     ],
                 ),
+                ChangedComponent(
+                    component="W3C trace propagation across existing runtime boundaries",
+                    files=[
+                        "src/evm/observability/trace_context.py",
+                        "src/evm/observability/otel.py",
+                        "apps/api/main.py",
+                        "apps/api/efficientnet_serving.py",
+                        "src/evm/control_panel/lifecycle_runs.py",
+                        "src/evm/control_panel/lifecycle_orchestrator.py",
+                        "src/evm/control_panel/lifecycle_worker.py",
+                        "src/evm/control_panel/operations.py",
+                        "src/evm/core/pipeline.py",
+                        "src/evm/core/http.py",
+                        "src/evm/core/mlflow_client.py",
+                    ],
+                ),
+                ChangedComponent(
+                    component="Existing local telemetry runtime",
+                    files=[
+                        "docker-compose.yml",
+                        "monitoring/opentelemetry/collector.yaml",
+                        "monitoring/prometheus/prometheus.yml",
+                        "scripts/dev/start_lifecycle_worker.ps1",
+                    ],
+                ),
             ]
             implementation_summary = [
                 "Readiness now maps degraded dependency state to HTTP 503.",
-                "Strict progress and benchmark evidence contracts are being implemented.",
+                "W3C trace identity is propagated through the existing lifecycle contracts.",
+                "OTLP export and Collector wiring are being integrated into the existing runtime.",
+                "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level.",
             ]
             status = "implementing"
+            updates.extend(
+                [
+                    ChronologicalUpdate(
+                        occurred_at=datetime(2026, 8, 14, 20, 10, tzinfo=UTC),
+                        phase="implementation",
+                        status="implementing",
+                        summary=(
+                            "Readiness semantics and strict evidence-contract scaffolding were "
+                            "applied to the existing API and repository."
+                        ),
+                    ),
+                    ChronologicalUpdate(
+                        occurred_at=datetime(2026, 8, 14, 20, 34, tzinfo=UTC),
+                        phase="implementation",
+                        status="implementing",
+                        summary=(
+                            "W3C trace identity was propagated through the existing API, "
+                            "lifecycle, queue, and Airflow configuration boundaries; focused "
+                            "regression passed, but runtime trace acceptance remains unexecuted."
+                        ),
+                    ),
+                    ChronologicalUpdate(
+                        occurred_at=generated_at,
+                        phase="implementation",
+                        status="implementing",
+                        summary=(
+                            "The public in-place delta contract and OTLP Collector integration "
+                            "are being added; no control run or runtime acceptance is claimed."
+                        ),
+                        evidence_refs=[checkpoint_evidence[0].path],
+                    ),
+                ]
+            )
 
         criteria = [
             AcceptanceCriterion(
@@ -107,16 +209,49 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 test_or_experiment_steps=definition["steps"],
                 acceptance_criteria=criteria,
                 observed_result=None,
-                evidence_artifacts=[],
+                evidence_artifacts=checkpoint_evidence,
                 status=status,
-                claim_boundary=(
-                    "No production, customer traffic, multi-zone HA, or physical multi-node "
-                    "claim is allowed from this scenario until separately exercised."
-                ),
+                claim_boundary=PUBLIC_CLAIM_BOUNDARY,
                 unresolved_items=list(definition["acceptance"]),
                 next_action=definition["next_action"],
                 architecture_before=definition["before"],
                 architecture_after=definition["after"],
+                existing_system_baseline=in_place["existing_system_baseline"],
+                affected_existing_components=[
+                    ChangedComponent.model_validate(item)
+                    for item in in_place["affected_components"]
+                ],
+                engineering_gap_and_reason=definition["observed_gap"],
+                architecture_delta=ArchitectureDelta(
+                    before=definition["before"],
+                    after=definition["after"],
+                    selection_reasons=in_place["selection_reasons"],
+                    alternatives_and_tradeoffs=in_place["alternatives"],
+                ),
+                implementation_delta=ImplementationDelta(
+                    modified_existing_components=changed_components,
+                    compatibility=in_place["compatibility"],
+                    migration=in_place["migration"],
+                ),
+                experiment_contract=ExperimentContract(
+                    preconditions=in_place["preconditions"],
+                    workload_input=in_place["workload_input"],
+                    procedure=definition["steps"],
+                    controlled_variables=in_place["controlled_variables"],
+                    signals=in_place["signals"],
+                    acceptance_criteria=definition["acceptance"],
+                    stop_conditions=in_place["stop_conditions"],
+                    recovery_conditions=in_place["recovery_conditions"],
+                    existing_system_regression_required=True,
+                    lifecycle_e2e_regression_required=True,
+                ),
+                evidence_index=checkpoint_evidence,
+                verdict_and_claim_boundary=VerdictAndClaimBoundary(
+                    verdict="not_run",
+                    claim_boundary=PUBLIC_CLAIM_BOUNDARY,
+                    final_system_validation_required=True,
+                ),
+                chronological_updates=updates,
             )
         )
     return ScenarioProgressLedger(
@@ -153,6 +288,8 @@ def main() -> int:
     args.contracts_dir.mkdir(parents=True, exist_ok=True)
     schema_targets = {
         args.contracts_dir / "scenario-progress.schema.json": ledger.model_json_schema(),
+        args.contracts_dir
+        / "scenario-evidence.schema.json": ScenarioExecutionEvidence.model_json_schema(),
         args.contracts_dir
         / "benchmark-evidence.schema.json": BenchmarkEvidence.model_json_schema(),
     }

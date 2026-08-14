@@ -148,6 +148,19 @@ if (-not $env:EVM_SUPERVISOR_FENCING_TOKEN) {
     $env:EVM_SUPERVISOR_FENCING_TOKEN = "1"
 }
 $env:EVM_PROCESS_INSTANCE_ID = [Guid]::NewGuid().ToString("N")
+$env:EVM_OTEL_ENABLED = if ($env:EVM_OTEL_ENABLED) { $env:EVM_OTEL_ENABLED } else { "true" }
+$env:EVM_OTEL_PROCESSOR = if ($env:EVM_OTEL_PROCESSOR) { $env:EVM_OTEL_PROCESSOR } else { "batch" }
+$env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = if ($env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
+    $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+} else {
+    "http://127.0.0.1:4318/v1/traces"
+}
+$env:OTEL_SERVICE_NAMESPACE = if ($env:OTEL_SERVICE_NAMESPACE) {
+    $env:OTEL_SERVICE_NAMESPACE
+} else {
+    "enterprise-mlops"
+}
+$env:OTEL_SERVICE_INSTANCE_ID = $env:EVM_PROCESS_INSTANCE_ID
 
 $heartbeat = Join-Path $LifecycleRoot "_worker.json"
 $previousHeartbeatWrite = if (Test-Path -LiteralPath $heartbeat) {

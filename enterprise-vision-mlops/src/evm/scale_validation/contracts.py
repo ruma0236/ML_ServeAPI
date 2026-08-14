@@ -9,7 +9,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-PROGRESS_SCHEMA_VERSION = "evm.scale_validation.progress.v1"
+PROGRESS_SCHEMA_VERSION = "evm.scale_validation.progress.v2"
+SCENARIO_EVIDENCE_SCHEMA_VERSION = "evm.scale_validation.scenario_evidence.v1"
 BENCHMARK_SCHEMA_VERSION = "evm.scale_validation.benchmark_evidence.v1"
 PRIVATE_INDEX_SCHEMA_VERSION = "evm.scale_validation.private_evidence_index.v1"
 SHA256_PATTERN = r"^[a-f0-9]{64}$"
@@ -75,6 +76,53 @@ class ChangedComponent(StrictModel):
         return normalized
 
 
+class ArchitectureDelta(StrictModel):
+    before: str = Field(min_length=1)
+    after: str = Field(min_length=1)
+    selection_reasons: list[str] = Field(min_length=1)
+    alternatives_and_tradeoffs: list[str] = Field(min_length=1)
+
+
+class ImplementationDelta(StrictModel):
+    modified_existing_components: list[ChangedComponent]
+    compatibility: list[str] = Field(min_length=1)
+    migration: list[str] = Field(min_length=1)
+
+
+class ExperimentContract(StrictModel):
+    preconditions: list[str] = Field(min_length=1)
+    workload_input: str = Field(min_length=1)
+    procedure: list[str] = Field(min_length=1)
+    controlled_variables: list[str] = Field(min_length=1)
+    signals: list[str] = Field(min_length=1)
+    acceptance_criteria: list[str] = Field(min_length=1)
+    stop_conditions: list[str] = Field(min_length=1)
+    recovery_conditions: list[str] = Field(min_length=1)
+    existing_system_regression_required: Literal[True]
+    lifecycle_e2e_regression_required: Literal[True]
+
+
+class VerdictAndClaimBoundary(StrictModel):
+    verdict: Literal["not_run", "passed", "failed", "inconclusive", "blocked"]
+    claim_boundary: str = Field(min_length=1)
+    final_system_validation_required: Literal[True]
+
+
+class ChronologicalUpdate(StrictModel):
+    occurred_at: datetime
+    phase: Literal["design", "implementation", "experiment", "verification", "recovery"]
+    status: Literal["planned", "implementing", "exercised", "verified", "blocked"]
+    summary: str = Field(min_length=1)
+    evidence_refs: list[str] = Field(default_factory=list)
+
+    _validate_occurred_at = field_validator("occurred_at")(_require_utc)
+
+    @field_validator("evidence_refs")
+    @classmethod
+    def validate_evidence_refs(cls, values: list[str]) -> list[str]:
+        return [_require_repo_relative_path(value) for value in values]
+
+
 class AcceptanceCriterion(StrictModel):
     criterion_id: str = Field(pattern=r"^S[0-8]-AC-[0-9]{2}$")
     description: str = Field(min_length=1)
@@ -107,6 +155,15 @@ class ScenarioProgress(StrictModel):
     next_action: str = Field(min_length=1)
     architecture_before: str = Field(min_length=1)
     architecture_after: str = Field(min_length=1)
+    existing_system_baseline: str = Field(min_length=1)
+    affected_existing_components: list[ChangedComponent] = Field(min_length=1)
+    engineering_gap_and_reason: str = Field(min_length=1)
+    architecture_delta: ArchitectureDelta
+    implementation_delta: ImplementationDelta
+    experiment_contract: ExperimentContract
+    evidence_index: list[EvidenceArtifact]
+    verdict_and_claim_boundary: VerdictAndClaimBoundary
+    chronological_updates: list[ChronologicalUpdate] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_progress_state(self) -> "ScenarioProgress":
@@ -122,14 +179,43 @@ class ScenarioProgress(StrictModel):
             raise ValueError("acceptance criterion IDs must be unique")
 
         evidence_paths = {item.path for item in self.evidence_artifacts}
+        indexed_paths = {item.path for item in self.evidence_index}
+        if evidence_paths != indexed_paths:
+            raise ValueError("evidence_artifacts and evidence_index must describe the same files")
         referenced_paths = {
             path for criterion in self.acceptance_criteria for path in criterion.evidence_refs
         }
         if not referenced_paths.issubset(evidence_paths):
             raise ValueError("acceptance evidence_refs must resolve to declared evidence artifacts")
 
-        if self.status == "planned" and (self.observed_result or self.evidence_artifacts):
-            raise ValueError("planned scenarios cannot contain execution results or evidence")
+        if self.observed_gap != self.engineering_gap_and_reason:
+            raise ValueError("legacy observed_gap must match engineering_gap_and_reason")
+        if self.architecture_before != self.architecture_delta.before:
+            raise ValueError("legacy architecture_before must match architecture_delta.before")
+        if self.architecture_after != self.architecture_delta.after:
+            raise ValueError("legacy architecture_after must match architecture_delta.after")
+        if self.claim_boundary != self.verdict_and_claim_boundary.claim_boundary:
+            raise ValueError("legacy claim_boundary must match verdict_and_claim_boundary")
+        if self.changed_components != self.implementation_delta.modified_existing_components:
+            raise ValueError("changed_components must match the actual implementation delta")
+        if self.test_or_experiment_steps != self.experiment_contract.procedure:
+            raise ValueError("test_or_experiment_steps must match the experiment procedure")
+        if [item.description for item in self.acceptance_criteria] != (
+            self.experiment_contract.acceptance_criteria
+        ):
+            raise ValueError("acceptance criteria must match the experiment contract")
+
+        if self.status == "planned" and (
+            self.observed_result
+            or self.evidence_artifacts
+            or self.implementation_delta.modified_existing_components
+        ):
+            raise ValueError("planned scenarios cannot contain implementation or execution evidence")
+        if self.status == "implementing":
+            if not self.implementation_delta.modified_existing_components:
+                raise ValueError("implementing scenarios require changes to existing components")
+            if self.observed_result is not None:
+                raise ValueError("implementing scenarios cannot claim an observed experiment result")
         if self.status == "exercised" and not (self.observed_result and self.evidence_artifacts):
             raise ValueError("exercised scenarios require a result and evidence")
         if self.status == "verified":
@@ -141,11 +227,23 @@ class ScenarioProgress(StrictModel):
                 raise ValueError("verified acceptance criteria require evidence references")
         if self.status == "blocked" and not self.unresolved_items:
             raise ValueError("blocked scenarios must state unresolved items")
+        expected_verdict = {
+            "planned": "not_run",
+            "implementing": "not_run",
+            "verified": "passed",
+            "blocked": "blocked",
+        }.get(self.status)
+        if expected_verdict and self.verdict_and_claim_boundary.verdict != expected_verdict:
+            raise ValueError(f"{self.status} scenario requires verdict {expected_verdict}")
+        if self.status == "exercised" and self.verdict_and_claim_boundary.verdict == "not_run":
+            raise ValueError("exercised scenarios require an execution verdict")
+        if self.chronological_updates[-1].status != self.status:
+            raise ValueError("latest chronological update must match scenario status")
         return self
 
 
 class ScenarioProgressLedger(StrictModel):
-    schema_version: Literal["evm.scale_validation.progress.v1"]
+    schema_version: Literal["evm.scale_validation.progress.v2"]
     generated_at: datetime
     authoritative_plan: str
     public_record: Literal[True]
@@ -162,6 +260,25 @@ class ScenarioProgressLedger(StrictModel):
         scenario_ids = [item.scenario_id for item in self.scenarios]
         if scenario_ids != list(SCENARIO_TITLES):
             raise ValueError("scenarios must contain S0 through S8 in authoritative order")
+        return self
+
+
+class ScenarioExecutionEvidence(ScenarioProgress):
+    schema_version: Literal["evm.scale_validation.scenario_evidence.v1"]
+    generated_at: datetime
+    source_progress_ledger: str
+
+    _validate_generated_at = field_validator("generated_at")(_require_utc)
+    _validate_source_progress_ledger = field_validator("source_progress_ledger")(
+        _require_repo_relative_path
+    )
+
+    @model_validator(mode="after")
+    def validate_execution_evidence(self) -> "ScenarioExecutionEvidence":
+        if self.status not in {"exercised", "verified", "blocked"}:
+            raise ValueError("scenario execution evidence requires an exercised terminal state")
+        if not self.evidence_index:
+            raise ValueError("scenario execution evidence requires hashed evidence")
         return self
 
 
@@ -367,28 +484,95 @@ def render_progress_markdown(ledger: ScenarioProgressLedger) -> str:
                 f"- Engineering question: {scenario.engineering_question}",
                 f"- Why now: {scenario.why_now}",
                 f"- Observed gap: {scenario.observed_gap}",
-                f"- Architecture before: {scenario.architecture_before}",
-                f"- Architecture after: {scenario.architecture_after}",
-                f"- Claim boundary: {scenario.claim_boundary}",
+                f"- Existing-system baseline: {scenario.existing_system_baseline}",
+                f"- Architecture before: {scenario.architecture_delta.before}",
+                f"- Architecture after: {scenario.architecture_delta.after}",
+                f"- Verdict: `{scenario.verdict_and_claim_boundary.verdict}`",
+                f"- Claim boundary: {scenario.verdict_and_claim_boundary.claim_boundary}",
                 f"- Next action: {scenario.next_action}",
+                "",
+                "### Affected Existing Components",
+                "",
+            ]
+        )
+        lines.extend(
+            f"- {item.component}: {', '.join(f'`{path}`' for path in item.files)}"
+            for item in scenario.affected_existing_components
+        )
+        lines.extend(
+            [
+                "",
+                "### Architecture Delta",
+                "",
+                f"- Before: {scenario.architecture_delta.before}",
+                f"- After: {scenario.architecture_delta.after}",
+            ]
+        )
+        lines.extend(
+            f"- Selection reason: {item}"
+            for item in scenario.architecture_delta.selection_reasons
+        )
+        lines.extend(
+            f"- Alternative/trade-off: {item}"
+            for item in scenario.architecture_delta.alternatives_and_tradeoffs
+        )
+        lines.extend(
+            [
                 "",
                 "### Proposed Design",
                 "",
             ]
         )
         lines.extend(f"- {item}" for item in scenario.proposed_design)
+        lines.extend(["", "### Implementation Delta", ""])
+        if scenario.implementation_delta.modified_existing_components:
+            lines.extend(
+                f"- {item.component}: {', '.join(f'`{path}`' for path in item.files)}"
+                for item in scenario.implementation_delta.modified_existing_components
+            )
+        else:
+            lines.append("- No existing-system code change has started.")
+        lines.extend(
+            f"- Compatibility: {item}" for item in scenario.implementation_delta.compatibility
+        )
+        lines.extend(
+            f"- Migration: {item}" for item in scenario.implementation_delta.migration
+        )
+        lines.extend(["", "### Experiment Contract", ""])
+        lines.append(f"- Workload/input: {scenario.experiment_contract.workload_input}")
+        lines.extend(
+            f"- Precondition: {item}" for item in scenario.experiment_contract.preconditions
+        )
+        lines.extend(
+            f"- Controlled variable: {item}"
+            for item in scenario.experiment_contract.controlled_variables
+        )
+        lines.extend(f"- Signal: {item}" for item in scenario.experiment_contract.signals)
+        lines.extend(
+            f"- Stop condition: {item}" for item in scenario.experiment_contract.stop_conditions
+        )
+        lines.extend(
+            f"- Recovery condition: {item}"
+            for item in scenario.experiment_contract.recovery_conditions
+        )
         lines.extend(["", "### Acceptance", ""])
         lines.extend(
             f"- `{item.criterion_id}` [{item.status}]: {item.description}"
             for item in scenario.acceptance_criteria
         )
         lines.extend(["", "### Current Evidence", ""])
-        if scenario.evidence_artifacts:
+        if scenario.evidence_index:
             lines.extend(
                 f"- `{item.path}` (`{item.sha256}`): {item.claim}"
-                for item in scenario.evidence_artifacts
+                for item in scenario.evidence_index
             )
         else:
             lines.append("- No accepted execution evidence yet.")
+        lines.extend(["", "### Chronological Updates", ""])
+        lines.extend(
+            f"- `{item.occurred_at.isoformat().replace('+00:00', 'Z')}` "
+            f"`{item.phase}` / `{item.status}`: {item.summary}"
+            for item in scenario.chronological_updates
+        )
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"

@@ -175,7 +175,11 @@ def run(config_path: str = "configs/local.toml") -> dict[str, object]:
     experiment_name = get_nested(ctx.config, "mlflow.experiment_name", "enterprise-vision-local-mvp")
     mlflow_run_id = None
     mlflow_status = "skipped"
-    client = MlflowRestClient(str(mlflow_tracking_uri))
+    client = MlflowRestClient(
+        str(mlflow_tracking_uri),
+        traceparent=ctx.trace.traceparent,
+        tracestate=ctx.trace.tracestate or None,
+    )
     if client.health():
         experiment_id = client.get_or_create_experiment(str(experiment_name))
         if experiment_id:

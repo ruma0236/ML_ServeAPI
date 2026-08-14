@@ -39,6 +39,7 @@ from evm.control_panel.lifecycle_runs import (
     transition_stage,
     update_run_evidence,
 )
+from evm.observability.trace_context import W3CTraceContext
 from evm.control_panel.pipeline_profiles import default_profile, save_profile
 from evm.control_panel.schemas import (
     ArtifactReadinessEvaluation,
@@ -178,7 +179,10 @@ def test_airflow_success_advances_lifecycle_to_model_training(tmp_path, monkeypa
     assert tasks[0].config_payload["source_commit"] == run.source_commit
     assert tasks[0].config_payload["source_branch"] == run.source_branch
     assert tasks[0].config_payload["trace_id"] == run.trace_id
-    assert tasks[0].config_payload["traceparent"] == run.traceparent
+    task_trace = W3CTraceContext.parse(tasks[0].config_payload["traceparent"])
+    run_trace = W3CTraceContext.parse(str(run.traceparent))
+    assert task_trace.trace_id == run_trace.trace_id
+    assert task_trace.span_id != run_trace.span_id
     assert result.stages[1].evidence_uri.endswith("provenance-validation.json")
     side_effects = json.loads(
         Path(str(result.side_effect_ledger_uri)).read_text(encoding="utf-8")

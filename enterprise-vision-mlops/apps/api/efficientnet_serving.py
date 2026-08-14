@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import threading
 import time
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -23,9 +24,12 @@ from prometheus_client import (
 from pydantic import BaseModel, Field
 
 from evm.core.image_feature_model import resolve_image_path
+from evm.observability.otel import configure_tracing, shutdown_tracing, trace_span
+from evm.observability.trace_context import TraceContextError, W3CTraceContext
 
 
 APP_NAME = os.getenv("APP_NAME", "evm-b7-serving")
+LOGGER = logging.getLogger(__name__)
 MODEL_PATH = Path(
     os.getenv(
         "EVM_MODEL_PATH",
@@ -249,11 +253,53 @@ def refresh_model() -> ModelRuntime | None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    configure_tracing(APP_NAME, service_version="0.1.0")
     refresh_model()
-    yield
+    try:
+        yield
+    finally:
+        shutdown_tracing()
 
 
 app = FastAPI(title=APP_NAME, version="0.1.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def propagate_serving_trace_context(request: Request, call_next):
+    try:
+        parent = (
+            W3CTraceContext.parse(
+                request.headers["traceparent"],
+                tracestate=request.headers.get("tracestate"),
+            )
+            if "traceparent" in request.headers
+            else None
+        )
+    except TraceContextError:
+        parent = None
+    with trace_span(
+        f"{request.method} {request.url.path}",
+        parent=parent,
+        kind="server",
+        attributes={
+            "http.request.method": request.method,
+            "url.path": request.url.path,
+            "evm.stage": "serving",
+        },
+    ) as active:
+        response = await call_next(request)
+        active.set_attribute("http.response.status_code", response.status_code)
+        response.headers["traceparent"] = active.context.traceparent
+        response.headers["x-evm-trace-id"] = active.context.trace_id
+        LOGGER.info(
+            "serving_request_completed method=%s path=%s status=%s trace_id=%s span_id=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            active.context.trace_id,
+            active.context.span_id,
+        )
+        return response
 
 
 @app.get("/health")

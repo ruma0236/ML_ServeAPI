@@ -262,6 +262,234 @@ SCENARIO_DEFINITIONS: dict[str, dict[str, Any]] = {
 }
 
 
+SCENARIO_IN_PLACE_CONTRACTS: dict[str, dict[str, Any]] = {
+    "S0": {
+        "existing_system_baseline": (
+            "The existing control plane uses a FastAPI API, file-ledger task assignments, a "
+            "supervised lifecycle worker, Compose Airflow and MLflow services, Kubernetes model "
+            "serving, and Prometheus. Health and metrics exist, but one exported cross-runtime "
+            "trace and machine-enforced evidence closure do not yet cover that real path."
+        ),
+        "affected_components": [
+            {
+                "component": "Existing API and serving request boundaries",
+                "files": ["apps/api/main.py", "apps/api/efficientnet_serving.py"],
+            },
+            {
+                "component": "Existing queue and lifecycle execution boundaries",
+                "files": [
+                    "src/evm/control_panel/operations.py",
+                    "src/evm/control_panel/lifecycle_runs.py",
+                    "src/evm/control_panel/lifecycle_orchestrator.py",
+                    "src/evm/control_panel/lifecycle_worker.py",
+                ],
+            },
+            {
+                "component": "Existing pipeline and tracking clients",
+                "files": [
+                    "src/evm/core/pipeline.py",
+                    "src/evm/core/http.py",
+                    "src/evm/core/mlflow_client.py",
+                    "orchestration/airflow/dags/enterprise_vision_mlops_daily.py",
+                ],
+            },
+            {
+                "component": "Existing local runtime and monitoring stack",
+                "files": [
+                    "docker-compose.yml",
+                    "monitoring/prometheus/prometheus.yml",
+                ],
+            },
+            {
+                "component": "Scale-validation public contracts",
+                "files": [
+                    "src/evm/scale_validation/contracts.py",
+                    "contracts/distributed-scale/scenario-progress.schema.json",
+                    "contracts/distributed-scale/benchmark-evidence.schema.json",
+                ],
+            },
+        ],
+        "selection_reasons": [
+            "Instrument the existing runtime boundaries so later load results are attributable to the system under test.",
+            "Keep high-cardinality run identity in traces and logs while Prometheus labels remain bounded.",
+        ],
+        "alternatives": [
+            "Full automatic instrumentation would reduce manual span code but obscures domain handoff boundaries and adds a larger dependency surface.",
+            "A hosted trace backend would improve exploration but adds external state; a local Collector and immutable file evidence fit the current single-node scope.",
+        ],
+        "compatibility": [
+            "Tracing is environment-gated and additive; existing API payloads and legacy trace identifiers remain readable.",
+            "No trace or run identifier is introduced as a Prometheus label.",
+        ],
+        "migration": [
+            "Rebuild the existing API, Airflow, and serving images and restart the supervised worker after the source revision is committed.",
+            "Historical artifacts remain historical evidence and cannot satisfy fresh S0 acceptance.",
+        ],
+        "preconditions": [
+            "Existing control services, one promoted serving target, monitoring, worker, and observer are healthy and revision-aligned.",
+            "Source, data, model, runtime, and load-profile identities are immutable and public-safe evidence roots are writable.",
+        ],
+        "workload_input": "Three independent low-load requests through the existing lifecycle and serving path.",
+        "controlled_variables": [
+            "Source, data, model, runtime, seed, request payload, concurrency, warmup, and measurement window.",
+            "No concurrent training, deployment, or unrelated background load during each control repetition.",
+        ],
+        "signals": [
+            "Readiness status, W3C trace stages, latency quantiles, throughput, queue age/depth, worker activity, pool wait, retry count, CPU/RAM/GPU/VRAM.",
+            "Focused regression tests and the existing end-to-end lifecycle regression result.",
+        ],
+        "stop_conditions": [
+            "Any active dependency is unhealthy, identity is ambiguous, trace linkage is missing, or metric labels become unbounded.",
+            "Unexpected production-like mutation, accelerator OOM, or dirty cleanup state is observed.",
+        ],
+        "recovery_conditions": [
+            "All existing services return to the pre-run identity and health state and temporary work is removed.",
+            "A failed repetition is retained with RCA and is never replaced by an unlinked rerun.",
+        ],
+    },
+    "S1": {
+        "existing_system_baseline": "The existing control plane serializes file-ledger writes and uses run claims and side-effect ledgers, but concurrent durable state transitions are not owned by one transactional database contract.",
+        "affected_components": [
+            {"component": "Lifecycle and task state", "files": ["src/evm/control_panel/lifecycle_runs.py", "src/evm/control_panel/operations.py"]},
+            {"component": "Worker ownership", "files": ["src/evm/control_panel/lifecycle_worker.py", "src/evm/operations/scenario_d_supervision.py"]},
+            {"component": "Control API", "files": ["apps/api/main.py", "src/evm/control_panel/router.py"]},
+        ],
+        "selection_reasons": ["Durable atomic ownership must precede retry and overload experiments."],
+        "alternatives": ["Extending file locks is simpler but cannot safely coordinate multiple replicas; SQLite improves transactions but not the intended multi-process pool behavior."],
+        "compatibility": ["Existing read contracts and identifiers must remain stable while writes migrate behind a repository boundary."],
+        "migration": ["Schema migration and dual-read verification must complete before file-ledger writes are retired."],
+        "preconditions": ["S0 identity, trace, health, and evidence contracts pass."],
+        "workload_input": "Concurrent create, approve, cancel, retry, and stale-owner mutation requests against existing lifecycle jobs.",
+        "controlled_variables": ["Concurrency level, idempotency-key reuse, pool size, lock wait, owner loss point, and retry count."],
+        "signals": ["Committed state, transition conflicts, duplicate effects, lease/fencing identity, pool wait, timeout, and trace correlation."],
+        "stop_conditions": ["An illegal transition, duplicate external effect, unbounded pool wait, or ambiguous owner is observed."],
+        "recovery_conditions": ["One legal committed outcome remains and stale ownership is reconciled without duplicate effects."],
+    },
+    "S2": {
+        "existing_system_baseline": "The existing worker polls lifecycle files and dispatches task assignments, but admission, bytes, age, retries, and poison-work isolation do not share one bounded durable queue contract.",
+        "affected_components": [
+            {"component": "Task admission and dispatch", "files": ["src/evm/control_panel/operations.py", "src/evm/control_panel/lifecycle_worker.py"]},
+            {"component": "Control API", "files": ["src/evm/control_panel/router.py", "apps/api/main.py"]},
+            {"component": "Operational telemetry", "files": ["monitoring/prometheus/prometheus.yml", "src/evm/operations/metrics.py"]},
+        ],
+        "selection_reasons": ["Overload must fail explicitly before high-volume capacity tests begin."],
+        "alternatives": ["An unbounded broker is operationally easy to start but moves memory risk downstream; process-local queues alone lose durable ownership on restart."],
+        "compatibility": ["Existing task payload and lifecycle state-machine contracts must remain valid."],
+        "migration": ["Introduce bounded admission before redirecting existing producers and retain a rollback path to the prior dispatcher."],
+        "preconditions": ["S1 commits one idempotent task outcome and S0 telemetry is queryable."],
+        "workload_input": "Independent burst, sustained, duplicate, expired, and poison task streams through the existing assignment endpoint.",
+        "controlled_variables": ["Arrival rate, queue depth/bytes/age, worker count, timeout, retry budget, and poison ratio."],
+        "signals": ["Admission status, Retry-After, queue depth/bytes/age, RSS, wait time, retry amplification, DLQ, and terminal closure."],
+        "stop_conditions": ["RSS or in-flight bytes exceed the bound, accepted work loses terminal closure, or duplicates appear."],
+        "recovery_conditions": ["Queue drains to zero, poison work is quarantined, workers are healthy, and no duplicate side effect remains."],
+    },
+    "S3": {
+        "existing_system_baseline": "The existing API can execute model inference and expose metrics, but it has no governed high-volume tabular corpus or repeated CPU/API saturation envelope.",
+        "affected_components": [
+            {"component": "Existing scenario intake and execution", "files": ["src/evm/control_panel/scenario_workloads.py", "src/evm/model_runtime/workload_runner.py"]},
+            {"component": "Existing online API and metrics", "files": ["apps/api/main.py", "src/evm/operations/metrics.py"]},
+        ],
+        "selection_reasons": ["Lightweight models expose API, serialization, queue, and CPU limits without model compute dominating the result."],
+        "alternatives": ["A heavy vision or generative model is more domain-specific but hides the first systems bottleneck behind accelerator compute."],
+        "compatibility": ["The existing workload registry and metric projection remain the control-plane entry point."],
+        "migration": ["Register governed tabular profiles without changing existing image or generative workload contracts."],
+        "preconditions": ["S0 passes and S1/S2 provide idempotent bounded execution."],
+        "workload_input": "A fixed public high-volume tabular split replayed across lightweight CPU estimators.",
+        "controlled_variables": ["Model, split, seed, arrival model, concurrency, API replicas, CPU workers, warmup, and duration."],
+        "signals": ["RPS, p50/p95/p99, errors, queue wait, validation/transform/predict spans, CPU, RAM, and load-generator cost."],
+        "stop_conditions": ["Error or latency guardrail is crossed, queue no longer drains, or resource saturation risks the host."],
+        "recovery_conditions": ["Load stops, queues drain, replicas return to baseline, and each repetition has complete evidence."],
+    },
+    "S4": {
+        "existing_system_baseline": "The existing single-accelerator path supports training and serving with an exclusive lease, but dynamic batching, queue delay, and VRAM capacity have no measured operating envelope.",
+        "affected_components": [
+            {"component": "Existing serving runtime", "files": ["apps/api/efficientnet_serving.py", "src/evm/control_panel/lifecycle_kubernetes.py"]},
+            {"component": "Existing accelerator workload control", "files": ["src/evm/control_panel/scenario_workload_control.py", "src/evm/model_runtime/workload_runner.py"]},
+        ],
+        "selection_reasons": ["A tiny MLP isolates scheduler and batch formation cost within the available single-GPU boundary."],
+        "alternatives": ["Multiple concurrent training jobs were excluded because the hardware cannot provide trustworthy isolation without MIG."],
+        "compatibility": ["Existing exclusive training lease and serving identity gates remain authoritative."],
+        "migration": ["Add batching as an opt-in serving profile and keep batch-one behavior as rollback."],
+        "preconditions": ["S0 telemetry and S2 bounds pass; no training or unrelated GPU workload is active."],
+        "workload_input": "Fixed tabular samples served by one tiny GPU MLP under a batch and delay matrix.",
+        "controlled_variables": ["Batch size, bounded queue delay, model instance count, arrival rate, seed, and warmup."],
+        "signals": ["Throughput, p95/p99, formed batch size, queue delay, GPU utilization, allocated/reserved/peak VRAM, and OOM count."],
+        "stop_conditions": ["Any OOM, lease conflict, thermal risk, unbounded queue, or p99 stop threshold occurs."],
+        "recovery_conditions": ["The batch-one known-good profile is restored and accelerator memory returns to baseline."],
+    },
+    "S5": {
+        "existing_system_baseline": "The existing Airflow data path uses deterministic Python and columnar processing, but distributed executor, shuffle, spill, skew, and retry behavior are not implemented or evidenced.",
+        "affected_components": [
+            {"component": "Existing data pipeline", "files": ["src/evm/core/pipeline.py", "orchestration/airflow/dags/enterprise_vision_mlops_daily.py"]},
+            {"component": "Existing Kubernetes job scaffold", "files": ["infra/kubernetes/local/pipeline-job.yaml", "src/evm/control_panel/kubernetes_task_executor.py"]},
+        ],
+        "selection_reasons": ["Spark provides executor, partition, shuffle, spill, skew, and retry controls that the current single-process path lacks."],
+        "alternatives": ["Flink is stronger for streaming but adds a second execution model before batch-scale correctness is established."],
+        "compatibility": ["Existing manifests, lineage digests, and Airflow handoff remain authoritative inputs and outputs."],
+        "migration": ["Run single-process and Spark paths in parallel for digest comparison before making Spark selectable in profiles."],
+        "preconditions": ["S1/S2 protect ownership and retries; governed subset manifests and F-drive capacity checks pass."],
+        "workload_input": "Progressively larger governed click-log partitions with fixed source, schema, partition, and output manifests.",
+        "controlled_variables": ["Subset size, executor count, executor memory, partition size, shuffle partitions, skew fixture, and retry point."],
+        "signals": ["Records/s, MiB/s, peak memory, GC, shuffle, spill, skew, retries, row count, duplicates, and output digest."],
+        "stop_conditions": ["Disk or memory guardrail is crossed, output integrity changes, or cleanup cannot be guaranteed."],
+        "recovery_conditions": ["Executor loss is reconciled, output digest is deterministic, and temporary shuffle/output data is cleaned."],
+    },
+    "S6": {
+        "existing_system_baseline": "The existing system deploys and rolls back model targets and has target-scoped recovery guards, but stateless API rolling continuity and single-GPU model handoff have not been measured as separate claims under load.",
+        "affected_components": [
+            {"component": "Existing API deployment", "files": ["infra/kubernetes/local/api.yaml", "apps/api/main.py"]},
+            {"component": "Existing release and rollback control", "files": ["src/evm/control_panel/deployment_executor.py", "src/evm/control_panel/lifecycle_kubernetes.py"]},
+        ],
+        "selection_reasons": ["Separate CPU/API continuity from the unavoidable interruption boundary of one physical GPU."],
+        "alternatives": ["A Recreate rollout is simpler but cannot demonstrate request drain; claiming GPU HA would be false without another accelerator."],
+        "compatibility": ["Existing approval, identity, readiness, and known-good rollback gates remain mandatory."],
+        "migration": ["Enable replicated API RollingUpdate independently; retain exact-target GPU handoff as a maintenance-window operation."],
+        "preconditions": ["S2 queue bounds, S3 operating point, S4 GPU boundary, and clean rollback identity pass."],
+        "workload_input": "Controlled replay near the verified operating point during one API replica replacement and one separately approved GPU handoff.",
+        "controlled_variables": ["Replica count, rollout surge/unavailable, drain grace, request rate, target identity, and handoff timing."],
+        "signals": ["Accepted loss/duplicates, p99, drain time, readiness, replacement time, GPU interruption, rollback identity, and recovery."],
+        "stop_conditions": ["Target identity is ambiguous, rollback preflight fails, accepted requests are lost, or impact exceeds the maintenance boundary."],
+        "recovery_conditions": ["API replicas are healthy, exact known-good GPU identity is serving, queues are drained, and monitoring is green."],
+    },
+    "S7": {
+        "existing_system_baseline": "The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.",
+        "affected_components": [
+            {"component": "Existing workload catalog and control", "files": ["src/evm/control_panel/scenario_workloads.py", "src/evm/control_panel/scenario_workload_control.py"]},
+            {"component": "Existing model-family runner", "files": ["src/evm/model_runtime/workload_runner.py", "configs/scenario_workloads/live-presets.json"]},
+        ],
+        "selection_reasons": ["Retain real family-specific paths as auxiliary probes after common queue and GPU limits are known."],
+        "alternatives": ["Replacing the main scale workload with VLM/LLM would reduce achievable request volume and confound admission with model size."],
+        "compatibility": ["Existing family metric schemas remain distinct and unsupported metrics remain absent."],
+        "migration": ["Add explicit cost budgets to existing profiles without changing validated model artifacts."],
+        "preconditions": ["S2 bounded admission and S4 accelerator operating point pass; model families run sequentially."],
+        "workload_input": "Fixed small/large image and short/long text request mixes for existing image, VLM, and LLM workloads.",
+        "controlled_variables": ["Image bytes/pixels, decode work, input/output tokens, in-flight tokens, concurrency, and quantization identity."],
+        "signals": ["Family-specific p95/p99, quality, TTFT/TPOT where supported, queue wait, fairness, starvation, peak VRAM, and OOM."],
+        "stop_conditions": ["Any OOM, starvation, unsupported metric claim, or identity ambiguity occurs."],
+        "recovery_conditions": ["Family queue drains, GPU memory returns to baseline, and the prior known-good workload remains selectable."],
+    },
+    "S8": {
+        "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
+        "affected_components": [
+            {"component": "Existing HTTP and lifecycle recovery", "files": ["src/evm/core/http.py", "src/evm/control_panel/lifecycle_worker.py"]},
+            {"component": "Existing operational evidence", "files": ["src/evm/operations/failure_evidence.py", "monitoring/prometheus/prometheus.yml"]},
+        ],
+        "selection_reasons": ["Run dependency faults and soak only after isolated correctness and capacity boundaries are accepted."],
+        "alternatives": ["A broad chaos framework would add operational surface before target-scoped fault contracts are proven."],
+        "compatibility": ["Existing A-E guard evidence remains baseline-only and cannot substitute for fresh scale-soak evidence."],
+        "migration": ["Introduce fault controls behind explicit profiles and retain a no-fault operating profile for rollback."],
+        "preconditions": ["S0 through S7 have accepted evidence, cleanup proof, and one selected safe operating point."],
+        "workload_input": "One bounded dependency fault at a time followed by a 30-60 minute controlled replay near 70 percent of measured sustainable capacity.",
+        "controlled_variables": ["Dependency target, fault latency/duration, timeout, retry budget, backoff, jitter, circuit hold, and load rate."],
+        "signals": ["Retry amplification, MTTR, request impact, memory/FD/pool/queue slopes, CPU/GPU time, efficiency, cleanup, and evidence hashes."],
+        "stop_conditions": ["Fault scope escapes the target, retry budget is exceeded, resource slope is unbounded, or cleanup becomes uncertain."],
+        "recovery_conditions": ["Fault is removed, dependencies and queues recover, resources return to baseline, and every accepted artifact re-hashes."],
+    },
+}
+
+
 def validate_catalog() -> None:
     if list(SCENARIO_DEFINITIONS) != list(SCENARIO_TITLES):
         raise ValueError("scenario catalog must preserve authoritative S0 through S8 order")
+    if list(SCENARIO_IN_PLACE_CONTRACTS) != list(SCENARIO_TITLES):
+        raise ValueError("in-place contracts must preserve authoritative S0 through S8 order")

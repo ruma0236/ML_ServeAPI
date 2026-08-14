@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from evm.core.config import get_nested, load_config, resolve_path
 from evm.core.traceability import TraceContext
+from evm.observability.otel import configure_tracing, trace_span
+from evm.observability.trace_context import W3CTraceContext
 
 
 def utc_now() -> str:
@@ -37,6 +39,7 @@ class PipelineContext:
 
 
 def build_context(pipeline_name: str, config_path: str | Path) -> PipelineContext:
+    configure_tracing(f"evm-pipeline-{pipeline_name}")
     config = load_config(config_path)
     project_root = Path(str(config["_project_root"]))
     artifacts_root = resolve_path(config, get_nested(config, "paths.artifacts_root", "artifacts"))
@@ -46,6 +49,36 @@ def build_context(pipeline_name: str, config_path: str | Path) -> PipelineContex
     run_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
     trace = TraceContext.from_environment(pipeline_name, rid)
+    parent = (
+        W3CTraceContext(
+            trace_id=trace.w3c_trace_id,
+            span_id=trace.parent_span_id,
+            trace_flags=trace.trace_flags,
+            tracestate=trace.tracestate or None,
+        )
+        if trace.parent_span_id
+        else None
+    )
+    stage = "spark" if "spark" in pipeline_name else "data"
+    with trace_span(
+        "pipeline.initialize",
+        parent=parent,
+        kind="consumer",
+        attributes={
+            "evm.stage": stage,
+            "evm.pipeline.name": pipeline_name,
+            "evm.pipeline.run_id": rid,
+        },
+    ) as active:
+        trace = replace(
+            trace,
+            w3c_trace_id=active.context.trace_id,
+            traceparent=active.context.traceparent,
+            span_id=active.context.span_id,
+            parent_span_id=active.context.parent_span_id or "",
+            trace_flags=active.context.trace_flags,
+            tracestate=active.context.tracestate or "",
+        )
     with (run_dir / "trace.json").open("w", encoding="utf-8", newline="\n") as fp:
         fp.write(json.dumps(trace.to_dict(), indent=2, ensure_ascii=False) + "\n")
     return PipelineContext(

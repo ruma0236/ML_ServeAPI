@@ -10,17 +10,24 @@ from evm.scale_validation.contracts import (
     PROGRESS_SCHEMA_VERSION,
     SCENARIO_TITLES,
     AcceptanceCriterion,
+    ArchitectureDelta,
     BenchmarkClosure,
     BenchmarkControlRun,
     BenchmarkEnvironment,
     BenchmarkEvidence,
     BenchmarkIdentity,
+    ChangedComponent,
+    ChronologicalUpdate,
     EvidenceArtifact,
+    ExperimentContract,
+    ImplementationDelta,
     LoadProfile,
     MetricObservation,
+    ScenarioExecutionEvidence,
     ScenarioProgress,
     ScenarioProgressLedger,
     TracePropagationEvidence,
+    VerdictAndClaimBoundary,
     render_progress_markdown,
 )
 
@@ -38,21 +45,35 @@ def scenario(scenario_id: str, *, status: str = "planned") -> ScenarioProgress:
     criterion_status = "passed" if status == "verified" else "pending"
     evidence = [ARTIFACT] if status in {"exercised", "verified"} else []
     evidence_refs = [ARTIFACT.path] if status == "verified" else []
+    changed_components = (
+        [ChangedComponent(component="Existing API", files=["apps/api/main.py"])]
+        if status == "implementing"
+        else []
+    )
+    claim_boundary = "No production or multi-node claim; final system validation is separate."
+    observed_gap = "The result has not been exercised."
+    architecture_before = "No verified boundary."
+    architecture_after = "A machine-verified boundary."
+    acceptance = "The deterministic validation passes."
     return ScenarioProgress(
         scenario_id=scenario_id,
         title=SCENARIO_TITLES[scenario_id],
         engineering_question="Can the declared engineering boundary be measured?",
         why_now="The current implementation lacks accepted scale evidence.",
-        observed_gap="The result has not been exercised.",
+        observed_gap=observed_gap,
         proposed_design=["Add a bounded and observable validation path."],
-        changed_components=[],
-        implementation_summary=["Implementation has not started."],
+        changed_components=changed_components,
+        implementation_summary=(
+            ["Existing API instrumentation is being implemented."]
+            if changed_components
+            else ["Implementation has not started."]
+        ),
         experiment_environment="Generalized local single-node environment.",
         test_or_experiment_steps=["Run a deterministic validation."],
         acceptance_criteria=[
             AcceptanceCriterion(
                 criterion_id=f"{scenario_id}-AC-01",
-                description="The deterministic validation passes.",
+                description=acceptance,
                 status=criterion_status,
                 evidence_refs=evidence_refs,
             )
@@ -60,11 +81,62 @@ def scenario(scenario_id: str, *, status: str = "planned") -> ScenarioProgress:
         observed_result="The validation passed." if evidence else None,
         evidence_artifacts=evidence,
         status=status,
-        claim_boundary="No production or multi-node claim.",
+        claim_boundary=claim_boundary,
         unresolved_items=[] if status == "verified" else ["Run the validation."],
         next_action="Execute the declared test.",
-        architecture_before="No verified boundary.",
-        architecture_after="A machine-verified boundary.",
+        architecture_before=architecture_before,
+        architecture_after=architecture_after,
+        existing_system_baseline="The existing API path is functional but not exercised at this boundary.",
+        affected_existing_components=[
+            ChangedComponent(component="Existing API", files=["apps/api/main.py"])
+        ],
+        engineering_gap_and_reason=observed_gap,
+        architecture_delta=ArchitectureDelta(
+            before=architecture_before,
+            after=architecture_after,
+            selection_reasons=["Exercise the real existing boundary."],
+            alternatives_and_tradeoffs=["A fixture would be simpler but would not prove the system."],
+        ),
+        implementation_delta=ImplementationDelta(
+            modified_existing_components=changed_components,
+            compatibility=["Keep the existing API contract."],
+            migration=["No migration until the implementation passes regression."],
+        ),
+        experiment_contract=ExperimentContract(
+            preconditions=["The existing system is healthy."],
+            workload_input="A deterministic request through the existing API.",
+            procedure=["Run a deterministic validation."],
+            controlled_variables=["Request and runtime identity."],
+            signals=["Response, trace, and resource metrics."],
+            acceptance_criteria=[acceptance],
+            stop_conditions=["Stop on ambiguous identity."],
+            recovery_conditions=["Restore the baseline identity and health."],
+            existing_system_regression_required=True,
+            lifecycle_e2e_regression_required=True,
+        ),
+        evidence_index=evidence,
+        verdict_and_claim_boundary=VerdictAndClaimBoundary(
+            verdict=(
+                "passed"
+                if status == "verified"
+                else "inconclusive"
+                if status == "exercised"
+                else "blocked"
+                if status == "blocked"
+                else "not_run"
+            ),
+            claim_boundary=claim_boundary,
+            final_system_validation_required=True,
+        ),
+        chronological_updates=[
+            ChronologicalUpdate(
+                occurred_at=NOW,
+                phase="verification" if status == "verified" else "design",
+                status=status,
+                summary="The scenario record was updated from actual state.",
+                evidence_refs=evidence_refs,
+            )
+        ],
     )
 
 
@@ -109,6 +181,30 @@ def test_verified_progress_requires_passed_criteria_and_hashed_evidence() -> Non
 
     verified = scenario("S0", status="verified")
     assert verified.status == "verified"
+
+
+def test_implementing_requires_an_actual_existing_system_delta() -> None:
+    implementing = scenario("S0", status="implementing")
+    assert implementing.implementation_delta.modified_existing_components
+
+    payload = implementing.model_dump()
+    payload["changed_components"] = []
+    payload["implementation_delta"]["modified_existing_components"] = []
+    with pytest.raises(ValidationError, match="require changes to existing components"):
+        ScenarioProgress.model_validate(payload)
+
+
+def test_execution_evidence_rejects_planning_only_records() -> None:
+    payload = scenario("S0").model_dump()
+    payload.update(
+        {
+            "schema_version": "evm.scale_validation.scenario_evidence.v1",
+            "generated_at": NOW,
+            "source_progress_ledger": "docs/status/scenario-progress.json",
+        }
+    )
+    with pytest.raises(ValidationError, match="requires an exercised terminal state"):
+        ScenarioExecutionEvidence.model_validate(payload)
 
 
 def metric(name: str, statistics: dict[str, float]) -> MetricObservation:

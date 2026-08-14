@@ -23,7 +23,11 @@ RUN pip install --no-cache-dir \
       pydantic==2.10.3 \
       "uvicorn[standard]==0.32.1"
 
-RUN pip install --no-cache-dir prometheus-client==0.21.1
+RUN pip install --no-cache-dir \
+      opentelemetry-api==1.44.0 \
+      opentelemetry-exporter-otlp-proto-http==1.44.0 \
+      opentelemetry-sdk==1.44.0 \
+      prometheus-client==0.21.1
 
 ARG SOURCE_REVISION=unknown
 LABEL org.opencontainers.image.revision="${SOURCE_REVISION}"
