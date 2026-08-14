@@ -51,3 +51,11 @@ def test_spark_runtime_probe_uses_real_pipeline_contract_without_claiming_scale(
     assert persisted["result"]["row_count"] == 14
     assert "Scenario S5" in persisted["claim_boundary"]
     assert len(persisted["result_sha256"]) == 64
+
+
+def test_airflow_image_includes_pyspark_jvm_runtime_contract() -> None:
+    dockerfile = Path("infra/docker/airflow/Dockerfile").read_text(encoding="utf-8")
+
+    assert "pyspark==3.5.8" in dockerfile
+    assert "openjdk-17-jre-headless" in dockerfile
+    assert "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" in dockerfile
