@@ -70,10 +70,11 @@ try {
     foreach ($entry in $imageTargets.GetEnumerator()) {
         $revisionMismatch = $false
         if ($localImages -contains $entry.Key -and $revisionAwareImages -contains $entry.Key) {
-            $imageRevision = (& docker image inspect $entry.Key --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}').Trim()
+            $imageInspection = @(& docker image inspect $entry.Key) | ConvertFrom-Json
             if ($LASTEXITCODE -ne 0) {
                 throw "docker image revision inspection failed for $($entry.Key)"
             }
+            $imageRevision = $imageInspection[0].Config.Labels.'org.opencontainers.image.revision'
             $revisionMismatch = $imageRevision -ne $commit
             if ($revisionMismatch) {
                 Write-Host "Image revision mismatch for $($entry.Key): image=$imageRevision source=$commit"
