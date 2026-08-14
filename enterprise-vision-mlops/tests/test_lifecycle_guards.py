@@ -92,6 +92,8 @@ def test_identity_envelope_is_sealed_and_guard_dispatch_is_auditable(tmp_path: P
     assert decision.decision == "pass"
     assert decision.authorities == ["D", "E", "C"]
     assert decision.identity_digest == envelope.envelope_digest
+    assert len(envelope.trace_id) == 32
+    assert envelope.traceparent.startswith(f"00-{envelope.trace_id}-")
     state = LifecycleGuardState.model_validate_json(
         (tmp_path / "guard_state.json").read_text(encoding="utf-8")
     )

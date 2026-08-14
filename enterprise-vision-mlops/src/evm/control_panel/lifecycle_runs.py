@@ -56,6 +56,7 @@ from evm.control_panel.pipeline_profiles import (
 )
 from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import AuditEvent, ContractModel
+from evm.observability.trace_context import W3CTraceContext, current_trace_context
 
 
 LifecycleRunState = Literal[
@@ -180,6 +181,12 @@ class LifecycleRun(ContractModel):
     lifecycle_series_id: str | None = None
     attempt_id: str | None = None
     correlation_id: str | None = None
+    trace_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    traceparent: str | None = Field(
+        default=None,
+        pattern=r"^00-[a-f0-9]{32}-[a-f0-9]{16}-[a-f0-9]{2}$",
+    )
+    tracestate: str | None = None
     source_commit: str | None = None
     source_branch: str | None = None
     state: LifecycleRunState
@@ -403,7 +410,9 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
 
     created_at = utc_now()
     run_id = f"lifecycle-{created_at.replace(':', '').replace('-', '').replace('Z', '')}-{uuid4().hex[:8]}"
-    snapshot = prepare_runtime_snapshot(run_id, record)
+    parent_trace = current_trace_context()
+    trace_context = parent_trace.child() if parent_trace else W3CTraceContext.new_root()
+    snapshot = prepare_runtime_snapshot(run_id, record, trace_context)
     guard_identity = seal_lifecycle_guard_artifacts(
         directory=lifecycle_root() / run_id,
         run_id=run_id,
@@ -417,6 +426,7 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
         airflow_config_uri=snapshot["airflow_config_uri"],
         model_config_uri=snapshot["model_config_uri"],
         dirty_state_digest=os.getenv("EVM_GIT_DIRTY_DIGEST"),
+        trace_context=trace_context,
     )
     stages = build_stages()
     stages[0] = stages[0].model_copy(
@@ -440,6 +450,9 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
         lifecycle_series_id=guard_identity.lifecycle_series_id,
         attempt_id=guard_identity.attempt_id,
         correlation_id=guard_identity.correlation_id,
+        trace_id=guard_identity.trace_id,
+        traceparent=guard_identity.traceparent,
+        tracestate=guard_identity.tracestate,
         source_commit=source_commit,
         source_branch=source_branch,
         state=state,
@@ -495,7 +508,11 @@ def build_stages() -> list[LifecycleStage]:
     ]
 
 
-def prepare_runtime_snapshot(run_id: str, record: PipelineProfileRecord) -> dict[str, str]:
+def prepare_runtime_snapshot(
+    run_id: str,
+    record: PipelineProfileRecord,
+    trace_context: W3CTraceContext,
+) -> dict[str, str]:
     directory = lifecycle_root() / run_id
     directory.mkdir(parents=True, exist_ok=False)
     shared_directories = [
@@ -530,6 +547,9 @@ def prepare_runtime_snapshot(run_id: str, record: PipelineProfileRecord) -> dict
         "profile_version": record.version,
         "profile_digest": record.digest,
         "artifact_root": host_artifact_root,
+        "trace_id": trace_context.trace_id,
+        "traceparent": trace_context.traceparent,
+        "tracestate": trace_context.tracestate,
     }
     airflow_payload.setdefault("control_plane", {}).update(control_plane)
     airflow_payload["control_plane"]["pipeline_stage_scope"] = "data"

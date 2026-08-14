@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
@@ -30,6 +30,12 @@ from apps.api.control_panel_tasks import router as control_panel_tasks_router
 from apps.api.control_panel_workloads import router as control_panel_workloads_router
 from apps.api.control_panel import router as control_panel_router
 from evm.core.image_feature_model import extract_image_features, predict_with_model, resolve_image_path
+from evm.observability.trace_context import (
+    TraceContextError,
+    W3CTraceContext,
+    bind_trace_context,
+    reset_trace_context,
+)
 from evm.operations.metrics import OperationalMetrics, load_metric_projection
 
 
@@ -235,6 +241,47 @@ app = FastAPI(
     lifespan=lifespan,
     separate_input_output_schemas=False,
 )
+
+
+@app.middleware("http")
+async def propagate_w3c_trace_context(request: Request, call_next):
+    incoming = request.headers.get("traceparent")
+    tracestate = request.headers.get("tracestate")
+    regenerated = False
+    try:
+        parent = (
+            W3CTraceContext.parse(incoming, tracestate=tracestate)
+            if incoming
+            else None
+        )
+    except TraceContextError:
+        parent = None
+        regenerated = True
+    context = parent.child() if parent is not None else W3CTraceContext.new_root()
+    token = bind_trace_context(context)
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    finally:
+        reset_trace_context(token)
+    response.headers["traceparent"] = context.traceparent
+    if context.tracestate:
+        response.headers["tracestate"] = context.tracestate
+    response.headers["x-evm-trace-id"] = context.trace_id
+    LOGGER.info(
+        "http_request_completed method=%s path=%s status=%s elapsed_ms=%.3f "
+        "trace_id=%s span_id=%s inbound_context_regenerated=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        (time.perf_counter() - started) * 1000,
+        context.trace_id,
+        context.span_id,
+        regenerated,
+    )
+    return response
+
+
 app.include_router(control_panel_router)
 app.include_router(control_panel_tasks_router)
 app.include_router(control_panel_commands_router)

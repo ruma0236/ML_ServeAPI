@@ -302,6 +302,8 @@ def test_dry_run_creates_immutable_runtime_snapshot(tmp_path: Path, monkeypatch)
     assert run.lifecycle_series_id and run.lifecycle_series_id.startswith("series-")
     assert run.attempt_id and run.attempt_id.startswith("attempt-")
     assert run.correlation_id and run.correlation_id.startswith("correlation-")
+    assert run.trace_id and len(run.trace_id) == 32
+    assert run.traceparent and run.traceparent.startswith(f"00-{run.trace_id}-")
     assert run.guard_decision == "pass"
     assert run.guard_authorities == ["D", "E"]
     for uri in (
@@ -317,6 +319,8 @@ def test_dry_run_creates_immutable_runtime_snapshot(tmp_path: Path, monkeypatch)
     model_snapshot = json.loads(Path(run.model_config_uri).read_text(encoding="utf-8"))
     assert profile_snapshot["execution_scope"] == "full_lifecycle"
     assert airflow_snapshot["control_plane"]["lifecycle_run_id"] == run.run_id
+    assert airflow_snapshot["control_plane"]["trace_id"] == run.trace_id
+    assert airflow_snapshot["control_plane"]["traceparent"] == run.traceparent
     assert airflow_snapshot["control_plane"]["pipeline_stage_scope"] == "data"
     assert airflow_snapshot["pipelines"]["data_validation"]["output_manifest"].startswith(
         run.airflow_runtime_uri.rsplit("/", 1)[0]
@@ -325,6 +329,7 @@ def test_dry_run_creates_immutable_runtime_snapshot(tmp_path: Path, monkeypatch)
         airflow_snapshot["pipelines"]["data_validation"]["output_manifest"]
     )
     assert model_snapshot["model_matrix"]["matrix_id"] == run.run_id
+    assert model_snapshot["control_plane"]["trace_id"] == run.trace_id
     assert model_snapshot["inputs"]["base_config"] == run.airflow_runtime_uri
     assert model_snapshot["inputs"]["shard_index"] == (
         f"{run.airflow_runtime_uri.rsplit('/', 1)[0]}/data/shards/shard_index.json"

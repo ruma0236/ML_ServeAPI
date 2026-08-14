@@ -12,6 +12,7 @@ from pydantic import Field, model_validator
 
 from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import ContractModel
+from evm.observability.trace_context import W3CTraceContext
 
 
 GuardDecisionState = Literal["pass", "blocked"]
@@ -48,6 +49,9 @@ class LifecycleIdentityEnvelope(ContractModel):
     lifecycle_run_id: str = Field(min_length=8)
     attempt_id: str = Field(min_length=8)
     correlation_id: str = Field(min_length=8)
+    trace_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    traceparent: str = Field(pattern=r"^00-[a-f0-9]{32}-[a-f0-9]{16}-[a-f0-9]{2}$")
+    tracestate: str | None = None
     created_at: str
     source_commit: str
     source_branch: str | None = None
@@ -211,6 +215,7 @@ def seal_lifecycle_guard_artifacts(
     airflow_config_uri: str,
     model_config_uri: str,
     dirty_state_digest: str | None = None,
+    trace_context: W3CTraceContext | None = None,
 ) -> LifecycleIdentityEnvelope:
     profile_path = _required_file(profile_snapshot_uri, label="profile_snapshot")
     airflow_path = _required_file(airflow_config_uri, label="airflow_config")
@@ -224,6 +229,7 @@ def seal_lifecycle_guard_artifacts(
     split_manifest_uri = str(data.get("split_manifest_uri") or "")
     source_manifest = _required_file(source_manifest_uri, label="source_manifest")
     split_manifest = _required_file(split_manifest_uri, label="split_manifest")
+    trace = trace_context or W3CTraceContext.new_root()
     lifecycle_series_id = f"series-{uuid4().hex}"
     attempt_id = f"attempt-{uuid4().hex}"
     correlation_id = f"correlation-{uuid4().hex}"
@@ -265,6 +271,9 @@ def seal_lifecycle_guard_artifacts(
         lifecycle_run_id=run_id,
         attempt_id=attempt_id,
         correlation_id=correlation_id,
+        trace_id=trace.trace_id,
+        traceparent=trace.traceparent,
+        tracestate=trace.tracestate,
         created_at=utc_now(),
         source_commit=source_commit,
         source_branch=source_branch,

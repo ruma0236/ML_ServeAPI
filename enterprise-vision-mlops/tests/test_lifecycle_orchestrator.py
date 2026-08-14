@@ -177,6 +177,8 @@ def test_airflow_success_advances_lifecycle_to_model_training(tmp_path, monkeypa
     assert tasks[0].config_payload["pipeline_stage_scope"] == "data"
     assert tasks[0].config_payload["source_commit"] == run.source_commit
     assert tasks[0].config_payload["source_branch"] == run.source_branch
+    assert tasks[0].config_payload["trace_id"] == run.trace_id
+    assert tasks[0].config_payload["traceparent"] == run.traceparent
     assert result.stages[1].evidence_uri.endswith("provenance-validation.json")
     side_effects = json.loads(
         Path(str(result.side_effect_ledger_uri)).read_text(encoding="utf-8")

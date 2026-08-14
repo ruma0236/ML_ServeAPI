@@ -16,7 +16,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture before: Health, metrics, and logs exist without one machine-enforced evidence closure.
 - Architecture after: Readiness, bounded telemetry, distributed trace identity, and benchmark closure gate every later scenario.
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.
-- Next action: Complete S0 contracts and telemetry gap audit before any load execution.
+- Next action: Add OTLP export and bounded runtime telemetry, then verify all declared trace hops before low-load controls.
 
 ### Proposed Design
 

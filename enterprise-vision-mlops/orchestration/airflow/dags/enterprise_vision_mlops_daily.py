@@ -54,7 +54,9 @@ def dag_conf_template(key: str, fallback: str = "") -> str:
 
 def airflow_trace_env() -> dict[str, str]:
     return {
-        "EVM_TRACE_ID": "{{ dag.dag_id }}__{{ run_id }}",
+        "EVM_TRACE_ID": dag_conf_template("trace_id"),
+        "EVM_TRACEPARENT": dag_conf_template("traceparent"),
+        "EVM_TRACESTATE": dag_conf_template("tracestate"),
         "EVM_AIRFLOW_DAG_ID": "{{ dag.dag_id }}",
         "EVM_AIRFLOW_DAG_RUN_ID": "{{ run_id }}",
         "EVM_AIRFLOW_TASK_ID": "{{ task.task_id }}",

@@ -25,20 +25,37 @@
             "tests/test_api_metrics.py"
           ]
         },
-        {
-          "component": "Scale-validation evidence contracts",
+      {
+        "component": "Scale-validation evidence contracts",
           "files": [
             "src/evm/scale_validation/contracts.py",
             "src/evm/scale_validation/catalog.py",
             "scripts/dev/initialize_scale_scenario_progress.py",
             "scripts/dev/validate_scale_scenario_progress.py",
-            "tests/test_scale_scenario_progress.py"
-          ]
-        }
-      ],
-      "implementation_summary": [
-        "Readiness now maps degraded dependency state to HTTP 503.",
-        "Strict progress and benchmark evidence contracts are being implemented."
+          "tests/test_scale_scenario_progress.py"
+        ]
+      },
+      {
+        "component": "W3C trace identity and lifecycle propagation",
+        "files": [
+          "src/evm/observability/trace_context.py",
+          "src/evm/core/traceability.py",
+          "apps/api/main.py",
+          "src/evm/control_panel/lifecycle_guards.py",
+          "src/evm/control_panel/lifecycle_runs.py",
+          "src/evm/control_panel/lifecycle_orchestrator.py",
+          "orchestration/airflow/dags/enterprise_vision_mlops_daily.py",
+          "orchestration/airflow/dags/enterprise_mlops_scenario_intake.py",
+          "contracts/control-panel/control-panel.openapi.json",
+          "tests/test_trace_context.py"
+        ]
+      }
+    ],
+    "implementation_summary": [
+      "Readiness now maps degraded dependency state to HTTP 503.",
+      "Strict progress and benchmark evidence contracts are being implemented.",
+      "The API now validates or regenerates W3C trace context without placing trace identity in metric labels.",
+      "New LifecycleRuns seal the same trace identity into immutable guard, runtime snapshot, queue, and Airflow configuration artifacts."
       ],
       "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
       "test_or_experiment_steps": [
@@ -78,7 +95,7 @@
           "evidence_refs": []
         }
       ],
-      "observed_result": null,
+    "observed_result": "Contract-level trace and lifecycle propagation tests pass; collector export and real cross-runtime trace observation are not yet exercised.",
       "evidence_artifacts": [],
       "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.",
@@ -89,7 +106,7 @@
         "Trace propagation spans every declared lifecycle stage with zero missing links.",
         "Three independent controls are comparable and variance is reported."
       ],
-      "next_action": "Complete S0 contracts and telemetry gap audit before any load execution.",
+    "next_action": "Add OTLP export and bounded runtime telemetry, then verify all declared trace hops before low-load controls.",
       "architecture_before": "Health, metrics, and logs exist without one machine-enforced evidence closure.",
       "architecture_after": "Readiness, bounded telemetry, distributed trace identity, and benchmark closure gate every later scenario."
     },

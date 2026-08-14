@@ -34,7 +34,15 @@ with DAG(
             "EVM_RUN_CONFIG": (
                 "{{ dag_run.conf.get('pipeline_config_uri', '') if dag_run else '' }}"
             ),
-            "EVM_TRACE_ID": "{{ dag.dag_id }}__{{ run_id }}",
+            "EVM_TRACE_ID": (
+                "{{ dag_run.conf.get('trace_id', '') if dag_run else '' }}"
+            ),
+            "EVM_TRACEPARENT": (
+                "{{ dag_run.conf.get('traceparent', '') if dag_run else '' }}"
+            ),
+            "EVM_TRACESTATE": (
+                "{{ dag_run.conf.get('tracestate', '') if dag_run else '' }}"
+            ),
             "EVM_AIRFLOW_DAG_ID": "{{ dag.dag_id }}",
             "EVM_AIRFLOW_DAG_RUN_ID": "{{ run_id }}",
             "EVM_AIRFLOW_TASK_ID": "{{ task.task_id }}",
