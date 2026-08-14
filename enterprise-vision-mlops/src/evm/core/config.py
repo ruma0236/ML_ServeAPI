@@ -48,6 +48,9 @@ def get_nested(config: dict[str, Any], dotted_key: str, default: Any = None) -> 
 
 
 def resolve_path(config: dict[str, Any], value: str | Path) -> Path:
+    runtime_path = map_runtime_data_path(value)
+    if runtime_path.is_absolute():
+        return runtime_path
     path = Path(value)
     if path.is_absolute():
         return path

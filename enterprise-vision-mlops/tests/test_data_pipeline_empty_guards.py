@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from evm.core.config import map_runtime_data_path
+from evm.core.config import map_runtime_data_path, resolve_path
 from evm.pipelines.data_validation.run import (
     resolve_dataset_version,
     run as run_data_validation,
@@ -22,6 +22,24 @@ def test_runtime_data_path_maps_windows_host_root_to_container_mount(monkeypatch
     )
 
     assert mapped == Path("/mnt/evm-data/data/raw/industrial/visa")
+
+
+def test_resolve_path_uses_the_absolute_path_for_the_current_runtime(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    host_root = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops"
+    mount_root = "/mnt/evm-data"
+    configured = f"{host_root}/artifacts/s0/report.json"
+    monkeypatch.setenv("EVM_HOST_DATA_ROOT", host_root)
+    monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", mount_root)
+
+    resolved = resolve_path({"_project_root": str(tmp_path)}, configured)
+
+    expected = Path(f"{mount_root}/artifacts/s0/report.json")
+    if not expected.is_absolute():
+        expected = Path(configured)
+    assert resolved == expected
 
 
 def test_configured_dataset_version_preserves_external_lineage() -> None:

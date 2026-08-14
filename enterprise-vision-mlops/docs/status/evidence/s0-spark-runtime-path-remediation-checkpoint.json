@@ -1,0 +1,55 @@
+{
+  "schema_version": "evm.scale_validation.implementation_checkpoint.v1",
+  "scenario_id": "S0",
+  "generated_at": "2026-08-14T21:58:52Z",
+  "status": "implementing",
+  "existing_system_baseline": "The existing Airflow container executes the repository pipeline runner against configuration shared with Windows host paths and a mounted container data root.",
+  "architecture_delta": {
+    "before": "Core pipeline path resolution accepted native absolute paths but did not translate a configured Windows data-root path before a POSIX container treated it as project-relative.",
+    "after": "Core path resolution first considers the configured host-to-container data-root mapping when it is absolute for the current runtime, while preserving native Windows absolute paths on the host."
+  },
+  "implementation_checkpoint": {
+    "focused_tests_passed": 6,
+    "full_tests_passed": 590,
+    "container_path_contract_verified": true,
+    "real_spark_computation_observed": true,
+    "accepted_spark_evidence_created": false,
+    "fresh_cross_runtime_trace_observed": false,
+    "independent_low_load_controls_completed": 0
+  },
+  "changed_existing_boundaries": [
+    {
+      "boundary": "Shared pipeline path resolution",
+      "before": "A Windows drive path in runtime configuration became a relative path below the repository when evaluated by pathlib in the Linux Airflow container.",
+      "after": "The same configured value resolves below the mounted container data root on POSIX and remains the original drive path on Windows."
+    }
+  ],
+  "failure_and_rca": [
+    {
+      "failure": "The first real local Spark probe exited before creating a Spark session.",
+      "root_cause": "The Airflow image installed PySpark without a Java runtime.",
+      "correction": "The existing Airflow image now includes a pinned Java 17 runtime and JAVA_HOME.",
+      "retest": "A bounded local Spark computation completed in the rebuilt Airflow container."
+    },
+    {
+      "failure": "The successful Spark computation wrote its report below a project-relative drive-name directory instead of the mounted evidence root.",
+      "root_cause": "Shared PipelineContext path resolution did not apply the existing host-to-container data-root mapping.",
+      "correction": "Core path resolution now selects the mapped path only when it is absolute for the current runtime, preserving host compatibility.",
+      "retest": "Focused tests, the full 590-test suite, and an in-container path-contract probe passed. The Spark execution must still be rerun to create accepted evidence."
+    }
+  ],
+  "acceptance_status": {
+    "S0-AC-01": "pending",
+    "S0-AC-02": "pending",
+    "S0-AC-03": "pending",
+    "S0-AC-04": "pending",
+    "S0-AC-05": "pending"
+  },
+  "unresolved": [
+    "The remediated Spark evidence path has not yet been exercised by a fresh run and sealed by digest.",
+    "No fresh trace has linked the existing API, queue, worker, Airflow, data, Spark, MLflow, and serving boundaries.",
+    "The bounded metric closure and three independent low-load controls remain unexecuted."
+  ],
+  "private_evidence": "Raw failed and partial runtime outputs remain outside Git and are not acceptance evidence.",
+  "claim_boundary": "This proves a cross-platform path-resolution remediation and regression compatibility. It is not accepted Spark runtime evidence, S0 acceptance, distributed Spark, scale, availability, or production proof."
+}

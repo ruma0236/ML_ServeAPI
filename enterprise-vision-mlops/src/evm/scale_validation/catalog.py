@@ -294,6 +294,7 @@ SCENARIO_IN_PLACE_CONTRACTS: dict[str, dict[str, Any]] = {
             {
                 "component": "Existing pipeline and tracking clients",
                 "files": [
+                    "src/evm/core/config.py",
                     "src/evm/core/pipeline.py",
                     "src/evm/core/http.py",
                     "src/evm/core/mlflow_client.py",

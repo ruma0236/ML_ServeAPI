@@ -115,6 +115,21 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "acceptance remains pending."
                     ),
                 ),
+                EvidenceArtifact(
+                    path=(
+                        "docs/status/evidence/"
+                        "s0-spark-runtime-path-remediation-checkpoint.json"
+                    ),
+                    sha256=(
+                        "a30afb6ac712b82e6d2e6e768e36f2fce4ce1af738a4b3b90e273fd65e51a9e1"
+                    ),
+                    generated_at=datetime(2026, 8, 14, 21, 58, 52, tzinfo=UTC),
+                    claim=(
+                        "A real local Spark computation exposed JVM and cross-runtime path "
+                        "gaps; both were remediated with 590-test regression, but a fresh "
+                        "accepted Spark evidence run remains pending."
+                    ),
+                ),
             ]
             changed_components = [
                 ChangedComponent(
@@ -178,6 +193,13 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "src/evm/pipelines/spark_runtime_probe/run.py",
                     ],
                 ),
+                ChangedComponent(
+                    component="Cross-runtime data-root resolution",
+                    files=[
+                        "src/evm/core/config.py",
+                        "tests/test_data_pipeline_empty_guards.py",
+                    ],
+                ),
             ]
             implementation_summary = [
                 "Readiness now maps degraded dependency state to HTTP 503.",
@@ -185,6 +207,7 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 "OTLP export and Collector wiring are integrated but not yet runtime-accepted.",
                 "Prometheus discovery excludes intentionally inactive B0 and uses bounded labels.",
                 "The existing Airflow data DAG includes a bounded real local Spark stage.",
+                "The Airflow image includes Java 17 and shared path resolution preserves the mounted evidence root across Windows and POSIX runtimes.",
                 "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level.",
             ]
             status = "implementing"
@@ -210,7 +233,7 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         ),
                     ),
                     ChronologicalUpdate(
-                        occurred_at=generated_at,
+                        occurred_at=datetime(2026, 8, 14, 21, 40, 31, tzinfo=UTC),
                         phase="implementation",
                         status="implementing",
                         summary=(
@@ -219,6 +242,18 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                             "passed, but no live cross-runtime trace or control run is claimed."
                         ),
                         evidence_refs=[checkpoint_evidence[1].path],
+                    ),
+                    ChronologicalUpdate(
+                        occurred_at=generated_at,
+                        phase="implementation",
+                        status="implementing",
+                        summary=(
+                            "A real local Spark attempt exposed a missing JVM and then an "
+                            "invalid cross-runtime evidence path. Java 17 and shared data-root "
+                            "resolution were added; 590 tests and the path contract passed, "
+                            "while a fresh accepted Spark run remains pending."
+                        ),
+                        evidence_refs=[checkpoint_evidence[2].path],
                     ),
                 ]
             )
