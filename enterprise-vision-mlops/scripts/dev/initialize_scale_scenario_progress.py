@@ -75,6 +75,11 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
         changed_components = []
         checkpoint_evidence: list[EvidenceArtifact] = []
         implementation_summary = ["Implementation has not started."]
+        experiment_environment = (
+            "Not exercised. Planned scope is a generalized local single-node container "
+            "and Kubernetes runtime with one accelerator where required."
+        )
+        observed_result: str | None = None
         status = "planned"
         updates = [
             ChronologicalUpdate(
@@ -128,6 +133,21 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "A real local Spark computation exposed JVM and cross-runtime path "
                         "gaps; both were remediated with 590-test regression, but a fresh "
                         "accepted Spark evidence run remains pending."
+                    ),
+                ),
+                EvidenceArtifact(
+                    path=(
+                        "docs/status/evidence/"
+                        "s0-spark-runtime-component-checkpoint.json"
+                    ),
+                    sha256=(
+                        "11a31ffe92c5b1b5bd6c4fa1e6ae2e4230ad6497b91b0bbc79c9da766270b62f"
+                    ),
+                    generated_at=datetime(2026, 8, 14, 22, 11, 4, tzinfo=UTC),
+                    claim=(
+                        "One real bounded local Spark component run persisted through the "
+                        "existing data mount and exported linked OTLP spans; full S0 "
+                        "lifecycle acceptance remains pending."
                     ),
                 ),
             ]
@@ -204,12 +224,17 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
             implementation_summary = [
                 "Readiness now maps degraded dependency state to HTTP 503.",
                 "W3C trace identity is propagated through the existing lifecycle contracts.",
-                "OTLP export and Collector wiring are integrated but not yet runtime-accepted.",
+                "OTLP export is runtime-accepted for the local Spark component only; lifecycle-wide trace acceptance remains pending.",
                 "Prometheus discovery excludes intentionally inactive B0 and uses bounded labels.",
                 "The existing Airflow data DAG includes a bounded real local Spark stage.",
                 "The Airflow image includes Java 17 and shared path resolution preserves the mounted evidence root across Windows and POSIX runtimes.",
                 "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level.",
             ]
+            experiment_environment = (
+                "Partially exercised in the existing generalized local single-node Airflow "
+                "runtime. One bounded Spark component control and linked OTLP spans passed; "
+                "the full lifecycle experiment and repeated controls have not run."
+            )
             status = "implementing"
             updates.extend(
                 [
@@ -244,7 +269,7 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         evidence_refs=[checkpoint_evidence[1].path],
                     ),
                     ChronologicalUpdate(
-                        occurred_at=generated_at,
+                        occurred_at=datetime(2026, 8, 14, 22, 6, 35, tzinfo=UTC),
                         phase="implementation",
                         status="implementing",
                         summary=(
@@ -254,6 +279,18 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                             "while a fresh accepted Spark run remains pending."
                         ),
                         evidence_refs=[checkpoint_evidence[2].path],
+                    ),
+                    ChronologicalUpdate(
+                        occurred_at=generated_at,
+                        phase="experiment",
+                        status="implementing",
+                        summary=(
+                            "One real bounded Spark component run completed in the existing "
+                            "Airflow runtime, persisted its report through the shared mount, "
+                            "and exported linked parent-child spans. Full lifecycle trace and "
+                            "three-control acceptance remain unexecuted."
+                        ),
+                        evidence_refs=[checkpoint_evidence[3].path],
                     ),
                 ]
             )
@@ -277,13 +314,10 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 proposed_design=definition["proposed_design"],
                 changed_components=changed_components,
                 implementation_summary=implementation_summary,
-                experiment_environment=(
-                    "Not exercised. Planned scope is a generalized local single-node container "
-                    "and Kubernetes runtime with one accelerator where required."
-                ),
+                experiment_environment=experiment_environment,
                 test_or_experiment_steps=definition["steps"],
                 acceptance_criteria=criteria,
-                observed_result=None,
+                observed_result=observed_result,
                 evidence_artifacts=checkpoint_evidence,
                 status=status,
                 claim_boundary=PUBLIC_CLAIM_BOUNDARY,

@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-14T22:06:35Z`
+- Generated: `2026-08-14T22:14:32Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -86,6 +86,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s0-otel-implementation-checkpoint.json` (`fbef5bc797a91097e136a2510bb4740fd85c9efc5255e9cd5501e68c1fd046d7`): Collector configuration, one OTLP probe, and 583-test regression passed; runtime-wide S0 acceptance remains pending.
 - `docs/status/evidence/s0-in-place-telemetry-boundary-checkpoint.json` (`65e86d95d63869f6c47e80f35c14b713d66c7ee56bbe81ce95d1bcabe44ef55e`): Bounded telemetry, desired-state target discovery, local Spark stage, and 588-test regression passed at contract level; runtime S0 acceptance remains pending.
 - `docs/status/evidence/s0-spark-runtime-path-remediation-checkpoint.json` (`a30afb6ac712b82e6d2e6e768e36f2fce4ce1af738a4b3b90e273fd65e51a9e1`): A real local Spark computation exposed JVM and cross-runtime path gaps; both were remediated with 590-test regression, but a fresh accepted Spark evidence run remains pending.
+- `docs/status/evidence/s0-spark-runtime-component-checkpoint.json` (`11a31ffe92c5b1b5bd6c4fa1e6ae2e4230ad6497b91b0bbc79c9da766270b62f`): One real bounded local Spark component run persisted through the existing data mount and exported linked OTLP spans; full S0 lifecycle acceptance remains pending.
 
 ### Chronological Updates
 
@@ -94,6 +95,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-14T20:34:00Z` `implementation` / `implementing`: W3C trace identity was propagated through the existing API, lifecycle, queue, and Airflow configuration boundaries; focused regression passed, but runtime trace acceptance remains unexecuted.
 - `2026-08-14T21:40:31Z` `implementation` / `implementing`: Bounded telemetry, active-target reconciliation, and the local Spark boundary were implemented in the existing runtime path; 588 tests passed, but no live cross-runtime trace or control run is claimed.
 - `2026-08-14T22:06:35Z` `implementation` / `implementing`: A real local Spark attempt exposed a missing JVM and then an invalid cross-runtime evidence path. Java 17 and shared data-root resolution were added; 590 tests and the path contract passed, while a fresh accepted Spark run remains pending.
+- `2026-08-14T22:14:32Z` `experiment` / `implementing`: One real bounded Spark component run completed in the existing Airflow runtime, persisted its report through the shared mount, and exported linked parent-child spans. Full lifecycle trace and three-control acceptance remain unexecuted.
 
 ## S1: Transactional Job State & Idempotency
 

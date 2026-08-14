@@ -1,0 +1,45 @@
+{
+  "schema_version": "evm.scale_validation.runtime_checkpoint.v1",
+  "scenario_id": "S0",
+  "generated_at": "2026-08-14T22:11:04Z",
+  "status": "exercised",
+  "existing_system_baseline": "The existing Airflow scheduler container, shared data mount, OpenTelemetry Collector, API, supervised worker and observer, and Prometheus remained the system under test.",
+  "execution": {
+    "source_revision_aligned": true,
+    "runtime": "existing_airflow_scheduler_container",
+    "engine": "spark_local_control",
+    "bounded_input_completed": true,
+    "mounted_evidence_report_created": true,
+    "report_digest_verified": true,
+    "otel_spans_observed": [
+      "pipeline.initialize",
+      "spark.runtime_probe"
+    ],
+    "otel_parent_child_link_verified": true
+  },
+  "runtime_preconditions": {
+    "api_ready": true,
+    "airflow_ready": true,
+    "worker_revision_aligned": true,
+    "observer_revision_aligned": true,
+    "all_active_prometheus_targets_up": true
+  },
+  "private_evidence": {
+    "index_scope": "scenario_s0_spark_component",
+    "proof_sha256": "2d21751ad4135e9b53576b69ba600fcf9cfe0223a84c50d2946707a4488bb337",
+    "raw_report_sha256": "f4dc3a33adee047b282b872e9cc866c3e0882bb3975985a125bc0276854d6879"
+  },
+  "acceptance_status": {
+    "S0-AC-01": "pending",
+    "S0-AC-02": "pending",
+    "S0-AC-03": "pending",
+    "S0-AC-04": "pending",
+    "S0-AC-05": "pending"
+  },
+  "unresolved": [
+    "The Spark proof was invoked inside the Airflow runtime but not yet as a recorded Airflow task instance.",
+    "No fresh trace has linked API, durable task handoff, worker, Airflow, data, Spark, MLflow, and serving in one lifecycle.",
+    "The required bounded metric set and three independent low-load controls remain unexecuted."
+  ],
+  "claim_boundary": "This proves one real local Spark component execution, mounted evidence persistence, and OTLP parent-child export in the existing runtime. It is not full S0 acceptance, distributed Spark, a cross-runtime lifecycle trace, scale, availability, or production proof."
+}
