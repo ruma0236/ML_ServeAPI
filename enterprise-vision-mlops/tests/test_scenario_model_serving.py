@@ -87,3 +87,31 @@ def test_scenario_serving_returns_w3c_trace_header(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.headers["traceparent"].startswith(f"00-{'1' * 32}-")
+
+
+def test_scenario_serving_separates_model_and_runtime_source_identity(monkeypatch) -> None:
+    monkeypatch.setattr(ScenarioModelService, "_load", lambda _self: None)
+    monkeypatch.setattr(
+        "evm.model_runtime.serving.runtime_inventory",
+        lambda: {"torch": "test", "cuda_available": True},
+    )
+    service = ScenarioModelService(
+        ScenarioServingConfig(
+            model_family="vlm",
+            base_model_dir=Path("base"),
+            adapter_dir=Path("adapter"),
+            model_repository="generalized/repository",
+            model_revision="a" * 40,
+            model_artifact_sha256="b" * 64,
+            data_identity_sha256="c" * 64,
+            source_commit="d" * 40,
+            runtime_source_commit="e" * 40,
+            lifecycle_run_id="runtime-control",
+        )
+    )
+
+    payload = service.ready_payload()
+
+    assert payload["source_commit"] == "d" * 40
+    assert payload["model_source_commit"] == "d" * 40
+    assert payload["runtime_source_commit"] == "e" * 40

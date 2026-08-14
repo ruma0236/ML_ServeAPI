@@ -40,8 +40,8 @@ SCENARIO_DEFINITIONS: dict[str, dict[str, Any]] = {
             "every later scenario."
         ),
         "next_action": (
-            "Rebuild and revision-align the existing runtime, then execute the real Spark stage, "
-            "one cross-runtime trace, and three independent low-load controls."
+            "Revision-align the active serving runtime, then execute one full cross-runtime "
+            "lifecycle trace and three independent low-load controls with hashed evidence."
         ),
     },
     "S1": {

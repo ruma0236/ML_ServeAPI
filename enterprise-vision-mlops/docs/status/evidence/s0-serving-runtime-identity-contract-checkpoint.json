@@ -1,0 +1,54 @@
+{
+  "schema_version": "evm.scale_validation.runtime_checkpoint.v1",
+  "scenario_id": "S0",
+  "generated_at": "2026-08-14T22:30:07Z",
+  "status": "implementing",
+  "existing_system_baseline": "The existing scenario serving readiness payload used source_commit for both the immutable model workload source and the currently executing serving code revision.",
+  "architecture_delta": {
+    "before": "One source_commit field ambiguously represented model provenance and serving runtime code identity.",
+    "after": "The compatibility source_commit remains the immutable model source, model_source_commit makes that meaning explicit, and runtime_source_commit independently identifies the serving code revision.",
+    "compatibility": "Existing source_commit consumers and historical production intents remain readable; exact runtime matching is enforced only when a new serving process is launched with an expected runtime revision."
+  },
+  "implementation": {
+    "changed_components": [
+      "src/evm/model_runtime/serving.py",
+      "src/evm/model_runtime/scenario_workload_production.py",
+      "tests/test_scenario_model_serving.py",
+      "tests/test_scenario_workload_production.py"
+    ],
+    "runtime_revision_preflight": "A new production serving launch fails before GPU-holder mutation when no exact 40-character runtime source revision is available.",
+    "trace_service_version": "The serving OTLP service version now uses runtime_source_commit while model source identity remains an explicit span/readiness attribute boundary.",
+    "legacy_reconcile_behavior": "Health reconciliation without an explicit expected runtime revision preserves the prior model-identity contract for already-running historical services."
+  },
+  "verification": {
+    "focused_tests": {
+      "status": "pass",
+      "count": 9,
+      "command_scope": "scenario model serving and production intent runtime tests"
+    },
+    "full_regression": {
+      "status": "pass",
+      "count": 593
+    },
+    "static_analysis": {
+      "status": "pass",
+      "scope": "changed serving, production launcher, and tests"
+    },
+    "live_runtime_restarted": false,
+    "cross_runtime_trace_executed": false,
+    "low_load_control_repetitions": 0
+  },
+  "acceptance_status": {
+    "S0-AC-01": "pending",
+    "S0-AC-02": "pending",
+    "S0-AC-03": "pending",
+    "S0-AC-04": "pending",
+    "S0-AC-05": "pending"
+  },
+  "unresolved": [
+    "The active serving process predates this contract and has not been revision-aligned or revalidated.",
+    "No fresh trace links API, durable task handoff, worker, Airflow, data, Spark, MLflow, and serving in one lifecycle.",
+    "The complete bounded metric set and three independent low-load controls remain unexecuted."
+  ],
+  "claim_boundary": "This checkpoint proves an additive source-identity contract and repository regression only. It is not live serving identity proof, full S0 acceptance, a benchmark, availability, scale, or production evidence."
+}

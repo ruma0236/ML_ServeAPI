@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -58,6 +59,7 @@ class ScenarioServingConfig:
     data_identity_sha256: str
     source_commit: str
     lifecycle_run_id: str
+    runtime_source_commit: str | None = None
     quantization: str = "none"
     environment: Literal["local-staging", "local-production"] = "local-staging"
 
@@ -147,6 +149,7 @@ class ScenarioModelService:
         self.model.eval()
 
     def ready_payload(self) -> dict[str, Any]:
+        runtime_source_commit = self.config.runtime_source_commit or self.config.source_commit
         return {
             "status": "ready",
             "model_family": self.config.model_family,
@@ -155,6 +158,8 @@ class ScenarioModelService:
             "model_artifact_sha256": self.config.model_artifact_sha256,
             "data_identity_sha256": self.config.data_identity_sha256,
             "source_commit": self.config.source_commit,
+            "model_source_commit": self.config.source_commit,
+            "runtime_source_commit": runtime_source_commit,
             "lifecycle_run_id": self.config.lifecycle_run_id,
             "quantization": self.config.quantization,
             "environment": self.config.environment,
@@ -273,7 +278,9 @@ def create_app(service: ScenarioModelService) -> FastAPI:
     async def lifespan(_app: FastAPI):
         configure_tracing(
             "evm-scenario-model-serving",
-            service_version=service.config.source_commit,
+            service_version=(
+                service.config.runtime_source_commit or service.config.source_commit
+            ),
         )
         try:
             yield
@@ -341,6 +348,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-artifact-sha256", required=True)
     parser.add_argument("--data-identity-sha256", required=True)
     parser.add_argument("--source-commit", required=True)
+    parser.add_argument(
+        "--runtime-source-commit",
+        default=os.getenv("EVM_GIT_COMMIT") or os.getenv("GIT_COMMIT"),
+    )
     parser.add_argument("--lifecycle-run-id", required=True)
     parser.add_argument("--quantization", default="none")
     parser.add_argument(
@@ -368,6 +379,7 @@ def main() -> int:
             data_identity_sha256=args.data_identity_sha256,
             source_commit=args.source_commit,
             lifecycle_run_id=args.lifecycle_run_id,
+            runtime_source_commit=args.runtime_source_commit,
             quantization=args.quantization,
             environment=args.environment,
         )

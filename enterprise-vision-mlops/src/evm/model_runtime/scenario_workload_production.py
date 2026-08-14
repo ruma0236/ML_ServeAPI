@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -36,6 +37,13 @@ PROMETHEUS_TARGET_PATH = Path(
 PROMETHEUS_URI = "http://127.0.0.1:9090"
 
 
+def runtime_source_revision() -> str:
+    revision = (os.getenv("EVM_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "").strip()
+    if not re.fullmatch(r"[a-f0-9]{40}", revision):
+        raise ModelRuntimeError("scenario_production_runtime_source_revision_missing")
+    return revision
+
+
 def apply_production_intent(intent_id: str) -> ScenarioProductionIntent:
     intent = get_production_intent(intent_id)
     if intent.state != "queued":
@@ -44,6 +52,7 @@ def apply_production_intent(intent_id: str) -> ScenarioProductionIntent:
         validate_intent_identity(intent)
         run = get_workload_run(intent.run_id)
         preset = get_preset(intent.preset_id)
+        runtime_source_commit = runtime_source_revision()
         if not port_available(intent.target.port):
             raise ModelRuntimeError("scenario_production_port_unavailable")
     except Exception as exc:
@@ -68,6 +77,8 @@ def apply_production_intent(intent_id: str) -> ScenarioProductionIntent:
         "run_id": run.run_id,
         "action_digest": intent.action_digest,
         "source_commit": intent.source_commit,
+        "model_source_commit": intent.source_commit,
+        "runtime_source_commit": runtime_source_commit,
         "identity_sha256": intent.identity_sha256,
         "model_artifact_sha256": intent.model_artifact_sha256,
         "target": intent.target.model_dump(mode="json"),
@@ -87,7 +98,11 @@ def apply_production_intent(intent_id: str) -> ScenarioProductionIntent:
         evidence["steps"].append({"name": "release_b0_gpu_holder", "status": "pass"})
         atomic_write_json(evidence_path, evidence)
 
-        server, process_started_at, command = start_production_server(intent, preset.model_dir)
+        server, process_started_at, command = start_production_server(
+            intent,
+            preset.model_dir,
+            runtime_source_commit=runtime_source_commit,
+        )
         server_started_at = process_started_at
         evidence["steps"].append(
             {
@@ -98,7 +113,11 @@ def apply_production_intent(intent_id: str) -> ScenarioProductionIntent:
                 "command": command,
             }
         )
-        ready = wait_for_ready(intent, server)
+        ready = wait_for_ready(
+            intent,
+            server,
+            runtime_source_commit=runtime_source_commit,
+        )
         evidence["ready"] = ready
         evidence["steps"].append({"name": "exact_ready_identity", "status": "pass"})
 
@@ -372,6 +391,8 @@ def scale_holder(holder: dict[str, str], *, replicas: int, require_ready: bool) 
 def start_production_server(
     intent: ScenarioProductionIntent,
     model_dir: str,
+    *,
+    runtime_source_commit: str,
 ) -> tuple[subprocess.Popen[str], str, list[str]]:
     log_path = workload_artifact_path(canonical_intent_evidence_path(intent.intent_id)).with_name(
         "production-serving.log"
@@ -398,6 +419,8 @@ def start_production_server(
         get_workload_run(intent.run_id).identity.data_identity_sha256,
         "--source-commit",
         intent.source_commit,
+        "--runtime-source-commit",
+        runtime_source_commit,
         "--lifecycle-run-id",
         intent.run_id,
         "--quantization",
@@ -423,7 +446,12 @@ def start_production_server(
     return process, process_started_at, command
 
 
-def wait_for_ready(intent: ScenarioProductionIntent, process: subprocess.Popen[str]) -> dict[str, Any]:
+def wait_for_ready(
+    intent: ScenarioProductionIntent,
+    process: subprocess.Popen[str],
+    *,
+    runtime_source_commit: str,
+) -> dict[str, Any]:
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -431,7 +459,11 @@ def wait_for_ready(intent: ScenarioProductionIntent, process: subprocess.Popen[s
         try:
             response = requests.get(f"{intent.target.endpoint}/ready", timeout=3)
             payload = response.json()
-            if response.status_code == 200 and ready_identity_matches(intent, payload):
+            if response.status_code == 200 and ready_identity_matches(
+                intent,
+                payload,
+                runtime_source_commit=runtime_source_commit,
+            ):
                 return payload
         except (requests.RequestException, ValueError):
             pass
@@ -439,7 +471,12 @@ def wait_for_ready(intent: ScenarioProductionIntent, process: subprocess.Popen[s
     raise ModelRuntimeError("scenario_production_ready_timeout")
 
 
-def ready_identity_matches(intent: ScenarioProductionIntent, payload: dict[str, Any]) -> bool:
+def ready_identity_matches(
+    intent: ScenarioProductionIntent,
+    payload: dict[str, Any],
+    *,
+    runtime_source_commit: str | None = None,
+) -> bool:
     expected = {
         "status": "ready",
         "environment": "local-production",
@@ -450,7 +487,13 @@ def ready_identity_matches(intent: ScenarioProductionIntent, payload: dict[str, 
         "source_commit": intent.source_commit,
         "lifecycle_run_id": intent.run_id,
     }
-    return all(payload.get(key) == value for key, value in expected.items())
+    if not all(payload.get(key) == value for key, value in expected.items()):
+        return False
+    if payload.get("model_source_commit", intent.source_commit) != intent.source_commit:
+        return False
+    if runtime_source_commit is not None:
+        return payload.get("runtime_source_commit") == runtime_source_commit
+    return True
 
 
 def verify_production_inference(intent: ScenarioProductionIntent) -> dict[str, Any]:

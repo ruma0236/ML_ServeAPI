@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-14T22:14:32Z",
+  "generated_at": "2026-08-14T22:32:37Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -69,7 +69,9 @@
             "src/evm/model_runtime/serving.py",
             "src/evm/model_runtime/workload_runner.py",
             "src/evm/model_runtime/scenario_workload_production.py",
-            "src/evm/control_panel/lifecycle_orchestrator.py"
+            "src/evm/control_panel/lifecycle_orchestrator.py",
+            "tests/test_scenario_model_serving.py",
+            "tests/test_scenario_workload_production.py"
           ]
         },
         {
@@ -97,6 +99,7 @@
         "Prometheus discovery excludes intentionally inactive B0 and uses bounded labels.",
         "The existing Airflow data DAG includes a bounded real local Spark stage.",
         "The Airflow image includes Java 17 and shared path resolution preserves the mounted evidence root across Windows and POSIX runtimes.",
+        "Serving readiness now distinguishes immutable model source from the executing serving runtime revision without removing the compatibility source field.",
         "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level."
       ],
       "experiment_environment": "Partially exercised in the existing generalized local single-node Airflow runtime. One bounded Spark component control and linked OTLP spans passed; the full lifecycle experiment and repeated controls have not run.",
@@ -162,6 +165,12 @@
           "sha256": "11a31ffe92c5b1b5bd6c4fa1e6ae2e4230ad6497b91b0bbc79c9da766270b62f",
           "generated_at": "2026-08-14T22:11:04Z",
           "claim": "One real bounded local Spark component run persisted through the existing data mount and exported linked OTLP spans; full S0 lifecycle acceptance remains pending."
+        },
+        {
+          "path": "docs/status/evidence/s0-serving-runtime-identity-contract-checkpoint.json",
+          "sha256": "d47a2b0d7a8d5c47cc3ee7948b85aada58cd40f54f6dea65a131054b9af7dd2a",
+          "generated_at": "2026-08-14T22:30:07Z",
+          "claim": "Model-source and serving-runtime revisions are now separate in the existing serving contract; 593 tests passed, while live serving revision alignment and S0 runtime acceptance remain pending."
         }
       ],
       "status": "implementing",
@@ -173,7 +182,7 @@
         "Trace propagation spans every declared lifecycle stage with zero missing links.",
         "Three independent controls are comparable and variance is reported."
       ],
-      "next_action": "Rebuild and revision-align the existing runtime, then execute the real Spark stage, one cross-runtime trace, and three independent low-load controls.",
+      "next_action": "Revision-align the active serving runtime, then execute one full cross-runtime lifecycle trace and three independent low-load controls with hashed evidence.",
       "architecture_before": "Health, metrics, and logs exist without one machine-enforced evidence closure.",
       "architecture_after": "Readiness, bounded telemetry, distributed trace identity, and benchmark closure gate every later scenario.",
       "existing_system_baseline": "The existing control plane uses a FastAPI API, file-ledger task assignments, a supervised lifecycle worker, Compose Airflow and MLflow services, Kubernetes model serving, and Prometheus. Health and metrics exist, but one exported cross-runtime trace and machine-enforced evidence closure do not yet cover that real path.",
@@ -290,7 +299,9 @@
               "src/evm/model_runtime/serving.py",
               "src/evm/model_runtime/workload_runner.py",
               "src/evm/model_runtime/scenario_workload_production.py",
-              "src/evm/control_panel/lifecycle_orchestrator.py"
+              "src/evm/control_panel/lifecycle_orchestrator.py",
+              "tests/test_scenario_model_serving.py",
+              "tests/test_scenario_workload_production.py"
             ]
           },
           {
@@ -382,6 +393,12 @@
           "sha256": "11a31ffe92c5b1b5bd6c4fa1e6ae2e4230ad6497b91b0bbc79c9da766270b62f",
           "generated_at": "2026-08-14T22:11:04Z",
           "claim": "One real bounded local Spark component run persisted through the existing data mount and exported linked OTLP spans; full S0 lifecycle acceptance remains pending."
+        },
+        {
+          "path": "docs/status/evidence/s0-serving-runtime-identity-contract-checkpoint.json",
+          "sha256": "d47a2b0d7a8d5c47cc3ee7948b85aada58cd40f54f6dea65a131054b9af7dd2a",
+          "generated_at": "2026-08-14T22:30:07Z",
+          "claim": "Model-source and serving-runtime revisions are now separate in the existing serving contract; 593 tests passed, while live serving revision alignment and S0 runtime acceptance remain pending."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -436,6 +453,15 @@
           "summary": "One real bounded Spark component run completed in the existing Airflow runtime, persisted its report through the shared mount, and exported linked parent-child spans. Full lifecycle trace and three-control acceptance remain unexecuted.",
           "evidence_refs": [
             "docs/status/evidence/s0-spark-runtime-component-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-14T22:32:37Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "The existing scenario serving contract now separates immutable model source from executing runtime source. Focused tests, static analysis, and 593-test regression passed; the active service has not yet been restarted or accepted as S0 runtime evidence.",
+          "evidence_refs": [
+            "docs/status/evidence/s0-serving-runtime-identity-contract-checkpoint.json"
           ]
         }
       ]

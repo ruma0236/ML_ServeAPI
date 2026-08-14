@@ -150,6 +150,21 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "lifecycle acceptance remains pending."
                     ),
                 ),
+                EvidenceArtifact(
+                    path=(
+                        "docs/status/evidence/"
+                        "s0-serving-runtime-identity-contract-checkpoint.json"
+                    ),
+                    sha256=(
+                        "d47a2b0d7a8d5c47cc3ee7948b85aada58cd40f54f6dea65a131054b9af7dd2a"
+                    ),
+                    generated_at=datetime(2026, 8, 14, 22, 30, 7, tzinfo=UTC),
+                    claim=(
+                        "Model-source and serving-runtime revisions are now separate in the "
+                        "existing serving contract; 593 tests passed, while live serving "
+                        "revision alignment and S0 runtime acceptance remain pending."
+                    ),
+                ),
             ]
             changed_components = [
                 ChangedComponent(
@@ -201,6 +216,8 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "src/evm/model_runtime/workload_runner.py",
                         "src/evm/model_runtime/scenario_workload_production.py",
                         "src/evm/control_panel/lifecycle_orchestrator.py",
+                        "tests/test_scenario_model_serving.py",
+                        "tests/test_scenario_workload_production.py",
                     ],
                 ),
                 ChangedComponent(
@@ -228,6 +245,7 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 "Prometheus discovery excludes intentionally inactive B0 and uses bounded labels.",
                 "The existing Airflow data DAG includes a bounded real local Spark stage.",
                 "The Airflow image includes Java 17 and shared path resolution preserves the mounted evidence root across Windows and POSIX runtimes.",
+                "Serving readiness now distinguishes immutable model source from the executing serving runtime revision without removing the compatibility source field.",
                 "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level.",
             ]
             experiment_environment = (
@@ -281,7 +299,7 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         evidence_refs=[checkpoint_evidence[2].path],
                     ),
                     ChronologicalUpdate(
-                        occurred_at=generated_at,
+                        occurred_at=datetime(2026, 8, 14, 22, 14, 32, tzinfo=UTC),
                         phase="experiment",
                         status="implementing",
                         summary=(
@@ -291,6 +309,18 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                             "three-control acceptance remain unexecuted."
                         ),
                         evidence_refs=[checkpoint_evidence[3].path],
+                    ),
+                    ChronologicalUpdate(
+                        occurred_at=generated_at,
+                        phase="implementation",
+                        status="implementing",
+                        summary=(
+                            "The existing scenario serving contract now separates immutable "
+                            "model source from executing runtime source. Focused tests, static "
+                            "analysis, and 593-test regression passed; the active service has "
+                            "not yet been restarted or accepted as S0 runtime evidence."
+                        ),
+                        evidence_refs=[checkpoint_evidence[4].path],
                     ),
                 ]
             )

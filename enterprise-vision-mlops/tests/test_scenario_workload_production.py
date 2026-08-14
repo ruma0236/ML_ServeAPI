@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -221,12 +220,21 @@ def test_production_apply_and_rollback_state_machine(tmp_path: Path, monkeypatch
     monkeypatch.setattr(
         runtime,
         "start_production_server",
-        lambda _intent, _model_dir: (FakeProcess(), "20260812010101.000000+000", ["serve"]),
+        lambda _intent, _model_dir, *, runtime_source_commit: (
+            FakeProcess(),
+            "20260812010101.000000+000",
+            ["serve", runtime_source_commit],
+        ),
     )
+    monkeypatch.setattr(runtime, "runtime_source_revision", lambda: SOURCE_COMMIT)
     monkeypatch.setattr(
         runtime,
         "wait_for_ready",
-        lambda _intent, _process: {"status": "ready", "environment": "local-production"},
+        lambda _intent, _process, *, runtime_source_commit: {
+            "status": "ready",
+            "environment": "local-production",
+            "runtime_source_commit": runtime_source_commit,
+        },
     )
     monkeypatch.setattr(runtime, "verify_production_inference", lambda _intent: {"status": "pass"})
     monkeypatch.setattr(runtime, "write_prometheus_target", lambda _intent: None)
@@ -252,6 +260,42 @@ def test_production_apply_and_rollback_state_machine(tmp_path: Path, monkeypatch
     assert current_production_intent() is None
     assert scaled == [(0, False), (1, True)]
     assert get_production_intent(intent.intent_id).version >= 6
+
+
+def test_ready_identity_requires_exact_runtime_revision_when_requested(
+    tmp_path: Path, monkeypatch
+) -> None:
+    run = install_completed_run(tmp_path, monkeypatch)
+    intent = create_production_intent(
+        run.run_id,
+        ScenarioProductionRequest(
+            actor="release-requester",
+            reason="Validate separate model and runtime source identity",
+        ),
+    )
+    payload = {
+        "status": "ready",
+        "environment": "local-production",
+        "model_family": intent.model_family,
+        "model_repository": intent.model_repository,
+        "model_revision": intent.model_revision,
+        "model_artifact_sha256": intent.model_artifact_sha256,
+        "source_commit": intent.source_commit,
+        "model_source_commit": intent.source_commit,
+        "runtime_source_commit": "c" * 40,
+        "lifecycle_run_id": intent.run_id,
+    }
+
+    assert runtime.ready_identity_matches(
+        intent,
+        payload,
+        runtime_source_commit="c" * 40,
+    )
+    assert not runtime.ready_identity_matches(
+        intent,
+        payload,
+        runtime_source_commit="d" * 40,
+    )
 
 
 def test_production_apply_fails_closed_before_gpu_mutation_when_artifact_changes(
@@ -281,6 +325,40 @@ def test_production_apply_fails_closed_before_gpu_mutation_when_artifact_changes
     assert failed.state == "failed"
     assert failed.blockers == [
         "scenario_production_admission_failed:scenario_production_artifact_digest_mismatch:run-vlm-1"
+    ]
+    assert gpu_mutations == []
+    assert current_production_intent() is None
+
+
+def test_production_apply_fails_closed_before_gpu_mutation_without_runtime_revision(
+    tmp_path: Path, monkeypatch
+) -> None:
+    run = install_completed_run(tmp_path, monkeypatch)
+    intent = create_production_intent(
+        run.run_id,
+        ScenarioProductionRequest(
+            actor="release-requester",
+            reason="Require an exact serving runtime revision before deployment",
+        ),
+    )
+    intent = approve_production_intent(
+        intent.intent_id,
+        ScenarioProductionApprovalRequest(
+            actor="platform-approver",
+            reason="Approve only an identity-complete local serving action",
+        ),
+    )
+    monkeypatch.delenv("EVM_GIT_COMMIT", raising=False)
+    monkeypatch.delenv("GIT_COMMIT", raising=False)
+    gpu_mutations: list[str] = []
+    monkeypatch.setattr(runtime, "exact_gpu_holder", lambda: gpu_mutations.append("query"))
+
+    failed = runtime.apply_production_intent(intent.intent_id)
+
+    assert failed.state == "failed"
+    assert failed.blockers == [
+        "scenario_production_admission_failed:"
+        "scenario_production_runtime_source_revision_missing"
     ]
     assert gpu_mutations == []
     assert current_production_intent() is None
