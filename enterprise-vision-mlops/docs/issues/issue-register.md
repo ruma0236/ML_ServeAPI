@@ -73,7 +73,8 @@ Jira 연결 후에는 같은 issue key를 Jira key로 사용하거나, Jira key 
 | `EVM-EPIC-21` | Multi-Domain Governed MLOps Evidence | Post-W8 | In Progress | governed scenario catalog, real multi-domain intake, operator-launched Airflow execution, and portfolio evidence are complete; text/VLM runtime, tenancy, and production resilience remain explicit follow-up work |
 | `EVM-EPIC-22` | Cross-Scenario Correlation And Recovery Validation | Post-W8 | In Progress | plan/design, normalized correlation, and single-owner recovery/read-only incident plane complete; pairwise proof and maintenance-gated closure remain EVM-274..275 |
 | `EVM-EPIC-23` | Full Lifecycle Guard Integration And VisA Operations Drill | Post-W8 | In Progress | execution ledger active; integrate A-E guards with actual data, training, MLflow, CT, replacement, CUDA serving and monitoring without hidden repair |
-| `EVM-EPIC-24` | Real VLM And LLM Scenario Lifecycle Expansion | Post-W8 | In Progress | model-family-neutral lifecycle contract and sequential RTX 4080 proofs for real ScienceQA/SmolVLM and governed Dolly/Qwen workloads; no mock-only or automatic production promotion credit |
+| `EVM-EPIC-24` | Real VLM And LLM Scenario Lifecycle Expansion | Post-W8 | Done | model-family-neutral lifecycle contract and sequential RTX 4080 proofs for real ScienceQA/SmolVLM and governed Dolly/Qwen workloads completed; no mock-only or automatic production promotion credit |
+| `EVM-EPIC-25` | Distributed Scale And Operational Load Validation | Post-W8 | Planned | capacity envelope, durable concurrency, bounded queue/backpressure, GPU batching/VRAM, API availability, distributed data, VLM/LLM fairness and soak evidence; single-node limits remain explicit |
 
 ## Backlog
 
@@ -543,6 +544,26 @@ first post-migration E re-seal remains an immutable failed attempt; the second
 fresh E re-seal and fresh C/B/D/A runs are accepted in the completed suite.
 Independent scenario closure does not imply a
 combined release drill, automatic promotion, customer production, or HA.
+
+### Distributed Scale And Operational Load Validation
+
+| ID | Task | Status | Window | Evidence / Exit Criteria |
+|---|---|---|---|---|
+| `EVM-290` | Runtime baseline and benchmark evidence contract | Planned | Post-W8 | clean serving/monitoring/supervisor baseline, corrected readiness semantics, immutable identity, p50/p95/p99 and resource/queue evidence schema; no load execution on an unhealthy baseline |
+| `EVM-291` | Online capacity envelope and saturation knee | Planned | Post-W8 | three-run B0/VisA concurrency and arrival-rate matrix identifies sustainable RPS, p95/p99, errors and the measured CPU/GPU/queue saturation knee |
+| `EVM-292` | Durable control-plane concurrency and idempotency | Planned | Post-W8 | PostgreSQL-backed atomic ownership/state transitions, bounded connection pool and 100-500 concurrent lifecycle mutations complete with duplicate side effects 0 |
+| `EVM-293` | Bounded queue, backpressure and event-driven scaling | Planned | Post-W8 | measured-service-rate queue bound, 429 admission, retry budget/jitter, DLQ and KEDA CPU-worker scaling keep queue/memory bounded under burst and sustained overload |
+| `EVM-294` | GPU dynamic batching and VRAM optimization | Planned | Post-W8 | Triton batch/delay matrix plus PyTorch VRAM telemetry produces throughput-p99-memory Pareto evidence with OOM 0; time-slicing/MPS remain compatibility-gated shared-GPU experiments |
+| `EVM-295` | Stateless API availability and controlled release under load | Planned | Post-W8 | multi-replica API Pod failure/rolling update and B0 controlled canary/rollback are measured at steady load; single GPU backend is not represented as HA |
+| `EVM-296` | Distributed and memory-bounded data processing | Planned | Post-W8 | 25/50/100 GiB manifest-governed I/O corpus and real semantic data compare single-process and parallel execution with bounded blocks, spill, restart, missing 0 and duplicate 0 |
+| `EVM-297` | VLM/LLM queue fairness and token admission | Planned | Post-W8 | sequential SmolVLM/Qwen load validates model-family metrics, TTFT/TPOT, image/token admission, head-of-line blocking, starvation 0 and GPU OOM 0 |
+| `EVM-298` | Dependency degradation, soak and evidence closure | Planned | Post-W8 | bounded dependency faults and 30-60 minute soak quantify retry amplification, MTTR, queue/memory/connection slope, integrity and final evidence hashes |
+
+The canonical planning contract is
+`docs/agenda/2026-08-14-distributed-scale-operational-validation-plan.md`.
+All EVM-290..298 entries are planning-only. No benchmark, load, scale, HA,
+shared-GPU, or production-readiness acceptance is credited until fresh runtime
+evidence satisfies the corresponding exit criteria.
 
 ### Current Jira Timebox And Hierarchy
 
