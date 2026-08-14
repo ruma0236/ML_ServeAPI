@@ -1,8 +1,8 @@
 # Distributed Scale And Operational Load Validation Plan
 
-Date: 2026-08-14  
-Status: Planned, implementation and load execution not started  
-Scope: single-node local MLOps runtime first, physical multi-node extension later  
+Date: 2026-08-14
+Status: Planned, implementation and load execution not started
+Scope: single-node local MLOps runtime first, physical multi-node extension later
 Canonical repository: `C:/Users/mlops/EnterpriseMLOps_Project/enterprise-vision-mlops`
 
 ## 1. Executive Decision
@@ -545,9 +545,11 @@ cleanup result, hashes and claim boundary.
 ## 13. Cross-System Tracking
 
 - Git branch: `codex/distributed-scale-validation-plan`
-- Git plan revision: pending first plan commit
-- Jira: `EVM-EPIC-25`, `EVM-290..298`; live keys pending creation
-- Notion: canonical planning page pending creation
-- Obsidian: canonical work log pending creation
+- Git plan revision: `019dff5`
+- Jira Epic: `SCRUM-199 / EVM-EPIC-25`
+- Jira tasks: `SCRUM-200..208 / EVM-290..298`; all To Do
+- Notion: `https://app.notion.com/p/3bc10ad2dcad81ec9174d9686d5d1957`
+- Obsidian:
+  `F:/mlops_obsidian_db/mlops/08_Codex_Memory/01_Work_Logs/2026-08-14 Distributed Scale And Operational Load Validation Plan.md`
 - Current status: planning only; no implementation, load test, runtime mutation,
   benchmark acceptance, or completion claim
