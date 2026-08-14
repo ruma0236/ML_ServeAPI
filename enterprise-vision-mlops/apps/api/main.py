@@ -424,16 +424,17 @@ def health() -> dict[str, str]:
 
 
 @app.get("/ready")
-def ready() -> dict[str, Any]:
+def ready(response: Response) -> dict[str, Any]:
     try:
-        response = requests.get(f"{MLFLOW_TRACKING_URI}/health", timeout=2)
-        mlflow_ready = response.ok
+        mlflow_response = requests.get(f"{MLFLOW_TRACKING_URI}/health", timeout=2)
+        mlflow_ready = mlflow_response.ok
     except requests.RequestException:
         mlflow_ready = False
 
     model = refresh_model_state()
     model_loaded = model is not None
     status = "ok" if mlflow_ready and model_loaded else "degraded"
+    response.status_code = 200 if status == "ok" else 503
     REQUEST_COUNT.labels(endpoint="/ready", status=status).inc()
     payload: dict[str, Any] = {
         "status": status,

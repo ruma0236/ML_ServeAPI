@@ -1,0 +1,308 @@
+{
+  "$defs": {
+    "AcceptanceCriterion": {
+      "additionalProperties": false,
+      "properties": {
+        "criterion_id": {
+          "pattern": "^S[0-8]-AC-[0-9]{2}$",
+          "title": "Criterion Id",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "passed",
+            "failed",
+            "blocked"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "criterion_id",
+        "description",
+        "status"
+      ],
+      "title": "AcceptanceCriterion",
+      "type": "object"
+    },
+    "ChangedComponent": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "minLength": 1,
+          "title": "Component",
+          "type": "string"
+        },
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "component",
+        "files"
+      ],
+      "title": "ChangedComponent",
+      "type": "object"
+    },
+    "EvidenceArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "claim": {
+          "minLength": 1,
+          "title": "Claim",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "generated_at",
+        "claim"
+      ],
+      "title": "EvidenceArtifact",
+      "type": "object"
+    },
+    "ScenarioProgress": {
+      "additionalProperties": false,
+      "properties": {
+        "scenario_id": {
+          "enum": [
+            "S0",
+            "S1",
+            "S2",
+            "S3",
+            "S4",
+            "S5",
+            "S6",
+            "S7",
+            "S8"
+          ],
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "engineering_question": {
+          "minLength": 1,
+          "title": "Engineering Question",
+          "type": "string"
+        },
+        "why_now": {
+          "minLength": 1,
+          "title": "Why Now",
+          "type": "string"
+        },
+        "observed_gap": {
+          "minLength": 1,
+          "title": "Observed Gap",
+          "type": "string"
+        },
+        "proposed_design": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Proposed Design",
+          "type": "array"
+        },
+        "changed_components": {
+          "items": {
+            "$ref": "#/$defs/ChangedComponent"
+          },
+          "title": "Changed Components",
+          "type": "array"
+        },
+        "implementation_summary": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Implementation Summary",
+          "type": "array"
+        },
+        "experiment_environment": {
+          "minLength": 1,
+          "title": "Experiment Environment",
+          "type": "string"
+        },
+        "test_or_experiment_steps": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Test Or Experiment Steps",
+          "type": "array"
+        },
+        "acceptance_criteria": {
+          "items": {
+            "$ref": "#/$defs/AcceptanceCriterion"
+          },
+          "minItems": 1,
+          "title": "Acceptance Criteria",
+          "type": "array"
+        },
+        "observed_result": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed Result"
+        },
+        "evidence_artifacts": {
+          "items": {
+            "$ref": "#/$defs/EvidenceArtifact"
+          },
+          "title": "Evidence Artifacts",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "planned",
+            "implementing",
+            "exercised",
+            "verified",
+            "blocked"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "claim_boundary": {
+          "minLength": 1,
+          "title": "Claim Boundary",
+          "type": "string"
+        },
+        "unresolved_items": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unresolved Items",
+          "type": "array"
+        },
+        "next_action": {
+          "minLength": 1,
+          "title": "Next Action",
+          "type": "string"
+        },
+        "architecture_before": {
+          "minLength": 1,
+          "title": "Architecture Before",
+          "type": "string"
+        },
+        "architecture_after": {
+          "minLength": 1,
+          "title": "Architecture After",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "title",
+        "engineering_question",
+        "why_now",
+        "observed_gap",
+        "proposed_design",
+        "changed_components",
+        "implementation_summary",
+        "experiment_environment",
+        "test_or_experiment_steps",
+        "acceptance_criteria",
+        "observed_result",
+        "evidence_artifacts",
+        "status",
+        "claim_boundary",
+        "unresolved_items",
+        "next_action",
+        "architecture_before",
+        "architecture_after"
+      ],
+      "title": "ScenarioProgress",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "evm.scale_validation.progress.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "authoritative_plan": {
+      "title": "Authoritative Plan",
+      "type": "string"
+    },
+    "public_record": {
+      "const": true,
+      "title": "Public Record",
+      "type": "boolean"
+    },
+    "claim_boundary": {
+      "minLength": 1,
+      "title": "Claim Boundary",
+      "type": "string"
+    },
+    "scenarios": {
+      "items": {
+        "$ref": "#/$defs/ScenarioProgress"
+      },
+      "maxItems": 9,
+      "minItems": 9,
+      "title": "Scenarios",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "generated_at",
+    "authoritative_plan",
+    "public_record",
+    "claim_boundary",
+    "scenarios"
+  ],
+  "title": "ScenarioProgressLedger",
+  "type": "object"
+}

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from fastapi import Response
 from prometheus_client import generate_latest
 
 from apps.api import main as api
@@ -90,10 +91,13 @@ def test_ready_exposes_control_plane_source_revision(monkeypatch):
     monkeypatch.setattr(api.requests, "get", lambda *_args, **_kwargs: SimpleNamespace(ok=True))
     monkeypatch.setattr(api, "refresh_model_state", lambda: None)
 
-    payload = api.ready()
+    response = Response()
+    payload = api.ready(response)
 
     assert payload["source_commit"] == "a" * 40
     assert payload["source_branch"] == "codex/source-proof"
+    assert payload["status"] == "degraded"
+    assert response.status_code == 503
 
 
 def test_ready_accepts_evm_source_revision_fallback(monkeypatch):
@@ -104,7 +108,24 @@ def test_ready_accepts_evm_source_revision_fallback(monkeypatch):
     monkeypatch.setattr(api.requests, "get", lambda *_args, **_kwargs: SimpleNamespace(ok=True))
     monkeypatch.setattr(api, "refresh_model_state", lambda: None)
 
-    payload = api.ready()
+    response = Response()
+    payload = api.ready(response)
 
     assert payload["source_commit"] == "b" * 40
     assert payload["source_branch"] == "codex/fallback"
+    assert payload["status"] == "degraded"
+    assert response.status_code == 503
+
+
+def test_ready_returns_success_only_when_dependencies_are_ready(monkeypatch):
+    model = SimpleNamespace(ready_payload=lambda: {"model_name": "generalized-model"})
+    monkeypatch.setattr(api.requests, "get", lambda *_args, **_kwargs: SimpleNamespace(ok=True))
+    monkeypatch.setattr(api, "refresh_model_state", lambda: model)
+
+    response = Response()
+    payload = api.ready(response)
+
+    assert payload["status"] == "ok"
+    assert payload["mlflow_ready"] is True
+    assert payload["model_loaded"] is True
+    assert response.status_code == 200

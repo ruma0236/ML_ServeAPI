@@ -1,0 +1,592 @@
+{
+  "schema_version": "evm.scale_validation.progress.v1",
+  "generated_at": "2026-08-14T20:09:42Z",
+  "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
+  "public_record": true,
+  "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
+  "scenarios": [
+    {
+      "scenario_id": "S0",
+      "title": "Runtime Baseline & Evidence Contract",
+      "engineering_question": "Can every load result start from a healthy, reproducible runtime whose identity, metrics, and trace propagation are machine-verifiable?",
+      "why_now": "No scale result is credible without a stable and attributable control case.",
+      "observed_gap": "Degraded readiness could return HTTP 200, and no strict benchmark closure contract requires identity, cross-layer traces, repeated metrics, and hashed evidence.",
+      "proposed_design": [
+        "Return HTTP 503 whenever serving dependencies or the promoted model are not ready.",
+        "Propagate W3C trace context through API, queue, worker, data, tracking, and serving.",
+        "Keep metric labels bounded while exact identities remain in traces and structured logs.",
+        "Capture three low-load controls with latency, throughput, resource, pool, and retry data."
+      ],
+      "changed_components": [
+        {
+          "component": "Serving readiness contract",
+          "files": [
+            "apps/api/main.py",
+            "tests/test_api_metrics.py"
+          ]
+        },
+        {
+          "component": "Scale-validation evidence contracts",
+          "files": [
+            "src/evm/scale_validation/contracts.py",
+            "src/evm/scale_validation/catalog.py",
+            "scripts/dev/initialize_scale_scenario_progress.py",
+            "scripts/dev/validate_scale_scenario_progress.py",
+            "tests/test_scale_scenario_progress.py"
+          ]
+        }
+      ],
+      "implementation_summary": [
+        "Readiness now maps degraded dependency state to HTTP 503.",
+        "Strict progress and benchmark evidence contracts are being implemented."
+      ],
+      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "test_or_experiment_steps": [
+        "Validate progress and benchmark contracts with focused unit tests.",
+        "Reconcile serving, accelerator inference, monitoring, and supervisors without mutation.",
+        "Verify trace propagation and run three independent low-load controls."
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "S0-AC-01",
+          "description": "Only healthy active targets are included in the baseline.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S0-AC-02",
+          "description": "Exact source, data, model, and runtime identity is complete.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S0-AC-03",
+          "description": "p50, p95, p99, throughput, queue, pool, retry, CPU, RAM, GPU, and VRAM are queryable.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S0-AC-04",
+          "description": "Trace propagation spans every declared lifecycle stage with zero missing links.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S0-AC-05",
+          "description": "Three independent controls are comparable and variance is reported.",
+          "status": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "observed_result": null,
+      "evidence_artifacts": [],
+      "status": "implementing",
+      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.",
+      "unresolved_items": [
+        "Only healthy active targets are included in the baseline.",
+        "Exact source, data, model, and runtime identity is complete.",
+        "p50, p95, p99, throughput, queue, pool, retry, CPU, RAM, GPU, and VRAM are queryable.",
+        "Trace propagation spans every declared lifecycle stage with zero missing links.",
+        "Three independent controls are comparable and variance is reported."
+      ],
+      "next_action": "Complete S0 contracts and telemetry gap audit before any load execution.",
+      "architecture_before": "Health, metrics, and logs exist without one machine-enforced evidence closure.",
+      "architecture_after": "Readiness, bounded telemetry, distributed trace identity, and benchmark closure gate every later scenario."
+    },
+    {
+      "scenario_id": "S1",
+      "title": "Transactional Job State & Idempotency",
+      "engineering_question": "Can 100 to 500 concurrent mutations commit one legal and idempotent outcome?",
+      "why_now": "Durable state correctness must precede retries and queued high-volume mutation.",
+      "observed_gap": "Transactional ownership, atomic claims, fencing, and bounded connection-pool wait are not yet proven under concurrency.",
+      "proposed_design": [
+        "Use database transactions and unique idempotency keys for every state mutation.",
+        "Enforce legal transitions, atomic lease claims, fencing, and stale-owner reconciliation.",
+        "Bound connection-pool size and wait time and expose conflict outcomes as telemetry."
+      ],
+      "changed_components": [],
+      "implementation_summary": [
+        "Implementation has not started."
+      ],
+      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "test_or_experiment_steps": [
+        "Exercise concurrent create, approve, cancel, and retry requests.",
+        "Interrupt one exact owner and reconcile the stale lease.",
+        "Count committed outcomes, illegal states, pool waits, and duplicate external effects."
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "S1-AC-01",
+          "description": "Duplicate lifecycle, deployment, and artifact effects are zero.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S1-AC-02",
+          "description": "Conflicting mutations end in one legal terminal state.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S1-AC-03",
+          "description": "Pool exhaustion returns a bounded observable failure rather than hanging.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S1-AC-04",
+          "description": "Worker loss and retry preserve one committed outcome.",
+          "status": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "observed_result": null,
+      "evidence_artifacts": [],
+      "status": "planned",
+      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.",
+      "unresolved_items": [
+        "Duplicate lifecycle, deployment, and artifact effects are zero.",
+        "Conflicting mutations end in one legal terminal state.",
+        "Pool exhaustion returns a bounded observable failure rather than hanging.",
+        "Worker loss and retry preserve one committed outcome."
+      ],
+      "next_action": "Begin after S0 evidence contracts pass their focused tests.",
+      "architecture_before": "Control-plane state still relies partly on process-local or file-ledger ownership.",
+      "architecture_after": "Transactions, idempotency, leases, and fencing own every concurrent transition."
+    },
+    {
+      "scenario_id": "S2",
+      "title": "Bounded Queue & Backpressure",
+      "engineering_question": "Does overload stay memory-bounded while accepted work reaches an explicit outcome?",
+      "why_now": "A bounded queue is required before capacity and recovery experiments scale up.",
+      "observed_gap": "Durable admission, byte/age bounds, retry budget, and DLQ are incomplete.",
+      "proposed_design": [
+        "Combine a durable queue with a bounded process-local async queue and semaphore.",
+        "Bound depth, bytes, age, and time; reject excess work with Retry-After.",
+        "Retry only transient failures with backoff, jitter, and a global budget; isolate poison work.",
+        "Scale CPU workers from queue telemetry while keeping the GPU worker count at one."
+      ],
+      "changed_components": [],
+      "implementation_summary": [
+        "Implementation has not started."
+      ],
+      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "test_or_experiment_steps": [
+        "Use provisional safe bounds before S3, then recalibrate from measured service rate.",
+        "Inject burst, sustained, duplicate, expired, and poison requests independently.",
+        "Measure queue age, bytes, RSS, terminal closure, rejection, retry, and DLQ behavior."
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "S2-AC-01",
+          "description": "Queue depth, in-flight bytes, and process memory remain bounded under overload.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S2-AC-02",
+          "description": "Accepted work completes or reaches one explicit terminal failure.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S2-AC-03",
+          "description": "Duplicate effects are zero and poison work does not block healthy work.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S2-AC-04",
+          "description": "Over-capacity demand is rejected with an observable retry contract.",
+          "status": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "observed_result": null,
+      "evidence_artifacts": [],
+      "status": "planned",
+      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.",
+      "unresolved_items": [
+        "Queue depth, in-flight bytes, and process memory remain bounded under overload.",
+        "Accepted work completes or reaches one explicit terminal failure.",
+        "Duplicate effects are zero and poison work does not block healthy work.",
+        "Over-capacity demand is rejected with an observable retry contract."
+      ],
+      "next_action": "Begin after S1 has protected mutation idempotency.",
+      "architecture_before": "Admission and retries do not share one end-to-end resource boundary.",
+      "architecture_after": "Durable queue, local semaphore, rejection, retry, DLQ, and CPU scale are bounded."
+    },
+    {
+      "scenario_id": "S3",
+      "title": "HIGGS Lightweight Capacity Envelope",
+      "engineering_question": "Where are sustainable capacity, tail-latency limits, and the first CPU bottleneck?",
+      "why_now": "Lightweight probes separate infrastructure overhead from model compute.",
+      "observed_gap": "No repeated CPU-model capacity envelope or saturation knee exists.",
+      "proposed_design": [
+        "Use one governed high-volume tabular corpus across multiple lightweight CPU probes.",
+        "Run closed concurrency and open arrival-rate sweeps with fixed corpus, split, and seed.",
+        "Compare API replicas and CPU worker counts while tracing validation and prediction stages.",
+        "Measure co-located load-generator consumption separately from the system under test."
+      ],
+      "changed_components": [],
+      "implementation_summary": [
+        "Implementation has not started."
+      ],
+      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "test_or_experiment_steps": [
+        "Warm each probe and run three repetitions at every safe load step.",
+        "Calculate p95, p99, throughput, errors, resources, and the first telemetry slope change.",
+        "Select an operating point below maximum throughput and feed it back into S2 bounds."
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "S3-AC-01",
+          "description": "Every probe has p95, p99, throughput, error, and resource curves.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S3-AC-02",
+          "description": "The first bottleneck is explained by trace and resource telemetry.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S3-AC-03",
+          "description": "The sustainable operating point is explicitly lower than peak throughput when required.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S3-AC-04",
+          "description": "Three independent repetitions and their variance are retained.",
+          "status": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "observed_result": null,
+      "evidence_artifacts": [],
+      "status": "planned",
+      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.",
+      "unresolved_items": [
+        "Every probe has p95, p99, throughput, error, and resource curves.",
+        "The first bottleneck is explained by trace and resource telemetry.",
+        "The sustainable operating point is explicitly lower than peak throughput when required.",
+        "Three independent repetitions and their variance are retained."
+      ],
+      "next_action": "Begin after S0, S1, and provisional S2 safety gates are in place.",
+      "architecture_before": "API behavior is functional but not characterized with low-compute probes.",
+      "architecture_after": "A measured CPU/API capacity envelope supplies operational and queue limits."
+    },
+    {
+      "scenario_id": "S4",
+      "title": "HIGGS Tiny MLP GPU Batching",
+      "engineering_question": "Which small-model batch and queue-delay settings maximize throughput within p99 and VRAM?",
+      "why_now": "A lightweight GPU probe reveals scheduler and batching cost without a large model.",
+      "observed_gap": "No throughput-latency-VRAM Pareto curve exists for the accelerator path.",
+      "proposed_design": [
+        "Sweep batches 1, 4, 8, 16, and 32 with bounded queue delays.",
+        "Keep one model instance by default and vary instance count separately from batch size.",
+        "Record allocated, reserved, and peak VRAM, utilization, and formed batch size.",
+        "Run training under a separate exclusive lease, never during inference benchmarking."
+      ],
+      "changed_components": [],
+      "implementation_summary": [
+        "Implementation has not started."
+      ],
+      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "test_or_experiment_steps": [
+        "Establish an exclusive-accelerator batch-one baseline.",
+        "Sweep safe batch and delay combinations and retain all failed/OOM attempts.",
+        "Select one operating point and recalculate S2 queue bounds."
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "S4-AC-01",
+          "description": "Throughput-p99 and throughput-peak-VRAM Pareto curves exist.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S4-AC-02",
+          "description": "The selected operating point has zero accelerator out-of-memory failures.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S4-AC-03",
+          "description": "Model instance count and batch size effects are measured separately.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S4-AC-04",
+          "description": "Queue limits are recalculated from the selected service rate.",
+          "status": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "observed_result": null,
+      "evidence_artifacts": [],
+      "status": "planned",
+      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.",
+      "unresolved_items": [
+        "Throughput-p99 and throughput-peak-VRAM Pareto curves exist.",
+        "The selected operating point has zero accelerator out-of-memory failures.",
+        "Model instance count and batch size effects are measured separately.",
+        "Queue limits are recalculated from the selected service rate."
+      ],
+      "next_action": "Begin after the common baseline and bounded queue instrumentation are ready.",
+      "architecture_before": "The accelerator path runs models but lacks a controlled batching envelope.",
+      "architecture_after": "One measured batch, delay, instance, and VRAM operating point governs inference."
+    },
+    {
+      "scenario_id": "S5",
+      "title": "Criteo Spark Memory-bounded Data Scale",
+      "engineering_question": "Can larger partitioned data remain memory-bounded, deterministic, and restartable?",
+      "why_now": "Single-process data preparation does not demonstrate executor or shuffle behavior.",
+      "observed_gap": "Partition sizing, spill, skew, retry, and idempotent distributed commits are unproven.",
+      "proposed_design": [
+        "Compare single-process columnar processing, local Spark, and Kubernetes executors.",
+        "Increase a governed tabular subset through staged sizes with fixed manifests.",
+        "Tune executor memory, partitions, shuffle, and adaptive execution under explicit bounds.",
+        "Inject skew and one executor loss, then verify idempotent output commit and digest closure."
+      ],
+      "changed_components": [],
+      "implementation_summary": [
+        "Implementation has not started."
+      ],
+      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "test_or_experiment_steps": [
+        "Verify semantic and schema correctness on the smallest governed subset.",
+        "Advance through staged corpus sizes only after memory and integrity gates pass.",
+        "Compare throughput, memory, garbage collection, shuffle, spill, skew, and retry."
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "S5-AC-01",
+          "description": "Records per second, storage rate, peak executor memory, GC, shuffle, spill, and skew are reported.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S5-AC-02",
+          "description": "Output contains zero missing and zero duplicate records.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S5-AC-03",
+          "description": "Retry preserves row count and output digest.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S5-AC-04",
+          "description": "Generated load volume is not represented as new semantic diversity.",
+          "status": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "observed_result": null,
+      "evidence_artifacts": [],
+      "status": "planned",
+      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.",
+      "unresolved_items": [
+        "Records per second, storage rate, peak executor memory, GC, shuffle, spill, and skew are reported.",
+        "Output contains zero missing and zero duplicate records.",
+        "Retry preserves row count and output digest.",
+        "Generated load volume is not represented as new semantic diversity."
+      ],
+      "next_action": "Begin after S1 and S2 protect ownership, retry, and output idempotency.",
+      "architecture_before": "Data processing is reproducible at local scale but remains mostly process-local.",
+      "architecture_after": "Spark executors process governed partitions with bounded memory and deterministic commits."
+    },
+    {
+      "scenario_id": "S6",
+      "title": "API Rolling Continuity & GPU Controlled Handoff",
+      "engineering_question": "Can API replicas roll continuously while a single-GPU handoff remains measured and reversible?",
+      "why_now": "API continuity and GPU availability are different failure domains and claims.",
+      "observed_gap": "Rolling API drain and controlled single-GPU switch are not proven under load.",
+      "proposed_design": [
+        "Run two or three stateless API replicas with zero-unavailable rolling replacement.",
+        "Use readiness, pre-stop drain, termination grace, and target-scoped Pod termination.",
+        "Gate GPU candidates by shadow quality, identity, and tail latency before queue drain and switch.",
+        "Measure endpoint interruption and exact known-good rollback identity separately."
+      ],
+      "changed_components": [],
+      "implementation_summary": [
+        "Implementation has not started."
+      ],
+      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "test_or_experiment_steps": [
+        "Hold traffic near the verified safe operating point.",
+        "Replace one API replica and measure accepted request completion and drain.",
+        "Run a controlled GPU candidate handoff only after non-disruptive gates pass."
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "S6-AC-01",
+          "description": "API rolling update loses and duplicates zero accepted requests.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S6-AC-02",
+          "description": "API drain and replacement recovery time are measured.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S6-AC-03",
+          "description": "GPU handoff interruption and rollback identity are measured.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S6-AC-04",
+          "description": "The result is not described as zero-downtime GPU high availability.",
+          "status": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "observed_result": null,
+      "evidence_artifacts": [],
+      "status": "planned",
+      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.",
+      "unresolved_items": [
+        "API rolling update loses and duplicates zero accepted requests.",
+        "API drain and replacement recovery time are measured.",
+        "GPU handoff interruption and rollback identity are measured.",
+        "The result is not described as zero-downtime GPU high availability."
+      ],
+      "next_action": "Begin after S3 capacity, S4 GPU bounds, and S2 queue recalibration pass.",
+      "architecture_before": "Deployment works but API continuity and single-GPU interruption are conflated.",
+      "architecture_after": "Stateless API continuity and controlled GPU handoff have separate evidence and claims."
+    },
+    {
+      "scenario_id": "S7",
+      "title": "Image/VLM/LLM Auxiliary Admission",
+      "engineering_question": "Do image and generative workloads use model-family-specific cost admission and metrics?",
+      "why_now": "Tabular capacity does not cover image decode, pixels, tokens, or long requests.",
+      "observed_gap": "Image, token, and in-flight cost bounds are not uniformly enforced or measured.",
+      "proposed_design": [
+        "Measure image size, decode, preprocessing, batch, and pixel admission costs.",
+        "Bound input tokens, output tokens, and total in-flight tokens for language workloads.",
+        "Measure first-token, per-token, queue, fairness, and peak-memory behavior.",
+        "Run model families sequentially on one GPU and use quantization only with runtime proof."
+      ],
+      "changed_components": [],
+      "implementation_summary": [
+        "Implementation has not started."
+      ],
+      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "test_or_experiment_steps": [
+        "Replay fixed short/long and small/large request mixes for each family.",
+        "Increase admitted request cost only until the safe fairness and memory boundary is known.",
+        "Confirm unsupported metrics remain absent from evidence and release gates."
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "S7-AC-01",
+          "description": "Each model family has distinct p95, p99, and quality metric schemas.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S7-AC-02",
+          "description": "Selected admission limits have zero OOM and zero starvation.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S7-AC-03",
+          "description": "Long-request head-of-line behavior and fairness are measured.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S7-AC-04",
+          "description": "Unsupported or unverified metrics remain absent.",
+          "status": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "observed_result": null,
+      "evidence_artifacts": [],
+      "status": "planned",
+      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.",
+      "unresolved_items": [
+        "Each model family has distinct p95, p99, and quality metric schemas.",
+        "Selected admission limits have zero OOM and zero starvation.",
+        "Long-request head-of-line behavior and fairness are measured.",
+        "Unsupported or unverified metrics remain absent."
+      ],
+      "next_action": "Begin after S2 bounds and S4 accelerator operating point are verified.",
+      "architecture_before": "Multiple model families run without one cost-aware admission proof.",
+      "architecture_after": "Image, pixel, token, and in-flight budgets govern family-specific queues and metrics."
+    },
+    {
+      "scenario_id": "S8",
+      "title": "Dependency Soak & Resource-efficiency Closure",
+      "engineering_question": "Do bounded retries and selected operating points remain stable during faults and soak?",
+      "why_now": "Closure requires long-run resource trends and dependency recovery after isolated passes.",
+      "observed_gap": "Retry amplification, resource slope, efficiency, and final re-hash are unproven.",
+      "proposed_design": [
+        "Inject service-scoped latency or timeout with bounded proxy or deterministic fixtures.",
+        "Enforce retry budget, exponential backoff, jitter, circuit hold, and queue drain.",
+        "Run a 30 to 60 minute soak near the selected safe operating point.",
+        "Calculate CPU/GPU time efficiency and re-hash every accepted evidence artifact."
+      ],
+      "changed_components": [],
+      "implementation_summary": [
+        "Implementation has not started."
+      ],
+      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "test_or_experiment_steps": [
+        "Validate one dependency fault at a time and prove cleanup before the next.",
+        "Run the cross-layer soak only after every isolated scenario has passed.",
+        "Measure amplification, recovery, resource slopes, efficiency, integrity, and residual risk."
+      ],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "S8-AC-01",
+          "description": "Retry amplification stays within the declared budget.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S8-AC-02",
+          "description": "Memory, file descriptor, pool, queue, and artifact slopes remain bounded.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S8-AC-03",
+          "description": "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
+          "status": "pending",
+          "evidence_refs": []
+        },
+        {
+          "criterion_id": "S8-AC-04",
+          "description": "One final evidence index re-hashes every accepted result.",
+          "status": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "observed_result": null,
+      "evidence_artifacts": [],
+      "status": "planned",
+      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario until separately exercised.",
+      "unresolved_items": [
+        "Retry amplification stays within the declared budget.",
+        "Memory, file descriptor, pool, queue, and artifact slopes remain bounded.",
+        "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
+        "One final evidence index re-hashes every accepted result."
+      ],
+      "next_action": "Begin only after S0 through S7 have accepted evidence and clean cleanup.",
+      "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
+      "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger."
+    }
+  ]
+}

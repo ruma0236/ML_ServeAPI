@@ -1,0 +1,413 @@
+{
+  "$defs": {
+    "BenchmarkClosure": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": [
+            "passed",
+            "failed",
+            "blocked",
+            "not_run"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "blockers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        }
+      },
+      "required": [
+        "decision",
+        "blockers",
+        "completed_at"
+      ],
+      "title": "BenchmarkClosure",
+      "type": "object"
+    },
+    "BenchmarkControlRun": {
+      "additionalProperties": false,
+      "properties": {
+        "repetition": {
+          "minimum": 1,
+          "title": "Repetition",
+          "type": "integer"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "finished_at": {
+          "format": "date-time",
+          "title": "Finished At",
+          "type": "string"
+        },
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/MetricObservation"
+          },
+          "minItems": 1,
+          "title": "Metrics",
+          "type": "array"
+        },
+        "evidence_artifacts": {
+          "items": {
+            "$ref": "#/$defs/EvidenceArtifact"
+          },
+          "minItems": 1,
+          "title": "Evidence Artifacts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "repetition",
+        "started_at",
+        "finished_at",
+        "metrics",
+        "evidence_artifacts"
+      ],
+      "title": "BenchmarkControlRun",
+      "type": "object"
+    },
+    "BenchmarkEnvironment": {
+      "additionalProperties": false,
+      "properties": {
+        "physical_nodes": {
+          "minimum": 1,
+          "title": "Physical Nodes",
+          "type": "integer"
+        },
+        "cpu_logical_count": {
+          "minimum": 1,
+          "title": "Cpu Logical Count",
+          "type": "integer"
+        },
+        "ram_gib": {
+          "exclusiveMinimum": 0.0,
+          "title": "Ram Gib",
+          "type": "number"
+        },
+        "gpu_count": {
+          "minimum": 0,
+          "title": "Gpu Count",
+          "type": "integer"
+        },
+        "gpu_class": {
+          "minLength": 1,
+          "title": "Gpu Class",
+          "type": "string"
+        },
+        "load_generator_placement": {
+          "enum": [
+            "co_located",
+            "external"
+          ],
+          "title": "Load Generator Placement",
+          "type": "string"
+        },
+        "environment_scope": {
+          "enum": [
+            "local_single_node",
+            "local_multi_host"
+          ],
+          "title": "Environment Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "physical_nodes",
+        "cpu_logical_count",
+        "ram_gib",
+        "gpu_count",
+        "gpu_class",
+        "load_generator_placement",
+        "environment_scope"
+      ],
+      "title": "BenchmarkEnvironment",
+      "type": "object"
+    },
+    "BenchmarkIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "source_revision": {
+          "pattern": "^[a-f0-9]{7,64}$",
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "data_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Data Digest",
+          "type": "string"
+        },
+        "model_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Model Digest",
+          "type": "string"
+        },
+        "runtime_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Runtime Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_revision",
+        "data_digest",
+        "model_digest",
+        "runtime_digest"
+      ],
+      "title": "BenchmarkIdentity",
+      "type": "object"
+    },
+    "EvidenceArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "claim": {
+          "minLength": 1,
+          "title": "Claim",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "generated_at",
+        "claim"
+      ],
+      "title": "EvidenceArtifact",
+      "type": "object"
+    },
+    "LoadProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "low_load_control",
+            "closed_model",
+            "open_model",
+            "soak"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "concurrency": {
+          "minimum": 1,
+          "title": "Concurrency",
+          "type": "integer"
+        },
+        "target_requests_per_second": {
+          "exclusiveMinimum": 0.0,
+          "title": "Target Requests Per Second",
+          "type": "number"
+        },
+        "warmup_seconds": {
+          "minimum": 0.0,
+          "title": "Warmup Seconds",
+          "type": "number"
+        },
+        "duration_seconds": {
+          "exclusiveMinimum": 0.0,
+          "title": "Duration Seconds",
+          "type": "number"
+        },
+        "seed": {
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "mode",
+        "concurrency",
+        "target_requests_per_second",
+        "warmup_seconds",
+        "duration_seconds",
+        "seed"
+      ],
+      "title": "LoadProfile",
+      "type": "object"
+    },
+    "MetricObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "minLength": 1,
+          "title": "Metric",
+          "type": "string"
+        },
+        "unit": {
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "sample_count": {
+          "minimum": 1,
+          "title": "Sample Count",
+          "type": "integer"
+        },
+        "statistics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "minProperties": 1,
+          "title": "Statistics",
+          "type": "object"
+        },
+        "query": {
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": [
+        "metric",
+        "unit",
+        "sample_count",
+        "statistics",
+        "query"
+      ],
+      "title": "MetricObservation",
+      "type": "object"
+    },
+    "TracePropagationEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "required_stages": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Required Stages",
+          "type": "array"
+        },
+        "observed_stages": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Observed Stages",
+          "type": "array"
+        },
+        "missing_propagation_count": {
+          "minimum": 0,
+          "title": "Missing Propagation Count",
+          "type": "integer"
+        },
+        "metric_labels_bounded": {
+          "title": "Metric Labels Bounded",
+          "type": "boolean"
+        },
+        "trace_artifact": {
+          "$ref": "#/$defs/EvidenceArtifact"
+        }
+      },
+      "required": [
+        "required_stages",
+        "observed_stages",
+        "missing_propagation_count",
+        "metric_labels_bounded",
+        "trace_artifact"
+      ],
+      "title": "TracePropagationEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "evm.scale_validation.benchmark_evidence.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scenario_id": {
+      "const": "S0",
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "benchmark_suite_id": {
+      "minLength": 1,
+      "title": "Benchmark Suite Id",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "identity": {
+      "$ref": "#/$defs/BenchmarkIdentity"
+    },
+    "environment": {
+      "$ref": "#/$defs/BenchmarkEnvironment"
+    },
+    "load_profile": {
+      "$ref": "#/$defs/LoadProfile"
+    },
+    "control_runs": {
+      "items": {
+        "$ref": "#/$defs/BenchmarkControlRun"
+      },
+      "title": "Control Runs",
+      "type": "array"
+    },
+    "trace_propagation": {
+      "$ref": "#/$defs/TracePropagationEvidence"
+    },
+    "variance": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Variance",
+      "type": "object"
+    },
+    "closure": {
+      "$ref": "#/$defs/BenchmarkClosure"
+    }
+  },
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "benchmark_suite_id",
+    "generated_at",
+    "identity",
+    "environment",
+    "load_profile",
+    "control_runs",
+    "trace_propagation",
+    "variance",
+    "closure"
+  ],
+  "title": "BenchmarkEvidence",
+  "type": "object"
+}

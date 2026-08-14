@@ -547,23 +547,23 @@ combined release drill, automatic promotion, customer production, or HA.
 
 ### Distributed Scale And Operational Load Validation
 
-| ID | Task | Status | Window | Evidence / Exit Criteria |
-|---|---|---|---|---|
-| `EVM-290` | Runtime baseline and benchmark evidence contract | Planned | Post-W8 | clean serving/monitoring/supervisor baseline, corrected readiness semantics, immutable identity, p50/p95/p99 and resource/queue evidence schema; no load execution on an unhealthy baseline |
-| `EVM-291` | Online capacity envelope and saturation knee | Planned | Post-W8 | three-run B0/VisA concurrency and arrival-rate matrix identifies sustainable RPS, p95/p99, errors and the measured CPU/GPU/queue saturation knee |
-| `EVM-292` | Durable control-plane concurrency and idempotency | Planned | Post-W8 | PostgreSQL-backed atomic ownership/state transitions, bounded connection pool and 100-500 concurrent lifecycle mutations complete with duplicate side effects 0 |
-| `EVM-293` | Bounded queue, backpressure and event-driven scaling | Planned | Post-W8 | measured-service-rate queue bound, 429 admission, retry budget/jitter, DLQ and KEDA CPU-worker scaling keep queue/memory bounded under burst and sustained overload |
-| `EVM-294` | GPU dynamic batching and VRAM optimization | Planned | Post-W8 | Triton batch/delay matrix plus PyTorch VRAM telemetry produces throughput-p99-memory Pareto evidence with OOM 0; time-slicing/MPS remain compatibility-gated shared-GPU experiments |
-| `EVM-295` | Stateless API availability and controlled release under load | Planned | Post-W8 | multi-replica API Pod failure/rolling update and B0 controlled canary/rollback are measured at steady load; single GPU backend is not represented as HA |
-| `EVM-296` | Distributed and memory-bounded data processing | Planned | Post-W8 | 25/50/100 GiB manifest-governed I/O corpus and real semantic data compare single-process and parallel execution with bounded blocks, spill, restart, missing 0 and duplicate 0 |
-| `EVM-297` | VLM/LLM queue fairness and token admission | Planned | Post-W8 | sequential SmolVLM/Qwen load validates model-family metrics, TTFT/TPOT, image/token admission, head-of-line blocking, starvation 0 and GPU OOM 0 |
-| `EVM-298` | Dependency degradation, soak and evidence closure | Planned | Post-W8 | bounded dependency faults and 30-60 minute soak quantify retry amplification, MTTR, queue/memory/connection slope, integrity and final evidence hashes |
+| Scenario | ID | Task | Status | Window | Evidence / Exit Criteria |
+|---|---|---|---|---|---|
+| `S0` | `EVM-290` | Runtime Baseline & Evidence Contract | Implementing | Post-W8 | healthy active targets, corrected readiness semantics, immutable identity, bounded metrics, W3C trace propagation and three-run low-load variance; no load on an unhealthy baseline |
+| `S1` | `EVM-292` | Transactional Job State & Idempotency | Planned | Post-W8 | PostgreSQL atomic transitions, idempotency, lease/fencing, bounded pool wait and 100-500 concurrent mutations complete with duplicate effects 0 |
+| `S2` | `EVM-293` | Bounded Queue & Backpressure | Planned | Post-W8 | bounded durable/local queues, depth/bytes/age limits, 429 admission, retry budget/jitter and DLQ keep queue/RSS bounded and duplicate effects 0 |
+| `S3` | `EVM-291` | HIGGS Lightweight Capacity Envelope | Planned | Post-W8 | fixed high-volume tabular corpus and lightweight CPU probes produce three-run RPS, p95/p99, resource, bottleneck and saturation-knee evidence |
+| `S4` | `EVM-294` | HIGGS Tiny MLP GPU Batching | Planned | Post-W8 | small-model batch/delay/instance matrix produces throughput-p99-VRAM Pareto evidence, OOM 0 and recalibrated queue bounds |
+| `S5` | `EVM-296` | Criteo Spark Memory-bounded Data Scale | Planned | Post-W8 | staged click-log subsets compare single-process, local Spark and Kubernetes executors with bounded memory, shuffle/spill/skew, retry and digest closure |
+| `S6` | `EVM-295` | API Rolling Continuity & GPU Controlled Handoff | Planned | Post-W8 | multi-replica API rolling has accepted loss/duplicate 0; single-GPU switch reports measured interruption and exact rollback identity without HA overclaim |
+| `S7` | `EVM-297` | Image/VLM/LLM Auxiliary Admission | Planned | Post-W8 | sequential image/generative probes validate family-specific p95/p99, quality, decode/pixel/token admission, fairness, OOM 0 and starvation 0 |
+| `S8` | `EVM-298` | Dependency Soak & Resource-efficiency Closure | Planned | Post-W8 | bounded dependency faults and 30-60 minute soak quantify retry amplification, MTTR, resource slopes, efficiency, residual risk and final hashes |
 
 The canonical planning contract is
-`docs/agenda/2026-08-14-distributed-scale-operational-validation-plan.md`.
-All EVM-290..298 entries are planning-only. No benchmark, load, scale, HA,
-shared-GPU, or production-readiness acceptance is credited until fresh runtime
-evidence satisfies the corresponding exit criteria.
+`docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`.
+EVM-290 contract implementation has started; EVM-291..298 remain planning-only.
+No benchmark, load, scale, HA, shared-GPU, or production-readiness acceptance is
+credited until fresh runtime evidence satisfies the corresponding exit criteria.
 
 ### Current Jira Timebox And Hierarchy
 
