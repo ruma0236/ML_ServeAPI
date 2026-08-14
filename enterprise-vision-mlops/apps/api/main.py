@@ -34,7 +34,12 @@ from evm.observability.trace_context import (
     TraceContextError,
     W3CTraceContext,
 )
-from evm.observability.otel import configure_tracing, shutdown_tracing, trace_span
+from evm.observability.otel import (
+    configure_tracing,
+    runtime_service_version,
+    shutdown_tracing,
+    trace_span,
+)
 from evm.operations.metrics import OperationalMetrics, load_metric_projection
 
 
@@ -241,7 +246,7 @@ class PredictResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    configure_tracing(APP_NAME, service_version="0.1.0")
+    configure_tracing(APP_NAME, service_version=runtime_service_version())
     refresh_model_state()
     try:
         yield

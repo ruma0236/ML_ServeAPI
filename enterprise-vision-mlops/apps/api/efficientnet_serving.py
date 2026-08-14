@@ -24,7 +24,12 @@ from prometheus_client import (
 from pydantic import BaseModel, Field
 
 from evm.core.image_feature_model import resolve_image_path
-from evm.observability.otel import configure_tracing, shutdown_tracing, trace_span
+from evm.observability.otel import (
+    configure_tracing,
+    runtime_service_version,
+    shutdown_tracing,
+    trace_span,
+)
 from evm.observability.trace_context import TraceContextError, W3CTraceContext
 
 
@@ -253,7 +258,7 @@ def refresh_model() -> ModelRuntime | None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    configure_tracing(APP_NAME, service_version="0.1.0")
+    configure_tracing(APP_NAME, service_version=runtime_service_version())
     refresh_model()
     try:
         yield

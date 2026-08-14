@@ -28,6 +28,7 @@ from evm.control_panel.scenario_workloads import (
 )
 from evm.model_runtime.common import ModelRuntimeError, read_jsonl, split_records, utc_now
 from evm.model_runtime.workload_gpu_handoff import kubectl_json, run_command, wait_for_pod_count
+from evm.observability.trace_context import W3CTraceContext
 
 
 PROMETHEUS_TARGET_PATH = Path(
@@ -496,7 +497,11 @@ def ready_identity_matches(
     return True
 
 
-def verify_production_inference(intent: ScenarioProductionIntent) -> dict[str, Any]:
+def verify_production_inference(
+    intent: ScenarioProductionIntent,
+    *,
+    trace_context: W3CTraceContext | None = None,
+) -> dict[str, Any]:
     run = get_workload_run(intent.run_id)
     record = split_records(read_jsonl(Path(run.identity.manifest_uri)))["test"][0]
     if intent.model_family == "vlm":
@@ -515,7 +520,13 @@ def verify_production_inference(intent: ScenarioProductionIntent) -> dict[str, A
             "context": record.get("context") or None,
             "max_new_tokens": 64,
         }
-    response = requests.post(f"{intent.target.endpoint}/infer", json=request, timeout=90)
+    headers = trace_context.headers() if trace_context is not None else None
+    response = requests.post(
+        f"{intent.target.endpoint}/infer",
+        json=request,
+        headers=headers,
+        timeout=90,
+    )
     payload = response.json()
     if (
         response.status_code != 200
@@ -523,7 +534,11 @@ def verify_production_inference(intent: ScenarioProductionIntent) -> dict[str, A
         or not str(payload.get("output") or "").strip()
     ):
         raise ModelRuntimeError("scenario_production_inference_validation_failed")
-    ready = requests.get(f"{intent.target.endpoint}/ready", timeout=10).json()
+    ready = requests.get(
+        f"{intent.target.endpoint}/ready",
+        headers=headers,
+        timeout=10,
+    ).json()
     if not ready.get("runtime", {}).get("cuda_available"):
         raise ModelRuntimeError("scenario_production_cuda_not_observed")
     return {

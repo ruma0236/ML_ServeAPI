@@ -1,0 +1,67 @@
+{
+  "schema_version": "evm.scale_validation.implementation_checkpoint.v1",
+  "scenario_id": "S0",
+  "generated_at": "2026-08-14T22:59:31Z",
+  "status": "implementing",
+  "existing_system_baseline": "The existing FastAPI control plane, file-ledger queue, supervised lifecycle worker, Compose Airflow/Spark and MLflow runtimes, local CUDA serving target, and Prometheus/OTLP stack remain the system under test.",
+  "engineering_gap_and_reason": "The individual runtime boundaries were instrumented, but no repeatable runner could drive one exact low-load control through the existing API-to-serving path and close metrics, trace identity, cleanup, and evidence together.",
+  "architecture_delta": {
+    "before": "Runtime checks and component probes required separate commands and could not produce one machine-validated control record.",
+    "after": "A fail-closed S0 runner drives the existing stepwise lifecycle, links MLflow and exact CUDA serving probes to the same W3C trace, scopes queue and worker observations to one run, and prepares hashed public/private evidence separation.",
+    "tradeoffs": [
+      "The client-side HTTP permit wait is explicitly not a database connection-pool metric; transactional DB pool proof remains S1 scope.",
+      "The runner cancels at the bounded model-training handoff, so it validates data-to-serving observability without launching a new GPU training job in every low-load repetition."
+    ]
+  },
+  "implementation_delta": {
+    "existing_components": [
+      "src/evm/scale_validation/s0_runtime.py",
+      "scripts/dev/run_s0_low_load_control.py",
+      "src/evm/model_runtime/scenario_workload_production.py",
+      "src/evm/observability/otel.py",
+      "apps/api/main.py",
+      "apps/api/efficientnet_serving.py",
+      "src/evm/control_panel/lifecycle_worker.py",
+      "src/evm/core/pipeline.py"
+    ],
+    "compatibility": "Existing endpoint payloads and untraced production inference callers remain compatible; trace context is optional and runtime revision metadata is additive.",
+    "migration": "Commit and rebuild the existing runtime, then revision-align the exact serving process before any control execution."
+  },
+  "experiment_contract": {
+    "preconditions": [
+      "API, lifecycle worker, active local CUDA serving, OTLP Collector, and Prometheus targets are healthy and exact-cardinality.",
+      "API, worker, Airflow/Spark, runner, and serving runtime revision identities converge on the committed source revision."
+    ],
+    "procedure": [
+      "Create a fresh stepwise LifecycleRun through the existing HTTP API.",
+      "Observe its exact queue and worker ownership until the real Airflow data path and Spark stage complete.",
+      "Call MLflow and the active local CUDA serving endpoint under the same W3C trace.",
+      "Cancel at the model-training handoff, verify cleanup, and retain private exact identifiers with a public-safe hash summary.",
+      "Repeat independently three times before computing variance and closure."
+    ],
+    "stop_conditions": [
+      "Any target cardinality, health, source revision, model/data identity, trace stage, or cleanup check is ambiguous.",
+      "The exact lifecycle enters failed, blocked, cancelled unexpectedly, or times out."
+    ]
+  },
+  "verification": {
+    "focused_tests": "15 passed",
+    "full_regression": "600 passed",
+    "static_analysis": "ruff passed",
+    "diff_validation": "git diff --check passed",
+    "live_control_runs": 0
+  },
+  "acceptance": {
+    "S0-AC-01": "pending",
+    "S0-AC-02": "pending",
+    "S0-AC-03": "pending",
+    "S0-AC-04": "pending",
+    "S0-AC-05": "pending"
+  },
+  "unresolved_items": [
+    "The active serving process still predates the runtime revision contract and has not been safely revision-aligned.",
+    "No full cross-runtime control has executed through this runner.",
+    "No three-run variance or hashed acceptance evidence exists yet."
+  ],
+  "claim_boundary": "This checkpoint proves an in-place runner implementation and 600-test repository regression only. It is not an executed S0 benchmark, scale, availability, production, or database-pool result."
+}

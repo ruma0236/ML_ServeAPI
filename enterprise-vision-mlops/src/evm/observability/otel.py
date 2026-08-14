@@ -21,6 +21,15 @@ _ENABLED = False
 _PROVIDER: Any = None
 
 
+def runtime_service_version(default: str = "0.1.0") -> str:
+    return (
+        os.getenv("EVM_GIT_COMMIT")
+        or os.getenv("GIT_COMMIT")
+        or os.getenv("GITHUB_SHA")
+        or default
+    )
+
+
 def _enabled_by_environment() -> bool:
     return os.getenv("EVM_OTEL_ENABLED", "false").lower() in {"1", "true", "yes"}
 

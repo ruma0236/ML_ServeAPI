@@ -165,6 +165,20 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "revision alignment and S0 runtime acceptance remain pending."
                     ),
                 ),
+                EvidenceArtifact(
+                    path=(
+                        "docs/status/evidence/"
+                        "s0-low-load-control-runner-checkpoint.json"
+                    ),
+                    sha256=(
+                        "f0bd6847bfec46694b4917c463a0774b121b4ba704d5288a1031f35ef4f9b89e"
+                    ),
+                    generated_at=datetime(2026, 8, 14, 22, 59, 31, tzinfo=UTC),
+                    claim=(
+                        "An in-place low-load control runner and runtime-wide revision labels "
+                        "passed 600 tests; live controls and S0 acceptance remain pending."
+                    ),
+                ),
             ]
             changed_components = [
                 ChangedComponent(
@@ -237,6 +251,15 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "tests/test_data_pipeline_empty_guards.py",
                     ],
                 ),
+                ChangedComponent(
+                    component="Existing-runtime S0 low-load control runner",
+                    files=[
+                        "src/evm/scale_validation/s0_runtime.py",
+                        "scripts/dev/run_s0_low_load_control.py",
+                        "src/evm/model_runtime/scenario_workload_production.py",
+                        "tests/test_s0_runtime.py",
+                    ],
+                ),
             ]
             implementation_summary = [
                 "Readiness now maps degraded dependency state to HTTP 503.",
@@ -246,6 +269,7 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 "The existing Airflow data DAG includes a bounded real local Spark stage.",
                 "The Airflow image includes Java 17 and shared path resolution preserves the mounted evidence root across Windows and POSIX runtimes.",
                 "Serving readiness now distinguishes immutable model source from the executing serving runtime revision without removing the compatibility source field.",
+                "A fail-closed runner now drives the existing stepwise lifecycle, exact CUDA serving, MLflow, scoped queue and worker metrics, and OTLP evidence contract.",
                 "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level.",
             ]
             experiment_environment = (
@@ -311,7 +335,7 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         evidence_refs=[checkpoint_evidence[3].path],
                     ),
                     ChronologicalUpdate(
-                        occurred_at=generated_at,
+                        occurred_at=datetime(2026, 8, 14, 22, 32, 37, tzinfo=UTC),
                         phase="implementation",
                         status="implementing",
                         summary=(
@@ -321,6 +345,17 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                             "not yet been restarted or accepted as S0 runtime evidence."
                         ),
                         evidence_refs=[checkpoint_evidence[4].path],
+                    ),
+                    ChronologicalUpdate(
+                        occurred_at=datetime(2026, 8, 14, 22, 59, 31, tzinfo=UTC),
+                        phase="implementation",
+                        status="implementing",
+                        summary=(
+                            "The existing runtime now has a fail-closed low-load control runner "
+                            "and revision-aware OTLP resources. Focused checks and 600-test "
+                            "regression passed; no live control or S0 acceptance is claimed."
+                        ),
+                        evidence_refs=[checkpoint_evidence[5].path],
                     ),
                 ]
             )

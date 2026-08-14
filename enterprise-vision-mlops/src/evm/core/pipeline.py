@@ -8,7 +8,7 @@ from typing import Any
 
 from evm.core.config import get_nested, load_config, resolve_path
 from evm.core.traceability import TraceContext
-from evm.observability.otel import configure_tracing, trace_span
+from evm.observability.otel import configure_tracing, runtime_service_version, trace_span
 from evm.observability.trace_context import W3CTraceContext
 
 
@@ -39,7 +39,10 @@ class PipelineContext:
 
 
 def build_context(pipeline_name: str, config_path: str | Path) -> PipelineContext:
-    configure_tracing(f"evm-pipeline-{pipeline_name}")
+    configure_tracing(
+        f"evm-pipeline-{pipeline_name}",
+        service_version=runtime_service_version(),
+    )
     config = load_config(config_path)
     project_root = Path(str(config["_project_root"]))
     artifacts_root = resolve_path(config, get_nested(config, "paths.artifacts_root", "artifacts"))

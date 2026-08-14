@@ -46,6 +46,21 @@ def test_disabled_configuration_does_not_latch_process_state(monkeypatch) -> Non
     assert otel._CONFIGURED is False
 
 
+def test_runtime_service_version_prefers_immutable_source_revision(monkeypatch) -> None:
+    monkeypatch.setenv("EVM_GIT_COMMIT", "a" * 40)
+    monkeypatch.setenv("GIT_COMMIT", "b" * 40)
+
+    assert otel.runtime_service_version() == "a" * 40
+
+
+def test_runtime_service_version_preserves_local_fallback(monkeypatch) -> None:
+    monkeypatch.delenv("EVM_GIT_COMMIT", raising=False)
+    monkeypatch.delenv("GIT_COMMIT", raising=False)
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
+
+    assert otel.runtime_service_version() == "0.1.0"
+
+
 def test_outbound_http_injects_child_trace_context(monkeypatch) -> None:
     monkeypatch.setattr(otel, "_ENABLED", False)
     captured = {}
