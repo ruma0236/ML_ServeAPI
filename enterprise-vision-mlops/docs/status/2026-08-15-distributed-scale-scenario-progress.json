@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-14T23:27:23Z",
+  "generated_at": "2026-08-14T23:35:48Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -111,6 +111,14 @@
             "src/evm/model_runtime/scenario_workload_production.py",
             "src/evm/observability/otel.py"
           ]
+        },
+        {
+          "component": "Host CUDA telemetry dependency contract",
+          "files": [
+            "infra/runtime/scenario-transformers/requirements.txt",
+            "scripts/dev/start_scenario_workload_worker.ps1",
+            "tests/test_scenario_runtime_dependencies.py"
+          ]
         }
       ],
       "implementation_summary": [
@@ -123,9 +131,10 @@
         "Serving readiness now distinguishes immutable model source from the executing serving runtime revision without removing the compatibility source field.",
         "A fail-closed runner now drives the existing stepwise lifecycle, exact CUDA serving, MLflow, scoped queue and worker metrics, and OTLP evidence contract.",
         "A failed fresh control exposed missing serving OTLP configuration and stale API image identity; required serving telemetry and immutable image revision checks are now implemented.",
+        "A subsequent exact serving replacement exposed the missing host OTLP exporter; compatible OpenTelemetry and protobuf versions are now pinned and startup-preflighted.",
         "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level."
       ],
-      "experiment_environment": "Partially exercised in the existing generalized local single-node Airflow runtime. One fresh bounded control traversed Airflow, Spark, MLflow, and real CUDA inference but was rejected because the serving trace stage was absent. No accepted full lifecycle control or repeated-control result exists yet.",
+      "experiment_environment": "Partially exercised in the existing generalized local single-node Airflow runtime. One fresh bounded control traversed Airflow, Spark, MLflow, and real CUDA inference but was rejected because the serving trace stage was absent. A revision-aligned serving replacement then failed closed on a missing host exporter and restored the B0 holder. No accepted full lifecycle control or repeated-control result exists yet.",
       "test_or_experiment_steps": [
         "Validate progress and benchmark contracts with focused unit tests.",
         "Reconcile serving, accelerator inference, monitoring, and supervisors without mutation.",
@@ -206,6 +215,12 @@
           "sha256": "c3f80a305f377e301a591f9758f05032b4a20056acb6da68ca574543d48d7b3e",
           "generated_at": "2026-08-14T23:25:46Z",
           "claim": "One fresh control traversed Airflow, Spark, MLflow, and real CUDA inference but failed closed because the serving OTLP stage was absent; the RCA remediation passed 603 tests and acceptance remains pending."
+        },
+        {
+          "path": "docs/status/evidence/s0-serving-runtime-dependency-rca-checkpoint.json",
+          "sha256": "1f9046690fb1fff2e0fd05b886c2684cfddb578ca1e0564920421b4725106729",
+          "generated_at": "2026-08-14T23:34:43Z",
+          "claim": "An exact serving replacement failed closed on a missing OTLP exporter, the B0 fallback recovered at 1/1, and compatible host-runtime pins plus 604-test regression passed; accepted controls remain at zero."
         }
       ],
       "status": "implementing",
@@ -376,6 +391,14 @@
               "src/evm/model_runtime/scenario_workload_production.py",
               "src/evm/observability/otel.py"
             ]
+          },
+          {
+            "component": "Host CUDA telemetry dependency contract",
+            "files": [
+              "infra/runtime/scenario-transformers/requirements.txt",
+              "scripts/dev/start_scenario_workload_worker.ps1",
+              "tests/test_scenario_runtime_dependencies.py"
+            ]
           }
         ],
         "compatibility": [
@@ -467,6 +490,12 @@
           "sha256": "c3f80a305f377e301a591f9758f05032b4a20056acb6da68ca574543d48d7b3e",
           "generated_at": "2026-08-14T23:25:46Z",
           "claim": "One fresh control traversed Airflow, Spark, MLflow, and real CUDA inference but failed closed because the serving OTLP stage was absent; the RCA remediation passed 603 tests and acceptance remains pending."
+        },
+        {
+          "path": "docs/status/evidence/s0-serving-runtime-dependency-rca-checkpoint.json",
+          "sha256": "1f9046690fb1fff2e0fd05b886c2684cfddb578ca1e0564920421b4725106729",
+          "generated_at": "2026-08-14T23:34:43Z",
+          "claim": "An exact serving replacement failed closed on a missing OTLP exporter, the B0 fallback recovered at 1/1, and compatible host-runtime pins plus 604-test regression passed; accepted controls remain at zero."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -548,6 +577,15 @@
           "summary": "The first fresh control completed the bounded functional path but failed closed with the serving trace stage absent. RCA found an unconfigured serving child and stale API image identity; the in-place remediation passed 603 tests, while accepted controls remain at zero.",
           "evidence_refs": [
             "docs/status/evidence/s0-first-control-rca-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-14T23:34:43Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "The exact serving replacement failed closed because the dedicated CUDA runtime lacked the OTLP HTTP exporter. The B0 fallback returned 1/1, compatible telemetry dependencies were pinned and preflighted, pip check passed, and 604 tests passed.",
+          "evidence_refs": [
+            "docs/status/evidence/s0-serving-runtime-dependency-rca-checkpoint.json"
           ]
         }
       ]

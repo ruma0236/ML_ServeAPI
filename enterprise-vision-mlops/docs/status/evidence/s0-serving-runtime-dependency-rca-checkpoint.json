@@ -1,0 +1,63 @@
+{
+  "schema_version": "evm.scale_validation.implementation_checkpoint.v1",
+  "scenario_id": "S0",
+  "generated_at": "2026-08-14T23:34:43Z",
+  "status": "implementing",
+  "existing_system_baseline": "The existing approved rollback and deployment-intent workflow was used to replace only the active local CUDA serving process after API, Airflow, and worker revisions converged.",
+  "engineering_gap_and_reason": "The replacement serving process failed before readiness because the dedicated host CUDA environment had the OpenTelemetry API and SDK transitively through MLflow but did not contain the OTLP HTTP exporter required by the new fail-closed trace contract.",
+  "architecture_delta": {
+    "before": "Scenario runtime requirements covered model execution but did not own the exporter dependency, and worker startup did not import-check it.",
+    "after": "The scenario runtime manifest pins compatible OpenTelemetry exporter dependencies and protobuf constraints, while worker startup validates the exporter before accepting work.",
+    "tradeoffs": [
+      "Telemetry is now a required dependency for this bounded validation runtime, so a missing exporter stops the worker or serving launch instead of silently weakening evidence.",
+      "Explicit protobuf and common-proto pins avoid resolver drift with the existing MLflow runtime at the cost of coordinated upgrades."
+    ]
+  },
+  "implementation_delta": {
+    "existing_components": [
+      "infra/runtime/scenario-transformers/requirements.txt",
+      "scripts/dev/start_scenario_workload_worker.ps1",
+      "tests/test_scenario_runtime_dependencies.py"
+    ],
+    "compatibility": "The existing CUDA, transformer, MLflow, and model artifact contracts are unchanged. Only startup dependency validation is stricter.",
+    "migration": "Install the pinned telemetry and protobuf set in the existing host CUDA environment, run pip check, restart the worker, and retry through a new single-use intent."
+  },
+  "observed_attempt": {
+    "deployment_intent": "failed",
+    "failure_class": "missing_otel_http_exporter",
+    "fallback_gpu_holder_ready": "1/1",
+    "production_data_mutation": false,
+    "device_plugin_mutation": false,
+    "deployment_evidence_sha256": "e3551a435cf86198bafbf69e563dff4ec8fe4209b0b2ba3c86bdb170496090c0",
+    "serving_log_sha256": "2422f24b2c5d6d1b76838dbf04ff26adc97228d93eb4f5c66d4b89b4ecf9c19d"
+  },
+  "runtime_dependency_result": {
+    "otel_api": "1.44.0",
+    "otel_sdk": "1.44.0",
+    "otel_http_exporter": "1.44.0",
+    "protobuf": "5.29.6",
+    "googleapis_common_protos": "1.66.0",
+    "pip_check": "pass",
+    "exporter_import": "pass"
+  },
+  "verification": {
+    "focused_tests": "14 passed",
+    "full_regression": "604 passed",
+    "static_analysis": "ruff passed",
+    "powershell_parse": "pass",
+    "accepted_live_control_runs": 0
+  },
+  "acceptance": {
+    "S0-AC-01": "pending",
+    "S0-AC-02": "pending",
+    "S0-AC-03": "pending",
+    "S0-AC-04": "pending",
+    "S0-AC-05": "pending"
+  },
+  "unresolved_items": [
+    "Commit this dependency contract and revision-align the existing runtime.",
+    "Create a fresh deployment intent and verify serving OTLP export.",
+    "Rerun one pilot and three independent accepted controls."
+  ],
+  "claim_boundary": "This checkpoint proves a safe failed replacement, known-good B0 fallback, dependency RCA, and 604-test regression. It does not prove an accepted S0 control, production availability, HA, or scale."
+}

@@ -194,6 +194,21 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "the RCA remediation passed 603 tests and acceptance remains pending."
                     ),
                 ),
+                EvidenceArtifact(
+                    path=(
+                        "docs/status/evidence/"
+                        "s0-serving-runtime-dependency-rca-checkpoint.json"
+                    ),
+                    sha256=(
+                        "1f9046690fb1fff2e0fd05b886c2684cfddb578ca1e0564920421b4725106729"
+                    ),
+                    generated_at=datetime(2026, 8, 14, 23, 34, 43, tzinfo=UTC),
+                    claim=(
+                        "An exact serving replacement failed closed on a missing OTLP exporter, "
+                        "the B0 fallback recovered at 1/1, and compatible host-runtime pins plus "
+                        "604-test regression passed; accepted controls remain at zero."
+                    ),
+                ),
             ]
             changed_components = [
                 ChangedComponent(
@@ -287,6 +302,14 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "src/evm/observability/otel.py",
                     ],
                 ),
+                ChangedComponent(
+                    component="Host CUDA telemetry dependency contract",
+                    files=[
+                        "infra/runtime/scenario-transformers/requirements.txt",
+                        "scripts/dev/start_scenario_workload_worker.ps1",
+                        "tests/test_scenario_runtime_dependencies.py",
+                    ],
+                ),
             ]
             implementation_summary = [
                 "Readiness now maps degraded dependency state to HTTP 503.",
@@ -298,13 +321,16 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 "Serving readiness now distinguishes immutable model source from the executing serving runtime revision without removing the compatibility source field.",
                 "A fail-closed runner now drives the existing stepwise lifecycle, exact CUDA serving, MLflow, scoped queue and worker metrics, and OTLP evidence contract.",
                 "A failed fresh control exposed missing serving OTLP configuration and stale API image identity; required serving telemetry and immutable image revision checks are now implemented.",
+                "A subsequent exact serving replacement exposed the missing host OTLP exporter; compatible OpenTelemetry and protobuf versions are now pinned and startup-preflighted.",
                 "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level.",
             ]
             experiment_environment = (
                 "Partially exercised in the existing generalized local single-node Airflow "
                 "runtime. One fresh bounded control traversed Airflow, Spark, MLflow, and real "
                 "CUDA inference but was rejected because the serving trace stage was absent. "
-                "No accepted full lifecycle control or repeated-control result exists yet."
+                "A revision-aligned serving replacement then failed closed on a missing host "
+                "exporter and restored the B0 holder. No accepted full lifecycle control or "
+                "repeated-control result exists yet."
             )
             status = "implementing"
             updates.extend(
@@ -398,6 +424,18 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                             "remain at zero."
                         ),
                         evidence_refs=[checkpoint_evidence[6].path],
+                    ),
+                    ChronologicalUpdate(
+                        occurred_at=datetime(2026, 8, 14, 23, 34, 43, tzinfo=UTC),
+                        phase="implementation",
+                        status="implementing",
+                        summary=(
+                            "The exact serving replacement failed closed because the dedicated "
+                            "CUDA runtime lacked the OTLP HTTP exporter. The B0 fallback "
+                            "returned 1/1, compatible telemetry dependencies were pinned and "
+                            "preflighted, pip check passed, and 604 tests passed."
+                        ),
+                        evidence_refs=[checkpoint_evidence[7].path],
                     ),
                 ]
             )

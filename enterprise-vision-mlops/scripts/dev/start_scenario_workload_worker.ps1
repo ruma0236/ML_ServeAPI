@@ -56,7 +56,7 @@ if (Test-Path -LiteralPath $PidPath) {
 
 $python = if ($PythonPath) { $PythonPath } else { "F:\evm_w7_torch\python.exe" }
 if (-not (Test-Path -LiteralPath $python)) { throw "Torch Python runtime is missing: $python" }
-& $python -c "import torch, transformers, peft, mlflow, requests" 2>$null
+& $python -c "import torch, transformers, peft, mlflow, requests; from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter" 2>$null
 if ($LASTEXITCODE -ne 0) { throw "Torch Python runtime is missing scenario workload dependencies." }
 
 $env:PYTHONPATH = "$ProjectRoot\src;$ProjectRoot"
