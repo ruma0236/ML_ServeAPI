@@ -99,7 +99,22 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "Collector configuration, one OTLP probe, and 583-test regression passed; "
                         "runtime-wide S0 acceptance remains pending."
                     ),
-                )
+                ),
+                EvidenceArtifact(
+                    path=(
+                        "docs/status/evidence/"
+                        "s0-in-place-telemetry-boundary-checkpoint.json"
+                    ),
+                    sha256=(
+                        "65e86d95d63869f6c47e80f35c14b713d66c7ee56bbe81ce95d1bcabe44ef55e"
+                    ),
+                    generated_at=datetime(2026, 8, 14, 21, 39, 16, tzinfo=UTC),
+                    claim=(
+                        "Bounded telemetry, desired-state target discovery, local Spark stage, "
+                        "and 588-test regression passed at contract level; runtime S0 "
+                        "acceptance remains pending."
+                    ),
+                ),
             ]
             changed_components = [
                 ChangedComponent(
@@ -139,13 +154,37 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "monitoring/opentelemetry/collector.yaml",
                         "monitoring/prometheus/prometheus.yml",
                         "scripts/dev/start_lifecycle_worker.ps1",
+                        "scripts/dev/start_kubernetes_observer.ps1",
+                        "scripts/dev/start_local_stack.ps1",
+                        "src/evm/control_panel/kubernetes_observer.py",
+                    ],
+                ),
+                ChangedComponent(
+                    component="Bounded serving telemetry and exact endpoint verification",
+                    files=[
+                        "src/evm/model_runtime/serving.py",
+                        "src/evm/model_runtime/workload_runner.py",
+                        "src/evm/model_runtime/scenario_workload_production.py",
+                        "src/evm/control_panel/lifecycle_orchestrator.py",
+                    ],
+                ),
+                ChangedComponent(
+                    component="Existing Airflow data path Spark boundary",
+                    files=[
+                        "infra/docker/airflow/Dockerfile",
+                        "orchestration/airflow/dags/enterprise_vision_mlops_daily.py",
+                        "scripts/run_pipeline.py",
+                        "scripts/run_profile_pipeline.py",
+                        "src/evm/pipelines/spark_runtime_probe/run.py",
                     ],
                 ),
             ]
             implementation_summary = [
                 "Readiness now maps degraded dependency state to HTTP 503.",
                 "W3C trace identity is propagated through the existing lifecycle contracts.",
-                "OTLP export and Collector wiring are being integrated into the existing runtime.",
+                "OTLP export and Collector wiring are integrated but not yet runtime-accepted.",
+                "Prometheus discovery excludes intentionally inactive B0 and uses bounded labels.",
+                "The existing Airflow data DAG includes a bounded real local Spark stage.",
                 "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level.",
             ]
             status = "implementing"
@@ -175,10 +214,11 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         phase="implementation",
                         status="implementing",
                         summary=(
-                            "The public in-place delta contract and OTLP Collector integration "
-                            "are being added; no control run or runtime acceptance is claimed."
+                            "Bounded telemetry, active-target reconciliation, and the local Spark "
+                            "boundary were implemented in the existing runtime path; 588 tests "
+                            "passed, but no live cross-runtime trace or control run is claimed."
                         ),
-                        evidence_refs=[checkpoint_evidence[0].path],
+                        evidence_refs=[checkpoint_evidence[1].path],
                     ),
                 ]
             )

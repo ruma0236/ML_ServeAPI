@@ -707,10 +707,11 @@ def verify_observability(
         raise ModelRuntimeError("staging_metrics_contract_missing")
     deadline = time.monotonic() + config.prometheus_timeout_seconds
     query = (
-        'up{job="evm-lifecycle-serving",evm_run_id="'
-        f"{run.run_id}"
-        '"}'
+        'up{job="evm-lifecycle-serving",evm_model_family="'
+        f'{config.model_family}",evm_environment="local-staging"'
+        "}"
     )
+    expected_instance = f"host.docker.internal:{config.serving_port}"
     last_payload: dict[str, Any] = {}
     while time.monotonic() < deadline:
         response = requests.get(
@@ -721,14 +722,21 @@ def verify_observability(
         if response.status_code == 200:
             last_payload = response.json()
             results = last_payload.get("data", {}).get("result", [])
-            if any(item.get("value", [None, "0"])[1] == "1" for item in results):
+            matching = [
+                item
+                for item in results
+                if item.get("metric", {}).get("instance") == expected_instance
+                and item.get("value", [None, "0"])[1] == "1"
+            ]
+            if len(matching) == 1:
                 return {
                     "schema_version": "evm.scenario_observability_evidence.v1",
                     "status": "pass",
                     "run_id": run.run_id,
                     "metrics_endpoint": f"{endpoint}/metrics",
                     "prometheus_query": query,
-                    "prometheus_result": results,
+                    "prometheus_result": matching,
+                    "expected_instance": expected_instance,
                     "identity_metric_present": True,
                     "observed_at": utc_now(),
                 }
@@ -794,9 +802,9 @@ def write_prometheus_target(path: Path, config: ScenarioExecutionConfig, run: An
         {
             "targets": [f"host.docker.internal:{config.serving_port}"],
             "labels": {
-                "evm_run_id": run.run_id,
                 "evm_model_family": config.model_family,
                 "evm_environment": "local-staging",
+                "evm_target_slot": "scenario-staging",
             },
         }
     ]

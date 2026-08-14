@@ -22,7 +22,6 @@ from evm.control_panel.scenario_workload_production import (
 )
 from evm.control_panel.scenario_workloads import (
     atomic_write_json,
-    file_sha256,
     get_workload_run,
     workload_artifact_path,
 )
@@ -504,10 +503,9 @@ def write_prometheus_target(intent: ScenarioProductionIntent) -> None:
             {
                 "targets": [f"host.docker.internal:{intent.target.port}"],
                 "labels": {
-                    "evm_run_id": intent.run_id,
                     "evm_model_family": intent.model_family,
                     "evm_environment": "local-production",
-                    "evm_intent_id": intent.intent_id,
+                    "evm_target_slot": "scenario-production",
                 },
             }
         ],
@@ -516,10 +514,11 @@ def write_prometheus_target(intent: ScenarioProductionIntent) -> None:
 
 def wait_for_prometheus(intent: ScenarioProductionIntent) -> dict[str, Any]:
     query = (
-        'up{job="evm-lifecycle-serving",evm_run_id="'
-        f'{intent.run_id}",evm_environment="local-production"'
+        'up{job="evm-lifecycle-serving",evm_model_family="'
+        f'{intent.model_family}",evm_environment="local-production"'
         "}"
     )
+    expected_instance = f"host.docker.internal:{intent.target.port}"
     deadline = time.monotonic() + 75
     last: dict[str, Any] = {}
     while time.monotonic() < deadline:
@@ -529,8 +528,20 @@ def wait_for_prometheus(intent: ScenarioProductionIntent) -> dict[str, Any]:
         if response.status_code == 200:
             last = response.json()
             results = last.get("data", {}).get("result", [])
-            if any(item.get("value", [None, "0"])[1] == "1" for item in results):
-                return {"status": "pass", "query": query, "result": results, "observed_at": utc_now()}
+            matching = [
+                item
+                for item in results
+                if item.get("metric", {}).get("instance") == expected_instance
+                and item.get("value", [None, "0"])[1] == "1"
+            ]
+            if len(matching) == 1:
+                return {
+                    "status": "pass",
+                    "query": query,
+                    "expected_instance": expected_instance,
+                    "result": matching,
+                    "observed_at": utc_now(),
+                }
         time.sleep(2)
     raise ModelRuntimeError(f"scenario_production_prometheus_not_up:{json.dumps(last)}")
 

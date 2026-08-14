@@ -39,7 +39,10 @@ SCENARIO_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Readiness, bounded telemetry, distributed trace identity, and benchmark closure gate "
             "every later scenario."
         ),
-        "next_action": "Complete S0 contracts and telemetry gap audit before any load execution.",
+        "next_action": (
+            "Rebuild and revision-align the existing runtime, then execute the real Spark stage, "
+            "one cross-runtime trace, and three independent low-load controls."
+        ),
     },
     "S1": {
         "engineering_question": (
@@ -273,7 +276,11 @@ SCENARIO_IN_PLACE_CONTRACTS: dict[str, dict[str, Any]] = {
         "affected_components": [
             {
                 "component": "Existing API and serving request boundaries",
-                "files": ["apps/api/main.py", "apps/api/efficientnet_serving.py"],
+                "files": [
+                    "apps/api/main.py",
+                    "apps/api/efficientnet_serving.py",
+                    "src/evm/model_runtime/serving.py",
+                ],
             },
             {
                 "component": "Existing queue and lifecycle execution boundaries",
@@ -291,6 +298,7 @@ SCENARIO_IN_PLACE_CONTRACTS: dict[str, dict[str, Any]] = {
                     "src/evm/core/http.py",
                     "src/evm/core/mlflow_client.py",
                     "orchestration/airflow/dags/enterprise_vision_mlops_daily.py",
+                    "src/evm/pipelines/spark_runtime_probe/run.py",
                 ],
             },
             {
@@ -298,6 +306,8 @@ SCENARIO_IN_PLACE_CONTRACTS: dict[str, dict[str, Any]] = {
                 "files": [
                     "docker-compose.yml",
                     "monitoring/prometheus/prometheus.yml",
+                    "src/evm/control_panel/kubernetes_observer.py",
+                    "scripts/dev/start_kubernetes_observer.ps1",
                 ],
             },
             {
@@ -320,6 +330,7 @@ SCENARIO_IN_PLACE_CONTRACTS: dict[str, dict[str, Any]] = {
         "compatibility": [
             "Tracing is environment-gated and additive; existing API payloads and legacy trace identifiers remain readable.",
             "No trace or run identifier is introduced as a Prometheus label.",
+            "An intentionally scaled-to-zero B0 deployment is absent from active scrape discovery rather than reported as a false outage.",
         ],
         "migration": [
             "Rebuild the existing API, Airflow, and serving images and restart the supervised worker after the source revision is committed.",

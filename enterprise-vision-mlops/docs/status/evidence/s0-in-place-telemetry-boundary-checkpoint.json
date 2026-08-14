@@ -1,0 +1,69 @@
+{
+  "schema_version": "evm.scale_validation.implementation_checkpoint.v1",
+  "scenario_id": "S0",
+  "generated_at": "2026-08-14T21:39:16Z",
+  "status": "implementing",
+  "existing_system_baseline": "The existing ML Serve API path remains the system under test: control API, file-ledger queue, supervised lifecycle worker and observer, Airflow, MLflow, model serving, Prometheus, and the local OpenTelemetry Collector.",
+  "architecture_delta": {
+    "before": "The existing runtime emitted partial telemetry, retained exact run or intent identifiers in Prometheus discovery labels, treated an intentionally inactive B0 deployment as an always-on scrape target, and had no real Spark boundary in the lifecycle data DAG.",
+    "after": "The same runtime now has bounded API and model-serving metric labels, endpoint-bound Prometheus verification, desired-replica-aware B0 target discovery, and a bounded real local Spark stage in the existing Airflow data path. Runtime rollout and cross-runtime acceptance remain pending."
+  },
+  "implementation_checkpoint": {
+    "focused_tests_passed": 61,
+    "full_tests_passed": 588,
+    "compose_config_valid": true,
+    "prometheus_config_valid": true,
+    "powershell_parse_valid": true,
+    "python_compile_valid": true,
+    "runtime_rebuilt": false,
+    "real_spark_probe_executed": false,
+    "fresh_cross_runtime_trace_observed": false,
+    "independent_low_load_controls_completed": 0
+  },
+  "changed_existing_boundaries": [
+    {
+      "boundary": "API and model-serving telemetry",
+      "before": "Route-level API latency was incomplete and scenario serving used exact run and artifact identity as Prometheus labels.",
+      "after": "HTTP metrics use bounded method, route-template, status-class, model-family, environment, and target-slot dimensions; exact identity remains in readiness and trace attributes."
+    },
+    {
+      "boundary": "Kubernetes serving discovery",
+      "before": "The B0 NodePort was statically scraped even when its Deployment was intentionally scaled to zero.",
+      "after": "The existing Kubernetes observer publishes the B0 target only when desired replicas are greater than zero and preserves the last target state when cluster observation itself fails."
+    },
+    {
+      "boundary": "Airflow data pipeline",
+      "before": "The lifecycle DAG did not cross a Spark runtime boundary.",
+      "after": "A bounded local Spark probe is inserted after the lakehouse probe. It proves only local runtime continuity; distributed executor, shuffle, spill, skew, and scale remain S5."
+    }
+  ],
+  "failure_and_rca": [
+    {
+      "failure": "The first focused test invocation could not collect FastAPI TestClient tests.",
+      "root_cause": "The documented local test runtime did not declare or contain the TestClient HTTP dependency.",
+      "correction": "A pinned test extra was added and the dependency was installed in the existing test runtime.",
+      "retest": "The focused suite passed 61 tests and the complete suite passed 588 tests."
+    },
+    {
+      "failure": "A wildcard file-discovery pattern would have scraped the B0 target through both the B0 and lifecycle jobs.",
+      "root_cause": "Both target classes shared one directory and the lifecycle job accepted every JSON file.",
+      "correction": "Each Prometheus job now reads its exact target file.",
+      "retest": "Prometheus configuration validation passed; live reload awaits the runtime checkpoint."
+    }
+  ],
+  "acceptance_status": {
+    "S0-AC-01": "pending",
+    "S0-AC-02": "pending",
+    "S0-AC-03": "pending",
+    "S0-AC-04": "pending",
+    "S0-AC-05": "pending"
+  },
+  "unresolved": [
+    "The changed API, Airflow, Prometheus, observer, worker, and model-serving runtimes have not yet been rebuilt and revision-aligned.",
+    "The local Spark stage has contract tests but has not yet executed in the rebuilt Airflow runtime.",
+    "No fresh trace has yet linked API, queue, worker, Airflow, data, Spark, MLflow, and serving.",
+    "The bounded metric closure and three independent low-load controls have not yet been captured or hashed."
+  ],
+  "private_evidence": "Raw traces and future control measurements remain outside Git. They cannot satisfy acceptance until sealed by digest and linked from the public evidence index.",
+  "claim_boundary": "This proves an in-place telemetry implementation and regression checkpoint only. It is not S0 runtime acceptance, scale, availability, Spark distribution, or production evidence."
+}

@@ -1760,10 +1760,9 @@ def write_prometheus_target(run: LifecycleRun, serving: ServingBundle) -> Path:
             {
                 "targets": [target],
                 "labels": {
-                    "job": "evm-lifecycle-serving",
-                    "lifecycle_run_id": run.run_id,
-                    "namespace": serving.namespace,
-                    "deployment": serving.deployment_name,
+                    "evm_environment": "local-staging",
+                    "evm_model_family": "classification",
+                    "evm_target_slot": "lifecycle-staging",
                 },
             }
         ],
@@ -1784,7 +1783,7 @@ def clear_prometheus_target(run: LifecycleRun) -> Path:
         if not (
             isinstance(item, dict)
             and isinstance(item.get("labels"), dict)
-            and item["labels"].get("lifecycle_run_id") == run.run_id
+            and item["labels"].get("evm_target_slot") == "lifecycle-staging"
         )
     ]
     write_json(path, remaining)

@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import Response
+from fastapi.testclient import TestClient
 from prometheus_client import generate_latest
 
 from apps.api import main as api
@@ -129,3 +130,14 @@ def test_ready_returns_success_only_when_dependencies_are_ready(monkeypatch):
     assert payload["mlflow_ready"] is True
     assert payload["model_loaded"] is True
     assert response.status_code == 200
+
+
+def test_http_server_metrics_use_route_templates_and_bounded_status_labels() -> None:
+    with TestClient(api.app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    payload = generate_latest().decode("utf-8")
+    assert "evm_http_server_requests_total" in payload
+    assert 'method="GET",route="/health",status_class="2xx"' in payload
+    assert "evm_http_server_duration_seconds_bucket" in payload

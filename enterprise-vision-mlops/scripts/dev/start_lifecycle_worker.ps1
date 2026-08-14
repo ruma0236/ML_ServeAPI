@@ -126,6 +126,21 @@ $env:EVM_AIRFLOW_API_PASSWORD = if ($env:AIRFLOW_ADMIN_PASSWORD) { $env:AIRFLOW_
 $env:MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
 $env:EVM_PROMETHEUS_URL = "http://127.0.0.1:9090"
 $env:EVM_PROMETHEUS_FILE_SD_PATH = Join-Path $ArtifactsRoot "w7\prometheus-targets\lifecycle-serving.json"
+if (-not $env:EVM_OTEL_ENABLED) {
+    $env:EVM_OTEL_ENABLED = "true"
+}
+if (-not $env:EVM_OTEL_PROCESSOR) {
+    $env:EVM_OTEL_PROCESSOR = "simple"
+}
+if (-not $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
+    $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://127.0.0.1:4318/v1/traces"
+}
+if (-not $env:OTEL_SERVICE_NAMESPACE) {
+    $env:OTEL_SERVICE_NAMESPACE = "enterprise-mlops"
+}
+if (-not $env:OTEL_SERVICE_INSTANCE_ID) {
+    $env:OTEL_SERVICE_INSTANCE_ID = "windows-lifecycle-worker"
+}
 if (-not $env:EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED) {
     $env:EVM_LIFECYCLE_SINGLE_GPU_HANDOFF_ENABLED = "true"
 }

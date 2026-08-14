@@ -42,9 +42,13 @@ try {
     }
     $prometheusTargetRoot = Join-Path $artifactRoot "w7\prometheus-targets"
     $prometheusTargetFile = Join-Path $prometheusTargetRoot "lifecycle-serving.json"
+    $prometheusB0TargetFile = Join-Path $prometheusTargetRoot "b0-production.json"
     New-Item -ItemType Directory -Force -Path $prometheusTargetRoot | Out-Null
     if (-not (Test-Path -LiteralPath $prometheusTargetFile)) {
         Set-Content -LiteralPath $prometheusTargetFile -Value "[]" -Encoding ascii
+    }
+    if (-not (Test-Path -LiteralPath $prometheusB0TargetFile)) {
+        Set-Content -LiteralPath $prometheusB0TargetFile -Value "[]" -Encoding ascii
     }
 
     Write-Host "EVM_GIT_COMMIT=$commit"

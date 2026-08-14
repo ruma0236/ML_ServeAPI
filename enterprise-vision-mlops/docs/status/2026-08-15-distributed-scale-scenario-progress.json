@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-14T21:10:02Z",
+  "generated_at": "2026-08-14T21:40:31Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -57,14 +57,38 @@
             "docker-compose.yml",
             "monitoring/opentelemetry/collector.yaml",
             "monitoring/prometheus/prometheus.yml",
-            "scripts/dev/start_lifecycle_worker.ps1"
+            "scripts/dev/start_lifecycle_worker.ps1",
+            "scripts/dev/start_kubernetes_observer.ps1",
+            "scripts/dev/start_local_stack.ps1",
+            "src/evm/control_panel/kubernetes_observer.py"
+          ]
+        },
+        {
+          "component": "Bounded serving telemetry and exact endpoint verification",
+          "files": [
+            "src/evm/model_runtime/serving.py",
+            "src/evm/model_runtime/workload_runner.py",
+            "src/evm/model_runtime/scenario_workload_production.py",
+            "src/evm/control_panel/lifecycle_orchestrator.py"
+          ]
+        },
+        {
+          "component": "Existing Airflow data path Spark boundary",
+          "files": [
+            "infra/docker/airflow/Dockerfile",
+            "orchestration/airflow/dags/enterprise_vision_mlops_daily.py",
+            "scripts/run_pipeline.py",
+            "scripts/run_profile_pipeline.py",
+            "src/evm/pipelines/spark_runtime_probe/run.py"
           ]
         }
       ],
       "implementation_summary": [
         "Readiness now maps degraded dependency state to HTTP 503.",
         "W3C trace identity is propagated through the existing lifecycle contracts.",
-        "OTLP export and Collector wiring are being integrated into the existing runtime.",
+        "OTLP export and Collector wiring are integrated but not yet runtime-accepted.",
+        "Prometheus discovery excludes intentionally inactive B0 and uses bounded labels.",
+        "The existing Airflow data DAG includes a bounded real local Spark stage.",
         "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level."
       ],
       "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
@@ -112,6 +136,12 @@
           "sha256": "fbef5bc797a91097e136a2510bb4740fd85c9efc5255e9cd5501e68c1fd046d7",
           "generated_at": "2026-08-14T21:09:10Z",
           "claim": "Collector configuration, one OTLP probe, and 583-test regression passed; runtime-wide S0 acceptance remains pending."
+        },
+        {
+          "path": "docs/status/evidence/s0-in-place-telemetry-boundary-checkpoint.json",
+          "sha256": "65e86d95d63869f6c47e80f35c14b713d66c7ee56bbe81ce95d1bcabe44ef55e",
+          "generated_at": "2026-08-14T21:39:16Z",
+          "claim": "Bounded telemetry, desired-state target discovery, local Spark stage, and 588-test regression passed at contract level; runtime S0 acceptance remains pending."
         }
       ],
       "status": "implementing",
@@ -123,7 +153,7 @@
         "Trace propagation spans every declared lifecycle stage with zero missing links.",
         "Three independent controls are comparable and variance is reported."
       ],
-      "next_action": "Complete S0 contracts and telemetry gap audit before any load execution.",
+      "next_action": "Rebuild and revision-align the existing runtime, then execute the real Spark stage, one cross-runtime trace, and three independent low-load controls.",
       "architecture_before": "Health, metrics, and logs exist without one machine-enforced evidence closure.",
       "architecture_after": "Readiness, bounded telemetry, distributed trace identity, and benchmark closure gate every later scenario.",
       "existing_system_baseline": "The existing control plane uses a FastAPI API, file-ledger task assignments, a supervised lifecycle worker, Compose Airflow and MLflow services, Kubernetes model serving, and Prometheus. Health and metrics exist, but one exported cross-runtime trace and machine-enforced evidence closure do not yet cover that real path.",
@@ -132,7 +162,8 @@
           "component": "Existing API and serving request boundaries",
           "files": [
             "apps/api/main.py",
-            "apps/api/efficientnet_serving.py"
+            "apps/api/efficientnet_serving.py",
+            "src/evm/model_runtime/serving.py"
           ]
         },
         {
@@ -150,14 +181,17 @@
             "src/evm/core/pipeline.py",
             "src/evm/core/http.py",
             "src/evm/core/mlflow_client.py",
-            "orchestration/airflow/dags/enterprise_vision_mlops_daily.py"
+            "orchestration/airflow/dags/enterprise_vision_mlops_daily.py",
+            "src/evm/pipelines/spark_runtime_probe/run.py"
           ]
         },
         {
           "component": "Existing local runtime and monitoring stack",
           "files": [
             "docker-compose.yml",
-            "monitoring/prometheus/prometheus.yml"
+            "monitoring/prometheus/prometheus.yml",
+            "src/evm/control_panel/kubernetes_observer.py",
+            "scripts/dev/start_kubernetes_observer.ps1"
           ]
         },
         {
@@ -223,13 +257,36 @@
               "docker-compose.yml",
               "monitoring/opentelemetry/collector.yaml",
               "monitoring/prometheus/prometheus.yml",
-              "scripts/dev/start_lifecycle_worker.ps1"
+              "scripts/dev/start_lifecycle_worker.ps1",
+              "scripts/dev/start_kubernetes_observer.ps1",
+              "scripts/dev/start_local_stack.ps1",
+              "src/evm/control_panel/kubernetes_observer.py"
+            ]
+          },
+          {
+            "component": "Bounded serving telemetry and exact endpoint verification",
+            "files": [
+              "src/evm/model_runtime/serving.py",
+              "src/evm/model_runtime/workload_runner.py",
+              "src/evm/model_runtime/scenario_workload_production.py",
+              "src/evm/control_panel/lifecycle_orchestrator.py"
+            ]
+          },
+          {
+            "component": "Existing Airflow data path Spark boundary",
+            "files": [
+              "infra/docker/airflow/Dockerfile",
+              "orchestration/airflow/dags/enterprise_vision_mlops_daily.py",
+              "scripts/run_pipeline.py",
+              "scripts/run_profile_pipeline.py",
+              "src/evm/pipelines/spark_runtime_probe/run.py"
             ]
           }
         ],
         "compatibility": [
           "Tracing is environment-gated and additive; existing API payloads and legacy trace identifiers remain readable.",
-          "No trace or run identifier is introduced as a Prometheus label."
+          "No trace or run identifier is introduced as a Prometheus label.",
+          "An intentionally scaled-to-zero B0 deployment is absent from active scrape discovery rather than reported as a false outage."
         ],
         "migration": [
           "Rebuild the existing API, Airflow, and serving images and restart the supervised worker after the source revision is committed.",
@@ -279,6 +336,12 @@
           "sha256": "fbef5bc797a91097e136a2510bb4740fd85c9efc5255e9cd5501e68c1fd046d7",
           "generated_at": "2026-08-14T21:09:10Z",
           "claim": "Collector configuration, one OTLP probe, and 583-test regression passed; runtime-wide S0 acceptance remains pending."
+        },
+        {
+          "path": "docs/status/evidence/s0-in-place-telemetry-boundary-checkpoint.json",
+          "sha256": "65e86d95d63869f6c47e80f35c14b713d66c7ee56bbe81ce95d1bcabe44ef55e",
+          "generated_at": "2026-08-14T21:39:16Z",
+          "claim": "Bounded telemetry, desired-state target discovery, local Spark stage, and 588-test regression passed at contract level; runtime S0 acceptance remains pending."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -309,12 +372,12 @@
           "evidence_refs": []
         },
         {
-          "occurred_at": "2026-08-14T21:10:02Z",
+          "occurred_at": "2026-08-14T21:40:31Z",
           "phase": "implementation",
           "status": "implementing",
-          "summary": "The public in-place delta contract and OTLP Collector integration are being added; no control run or runtime acceptance is claimed.",
+          "summary": "Bounded telemetry, active-target reconciliation, and the local Spark boundary were implemented in the existing runtime path; 588 tests passed, but no live cross-runtime trace or control run is claimed.",
           "evidence_refs": [
-            "docs/status/evidence/s0-otel-implementation-checkpoint.json"
+            "docs/status/evidence/s0-in-place-telemetry-boundary-checkpoint.json"
           ]
         }
       ]

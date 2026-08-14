@@ -16,6 +16,7 @@ PIPELINES = {
     "object-store-bootstrap",
     "data-validate",
     "lakehouse-probe",
+    "spark-runtime-probe",
     "image-quality",
     "curation-workflow",
     "dataset-shards",
@@ -46,6 +47,7 @@ LIFECYCLE_DATA_PIPELINES = {
     "image-quality",
     "curation-workflow",
     "dataset-shards",
+    "spark-runtime-probe",
 }
 SKIP_EXIT_CODE = 99
 

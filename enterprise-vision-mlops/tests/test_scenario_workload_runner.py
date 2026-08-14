@@ -66,13 +66,15 @@ def test_staging_approval_binds_run_identity_artifact_and_source(tmp_path: Path)
     assert first["target_environment"] == "local-staging"
 
 
-def test_prometheus_target_is_run_scoped(tmp_path: Path) -> None:
+def test_prometheus_target_uses_bounded_labels_and_exact_instance(tmp_path: Path) -> None:
     path = tmp_path / "targets.json"
     run = SimpleNamespace(run_id="run-1")
     write_prometheus_target(path, config(tmp_path), run)
     payload = path.read_text(encoding="utf-8")
     assert "host.docker.internal:30920" in payload
-    assert '"evm_run_id": "run-1"' in payload
+    assert '"evm_target_slot": "scenario-staging"' in payload
+    assert '"evm_model_family": "vlm"' in payload
+    assert "run-1" not in payload
 
 
 @pytest.mark.parametrize("family", ["vlm", "llm"])

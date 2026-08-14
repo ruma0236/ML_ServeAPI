@@ -973,11 +973,12 @@ def test_prometheus_target_uses_container_reachable_host(tmp_path, monkeypatch) 
 
     payload = json.loads(target_path.read_text(encoding="utf-8"))
     assert payload[0]["targets"] == ["host.docker.internal:30813"]
-    assert payload[0]["labels"]["lifecycle_run_id"] == run.run_id
+    assert payload[0]["labels"]["evm_target_slot"] == "lifecycle-staging"
+    assert run.run_id not in target_path.read_text(encoding="utf-8")
 
     foreign = {
         "targets": ["host.docker.internal:30999"],
-        "labels": {"job": "evm-lifecycle-serving", "lifecycle_run_id": "other-run"},
+        "labels": {"evm_target_slot": "scenario-production"},
     }
     target_path.write_text(json.dumps([payload[0], foreign]), encoding="utf-8")
 

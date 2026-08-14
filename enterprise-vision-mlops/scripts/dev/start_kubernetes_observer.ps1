@@ -20,6 +20,7 @@ $PidPath = Join-Path $ObserverRoot "observer.pid"
 $IdentityPath = Join-Path $ObserverRoot "observer.identity.json"
 $StdoutPath = Join-Path $ObserverRoot "observer.stdout.log"
 $StderrPath = Join-Path $ObserverRoot "observer.stderr.log"
+$PrometheusB0TargetPath = Join-Path $ArtifactsRoot "w7\prometheus-targets\b0-production.json"
 
 New-Item -ItemType Directory -Force -Path $ObserverRoot | Out-Null
 
@@ -130,7 +131,8 @@ $arguments = @(
     "--history-root", $HistoryRoot,
     "--interval-seconds", [string]$IntervalSeconds,
     "--cluster-context", "docker-desktop",
-    "--namespaces", $observerNamespaces
+    "--namespaces", $observerNamespaces,
+    "--prometheus-b0-target", $PrometheusB0TargetPath
 )
 
 $startArguments = @{

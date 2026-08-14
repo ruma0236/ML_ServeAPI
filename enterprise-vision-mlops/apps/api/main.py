@@ -69,6 +69,17 @@ REQUEST_LATENCY = Histogram(
     ["endpoint"],
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
 )
+HTTP_REQUEST_COUNT = Counter(
+    "evm_http_server_requests_total",
+    "HTTP server requests grouped by bounded route and status class.",
+    ["method", "route", "status_class"],
+)
+HTTP_REQUEST_LATENCY = Histogram(
+    "evm_http_server_duration_seconds",
+    "HTTP server duration grouped by bounded route and method.",
+    ["method", "route"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+)
 MODEL_LOADED = Gauge(
     "evm_serving_model_loaded",
     "Whether a promoted registry model is loaded by the serving API.",
@@ -271,8 +282,20 @@ async def propagate_w3c_trace_context(request: Request, call_next):
             "evm.stage": "api",
         },
     ) as active:
-        response = await call_next(request)
-        elapsed_ms = (time.perf_counter() - started) * 1000
+        try:
+            response = await call_next(request)
+        except Exception:
+            elapsed_seconds = time.perf_counter() - started
+            route = getattr(request.scope.get("route"), "path", "unmatched")
+            HTTP_REQUEST_COUNT.labels(request.method, route, "5xx").inc()
+            HTTP_REQUEST_LATENCY.labels(request.method, route).observe(elapsed_seconds)
+            raise
+        elapsed_seconds = time.perf_counter() - started
+        elapsed_ms = elapsed_seconds * 1000
+        route = getattr(request.scope.get("route"), "path", "unmatched")
+        status_class = f"{response.status_code // 100}xx"
+        HTTP_REQUEST_COUNT.labels(request.method, route, status_class).inc()
+        HTTP_REQUEST_LATENCY.labels(request.method, route).observe(elapsed_seconds)
         active.set_attribute("http.response.status_code", response.status_code)
         active.set_attribute("evm.trace_context_regenerated", regenerated)
         response.headers["traceparent"] = active.context.traceparent

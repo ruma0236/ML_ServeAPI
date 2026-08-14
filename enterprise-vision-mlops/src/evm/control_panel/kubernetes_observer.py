@@ -15,7 +15,7 @@ from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from evm.control_panel.schemas import (
     AcceleratorTelemetry,
@@ -31,6 +31,8 @@ from evm.operations.scenario_d_supervision import current_process_started_at
 KubectlRunner = Callable[[list[str]], dict[str, Any]]
 TextCommandRunner = Callable[[list[str]], str]
 DEFAULT_NAMESPACES = ("evm-training", "evm-staging", "evm-production")
+B0_PRODUCTION_RESOURCE_ID = "evm-production:Deployment:evm-b0-production"
+B0_PRODUCTION_TARGET = "host.docker.internal:30800"
 PDH_FMT_DOUBLE = 0x00000200
 PDH_MORE_DATA = 0x800007D2
 PDH_VALID_DATA = {0, 1}
@@ -795,6 +797,42 @@ def write_snapshot(
         print(f"Kubernetes observer history write failed: {sanitize_error(exc)}", file=sys.stderr)
 
 
+def reconcile_b0_prometheus_target(
+    snapshot: KubernetesResourceSnapshot,
+    target_path: Path,
+) -> Literal["active", "inactive", "preserved"]:
+    """Publish B0 only while Kubernetes declares it an active desired target."""
+    if snapshot.collection_status != "pass":
+        return "preserved"
+    deployment = next(
+        (
+            resource
+            for resource in snapshot.resources
+            if resource.resource_id == B0_PRODUCTION_RESOURCE_ID
+        ),
+        None,
+    )
+    active = deployment is not None and int(deployment.desired_replicas or 0) > 0
+    payload = []
+    if active:
+        payload = [
+            {
+                "targets": [B0_PRODUCTION_TARGET],
+                "labels": {
+                    "evm_environment": "local-production",
+                    "evm_model_family": "classification",
+                    "evm_target_slot": "b0-production",
+                },
+            }
+        ]
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    temporary = target_path.with_suffix(f"{target_path.suffix}.{os.getpid()}.tmp")
+    temporary.write_text(rendered, encoding="utf-8")
+    replace_with_retry(temporary, target_path)
+    return "active" if active else "inactive"
+
+
 def snapshot_state_digest(payload: dict[str, Any]) -> str:
     canonical = dict(payload)
     canonical.pop("observed_at", None)
@@ -899,6 +937,7 @@ def observer_loop(
     cluster_context: str,
     interval_seconds: float,
     max_history: int,
+    prometheus_b0_target_path: Path | None = None,
 ) -> None:
     process_started_at = current_process_started_at().isoformat()
     process_instance_id = os.getenv("EVM_PROCESS_INSTANCE_ID") or f"observer-{os.getpid()}"
@@ -926,6 +965,8 @@ def observer_loop(
         )
         try:
             write_snapshot(snapshot, output_path, history_root=history_root, max_history=max_history)
+            if prometheus_b0_target_path is not None:
+                reconcile_b0_prometheus_target(snapshot, prometheus_b0_target_path)
         except OSError as exc:
             print(f"Kubernetes observer snapshot write failed: {sanitize_error(exc)}", file=sys.stderr)
         if interval_seconds <= 0:
@@ -942,6 +983,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cluster-context", default="docker-desktop")
     parser.add_argument("--interval-seconds", type=float, default=0.0)
     parser.add_argument("--max-history", type=int, default=500)
+    parser.add_argument("--prometheus-b0-target", type=Path)
     return parser
 
 
@@ -956,6 +998,7 @@ def main() -> None:
         cluster_context=args.cluster_context,
         interval_seconds=max(0.0, args.interval_seconds),
         max_history=max(1, args.max_history),
+        prometheus_b0_target_path=args.prometheus_b0_target,
     )
 
 

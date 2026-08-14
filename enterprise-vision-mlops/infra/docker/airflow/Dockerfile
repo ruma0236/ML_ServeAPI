@@ -7,4 +7,5 @@ RUN pip install --no-cache-dir \
     opentelemetry-api==1.44.0 \
     opentelemetry-exporter-otlp-proto-http==1.44.0 \
     opentelemetry-sdk==1.44.0 \
-    pyarrow==18.1.0
+    pyarrow==18.1.0 \
+    pyspark==3.5.8

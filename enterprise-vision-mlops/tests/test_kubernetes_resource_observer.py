@@ -14,10 +14,16 @@ from evm.control_panel.kubernetes_observer import (
     collect_kubernetes_snapshot,
     collect_nvidia_telemetry,
     load_kubernetes_resource_snapshot,
+    reconcile_b0_prometheus_target,
     replace_with_retry,
     write_snapshot,
 )
-from evm.control_panel.schemas import ComputeTelemetry, CycleRun
+from evm.control_panel.schemas import (
+    ComputeTelemetry,
+    CycleRun,
+    KubernetesResourceSnapshot,
+    RuntimeResource,
+)
 
 
 def test_default_observer_scope_includes_production_namespace() -> None:
@@ -198,6 +204,51 @@ def test_observer_collects_failed_job_and_missing_gpu_without_credentials() -> N
     assert training.storage_claim == "evm-large-data"
     assert serving.status == "queued"
     assert serving.desired_replicas == 0
+
+
+def test_b0_prometheus_target_tracks_desired_replica_state(tmp_path: Path) -> None:
+    inactive = KubernetesResourceSnapshot(
+        schema_version="evm.w7.kubernetes_resource_snapshot.v1",
+        cluster_context="docker-desktop",
+        observed_at="2026-08-15T00:00:00Z",
+        collection_status="pass",
+        resource_status="queued",
+        resources=[
+            RuntimeResource(
+                resource_id="evm-production:Deployment:evm-b0-production",
+                namespace="evm-production",
+                kind="Deployment",
+                name="evm-b0-production",
+                status="queued",
+                node_pool="docker-desktop",
+                desired_replicas=0,
+                ready_replicas=0,
+            )
+        ],
+    )
+    path = tmp_path / "b0-production.json"
+
+    assert reconcile_b0_prometheus_target(inactive, path) == "inactive"
+    assert json.loads(path.read_text(encoding="utf-8")) == []
+
+    active = inactive.model_copy(
+        update={
+            "resources": [
+                inactive.resources[0].model_copy(
+                    update={"status": "pass", "desired_replicas": 1, "ready_replicas": 1}
+                )
+            ]
+        }
+    )
+    assert reconcile_b0_prometheus_target(active, path) == "active"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload[0]["targets"] == ["host.docker.internal:30800"]
+    assert payload[0]["labels"]["evm_target_slot"] == "b0-production"
+
+    failed = active.model_copy(update={"collection_status": "fail", "resources": []})
+    before = path.read_bytes()
+    assert reconcile_b0_prometheus_target(failed, path) == "preserved"
+    assert path.read_bytes() == before
 
 
 def test_snapshot_loader_marks_old_observations_stale(tmp_path: Path) -> None:

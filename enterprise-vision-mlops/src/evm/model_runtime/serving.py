@@ -3,11 +3,12 @@ from __future__ import annotations
 import argparse
 import threading
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     CollectorRegistry,
@@ -28,6 +29,8 @@ from evm.model_runtime.common import (
     utc_now,
 )
 from evm.model_runtime.vlm import scienceqa_messages
+from evm.observability.otel import configure_tracing, shutdown_tracing, trace_span
+from evm.observability.trace_context import TraceContextError, W3CTraceContext
 
 
 ModelFamily = Literal["vlm", "llm"]
@@ -68,17 +71,7 @@ class ScenarioModelService:
         self.processor: Any = None
         self.model: Any = None
         self.registry = CollectorRegistry()
-        labels = [
-            "run_id",
-            "model_family",
-            "model_repository",
-            "model_revision",
-            "model_artifact_sha256",
-            "data_identity_sha256",
-            "source_commit",
-            "quantization",
-            "environment",
-        ]
+        labels = ["model_family", "quantization", "environment"]
         self.info = Gauge(
             "evm_scenario_model_info",
             "Exact identity of the locally staged scenario model.",
@@ -88,24 +81,18 @@ class ScenarioModelService:
         self.requests = Counter(
             "evm_scenario_inference_requests_total",
             "Scenario model inference requests.",
-            ["run_id", "model_family", "status"],
+            ["model_family", "status"],
             registry=self.registry,
         )
         self.latency = Histogram(
             "evm_scenario_inference_latency_seconds",
             "Scenario model inference latency.",
-            ["run_id", "model_family"],
+            ["model_family"],
             buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30),
             registry=self.registry,
         )
         self.info.labels(
-            config.lifecycle_run_id,
             config.model_family,
-            config.model_repository,
-            config.model_revision,
-            config.model_artifact_sha256,
-            config.data_identity_sha256,
-            config.source_commit,
             config.quantization,
             config.environment,
         ).set(1)
@@ -181,12 +168,22 @@ class ScenarioModelService:
             raise ModelRuntimeError("serving_model_family_mismatch")
         started = time.perf_counter()
         try:
-            with self.lock:
-                result = (
-                    self._infer_vlm(request)
-                    if request.model_family == "vlm"
-                    else self._infer_llm(request)
-                )
+            with trace_span(
+                "model.infer",
+                attributes={
+                    "evm.stage": "serving",
+                    "evm.model.family": self.config.model_family,
+                    "evm.model.revision": self.config.model_revision,
+                    "evm.model.artifact.sha256": self.config.model_artifact_sha256,
+                    "evm.lifecycle.run_id": self.config.lifecycle_run_id,
+                },
+            ):
+                with self.lock:
+                    result = (
+                        self._infer_vlm(request)
+                        if request.model_family == "vlm"
+                        else self._infer_llm(request)
+                    )
             status = "success"
             return {
                 **result,
@@ -201,12 +198,8 @@ class ScenarioModelService:
             raise
         finally:
             elapsed = time.perf_counter() - started
-            self.requests.labels(
-                self.config.lifecycle_run_id, self.config.model_family, status
-            ).inc()
-            self.latency.labels(
-                self.config.lifecycle_run_id, self.config.model_family
-            ).observe(elapsed)
+            self.requests.labels(self.config.model_family, status).inc()
+            self.latency.labels(self.config.model_family).observe(elapsed)
 
     def _infer_vlm(self, request: ScenarioInferenceRequest) -> dict[str, Any]:
         from PIL import Image
@@ -276,7 +269,49 @@ class ScenarioModelService:
 
 
 def create_app(service: ScenarioModelService) -> FastAPI:
-    app = FastAPI(title="EVM Scenario Model Serving", version="1.0.0")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        configure_tracing(
+            "evm-scenario-model-serving",
+            service_version=service.config.source_commit,
+        )
+        try:
+            yield
+        finally:
+            shutdown_tracing()
+
+    app = FastAPI(title="EVM Scenario Model Serving", version="1.0.0", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def propagate_trace_context(request: Request, call_next):
+        try:
+            parent = (
+                W3CTraceContext.parse(
+                    request.headers["traceparent"],
+                    tracestate=request.headers.get("tracestate"),
+                )
+                if "traceparent" in request.headers
+                else None
+            )
+        except TraceContextError:
+            parent = None
+        with trace_span(
+            f"{request.method} {request.url.path}",
+            parent=parent,
+            kind="server",
+            attributes={
+                "http.request.method": request.method,
+                "url.path": request.url.path,
+                "evm.stage": "serving",
+                "evm.model.family": service.config.model_family,
+                "evm.runtime.environment": service.config.environment,
+            },
+        ) as active:
+            response = await call_next(request)
+            active.set_attribute("http.response.status_code", response.status_code)
+            response.headers["traceparent"] = active.context.traceparent
+            response.headers["x-evm-trace-id"] = active.context.trace_id
+            return response
 
     @app.get("/ready")
     def ready() -> dict[str, Any]:

@@ -108,6 +108,7 @@ with DAG(
     object_store_bootstrap = pipeline_task("object_store_bootstrap", "object-store-bootstrap")
     data_validate = pipeline_task("data_validate", "data-validate")
     lakehouse_probe = pipeline_task("lakehouse_probe", "lakehouse-probe")
+    spark_runtime_probe = pipeline_task("spark_runtime_probe", "spark-runtime-probe")
     image_quality = pipeline_task("image_quality", "image-quality")
     curation_workflow = pipeline_task("curation_workflow", "curation-workflow")
     dataset_shards = pipeline_task("dataset_shards", "dataset-shards")
@@ -128,6 +129,7 @@ with DAG(
         >> object_store_bootstrap
         >> data_validate
         >> lakehouse_probe
+        >> spark_runtime_probe
         >> image_quality
         >> curation_workflow
         >> dataset_shards
