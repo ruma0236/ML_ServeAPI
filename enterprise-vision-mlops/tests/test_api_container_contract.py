@@ -15,6 +15,10 @@ def test_api_container_includes_control_panel_runtime_files() -> None:
     assert "EVM_EXPECTED_CI_COMMIT: ${EVM_EXPECTED_CI_COMMIT:-}" in compose
     assert "GIT_COMMIT: ${EVM_GIT_COMMIT:-}" in compose
     assert "GIT_BRANCH: ${EVM_GIT_BRANCH:-}" in compose
+    assert 'ARG SOURCE_REVISION=unknown' in dockerfile
+    assert 'org.opencontainers.image.revision="${SOURCE_REVISION}"' in dockerfile
+    assert "EVM_IMAGE_SOURCE_REVISION=${SOURCE_REVISION}" in dockerfile
+    assert "SOURCE_REVISION: ${EVM_GIT_COMMIT:-unknown}" in compose
 
 
 def test_pipeline_container_has_project_root_markers_for_config_resolution() -> None:

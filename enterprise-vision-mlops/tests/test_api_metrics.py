@@ -85,6 +85,7 @@ def test_metrics_remains_available_when_control_plane_refresh_fails(monkeypatch)
 
 
 def test_ready_exposes_control_plane_source_revision(monkeypatch):
+    monkeypatch.setenv("EVM_IMAGE_SOURCE_REVISION", "a" * 40)
     monkeypatch.setenv("GIT_COMMIT", "a" * 40)
     monkeypatch.setenv("GIT_BRANCH", "codex/source-proof")
     monkeypatch.setenv("EVM_GIT_COMMIT", "b" * 40)
@@ -96,12 +97,15 @@ def test_ready_exposes_control_plane_source_revision(monkeypatch):
     payload = api.ready(response)
 
     assert payload["source_commit"] == "a" * 40
+    assert payload["runtime_source_commit"] == "a" * 40
+    assert payload["runtime_revision_matches"] is True
     assert payload["source_branch"] == "codex/source-proof"
     assert payload["status"] == "degraded"
     assert response.status_code == 503
 
 
 def test_ready_accepts_evm_source_revision_fallback(monkeypatch):
+    monkeypatch.delenv("EVM_IMAGE_SOURCE_REVISION", raising=False)
     monkeypatch.delenv("GIT_COMMIT", raising=False)
     monkeypatch.delenv("GIT_BRANCH", raising=False)
     monkeypatch.setenv("EVM_GIT_COMMIT", "b" * 40)
@@ -118,7 +122,24 @@ def test_ready_accepts_evm_source_revision_fallback(monkeypatch):
     assert response.status_code == 503
 
 
+def test_ready_fails_closed_when_image_revision_is_stale(monkeypatch):
+    model = SimpleNamespace(ready_payload=lambda: {"model_name": "generalized-model"})
+    monkeypatch.setenv("GIT_COMMIT", "a" * 40)
+    monkeypatch.setenv("EVM_IMAGE_SOURCE_REVISION", "b" * 40)
+    monkeypatch.setattr(api.requests, "get", lambda *_args, **_kwargs: SimpleNamespace(ok=True))
+    monkeypatch.setattr(api, "refresh_model_state", lambda: model)
+
+    response = Response()
+    payload = api.ready(response)
+
+    assert payload["status"] == "degraded"
+    assert payload["runtime_revision_matches"] is False
+    assert response.status_code == 503
+
+
 def test_ready_returns_success_only_when_dependencies_are_ready(monkeypatch):
+    monkeypatch.setenv("GIT_COMMIT", "a" * 40)
+    monkeypatch.setenv("EVM_IMAGE_SOURCE_REVISION", "a" * 40)
     model = SimpleNamespace(ready_payload=lambda: {"model_name": "generalized-model"})
     monkeypatch.setattr(api.requests, "get", lambda *_args, **_kwargs: SimpleNamespace(ok=True))
     monkeypatch.setattr(api, "refresh_model_state", lambda: model)

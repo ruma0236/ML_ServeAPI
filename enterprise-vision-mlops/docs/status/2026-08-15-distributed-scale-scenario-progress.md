@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-14T23:01:27Z`
+- Generated: `2026-08-14T23:27:23Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -54,6 +54,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Existing Airflow data path Spark boundary: `infra/docker/airflow/Dockerfile`, `orchestration/airflow/dags/enterprise_vision_mlops_daily.py`, `scripts/run_pipeline.py`, `scripts/run_profile_pipeline.py`, `src/evm/pipelines/spark_runtime_probe/run.py`
 - Cross-runtime data-root resolution: `src/evm/core/config.py`, `tests/test_data_pipeline_empty_guards.py`
 - Existing-runtime S0 low-load control runner: `src/evm/scale_validation/s0_runtime.py`, `scripts/dev/run_s0_low_load_control.py`, `src/evm/model_runtime/scenario_workload_production.py`, `tests/test_s0_runtime.py`
+- Runtime revision and serving OTLP closure: `apps/api/Dockerfile`, `apps/api/main.py`, `docker-compose.yml`, `scripts/dev/start_local_stack.ps1`, `scripts/dev/start_scenario_workload_worker.ps1`, `src/evm/model_runtime/scenario_workload_production.py`, `src/evm/observability/otel.py`
 - Compatibility: Tracing is environment-gated and additive; existing API payloads and legacy trace identifiers remain readable.
 - Compatibility: No trace or run identifier is introduced as a Prometheus label.
 - Compatibility: An intentionally scaled-to-zero B0 deployment is absent from active scrape discovery rather than reported as a false outage.
@@ -90,6 +91,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s0-spark-runtime-component-checkpoint.json` (`11a31ffe92c5b1b5bd6c4fa1e6ae2e4230ad6497b91b0bbc79c9da766270b62f`): One real bounded local Spark component run persisted through the existing data mount and exported linked OTLP spans; full S0 lifecycle acceptance remains pending.
 - `docs/status/evidence/s0-serving-runtime-identity-contract-checkpoint.json` (`d47a2b0d7a8d5c47cc3ee7948b85aada58cd40f54f6dea65a131054b9af7dd2a`): Model-source and serving-runtime revisions are now separate in the existing serving contract; 593 tests passed, while live serving revision alignment and S0 runtime acceptance remain pending.
 - `docs/status/evidence/s0-low-load-control-runner-checkpoint.json` (`f0bd6847bfec46694b4917c463a0774b121b4ba704d5288a1031f35ef4f9b89e`): An in-place low-load control runner and runtime-wide revision labels passed 600 tests; live controls and S0 acceptance remain pending.
+- `docs/status/evidence/s0-first-control-rca-checkpoint.json` (`c3f80a305f377e301a591f9758f05032b4a20056acb6da68ca574543d48d7b3e`): One fresh control traversed Airflow, Spark, MLflow, and real CUDA inference but failed closed because the serving OTLP stage was absent; the RCA remediation passed 603 tests and acceptance remains pending.
 
 ### Chronological Updates
 
@@ -101,6 +103,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-14T22:14:32Z` `experiment` / `implementing`: One real bounded Spark component run completed in the existing Airflow runtime, persisted its report through the shared mount, and exported linked parent-child spans. Full lifecycle trace and three-control acceptance remain unexecuted.
 - `2026-08-14T22:32:37Z` `implementation` / `implementing`: The existing scenario serving contract now separates immutable model source from executing runtime source. Focused tests, static analysis, and 593-test regression passed; the active service has not yet been restarted or accepted as S0 runtime evidence.
 - `2026-08-14T22:59:31Z` `implementation` / `implementing`: The existing runtime now has a fail-closed low-load control runner and revision-aware OTLP resources. Focused checks and 600-test regression passed; no live control or S0 acceptance is claimed.
+- `2026-08-14T23:25:46Z` `experiment` / `implementing`: The first fresh control completed the bounded functional path but failed closed with the serving trace stage absent. RCA found an unconfigured serving child and stale API image identity; the in-place remediation passed 603 tests, while accepted controls remain at zero.
 
 ## S1: Transactional Job State & Idempotency
 

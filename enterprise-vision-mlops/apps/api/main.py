@@ -519,12 +519,25 @@ def ready(response: Response) -> dict[str, Any]:
 
     model = refresh_model_state()
     model_loaded = model is not None
-    status = "ok" if mlflow_ready and model_loaded else "degraded"
+    desired_source_commit = os.getenv("GIT_COMMIT") or os.getenv("EVM_GIT_COMMIT") or None
+    runtime_source_commit = runtime_service_version(default="unknown")
+    runtime_revision_matches = bool(
+        desired_source_commit
+        and runtime_source_commit != "unknown"
+        and desired_source_commit == runtime_source_commit
+    )
+    status = (
+        "ok"
+        if mlflow_ready and model_loaded and runtime_revision_matches
+        else "degraded"
+    )
     response.status_code = 200 if status == "ok" else 503
     REQUEST_COUNT.labels(endpoint="/ready", status=status).inc()
     payload: dict[str, Any] = {
         "status": status,
-        "source_commit": os.getenv("GIT_COMMIT") or os.getenv("EVM_GIT_COMMIT") or None,
+        "source_commit": desired_source_commit,
+        "runtime_source_commit": runtime_source_commit,
+        "runtime_revision_matches": runtime_revision_matches,
         "source_branch": os.getenv("GIT_BRANCH") or os.getenv("EVM_GIT_BRANCH") or None,
         "mlflow_tracking_uri": MLFLOW_TRACKING_URI,
         "mlflow_ready": mlflow_ready,

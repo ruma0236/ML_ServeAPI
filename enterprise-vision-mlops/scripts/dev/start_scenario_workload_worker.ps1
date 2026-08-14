@@ -74,6 +74,20 @@ $env:EVM_AIRFLOW_API_USERNAME = if ($env:AIRFLOW_ADMIN_USERNAME) { $env:AIRFLOW_
 $env:EVM_AIRFLOW_API_PASSWORD = if ($env:AIRFLOW_ADMIN_PASSWORD) { $env:AIRFLOW_ADMIN_PASSWORD } else { "admin" }
 $env:MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
 $env:EVM_PROMETHEUS_URL = "http://127.0.0.1:9090"
+$env:EVM_OTEL_ENABLED = if ($env:EVM_OTEL_ENABLED) { $env:EVM_OTEL_ENABLED } else { "true" }
+$env:EVM_OTEL_REQUIRED = if ($env:EVM_OTEL_REQUIRED) { $env:EVM_OTEL_REQUIRED } else { "true" }
+$env:EVM_OTEL_PROCESSOR = if ($env:EVM_OTEL_PROCESSOR) { $env:EVM_OTEL_PROCESSOR } else { "simple" }
+$env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = if ($env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
+    $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+} else {
+    "http://127.0.0.1:4318/v1/traces"
+}
+$env:OTEL_SERVICE_NAMESPACE = if ($env:OTEL_SERVICE_NAMESPACE) {
+    $env:OTEL_SERVICE_NAMESPACE
+} else {
+    "enterprise-mlops"
+}
+$env:OTEL_SERVICE_INSTANCE_ID = "scenario-workload-worker"
 $env:EVM_GIT_COMMIT = (git -C $ProjectRoot rev-parse HEAD).Trim()
 $env:EVM_GIT_BRANCH = (git -C $ProjectRoot branch --show-current).Trim()
 if (-not $env:EVM_GIT_BRANCH) { $env:EVM_GIT_BRANCH = (git -C $ProjectRoot rev-parse --abbrev-ref HEAD).Trim() }

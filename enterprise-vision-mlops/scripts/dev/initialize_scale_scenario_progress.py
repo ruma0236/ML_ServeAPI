@@ -179,6 +179,21 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "passed 600 tests; live controls and S0 acceptance remain pending."
                     ),
                 ),
+                EvidenceArtifact(
+                    path=(
+                        "docs/status/evidence/"
+                        "s0-first-control-rca-checkpoint.json"
+                    ),
+                    sha256=(
+                        "c3f80a305f377e301a591f9758f05032b4a20056acb6da68ca574543d48d7b3e"
+                    ),
+                    generated_at=datetime(2026, 8, 14, 23, 25, 46, tzinfo=UTC),
+                    claim=(
+                        "One fresh control traversed Airflow, Spark, MLflow, and real CUDA "
+                        "inference but failed closed because the serving OTLP stage was absent; "
+                        "the RCA remediation passed 603 tests and acceptance remains pending."
+                    ),
+                ),
             ]
             changed_components = [
                 ChangedComponent(
@@ -260,6 +275,18 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "tests/test_s0_runtime.py",
                     ],
                 ),
+                ChangedComponent(
+                    component="Runtime revision and serving OTLP closure",
+                    files=[
+                        "apps/api/Dockerfile",
+                        "apps/api/main.py",
+                        "docker-compose.yml",
+                        "scripts/dev/start_local_stack.ps1",
+                        "scripts/dev/start_scenario_workload_worker.ps1",
+                        "src/evm/model_runtime/scenario_workload_production.py",
+                        "src/evm/observability/otel.py",
+                    ],
+                ),
             ]
             implementation_summary = [
                 "Readiness now maps degraded dependency state to HTTP 503.",
@@ -270,12 +297,14 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 "The Airflow image includes Java 17 and shared path resolution preserves the mounted evidence root across Windows and POSIX runtimes.",
                 "Serving readiness now distinguishes immutable model source from the executing serving runtime revision without removing the compatibility source field.",
                 "A fail-closed runner now drives the existing stepwise lifecycle, exact CUDA serving, MLflow, scoped queue and worker metrics, and OTLP evidence contract.",
+                "A failed fresh control exposed missing serving OTLP configuration and stale API image identity; required serving telemetry and immutable image revision checks are now implemented.",
                 "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level.",
             ]
             experiment_environment = (
                 "Partially exercised in the existing generalized local single-node Airflow "
-                "runtime. One bounded Spark component control and linked OTLP spans passed; "
-                "the full lifecycle experiment and repeated controls have not run."
+                "runtime. One fresh bounded control traversed Airflow, Spark, MLflow, and real "
+                "CUDA inference but was rejected because the serving trace stage was absent. "
+                "No accepted full lifecycle control or repeated-control result exists yet."
             )
             status = "implementing"
             updates.extend(
@@ -356,6 +385,19 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                             "regression passed; no live control or S0 acceptance is claimed."
                         ),
                         evidence_refs=[checkpoint_evidence[5].path],
+                    ),
+                    ChronologicalUpdate(
+                        occurred_at=datetime(2026, 8, 14, 23, 25, 46, tzinfo=UTC),
+                        phase="experiment",
+                        status="implementing",
+                        summary=(
+                            "The first fresh control completed the bounded functional path but "
+                            "failed closed with the serving trace stage absent. RCA found an "
+                            "unconfigured serving child and stale API image identity; the "
+                            "in-place remediation passed 603 tests, while accepted controls "
+                            "remain at zero."
+                        ),
+                        evidence_refs=[checkpoint_evidence[6].path],
                     ),
                 ]
             )

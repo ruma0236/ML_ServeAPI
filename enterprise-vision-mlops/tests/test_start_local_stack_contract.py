@@ -8,6 +8,9 @@ def test_start_local_stack_builds_shared_images_once_and_checks_failures() -> No
 
     assert '"enterprise-vision-mlops-airflow:local" = "airflow-init"' in script
     assert 'Invoke-Docker -Arguments @("compose", "build", $target)' in script
+    assert '$revisionAwareImages = @("enterprise-vision-mlops-api:latest")' in script
+    assert "org.opencontainers.image.revision" in script
+    assert "$revisionMismatch = $imageRevision -ne $commit" in script
     assert 'Invoke-Docker -Arguments @("compose", "up", "-d", "--no-build")' in script
     assert '"--no-deps", "--force-recreate", "--no-build", "api"' in script
     assert "$commit = (git rev-parse HEAD).Trim()" in script

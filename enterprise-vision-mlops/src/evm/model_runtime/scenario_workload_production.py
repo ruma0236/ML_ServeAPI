@@ -434,6 +434,21 @@ def start_production_server(
     creationflags = 0
     if os.name == "nt":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+    serving_environment = os.environ.copy()
+    serving_environment.update(
+        {
+            "EVM_GIT_COMMIT": runtime_source_commit,
+            "EVM_OTEL_ENABLED": "true",
+            "EVM_OTEL_REQUIRED": "true",
+            "EVM_OTEL_PROCESSOR": "simple",
+            "OTEL_SERVICE_INSTANCE_ID": f"scenario-serving-{intent.intent_id}",
+        }
+    )
+    serving_environment.setdefault("OTEL_SERVICE_NAMESPACE", "enterprise-mlops")
+    serving_environment.setdefault(
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "http://127.0.0.1:4318/v1/traces",
+    )
     process = subprocess.Popen(
         command,
         cwd=Path(__file__).resolve().parents[3],
@@ -441,6 +456,7 @@ def start_production_server(
         stderr=subprocess.STDOUT,
         text=True,
         creationflags=creationflags,
+        env=serving_environment,
     )
     process_started_at = process_identity(process.pid)["process_started_at"]
     log_handle.close()

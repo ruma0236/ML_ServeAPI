@@ -262,6 +262,56 @@ def test_production_apply_and_rollback_state_machine(tmp_path: Path, monkeypatch
     assert get_production_intent(intent.intent_id).version >= 6
 
 
+def test_production_server_binds_runtime_revision_and_otel_environment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    run = install_completed_run(tmp_path, monkeypatch)
+    intent = create_production_intent(
+        run.run_id,
+        ScenarioProductionRequest(
+            actor="release-requester",
+            reason="Verify the exact serving process environment",
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    class CapturedProcess:
+        pid = 8765
+
+    def capture_popen(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return CapturedProcess()
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", capture_popen)
+    monkeypatch.setattr(
+        runtime,
+        "process_identity",
+        lambda _pid: {"process_started_at": "20260815010101.000000+000"},
+    )
+
+    process, started_at, _command = runtime.start_production_server(
+        intent,
+        str(tmp_path / "base-model"),
+        runtime_source_commit=SOURCE_COMMIT,
+    )
+
+    environment = captured["env"]
+    assert isinstance(environment, dict)
+    assert process.pid == 8765
+    assert started_at == "20260815010101.000000+000"
+    assert environment["EVM_GIT_COMMIT"] == SOURCE_COMMIT
+    assert environment["EVM_OTEL_ENABLED"] == "true"
+    assert environment["EVM_OTEL_REQUIRED"] == "true"
+    assert environment["EVM_OTEL_PROCESSOR"] == "simple"
+    assert environment["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] == (
+        "http://127.0.0.1:4318/v1/traces"
+    )
+    assert environment["OTEL_SERVICE_INSTANCE_ID"] == (
+        f"scenario-serving-{intent.intent_id}"
+    )
+
+
 def test_ready_identity_requires_exact_runtime_revision_when_requested(
     tmp_path: Path, monkeypatch
 ) -> None:

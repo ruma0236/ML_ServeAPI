@@ -1,8 +1,13 @@
 FROM python:3.11-slim
 
+ARG SOURCE_REVISION=unknown
+
+LABEL org.opencontainers.image.revision="${SOURCE_REVISION}"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/src
+    PYTHONPATH=/app/src \
+    EVM_IMAGE_SOURCE_REVISION=${SOURCE_REVISION}
 
 WORKDIR /app
 

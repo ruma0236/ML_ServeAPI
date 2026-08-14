@@ -1,0 +1,89 @@
+{
+  "schema_version": "evm.scale_validation.implementation_checkpoint.v1",
+  "scenario_id": "S0",
+  "generated_at": "2026-08-14T23:25:46Z",
+  "status": "implementing",
+  "existing_system_baseline": "The first control used the existing FastAPI API, file-ledger queue, supervised lifecycle worker, real Compose Airflow data DAG with Spark, MLflow, active local CUDA model serving, Prometheus, and the local OTLP Collector.",
+  "engineering_gap_and_reason": "The first fresh control completed the bounded functional path but correctly failed trace acceptance because the host serving child did not inherit OTLP configuration. It also exposed that a stale API image could report the newly injected source revision even though its copied source was older.",
+  "architecture_delta": {
+    "before": "The host serving child inherited an optional telemetry environment, and the API readiness source revision represented desired environment metadata rather than immutable image code identity.",
+    "after": "The exact serving child receives required OTLP and runtime revision bindings, the API image embeds its build revision, startup rebuilds a revision-mismatched API image, and readiness fails closed when desired and image revisions differ.",
+    "tradeoffs": [
+      "Required OTLP dependencies make the bounded local production serving launch fail instead of silently losing S0 trace evidence.",
+      "Revision-aware rebuilding adds build time only when the API image label differs from repository HEAD."
+    ]
+  },
+  "implementation_delta": {
+    "existing_components": [
+      "apps/api/Dockerfile",
+      "apps/api/main.py",
+      "docker-compose.yml",
+      "scripts/dev/start_local_stack.ps1",
+      "scripts/dev/start_scenario_workload_worker.ps1",
+      "src/evm/model_runtime/scenario_workload_production.py",
+      "src/evm/observability/otel.py"
+    ],
+    "compatibility": "The existing source_commit field remains available. Runtime source identity is additive, while readiness becomes intentionally fail-closed for stale copied API code.",
+    "migration": "Rebuild and recreate the existing API container, restart the scenario workload worker, and replace the exact serving process through the existing approved rollback and deployment-intent workflow before rerunning controls."
+  },
+  "experiment_contract": {
+    "preconditions": [
+      "One fresh LifecycleRun and one exact W3C trace are used for the control.",
+      "The active CUDA serving and control-plane source identities are unambiguous."
+    ],
+    "procedure": [
+      "Run the real Airflow data DAG and bounded Spark stage through the existing queue and worker.",
+      "Query MLflow and send three real CUDA inference requests under the same trace.",
+      "Cancel only at the documented model-training handoff and verify terminal cleanup.",
+      "Reject the control if any required trace stage or runtime revision is absent."
+    ],
+    "stop_conditions": [
+      "Any required trace stage is missing.",
+      "Desired source and executing image or serving revisions do not match."
+    ]
+  },
+  "observed_control": {
+    "functional_path": "pass",
+    "airflow_data_stage": "pass",
+    "spark_stage": "pass",
+    "mlflow_probe": "pass",
+    "cuda_inference": "pass",
+    "trace_span_count": 1134,
+    "observed_trace_stages": [
+      "airflow",
+      "api",
+      "control",
+      "data",
+      "mlflow",
+      "queue",
+      "spark",
+      "worker"
+    ],
+    "missing_trace_stages": [
+      "serving"
+    ],
+    "control_verdict": "failed",
+    "cleanup": "pass",
+    "private_failure_evidence_sha256": "aca7527839f38e81af59fd70c9df5e1d1af1c1b5758bf7091d1a6d6f490d6fb8"
+  },
+  "verification": {
+    "focused_tests": "23 passed",
+    "full_regression": "603 passed",
+    "static_analysis": "ruff passed",
+    "diff_validation": "git diff --check passed",
+    "accepted_live_control_runs": 0
+  },
+  "acceptance": {
+    "S0-AC-01": "pending",
+    "S0-AC-02": "pending",
+    "S0-AC-03": "pending",
+    "S0-AC-04": "pending",
+    "S0-AC-05": "pending"
+  },
+  "unresolved_items": [
+    "Rebuild and revision-align the API and exact CUDA serving runtime with this remediation.",
+    "Rerun one pilot and then three independent accepted controls.",
+    "Generate variance and hashed benchmark acceptance evidence."
+  ],
+  "claim_boundary": "This checkpoint preserves one failed fresh control and its RCA. It proves functional traversal plus fail-closed trace rejection and 603-test remediation regression; it is not an accepted S0 benchmark, scale, availability, or production result."
+}

@@ -66,8 +66,20 @@ try {
         "enterprise-vision-mlops-api:latest" = "api"
         "enterprise-vision-mlops-control-panel:latest" = "control-panel"
     }
+    $revisionAwareImages = @("enterprise-vision-mlops-api:latest")
     foreach ($entry in $imageTargets.GetEnumerator()) {
-        if ($Build -or $localImages -notcontains $entry.Key) {
+        $revisionMismatch = $false
+        if ($localImages -contains $entry.Key -and $revisionAwareImages -contains $entry.Key) {
+            $imageRevision = (& docker image inspect $entry.Key --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}').Trim()
+            if ($LASTEXITCODE -ne 0) {
+                throw "docker image revision inspection failed for $($entry.Key)"
+            }
+            $revisionMismatch = $imageRevision -ne $commit
+            if ($revisionMismatch) {
+                Write-Host "Image revision mismatch for $($entry.Key): image=$imageRevision source=$commit"
+            }
+        }
+        if ($Build -or $localImages -notcontains $entry.Key -or $revisionMismatch) {
             $buildTargets.Add($entry.Value)
         }
     }

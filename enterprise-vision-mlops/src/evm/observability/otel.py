@@ -23,7 +23,8 @@ _PROVIDER: Any = None
 
 def runtime_service_version(default: str = "0.1.0") -> str:
     return (
-        os.getenv("EVM_GIT_COMMIT")
+        os.getenv("EVM_IMAGE_SOURCE_REVISION")
+        or os.getenv("EVM_GIT_COMMIT")
         or os.getenv("GIT_COMMIT")
         or os.getenv("GITHUB_SHA")
         or default

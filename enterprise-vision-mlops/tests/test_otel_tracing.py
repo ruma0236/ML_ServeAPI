@@ -47,13 +47,23 @@ def test_disabled_configuration_does_not_latch_process_state(monkeypatch) -> Non
 
 
 def test_runtime_service_version_prefers_immutable_source_revision(monkeypatch) -> None:
+    monkeypatch.delenv("EVM_IMAGE_SOURCE_REVISION", raising=False)
     monkeypatch.setenv("EVM_GIT_COMMIT", "a" * 40)
     monkeypatch.setenv("GIT_COMMIT", "b" * 40)
 
     assert otel.runtime_service_version() == "a" * 40
 
 
+def test_runtime_service_version_prefers_built_image_revision(monkeypatch) -> None:
+    monkeypatch.setenv("EVM_IMAGE_SOURCE_REVISION", "c" * 40)
+    monkeypatch.setenv("EVM_GIT_COMMIT", "a" * 40)
+    monkeypatch.setenv("GIT_COMMIT", "b" * 40)
+
+    assert otel.runtime_service_version() == "c" * 40
+
+
 def test_runtime_service_version_preserves_local_fallback(monkeypatch) -> None:
+    monkeypatch.delenv("EVM_IMAGE_SOURCE_REVISION", raising=False)
     monkeypatch.delenv("EVM_GIT_COMMIT", raising=False)
     monkeypatch.delenv("GIT_COMMIT", raising=False)
     monkeypatch.delenv("GITHUB_SHA", raising=False)

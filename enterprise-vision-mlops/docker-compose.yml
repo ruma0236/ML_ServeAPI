@@ -259,6 +259,8 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      args:
+        SOURCE_REVISION: ${EVM_GIT_COMMIT:-unknown}
     container_name: evm-api
     environment:
       APP_NAME: enterprise-vision-mlops-api

@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-14T23:01:27Z",
+  "generated_at": "2026-08-14T23:27:23Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -99,6 +99,18 @@
             "src/evm/model_runtime/scenario_workload_production.py",
             "tests/test_s0_runtime.py"
           ]
+        },
+        {
+          "component": "Runtime revision and serving OTLP closure",
+          "files": [
+            "apps/api/Dockerfile",
+            "apps/api/main.py",
+            "docker-compose.yml",
+            "scripts/dev/start_local_stack.ps1",
+            "scripts/dev/start_scenario_workload_worker.ps1",
+            "src/evm/model_runtime/scenario_workload_production.py",
+            "src/evm/observability/otel.py"
+          ]
         }
       ],
       "implementation_summary": [
@@ -110,9 +122,10 @@
         "The Airflow image includes Java 17 and shared path resolution preserves the mounted evidence root across Windows and POSIX runtimes.",
         "Serving readiness now distinguishes immutable model source from the executing serving runtime revision without removing the compatibility source field.",
         "A fail-closed runner now drives the existing stepwise lifecycle, exact CUDA serving, MLflow, scoped queue and worker metrics, and OTLP evidence contract.",
+        "A failed fresh control exposed missing serving OTLP configuration and stale API image identity; required serving telemetry and immutable image revision checks are now implemented.",
         "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level."
       ],
-      "experiment_environment": "Partially exercised in the existing generalized local single-node Airflow runtime. One bounded Spark component control and linked OTLP spans passed; the full lifecycle experiment and repeated controls have not run.",
+      "experiment_environment": "Partially exercised in the existing generalized local single-node Airflow runtime. One fresh bounded control traversed Airflow, Spark, MLflow, and real CUDA inference but was rejected because the serving trace stage was absent. No accepted full lifecycle control or repeated-control result exists yet.",
       "test_or_experiment_steps": [
         "Validate progress and benchmark contracts with focused unit tests.",
         "Reconcile serving, accelerator inference, monitoring, and supervisors without mutation.",
@@ -187,6 +200,12 @@
           "sha256": "f0bd6847bfec46694b4917c463a0774b121b4ba704d5288a1031f35ef4f9b89e",
           "generated_at": "2026-08-14T22:59:31Z",
           "claim": "An in-place low-load control runner and runtime-wide revision labels passed 600 tests; live controls and S0 acceptance remain pending."
+        },
+        {
+          "path": "docs/status/evidence/s0-first-control-rca-checkpoint.json",
+          "sha256": "c3f80a305f377e301a591f9758f05032b4a20056acb6da68ca574543d48d7b3e",
+          "generated_at": "2026-08-14T23:25:46Z",
+          "claim": "One fresh control traversed Airflow, Spark, MLflow, and real CUDA inference but failed closed because the serving OTLP stage was absent; the RCA remediation passed 603 tests and acceptance remains pending."
         }
       ],
       "status": "implementing",
@@ -345,6 +364,18 @@
               "src/evm/model_runtime/scenario_workload_production.py",
               "tests/test_s0_runtime.py"
             ]
+          },
+          {
+            "component": "Runtime revision and serving OTLP closure",
+            "files": [
+              "apps/api/Dockerfile",
+              "apps/api/main.py",
+              "docker-compose.yml",
+              "scripts/dev/start_local_stack.ps1",
+              "scripts/dev/start_scenario_workload_worker.ps1",
+              "src/evm/model_runtime/scenario_workload_production.py",
+              "src/evm/observability/otel.py"
+            ]
           }
         ],
         "compatibility": [
@@ -430,6 +461,12 @@
           "sha256": "f0bd6847bfec46694b4917c463a0774b121b4ba704d5288a1031f35ef4f9b89e",
           "generated_at": "2026-08-14T22:59:31Z",
           "claim": "An in-place low-load control runner and runtime-wide revision labels passed 600 tests; live controls and S0 acceptance remain pending."
+        },
+        {
+          "path": "docs/status/evidence/s0-first-control-rca-checkpoint.json",
+          "sha256": "c3f80a305f377e301a591f9758f05032b4a20056acb6da68ca574543d48d7b3e",
+          "generated_at": "2026-08-14T23:25:46Z",
+          "claim": "One fresh control traversed Airflow, Spark, MLflow, and real CUDA inference but failed closed because the serving OTLP stage was absent; the RCA remediation passed 603 tests and acceptance remains pending."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -502,6 +539,15 @@
           "summary": "The existing runtime now has a fail-closed low-load control runner and revision-aware OTLP resources. Focused checks and 600-test regression passed; no live control or S0 acceptance is claimed.",
           "evidence_refs": [
             "docs/status/evidence/s0-low-load-control-runner-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-14T23:25:46Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "The first fresh control completed the bounded functional path but failed closed with the serving trace stage absent. RCA found an unconfigured serving child and stale API image identity; the in-place remediation passed 603 tests, while accepted controls remain at zero.",
+          "evidence_refs": [
+            "docs/status/evidence/s0-first-control-rca-checkpoint.json"
           ]
         }
       ]
