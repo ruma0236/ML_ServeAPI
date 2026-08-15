@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -9,6 +11,7 @@ import pytest
 from evm.scale_validation.contracts import EvidenceArtifact
 from evm.scale_validation.evidence import (
     PublicEvidenceIntegrityError,
+    git_blob_loader,
     public_file_sha256,
     verify_public_artifacts,
     write_public_json,
@@ -61,3 +64,38 @@ def test_public_artifact_verifier_rejects_crlf_and_wrong_hash() -> None:
             [artifact("evidence.json", "a" * 64)],
             load_bytes=lambda _: b'{"status":"pass"}\n',
         )
+
+
+def test_git_blob_loader_rehashes_committed_canonical_bytes(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / ".gitattributes").write_bytes(b"*.json text eol=lf\n")
+    worktree_payload = b'{\r\n  "status": "pass"\r\n}\r\n'
+    canonical_blob = worktree_payload.replace(b"\r\n", b"\n")
+    (tmp_path / "evidence.json").write_bytes(worktree_payload)
+    subprocess.run(
+        ["git", "add", ".gitattributes", "evidence.json"],
+        cwd=tmp_path,
+        check=True,
+    )
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "evidence-test",
+        "GIT_AUTHOR_EMAIL": "evidence-test@example.invalid",
+        "GIT_COMMITTER_NAME": "evidence-test",
+        "GIT_COMMITTER_EMAIL": "evidence-test@example.invalid",
+    }
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "canonical evidence fixture"],
+        cwd=tmp_path,
+        check=True,
+        env=env,
+    )
+
+    expected = hashlib.sha256(canonical_blob).hexdigest()
+    verified = verify_public_artifacts(
+        [artifact("evidence.json", expected)],
+        load_bytes=git_blob_loader(tmp_path, "HEAD"),
+    )
+
+    assert (tmp_path / "evidence.json").read_bytes() == worktree_payload
+    assert verified == {"evidence.json": expected}

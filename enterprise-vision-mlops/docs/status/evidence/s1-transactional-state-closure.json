@@ -1,14 +1,16 @@
 {
-  "schema_version": "evm.s1_transactional_state_closure.v1",
-  "generated_at": "2026-08-15T11:28:31.198404Z",
-  "source_revision": "aa95f39d6557b52295ae2a10e4de31993f665511",
+  "schema_version": "evm.s1_transactional_state_closure.v2",
+  "generated_at": "2026-08-15T14:17:50.079414Z",
+  "source_revision": "8a8f54c2c846a09487b4888a72ab1576ad056121",
   "status": "passed",
   "implementation_commits": [
     "b3d15ae8aa54e4ac90e08cbf0050719b068843b3",
     "c20a770fbeae2b154761c7aef00374f95b6a38dc",
     "6f19fa9a4585bd4ee702ae58d051ec33923b7a4a",
     "89fc0a96fdc48e76496ef410a0a368be1c04e78e",
-    "aa95f39d6557b52295ae2a10e4de31993f665511"
+    "aa95f39d6557b52295ae2a10e4de31993f665511",
+    "b80b17364ac6226a9c3bf30da69a42e44104553a",
+    "8a8f54c2c846a09487b4888a72ab1576ad056121"
   ],
   "evidence": [
     {
@@ -18,10 +20,15 @@
     },
     {
       "path": "docs/status/evidence/s1-transactional-state-evidence.json",
-      "sha256": "2ef3aff7494a7e4eda3b64fa33de657c3514ceb2357a8e17bc8de1fd8bc4a2c1",
-      "claim": "A 395-request real-PostgreSQL mutation experiment passed all four S1 acceptance criteria."
+      "sha256": "f5058d7e2fb91f94dabe2df541bbb70d2be1b82d16408b72150a86d280e1291c",
+      "claim": "External HTTP concurrency sweeps at measured peak in-flight 100, 250, and 500, bounded API pool failure, and actual supervised worker-process loss passed S1-AC-01 through S1-AC-04."
     }
   ],
+  "superseded_evidence": {
+    "source_revision": "aa95f39d6557b52295ae2a10e4de31993f665511",
+    "reason": "The earlier 395-request, concurrency-64 in-process experiment did not meet the reviewed external-client, measured 100/250/500 peak concurrency, or real worker-process loss acceptance contract.",
+    "use": "historical implementation baseline only"
+  },
   "migration_and_compatibility": {
     "legacy_lifecycle_runs": 83,
     "legacy_side_effects": 163,
@@ -35,101 +42,206 @@
     "mlflow_database_mutated": false,
     "airflow_database_mutated": false
   },
-  "concurrency_result": {
-    "mutation_requests": 395,
-    "concurrency": 64,
-    "unique_creates": 100,
-    "idempotent_effect_keys": 30,
-    "conflict_pairs": 50,
-    "retry_keys": 25,
-    "duplicate_lifecycle_effects": 0,
-    "duplicate_deployment_effects": 0,
-    "duplicate_artifact_effects": 0,
-    "legal_conflicting_outcomes": 50,
-    "version_conflicts": 50,
-    "pool_timeout_seconds": 0.203,
-    "stale_owner_commit_blocked": true,
-    "replacement_claim_epoch": 2,
-    "correlation_entities": 100,
-    "missing_correlation_ids": 0
+  "external_http_concurrency_result": {
+    "transport": "external_tcp_http",
+    "test_client_or_direct_store_used": false,
+    "sweeps": [
+      {
+        "target_concurrency": 100,
+        "measured_client_peak_in_flight": 100,
+        "measured_server_peak_in_flight": 100,
+        "submitted": 100,
+        "completed": 100,
+        "duration_seconds": 0.844,
+        "status_202": 75,
+        "status_409_legal_race_loser": 25,
+        "trace_identity_matches": 100
+      },
+      {
+        "target_concurrency": 250,
+        "measured_client_peak_in_flight": 250,
+        "measured_server_peak_in_flight": 250,
+        "submitted": 250,
+        "completed": 250,
+        "duration_seconds": 1.594,
+        "status_202": 188,
+        "status_409_legal_race_loser": 62,
+        "trace_identity_matches": 250
+      },
+      {
+        "target_concurrency": 500,
+        "measured_client_peak_in_flight": 500,
+        "measured_server_peak_in_flight": 500,
+        "submitted": 500,
+        "completed": 500,
+        "duration_seconds": 2.75,
+        "status_202": 375,
+        "status_409_legal_race_loser": 125,
+        "trace_identity_matches": 500
+      }
+    ],
+    "all_routes_exercised": [
+      "create",
+      "approve",
+      "cancel",
+      "retry"
+    ],
+    "transport_errors_or_timeouts": 0,
+    "all_conflicts_one_legal_outcome": true,
+    "all_retry_entities_exactly_once": true
   },
-  "existing_system_runtime": {
-    "api_status": "ok",
-    "control_plane_store_mode": "dual",
-    "control_plane_store_ready": true,
-    "api_revision_matches": true,
-    "worker_status": "online",
-    "supervisor_status": "healthy",
-    "supervised_children_live": 2,
-    "prometheus_active_targets": 4,
-    "prometheus_down_targets": 0,
-    "http_create_replay_same_entity": true,
-    "http_cancel_replay_same_version": true,
-    "http_terminal_state": "cancelled",
-    "http_terminal_version": 2,
-    "database_and_file_mirror_equal": true
+  "bounded_pool_result": {
+    "api_route": "/control-panel/v1/lifecycle-runs",
+    "pool_max_size": 1,
+    "acquire_timeout_seconds": 0.25,
+    "holder_status": 202,
+    "contenders": 12,
+    "bounded_503_responses": 12,
+    "max_contender_seconds": 0.328,
+    "pool_timeout_metric_delta_minimum": 12
+  },
+  "real_worker_loss_result": {
+    "exact_os_pid_killed": true,
+    "killed_pid_exit_confirmed": true,
+    "supervisor_started_different_process": true,
+    "distinct_process_instances": 3,
+    "claim_epoch_before": 1,
+    "claim_epoch_after": 2,
+    "stale_owner_commit_blocked": true,
+    "terminal_state": "completed",
+    "terminal_version": 2,
+    "terminal_commit_count": 1,
+    "committed_effects": {
+      "lifecycle_terminal": 1,
+      "deployment_reservation": 1,
+      "artifact_publication": 1
+    },
+    "duplicate_effects": 0,
+    "postgres_commit_to_json_mirror_gap_injected": true,
+    "json_mirror_reconciled_by_restarted_worker": true,
+    "postgres_json_payload_version_parity": true,
+    "recovery_elapsed_seconds_upper_bound": 9.875
   },
   "tests": {
     "full_regression": {
-      "passed": 613,
+      "passed": 622,
       "skipped": 7,
       "failed": 0,
-      "note": "The seven real-PostgreSQL tests are dependency-gated in the general test runtime and were executed separately."
+      "note": "Dependency-gated real-PostgreSQL tests were also executed separately."
     },
     "real_postgresql": {
       "passed": 7,
       "failed": 0
     },
     "lifecycle_regression": {
-      "passed": 48,
-      "failed": 0,
-      "scope": "Existing lifecycle state, orchestrator, and Kubernetes-boundary regression with isolated dependencies."
+      "passed": 57,
+      "failed": 0
     },
     "s0_regression": {
       "passed": 20,
       "failed": 0,
       "canonical_git_evidence_validator": "passed"
     },
-    "openapi_contract": {
-      "passed": 8,
-      "failed": 0
+    "s1_external_runtime_contract": {
+      "passed": true,
+      "scope": "External HTTP peak-concurrency, bounded pool, exact worker PID loss, fencing, non-vacuous effects, and mirror reconciliation contracts."
     }
   },
   "acceptance": {
-    "S1-AC-01": "passed",
-    "S1-AC-02": "passed",
-    "S1-AC-03": "passed",
-    "S1-AC-04": "passed"
+    "S1-AC-01": {
+      "status": "passed",
+      "reason": "A real worker committed lifecycle, deployment, and artifact effects exactly once each; each count is one and duplicate count is zero."
+    },
+    "S1-AC-02": {
+      "status": "passed",
+      "reason": "Every conflicting external API mutation at measured peak concurrency 100, 250, and 500 ended in one legal database state."
+    },
+    "S1-AC-03": {
+      "status": "passed",
+      "reason": "A deliberately exhausted one-connection API pool returned twelve bounded and observable 503 responses without unbounded wait."
+    },
+    "S1-AC-04": {
+      "status": "passed",
+      "reason": "The exact worker PID was killed while holding epoch 1; a replacement claimed epoch 2, fenced the stale owner, committed once, and reconciled PostgreSQL and JSON payload/version parity."
+    }
   },
   "failed_attempts_and_rca": [
     {
-      "phase": "evidence_runner_preflight_1",
-      "failure": "The runner called a nonexistent public connection method.",
-      "impact": "Stopped before workload mutation; isolated schemas were removed.",
-      "correction": "Use the repository transaction context for database identity reads.",
+      "phase": "runtime_profile_preflight",
+      "failure": "The active host profile referenced a container-only path and stale catalog shape.",
+      "impact": "The isolated external runtime did not start; no accepted workload evidence was produced.",
+      "correction": "Materialize a run-scoped current profile derived from the existing profile contract.",
       "accepted_for_closure": false
     },
     {
-      "phase": "evidence_runner_preflight_2",
-      "failure": "The PostgreSQL mapping row was accessed as a positional tuple.",
-      "impact": "Stopped before workload mutation; isolated schemas were removed.",
-      "correction": "Read the named server_version field and execute a pre-commit experiment.",
+      "phase": "windows_runtime_root",
+      "failure": "The initial evidence path exceeded the Windows path-length boundary.",
+      "impact": "The worker-loss probe stopped before accepted mutation.",
+      "correction": "Use a short run-scoped evidence root on the configured large-data drive.",
       "accepted_for_closure": false
     },
     {
-      "phase": "full_regression_1",
-      "failure": "The static OpenAPI contract omitted new idempotency and task-version fields.",
-      "impact": "One contract test failed; runtime state was unaffected.",
-      "correction": "Align lifecycle, task, and deployment schemas and add explicit contract assertions.",
+      "phase": "supervisor_bootstrap",
+      "failure": "The bootstrap wrapper waited for global healthy state while the deliberately held worker claim was active.",
+      "impact": "The controlled worker-loss experiment timed out before injection.",
+      "correction": "Launch the existing supervisor directly with an exact run-scoped worker marker.",
+      "accepted_for_closure": false
+    },
+    {
+      "phase": "worker_kill_timing",
+      "failure": "The first worker was killed before the supervisor recorded the exact child as live, creating a transient missing-process dedupe race.",
+      "impact": "No accepted recovery measurement was produced.",
+      "correction": "Require supervisor healthy plus exact PID live before the OS kill.",
+      "accepted_for_closure": false
+    },
+    {
+      "phase": "full_regression_runtime",
+      "failure": "The first selected Python environment did not include the HTTP test dependency.",
+      "impact": "The regression command could not collect all tests.",
+      "correction": "Use the existing project-compatible Python environment and rerun the full suite.",
+      "accepted_for_closure": false
+    },
+    {
+      "phase": "full_regression_contract",
+      "failure": "A supervisor contract test still asserted only the legacy fixed process marker.",
+      "impact": "One regression failed after adding the isolated marker override.",
+      "correction": "Retain the default marker assertion and add explicit scoped-marker coverage.",
+      "accepted_for_closure": false
+    },
+    {
+      "phase": "post_closure_postgresql_runtime_1",
+      "failure": "The first post-closure PostgreSQL test command selected a Python environment without the PostgreSQL driver.",
+      "impact": "Tests failed during dependency import before database mutation.",
+      "correction": "Select the existing project runtime that contains psycopg and psycopg-pool.",
+      "accepted_for_closure": false
+    },
+    {
+      "phase": "post_closure_postgresql_runtime_2",
+      "failure": "The first driver-correct retry used a stale local database password.",
+      "impact": "Authentication failed before schema creation or mutation.",
+      "correction": "Read the current local Compose contract without exposing the credential and rerun once with the active DSN; all seven tests passed.",
       "accepted_for_closure": false
     }
   ],
   "cleanup": {
     "all_experiment_schemas_dropped": true,
+    "isolated_worker_processes_removed": true,
     "stale_owner_reconciled": true,
-    "accepted_http_proof_terminal": true,
+    "postgres_json_mirror_parity_restored": true,
     "production_serving_mutated": false,
-    "customer_data_mutated": false
+    "gpu_or_device_plugin_mutated": false,
+    "customer_data_mutated": false,
+    "private_raw_evidence_retained_outside_git": true
   },
-  "claim_boundary": "Verified transactional control-plane behavior with real PostgreSQL and the existing API/worker integration on one local physical node. This is not multi-node database HA, customer-traffic, disaster-recovery, or production-SLA evidence."
+  "runtime_revision_note": {
+    "isolated_s1_runtime_revision": "8a8f54c2c846a09487b4888a72ab1576ad056121",
+    "long_lived_local_api_revision_at_closure": "aa95f39d6557b52295ae2a10e4de31993f665511",
+    "reason": "The S1 proof used an isolated external runtime and intentionally did not redeploy or mutate the long-lived local serving/control runtime."
+  },
+  "residual_risks": [
+    "The JSON rollback mirror remains operational debt; reconciliation correctness is proven for this controlled gap, but retirement and high-volume scan behavior are not.",
+    "The dedicated PostgreSQL store is single-node local evidence; multi-node database HA, failover, and disaster recovery remain untested.",
+    "The 100/250/500 sweep proves bounded concurrent mutation correctness, not sustained customer traffic capacity or an SLA."
+  ],
+  "claim_boundary": "Verified external HTTP transactional mutation and real supervised worker-loss recovery on one local physical node with isolated PostgreSQL schemas. No customer traffic, multi-node database HA, disaster recovery, production availability, or SLA claim."
 }

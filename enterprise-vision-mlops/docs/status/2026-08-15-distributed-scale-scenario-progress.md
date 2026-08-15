@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-15T11:30:04.498992Z`
+- Generated: `2026-08-15T14:24:37.323261Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -121,13 +121,13 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Status: `verified`
 - Engineering question: Can 100 to 500 concurrent mutations commit one legal and idempotent outcome?
 - Why now: Durable state correctness must precede retries and queued high-volume mutation.
-- Observed gap: Transactional ownership, atomic claims, fencing, and bounded connection-pool wait are not yet proven under concurrency.
+- Observed gap: The earlier store-level concurrency proof stopped at concurrency 64 and simulated lease time. It did not prove measured 100/250/500 external HTTP concurrency, bounded pool failure through the API, exact worker PID loss, non-vacuous effects, or PostgreSQL-to-JSON mirror recovery.
 - Existing-system baseline: The existing control plane serializes file-ledger writes and uses run claims and side-effect ledgers, but concurrent durable state transitions are not owned by one transactional database contract.
-- Architecture before: Control-plane state still relies partly on process-local or file-ledger ownership.
-- Architecture after: Transactions, idempotency, leases, and fencing own every concurrent transition.
+- Architecture before: The first S1 revision had transactional storage but accepted only an in-process concurrency-64 proof and simulated lease expiry.
+- Architecture after: The existing API and supervised worker expose measured external concurrency, bounded pool failure, exact process-loss fencing, one-time effects, and database-authoritative JSON mirror recovery.
 - Verdict: `passed`
-- Claim boundary: Verified transactional control-plane behavior with real PostgreSQL and the existing API/worker integration on one local physical node. This is not multi-node database HA, customer-traffic, disaster-recovery, or production-SLA evidence.
-- Next action: Begin S2 bounded queue and backpressure implementation using the verified S1 transaction, idempotency, and fencing boundary.
+- Claim boundary: Verified external HTTP transactional mutation and real supervised worker-loss recovery on one local physical node with isolated PostgreSQL schemas. No customer traffic, multi-node database HA, disaster recovery, production availability, or SLA claim.
+- Next action: Keep S1 as the regression boundary. S2 is explicitly not started in this work unit and requires a separate implementation checkpoint.
 
 ### Affected Existing Components
 
@@ -137,10 +137,12 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Architecture Delta
 
-- Before: Control-plane state still relies partly on process-local or file-ledger ownership.
-- After: Transactions, idempotency, leases, and fencing own every concurrent transition.
-- Selection reason: Durable atomic ownership must precede retry and overload experiments.
-- Alternative/trade-off: Extending file locks is simpler but cannot safely coordinate multiple replicas; SQLite improves transactions but not the intended multi-process pool behavior.
+- Before: The first S1 revision had transactional storage but accepted only an in-process concurrency-64 proof and simulated lease expiry.
+- After: The existing API and supervised worker expose measured external concurrency, bounded pool failure, exact process-loss fencing, one-time effects, and database-authoritative JSON mirror recovery.
+- Selection reason: Correctness claims must cross the real TCP API, PostgreSQL pool, OS process, supervisor, worker, outbox, and rollback-mirror boundaries.
+- Selection reason: Measured peak in-flight distinguishes actual concurrency from submitted task count.
+- Alternative/trade-off: An in-process store harness is faster and deterministic but cannot prove HTTP admission, process metrics, supervisor recovery, or OS fencing.
+- Alternative/trade-off: The retained JSON mirror provides rollback compatibility but requires explicit reconciliation and remains operational debt.
 
 ### Proposed Design
 
@@ -153,33 +155,35 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Dedicated transactional control-plane repository: `src/evm/control_panel/transactional_store.py`, `infra/postgres/control-plane/001_transactional_control_plane.sql`, `docker-compose.yml`, `pyproject.toml`, `apps/api/requirements.txt`
 - Existing lifecycle state and worker ownership: `src/evm/control_panel/lifecycle_runs.py`, `src/evm/control_panel/lifecycle_worker.py`, `src/evm/control_panel/lifecycle_guards.py`, `src/evm/operations/scenario_d_supervision.py`, `scripts/dev/start_lifecycle_worker.ps1`, `scripts/dev/start_host_runtime_supervisor.ps1`
 - Existing task, deployment, and side-effect boundaries: `src/evm/control_panel/operations.py`, `src/evm/control_panel/deployment_intents.py`, `src/evm/control_panel/schemas.py`, `apps/api/control_panel_tasks.py`, `apps/api/control_panel_deployments.py`, `apps/api/control_panel_lifecycle.py`, `apps/api/main.py`
-- Migration, experiment, and evidence validation: `scripts/dev/migrate_control_plane_state.py`, `scripts/validation/run_s1_migration_parity.py`, `scripts/validation/run_s1_transactional_state_experiment.py`, `tests/test_transactional_control_plane.py`, `tests/test_control_panel_contract.py`, `contracts/control-panel/control-panel.openapi.json`
-- Compatibility: Existing API routes, identifiers, JSON read contracts, and lifecycle guard semantics remain compatible.
-- Compatibility: PostgreSQL is authoritative in dual mode while JSON mirrors remain readable for rollback.
-- Migration: Import lifecycle, side-effect, task, command, and deployment ledgers into an isolated dedicated schema and repeat the import for digest parity.
-- Migration: Keep EVM_CONTROL_PLANE_STORE_MODE=file as the rollback switch; do not share the MLflow or Airflow databases.
+- Migration, experiment, and evidence validation: `scripts/dev/migrate_control_plane_state.py`, `scripts/validation/run_s1_migration_parity.py`, `scripts/validation/run_s1_transactional_state_experiment.py`, `tests/test_transactional_control_plane.py`, `tests/test_control_panel_contract.py`, `contracts/control-panel/control-panel.openapi.json`, `src/evm/scale_validation/s1_runtime.py`, `tests/test_s1_external_runtime_contract.py`, `tests/test_host_runtime_supervisor_contract.py`, `tests/test_lifecycle_runs.py`
+- Compatibility: Existing lifecycle, task, deployment, identifiers, API payloads, lifecycle guards, and S0 telemetry remain compatible.
+- Compatibility: PostgreSQL remains authoritative in dual mode while JSON mirrors remain readable and repairable for rollback.
+- Migration: Import existing control-plane ledgers into a dedicated isolated PostgreSQL schema and prove repeat-import digest parity.
+- Migration: Keep the file-mode rollback switch; do not share or mutate MLflow or Airflow PostgreSQL.
+- Migration: Reconcile a missing JSON mirror from the authoritative PostgreSQL entity after a controlled commit-to-mirror gap.
 
 ### Experiment Contract
 
-- Workload/input: Concurrent create, approve, cancel, retry, and stale-owner mutation requests against existing lifecycle jobs.
-- Precondition: S0 identity, trace, health, and evidence contracts pass.
-- Controlled variable: Concurrency level, idempotency-key reuse, pool size, lock wait, owner loss point, and retry count.
-- Signal: Committed state, transition conflicts, duplicate effects, lease/fencing identity, pool wait, timeout, and trace correlation.
-- Stop condition: An illegal transition, duplicate external effect, unbounded pool wait, or ambiguous owner is observed.
-- Recovery condition: One legal committed outcome remains and stale ownership is reconciled without duplicate effects.
+- Workload/input: External create, approve, cancel, and retry mutations at measured peak in-flight 100, 250, and 500, plus API pool exhaustion and one exact supervised worker-process loss.
+- Precondition: S0 corrected identity, trace, health, load-profile, and canonical evidence contracts pass.
+- Precondition: The isolated API revision, schema, exact worker marker, supervisor state, and cleanup target are unambiguous.
+- Controlled variable: Peak client/server in-flight concurrency, route mix, idempotency-key reuse, pool size/acquire timeout, exact worker PID, lease epoch, mirror-gap point, and recovery timeout.
+- Signal: Per-route status and latency, request/trace identity, committed state/version, pool timeout metric, worker PID/process instance, lease epoch, stale commit result, outbox effect counts, mirror digest/version, and cleanup.
+- Stop condition: Any illegal transition, missing trace identity, unbounded pool wait, ambiguous PID/owner, stale owner commit, duplicate or zero required effect, mirror parity failure, or dirty cleanup stops acceptance.
+- Recovery condition: A different supervised process owns the higher epoch, one legal terminal commit remains, all three required effects equal one with duplicates zero, database and JSON match, and isolated resources are removed.
 
 ### Acceptance
 
-- `S1-AC-01` [passed]: Duplicate lifecycle, deployment, and artifact effects are zero.
-- `S1-AC-02` [passed]: Conflicting mutations end in one legal terminal state.
-- `S1-AC-03` [passed]: Pool exhaustion returns a bounded observable failure rather than hanging.
-- `S1-AC-04` [passed]: Worker loss and retry preserve one committed outcome.
+- `S1-AC-01` [passed]: A real worker commits at least one lifecycle, deployment, and artifact effect, and each required effect is committed exactly once with duplicate count zero.
+- `S1-AC-02` [passed]: External create, approve, cancel, and retry conflicts at measured peak in-flight 100, 250, and 500 end in one legal database outcome.
+- `S1-AC-03` [passed]: Pool exhaustion through the external API returns a bounded observable failure rather than hanging.
+- `S1-AC-04` [passed]: Exact worker process loss advances the fencing epoch, blocks the stale owner, commits one terminal outcome, and restores PostgreSQL/JSON payload and version parity.
 
 ### Current Evidence
 
 - `docs/status/evidence/s1-control-plane-migration-evidence.json` (`af1aea3f22d635dd7a940b15638319f5e95e6c3a3d28dc785e397d48634965e9`): Existing ledgers imported once and produced exact repeat-import parity in an isolated PostgreSQL schema.
-- `docs/status/evidence/s1-transactional-state-evidence.json` (`2ef3aff7494a7e4eda3b64fa33de657c3514ceb2357a8e17bc8de1fd8bc4a2c1`): A 395-request real-PostgreSQL concurrency experiment passed S1-AC-01 through S1-AC-04.
-- `docs/status/evidence/s1-transactional-state-closure.json` (`000d52f81515b5617d3e677bb19c696b69dd5503ef2303905a17f437c00eab64`): Migration, runtime, tests, failures, cleanup, and claim limits are closed at implementation revision aa95f39.
+- `docs/status/evidence/s1-transactional-state-evidence.json` (`f5058d7e2fb91f94dabe2df541bbb70d2be1b82d16408b72150a86d280e1291c`): External HTTP peak-concurrency 100/250/500, bounded API pool failure, and actual supervised worker-loss evidence passed S1-AC-01 through S1-AC-04.
+- `docs/status/evidence/s1-transactional-state-closure.json` (`5ed8ffc5eeae086f35b0bfbe7303faa13ab7bf74cc744857ef760b85f115548e`): Strict S1 closure records superseded evidence, non-vacuous effects, PostgreSQL/JSON parity, rejected attempts, tests, cleanup, residual risks, and claim limits.
 
 ### Chronological Updates
 
@@ -188,6 +192,8 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-15T11:17:00Z` `experiment` / `implementing`: Two evidence-runner preflights failed before workload mutation because of connection API and mapping-row access defects; isolated schemas were cleaned and both failures remain in the closure RCA.
 - `2026-08-15T11:23:00Z` `recovery` / `implementing`: A full regression exposed a stale OpenAPI contract. Lifecycle, task, and deployment idempotency/version fields were aligned and explicit contract assertions were added.
 - `2026-08-15T11:30:04.498992Z` `verification` / `verified`: At aa95f39, migration parity, 395 real-PostgreSQL mutations, actual HTTP idempotent state transitions, 613 general tests, 7 real-PostgreSQL tests, 48 lifecycle regressions, 20 S0 regressions, runtime revision health, and cleanup passed.
+- `2026-08-15T12:00:00Z` `design` / `implementing`: An independent audit reopened S1 because concurrency 64, direct-store execution, simulated lease time, and vacuous duplicate counts did not meet the reviewed contract.
+- `2026-08-15T14:13:36.513676Z` `verification` / `verified`: At 8a8f54c, external HTTP measured peaks 100/250/500, bounded API pool exhaustion, exact worker PID loss, epoch fencing, non-vacuous exactly-once effects, PostgreSQL/JSON reconciliation, 622 general tests, 7 real-PostgreSQL tests, 57 lifecycle tests, 20 S0 tests, and cleanup passed.
 
 ## S2: Bounded Queue & Backpressure
 

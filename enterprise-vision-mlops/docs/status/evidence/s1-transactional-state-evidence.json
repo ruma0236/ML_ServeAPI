@@ -1,86 +1,274 @@
 {
-  "schema_version": "evm.s1_transactional_state_evidence.v1",
-  "generated_at": "2026-08-15T11:26:56.052380Z",
-  "started_at": "2026-08-15T11:26:54.469580Z",
+  "schema_version": "evm.s1_external_runtime_evidence.v2",
+  "generated_at": "2026-08-15T14:13:36.513676Z",
+  "started_at": "2026-08-15T14:13:00.743072Z",
   "source_identity": {
-    "implementation_revision": "aa95f39d6557b52295ae2a10e4de31993f665511",
+    "implementation_revision": "8a8f54c2c846a09487b4888a72ab1576ad056121",
     "branch": "codex/distributed-scale-validation-plan"
   },
   "environment": {
-    "database_engine": "PostgreSQL",
-    "database_version": "16.14",
+    "database_engine": "PostgreSQL 16",
+    "api_transport": "external_tcp_http",
     "execution_scope": "isolated_schema_on_local_single_node",
-    "customer_traffic": false
+    "customer_traffic": false,
+    "isolated_profile_digest": "2808e31a0eaa1439350a57a47344816e5528339982e07411e652ab68b2c77cbf",
+    "isolated_profile_reproducibility_digest": "28d82129db22ebd56cafdc02d46927b93bbe3ae7e294756c59ad97efaa50e6c2"
   },
-  "workload": {
-    "concurrency": 64,
-    "mutation_requests": 395,
-    "unique_creates": 100,
-    "idempotent_effect_keys": 30,
-    "requests_per_effect_key": 4,
-    "conflict_pairs": 50,
-    "retry_keys": 25,
-    "requests_per_retry_key": 3
-  },
-  "outcomes": {
-    "create_committed": 100,
-    "effect_committed": 30,
-    "idempotency_replay": 90,
-    "cancel_committed": 5,
-    "approve_committed": 45,
-    "approve_conflict": 5,
-    "cancel_conflict": 45,
-    "retry_committed": 25,
-    "retry_replay": 50
-  },
-  "latency_seconds": {
-    "mean": 0.0636354430392974,
-    "p95": 0.07900000002700835,
-    "p99": 0.09399999998277053,
-    "max": 0.0940000000409782
-  },
-  "idempotency": {
-    "committed_effects": {
-      "deployment_intent": 10,
-      "artifact_record": 10,
-      "lifecycle_effect": 10
+  "external_http_concurrency_sweeps": [
+    {
+      "target_concurrency": 100,
+      "measured_client_peak_in_flight": 100,
+      "measured_server_peak_in_flight": 100,
+      "submitted": 100,
+      "completed": 100,
+      "duration_seconds": 0.8439999999827705,
+      "per_route": {
+        "create": {
+          "submitted": 25,
+          "completed": 25,
+          "status_counts": {
+            "202": 25
+          },
+          "max_seconds": 0.8439999999827705,
+          "p95_seconds": 0.8439999999827705
+        },
+        "approve": {
+          "submitted": 25,
+          "completed": 25,
+          "status_counts": {
+            "202": 25
+          },
+          "max_seconds": 0.8439999999827705,
+          "p95_seconds": 0.8439999999827705
+        },
+        "cancel": {
+          "submitted": 25,
+          "completed": 25,
+          "status_counts": {
+            "409": 25
+          },
+          "max_seconds": 0.7189999999827705,
+          "p95_seconds": 0.7029999999795109
+        },
+        "retry": {
+          "submitted": 25,
+          "completed": 25,
+          "status_counts": {
+            "202": 25
+          },
+          "max_seconds": 0.8439999999827705,
+          "p95_seconds": 0.8439999999827705
+        }
+      },
+      "trace_identity_matches": 100,
+      "trace_identity_total": 100,
+      "request_trace_set_sha256": "b34ed6cb5adcbd74e0dc4e7fd4d54a2defa219b8a0c406c03b44f463e2744e77",
+      "status_counts": {
+        "202": 75,
+        "409": 25
+      },
+      "timeouts_or_transport_errors": 0,
+      "database_postconditions": {
+        "conflict_entities": 4,
+        "conflict_legal_single_transition": true,
+        "conflict_final_states": {
+          "queued": 4
+        },
+        "retry_entities": 4,
+        "retry_exactly_once": true,
+        "measured_unique_create_entities": 10,
+        "expected_unique_create_entities": 10,
+        "sweep_side_effect_rows": 0
+      },
+      "private_evidence_sha256": "1f3ea5b14f4d7dd3c1a64c52de020bb61da93988e07a8d94a8b08173d4b14585",
+      "started_at": "2026-08-15T14:13:00.744071Z",
+      "finished_at": "2026-08-15T14:13:04.617567Z",
+      "passed": true
     },
-    "duplicate_effects": {
-      "deployment_intent": 0,
-      "artifact_record": 0,
-      "lifecycle_effect": 0
+    {
+      "target_concurrency": 250,
+      "measured_client_peak_in_flight": 250,
+      "measured_server_peak_in_flight": 250,
+      "submitted": 250,
+      "completed": 250,
+      "duration_seconds": 1.5940000000409782,
+      "per_route": {
+        "create": {
+          "submitted": 63,
+          "completed": 63,
+          "status_counts": {
+            "202": 63
+          },
+          "max_seconds": 1.3910000000032596,
+          "p95_seconds": 1.3910000000032596
+        },
+        "approve": {
+          "submitted": 63,
+          "completed": 63,
+          "status_counts": {
+            "202": 63
+          },
+          "max_seconds": 1.5310000000172295,
+          "p95_seconds": 1.5310000000172295
+        },
+        "cancel": {
+          "submitted": 62,
+          "completed": 62,
+          "status_counts": {
+            "409": 62
+          },
+          "max_seconds": 1.1880000000237487,
+          "p95_seconds": 1.1880000000237487
+        },
+        "retry": {
+          "submitted": 62,
+          "completed": 62,
+          "status_counts": {
+            "202": 62
+          },
+          "max_seconds": 1.5940000000409782,
+          "p95_seconds": 1.5940000000409782
+        }
+      },
+      "trace_identity_matches": 250,
+      "trace_identity_total": 250,
+      "request_trace_set_sha256": "79ebc61a1bb2b835f348b0fd692f18e65733137246649a44ef459b1b0b73ef8f",
+      "status_counts": {
+        "202": 188,
+        "409": 62
+      },
+      "timeouts_or_transport_errors": 0,
+      "database_postconditions": {
+        "conflict_entities": 10,
+        "conflict_legal_single_transition": true,
+        "conflict_final_states": {
+          "queued": 10
+        },
+        "retry_entities": 10,
+        "retry_exactly_once": true,
+        "measured_unique_create_entities": 10,
+        "expected_unique_create_entities": 10,
+        "sweep_side_effect_rows": 0
+      },
+      "private_evidence_sha256": "73eddb0954729ea54bfe92c762c2f57c91c1974004db53bad46309cffbe41817",
+      "started_at": "2026-08-15T14:13:04.676486Z",
+      "finished_at": "2026-08-15T14:13:10.558317Z",
+      "passed": true
     },
-    "side_effect_outbox_rows": 1
-  },
-  "conflicts": {
-    "entities": 50,
-    "legal_terminal_or_next_states": true,
-    "version_conflicts": 50
-  },
-  "lease_and_fencing": {
-    "first_epoch": 1,
-    "replacement_epoch": 2,
-    "stale_owner_commit_blocked": true,
-    "replacement_owner_state": "completed",
-    "duplicate_side_effects": 0
-  },
-  "pool": {
-    "max_size": 1,
-    "acquire_timeout_seconds": 0.2,
-    "timeout_observed": true,
-    "timeout_elapsed_seconds": 0.2029999999795109,
-    "telemetry": {
-      "acquisitions": 2,
-      "timeouts": 1,
-      "wait_seconds_total": 0.21899999998277053,
-      "wait_seconds_max": 0.2029999999795109
+    {
+      "target_concurrency": 500,
+      "measured_client_peak_in_flight": 500,
+      "measured_server_peak_in_flight": 500,
+      "submitted": 500,
+      "completed": 500,
+      "duration_seconds": 2.75,
+      "per_route": {
+        "create": {
+          "submitted": 125,
+          "completed": 125,
+          "status_counts": {
+            "202": 125
+          },
+          "max_seconds": 2.3119999999762513,
+          "p95_seconds": 2.3119999999762513
+        },
+        "approve": {
+          "submitted": 125,
+          "completed": 125,
+          "status_counts": {
+            "202": 125
+          },
+          "max_seconds": 2.5619999999762513,
+          "p95_seconds": 2.5619999999762513
+        },
+        "cancel": {
+          "submitted": 125,
+          "completed": 125,
+          "status_counts": {
+            "409": 125
+          },
+          "max_seconds": 1.8910000000032596,
+          "p95_seconds": 1.875
+        },
+        "retry": {
+          "submitted": 125,
+          "completed": 125,
+          "status_counts": {
+            "202": 125
+          },
+          "max_seconds": 2.735000000044238,
+          "p95_seconds": 2.735000000044238
+        }
+      },
+      "trace_identity_matches": 500,
+      "trace_identity_total": 500,
+      "request_trace_set_sha256": "dcd6eb75736a8956d73720af09bf25ba76179be00b5db9e56be8a1afb5e9c4b4",
+      "status_counts": {
+        "202": 375,
+        "409": 125
+      },
+      "timeouts_or_transport_errors": 0,
+      "database_postconditions": {
+        "conflict_entities": 10,
+        "conflict_legal_single_transition": true,
+        "conflict_final_states": {
+          "queued": 10
+        },
+        "retry_entities": 10,
+        "retry_exactly_once": true,
+        "measured_unique_create_entities": 10,
+        "expected_unique_create_entities": 10,
+        "sweep_side_effect_rows": 0
+      },
+      "private_evidence_sha256": "c54dad9f210e5e28a42f4aee48050b468715fb1ee493b8162a0c2babbcd89f95",
+      "started_at": "2026-08-15T14:13:10.635094Z",
+      "finished_at": "2026-08-15T14:13:17.673008Z",
+      "passed": true
     }
+  ],
+  "api_bounded_pool_failure": {
+    "api_route": "/control-panel/v1/lifecycle-runs",
+    "pool_max_size": 1,
+    "acquire_timeout_seconds": 0.25,
+    "lock_wait_observed": true,
+    "holder_status": 202,
+    "contender_count": 12,
+    "contender_status_counts": {
+      "503": 12
+    },
+    "max_contender_seconds": 0.3279999999795109,
+    "pool_timeout_metric_delta_minimum": 12,
+    "private_evidence_sha256": "dd821893f33b4ff5b79ced50c445e2833c74d2ce459a80af0725b302cbe2e02f",
+    "started_at": "2026-08-15T14:13:17.759883Z",
+    "finished_at": "2026-08-15T14:13:20.365159Z",
+    "passed": true
   },
-  "trace_identity": {
-    "entity_count": 100,
-    "missing_correlation_count": 0,
-    "correlation_field_preserved": true,
-    "s0_regression_required": true
+  "real_worker_process_loss": {
+    "initial_worker_os_kill": true,
+    "supervisor_ready_before_kill": true,
+    "initial_pid_exit_confirmed": true,
+    "initial_claim_epoch": 1,
+    "replacement_claim_epoch": 2,
+    "distinct_process_instances": 3,
+    "supervisor_replacement_observed": true,
+    "stale_owner_commit_blocked": true,
+    "terminal_state": "completed",
+    "terminal_version": 2,
+    "terminal_commit_count": 1,
+    "committed_effects": {
+      "deployment_reservation": 1,
+      "artifact_publication": 1,
+      "lifecycle_terminal": 1
+    },
+    "duplicate_effects": 0,
+    "postgres_commit_to_json_mirror_gap_injected": true,
+    "json_mirror_reconciled_by_restarted_worker": true,
+    "postgres_json_payload_version_parity": true,
+    "recovery_elapsed_seconds_upper_bound": 9.875,
+    "private_evidence_sha256": "d3dcff34de130adb3f89515800d0ceb6377ae1a880e0919b6e35dffce3e5f82f",
+    "started_at": "2026-08-15T14:13:20.400793Z",
+    "finished_at": "2026-08-15T14:13:36.430100Z",
+    "passed": true
   },
   "acceptance": {
     "S1-AC-01": true,
@@ -88,10 +276,18 @@
     "S1-AC-03": true,
     "S1-AC-04": true
   },
+  "failed_attempts_and_rca": [],
   "status": "passed",
   "cleanup": {
-    "experiment_schema_dropped_after_evidence_capture": true,
-    "production_runtime_mutated": false
+    "isolated_schemas_dropped": true,
+    "isolated_worker_processes_removed": true,
+    "production_runtime_mutated": false,
+    "customer_data_mutated": false,
+    "private_raw_evidence_retained_outside_git": true
   },
-  "claim_boundary": "Real PostgreSQL concurrency on one local physical node; no customer traffic, multi-node database HA, or production SLA claim."
+  "private_evidence": {
+    "suite_digest": "0540ecbefd0fec99d4e00985ebfd70a0a77bfce456009654e968dc85b2be38e9",
+    "location": "outside_git_private_evidence_root"
+  },
+  "claim_boundary": "External HTTP and real-process evidence on one local physical node with an isolated PostgreSQL schema. No customer traffic, multi-node database HA, DR, or production SLA claim."
 }

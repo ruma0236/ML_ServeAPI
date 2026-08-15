@@ -95,10 +95,22 @@ Design:
 
 Acceptance:
 
-- duplicate lifecycle, deployment, and artifact effects are zero;
-- conflicting mutations terminate in one legal state;
-- pool exhaustion becomes a bounded observable failure rather than a hang;
-- worker loss and retry retain one committed outcome.
+- a real worker commits at least one lifecycle, deployment, and artifact effect,
+  and each required effect is committed exactly once with duplicate count zero;
+- external create, approve, cancel, and retry mutations reach measured peak
+  in-flight 100, 250, and 500 and conflicting mutations terminate in one legal
+  state;
+- pool exhaustion through the external API becomes a bounded observable failure
+  rather than a hang;
+- exact worker-process loss advances the fencing epoch, blocks the stale owner,
+  retains one committed outcome, and restores PostgreSQL/JSON payload and version
+  parity after an injected commit-to-mirror gap.
+
+Execution closure: verified at implementation revision `8a8f54c` with fresh,
+canonical-LF, hash-linked evidence. The earlier 395-request/concurrency-64
+in-process result is retained only as historical implementation evidence and
+does not close this stricter acceptance contract. This is isolated local
+single-node evidence, not production traffic, database HA, DR, or SLA proof.
 
 ## Scenario S2: Bounded Queue & Backpressure
 
