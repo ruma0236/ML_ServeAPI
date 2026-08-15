@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-15T00:12:39Z`
+- Generated: `2026-08-15T09:36:03Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -9,16 +9,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S0: Runtime Baseline & Evidence Contract
 
-- Status: `verified`
+- Status: `implementing`
 - Engineering question: Can every load result start from a healthy, reproducible runtime whose identity, metrics, and trace propagation are machine-verifiable?
 - Why now: No scale result is credible without a stable and attributable control case.
 - Observed gap: Degraded readiness could return HTTP 200, and no strict benchmark closure contract requires identity, cross-layer traces, repeated metrics, and hashed evidence.
 - Existing-system baseline: The existing control plane uses a FastAPI API, file-ledger task assignments, a supervised lifecycle worker, Compose Airflow and MLflow services, Kubernetes model serving, and Prometheus. Health and metrics exist, but one exported cross-runtime trace and machine-enforced evidence closure do not yet cover that real path.
 - Architecture before: Health, metrics, and logs exist without one machine-enforced evidence closure.
 - Architecture after: Readiness, bounded telemetry, distributed trace identity, and benchmark closure gate every later scenario.
-- Verdict: `passed`
+- Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Begin S1 transactional job state and idempotency implementation while keeping the S0 control suite as the regression baseline.
+- Next action: Commit and revision-align the corrected runner, then execute three fresh fixed-window controls before S1 begins.
 
 ### Affected Existing Components
 
@@ -42,12 +42,12 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Return HTTP 503 whenever serving dependencies or the promoted model are not ready.
 - Propagate W3C trace context through API, queue, worker, data, tracking, and serving.
 - Keep metric labels bounded while exact identities remain in traces and structured logs.
-- Capture three low-load controls with latency, throughput, resource, pool, and retry data.
+- Capture three fixed-window low-load controls with latency, throughput, resource, load-generator permit-wait, and retry data.
 
 ### Implementation Delta
 
 - Serving readiness contract: `apps/api/main.py`, `tests/test_api_metrics.py`
-- In-place scale-validation evidence contracts: `src/evm/scale_validation/contracts.py`, `src/evm/scale_validation/catalog.py`, `scripts/dev/initialize_scale_scenario_progress.py`, `scripts/dev/validate_scale_scenario_progress.py`, `tests/test_scale_scenario_progress.py`
+- In-place scale-validation evidence contracts: `src/evm/scale_validation/contracts.py`, `src/evm/scale_validation/evidence.py`, `src/evm/scale_validation/catalog.py`, `scripts/dev/initialize_scale_scenario_progress.py`, `scripts/dev/validate_scale_scenario_progress.py`, `tests/test_scale_scenario_progress.py`, `tests/test_scale_validation_evidence.py`, `.gitattributes`
 - W3C trace propagation across existing runtime boundaries: `src/evm/observability/trace_context.py`, `src/evm/observability/otel.py`, `apps/api/main.py`, `apps/api/efficientnet_serving.py`, `src/evm/control_panel/lifecycle_runs.py`, `src/evm/control_panel/lifecycle_orchestrator.py`, `src/evm/control_panel/lifecycle_worker.py`, `src/evm/control_panel/operations.py`, `src/evm/core/pipeline.py`, `src/evm/core/http.py`, `src/evm/core/mlflow_client.py`
 - Existing local telemetry runtime: `docker-compose.yml`, `monitoring/opentelemetry/collector.yaml`, `monitoring/prometheus/prometheus.yml`, `scripts/dev/start_lifecycle_worker.ps1`, `scripts/dev/start_kubernetes_observer.ps1`, `scripts/dev/start_local_stack.ps1`, `src/evm/control_panel/kubernetes_observer.py`
 - Bounded serving telemetry and exact endpoint verification: `src/evm/model_runtime/serving.py`, `src/evm/model_runtime/workload_runner.py`, `src/evm/model_runtime/scenario_workload_production.py`, `src/evm/control_panel/lifecycle_orchestrator.py`, `tests/test_scenario_model_serving.py`, `tests/test_scenario_workload_production.py`
@@ -64,12 +64,12 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Experiment Contract
 
-- Workload/input: Three independent low-load requests through the existing lifecycle and serving path.
+- Workload/input: Three independent controls, each pacing three real CUDA requests across a declared 60-second fixed-rate window through the existing lifecycle and serving path.
 - Precondition: Existing control services, one promoted serving target, monitoring, worker, and observer are healthy and revision-aligned.
 - Precondition: Source, data, model, runtime, and load-profile identities are immutable and public-safe evidence roots are writable.
-- Controlled variable: Source, data, model, runtime, seed, request payload, concurrency, warmup, and measurement window.
+- Controlled variable: Source, data, model, runtime, seed-applied test-sample sequence, concurrency, warmup, and fixed measurement window.
 - Controlled variable: No concurrent training, deployment, or unrelated background load during each control repetition.
-- Signal: Readiness status, W3C trace stages, latency quantiles, throughput, queue age/depth, worker activity, pool wait, retry count, CPU/RAM/GPU/VRAM.
+- Signal: Readiness status, W3C trace stages, latency quantiles, fixed-window throughput, queue age/depth, worker activity, load-generator permit wait, retry count, CPU/RAM/GPU/VRAM.
 - Signal: Focused regression tests and the existing end-to-end lifecycle regression result.
 - Stop condition: Any active dependency is unhealthy, identity is ambiguous, trace linkage is missing, or metric labels become unbounded.
 - Stop condition: Unexpected production-like mutation, accelerator OOM, or dirty cleanup state is observed.
@@ -78,11 +78,11 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S0-AC-01` [passed]: Only healthy active targets are included in the baseline.
-- `S0-AC-02` [passed]: Exact source, data, model, and runtime identity is complete.
-- `S0-AC-03` [passed]: p50, p95, p99, throughput, queue, pool, retry, CPU, RAM, GPU, and VRAM are queryable.
-- `S0-AC-04` [passed]: Trace propagation spans every declared lifecycle stage with zero missing links.
-- `S0-AC-05` [passed]: Three independent controls are comparable and variance is reported.
+- `S0-AC-01` [pending]: Only healthy active targets are included in the baseline.
+- `S0-AC-02` [pending]: Exact source, data, model, and runtime identity is complete.
+- `S0-AC-03` [pending]: p50, p95, p99, fixed-window throughput, queue, load-generator permit wait, retry, CPU, RAM, GPU, and VRAM are queryable.
+- `S0-AC-04` [pending]: Trace propagation spans every declared lifecycle stage with zero missing links.
+- `S0-AC-05` [pending]: Three independent controls are comparable and variance is reported.
 
 ### Current Evidence
 
@@ -94,11 +94,12 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s0-low-load-control-runner-checkpoint.json` (`f0bd6847bfec46694b4917c463a0774b121b4ba704d5288a1031f35ef4f9b89e`): An in-place low-load control runner and runtime-wide revision labels passed 600 tests; live controls and S0 acceptance remain pending.
 - `docs/status/evidence/s0-first-control-rca-checkpoint.json` (`c3f80a305f377e301a591f9758f05032b4a20056acb6da68ca574543d48d7b3e`): One fresh control traversed Airflow, Spark, MLflow, and real CUDA inference but failed closed because the serving OTLP stage was absent; the RCA remediation passed 603 tests and acceptance remains pending.
 - `docs/status/evidence/s0-serving-runtime-dependency-rca-checkpoint.json` (`1f9046690fb1fff2e0fd05b886c2684cfddb578ca1e0564920421b4725106729`): An exact serving replacement failed closed on a missing OTLP exporter, the B0 fallback recovered at 1/1, and compatible host-runtime pins plus 604-test regression passed; accepted controls remain at zero.
-- `docs/status/evidence/s0-low-load-control-1.json` (`7dbbc736c81da677d28dc62a7a64960825c5d26216bee5d685db48690d289cc7`): S0 independent low-load control 1 passed the runtime contract.
-- `docs/status/evidence/s0-low-load-control-2.json` (`986448314a14405606237f8423804f649c82f4c58b64b12743ff928ee15ea1da`): S0 independent low-load control 2 passed the runtime contract.
-- `docs/status/evidence/s0-low-load-control-3.json` (`0042c6e0ae8a02997896dc1a1767fe38262538a8e488f0cded093a69cd987dc4`): S0 independent low-load control 3 passed the runtime contract.
-- `docs/status/evidence/s0-cross-runtime-trace-summary.json` (`1ed4b64fa109d09dbefc5d8a3e7e713a417a112bff02709e3bf3a8a15364f347`): All three controls observed API, queue, worker, Spark, MLflow, and serving stages with zero missing links.
-- `docs/status/evidence/s0-low-load-benchmark-evidence.json` (`4f9e4abaafee8ed8cdc282485580fcba92d22be407b263b2fa2d61e1866e6e55`): Three independent controls passed with hashed evidence, complete runtime identity, bounded metrics, and reported variance.
+- `docs/status/evidence/s0-evidence-contract-rca-checkpoint.json` (`be8832236ccae55e6b889046fa633a4b3b2aa321863db167b16ecc706a2f7475`): An independent audit invalidated the first S0 closure because public hashes used CRLF worktree bytes, fixed-window pacing and seed application were absent, and permit wait was mislabeled as pool wait.
+- `docs/status/evidence/s0-low-load-control-1.json` (`552af2a85fdb2d3bfcdf0407abb19b1aa3ff6c12e97f47db63bb9444f8d30a24`): Historical S0 control 1 is retained but is not accepted as fixed-window load evidence.
+- `docs/status/evidence/s0-low-load-control-2.json` (`a3ae4a4939042355ae80567cc0de2fcd5453a91d9f23d35a6e009856c9a4525b`): Historical S0 control 2 is retained but is not accepted as fixed-window load evidence.
+- `docs/status/evidence/s0-low-load-control-3.json` (`3b713445967002e60d8a6f5a2c2d3fe635c6530e0a9c9a309cf8b3bce24535f0`): Historical S0 control 3 is retained but is not accepted as fixed-window load evidence.
+- `docs/status/evidence/s0-cross-runtime-trace-summary.json` (`0fafe770b87713d33fa370f75b03c26d7ff762d6ff31a6fff37f8e2160cb1e6c`): Historical trace linkage is retained but does not close the fixed-window benchmark contract.
+- `docs/status/evidence/s0-low-load-benchmark-evidence.json` (`41aee97a7a2ba1d88e4618ece7eca229c0c94329e70b21ef3774c4a3b3123b9b`): The superseded burst suite is explicitly failed pending three fresh fixed-window controls.
 
 ### Chronological Updates
 
@@ -112,7 +113,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-14T22:59:31Z` `implementation` / `implementing`: The existing runtime now has a fail-closed low-load control runner and revision-aware OTLP resources. Focused checks and 600-test regression passed; no live control or S0 acceptance is claimed.
 - `2026-08-14T23:25:46Z` `experiment` / `implementing`: The first fresh control completed the bounded functional path but failed closed with the serving trace stage absent. RCA found an unconfigured serving child and stale API image identity; the in-place remediation passed 603 tests, while accepted controls remain at zero.
 - `2026-08-14T23:34:43Z` `implementation` / `implementing`: The exact serving replacement failed closed because the dedicated CUDA runtime lacked the OTLP HTTP exporter. The B0 fallback returned 1/1, compatible telemetry dependencies were pinned and preflighted, pip check passed, and 604 tests passed.
-- `2026-08-15T00:10:13Z` `verification` / `verified`: Three fresh controls passed through the existing Airflow, Spark, MLflow, and real CUDA serving path. All six required trace stages were present, identity and artifact hashes matched, variance was reported, retry attempts were zero, and post-run workers were idle.
+- `2026-08-15T00:10:13Z` `experiment` / `implementing`: Three functional controls traversed the existing runtime, but an independent audit later invalidated benchmark acceptance: hashes described CRLF worktree bytes, requests were burst rather than fixed-window paced, seed was metadata-only, and permit wait was misnamed as connection-pool wait.
 
 ## S1: Transactional Job State & Idempotency
 
@@ -131,7 +132,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 - Lifecycle and task state: `src/evm/control_panel/lifecycle_runs.py`, `src/evm/control_panel/operations.py`
 - Worker ownership: `src/evm/control_panel/lifecycle_worker.py`, `src/evm/operations/scenario_d_supervision.py`
-- Control API: `apps/api/main.py`, `src/evm/control_panel/router.py`
+- Control API: `apps/api/main.py`, `apps/api/control_panel_lifecycle.py`, `apps/api/control_panel_tasks.py`, `apps/api/control_panel_deployments.py`
 
 ### Architecture Delta
 

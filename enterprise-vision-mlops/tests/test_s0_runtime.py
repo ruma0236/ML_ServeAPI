@@ -8,11 +8,28 @@ import pytest
 from evm.scale_validation.s0_runtime import (
     S0RuntimeError,
     coefficient_of_variation,
+    deterministic_sample_selectors,
+    execute_fixed_window_requests,
+    fixed_window_request_count,
     percentile,
     read_trace_spans,
     request_latency_statistics,
     total_ram_gib,
 )
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
 
 
 def test_percentiles_use_deterministic_nearest_rank() -> None:
@@ -86,3 +103,42 @@ def test_trace_reader_preserves_stage_and_runtime_revision(tmp_path: Path) -> No
             "attributes": {"evm.stage": "api"},
         }
     ]
+
+
+def test_fixed_window_paces_declared_profile_and_applies_seed() -> None:
+    clock = FakeClock()
+    observed_selectors: list[int] = []
+
+    def request(selector: int) -> str:
+        observed_selectors.append(selector)
+        clock.advance(0.25)
+        return f"sample-{selector % 7}"
+
+    result = execute_fixed_window_requests(
+        target_rps=0.05,
+        duration_seconds=60.0,
+        request_count=3,
+        seed=20260815,
+        request=request,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    assert result.request_start_offsets_seconds == pytest.approx((0.0, 20.0, 40.0))
+    assert result.observed_elapsed_seconds == pytest.approx(60.0)
+    assert observed_selectors == list(
+        deterministic_sample_selectors(seed=20260815, request_count=3)
+    )
+    assert len(result.sample_ids) == 3
+
+
+def test_fixed_window_rejects_request_count_that_does_not_match_profile() -> None:
+    assert fixed_window_request_count(target_rps=0.05, duration_seconds=60.0) == 3
+    with pytest.raises(S0RuntimeError, match="request_count_mismatch"):
+        execute_fixed_window_requests(
+            target_rps=0.05,
+            duration_seconds=60.0,
+            request_count=2,
+            seed=20260815,
+            request=lambda _: "unused",
+        )

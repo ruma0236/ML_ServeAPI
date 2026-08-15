@@ -32,6 +32,9 @@ def main() -> int:
     )
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--serving-requests", type=int, default=3)
+    parser.add_argument("--target-rps", type=float, default=0.05)
+    parser.add_argument("--load-duration", type=float, default=60.0)
+    parser.add_argument("--seed", type=int, default=20260815)
     parser.add_argument("--lifecycle-timeout", type=float, default=900)
     parser.add_argument("--trace-timeout", type=float, default=45)
     parser.add_argument("--poll-interval", type=float, default=2)
@@ -48,6 +51,9 @@ def main() -> int:
     config = S0RuntimeConfig(
         repetitions=args.repetitions,
         serving_requests_per_run=args.serving_requests,
+        target_requests_per_second=args.target_rps,
+        load_duration_seconds=args.load_duration,
+        seed=args.seed,
         lifecycle_timeout_seconds=args.lifecycle_timeout,
         trace_timeout_seconds=args.trace_timeout,
         poll_interval_seconds=args.poll_interval,

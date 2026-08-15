@@ -517,9 +517,14 @@ def verify_production_inference(
     intent: ScenarioProductionIntent,
     *,
     trace_context: W3CTraceContext | None = None,
+    sample_selector: int | None = None,
 ) -> dict[str, Any]:
     run = get_workload_run(intent.run_id)
-    record = split_records(read_jsonl(Path(run.identity.manifest_uri)))["test"][0]
+    test_records = split_records(read_jsonl(Path(run.identity.manifest_uri)))["test"]
+    if not test_records:
+        raise ModelRuntimeError("scenario_production_test_split_empty")
+    sample_index = 0 if sample_selector is None else sample_selector % len(test_records)
+    record = test_records[sample_index]
     if intent.model_family == "vlm":
         request = {
             "model_family": "vlm",

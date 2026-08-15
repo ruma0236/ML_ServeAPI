@@ -160,9 +160,9 @@
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s0-low-load-control-1.json",
-          "sha256": "7dbbc736c81da677d28dc62a7a64960825c5d26216bee5d685db48690d289cc7",
+          "sha256": "552af2a85fdb2d3bfcdf0407abb19b1aa3ff6c12e97f47db63bb9444f8d30a24",
           "generated_at": "2026-08-15T00:10:13.133486Z",
-          "claim": "S0 independent low-load control 1 passed the runtime contract."
+          "claim": "Historical functional control 1; not accepted as fixed-window load evidence."
         }
       ]
     },
@@ -299,9 +299,9 @@
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s0-low-load-control-2.json",
-          "sha256": "986448314a14405606237f8423804f649c82f4c58b64b12743ff928ee15ea1da",
+          "sha256": "a3ae4a4939042355ae80567cc0de2fcd5453a91d9f23d35a6e009856c9a4525b",
           "generated_at": "2026-08-15T00:10:13.133486Z",
-          "claim": "S0 independent low-load control 2 passed the runtime contract."
+          "claim": "Historical functional control 2; not accepted as fixed-window load evidence."
         }
       ]
     },
@@ -438,9 +438,9 @@
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s0-low-load-control-3.json",
-          "sha256": "0042c6e0ae8a02997896dc1a1767fe38262538a8e488f0cded093a69cd987dc4",
+          "sha256": "3b713445967002e60d8a6f5a2c2d3fe635c6530e0a9c9a309cf8b3bce24535f0",
           "generated_at": "2026-08-15T00:10:13.133486Z",
-          "claim": "S0 independent low-load control 3 passed the runtime contract."
+          "claim": "Historical functional control 3; not accepted as fixed-window load evidence."
         }
       ]
     }
@@ -466,9 +466,9 @@
     "metric_labels_bounded": true,
     "trace_artifact": {
       "path": "docs/status/evidence/s0-cross-runtime-trace-summary.json",
-      "sha256": "1ed4b64fa109d09dbefc5d8a3e7e713a417a112bff02709e3bf3a8a15364f347",
+      "sha256": "0fafe770b87713d33fa370f75b03c26d7ff762d6ff31a6fff37f8e2160cb1e6c",
       "generated_at": "2026-08-15T00:10:13.133486Z",
-      "claim": "All controls observed the required existing-runtime trace stages."
+      "claim": "Historical trace linkage only; not fixed-window benchmark acceptance."
     }
   },
   "variance": {
@@ -476,8 +476,13 @@
     "request_throughput_cv": 0.04328242483096556
   },
   "closure": {
-    "decision": "passed",
-    "blockers": [],
-    "completed_at": "2026-08-15T00:10:13.133486Z"
+    "decision": "failed",
+    "blockers": [
+      "declared_fixed_window_profile_not_executed",
+      "declared_seed_not_applied",
+      "permit_wait_metric_mislabeled_as_connection_pool_wait",
+      "published_hashes_not_canonical_git_blob_bytes"
+    ],
+    "completed_at": "2026-08-15T09:34:11Z"
   }
 }

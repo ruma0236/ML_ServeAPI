@@ -1,2 +1,6 @@
 *.sh text eol=lf
 Makefile text eol=lf
+docs/status/evidence/*.json text eol=lf
+docs/status/*scenario-progress.json text eol=lf
+docs/status/*scenario-progress.md text eol=lf
+contracts/distributed-scale/*.json text eol=lf

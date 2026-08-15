@@ -59,6 +59,30 @@
           "title": "Finished At",
           "type": "string"
         },
+        "lifecycle_elapsed_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lifecycle Elapsed Seconds"
+        },
+        "inference_measurement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InferenceMeasurementWindow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "metrics": {
           "items": {
             "$ref": "#/$defs/MetricObservation"
@@ -208,6 +232,87 @@
       "title": "EvidenceArtifact",
       "type": "object"
     },
+    "InferenceMeasurementWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "const": "fixed_duration_open_loop",
+          "title": "Basis",
+          "type": "string"
+        },
+        "target_requests_per_second": {
+          "exclusiveMinimum": 0.0,
+          "title": "Target Requests Per Second",
+          "type": "number"
+        },
+        "declared_duration_seconds": {
+          "exclusiveMinimum": 0.0,
+          "title": "Declared Duration Seconds",
+          "type": "number"
+        },
+        "observed_elapsed_seconds": {
+          "exclusiveMinimum": 0.0,
+          "title": "Observed Elapsed Seconds",
+          "type": "number"
+        },
+        "planned_request_count": {
+          "minimum": 1,
+          "title": "Planned Request Count",
+          "type": "integer"
+        },
+        "completed_request_count": {
+          "minimum": 0,
+          "title": "Completed Request Count",
+          "type": "integer"
+        },
+        "scheduled_interval_seconds": {
+          "exclusiveMinimum": 0.0,
+          "title": "Scheduled Interval Seconds",
+          "type": "number"
+        },
+        "max_request_start_lag_seconds": {
+          "minimum": 0.0,
+          "title": "Max Request Start Lag Seconds",
+          "type": "number"
+        },
+        "seed": {
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "seed_scope": {
+          "const": "deterministic_test_sample_selection",
+          "title": "Seed Scope",
+          "type": "string"
+        },
+        "request_sequence_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Request Sequence Sha256",
+          "type": "string"
+        },
+        "throughput_basis": {
+          "const": "completed_requests_per_declared_window",
+          "title": "Throughput Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "basis",
+        "target_requests_per_second",
+        "declared_duration_seconds",
+        "observed_elapsed_seconds",
+        "planned_request_count",
+        "completed_request_count",
+        "scheduled_interval_seconds",
+        "max_request_start_lag_seconds",
+        "seed",
+        "seed_scope",
+        "request_sequence_sha256",
+        "throughput_basis"
+      ],
+      "title": "InferenceMeasurementWindow",
+      "type": "object"
+    },
     "LoadProfile": {
       "additionalProperties": false,
       "properties": {
@@ -245,6 +350,45 @@
           "minimum": 0,
           "title": "Seed",
           "type": "integer"
+        },
+        "arrival_model": {
+          "anyOf": [
+            {
+              "const": "fixed_rate_open_loop",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Arrival Model"
+        },
+        "request_count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Count"
+        },
+        "seed_scope": {
+          "anyOf": [
+            {
+              "const": "deterministic_test_sample_selection",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed Scope"
         }
       },
       "required": [

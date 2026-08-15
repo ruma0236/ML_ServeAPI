@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-15T00:12:39Z",
+  "generated_at": "2026-08-15T09:36:03Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -15,7 +15,7 @@
         "Return HTTP 503 whenever serving dependencies or the promoted model are not ready.",
         "Propagate W3C trace context through API, queue, worker, data, tracking, and serving.",
         "Keep metric labels bounded while exact identities remain in traces and structured logs.",
-        "Capture three low-load controls with latency, throughput, resource, pool, and retry data."
+        "Capture three fixed-window low-load controls with latency, throughput, resource, load-generator permit-wait, and retry data."
       ],
       "changed_components": [
         {
@@ -29,10 +29,13 @@
           "component": "In-place scale-validation evidence contracts",
           "files": [
             "src/evm/scale_validation/contracts.py",
+            "src/evm/scale_validation/evidence.py",
             "src/evm/scale_validation/catalog.py",
             "scripts/dev/initialize_scale_scenario_progress.py",
             "scripts/dev/validate_scale_scenario_progress.py",
-            "tests/test_scale_scenario_progress.py"
+            "tests/test_scale_scenario_progress.py",
+            "tests/test_scale_validation_evidence.py",
+            ".gitattributes"
           ]
         },
         {
@@ -132,7 +135,8 @@
         "A fail-closed runner now drives the existing stepwise lifecycle, exact CUDA serving, MLflow, scoped queue and worker metrics, and OTLP evidence contract.",
         "A failed fresh control exposed missing serving OTLP configuration and stale API image identity; required serving telemetry and immutable image revision checks are now implemented.",
         "A subsequent exact serving replacement exposed the missing host OTLP exporter; compatible OpenTelemetry and protobuf versions are now pinned and startup-preflighted.",
-        "Three independent real controls now pass the existing Airflow, Spark, MLflow, and CUDA serving path with complete trace stages and hashed variance evidence.",
+        "The first closure was reopened after an audit found CRLF-derived public hashes, an unexecuted fixed-window profile, a metadata-only seed, and a mislabeled load-generator permit metric.",
+        "Public evidence now has canonical LF bytes, strict worktree/Git-blob rehash validation, fixed-rate pacing, deterministic seeded sample selection, and truthful permit-wait naming.",
         "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level."
       ],
       "experiment_environment": "Exercised in the existing local single-node runtime with 24 logical CPUs, about 63.75 GiB RAM, one discrete accelerator, co-located load generation, real Airflow/Spark/MLflow execution, and real CUDA inference.",
@@ -145,46 +149,35 @@
         {
           "criterion_id": "S0-AC-01",
           "description": "Only healthy active targets are included in the baseline.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s0-low-load-benchmark-evidence.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         },
         {
           "criterion_id": "S0-AC-02",
           "description": "Exact source, data, model, and runtime identity is complete.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s0-low-load-benchmark-evidence.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         },
         {
           "criterion_id": "S0-AC-03",
-          "description": "p50, p95, p99, throughput, queue, pool, retry, CPU, RAM, GPU, and VRAM are queryable.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s0-low-load-benchmark-evidence.json"
-          ]
+          "description": "p50, p95, p99, fixed-window throughput, queue, load-generator permit wait, retry, CPU, RAM, GPU, and VRAM are queryable.",
+          "status": "pending",
+          "evidence_refs": []
         },
         {
           "criterion_id": "S0-AC-04",
           "description": "Trace propagation spans every declared lifecycle stage with zero missing links.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s0-low-load-benchmark-evidence.json",
-            "docs/status/evidence/s0-cross-runtime-trace-summary.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         },
         {
           "criterion_id": "S0-AC-05",
           "description": "Three independent controls are comparable and variance is reported.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s0-low-load-benchmark-evidence.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         }
       ],
-      "observed_result": "Three independent controls passed. Required trace stages were complete with zero missing links; request-latency p95 CV was 0.09099, throughput CV was 0.04328, and observed retry attempts were zero.",
+      "observed_result": null,
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s0-otel-implementation-checkpoint.json",
@@ -235,40 +228,52 @@
           "claim": "An exact serving replacement failed closed on a missing OTLP exporter, the B0 fallback recovered at 1/1, and compatible host-runtime pins plus 604-test regression passed; accepted controls remain at zero."
         },
         {
+          "path": "docs/status/evidence/s0-evidence-contract-rca-checkpoint.json",
+          "sha256": "be8832236ccae55e6b889046fa633a4b3b2aa321863db167b16ecc706a2f7475",
+          "generated_at": "2026-08-15T09:34:11Z",
+          "claim": "An independent audit invalidated the first S0 closure because public hashes used CRLF worktree bytes, fixed-window pacing and seed application were absent, and permit wait was mislabeled as pool wait."
+        },
+        {
           "path": "docs/status/evidence/s0-low-load-control-1.json",
-          "sha256": "7dbbc736c81da677d28dc62a7a64960825c5d26216bee5d685db48690d289cc7",
-          "generated_at": "2026-08-15T00:10:13Z",
-          "claim": "S0 independent low-load control 1 passed the runtime contract."
+          "sha256": "552af2a85fdb2d3bfcdf0407abb19b1aa3ff6c12e97f47db63bb9444f8d30a24",
+          "generated_at": "2026-08-15T00:10:13.133486Z",
+          "claim": "Historical S0 control 1 is retained but is not accepted as fixed-window load evidence."
         },
         {
           "path": "docs/status/evidence/s0-low-load-control-2.json",
-          "sha256": "986448314a14405606237f8423804f649c82f4c58b64b12743ff928ee15ea1da",
-          "generated_at": "2026-08-15T00:10:13Z",
-          "claim": "S0 independent low-load control 2 passed the runtime contract."
+          "sha256": "a3ae4a4939042355ae80567cc0de2fcd5453a91d9f23d35a6e009856c9a4525b",
+          "generated_at": "2026-08-15T00:10:13.133486Z",
+          "claim": "Historical S0 control 2 is retained but is not accepted as fixed-window load evidence."
         },
         {
           "path": "docs/status/evidence/s0-low-load-control-3.json",
-          "sha256": "0042c6e0ae8a02997896dc1a1767fe38262538a8e488f0cded093a69cd987dc4",
-          "generated_at": "2026-08-15T00:10:13Z",
-          "claim": "S0 independent low-load control 3 passed the runtime contract."
+          "sha256": "3b713445967002e60d8a6f5a2c2d3fe635c6530e0a9c9a309cf8b3bce24535f0",
+          "generated_at": "2026-08-15T00:10:13.133486Z",
+          "claim": "Historical S0 control 3 is retained but is not accepted as fixed-window load evidence."
         },
         {
           "path": "docs/status/evidence/s0-cross-runtime-trace-summary.json",
-          "sha256": "1ed4b64fa109d09dbefc5d8a3e7e713a417a112bff02709e3bf3a8a15364f347",
-          "generated_at": "2026-08-15T00:10:13Z",
-          "claim": "All three controls observed API, queue, worker, Spark, MLflow, and serving stages with zero missing links."
+          "sha256": "0fafe770b87713d33fa370f75b03c26d7ff762d6ff31a6fff37f8e2160cb1e6c",
+          "generated_at": "2026-08-15T00:10:13.133486Z",
+          "claim": "Historical trace linkage is retained but does not close the fixed-window benchmark contract."
         },
         {
           "path": "docs/status/evidence/s0-low-load-benchmark-evidence.json",
-          "sha256": "4f9e4abaafee8ed8cdc282485580fcba92d22be407b263b2fa2d61e1866e6e55",
-          "generated_at": "2026-08-15T00:10:13Z",
-          "claim": "Three independent controls passed with hashed evidence, complete runtime identity, bounded metrics, and reported variance."
+          "sha256": "41aee97a7a2ba1d88e4618ece7eca229c0c94329e70b21ef3774c4a3b3123b9b",
+          "generated_at": "2026-08-15T00:10:13.133486Z",
+          "claim": "The superseded burst suite is explicitly failed pending three fresh fixed-window controls."
         }
       ],
-      "status": "verified",
+      "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
-      "unresolved_items": [],
-      "next_action": "Begin S1 transactional job state and idempotency implementation while keeping the S0 control suite as the regression baseline.",
+      "unresolved_items": [
+        "Only healthy active targets are included in the baseline.",
+        "Exact source, data, model, and runtime identity is complete.",
+        "p50, p95, p99, fixed-window throughput, queue, load-generator permit wait, retry, CPU, RAM, GPU, and VRAM are queryable.",
+        "Trace propagation spans every declared lifecycle stage with zero missing links.",
+        "Three independent controls are comparable and variance is reported."
+      ],
+      "next_action": "Commit and revision-align the corrected runner, then execute three fresh fixed-window controls before S1 begins.",
       "architecture_before": "Health, metrics, and logs exist without one machine-enforced evidence closure.",
       "architecture_after": "Readiness, bounded telemetry, distributed trace identity, and benchmark closure gate every later scenario.",
       "existing_system_baseline": "The existing control plane uses a FastAPI API, file-ledger task assignments, a supervised lifecycle worker, Compose Airflow and MLflow services, Kubernetes model serving, and Prometheus. Health and metrics exist, but one exported cross-runtime trace and machine-enforced evidence closure do not yet cover that real path.",
@@ -345,10 +350,13 @@
             "component": "In-place scale-validation evidence contracts",
             "files": [
               "src/evm/scale_validation/contracts.py",
+              "src/evm/scale_validation/evidence.py",
               "src/evm/scale_validation/catalog.py",
               "scripts/dev/initialize_scale_scenario_progress.py",
               "scripts/dev/validate_scale_scenario_progress.py",
-              "tests/test_scale_scenario_progress.py"
+              "tests/test_scale_scenario_progress.py",
+              "tests/test_scale_validation_evidence.py",
+              ".gitattributes"
             ]
           },
           {
@@ -452,24 +460,24 @@
           "Existing control services, one promoted serving target, monitoring, worker, and observer are healthy and revision-aligned.",
           "Source, data, model, runtime, and load-profile identities are immutable and public-safe evidence roots are writable."
         ],
-        "workload_input": "Three independent low-load requests through the existing lifecycle and serving path.",
+        "workload_input": "Three independent controls, each pacing three real CUDA requests across a declared 60-second fixed-rate window through the existing lifecycle and serving path.",
         "procedure": [
           "Validate progress and benchmark contracts with focused unit tests.",
           "Reconcile serving, accelerator inference, monitoring, and supervisors without mutation.",
           "Verify trace propagation and run three independent low-load controls."
         ],
         "controlled_variables": [
-          "Source, data, model, runtime, seed, request payload, concurrency, warmup, and measurement window.",
+          "Source, data, model, runtime, seed-applied test-sample sequence, concurrency, warmup, and fixed measurement window.",
           "No concurrent training, deployment, or unrelated background load during each control repetition."
         ],
         "signals": [
-          "Readiness status, W3C trace stages, latency quantiles, throughput, queue age/depth, worker activity, pool wait, retry count, CPU/RAM/GPU/VRAM.",
+          "Readiness status, W3C trace stages, latency quantiles, fixed-window throughput, queue age/depth, worker activity, load-generator permit wait, retry count, CPU/RAM/GPU/VRAM.",
           "Focused regression tests and the existing end-to-end lifecycle regression result."
         ],
         "acceptance_criteria": [
           "Only healthy active targets are included in the baseline.",
           "Exact source, data, model, and runtime identity is complete.",
-          "p50, p95, p99, throughput, queue, pool, retry, CPU, RAM, GPU, and VRAM are queryable.",
+          "p50, p95, p99, fixed-window throughput, queue, load-generator permit wait, retry, CPU, RAM, GPU, and VRAM are queryable.",
           "Trace propagation spans every declared lifecycle stage with zero missing links.",
           "Three independent controls are comparable and variance is reported."
         ],
@@ -534,38 +542,44 @@
           "claim": "An exact serving replacement failed closed on a missing OTLP exporter, the B0 fallback recovered at 1/1, and compatible host-runtime pins plus 604-test regression passed; accepted controls remain at zero."
         },
         {
+          "path": "docs/status/evidence/s0-evidence-contract-rca-checkpoint.json",
+          "sha256": "be8832236ccae55e6b889046fa633a4b3b2aa321863db167b16ecc706a2f7475",
+          "generated_at": "2026-08-15T09:34:11Z",
+          "claim": "An independent audit invalidated the first S0 closure because public hashes used CRLF worktree bytes, fixed-window pacing and seed application were absent, and permit wait was mislabeled as pool wait."
+        },
+        {
           "path": "docs/status/evidence/s0-low-load-control-1.json",
-          "sha256": "7dbbc736c81da677d28dc62a7a64960825c5d26216bee5d685db48690d289cc7",
-          "generated_at": "2026-08-15T00:10:13Z",
-          "claim": "S0 independent low-load control 1 passed the runtime contract."
+          "sha256": "552af2a85fdb2d3bfcdf0407abb19b1aa3ff6c12e97f47db63bb9444f8d30a24",
+          "generated_at": "2026-08-15T00:10:13.133486Z",
+          "claim": "Historical S0 control 1 is retained but is not accepted as fixed-window load evidence."
         },
         {
           "path": "docs/status/evidence/s0-low-load-control-2.json",
-          "sha256": "986448314a14405606237f8423804f649c82f4c58b64b12743ff928ee15ea1da",
-          "generated_at": "2026-08-15T00:10:13Z",
-          "claim": "S0 independent low-load control 2 passed the runtime contract."
+          "sha256": "a3ae4a4939042355ae80567cc0de2fcd5453a91d9f23d35a6e009856c9a4525b",
+          "generated_at": "2026-08-15T00:10:13.133486Z",
+          "claim": "Historical S0 control 2 is retained but is not accepted as fixed-window load evidence."
         },
         {
           "path": "docs/status/evidence/s0-low-load-control-3.json",
-          "sha256": "0042c6e0ae8a02997896dc1a1767fe38262538a8e488f0cded093a69cd987dc4",
-          "generated_at": "2026-08-15T00:10:13Z",
-          "claim": "S0 independent low-load control 3 passed the runtime contract."
+          "sha256": "3b713445967002e60d8a6f5a2c2d3fe635c6530e0a9c9a309cf8b3bce24535f0",
+          "generated_at": "2026-08-15T00:10:13.133486Z",
+          "claim": "Historical S0 control 3 is retained but is not accepted as fixed-window load evidence."
         },
         {
           "path": "docs/status/evidence/s0-cross-runtime-trace-summary.json",
-          "sha256": "1ed4b64fa109d09dbefc5d8a3e7e713a417a112bff02709e3bf3a8a15364f347",
-          "generated_at": "2026-08-15T00:10:13Z",
-          "claim": "All three controls observed API, queue, worker, Spark, MLflow, and serving stages with zero missing links."
+          "sha256": "0fafe770b87713d33fa370f75b03c26d7ff762d6ff31a6fff37f8e2160cb1e6c",
+          "generated_at": "2026-08-15T00:10:13.133486Z",
+          "claim": "Historical trace linkage is retained but does not close the fixed-window benchmark contract."
         },
         {
           "path": "docs/status/evidence/s0-low-load-benchmark-evidence.json",
-          "sha256": "4f9e4abaafee8ed8cdc282485580fcba92d22be407b263b2fa2d61e1866e6e55",
-          "generated_at": "2026-08-15T00:10:13Z",
-          "claim": "Three independent controls passed with hashed evidence, complete runtime identity, bounded metrics, and reported variance."
+          "sha256": "41aee97a7a2ba1d88e4618ece7eca229c0c94329e70b21ef3774c4a3b3123b9b",
+          "generated_at": "2026-08-15T00:10:13.133486Z",
+          "claim": "The superseded burst suite is explicitly failed pending three fresh fixed-window controls."
         }
       ],
       "verdict_and_claim_boundary": {
-        "verdict": "passed",
+        "verdict": "not_run",
         "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
         "final_system_validation_required": true
       },
@@ -656,11 +670,11 @@
         },
         {
           "occurred_at": "2026-08-15T00:10:13Z",
-          "phase": "verification",
-          "status": "verified",
-          "summary": "Three fresh controls passed through the existing Airflow, Spark, MLflow, and real CUDA serving path. All six required trace stages were present, identity and artifact hashes matched, variance was reported, retry attempts were zero, and post-run workers were idle.",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "Three functional controls traversed the existing runtime, but an independent audit later invalidated benchmark acceptance: hashes described CRLF worktree bytes, requests were burst rather than fixed-window paced, seed was metadata-only, and permit wait was misnamed as connection-pool wait.",
           "evidence_refs": [
-            "docs/status/evidence/s0-cross-runtime-trace-summary.json",
+            "docs/status/evidence/s0-evidence-contract-rca-checkpoint.json",
             "docs/status/evidence/s0-low-load-benchmark-evidence.json"
           ]
         }
@@ -746,7 +760,9 @@
           "component": "Control API",
           "files": [
             "apps/api/main.py",
-            "src/evm/control_panel/router.py"
+            "apps/api/control_panel_lifecycle.py",
+            "apps/api/control_panel_tasks.py",
+            "apps/api/control_panel_deployments.py"
           ]
         }
       ],

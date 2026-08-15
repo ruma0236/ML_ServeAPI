@@ -20,7 +20,7 @@ SCENARIO_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Return HTTP 503 whenever serving dependencies or the promoted model are not ready.",
             "Propagate W3C trace context through API, queue, worker, data, tracking, and serving.",
             "Keep metric labels bounded while exact identities remain in traces and structured logs.",
-            "Capture three low-load controls with latency, throughput, resource, pool, and retry data.",
+            "Capture three fixed-window low-load controls with latency, throughput, resource, load-generator permit-wait, and retry data.",
         ],
         "steps": [
             "Validate progress and benchmark contracts with focused unit tests.",
@@ -30,7 +30,7 @@ SCENARIO_DEFINITIONS: dict[str, dict[str, Any]] = {
         "acceptance": [
             "Only healthy active targets are included in the baseline.",
             "Exact source, data, model, and runtime identity is complete.",
-            "p50, p95, p99, throughput, queue, pool, retry, CPU, RAM, GPU, and VRAM are queryable.",
+            "p50, p95, p99, fixed-window throughput, queue, load-generator permit wait, retry, CPU, RAM, GPU, and VRAM are queryable.",
             "Trace propagation spans every declared lifecycle stage with zero missing links.",
             "Three independent controls are comparable and variance is reported.",
         ],
@@ -341,13 +341,13 @@ SCENARIO_IN_PLACE_CONTRACTS: dict[str, dict[str, Any]] = {
             "Existing control services, one promoted serving target, monitoring, worker, and observer are healthy and revision-aligned.",
             "Source, data, model, runtime, and load-profile identities are immutable and public-safe evidence roots are writable.",
         ],
-        "workload_input": "Three independent low-load requests through the existing lifecycle and serving path.",
+        "workload_input": "Three independent controls, each pacing three real CUDA requests across a declared 60-second fixed-rate window through the existing lifecycle and serving path.",
         "controlled_variables": [
-            "Source, data, model, runtime, seed, request payload, concurrency, warmup, and measurement window.",
+            "Source, data, model, runtime, seed-applied test-sample sequence, concurrency, warmup, and fixed measurement window.",
             "No concurrent training, deployment, or unrelated background load during each control repetition.",
         ],
         "signals": [
-            "Readiness status, W3C trace stages, latency quantiles, throughput, queue age/depth, worker activity, pool wait, retry count, CPU/RAM/GPU/VRAM.",
+            "Readiness status, W3C trace stages, latency quantiles, fixed-window throughput, queue age/depth, worker activity, load-generator permit wait, retry count, CPU/RAM/GPU/VRAM.",
             "Focused regression tests and the existing end-to-end lifecycle regression result.",
         ],
         "stop_conditions": [
@@ -364,7 +364,15 @@ SCENARIO_IN_PLACE_CONTRACTS: dict[str, dict[str, Any]] = {
         "affected_components": [
             {"component": "Lifecycle and task state", "files": ["src/evm/control_panel/lifecycle_runs.py", "src/evm/control_panel/operations.py"]},
             {"component": "Worker ownership", "files": ["src/evm/control_panel/lifecycle_worker.py", "src/evm/operations/scenario_d_supervision.py"]},
-            {"component": "Control API", "files": ["apps/api/main.py", "src/evm/control_panel/router.py"]},
+            {
+                "component": "Control API",
+                "files": [
+                    "apps/api/main.py",
+                    "apps/api/control_panel_lifecycle.py",
+                    "apps/api/control_panel_tasks.py",
+                    "apps/api/control_panel_deployments.py",
+                ],
+            },
         ],
         "selection_reasons": ["Durable atomic ownership must precede retry and overload experiments."],
         "alternatives": ["Extending file locks is simpler but cannot safely coordinate multiple replicas; SQLite improves transactions but not the intended multi-process pool behavior."],

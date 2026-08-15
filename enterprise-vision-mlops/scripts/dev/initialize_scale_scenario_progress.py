@@ -34,6 +34,7 @@ from evm.scale_validation.contracts import (  # noqa: E402
     VerdictAndClaimBoundary,
     render_progress_markdown,
 )
+from evm.scale_validation.evidence import public_file_sha256  # noqa: E402
 
 
 AUTHORITATIVE_PLAN = "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md"
@@ -42,6 +43,20 @@ PUBLIC_CLAIM_BOUNDARY = (
     "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed "
     "from this scenario. A scenario pass does not replace final cross-scenario system validation."
 )
+
+
+def public_artifact(
+    path: str,
+    *,
+    generated_at: datetime,
+    claim: str,
+) -> EvidenceArtifact:
+    return EvidenceArtifact(
+        path=path,
+        sha256=public_file_sha256(ROOT / path),
+        generated_at=generated_at,
+        claim=claim,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -96,6 +111,14 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
             )
         ]
         if is_s0:
+            benchmark_path = (
+                ROOT / "docs/status/evidence/s0-low-load-benchmark-evidence.json"
+            )
+            benchmark = BenchmarkEvidence.model_validate_json(
+                benchmark_path.read_bytes()
+            )
+            benchmark_generated_at = benchmark.generated_at
+            benchmark_passed = benchmark.closure.decision == "passed"
             checkpoint_evidence = [
                 EvidenceArtifact(
                     path="docs/status/evidence/s0-otel-implementation-checkpoint.json",
@@ -212,50 +235,47 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "604-test regression passed; accepted controls remain at zero."
                     ),
                 ),
-                EvidenceArtifact(
-                    path="docs/status/evidence/s0-low-load-control-1.json",
-                    sha256=(
-                        "7dbbc736c81da677d28dc62a7a64960825c5d26216bee5d685db48690d289cc7"
-                    ),
-                    generated_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
-                    claim="S0 independent low-load control 1 passed the runtime contract.",
-                ),
-                EvidenceArtifact(
-                    path="docs/status/evidence/s0-low-load-control-2.json",
-                    sha256=(
-                        "986448314a14405606237f8423804f649c82f4c58b64b12743ff928ee15ea1da"
-                    ),
-                    generated_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
-                    claim="S0 independent low-load control 2 passed the runtime contract.",
-                ),
-                EvidenceArtifact(
-                    path="docs/status/evidence/s0-low-load-control-3.json",
-                    sha256=(
-                        "0042c6e0ae8a02997896dc1a1767fe38262538a8e488f0cded093a69cd987dc4"
-                    ),
-                    generated_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
-                    claim="S0 independent low-load control 3 passed the runtime contract.",
-                ),
-                EvidenceArtifact(
-                    path="docs/status/evidence/s0-cross-runtime-trace-summary.json",
-                    sha256=(
-                        "1ed4b64fa109d09dbefc5d8a3e7e713a417a112bff02709e3bf3a8a15364f347"
-                    ),
-                    generated_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
+                public_artifact(
+                    "docs/status/evidence/s0-evidence-contract-rca-checkpoint.json",
+                    generated_at=datetime(2026, 8, 15, 9, 34, 11, tzinfo=UTC),
                     claim=(
-                        "All three controls observed API, queue, worker, Spark, MLflow, and "
-                        "serving stages with zero missing links."
+                        "An independent audit invalidated the first S0 closure because public "
+                        "hashes used CRLF worktree bytes, fixed-window pacing and seed application "
+                        "were absent, and permit wait was mislabeled as pool wait."
                     ),
                 ),
-                EvidenceArtifact(
-                    path="docs/status/evidence/s0-low-load-benchmark-evidence.json",
-                    sha256=(
-                        "4f9e4abaafee8ed8cdc282485580fcba92d22be407b263b2fa2d61e1866e6e55"
-                    ),
-                    generated_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
+                *[
+                    public_artifact(
+                        f"docs/status/evidence/s0-low-load-control-{repetition}.json",
+                        generated_at=benchmark_generated_at,
+                        claim=(
+                            f"S0 fixed-window control {repetition} passed the runtime contract."
+                            if benchmark_passed
+                            else f"Historical S0 control {repetition} is retained but is not "
+                            "accepted as fixed-window load evidence."
+                        ),
+                    )
+                    for repetition in range(1, 4)
+                ],
+                public_artifact(
+                    "docs/status/evidence/s0-cross-runtime-trace-summary.json",
+                    generated_at=benchmark_generated_at,
                     claim=(
-                        "Three independent controls passed with hashed evidence, complete "
-                        "runtime identity, bounded metrics, and reported variance."
+                        "All fresh fixed-window controls observed every required runtime stage."
+                        if benchmark_passed
+                        else "Historical trace linkage is retained but does not close the "
+                        "fixed-window benchmark contract."
+                    ),
+                ),
+                public_artifact(
+                    "docs/status/evidence/s0-low-load-benchmark-evidence.json",
+                    generated_at=benchmark_generated_at,
+                    claim=(
+                        "Three fresh fixed-window controls passed with canonical Git-byte hashes, "
+                        "deterministic seeded inputs, complete identity, and reported variance."
+                        if benchmark_passed
+                        else "The superseded burst suite is explicitly failed pending three fresh "
+                        "fixed-window controls."
                     ),
                 ),
             ]
@@ -268,10 +288,13 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                     component="In-place scale-validation evidence contracts",
                     files=[
                         "src/evm/scale_validation/contracts.py",
+                        "src/evm/scale_validation/evidence.py",
                         "src/evm/scale_validation/catalog.py",
                         "scripts/dev/initialize_scale_scenario_progress.py",
                         "scripts/dev/validate_scale_scenario_progress.py",
                         "tests/test_scale_scenario_progress.py",
+                        "tests/test_scale_validation_evidence.py",
+                        ".gitattributes",
                     ],
                 ),
                 ChangedComponent(
@@ -371,7 +394,8 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 "A fail-closed runner now drives the existing stepwise lifecycle, exact CUDA serving, MLflow, scoped queue and worker metrics, and OTLP evidence contract.",
                 "A failed fresh control exposed missing serving OTLP configuration and stale API image identity; required serving telemetry and immutable image revision checks are now implemented.",
                 "A subsequent exact serving replacement exposed the missing host OTLP exporter; compatible OpenTelemetry and protobuf versions are now pinned and startup-preflighted.",
-                "Three independent real controls now pass the existing Airflow, Spark, MLflow, and CUDA serving path with complete trace stages and hashed variance evidence.",
+                "The first closure was reopened after an audit found CRLF-derived public hashes, an unexecuted fixed-window profile, a metadata-only seed, and a mislabeled load-generator permit metric.",
+                "Public evidence now has canonical LF bytes, strict worktree/Git-blob rehash validation, fixed-rate pacing, deterministic seeded sample selection, and truthful permit-wait naming.",
                 "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level.",
             ]
             experiment_environment = (
@@ -379,18 +403,30 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 "about 63.75 GiB RAM, one discrete accelerator, co-located load generation, "
                 "real Airflow/Spark/MLflow execution, and real CUDA inference."
             )
-            observed_result = (
-                "Three independent controls passed. Required trace stages were complete with "
-                "zero missing links; request-latency p95 CV was 0.09099, throughput CV was "
-                "0.04328, and observed retry attempts were zero."
-            )
-            status = "verified"
-            verdict = "passed"
-            unresolved_items = []
-            next_action = (
-                "Begin S1 transactional job state and idempotency implementation while keeping "
-                "the S0 control suite as the regression baseline."
-            )
+            if benchmark_passed:
+                p95_cv = benchmark.variance["request_latency_p95_cv"]
+                throughput_cv = benchmark.variance["request_throughput_cv"]
+                observed_result = (
+                    "Three independent fixed-window controls passed. Required trace stages were "
+                    f"complete with zero missing links; request-latency p95 CV was {p95_cv:.6f}, "
+                    f"throughput CV was {throughput_cv:.6f}, and public Git-byte hashes matched."
+                )
+                status = "verified"
+                verdict = "passed"
+                unresolved_items = []
+                next_action = (
+                    "Begin S1 transactional job state and idempotency implementation while "
+                    "keeping the corrected S0 suite as the regression baseline."
+                )
+            else:
+                observed_result = None
+                status = "implementing"
+                verdict = "not_run"
+                unresolved_items = list(definition["acceptance"])
+                next_action = (
+                    "Commit and revision-align the corrected runner, then execute three fresh "
+                    "fixed-window controls before S1 begins."
+                )
             updates.extend(
                 [
                     ChronologicalUpdate(
@@ -497,21 +533,40 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                     ),
                     ChronologicalUpdate(
                         occurred_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
-                        phase="verification",
-                        status="verified",
+                        phase="experiment",
+                        status="implementing",
                         summary=(
-                            "Three fresh controls passed through the existing Airflow, Spark, "
-                            "MLflow, and real CUDA serving path. All six required trace stages "
-                            "were present, identity and artifact hashes matched, variance was "
-                            "reported, retry attempts were zero, and post-run workers were idle."
+                            "Three functional controls traversed the existing runtime, but an "
+                            "independent audit later invalidated benchmark acceptance: hashes "
+                            "described CRLF worktree bytes, requests were burst rather than "
+                            "fixed-window paced, seed was metadata-only, and permit wait was "
+                            "misnamed as connection-pool wait."
                         ),
                         evidence_refs=[
-                            checkpoint_evidence[11].path,
-                            checkpoint_evidence[12].path,
+                            "docs/status/evidence/s0-evidence-contract-rca-checkpoint.json",
+                            "docs/status/evidence/s0-low-load-benchmark-evidence.json",
                         ],
                     ),
                 ]
             )
+            if benchmark_passed:
+                updates.append(
+                    ChronologicalUpdate(
+                        occurred_at=benchmark.generated_at,
+                        phase="verification",
+                        status="verified",
+                        summary=(
+                            "Three fresh controls executed the declared fixed-rate 60-second "
+                            "window with deterministic seeded inputs. Cross-runtime traces, "
+                            "healthy targets, bounded metrics, canonical Git-byte hashes, "
+                            "variance, cleanup, and regression all passed."
+                        ),
+                        evidence_refs=[
+                            "docs/status/evidence/s0-cross-runtime-trace-summary.json",
+                            "docs/status/evidence/s0-low-load-benchmark-evidence.json",
+                        ],
+                    )
+                )
 
         criteria = [
             AcceptanceCriterion(
@@ -529,9 +584,11 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 AcceptanceCriterion(
                     criterion_id=f"S0-AC-{index:02d}",
                     description=description,
-                    status="passed",
+                    status="passed" if benchmark_passed else "pending",
                     evidence_refs=(
-                        [benchmark_path, trace_path] if index == 4 else [benchmark_path]
+                        ([benchmark_path, trace_path] if index == 4 else [benchmark_path])
+                        if benchmark_passed
+                        else []
                     ),
                 )
                 for index, description in enumerate(definition["acceptance"], start=1)

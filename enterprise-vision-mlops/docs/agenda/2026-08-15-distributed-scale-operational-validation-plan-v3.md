@@ -64,8 +64,8 @@ Design:
   degraded;
 - define machine-readable source/data/model/runtime identity and evidence
   manifests;
-- expose latency histograms, queue, worker, CPU/RAM/GPU/VRAM, pool, and retry
-  telemetry with bounded metric labels;
+- expose latency histograms, queue, worker, CPU/RAM/GPU/VRAM,
+  load-generator permit-wait, and retry telemetry with bounded metric labels;
 - propagate W3C trace context through API, queue, worker, Spark, tracking, and
   serving while retaining high-cardinality identity in traces and logs;
 - run three low-load controls and report variance.
@@ -74,8 +74,8 @@ Acceptance:
 
 - only healthy active targets are part of the baseline;
 - identity and trace propagation have zero missing links;
-- p50/p95/p99, throughput, resource, queue, pool, and retry metrics are queryable
-  for the same run;
+- p50/p95/p99, fixed-window throughput, resource, queue, load-generator
+  permit-wait, and retry metrics are queryable for the same run;
 - three controls are comparable and variance is retained;
 - no load scenario begins from an unhealthy or ambiguous baseline.
 

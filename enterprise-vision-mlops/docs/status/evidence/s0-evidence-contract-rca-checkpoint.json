@@ -1,0 +1,47 @@
+{
+  "schema_version": "evm.scale_validation.s0_evidence_contract_rca.v1",
+  "scenario_id": "S0",
+  "generated_at": "2026-08-15T09:34:11Z",
+  "source_revision": "f9b8d777b12a1440fab28352c7bf60513653cdab",
+  "status": "acceptance_reopened_pending_fresh_controls",
+  "defects": [
+    {
+      "id": "canonical_public_hash",
+      "finding": "Published hashes described Windows CRLF working-tree bytes instead of canonical LF Git blob bytes.",
+      "impact": "External rehash of the public repository could not reproduce the ledger.",
+      "correction": "Public JSON is written as LF bytes, repository attributes pin LF, and validators rehash worktree or Git revision bytes."
+    },
+    {
+      "id": "fixed_window_profile",
+      "finding": "The runner sent three requests back-to-back and divided by burst elapsed time while declaring 0.05 requests per second for 60 seconds.",
+      "impact": "The published throughput and variance did not measure the declared load profile.",
+      "correction": "Three requests are scheduled at 20-second intervals across a monotonic 60-second measurement window; lifecycle duration is reported separately."
+    },
+    {
+      "id": "seed_application",
+      "finding": "The declared seed was metadata-only.",
+      "impact": "The benchmark could not prove deterministic workload selection from its declared profile.",
+      "correction": "The seed now deterministically selects the test-split sample sequence, and only its public-safe sequence digest is published."
+    },
+    {
+      "id": "permit_metric_name",
+      "finding": "A single-threaded load-generator semaphore wait was named connection_pool_wait_seconds.",
+      "impact": "The metric could be mistaken for database or HTTP connection-pool acquisition evidence.",
+      "correction": "The metric and S0 acceptance wording now identify load_generator_permit_wait_seconds; database pool evidence remains exclusive to S1."
+    }
+  ],
+  "prior_public_git_blob_hashes": {
+    "s0-low-load-control-1.json": "552af2a85fdb2d3bfcdf0407abb19b1aa3ff6c12e97f47db63bb9444f8d30a24",
+    "s0-low-load-control-2.json": "a3ae4a4939042355ae80567cc0de2fcd5453a91d9f23d35a6e009856c9a4525b",
+    "s0-low-load-control-3.json": "3b713445967002e60d8a6f5a2c2d3fe635c6530e0a9c9a309cf8b3bce24535f0",
+    "s0-cross-runtime-trace-summary.json": "0fafe770b87713d33fa370f75b03c26d7ff762d6ff31a6fff37f8e2160cb1e6c",
+    "s0-low-load-benchmark-evidence.json": "4cee6473a9aa6720a6a0a43870b90ac4b20089d2232670f5529462b9568f98cd"
+  },
+  "acceptance_effect": {
+    "s0_status": "implementing",
+    "s0_acceptance_criteria": "pending",
+    "s1_entry": "denied_until_three_fresh_fixed_window_controls_and_strict_git_blob_hash_validation_pass"
+  },
+  "semantic_preservation": "Prior private evidence remains immutable historical functional evidence, but it has no fixed-window benchmark acceptance credit.",
+  "claim_boundary": "This RCA concerns a local single-node evidence contract. It is not production, HA, SLA, customer-traffic, or scale evidence."
+}

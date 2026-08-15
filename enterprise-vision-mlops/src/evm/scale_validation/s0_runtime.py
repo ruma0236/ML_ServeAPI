@@ -5,13 +5,14 @@ import json
 import math
 import os
 import platform
+import random
 import statistics
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import BoundedSemaphore
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import requests
 
@@ -29,10 +30,12 @@ from evm.scale_validation.contracts import (
     BenchmarkEvidence,
     BenchmarkIdentity,
     EvidenceArtifact,
+    InferenceMeasurementWindow,
     LoadProfile,
     MetricObservation,
     TracePropagationEvidence,
 )
+from evm.scale_validation.evidence import public_file_sha256, write_public_json
 
 
 REQUIRED_TRACE_STAGES = ("api", "queue", "worker", "spark", "mlflow", "serving")
@@ -75,6 +78,99 @@ class HttpObservation:
     payload: Any
     latency_seconds: float
     permit_wait_seconds: float
+
+
+@dataclass(frozen=True)
+class PacedInferenceResult:
+    latencies_seconds: tuple[float, ...]
+    request_start_offsets_seconds: tuple[float, ...]
+    request_start_lag_seconds: tuple[float, ...]
+    observed_elapsed_seconds: float
+    sample_ids: tuple[str, ...]
+    sample_selectors: tuple[int, ...]
+
+
+def fixed_window_request_count(*, target_rps: float, duration_seconds: float) -> int:
+    if target_rps <= 0 or duration_seconds <= 0:
+        raise S0RuntimeError("s0_load_profile_non_positive")
+    expected = target_rps * duration_seconds
+    request_count = int(round(expected))
+    if request_count < 1 or not math.isclose(
+        expected, request_count, rel_tol=0, abs_tol=1e-9
+    ):
+        raise S0RuntimeError("s0_load_profile_request_count_non_integral")
+    return request_count
+
+
+def deterministic_sample_selectors(*, seed: int, request_count: int) -> tuple[int, ...]:
+    if seed < 0 or request_count < 1:
+        raise S0RuntimeError("s0_seed_contract_invalid")
+    generator = random.Random(seed)
+    return tuple(generator.randrange(0, 2**31) for _ in range(request_count))
+
+
+def execute_fixed_window_requests(
+    *,
+    target_rps: float,
+    duration_seconds: float,
+    request_count: int,
+    seed: int,
+    request: Callable[[int], str],
+    monotonic: Callable[[], float] = time.perf_counter,
+    sleep: Callable[[float], None] = time.sleep,
+    max_start_lag_seconds: float = 2.0,
+    max_window_overrun_seconds: float = 2.0,
+) -> PacedInferenceResult:
+    expected_count = fixed_window_request_count(
+        target_rps=target_rps,
+        duration_seconds=duration_seconds,
+    )
+    if request_count != expected_count:
+        raise S0RuntimeError(
+            f"s0_load_profile_request_count_mismatch:{request_count}:{expected_count}"
+        )
+    selectors = deterministic_sample_selectors(seed=seed, request_count=request_count)
+    interval_seconds = 1.0 / target_rps
+    window_started = monotonic()
+    latencies: list[float] = []
+    offsets: list[float] = []
+    lags: list[float] = []
+    sample_ids: list[str] = []
+
+    for index, selector in enumerate(selectors):
+        scheduled_offset = index * interval_seconds
+        delay = window_started + scheduled_offset - monotonic()
+        if delay > 0:
+            sleep(delay)
+        request_started = monotonic()
+        observed_offset = request_started - window_started
+        start_lag = max(0.0, observed_offset - scheduled_offset)
+        if start_lag > max_start_lag_seconds:
+            raise S0RuntimeError(f"s0_request_schedule_lag:{index}:{start_lag}")
+        sample_ids.append(request(selector))
+        request_finished = monotonic()
+        if request_finished - window_started > duration_seconds:
+            raise S0RuntimeError(f"s0_request_completed_outside_window:{index}")
+        latencies.append(request_finished - request_started)
+        offsets.append(observed_offset)
+        lags.append(start_lag)
+
+    remaining = window_started + duration_seconds - monotonic()
+    if remaining > 0:
+        sleep(remaining)
+    elapsed = monotonic() - window_started
+    if elapsed < duration_seconds:
+        raise S0RuntimeError("s0_measurement_window_ended_early")
+    if elapsed > duration_seconds + max_window_overrun_seconds:
+        raise S0RuntimeError(f"s0_measurement_window_overrun:{elapsed}")
+    return PacedInferenceResult(
+        latencies_seconds=tuple(latencies),
+        request_start_offsets_seconds=tuple(offsets),
+        request_start_lag_seconds=tuple(lags),
+        observed_elapsed_seconds=elapsed,
+        sample_ids=tuple(sample_ids),
+        sample_selectors=selectors,
+    )
 
 
 class BoundedHttpClient:
@@ -338,19 +434,13 @@ def _metric(metric: str, unit: str, values: list[float], query: str) -> MetricOb
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    write_public_json(path, payload)
 
 
 def _public_artifact(path: Path, *, claim: str, generated_at: datetime) -> EvidenceArtifact:
     return EvidenceArtifact(
         path=path.as_posix(),
-        sha256=file_sha256(path),
+        sha256=public_file_sha256(path),
         generated_at=generated_at,
         claim=claim,
     )
@@ -371,7 +461,7 @@ def execute_control(
     run: dict[str, Any] | None = None
     lifecycle_run_id: str | None = None
     queue_started: float | None = None
-    inference_latencies: list[float] = []
+    paced_inference: PacedInferenceResult | None = None
     failure: str | None = None
     cancelled = False
 
@@ -495,12 +585,21 @@ def execute_control(
             if not mlflow.health():
                 raise S0RuntimeError("s0_mlflow_health_failed")
 
-            inference_started = time.perf_counter()
-            for _ in range(config.serving_requests_per_run):
-                request_started = time.perf_counter()
-                verify_production_inference(intent, trace_context=active.context)
-                inference_latencies.append(time.perf_counter() - request_started)
-            inference_elapsed = time.perf_counter() - inference_started
+            def infer_sample(sample_selector: int) -> str:
+                result = verify_production_inference(
+                    intent,
+                    trace_context=active.context,
+                    sample_selector=sample_selector,
+                )
+                return str(result["sample_id"])
+
+            paced_inference = execute_fixed_window_requests(
+                target_rps=config.target_requests_per_second,
+                duration_seconds=config.load_duration_seconds,
+                request_count=config.serving_requests_per_run,
+                seed=config.seed,
+                request=infer_sample,
+            )
 
             cpu_samples.append(_prometheus_value(config.prometheus_url, cpu_query))
             memory_samples.append(_prometheus_value(config.prometheus_url, memory_query))
@@ -543,7 +642,29 @@ def execute_control(
             retry_attempts = max(0, int(data_stage.get("attempt") or 0) - 1)
             gpu_utilization = [float(item["utilization_percent"]) / 100 for item in gpu_samples]
             gpu_memory = [float(item["memory_used_mib"]) * 1024 * 1024 for item in gpu_samples]
-            throughput = config.serving_requests_per_run / max(inference_elapsed, 1e-9)
+            if paced_inference is None:
+                raise S0RuntimeError("s0_inference_measurement_missing")
+            inference_latencies = list(paced_inference.latencies_seconds)
+            throughput = (
+                len(inference_latencies) / config.load_duration_seconds
+            )
+            inference_measurement = InferenceMeasurementWindow(
+                basis="fixed_duration_open_loop",
+                target_requests_per_second=config.target_requests_per_second,
+                declared_duration_seconds=config.load_duration_seconds,
+                observed_elapsed_seconds=paced_inference.observed_elapsed_seconds,
+                planned_request_count=config.serving_requests_per_run,
+                completed_request_count=len(inference_latencies),
+                scheduled_interval_seconds=1.0 / config.target_requests_per_second,
+                max_request_start_lag_seconds=max(
+                    paced_inference.request_start_lag_seconds,
+                    default=0.0,
+                ),
+                seed=config.seed,
+                seed_scope="deterministic_test_sample_selection",
+                request_sequence_sha256=canonical_sha256(paced_inference.sample_ids),
+                throughput_basis="completed_requests_per_declared_window",
+            )
             metrics = [
                 MetricObservation(
                     metric="request_latency_seconds",
@@ -556,7 +677,13 @@ def execute_control(
                     "request_throughput_per_second",
                     "requests_per_second",
                     [throughput],
-                    "completed exact local CUDA /infer requests divided by observation interval",
+                    "completed exact local CUDA /infer requests divided by the declared fixed window",
+                ),
+                _metric(
+                    "inference_measurement_window_seconds",
+                    "seconds",
+                    [paced_inference.observed_elapsed_seconds],
+                    "monotonic elapsed time for the declared fixed inference measurement window",
                 ),
                 _metric(
                     "queue_depth",
@@ -596,7 +723,7 @@ def execute_control(
                     "nvidia-smi physical GPU used memory sampled before and after control",
                 ),
                 _metric(
-                    "connection_pool_wait_seconds",
+                    "load_generator_permit_wait_seconds",
                     "seconds",
                     client.permit_wait_seconds,
                     "bounded load-generator HTTP permit wait; not a database pool metric",
@@ -609,6 +736,7 @@ def execute_control(
                 ),
             ]
             finished_at = utc_now()
+            lifecycle_elapsed_seconds = (finished_at - started_at).total_seconds()
             raw = {
                 "schema_version": "evm.scale_validation.s0_control_raw.v1",
                 "scenario_id": "S0",
@@ -645,10 +773,22 @@ def execute_control(
                     ),
                 },
                 "metrics": [item.model_dump(mode="json") for item in metrics],
+                "timing": {
+                    "lifecycle_elapsed_seconds": lifecycle_elapsed_seconds,
+                    "inference_measurement": inference_measurement.model_dump(mode="json"),
+                    "request_start_offsets_seconds": list(
+                        paced_inference.request_start_offsets_seconds
+                    ),
+                    "request_start_lag_seconds": list(
+                        paced_inference.request_start_lag_seconds
+                    ),
+                    "sample_selectors": list(paced_inference.sample_selectors),
+                    "sample_ids": list(paced_inference.sample_ids),
+                },
                 "cleanup": {"lifecycle_cancelled": cancelled},
                 "claim_boundary": (
                     "One local single-node low-load control using the existing runtime. "
-                    "The pool wait metric is load-generator HTTP permit wait, not DB pool evidence."
+                    "Permit wait is load-generator admission evidence, not database pool evidence."
                 ),
             }
             private_path = config.private_evidence_root / f"control-{repetition}.json"
@@ -659,6 +799,8 @@ def execute_control(
                 "trace_id": active.context.trace_id,
                 "identity": raw["identity"],
                 "metrics": metrics,
+                "lifecycle_elapsed_seconds": lifecycle_elapsed_seconds,
+                "inference_measurement": inference_measurement,
                 "trace": raw["trace"],
                 "private_path": private_path,
                 "private_sha256": file_sha256(private_path),
@@ -734,6 +876,12 @@ def execute_suite(config: S0RuntimeConfig, *, source_revision: str) -> Benchmark
                 "finished_at": control["finished_at"].isoformat(),
                 "identity": control["identity"],
                 "metrics": [item.model_dump(mode="json") for item in control["metrics"]],
+                "timing": {
+                    "lifecycle_elapsed_seconds": control["lifecycle_elapsed_seconds"],
+                    "inference_measurement": control[
+                        "inference_measurement"
+                    ].model_dump(mode="json"),
+                },
                 "trace": {
                     "required_stages": list(REQUIRED_TRACE_STAGES),
                     "observed_stages": control["trace"]["observed_stages"],
@@ -757,6 +905,8 @@ def execute_suite(config: S0RuntimeConfig, *, source_revision: str) -> Benchmark
                 repetition=repetition,
                 started_at=control["started_at"],
                 finished_at=control["finished_at"],
+                lifecycle_elapsed_seconds=control["lifecycle_elapsed_seconds"],
+                inference_measurement=control["inference_measurement"],
                 metrics=control["metrics"],
                 evidence_artifacts=[artifact],
             )
@@ -822,6 +972,9 @@ def execute_suite(config: S0RuntimeConfig, *, source_revision: str) -> Benchmark
             warmup_seconds=0,
             duration_seconds=config.load_duration_seconds,
             seed=config.seed,
+            arrival_model="fixed_rate_open_loop",
+            request_count=config.serving_requests_per_run,
+            seed_scope="deterministic_test_sample_selection",
         ),
         control_runs=benchmark_runs,
         trace_propagation=TracePropagationEvidence(

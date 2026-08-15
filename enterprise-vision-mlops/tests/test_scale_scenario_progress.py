@@ -20,6 +20,7 @@ from evm.scale_validation.contracts import (
     ChronologicalUpdate,
     EvidenceArtifact,
     ExperimentContract,
+    InferenceMeasurementWindow,
     ImplementationDelta,
     LoadProfile,
     MetricObservation,
@@ -221,10 +222,26 @@ def control_run(repetition: int) -> BenchmarkControlRun:
     return BenchmarkControlRun(
         repetition=repetition,
         started_at=NOW + timedelta(minutes=repetition),
-        finished_at=NOW + timedelta(minutes=repetition, seconds=30),
+        finished_at=NOW + timedelta(minutes=repetition, seconds=35),
+        lifecycle_elapsed_seconds=35.0,
+        inference_measurement=InferenceMeasurementWindow(
+            basis="fixed_duration_open_loop",
+            target_requests_per_second=1.0,
+            declared_duration_seconds=30.0,
+            observed_elapsed_seconds=30.01,
+            planned_request_count=30,
+            completed_request_count=30,
+            scheduled_interval_seconds=1.0,
+            max_request_start_lag_seconds=0.01,
+            seed=7,
+            seed_scope="deterministic_test_sample_selection",
+            request_sequence_sha256="f" * 64,
+            throughput_basis="completed_requests_per_declared_window",
+        ),
         metrics=[
             metric("request_latency_seconds", {"p50": 0.01, "p95": 0.02, "p99": 0.03}),
-            metric("request_throughput_per_second", {"mean": 10.0}),
+            metric("request_throughput_per_second", {"mean": 1.0}),
+            metric("inference_measurement_window_seconds", {"mean": 30.01}),
             metric("queue_depth", {"max": 1.0}),
             metric("queue_oldest_age_seconds", {"p99": 0.01}),
             metric("worker_active_count", {"mean": 1.0}),
@@ -232,7 +249,7 @@ def control_run(repetition: int) -> BenchmarkControlRun:
             metric("memory_working_set_bytes", {"max": 1024.0}),
             metric("gpu_utilization_ratio", {"mean": 0.3}),
             metric("gpu_memory_used_bytes", {"max": 2048.0}),
-            metric("connection_pool_wait_seconds", {"p99": 0.001}),
+            metric("load_generator_permit_wait_seconds", {"p99": 0.001}),
             metric("retry_attempt_total", {"sum": 0.0}),
         ],
         evidence_artifacts=[ARTIFACT.model_copy(update={"path": f"evidence/s0/run-{repetition}.json"})],
@@ -267,6 +284,9 @@ def benchmark_payload() -> dict[str, object]:
             warmup_seconds=1,
             duration_seconds=30,
             seed=7,
+            arrival_model="fixed_rate_open_loop",
+            request_count=30,
+            seed_scope="deterministic_test_sample_selection",
         ),
         "control_runs": [control_run(1), control_run(2), control_run(3)],
         "trace_propagation": TracePropagationEvidence(
@@ -292,3 +312,28 @@ def test_passed_s0_benchmark_requires_three_complete_control_runs() -> None:
     evidence = BenchmarkEvidence.model_validate(benchmark_payload())
     assert evidence.closure.decision == "passed"
     assert len(evidence.control_runs) == 3
+
+
+def test_passed_s0_benchmark_rejects_unexecuted_load_profile() -> None:
+    payload = benchmark_payload()
+    payload["control_runs"][0] = control_run(1).model_copy(
+        update={"inference_measurement": None}
+    )
+
+    with pytest.raises(ValidationError, match="inference-window timing"):
+        BenchmarkEvidence.model_validate(payload)
+
+
+def test_fixed_rate_profile_requires_request_count_matching_window() -> None:
+    with pytest.raises(ValidationError, match="target RPS times duration"):
+        LoadProfile(
+            mode="low_load_control",
+            concurrency=1,
+            target_requests_per_second=0.05,
+            warmup_seconds=0,
+            duration_seconds=60,
+            seed=20260815,
+            arrival_model="fixed_rate_open_loop",
+            request_count=4,
+            seed_scope="deterministic_test_sample_selection",
+        )

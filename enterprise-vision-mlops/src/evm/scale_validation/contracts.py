@@ -331,6 +331,22 @@ class LoadProfile(StrictModel):
     warmup_seconds: float = Field(ge=0)
     duration_seconds: float = Field(gt=0)
     seed: int = Field(ge=0)
+    arrival_model: Literal["fixed_rate_open_loop"] | None = None
+    request_count: int | None = Field(default=None, ge=1)
+    seed_scope: Literal["deterministic_test_sample_selection"] | None = None
+
+    @model_validator(mode="after")
+    def validate_fixed_rate_profile(self) -> "LoadProfile":
+        if self.mode != "low_load_control":
+            return self
+        if self.arrival_model is None or self.request_count is None or self.seed_scope is None:
+            return self
+        expected = self.target_requests_per_second * self.duration_seconds
+        if not math.isclose(expected, self.request_count, rel_tol=0, abs_tol=1e-9):
+            raise ValueError(
+                "fixed-rate low-load request_count must equal target RPS times duration"
+            )
+        return self
 
 
 class MetricObservation(StrictModel):
@@ -348,10 +364,27 @@ class MetricObservation(StrictModel):
         return values
 
 
+class InferenceMeasurementWindow(StrictModel):
+    basis: Literal["fixed_duration_open_loop"]
+    target_requests_per_second: float = Field(gt=0)
+    declared_duration_seconds: float = Field(gt=0)
+    observed_elapsed_seconds: float = Field(gt=0)
+    planned_request_count: int = Field(ge=1)
+    completed_request_count: int = Field(ge=0)
+    scheduled_interval_seconds: float = Field(gt=0)
+    max_request_start_lag_seconds: float = Field(ge=0)
+    seed: int = Field(ge=0)
+    seed_scope: Literal["deterministic_test_sample_selection"]
+    request_sequence_sha256: str = Field(pattern=SHA256_PATTERN)
+    throughput_basis: Literal["completed_requests_per_declared_window"]
+
+
 class BenchmarkControlRun(StrictModel):
     repetition: int = Field(ge=1)
     started_at: datetime
     finished_at: datetime
+    lifecycle_elapsed_seconds: float | None = Field(default=None, gt=0)
+    inference_measurement: InferenceMeasurementWindow | None = None
     metrics: list[MetricObservation] = Field(min_length=1)
     evidence_artifacts: list[EvidenceArtifact] = Field(min_length=1)
 
@@ -427,6 +460,7 @@ class BenchmarkEvidence(StrictModel):
         required_metrics = {
             "request_latency_seconds",
             "request_throughput_per_second",
+            "inference_measurement_window_seconds",
             "queue_depth",
             "queue_oldest_age_seconds",
             "worker_active_count",
@@ -434,10 +468,43 @@ class BenchmarkEvidence(StrictModel):
             "memory_working_set_bytes",
             "gpu_utilization_ratio",
             "gpu_memory_used_bytes",
-            "connection_pool_wait_seconds",
+            "load_generator_permit_wait_seconds",
             "retry_attempt_total",
         }
         for run in self.control_runs:
+            if run.lifecycle_elapsed_seconds is None or run.inference_measurement is None:
+                raise ValueError(
+                    "passed S0 baseline requires lifecycle and inference-window timing"
+                )
+            measurement = run.inference_measurement
+            if self.load_profile.arrival_model != "fixed_rate_open_loop":
+                raise ValueError("passed S0 baseline requires fixed-rate open-loop pacing")
+            if self.load_profile.seed_scope != "deterministic_test_sample_selection":
+                raise ValueError("passed S0 baseline requires an applied deterministic seed")
+            if self.load_profile.request_count is None:
+                raise ValueError("passed S0 baseline requires a declared request count")
+            if not math.isclose(
+                measurement.target_requests_per_second,
+                self.load_profile.target_requests_per_second,
+                rel_tol=0,
+                abs_tol=1e-9,
+            ):
+                raise ValueError("control measurement target RPS differs from load profile")
+            if not math.isclose(
+                measurement.declared_duration_seconds,
+                self.load_profile.duration_seconds,
+                rel_tol=0,
+                abs_tol=1e-9,
+            ):
+                raise ValueError("control measurement duration differs from load profile")
+            if measurement.planned_request_count != self.load_profile.request_count:
+                raise ValueError("control request count differs from load profile")
+            if measurement.completed_request_count != measurement.planned_request_count:
+                raise ValueError("passed S0 baseline requires every paced request to complete")
+            if measurement.seed != self.load_profile.seed:
+                raise ValueError("control seed differs from load profile")
+            if measurement.observed_elapsed_seconds < measurement.declared_duration_seconds:
+                raise ValueError("control ended before the declared measurement window")
             by_name = {item.metric: item for item in run.metrics}
             missing = required_metrics - by_name.keys()
             if missing:
