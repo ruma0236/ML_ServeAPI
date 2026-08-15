@@ -85,7 +85,7 @@ def run_experiment(
     try:
         with store.transaction("experiment_database_identity") as connection:
             database_version = str(
-                connection.execute("SHOW server_version").fetchone()[0]
+                connection.execute("SHOW server_version").fetchone()["server_version"]
             )
         jobs: list[Callable[[], str]] = []
         for index in range(100):
