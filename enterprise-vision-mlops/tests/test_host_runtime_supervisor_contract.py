@@ -19,7 +19,9 @@ def test_supervisor_uses_fail_closed_scenario_d_engine_and_exact_restart() -> No
     assert 'HeartbeatProperty = "observed_at"' in script
     assert 'HeartbeatProperty = "last_seen_at"' in script
     assert 'CommandMarker = "evm.control_panel.kubernetes_observer"' in script
-    assert 'CommandMarker = "evm.control_panel.lifecycle_worker"' in script
+    assert '"evm.control_panel.lifecycle_worker"' in script
+    assert "$env:EVM_RUNTIME_PROCESS_MARKER" in script
+    assert "CommandMarker = $LifecycleCommandMarker" in script
     assert "source_commit = $commit" in script
     assert "New-SupervisorLease" in script
     assert "EVM_SUPERVISOR_FENCING_TOKEN" in script
