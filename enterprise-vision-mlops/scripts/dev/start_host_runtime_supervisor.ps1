@@ -116,6 +116,7 @@ function Resolve-PythonRuntime {
         $PythonPath,
         $(if ($env:CONDA_PREFIX) { Join-Path $env:CONDA_PREFIX "python.exe" }),
         $(if ($env:USERPROFILE) { Join-Path $env:USERPROFILE "miniconda3\python.exe" }),
+        "F:\evm_w7_torch\python.exe",
         "C:\Users\opop0\miniconda3\python.exe",
         $(if (Get-Command python -ErrorAction SilentlyContinue) {
             (Get-Command python -ErrorAction Stop).Source

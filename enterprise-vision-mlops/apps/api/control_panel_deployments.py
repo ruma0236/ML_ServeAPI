@@ -20,6 +20,11 @@ from evm.control_panel.schemas import (
     DeploymentIntentRequest,
     DeploymentTransitionRequest,
 )
+from evm.control_panel.transactional_store import (
+    ControlPlanePoolTimeout,
+    ControlPlaneStoreError,
+    ControlPlaneTransactionTimeout,
+)
 
 
 router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-deployments"])
@@ -27,7 +32,10 @@ router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-deployments"
 
 @router.get("/deployment-intents", response_model=DeploymentIntentList)
 def list_deployment_intents(cycle_id: str | None = None) -> DeploymentIntentList:
-    ledger = read_intents()
+    try:
+        ledger = read_intents()
+    except ControlPlaneStoreError as exc:
+        raise store_http(exc) from exc
     if not cycle_id:
         return ledger
     return ledger.model_copy(
@@ -43,6 +51,8 @@ def create_intent(request: DeploymentIntentRequest) -> DeploymentIntent:
         return intent
     except DeploymentIntentBlocked as exc:
         raise blocked_http(exc) from exc
+    except ControlPlaneStoreError as exc:
+        raise store_http(exc) from exc
 
 
 @router.post(
@@ -103,6 +113,8 @@ def run_transition(operation) -> DeploymentIntent:
             status_code=409,
             detail={"error": "deployment_transition_rejected", "message": str(exc)},
         ) from exc
+    except ControlPlaneStoreError as exc:
+        raise store_http(exc) from exc
 
 
 def blocked_http(exc: DeploymentIntentBlocked) -> HTTPException:
@@ -115,4 +127,15 @@ def blocked_http(exc: DeploymentIntentBlocked) -> HTTPException:
                 exc.ci_evidence.validation_id if exc.ci_evidence else None
             ),
         },
+    )
+
+
+def store_http(exc: ControlPlaneStoreError) -> HTTPException:
+    return HTTPException(
+        status_code=(
+            503
+            if isinstance(exc, (ControlPlanePoolTimeout, ControlPlaneTransactionTimeout))
+            else 409
+        ),
+        detail={"error": type(exc).__name__, "message": str(exc)},
     )

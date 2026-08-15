@@ -18,8 +18,10 @@ from evm.control_panel.lifecycle_runs import (
 from evm.operations.scenario_d_supervision import (
     LifecycleRunClaim,
     LifecycleRunClaimStore,
+    TransactionalLifecycleRunClaimStore,
     current_process_started_at,
 )
+from evm.control_panel.transactional_store import get_transactional_store
 from evm.observability.otel import (
     configure_tracing,
     runtime_service_version,
@@ -35,7 +37,7 @@ class WorkerContext:
     source_commit: str | None
     supervisor_lease_id: str | None
     fencing_token: int | None
-    claim_store: LifecycleRunClaimStore | None
+    claim_store: LifecycleRunClaimStore | TransactionalLifecycleRunClaimStore | None
     current_run_id: str | None = None
     current_claim: LifecycleRunClaim | None = None
     stop: bool = False
@@ -123,14 +125,15 @@ def run_worker(
             str(Path(os.getenv("EVM_LIFECYCLE_RUN_ROOT", ".")) / "_claims"),
         )
     )
-    claim_store = (
-        LifecycleRunClaimStore(
-            claim_root,
-            ttl_seconds=float(os.getenv("EVM_LIFECYCLE_CLAIM_TTL_SECONDS", "30")),
+    transactional_store = get_transactional_store()
+    claim_ttl_seconds = float(os.getenv("EVM_LIFECYCLE_CLAIM_TTL_SECONDS", "30"))
+    claim_store = None
+    if source_commit and supervisor_lease_id and fencing_token:
+        claim_store = (
+            TransactionalLifecycleRunClaimStore(ttl_seconds=claim_ttl_seconds)
+            if transactional_store.enabled
+            else LifecycleRunClaimStore(claim_root, ttl_seconds=claim_ttl_seconds)
         )
-        if source_commit and supervisor_lease_id and fencing_token
-        else None
-    )
     context = WorkerContext(
         worker_id=worker_id or f"lifecycle-worker-{os.getpid()}",
         started_at=current_process_started_at().isoformat(),
@@ -190,7 +193,13 @@ def run_worker(
                     context.current_run_id = candidate
                     context.current_claim = claim_result.claim
                 try:
-                    result = process_lifecycle_run(candidate)
+                    if transactional_store.enabled:
+                        with transactional_store.bind_claim(
+                            context.current_claim.model_dump(mode="json")
+                        ):
+                            result = process_lifecycle_run(candidate)
+                    else:
+                        result = process_lifecycle_run(candidate)
                     print(
                         json.dumps(
                             {

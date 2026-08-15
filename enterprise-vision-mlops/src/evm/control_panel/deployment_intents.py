@@ -42,6 +42,7 @@ from evm.control_panel.schemas import (
     PromotionPolicyDecision,
     PromotionPolicyRequest,
 )
+from evm.control_panel.transactional_store import get_transactional_store
 
 
 DEFAULT_INTENT_ROOT = (
@@ -66,11 +67,24 @@ _LEDGER_LOCK = RLock()
 def ledger_transaction(function):
     @wraps(function)
     def synchronized(*args, **kwargs):
-        with _LEDGER_LOCK:
-            with intent_file_lock():
-                return function(*args, **kwargs)
+        with deployment_transaction_scope():
+            return function(*args, **kwargs)
 
     return synchronized
+
+
+@contextmanager
+def deployment_transaction_scope():
+    store = get_transactional_store()
+    if store.enabled:
+        with store.serialized("deployment-intents"):
+            with _LEDGER_LOCK:
+                with intent_file_lock():
+                    yield
+        return
+    with _LEDGER_LOCK:
+        with intent_file_lock():
+            yield
 
 
 class DeploymentIntentBlocked(RuntimeError):
@@ -145,6 +159,23 @@ def read_ci_bundle(path: str | Path) -> CIEvidenceBundle:
 
 def read_intents() -> DeploymentIntentList:
     with _LEDGER_LOCK:
+        store = get_transactional_store()
+        if store.enabled:
+            database_payload = store.read_collection("deployment_intents")
+            if database_payload is not None:
+                try:
+                    return DeploymentIntentList(
+                        intents=[
+                            DeploymentIntent.model_validate(item)
+                            for item in database_payload
+                        ]
+                    )
+                except ValueError:
+                    return DeploymentIntentList(
+                        intents=[],
+                        status="blocked",
+                        blockers=["deployment_database_ledger_schema_invalid"],
+                    )
         path = ledger_path()
         if not path.exists():
             return DeploymentIntentList(intents=[])
@@ -171,9 +202,13 @@ def write_intents(intents: DeploymentIntentList) -> None:
     if intents.status != "pass" or intents.blockers:
         raise DeploymentIntentBlocked(intents.blockers or ["deployment_ledger_not_writable"])
     with _LEDGER_LOCK:
+        payload = [intent.model_dump(mode="json") for intent in intents.intents]
+        store = get_transactional_store()
+        if store.enabled:
+            store.write_collection("deployment_intents", payload)
         atomic_write_json(
             ledger_path(),
-            [intent.model_dump(mode="json") for intent in intents.intents],
+            payload,
         )
 
 
@@ -205,6 +240,18 @@ def create_deployment_intent(
 ) -> DeploymentIntent:
     if not request.dry_run:
         raise DeploymentIntentBlocked(["direct_non_dry_run_creation_forbidden"])
+    store = get_transactional_store()
+    effective_key = request.idempotency_key or f"generated-{uuid4().hex}"
+    request_payload = request.model_dump(mode="json", exclude_none=True)
+    if store.enabled:
+        replay = store.lookup_idempotency(
+            "deployment.create",
+            effective_key,
+            request_payload,
+        )
+        if replay is not None:
+            return DeploymentIntent.model_validate(replay)
+    request = request.model_copy(update={"idempotency_key": effective_key})
     selection: ModelCandidateSelection | None = None
     if cycle is None:
         cycle, selection = resolve_request_cycle(request)
@@ -295,6 +342,15 @@ def create_deployment_intent(
     intents.intents.insert(0, intent)
     write_intents(intents)
     write_intent_snapshot(intent)
+    if store.enabled:
+        store.record_idempotency(
+            "deployment.create",
+            effective_key,
+            request_payload,
+            intent.model_dump(mode="json"),
+            entity_kind="deployment_intent",
+            entity_id=intent.intent_id,
+        )
     return intent
 
 
@@ -622,8 +678,22 @@ def transition_intent(
     result: str,
     mutate: Callable[[DeploymentIntent], dict[str, Any]] | None = None,
 ) -> DeploymentIntent:
-    with _LEDGER_LOCK:
-        with intent_file_lock():
+    store = get_transactional_store()
+    effective_key = request.idempotency_key or f"generated-{uuid4().hex}"
+    request_payload = {
+        "intent_id": intent_id,
+        "to_state": to_state,
+        **request.model_dump(mode="json", exclude_none=True),
+    }
+    with deployment_transaction_scope():
+            if store.enabled:
+                replay = store.lookup_idempotency(
+                    f"deployment.{to_state}",
+                    effective_key,
+                    request_payload,
+                )
+                if replay is not None:
+                    return DeploymentIntent.model_validate(replay)
             intents = read_intents()
             index = next(
                 (i for i, item in enumerate(intents.intents) if item.intent_id == intent_id),
@@ -665,6 +735,15 @@ def transition_intent(
             intents.intents[index] = intent
             write_intents(intents)
             write_intent_snapshot(intent)
+            if store.enabled:
+                store.record_idempotency(
+                    f"deployment.{to_state}",
+                    effective_key,
+                    request_payload,
+                    intent.model_dump(mode="json"),
+                    entity_kind="deployment_intent",
+                    entity_id=intent.intent_id,
+                )
             return intent
 
 

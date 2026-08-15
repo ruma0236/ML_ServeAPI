@@ -80,6 +80,7 @@ foreach ($candidate in @(
     $PythonPath,
     $(if ($env:CONDA_PREFIX) { Join-Path $env:CONDA_PREFIX "python.exe" }),
     $(if ($env:USERPROFILE) { Join-Path $env:USERPROFILE "miniconda3\python.exe" }),
+    "F:\evm_w7_torch\python.exe",
     "C:\Users\opop0\miniconda3\python.exe",
     $(if (Get-Command python -ErrorAction SilentlyContinue) {
         (Get-Command python -ErrorAction Stop).Source
@@ -91,11 +92,12 @@ foreach ($candidate in @(
 }
 
 $python = $null
+$requiredImports = "import pydantic, requests, psycopg, psycopg_pool"
 foreach ($candidate in $pythonCandidates) {
     if (-not (Test-Path -LiteralPath $candidate)) {
         continue
     }
-    & $candidate -c "import pydantic, requests" 2>$null
+    & $candidate -c $requiredImports 2>$null
     if ($LASTEXITCODE -eq 0) {
         $python = $candidate
         break
@@ -117,6 +119,46 @@ $env:EVM_LIFECYCLE_CLAIM_TTL_SECONDS = "30"
 $env:EVM_LIFECYCLE_RUNTIME_ROOT = "/mnt/evm-data/artifacts/w7/lifecycle_runs"
 $env:EVM_KUBERNETES_GENERATED_MANIFEST_ROOT = $LifecycleRoot
 $env:EVM_CONTROL_PANEL_LEDGER_ROOT = Join-Path $ArtifactsRoot "w7\operations"
+$env:EVM_CONTROL_PLANE_STORE_MODE = if ($env:EVM_CONTROL_PLANE_STORE_MODE) {
+    $env:EVM_CONTROL_PLANE_STORE_MODE
+} else {
+    "dual"
+}
+$env:EVM_CONTROL_PLANE_DATABASE_URL = if ($env:EVM_CONTROL_PLANE_DATABASE_URL) {
+    $env:EVM_CONTROL_PLANE_DATABASE_URL
+} else {
+    "postgresql://evm_control_plane:evm_control_plane_local@127.0.0.1:5434/evm_control_plane"
+}
+$env:EVM_CONTROL_PLANE_DATABASE_SCHEMA = if ($env:EVM_CONTROL_PLANE_DATABASE_SCHEMA) {
+    $env:EVM_CONTROL_PLANE_DATABASE_SCHEMA
+} else {
+    "evm_control_plane"
+}
+$env:EVM_CONTROL_PLANE_POOL_MIN_SIZE = if ($env:EVM_CONTROL_PLANE_POOL_MIN_SIZE) {
+    $env:EVM_CONTROL_PLANE_POOL_MIN_SIZE
+} else {
+    "1"
+}
+$env:EVM_CONTROL_PLANE_POOL_MAX_SIZE = if ($env:EVM_CONTROL_PLANE_POOL_MAX_SIZE) {
+    $env:EVM_CONTROL_PLANE_POOL_MAX_SIZE
+} else {
+    "4"
+}
+$env:EVM_CONTROL_PLANE_POOL_ACQUIRE_TIMEOUT_SECONDS = if ($env:EVM_CONTROL_PLANE_POOL_ACQUIRE_TIMEOUT_SECONDS) {
+    $env:EVM_CONTROL_PLANE_POOL_ACQUIRE_TIMEOUT_SECONDS
+} else {
+    "2"
+}
+$env:EVM_CONTROL_PLANE_LOCK_TIMEOUT_SECONDS = if ($env:EVM_CONTROL_PLANE_LOCK_TIMEOUT_SECONDS) {
+    $env:EVM_CONTROL_PLANE_LOCK_TIMEOUT_SECONDS
+} else {
+    "2"
+}
+$env:EVM_CONTROL_PLANE_STATEMENT_TIMEOUT_SECONDS = if ($env:EVM_CONTROL_PLANE_STATEMENT_TIMEOUT_SECONDS) {
+    $env:EVM_CONTROL_PLANE_STATEMENT_TIMEOUT_SECONDS
+} else {
+    "10"
+}
 $env:EVM_DEPLOYMENT_INTENT_ROOT = Join-Path $ArtifactsRoot "w7\deployment_intents"
 $env:EVM_CI_EVIDENCE_PATH = Join-Path $ArtifactsRoot "w7\ci\latest_ci_evidence.json"
 $env:EVM_CI_VALIDATION_REPORT_PATH = Join-Path $ArtifactsRoot "w7\ci\latest_ci_validation.json"

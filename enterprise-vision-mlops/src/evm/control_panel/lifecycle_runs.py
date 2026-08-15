@@ -56,6 +56,16 @@ from evm.control_panel.pipeline_profiles import (
 )
 from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import AuditEvent, ContractModel
+from evm.control_panel.transactional_store import (
+    ControlPlaneIdempotencyConflict,
+    ControlPlaneLeaseConflict,
+    ControlPlanePoolTimeout,
+    ControlPlaneStoreError,
+    ControlPlaneTransactionTimeout,
+    ControlPlaneVersionConflict,
+    canonical_digest as store_payload_digest,
+    get_transactional_store,
+)
 from evm.observability.trace_context import W3CTraceContext, current_trace_context
 from evm.observability.otel import trace_span
 
@@ -110,12 +120,24 @@ class LifecycleRunRequest(ContractModel):
     reason: str = Field(min_length=8)
     dry_run: bool = True
     execution_mode: LifecycleExecutionMode = "automatic"
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 class LifecycleActionRequest(ContractModel):
     actor: str = Field(min_length=2)
     reason: str = Field(min_length=8)
     expected_version: int = Field(ge=1)
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 def reject_quality_review(review: ModelQualityReview) -> None:
@@ -194,6 +216,7 @@ class LifecycleRun(ContractModel):
     version: int = Field(ge=1)
     actor: str
     reason: str
+    idempotency_key: str | None = None
     dry_run: bool
     execution_mode: LifecycleExecutionMode = "automatic"
     created_at: str
@@ -377,13 +400,48 @@ def create_lifecycle_run(request: LifecycleRunRequest) -> LifecycleRun:
             "evm.dry_run": request.dry_run,
         },
     ) as active:
-        return _create_lifecycle_run(request, trace_context=active.context)
+        store = get_transactional_store()
+        effective_key = request.idempotency_key or f"generated-{uuid4().hex}"
+        if not store.enabled:
+            return _create_lifecycle_run(
+                request,
+                trace_context=active.context,
+                idempotency_key=effective_key,
+            )
+        request_payload = request.model_dump(mode="json", exclude_none=True)
+        try:
+            with store.serialized(f"idempotency:lifecycle.create:{effective_key}"):
+                replay = store.lookup_idempotency(
+                    "lifecycle.create",
+                    effective_key,
+                    request_payload,
+                )
+                if replay is not None:
+                    active.set_attribute("evm.idempotency.replayed", True)
+                    return hydrate_cycle_context(LifecycleRun.model_validate(replay))
+                run = _create_lifecycle_run(
+                    request,
+                    trace_context=active.context,
+                    idempotency_key=effective_key,
+                )
+                store.record_idempotency(
+                    "lifecycle.create",
+                    effective_key,
+                    request_payload,
+                    run.model_dump(mode="json"),
+                    entity_kind="lifecycle_run",
+                    entity_id=run.run_id,
+                )
+                return run
+        except ControlPlaneStoreError as exc:
+            raise lifecycle_store_error(exc) from exc
 
 
 def _create_lifecycle_run(
     request: LifecycleRunRequest,
     *,
     trace_context: W3CTraceContext,
+    idempotency_key: str,
 ) -> LifecycleRun:
     record = get_profile(request.profile_id, request.profile_version)
     if record is None:
@@ -477,6 +535,7 @@ def _create_lifecycle_run(
         version=1,
         actor=request.actor,
         reason=request.reason,
+        idempotency_key=idempotency_key,
         dry_run=request.dry_run,
         execution_mode=request.execution_mode,
         created_at=created_at,
@@ -507,6 +566,7 @@ def _create_lifecycle_run(
                 profile_id=record.profile_id,
                 profile_version=record.version,
                 state=state,
+                idempotency_key=idempotency_key,
             )
         ],
     )
@@ -763,9 +823,29 @@ def lifecycle_node_port(environment: str) -> int:
 
 
 def read_runs() -> LifecycleRunList:
+    store = get_transactional_store()
+    database_runs: list[LifecycleRun] = []
+    if store.enabled:
+        try:
+            database_runs = [
+                hydrate_cycle_context(LifecycleRun.model_validate(payload))
+                for payload in store.list_entities("lifecycle_run")
+            ]
+        except (ControlPlaneStoreError, ValueError):
+            if store.mode == "postgres":
+                raise
+    file_runs = read_file_runs()
+    merged = {run.run_id: run for run in file_runs}
+    merged.update({run.run_id: run for run in database_runs})
+    runs = list(merged.values())
+    runs.sort(key=lambda item: (item.created_at, item.run_id), reverse=True)
+    return LifecycleRunList(runs=runs, total=len(runs))
+
+
+def read_file_runs() -> list[LifecycleRun]:
     root = lifecycle_root()
     if not root.exists():
-        return LifecycleRunList()
+        return []
     runs: list[LifecycleRun] = []
     for path in root.glob("lifecycle-*/lifecycle_run.json"):
         try:
@@ -773,10 +853,23 @@ def read_runs() -> LifecycleRunList:
         except (OSError, ValueError):
             continue
     runs.sort(key=lambda item: (item.created_at, item.run_id), reverse=True)
-    return LifecycleRunList(runs=runs, total=len(runs))
+    return runs
 
 
 def get_lifecycle_run(run_id: str) -> LifecycleRun | None:
+    store = get_transactional_store()
+    if store.enabled:
+        try:
+            payload = store.get_entity("lifecycle_run", run_id)
+            if payload is not None:
+                return hydrate_cycle_context(LifecycleRun.model_validate(payload))
+        except (ControlPlaneStoreError, ValueError):
+            if store.mode == "postgres":
+                raise
+    return get_file_lifecycle_run(run_id)
+
+
+def get_file_lifecycle_run(run_id: str) -> LifecycleRun | None:
     path = run_path(run_id)
     if not path.is_file():
         return None
@@ -828,7 +921,14 @@ def queue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
         run.audit.append(audit(request.actor, "lifecycle_run_queued", reason=request.reason))
         return run
 
-    return mutate_run(run_id, request.expected_version, update)
+    return mutate_run(
+        run_id,
+        request.expected_version,
+        update,
+        operation="queue",
+        idempotency_key=request.idempotency_key,
+        request_payload=request.model_dump(mode="json", exclude_none=True),
+    )
 
 
 def continue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
@@ -864,7 +964,14 @@ def continue_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Life
         )
         return run
 
-    return mutate_run(run_id, request.expected_version, update)
+    return mutate_run(
+        run_id,
+        request.expected_version,
+        update,
+        operation="continue",
+        idempotency_key=request.idempotency_key,
+        request_payload=request.model_dump(mode="json", exclude_none=True),
+    )
 
 
 def approve_lifecycle_run(
@@ -961,7 +1068,14 @@ def approve_lifecycle_run(
         )
         return run
 
-    return mutate_run(run_id, request.expected_version, update)
+    return mutate_run(
+        run_id,
+        request.expected_version,
+        update,
+        operation="approve",
+        idempotency_key=request.idempotency_key,
+        request_payload=request.model_dump(mode="json", exclude_none=True),
+    )
 
 
 def cancel_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
@@ -985,7 +1099,14 @@ def cancel_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecy
         run.audit.append(audit(request.actor, "lifecycle_run_cancelled", reason=request.reason))
         return run
 
-    return mutate_run(run_id, request.expected_version, update)
+    return mutate_run(
+        run_id,
+        request.expected_version,
+        update,
+        operation="cancel",
+        idempotency_key=request.idempotency_key,
+        request_payload=request.model_dump(mode="json", exclude_none=True),
+    )
 
 
 def retry_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> LifecycleRun:
@@ -1046,7 +1167,14 @@ def retry_lifecycle_run(run_id: str, request: LifecycleActionRequest) -> Lifecyc
         )
         return run
 
-    return mutate_run(run_id, request.expected_version, update)
+    return mutate_run(
+        run_id,
+        request.expected_version,
+        update,
+        operation="retry",
+        idempotency_key=request.idempotency_key,
+        request_payload=request.model_dump(mode="json", exclude_none=True),
+    )
 
 
 def register_lifecycle_quality_review(
@@ -1522,9 +1650,70 @@ def mutate_run(
     run_id: str,
     expected_version: int | None,
     update: Callable[[LifecycleRun], LifecycleRun],
+    *,
+    operation: str = "internal_transition",
+    idempotency_key: str | None = None,
+    request_payload: dict[str, object] | None = None,
 ) -> LifecycleRun:
+    store = get_transactional_store()
+    if store.enabled:
+        effective_key = idempotency_key or f"generated-{uuid4().hex}"
+        idempotency_scope = f"lifecycle.{operation}"
+        request_identity = request_payload or {
+            "run_id": run_id,
+            "expected_version": expected_version,
+            "operation": operation,
+            "generated_key": effective_key,
+        }
+        try:
+            with store.serialized(f"lifecycle:{run_id}"):
+                replay = store.lookup_idempotency(
+                    idempotency_scope,
+                    effective_key,
+                    request_identity,
+                )
+                if replay is not None:
+                    return hydrate_cycle_context(LifecycleRun.model_validate(replay))
+                fallback = get_file_lifecycle_run(run_id)
+
+                def mutate_payload(payload: dict[str, object]) -> dict[str, object]:
+                    current = hydrate_cycle_context(LifecycleRun.model_validate(payload))
+                    updated = update(current.model_copy(deep=True))
+                    updated.version = current.version + 1
+                    updated.updated_at = utc_now()
+                    updated.progress = stage_progress(updated.stages)
+                    return updated.model_dump(mode="json")
+
+                updated_payload = store.mutate_entity(
+                    "lifecycle_run",
+                    run_id,
+                    expected_version=expected_version,
+                    fallback_payload=(
+                        fallback.model_dump(mode="json") if fallback is not None else None
+                    ),
+                    mutate=mutate_payload,
+                )
+                updated = LifecycleRun.model_validate(updated_payload)
+                store.record_idempotency(
+                    idempotency_scope,
+                    effective_key,
+                    request_identity,
+                    updated_payload,
+                    entity_kind="lifecycle_run",
+                    entity_id=run_id,
+                )
+            write_run_file(updated)
+            return hydrate_cycle_context(updated)
+        except KeyError as exc:
+            raise LifecycleRunError(
+                "lifecycle_run_not_found",
+                f"LifecycleRun {run_id} was not found.",
+                status_code=404,
+            ) from exc
+        except ControlPlaneStoreError as exc:
+            raise lifecycle_store_error(exc) from exc
     with run_lock(run_id):
-        current = get_lifecycle_run(run_id)
+        current = get_file_lifecycle_run(run_id)
         if current is None:
             raise LifecycleRunError(
                 "lifecycle_run_not_found",
@@ -1624,9 +1813,46 @@ def assert_dependencies_complete(run: LifecycleRun, stage_index_value: int) -> N
 
 
 def write_run(run: LifecycleRun) -> None:
+    store = get_transactional_store()
+    if store.enabled:
+        payload = run.model_dump(mode="json")
+        existing = store.get_entity("lifecycle_run", run.run_id)
+        if existing is None:
+            store.insert_entity(
+                "lifecycle_run",
+                run.run_id,
+                payload,
+                state=run.state,
+                version=run.version,
+            )
+        elif store_payload_digest(existing) != store_payload_digest(payload):
+            raise LifecycleRunError(
+                "lifecycle_run_write_requires_transaction",
+                "Existing LifecycleRun updates must use mutate_run().",
+            )
+    write_run_file(run)
+
+
+def write_run_file(run: LifecycleRun) -> None:
     path = run_path(run.run_id)
     atomic_write_json(path, run.model_dump(mode="json"))
     atomic_write_json(lifecycle_root() / "latest_lifecycle_run.json", run.model_dump(mode="json"))
+
+
+def lifecycle_store_error(exc: ControlPlaneStoreError) -> LifecycleRunError:
+    if isinstance(exc, (ControlPlanePoolTimeout, ControlPlaneTransactionTimeout)):
+        return LifecycleRunError(
+            "control_plane_pool_timeout",
+            str(exc),
+            status_code=503,
+        )
+    if isinstance(exc, ControlPlaneVersionConflict):
+        return LifecycleRunError("lifecycle_run_version_conflict", str(exc))
+    if isinstance(exc, ControlPlaneIdempotencyConflict):
+        return LifecycleRunError("lifecycle_idempotency_conflict", str(exc))
+    if isinstance(exc, ControlPlaneLeaseConflict):
+        return LifecycleRunError("lifecycle_worker_lease_conflict", str(exc))
+    return LifecycleRunError("control_plane_store_unavailable", str(exc), status_code=503)
 
 
 def read_worker_state(stale_after_seconds: int = 20) -> LifecycleWorkerState:

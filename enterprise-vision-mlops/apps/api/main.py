@@ -511,6 +511,11 @@ def health() -> dict[str, str]:
 
 @app.get("/ready")
 def ready(response: Response) -> dict[str, Any]:
+    from evm.control_panel.transactional_store import (
+        ControlPlaneStoreError,
+        get_transactional_store,
+    )
+
     try:
         mlflow_response = requests.get(f"{MLFLOW_TRACKING_URI}/health", timeout=2)
         mlflow_ready = mlflow_response.ok
@@ -526,9 +531,26 @@ def ready(response: Response) -> dict[str, Any]:
         and runtime_source_commit != "unknown"
         and desired_source_commit == runtime_source_commit
     )
+    configured_store_mode = os.getenv("EVM_CONTROL_PLANE_STORE_MODE", "file").strip().lower()
+    control_plane_store_required = configured_store_mode in {"dual", "postgres"}
+    control_plane_store_ready = not control_plane_store_required
+    control_plane_store_error: str | None = None
+    try:
+        control_plane_store = get_transactional_store()
+        configured_store_mode = control_plane_store.mode
+        if control_plane_store.enabled:
+            control_plane_store.get_entity("readiness_probe", "readiness_probe")
+            control_plane_store_ready = True
+    except ControlPlaneStoreError as exc:
+        control_plane_store_error = type(exc).__name__
     status = (
         "ok"
-        if mlflow_ready and model_loaded and runtime_revision_matches
+        if (
+            mlflow_ready
+            and model_loaded
+            and runtime_revision_matches
+            and control_plane_store_ready
+        )
         else "degraded"
     )
     response.status_code = 200 if status == "ok" else 503
@@ -543,6 +565,10 @@ def ready(response: Response) -> dict[str, Any]:
         "mlflow_ready": mlflow_ready,
         "model_loaded": model_loaded,
         "model_load_error": MODEL_LOAD_ERROR,
+        "control_plane_store_mode": configured_store_mode,
+        "control_plane_store_required": control_plane_store_required,
+        "control_plane_store_ready": control_plane_store_ready,
+        "control_plane_store_error": control_plane_store_error,
     }
     if model:
         payload.update(model.ready_payload())

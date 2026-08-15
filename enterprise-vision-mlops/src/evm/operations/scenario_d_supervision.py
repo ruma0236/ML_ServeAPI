@@ -747,6 +747,76 @@ class LifecycleRunClaimStore:
             return released
 
 
+class TransactionalLifecycleRunClaimStore:
+    """PostgreSQL-backed claim store used when S1 transactional mode is enabled."""
+
+    def __init__(self, *, ttl_seconds: float = 30.0) -> None:
+        from evm.control_panel.transactional_store import get_transactional_store
+
+        self.store = get_transactional_store()
+        if not self.store.enabled:
+            raise RuntimeError("transactional_control_plane_store_disabled")
+        self.ttl_seconds = ttl_seconds
+
+    def acquire(
+        self,
+        *,
+        run_id: str,
+        worker_id: str,
+        worker_pid: int,
+        process_instance_id: str,
+        source_commit: str,
+        supervisor_lease_id: str,
+        fencing_token: int,
+        now: datetime | None = None,
+    ) -> ClaimAcquireResult:
+        result = self.store.acquire_claim(
+            run_id=run_id,
+            worker_id=worker_id,
+            worker_pid=worker_pid,
+            process_instance_id=process_instance_id,
+            source_commit=source_commit,
+            supervisor_lease_id=supervisor_lease_id,
+            fencing_token=fencing_token,
+            ttl_seconds=self.ttl_seconds,
+            now=now,
+        )
+        return ClaimAcquireResult(
+            acquired=result.acquired,
+            reason=result.reason,
+            claim=(
+                LifecycleRunClaim.model_validate(result.claim)
+                if result.claim is not None
+                else None
+            ),
+        )
+
+    def renew(
+        self,
+        claim: LifecycleRunClaim,
+        *,
+        now: datetime | None = None,
+    ) -> LifecycleRunClaim:
+        payload = self.store.renew_claim(
+            claim.model_dump(mode="json"),
+            ttl_seconds=self.ttl_seconds,
+            now=now,
+        )
+        return LifecycleRunClaim.model_validate(payload)
+
+    def release(
+        self,
+        claim: LifecycleRunClaim,
+        *,
+        now: datetime | None = None,
+    ) -> LifecycleRunClaim:
+        payload = self.store.release_claim(claim.model_dump(mode="json"), now=now)
+        return LifecycleRunClaim.model_validate(payload)
+
+    def reconcile_stale(self, *, now: datetime | None = None) -> list[str]:
+        return self.store.reconcile_stale_claims(now=now)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate Scenario D supervision state.")
     subparsers = parser.add_subparsers(dest="command", required=True)

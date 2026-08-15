@@ -30,6 +30,11 @@ from evm.control_panel.lifecycle_runs import (
     retry_lifecycle_run,
 )
 from evm.control_panel.stage_handoffs import StageHandoffCatalog, build_stage_handoff_catalog
+from evm.control_panel.transactional_store import (
+    ControlPlanePoolTimeout,
+    ControlPlaneStoreError,
+    ControlPlaneTransactionTimeout,
+)
 
 
 router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-lifecycle"])
@@ -37,7 +42,10 @@ router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-lifecycle"])
 
 @router.get("/lifecycle-runs", response_model=LifecycleRunList)
 def list_lifecycle_runs() -> LifecycleRunList:
-    return read_runs()
+    try:
+        return read_runs()
+    except ControlPlaneStoreError as exc:
+        raise lifecycle_store_http(exc) from exc
 
 
 @router.get("/lifecycle-runs/worker", response_model=LifecycleWorkerState)
@@ -57,7 +65,10 @@ def list_stage_handoffs(run_id: str | None = None, limit: int = 250) -> StageHan
 
 @router.get("/lifecycle-runs/{run_id}", response_model=LifecycleRun)
 def read_lifecycle_run(run_id: str) -> LifecycleRun:
-    run = get_lifecycle_run(run_id)
+    try:
+        run = get_lifecycle_run(run_id)
+    except ControlPlaneStoreError as exc:
+        raise lifecycle_store_http(exc) from exc
     if run is None:
         raise HTTPException(
             status_code=404,
@@ -146,3 +157,14 @@ def lifecycle_operation(operation) -> LifecycleRun:
             status_code=exc.status_code,
             detail={"error": exc.code, "message": str(exc)},
         ) from exc
+
+
+def lifecycle_store_http(exc: ControlPlaneStoreError) -> HTTPException:
+    return HTTPException(
+        status_code=(
+            503
+            if isinstance(exc, (ControlPlanePoolTimeout, ControlPlaneTransactionTimeout))
+            else 409
+        ),
+        detail={"error": type(exc).__name__, "message": str(exc)},
+    )

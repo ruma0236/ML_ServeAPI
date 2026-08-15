@@ -12,6 +12,10 @@ from pydantic import Field, model_validator
 
 from evm.control_panel.readiness_evaluator import runtime_path
 from evm.control_panel.schemas import ContractModel
+from evm.control_panel.transactional_store import (
+    ControlPlaneStoreError,
+    get_transactional_store,
+)
 from evm.observability.trace_context import W3CTraceContext
 
 
@@ -498,16 +502,6 @@ def reserve_side_effect(
         }
     )
     path = directory / "side_effect_ledger.json"
-    try:
-        ledger = LifecycleSideEffectLedger.model_validate(read_json(path))
-    except (LifecycleGuardBlocked, ValueError) as exc:
-        raise LifecycleGuardBlocked(["side_effect_ledger_invalid"]) from exc
-    existing = next(
-        (item for item in ledger.entries if item.side_effect_key == side_effect_key),
-        None,
-    )
-    if existing is not None:
-        return existing, False
     now = utc_now()
     entry = LifecycleSideEffect(
         side_effect_key=side_effect_key,
@@ -522,6 +516,25 @@ def reserve_side_effect(
         reserved_at=now,
         updated_at=now,
     )
+    store = get_transactional_store()
+    if store.enabled:
+        try:
+            payload, created = store.reserve_side_effect(entry.model_dump(mode="json"))
+            persisted = LifecycleSideEffect.model_validate(payload)
+            mirror_side_effect_ledger(path, run_id, store.list_side_effects(run_id))
+            return persisted, created
+        except (ControlPlaneStoreError, ValueError) as exc:
+            raise LifecycleGuardBlocked(["side_effect_transactional_store_blocked"]) from exc
+    try:
+        ledger = LifecycleSideEffectLedger.model_validate(read_json(path))
+    except (LifecycleGuardBlocked, ValueError) as exc:
+        raise LifecycleGuardBlocked(["side_effect_ledger_invalid"]) from exc
+    existing = next(
+        (item for item in ledger.entries if item.side_effect_key == side_effect_key),
+        None,
+    )
+    if existing is not None:
+        return existing, False
     ledger.entries.append(entry)
     atomic_write(path, ledger.model_dump(mode="json"))
     return entry, True
@@ -536,6 +549,27 @@ def complete_side_effect(
     evidence_uri: str | None = None,
 ) -> LifecycleSideEffect:
     path = directory / "side_effect_ledger.json"
+    store = get_transactional_store()
+    if store.enabled:
+        try:
+            payload = store.complete_side_effect(
+                side_effect_key,
+                state=state,
+                runtime_id=runtime_id,
+                evidence_uri=evidence_uri,
+                updated_at=utc_now(),
+            )
+            persisted = LifecycleSideEffect.model_validate(payload)
+            mirror_side_effect_ledger(
+                path,
+                persisted.lifecycle_run_id,
+                store.list_side_effects(persisted.lifecycle_run_id),
+            )
+            return persisted
+        except KeyError as exc:
+            raise LifecycleGuardBlocked(["side_effect_reservation_missing"]) from exc
+        except (ControlPlaneStoreError, ValueError) as exc:
+            raise LifecycleGuardBlocked(["side_effect_transactional_store_blocked"]) from exc
     try:
         ledger = LifecycleSideEffectLedger.model_validate(read_json(path))
     except (LifecycleGuardBlocked, ValueError) as exc:
@@ -573,3 +607,15 @@ def complete_side_effect(
         atomic_write(path, ledger.model_dump(mode="json"))
         return updated
     raise LifecycleGuardBlocked(["side_effect_reservation_missing"])
+
+
+def mirror_side_effect_ledger(
+    path: Path,
+    run_id: str,
+    entries: list[dict[str, Any]],
+) -> None:
+    ledger = LifecycleSideEffectLedger(
+        lifecycle_run_id=run_id,
+        entries=[LifecycleSideEffect.model_validate(item) for item in entries],
+    )
+    atomic_write(path, ledger.model_dump(mode="json"))

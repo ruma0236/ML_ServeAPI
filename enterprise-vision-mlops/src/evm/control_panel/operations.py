@@ -32,6 +32,7 @@ from evm.control_panel.schemas import (
     TaskStatus,
     TaskTransitionRequest,
 )
+from evm.control_panel.transactional_store import get_transactional_store
 from evm.observability.otel import trace_span
 from evm.observability.trace_context import (
     TraceContextError,
@@ -65,6 +66,12 @@ class AirflowTaskProgress:
 def ledger_transaction(function):
     @wraps(function)
     def synchronized(*args, **kwargs):
+        store = get_transactional_store()
+        if store.enabled:
+            with store.serialized("operations-ledger"):
+                with _LEDGER_LOCK:
+                    with ledger_file_lock():
+                        return function(*args, **kwargs)
         with _LEDGER_LOCK:
             with ledger_file_lock():
                 return function(*args, **kwargs)
@@ -126,19 +133,41 @@ def audit(actor: str, event: str, **details: str | int | float | bool | None) ->
 
 
 def read_tasks() -> TaskAssignmentList:
+    store = get_transactional_store()
+    if store.enabled:
+        payload = store.read_collection("task_assignments")
+        if payload is not None:
+            return TaskAssignmentList(
+                tasks=[TaskAssignment.model_validate(item) for item in payload]
+            )
     return TaskAssignmentList(tasks=[TaskAssignment.model_validate(item) for item in read_json_array(task_ledger_path())])
 
 
 def write_tasks(tasks: TaskAssignmentList) -> None:
-    write_json_array(task_ledger_path(), [task.model_dump(mode="json") for task in tasks.tasks])
+    payload = [task.model_dump(mode="json") for task in tasks.tasks]
+    store = get_transactional_store()
+    if store.enabled:
+        store.write_collection("task_assignments", payload)
+    write_json_array(task_ledger_path(), payload)
 
 
 def read_commands() -> CommandIntentList:
+    store = get_transactional_store()
+    if store.enabled:
+        payload = store.read_collection("command_intents")
+        if payload is not None:
+            return CommandIntentList(
+                commands=[CommandIntent.model_validate(item) for item in payload]
+            )
     return CommandIntentList(commands=[CommandIntent.model_validate(item) for item in read_json_array(command_ledger_path())])
 
 
 def write_commands(commands: CommandIntentList) -> None:
-    write_json_array(command_ledger_path(), [command.model_dump(mode="json") for command in commands.commands])
+    payload = [command.model_dump(mode="json") for command in commands.commands]
+    store = get_transactional_store()
+    if store.enabled:
+        store.write_collection("command_intents", payload)
+    write_json_array(command_ledger_path(), payload)
 
 
 def read_json_array(path: Path) -> list[dict[str, object]]:
@@ -163,6 +192,13 @@ def write_json_array(path: Path, payload: list[dict[str, object]]) -> None:
 
 @ledger_transaction
 def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
+    store = get_transactional_store()
+    effective_key = request.idempotency_key or f"generated-{uuid4().hex}"
+    request_payload = request.model_dump(mode="json", exclude_none=True)
+    if store.enabled:
+        replay = store.lookup_idempotency("task.create", effective_key, request_payload)
+        if replay is not None:
+            return TaskAssignment.model_validate(replay)
     with trace_span(
         "queue.enqueue",
         kind="producer",
@@ -181,8 +217,22 @@ def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
                 "tracestate": active.context.tracestate,
             }
         )
-        traced_request = request.model_copy(update={"config_payload": config_payload})
+        traced_request = request.model_copy(
+            update={
+                "config_payload": config_payload,
+                "idempotency_key": effective_key,
+            }
+        )
         task = _create_task_assignment(traced_request)
+        if store.enabled:
+            store.record_idempotency(
+                "task.create",
+                effective_key,
+                request_payload,
+                task.model_dump(mode="json"),
+                entity_kind="task_assignment",
+                entity_id=task.task_id,
+            )
         active.set_attribute("evm.task.status", task.status)
         active.set_attribute("evm.task.id", task.task_id)
         return task
@@ -224,10 +274,25 @@ def confirm_task_assignment(
     task_id: str,
     request: TaskTransitionRequest,
 ) -> TaskAssignment | None:
+    store = get_transactional_store()
+    effective_key = request.idempotency_key or f"generated-{uuid4().hex}"
+    request_payload = {
+        "task_id": task_id,
+        **request.model_dump(mode="json", exclude_none=True),
+    }
+    if store.enabled:
+        replay = store.lookup_idempotency("task.confirm", effective_key, request_payload)
+        if replay is not None:
+            return TaskAssignment.model_validate(replay)
     tasks = read_tasks()
     for index, task in enumerate(tasks.tasks):
         if task.task_id != task_id:
             continue
+        if request.expected_version is not None and task.version != request.expected_version:
+            raise TaskDispatchError(
+                "task_version_conflict",
+                f"Expected version {request.expected_version}, current version is {task.version}.",
+            )
         if task.status != "pending_confirmation":
             raise TaskDispatchError(
                 "task_not_pending_confirmation",
@@ -239,6 +304,7 @@ def confirm_task_assignment(
                 f"Task {task_id} requires an external {task.approval_policy} approval record.",
             )
         task.status = "queued"
+        task.version += 1
         task.queued_at = utc_now()
         task.audit.append(
             audit(
@@ -250,6 +316,15 @@ def confirm_task_assignment(
         )
         tasks.tasks[index] = task
         write_tasks(tasks)
+        if store.enabled:
+            store.record_idempotency(
+                "task.confirm",
+                effective_key,
+                request_payload,
+                task.model_dump(mode="json"),
+                entity_kind="task_assignment",
+                entity_id=task.task_id,
+            )
         return task
     return None
 
@@ -257,6 +332,15 @@ def confirm_task_assignment(
 @ledger_transaction
 def dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
     task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
+    if task is None:
+        return None
+    store = get_transactional_store()
+    effective_key = f"task-dispatch-{task.task_id}-v{task.version}"
+    request_payload = {"task_id": task.task_id, "expected_version": task.version}
+    if store.enabled:
+        replay = store.lookup_idempotency("task.dispatch", effective_key, request_payload)
+        if replay is not None:
+            return TaskAssignment.model_validate(replay)
     parent = task_trace_context(task)
     with trace_span(
         "queue.dispatch",
@@ -272,6 +356,15 @@ def dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
         task = _dispatch_task_assignment(task_id)
         if task is not None:
             active.set_attribute("evm.task.status", task.status)
+            if store.enabled:
+                store.record_idempotency(
+                    "task.dispatch",
+                    effective_key,
+                    request_payload,
+                    task.model_dump(mode="json"),
+                    entity_kind="task_assignment",
+                    entity_id=task.task_id,
+                )
         return task
 
 
@@ -336,6 +429,7 @@ def _dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
             )
         except TaskDispatchError as exc:
             task.status = "failed"
+            task.version += 1
             task.finished_at = utc_now()
             task.failure_reason = exc.code
             task.audit.append(
@@ -346,6 +440,7 @@ def _dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
             raise
 
         task.status = "running"
+        task.version += 1
         task.dispatched_at = utc_now()
         task.runtime_system = "airflow"
         task.runtime_id = str(response.get("dag_run_id") or dag_run_id)
@@ -397,6 +492,7 @@ def sync_running_tasks(limit: int = 20) -> TaskAssignmentList:
         previous = task.runtime_state
         task.runtime_state = runtime_state
         task.status = mapped_status
+        task.version += 1
         if mapped_status in {"done", "failed"}:
             task.finished_at = utc_now()
         if mapped_status == "failed":
@@ -436,6 +532,7 @@ def update_task_runtime(
         if task.task_id != task_id:
             continue
         task.status = status
+        task.version += 1
         task.runtime_system = runtime_system or task.runtime_system
         task.runtime_id = runtime_id or task.runtime_id
         task.runtime_url = runtime_url or task.runtime_url

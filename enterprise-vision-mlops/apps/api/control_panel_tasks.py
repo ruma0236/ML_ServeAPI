@@ -17,6 +17,11 @@ from evm.control_panel.schemas import (
     TaskAssignmentRequest,
     TaskTransitionRequest,
 )
+from evm.control_panel.transactional_store import (
+    ControlPlanePoolTimeout,
+    ControlPlaneStoreError,
+    ControlPlaneTransactionTimeout,
+)
 
 
 router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-tasks"])
@@ -24,7 +29,10 @@ router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-tasks"])
 
 @router.get("/tasks", response_model=TaskAssignmentList)
 def list_task_assignments(refresh_runtime: bool = True) -> TaskAssignmentList:
-    return sync_running_tasks() if refresh_runtime else read_tasks()
+    try:
+        return sync_running_tasks() if refresh_runtime else read_tasks()
+    except ControlPlaneStoreError as exc:
+        raise store_http(exc) from exc
 
 
 @router.get("/tasks/default", response_model=TaskAssignmentRequest)
@@ -34,18 +42,18 @@ def default_task_assignment() -> TaskAssignmentRequest:
 
 @router.post("/tasks", response_model=TaskAssignment, status_code=202)
 def create_task(request: TaskAssignmentRequest) -> TaskAssignment:
-    return create_task_assignment(request)
+    try:
+        return create_task_assignment(request)
+    except (TaskDispatchError, ControlPlaneStoreError) as exc:
+        raise task_http(exc) from exc
 
 
 @router.post("/tasks/{task_id}/dispatch", response_model=TaskAssignment, status_code=202)
 def dispatch_task(task_id: str) -> TaskAssignment:
     try:
         task = dispatch_task_assignment(task_id)
-    except TaskDispatchError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"error": exc.code, "message": str(exc), "task_id": task_id},
-        ) from exc
+    except (TaskDispatchError, ControlPlaneStoreError) as exc:
+        raise task_http(exc, task_id=task_id) from exc
     if task is None:
         raise HTTPException(status_code=404, detail={"error": "task_not_found", "task_id": task_id})
     return task
@@ -55,11 +63,33 @@ def dispatch_task(task_id: str) -> TaskAssignment:
 def confirm_task(task_id: str, request: TaskTransitionRequest) -> TaskAssignment:
     try:
         task = confirm_task_assignment(task_id, request)
-    except TaskDispatchError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"error": exc.code, "message": str(exc), "task_id": task_id},
-        ) from exc
+    except (TaskDispatchError, ControlPlaneStoreError) as exc:
+        raise task_http(exc, task_id=task_id) from exc
     if task is None:
         raise HTTPException(status_code=404, detail={"error": "task_not_found", "task_id": task_id})
     return task
+
+
+def task_http(
+    exc: TaskDispatchError | ControlPlaneStoreError,
+    *,
+    task_id: str | None = None,
+) -> HTTPException:
+    if isinstance(exc, TaskDispatchError):
+        status_code = exc.status_code
+        code = exc.code
+    else:
+        status_code = (
+            503
+            if isinstance(exc, (ControlPlanePoolTimeout, ControlPlaneTransactionTimeout))
+            else 409
+        )
+        code = type(exc).__name__
+    return HTTPException(
+        status_code=status_code,
+        detail={"error": code, "message": str(exc), "task_id": task_id},
+    )
+
+
+def store_http(exc: ControlPlaneStoreError) -> HTTPException:
+    return task_http(exc)

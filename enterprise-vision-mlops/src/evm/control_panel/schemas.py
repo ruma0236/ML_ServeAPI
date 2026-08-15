@@ -742,10 +742,17 @@ class TaskAssignmentRequest(ContractModel):
     mlflow: MLflowRef | None = None
     cdct_gate: CDCTGate | None = None
     dry_run: bool = True
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 class TaskAssignment(TaskAssignmentRequest):
     task_id: str
+    version: int = Field(default=1, ge=1)
     status: TaskStatus
     created_at: str
     queued_at: str | None = None
@@ -767,6 +774,13 @@ class TaskAssignmentList(ContractModel):
 class TaskTransitionRequest(ContractModel):
     actor: str
     reason: str
+    expected_version: int | None = Field(default=None, ge=1)
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 class CommandIntentRequest(ContractModel):
@@ -802,6 +816,12 @@ class DeploymentIntentRequest(ContractModel):
     actor: str
     reason: str
     dry_run: bool = True
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 class DeploymentTransition(ContractModel):
@@ -862,6 +882,12 @@ class DeploymentTransitionRequest(ContractModel):
     actor: str
     reason: str
     expected_version: int = Field(ge=1)
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 class ServingState(ContractModel):
