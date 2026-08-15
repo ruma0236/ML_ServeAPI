@@ -56,7 +56,13 @@ def state_transition(payload: dict[str, Any], operation: str) -> dict[str, Any]:
     }
 
 
-def run_experiment(dsn: str, *, concurrency: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def run_experiment(
+    dsn: str,
+    *,
+    concurrency: int,
+    source_revision: str,
+    source_branch: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     schema = f"evm_s1_exp_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:6]}"
     store = TransactionalControlPlaneStore(
         StoreConfiguration(
@@ -77,6 +83,10 @@ def run_experiment(dsn: str, *, concurrency: int) -> tuple[dict[str, Any], dict[
 
     started_at = utc_now()
     try:
+        with store.connection() as connection:
+            database_version = str(
+                connection.execute("SHOW server_version").fetchone()[0]
+            )
         jobs: list[Callable[[], str]] = []
         for index in range(100):
             entity_id = f"create-{index:03d}"
@@ -373,6 +383,14 @@ def run_experiment(dsn: str, *, concurrency: int) -> tuple[dict[str, Any], dict[
         retry_once = all(
             item["state"] == "queued" and item["version"] == 2 for item in retry_states
         )
+        correlated_entities = [
+            item
+            for item in store.list_entities("lifecycle_run")
+            if str(item.get("entity_id", "")).startswith("create-")
+        ]
+        missing_correlation_count = sum(
+            not bool(item.get("correlation_id")) for item in correlated_entities
+        )
         acceptance = {
             "S1-AC-01": all(value == 0 for value in duplicate_effects.values())
             and side_effect_created
@@ -392,6 +410,16 @@ def run_experiment(dsn: str, *, concurrency: int) -> tuple[dict[str, Any], dict[
             "schema_version": "evm.s1_transactional_state_evidence.v1",
             "generated_at": utc_now(),
             "started_at": started_at,
+            "source_identity": {
+                "implementation_revision": source_revision,
+                "branch": source_branch,
+            },
+            "environment": {
+                "database_engine": "PostgreSQL",
+                "database_version": database_version,
+                "execution_scope": "isolated_schema_on_local_single_node",
+                "customer_traffic": False,
+            },
             "workload": {
                 "concurrency": concurrency,
                 "mutation_requests": len(jobs),
@@ -440,11 +468,9 @@ def run_experiment(dsn: str, *, concurrency: int) -> tuple[dict[str, Any], dict[
                 "telemetry": pool_telemetry.__dict__,
             },
             "trace_identity": {
-                "correlation_field_preserved": all(
-                    bool(item.get("correlation_id"))
-                    for item in store.list_entities("lifecycle_run")
-                    if str(item.get("entity_id", "")).startswith("create-")
-                ),
+                "entity_count": len(correlated_entities),
+                "missing_correlation_count": missing_correlation_count,
+                "correlation_field_preserved": missing_correlation_count == 0,
                 "s0_regression_required": True,
             },
             "acceptance": acceptance,
@@ -483,6 +509,14 @@ def main() -> int:
         or os.getenv("EVM_CONTROL_PLANE_DATABASE_URL"),
     )
     parser.add_argument("--concurrency", type=int, default=64)
+    parser.add_argument(
+        "--source-revision",
+        default=os.getenv("EVM_GIT_COMMIT"),
+    )
+    parser.add_argument(
+        "--source-branch",
+        default=os.getenv("EVM_GIT_BRANCH"),
+    )
     parser.add_argument("--public-output", type=Path, required=True)
     parser.add_argument("--private-output", type=Path, required=True)
     args = parser.parse_args()
@@ -490,7 +524,16 @@ def main() -> int:
         raise SystemExit("A PostgreSQL DSN is required")
     if not 1 <= args.concurrency <= 128:
         raise SystemExit("concurrency must be between 1 and 128")
-    summary, private = run_experiment(args.dsn, concurrency=args.concurrency)
+    if not args.source_revision or len(args.source_revision) != 40:
+        raise SystemExit("a 40-character source revision is required")
+    if not args.source_branch:
+        raise SystemExit("a source branch is required")
+    summary, private = run_experiment(
+        args.dsn,
+        concurrency=args.concurrency,
+        source_revision=args.source_revision,
+        source_branch=args.source_branch,
+    )
     args.public_output.parent.mkdir(parents=True, exist_ok=True)
     args.private_output.parent.mkdir(parents=True, exist_ok=True)
     args.public_output.write_text(
