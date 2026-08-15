@@ -1,0 +1,135 @@
+{
+  "schema_version": "evm.s1_transactional_state_closure.v1",
+  "generated_at": "2026-08-15T11:28:31.198404Z",
+  "source_revision": "aa95f39d6557b52295ae2a10e4de31993f665511",
+  "status": "passed",
+  "implementation_commits": [
+    "b3d15ae8aa54e4ac90e08cbf0050719b068843b3",
+    "c20a770fbeae2b154761c7aef00374f95b6a38dc",
+    "6f19fa9a4585bd4ee702ae58d051ec33923b7a4a",
+    "89fc0a96fdc48e76496ef410a0a368be1c04e78e",
+    "aa95f39d6557b52295ae2a10e4de31993f665511"
+  ],
+  "evidence": [
+    {
+      "path": "docs/status/evidence/s1-control-plane-migration-evidence.json",
+      "sha256": "af1aea3f22d635dd7a940b15638319f5e95e6c3a3d28dc785e397d48634965e9",
+      "claim": "Existing lifecycle, side-effect, task, command, and deployment ledgers imported once and produced identical repeat-import parity in an isolated PostgreSQL schema."
+    },
+    {
+      "path": "docs/status/evidence/s1-transactional-state-evidence.json",
+      "sha256": "2ef3aff7494a7e4eda3b64fa33de657c3514ceb2357a8e17bc8de1fd8bc4a2c1",
+      "claim": "A 395-request real-PostgreSQL mutation experiment passed all four S1 acceptance criteria."
+    }
+  ],
+  "migration_and_compatibility": {
+    "legacy_lifecycle_runs": 83,
+    "legacy_side_effects": 163,
+    "task_assignments": 337,
+    "command_intents": 92,
+    "deployment_intents": 16,
+    "repeat_import_parity": true,
+    "database_first_dual_read": true,
+    "json_mirror_retained": true,
+    "file_mode_rollback_retained": true,
+    "mlflow_database_mutated": false,
+    "airflow_database_mutated": false
+  },
+  "concurrency_result": {
+    "mutation_requests": 395,
+    "concurrency": 64,
+    "unique_creates": 100,
+    "idempotent_effect_keys": 30,
+    "conflict_pairs": 50,
+    "retry_keys": 25,
+    "duplicate_lifecycle_effects": 0,
+    "duplicate_deployment_effects": 0,
+    "duplicate_artifact_effects": 0,
+    "legal_conflicting_outcomes": 50,
+    "version_conflicts": 50,
+    "pool_timeout_seconds": 0.203,
+    "stale_owner_commit_blocked": true,
+    "replacement_claim_epoch": 2,
+    "correlation_entities": 100,
+    "missing_correlation_ids": 0
+  },
+  "existing_system_runtime": {
+    "api_status": "ok",
+    "control_plane_store_mode": "dual",
+    "control_plane_store_ready": true,
+    "api_revision_matches": true,
+    "worker_status": "online",
+    "supervisor_status": "healthy",
+    "supervised_children_live": 2,
+    "prometheus_active_targets": 4,
+    "prometheus_down_targets": 0,
+    "http_create_replay_same_entity": true,
+    "http_cancel_replay_same_version": true,
+    "http_terminal_state": "cancelled",
+    "http_terminal_version": 2,
+    "database_and_file_mirror_equal": true
+  },
+  "tests": {
+    "full_regression": {
+      "passed": 613,
+      "skipped": 7,
+      "failed": 0,
+      "note": "The seven real-PostgreSQL tests are dependency-gated in the general test runtime and were executed separately."
+    },
+    "real_postgresql": {
+      "passed": 7,
+      "failed": 0
+    },
+    "lifecycle_regression": {
+      "passed": 48,
+      "failed": 0,
+      "scope": "Existing lifecycle state, orchestrator, and Kubernetes-boundary regression with isolated dependencies."
+    },
+    "s0_regression": {
+      "passed": 20,
+      "failed": 0,
+      "canonical_git_evidence_validator": "passed"
+    },
+    "openapi_contract": {
+      "passed": 8,
+      "failed": 0
+    }
+  },
+  "acceptance": {
+    "S1-AC-01": "passed",
+    "S1-AC-02": "passed",
+    "S1-AC-03": "passed",
+    "S1-AC-04": "passed"
+  },
+  "failed_attempts_and_rca": [
+    {
+      "phase": "evidence_runner_preflight_1",
+      "failure": "The runner called a nonexistent public connection method.",
+      "impact": "Stopped before workload mutation; isolated schemas were removed.",
+      "correction": "Use the repository transaction context for database identity reads.",
+      "accepted_for_closure": false
+    },
+    {
+      "phase": "evidence_runner_preflight_2",
+      "failure": "The PostgreSQL mapping row was accessed as a positional tuple.",
+      "impact": "Stopped before workload mutation; isolated schemas were removed.",
+      "correction": "Read the named server_version field and execute a pre-commit experiment.",
+      "accepted_for_closure": false
+    },
+    {
+      "phase": "full_regression_1",
+      "failure": "The static OpenAPI contract omitted new idempotency and task-version fields.",
+      "impact": "One contract test failed; runtime state was unaffected.",
+      "correction": "Align lifecycle, task, and deployment schemas and add explicit contract assertions.",
+      "accepted_for_closure": false
+    }
+  ],
+  "cleanup": {
+    "all_experiment_schemas_dropped": true,
+    "stale_owner_reconciled": true,
+    "accepted_http_proof_terminal": true,
+    "production_serving_mutated": false,
+    "customer_data_mutated": false
+  },
+  "claim_boundary": "Verified transactional control-plane behavior with real PostgreSQL and the existing API/worker integration on one local physical node. This is not multi-node database HA, customer-traffic, disaster-recovery, or production-SLA evidence."
+}

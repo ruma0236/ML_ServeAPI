@@ -1,0 +1,97 @@
+{
+  "schema_version": "evm.s1_transactional_state_evidence.v1",
+  "generated_at": "2026-08-15T11:26:56.052380Z",
+  "started_at": "2026-08-15T11:26:54.469580Z",
+  "source_identity": {
+    "implementation_revision": "aa95f39d6557b52295ae2a10e4de31993f665511",
+    "branch": "codex/distributed-scale-validation-plan"
+  },
+  "environment": {
+    "database_engine": "PostgreSQL",
+    "database_version": "16.14",
+    "execution_scope": "isolated_schema_on_local_single_node",
+    "customer_traffic": false
+  },
+  "workload": {
+    "concurrency": 64,
+    "mutation_requests": 395,
+    "unique_creates": 100,
+    "idempotent_effect_keys": 30,
+    "requests_per_effect_key": 4,
+    "conflict_pairs": 50,
+    "retry_keys": 25,
+    "requests_per_retry_key": 3
+  },
+  "outcomes": {
+    "create_committed": 100,
+    "effect_committed": 30,
+    "idempotency_replay": 90,
+    "cancel_committed": 5,
+    "approve_committed": 45,
+    "approve_conflict": 5,
+    "cancel_conflict": 45,
+    "retry_committed": 25,
+    "retry_replay": 50
+  },
+  "latency_seconds": {
+    "mean": 0.0636354430392974,
+    "p95": 0.07900000002700835,
+    "p99": 0.09399999998277053,
+    "max": 0.0940000000409782
+  },
+  "idempotency": {
+    "committed_effects": {
+      "deployment_intent": 10,
+      "artifact_record": 10,
+      "lifecycle_effect": 10
+    },
+    "duplicate_effects": {
+      "deployment_intent": 0,
+      "artifact_record": 0,
+      "lifecycle_effect": 0
+    },
+    "side_effect_outbox_rows": 1
+  },
+  "conflicts": {
+    "entities": 50,
+    "legal_terminal_or_next_states": true,
+    "version_conflicts": 50
+  },
+  "lease_and_fencing": {
+    "first_epoch": 1,
+    "replacement_epoch": 2,
+    "stale_owner_commit_blocked": true,
+    "replacement_owner_state": "completed",
+    "duplicate_side_effects": 0
+  },
+  "pool": {
+    "max_size": 1,
+    "acquire_timeout_seconds": 0.2,
+    "timeout_observed": true,
+    "timeout_elapsed_seconds": 0.2029999999795109,
+    "telemetry": {
+      "acquisitions": 2,
+      "timeouts": 1,
+      "wait_seconds_total": 0.21899999998277053,
+      "wait_seconds_max": 0.2029999999795109
+    }
+  },
+  "trace_identity": {
+    "entity_count": 100,
+    "missing_correlation_count": 0,
+    "correlation_field_preserved": true,
+    "s0_regression_required": true
+  },
+  "acceptance": {
+    "S1-AC-01": true,
+    "S1-AC-02": true,
+    "S1-AC-03": true,
+    "S1-AC-04": true
+  },
+  "status": "passed",
+  "cleanup": {
+    "experiment_schema_dropped_after_evidence_capture": true,
+    "production_runtime_mutated": false
+  },
+  "claim_boundary": "Real PostgreSQL concurrency on one local physical node; no customer traffic, multi-node database HA, or production SLA claim."
+}

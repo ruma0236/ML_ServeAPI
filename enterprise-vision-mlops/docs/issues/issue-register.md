@@ -549,8 +549,8 @@ combined release drill, automatic promotion, customer production, or HA.
 
 | Scenario | ID | Task | Status | Window | Evidence / Exit Criteria |
 |---|---|---|---|---|---|
-| `S0` | `EVM-290` | Runtime Baseline & Evidence Contract | Implementing | Post-W8 | healthy active targets, corrected readiness semantics, immutable identity, bounded metrics, W3C trace propagation and three-run low-load variance; no load on an unhealthy baseline |
-| `S1` | `EVM-292` | Transactional Job State & Idempotency | Planned | Post-W8 | PostgreSQL atomic transitions, idempotency, lease/fencing, bounded pool wait and 100-500 concurrent mutations complete with duplicate effects 0 |
+| `S0` | `EVM-290` | Runtime Baseline & Evidence Contract | Verified | Post-W8 | three fresh 60-second fixed-rate controls at 0.05 RPS, deterministic seed, complete cross-runtime trace, bounded telemetry and canonical Git-byte evidence passed; local single-node baseline only |
+| `S1` | `EVM-292` | Transactional Job State & Idempotency | Verified | Post-W8 | Jira `SCRUM-202`; implementation revision `aa95f39`. Dedicated PostgreSQL migration parity passed; 395 concurrent mutations at concurrency 64 produced duplicate lifecycle/deployment/artifact effects 0, 50 legal conflict winners, bounded pool timeout about 0.203 s, stale-owner fence and epoch-2 recovery. Actual HTTP create/cancel replay ended once at version 2 in PostgreSQL and JSON mirror; 613 general + 7 real-PostgreSQL tests passed. Local single-node proof only, not database HA or production SLA. |
 | `S2` | `EVM-293` | Bounded Queue & Backpressure | Planned | Post-W8 | bounded durable/local queues, depth/bytes/age limits, 429 admission, retry budget/jitter and DLQ keep queue/RSS bounded and duplicate effects 0 |
 | `S3` | `EVM-291` | HIGGS Lightweight Capacity Envelope | Planned | Post-W8 | fixed high-volume tabular corpus and lightweight CPU probes produce three-run RPS, p95/p99, resource, bottleneck and saturation-knee evidence |
 | `S4` | `EVM-294` | HIGGS Tiny MLP GPU Batching | Planned | Post-W8 | small-model batch/delay/instance matrix produces throughput-p99-VRAM Pareto evidence, OOM 0 and recalibrated queue bounds |
@@ -561,7 +561,8 @@ combined release drill, automatic promotion, customer production, or HA.
 
 The canonical planning contract is
 `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`.
-EVM-290 contract implementation has started; EVM-291..298 remain planning-only.
+EVM-290 and EVM-292 are verified from canonical evidence; EVM-291 and
+EVM-293..298 remain planning-only.
 No benchmark, load, scale, HA, shared-GPU, or production-readiness acceptance is
 credited until fresh runtime evidence satisfies the corresponding exit criteria.
 

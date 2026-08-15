@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-15T10:27:38Z`
+- Generated: `2026-08-15T11:30:04.498992Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -118,16 +118,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S1: Transactional Job State & Idempotency
 
-- Status: `planned`
+- Status: `verified`
 - Engineering question: Can 100 to 500 concurrent mutations commit one legal and idempotent outcome?
 - Why now: Durable state correctness must precede retries and queued high-volume mutation.
 - Observed gap: Transactional ownership, atomic claims, fencing, and bounded connection-pool wait are not yet proven under concurrency.
 - Existing-system baseline: The existing control plane serializes file-ledger writes and uses run claims and side-effect ledgers, but concurrent durable state transitions are not owned by one transactional database contract.
 - Architecture before: Control-plane state still relies partly on process-local or file-ledger ownership.
 - Architecture after: Transactions, idempotency, leases, and fencing own every concurrent transition.
-- Verdict: `not_run`
-- Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Begin after S0 evidence contracts pass their focused tests.
+- Verdict: `passed`
+- Claim boundary: Verified transactional control-plane behavior with real PostgreSQL and the existing API/worker integration on one local physical node. This is not multi-node database HA, customer-traffic, disaster-recovery, or production-SLA evidence.
+- Next action: Begin S2 bounded queue and backpressure implementation using the verified S1 transaction, idempotency, and fencing boundary.
 
 ### Affected Existing Components
 
@@ -150,9 +150,14 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Implementation Delta
 
-- No existing-system code change has started.
-- Compatibility: Existing read contracts and identifiers must remain stable while writes migrate behind a repository boundary.
-- Migration: Schema migration and dual-read verification must complete before file-ledger writes are retired.
+- Dedicated transactional control-plane repository: `src/evm/control_panel/transactional_store.py`, `infra/postgres/control-plane/001_transactional_control_plane.sql`, `docker-compose.yml`, `pyproject.toml`, `apps/api/requirements.txt`
+- Existing lifecycle state and worker ownership: `src/evm/control_panel/lifecycle_runs.py`, `src/evm/control_panel/lifecycle_worker.py`, `src/evm/control_panel/lifecycle_guards.py`, `src/evm/operations/scenario_d_supervision.py`, `scripts/dev/start_lifecycle_worker.ps1`, `scripts/dev/start_host_runtime_supervisor.ps1`
+- Existing task, deployment, and side-effect boundaries: `src/evm/control_panel/operations.py`, `src/evm/control_panel/deployment_intents.py`, `src/evm/control_panel/schemas.py`, `apps/api/control_panel_tasks.py`, `apps/api/control_panel_deployments.py`, `apps/api/control_panel_lifecycle.py`, `apps/api/main.py`
+- Migration, experiment, and evidence validation: `scripts/dev/migrate_control_plane_state.py`, `scripts/validation/run_s1_migration_parity.py`, `scripts/validation/run_s1_transactional_state_experiment.py`, `tests/test_transactional_control_plane.py`, `tests/test_control_panel_contract.py`, `contracts/control-panel/control-panel.openapi.json`
+- Compatibility: Existing API routes, identifiers, JSON read contracts, and lifecycle guard semantics remain compatible.
+- Compatibility: PostgreSQL is authoritative in dual mode while JSON mirrors remain readable for rollback.
+- Migration: Import lifecycle, side-effect, task, command, and deployment ledgers into an isolated dedicated schema and repeat the import for digest parity.
+- Migration: Keep EVM_CONTROL_PLANE_STORE_MODE=file as the rollback switch; do not share the MLflow or Airflow databases.
 
 ### Experiment Contract
 
@@ -165,18 +170,24 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S1-AC-01` [pending]: Duplicate lifecycle, deployment, and artifact effects are zero.
-- `S1-AC-02` [pending]: Conflicting mutations end in one legal terminal state.
-- `S1-AC-03` [pending]: Pool exhaustion returns a bounded observable failure rather than hanging.
-- `S1-AC-04` [pending]: Worker loss and retry preserve one committed outcome.
+- `S1-AC-01` [passed]: Duplicate lifecycle, deployment, and artifact effects are zero.
+- `S1-AC-02` [passed]: Conflicting mutations end in one legal terminal state.
+- `S1-AC-03` [passed]: Pool exhaustion returns a bounded observable failure rather than hanging.
+- `S1-AC-04` [passed]: Worker loss and retry preserve one committed outcome.
 
 ### Current Evidence
 
-- No accepted execution evidence yet.
+- `docs/status/evidence/s1-control-plane-migration-evidence.json` (`af1aea3f22d635dd7a940b15638319f5e95e6c3a3d28dc785e397d48634965e9`): Existing ledgers imported once and produced exact repeat-import parity in an isolated PostgreSQL schema.
+- `docs/status/evidence/s1-transactional-state-evidence.json` (`2ef3aff7494a7e4eda3b64fa33de657c3514ceb2357a8e17bc8de1fd8bc4a2c1`): A 395-request real-PostgreSQL concurrency experiment passed S1-AC-01 through S1-AC-04.
+- `docs/status/evidence/s1-transactional-state-closure.json` (`000d52f81515b5617d3e677bb19c696b69dd5503ef2303905a17f437c00eab64`): Migration, runtime, tests, failures, cleanup, and claim limits are closed at implementation revision aa95f39.
 
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
+- `2026-08-15T10:35:00Z` `implementation` / `implementing`: The existing lifecycle, task, deployment, and side-effect writes were placed behind a dedicated PostgreSQL transaction boundary with idempotency, optimistic versions, leases, fencing, a bounded pool, and a durable outbox.
+- `2026-08-15T11:17:00Z` `experiment` / `implementing`: Two evidence-runner preflights failed before workload mutation because of connection API and mapping-row access defects; isolated schemas were cleaned and both failures remain in the closure RCA.
+- `2026-08-15T11:23:00Z` `recovery` / `implementing`: A full regression exposed a stale OpenAPI contract. Lifecycle, task, and deployment idempotency/version fields were aligned and explicit contract assertions were added.
+- `2026-08-15T11:30:04.498992Z` `verification` / `verified`: At aa95f39, migration parity, 395 real-PostgreSQL mutations, actual HTTP idempotent state transitions, 613 general tests, 7 real-PostgreSQL tests, 48 lifecycle regressions, 20 S0 regressions, runtime revision health, and cleanup passed.
 
 ## S2: Bounded Queue & Backpressure
 

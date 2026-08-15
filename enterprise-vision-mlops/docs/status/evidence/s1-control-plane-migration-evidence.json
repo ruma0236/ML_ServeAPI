@@ -1,0 +1,39 @@
+{
+  "schema_version": "evm.s1_migration_parity_evidence.v1",
+  "generated_at": "2026-08-15T11:26:54.068921Z",
+  "source_revision": "aa95f39d6557b52295ae2a10e4de31993f665511",
+  "migration_scope": "existing_control_plane_ledgers_to_isolated_postgresql_schema",
+  "first_import": {
+    "lifecycle_runs": 83,
+    "side_effects": 163,
+    "collections": {
+      "command_intents": 92,
+      "deployment_intents": 16,
+      "task_assignments": 337
+    },
+    "passed": true
+  },
+  "second_import": {
+    "lifecycle_runs_unchanged": 83,
+    "side_effects_unchanged": 163,
+    "collections": {
+      "command_intents": 92,
+      "deployment_intents": 16,
+      "task_assignments": 337
+    },
+    "passed": true
+  },
+  "compatibility": {
+    "identifiers_preserved": true,
+    "dual_read_parity": true,
+    "file_mode_rollback_retained": true,
+    "mlflow_database_mutated": false,
+    "airflow_database_mutated": false
+  },
+  "cleanup": {
+    "isolated_schema_dropped": true,
+    "production_runtime_mutated": false
+  },
+  "status": "passed",
+  "claim_boundary": "Real PostgreSQL migration and repeat-read parity on an isolated local schema; no multi-node database HA or production migration claim."
+}
