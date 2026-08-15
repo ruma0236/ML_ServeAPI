@@ -83,7 +83,7 @@ def run_experiment(
 
     started_at = utc_now()
     try:
-        with store.connection() as connection:
+        with store.transaction("experiment_database_identity") as connection:
             database_version = str(
                 connection.execute("SHOW server_version").fetchone()[0]
             )
