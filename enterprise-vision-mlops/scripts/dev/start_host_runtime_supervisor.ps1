@@ -32,6 +32,11 @@ $StdoutPath = Join-Path $RuntimeRoot "supervisor.stdout.log"
 $StderrPath = Join-Path $RuntimeRoot "supervisor.stderr.log"
 $ObserverRoot = Join-Path $ArtifactsRoot "w7\kubernetes_observer"
 $LifecycleRoot = Join-Path $ArtifactsRoot "w7\lifecycle_runs"
+$LifecycleCommandMarker = if ($env:EVM_RUNTIME_PROCESS_MARKER) {
+    $env:EVM_RUNTIME_PROCESS_MARKER
+} else {
+    "evm.control_panel.lifecycle_worker"
+}
 $PowerShellPath = (Get-Process -Id $PID).Path
 $ResolvedPolicyPath = if ($PolicyPath) {
     (Resolve-Path -LiteralPath $PolicyPath).Path
@@ -508,7 +513,7 @@ if (-not $Run) {
             -Name "lifecycle_worker" `
             -PidPath (Join-Path $LifecycleRoot "worker.pid") `
             -IdentityPath (Join-Path $LifecycleRoot "worker.identity.json") `
-            -CommandMarker "evm.control_panel.lifecycle_worker"
+            -CommandMarker $LifecycleCommandMarker
     }
 
     $arguments = @(
@@ -590,7 +595,7 @@ while ($true) {
             IdentityPath = Join-Path $LifecycleRoot "worker.identity.json"
             HeartbeatFile = Join-Path $LifecycleRoot "_worker.json"
             HeartbeatProperty = "last_seen_at"
-            CommandMarker = "evm.control_panel.lifecycle_worker"
+            CommandMarker = $LifecycleCommandMarker
             ScriptName = "start_lifecycle_worker.ps1"
         }
     )) {

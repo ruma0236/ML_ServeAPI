@@ -116,6 +116,7 @@ def test_claim_fence_blocks_expired_owner(store: TransactionalControlPlaneStore)
         now=now,
     )
     assert first.acquired and first.claim is not None
+    assert store.read_claim("run-lease") == first.claim
     conflict = store.acquire_claim(
         run_id="run-lease",
         worker_id="worker-b",

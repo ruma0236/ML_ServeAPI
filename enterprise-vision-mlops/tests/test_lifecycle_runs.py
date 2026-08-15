@@ -117,6 +117,41 @@ def new_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
 
 
+def test_reconcile_lifecycle_run_mirrors_uses_postgres_payload_as_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = new_run(tmp_path, monkeypatch)
+    database_run = run.model_copy(
+        update={
+            "version": run.version + 1,
+            "reason": "Database-authoritative recovery payload",
+        }
+    )
+
+    class Store:
+        enabled = True
+
+        @staticmethod
+        def list_entities(entity_kind: str):
+            assert entity_kind == "lifecycle_run"
+            return [database_run.model_dump(mode="json")]
+
+    monkeypatch.setattr(lifecycle_runs, "get_transactional_store", Store)
+
+    assert lifecycle_runs.reconcile_lifecycle_run_mirrors() == [run.run_id]
+    repaired = json.loads(lifecycle_runs.run_path(run.run_id).read_text(encoding="utf-8"))
+    latest = json.loads(
+        (lifecycle_runs.lifecycle_root() / "latest_lifecycle_run.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert repaired["version"] == database_run.version
+    assert repaired["reason"] == database_run.reason
+    assert latest == repaired
+    assert lifecycle_runs.reconcile_lifecycle_run_mirrors() == []
+
+
 def queue_run(run, monkeypatch: pytest.MonkeyPatch):
     executable_validation(monkeypatch)
     return queue_lifecycle_run(

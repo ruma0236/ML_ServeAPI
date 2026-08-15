@@ -354,8 +354,11 @@ def lifecycle_runtime_root() -> str:
 
 def lifecycle_host_root() -> str:
     return os.getenv(
-        "EVM_HOST_DATA_ROOT",
-        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+        "EVM_LIFECYCLE_HOST_ROOT",
+        os.getenv(
+            "EVM_HOST_DATA_ROOT",
+            "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+        ),
     ).replace("\\", "/").rstrip("/")
 
 
@@ -1837,6 +1840,35 @@ def write_run_file(run: LifecycleRun) -> None:
     path = run_path(run.run_id)
     atomic_write_json(path, run.model_dump(mode="json"))
     atomic_write_json(lifecycle_root() / "latest_lifecycle_run.json", run.model_dump(mode="json"))
+
+
+def reconcile_lifecycle_run_mirrors() -> list[str]:
+    """Repair JSON rollback mirrors from the PostgreSQL authority after a worker restart."""
+    store = get_transactional_store()
+    if not store.enabled:
+        return []
+    database_runs = [
+        LifecycleRun.model_validate(payload) for payload in store.list_entities("lifecycle_run")
+    ]
+    repaired: list[str] = []
+    for run in database_runs:
+        try:
+            file_payload = json.loads(run_path(run.run_id).read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            file_payload = None
+        if file_payload is not None and store_payload_digest(file_payload) == store_payload_digest(
+            run.model_dump(mode="json")
+        ):
+            continue
+        atomic_write_json(run_path(run.run_id), run.model_dump(mode="json"))
+        repaired.append(run.run_id)
+    if database_runs:
+        latest = max(database_runs, key=lambda item: (item.created_at, item.run_id))
+        atomic_write_json(
+            lifecycle_root() / "latest_lifecycle_run.json",
+            latest.model_dump(mode="json"),
+        )
+    return repaired
 
 
 def lifecycle_store_error(exc: ControlPlaneStoreError) -> LifecycleRunError:

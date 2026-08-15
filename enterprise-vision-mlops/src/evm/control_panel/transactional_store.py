@@ -762,6 +762,16 @@ class TransactionalControlPlaneStore:
                 reconciled.append(str(row["run_id"]))
         return reconciled
 
+    def read_claim(self, run_id: str) -> dict[str, Any] | None:
+        """Return the current persisted claim without changing lease state."""
+        schema = _safe_identifier(self.configuration.schema)
+        with self.transaction("claim_read") as connection:
+            row = connection.execute(
+                f"SELECT payload FROM {schema}.lifecycle_claims WHERE run_id=%s",
+                (run_id,),
+            ).fetchone()
+        return dict(row["payload"]) if row else None
+
     def assert_bound_claim(self, run_id: str, *, connection: Any | None = None) -> None:
         claim = _BOUND_CLAIM.get()
         if claim is None:

@@ -85,6 +85,17 @@ HTTP_REQUEST_LATENCY = Histogram(
     ["method", "route"],
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
 )
+HTTP_REQUESTS_IN_FLIGHT = Gauge(
+    "evm_http_server_in_flight",
+    "HTTP requests currently accepted by this API process.",
+)
+HTTP_REQUESTS_PEAK_IN_FLIGHT = Gauge(
+    "evm_http_server_peak_in_flight",
+    "Highest HTTP in-flight request count observed by this API process.",
+)
+_HTTP_IN_FLIGHT_LOCK = threading.Lock()
+_HTTP_IN_FLIGHT = 0
+_HTTP_PEAK_IN_FLIGHT = 0
 MODEL_LOADED = Gauge(
     "evm_serving_model_loaded",
     "Whether a promoted registry model is loaded by the serving API.",
@@ -260,6 +271,22 @@ app = FastAPI(
     lifespan=lifespan,
     separate_input_output_schemas=False,
 )
+
+
+@app.middleware("http")
+async def measure_http_in_flight(request: Request, call_next):
+    global _HTTP_IN_FLIGHT, _HTTP_PEAK_IN_FLIGHT
+    with _HTTP_IN_FLIGHT_LOCK:
+        _HTTP_IN_FLIGHT += 1
+        _HTTP_PEAK_IN_FLIGHT = max(_HTTP_PEAK_IN_FLIGHT, _HTTP_IN_FLIGHT)
+        HTTP_REQUESTS_IN_FLIGHT.set(_HTTP_IN_FLIGHT)
+        HTTP_REQUESTS_PEAK_IN_FLIGHT.set(_HTTP_PEAK_IN_FLIGHT)
+    try:
+        return await call_next(request)
+    finally:
+        with _HTTP_IN_FLIGHT_LOCK:
+            _HTTP_IN_FLIGHT = max(0, _HTTP_IN_FLIGHT - 1)
+            HTTP_REQUESTS_IN_FLIGHT.set(_HTTP_IN_FLIGHT)
 
 
 @app.middleware("http")

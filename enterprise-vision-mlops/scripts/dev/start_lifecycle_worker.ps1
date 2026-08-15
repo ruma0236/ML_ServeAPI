@@ -12,7 +12,11 @@ $DataRoot = if ($env:EVM_HOST_DATA_ROOT) {
 } else {
     "F:\EnterpriseMLOps_Data\enterprise-vision-mlops"
 }
-$ArtifactsRoot = Join-Path $DataRoot "artifacts"
+$ArtifactsRoot = if ($env:EVM_HOST_ARTIFACTS_ROOT) {
+    $env:EVM_HOST_ARTIFACTS_ROOT
+} else {
+    Join-Path $DataRoot "artifacts"
+}
 $LifecycleRoot = Join-Path $ArtifactsRoot "w7\lifecycle_runs"
 $PidPath = Join-Path $LifecycleRoot "worker.pid"
 $IdentityPath = Join-Path $LifecycleRoot "worker.identity.json"
@@ -110,12 +114,26 @@ if (-not $python) {
 $env:PYTHONPATH = "$ProjectRoot\src;$ProjectRoot"
 $env:EVM_PROJECT_ROOT = $ProjectRoot
 $env:EVM_HOST_DATA_ROOT = $DataRoot
+$env:EVM_LIFECYCLE_HOST_ROOT = if ($env:EVM_LIFECYCLE_HOST_ROOT) {
+    $env:EVM_LIFECYCLE_HOST_ROOT
+} else {
+    $DataRoot
+}
 $env:EVM_DATA_MOUNT_ROOT = "/mnt/evm-data"
 $env:EVM_PIPELINE_PROFILE_ROOT = Join-Path $ArtifactsRoot "w7\pipeline_profiles"
 $env:EVM_PIPELINE_PROFILE_RUNTIME_ROOT = "/mnt/evm-data/artifacts/w7/pipeline_profiles"
 $env:EVM_LIFECYCLE_RUN_ROOT = $LifecycleRoot
 $env:EVM_LIFECYCLE_CLAIM_ROOT = Join-Path $LifecycleRoot "_claims"
-$env:EVM_LIFECYCLE_CLAIM_TTL_SECONDS = "30"
+$env:EVM_LIFECYCLE_CLAIM_TTL_SECONDS = if ($env:EVM_LIFECYCLE_CLAIM_TTL_SECONDS) {
+    $env:EVM_LIFECYCLE_CLAIM_TTL_SECONDS
+} else {
+    "30"
+}
+$env:EVM_LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS = if ($env:EVM_LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS) {
+    $env:EVM_LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS
+} else {
+    "5"
+}
 $env:EVM_LIFECYCLE_RUNTIME_ROOT = "/mnt/evm-data/artifacts/w7/lifecycle_runs"
 $env:EVM_KUBERNETES_GENERATED_MANIFEST_ROOT = $LifecycleRoot
 $env:EVM_CONTROL_PANEL_LEDGER_ROOT = Join-Path $ArtifactsRoot "w7\operations"
@@ -229,8 +247,12 @@ $previousHeartbeatWrite = if (Test-Path -LiteralPath $heartbeat) {
 $arguments = @(
     "-m", "evm.control_panel.lifecycle_worker",
     "--poll-interval", [string]$PollIntervalSeconds,
+    "--heartbeat-interval", $env:EVM_LIFECYCLE_HEARTBEAT_INTERVAL_SECONDS,
     "--worker-id", "windows-docker-desktop-lifecycle-worker"
 )
+if ($env:EVM_RUNTIME_PROCESS_MARKER) {
+    $arguments += @("--runtime-scope", $env:EVM_RUNTIME_PROCESS_MARKER)
+}
 $process = Start-Process `
     -FilePath $python `
     -ArgumentList $arguments `
