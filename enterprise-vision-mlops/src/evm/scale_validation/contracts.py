@@ -457,6 +457,15 @@ class BenchmarkEvidence(StrictModel):
         repetitions = [item.repetition for item in self.control_runs]
         if len(set(repetitions)) != len(repetitions):
             raise ValueError("control run repetitions must be unique")
+        request_sequence_digests = {
+            item.inference_measurement.request_sequence_sha256
+            for item in self.control_runs
+            if item.inference_measurement is not None
+        }
+        if len(request_sequence_digests) != 1:
+            raise ValueError(
+                "passed S0 baseline requires one deterministic request sequence across controls"
+            )
         required_metrics = {
             "request_latency_seconds",
             "request_throughput_per_second",

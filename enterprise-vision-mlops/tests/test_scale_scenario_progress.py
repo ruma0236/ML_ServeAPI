@@ -324,6 +324,20 @@ def test_passed_s0_benchmark_rejects_unexecuted_load_profile() -> None:
         BenchmarkEvidence.model_validate(payload)
 
 
+def test_passed_s0_benchmark_requires_deterministic_request_sequence() -> None:
+    payload = benchmark_payload()
+    payload["control_runs"][2] = control_run(3).model_copy(
+        update={
+            "inference_measurement": control_run(3).inference_measurement.model_copy(
+                update={"request_sequence_sha256": "e" * 64}
+            )
+        }
+    )
+
+    with pytest.raises(ValidationError, match="one deterministic request sequence"):
+        BenchmarkEvidence.model_validate(payload)
+
+
 def test_fixed_rate_profile_requires_request_count_matching_window() -> None:
     with pytest.raises(ValidationError, match="target RPS times duration"):
         LoadProfile(

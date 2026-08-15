@@ -1,9 +1,9 @@
 {
   "schema_version": "evm.scale_validation.s0_evidence_contract_rca.v1",
   "scenario_id": "S0",
-  "generated_at": "2026-08-15T09:34:11Z",
-  "source_revision": "f9b8d777b12a1440fab28352c7bf60513653cdab",
-  "status": "acceptance_reopened_pending_fresh_controls",
+  "generated_at": "2026-08-15T10:25:23.802715Z",
+  "source_revision": "f4a855d9ea2c326a818c8d19243cca7f3394d4b1",
+  "status": "remediated_and_revalidated",
   "defects": [
     {
       "id": "canonical_public_hash",
@@ -38,9 +38,45 @@
     "s0-low-load-benchmark-evidence.json": "4cee6473a9aa6720a6a0a43870b90ac4b20089d2232670f5529462b9568f98cd"
   },
   "acceptance_effect": {
-    "s0_status": "implementing",
-    "s0_acceptance_criteria": "pending",
-    "s1_entry": "denied_until_three_fresh_fixed_window_controls_and_strict_git_blob_hash_validation_pass"
+    "s0_status": "verified",
+    "s0_acceptance_criteria": "passed",
+    "s1_entry": "allowed_only_after_strict_git_blob_hash_validation_passes_at_the_closure_revision"
+  },
+  "revalidation": {
+    "benchmark_suite_id": "s0-low-load-20260815T094633Z",
+    "fresh_control_runs": 3,
+    "declared_target_requests_per_second": 0.05,
+    "declared_measurement_window_seconds": 60.0,
+    "planned_and_completed_requests_per_control": 3,
+    "observed_measurement_windows_seconds": [
+      60.00030459999107,
+      60.000306500005536,
+      60.000260500004515
+    ],
+    "lifecycle_elapsed_seconds": [
+      779.330914,
+      769.698625,
+      781.062433
+    ],
+    "maximum_request_start_lag_seconds": 0.0005094999796710908,
+    "request_sequence_sha256": "f282e3e21075e52593ab65f8378c5b9d8a6d9ae56c0f7e48fff32f16cc4d46e8",
+    "request_sequence_identical_across_controls": true,
+    "required_trace_stages_observed": [
+      "api",
+      "queue",
+      "worker",
+      "spark",
+      "mlflow",
+      "serving"
+    ],
+    "missing_trace_stage_count": 0,
+    "public_lf_artifact_hashes": {
+      "s0-low-load-control-1.json": "d1f3c212a7a61b4f76c7f796b27e0eee06e18ddb55ea5d61add8397b73bdedbb",
+      "s0-low-load-control-2.json": "516d3112ab50a8d0d440fe9c0b261868f7d4ed89dc3bcba6f052cf04ecae75c6",
+      "s0-low-load-control-3.json": "392d6b440a2b11ad60fd21598147fc7e1253cbe19fbb8bdd2adf683242f2d8fc",
+      "s0-cross-runtime-trace-summary.json": "531ec01523fb41aaa8f74088bd2b5ef370552ab5f749457794f147b82b922e05",
+      "s0-low-load-benchmark-evidence.json": "5f33c3ad010bcdb0568001a41efe2213ede3b74517f359662eed3e8184461eb2"
+    }
   },
   "semantic_preservation": "Prior private evidence remains immutable historical functional evidence, but it has no fixed-window benchmark acceptance credit.",
   "claim_boundary": "This RCA concerns a local single-node evidence contract. It is not production, HA, SLA, customer-traffic, or scale evidence."

@@ -1,7 +1,7 @@
 {
   "schema_version": "evm.scale_validation.s0_trace_summary.v1",
   "scenario_id": "S0",
-  "generated_at": "2026-08-15T00:10:13.133486+00:00",
+  "generated_at": "2026-08-15T10:25:23.802715+00:00",
   "required_stages": [
     "api",
     "queue",
@@ -23,7 +23,7 @@
         "spark",
         "worker"
       ],
-      "span_count": 1150,
+      "span_count": 1381,
       "runtime_revision_converged": true
     },
     {
@@ -38,7 +38,7 @@
         "spark",
         "worker"
       ],
-      "span_count": 1147,
+      "span_count": 1365,
       "runtime_revision_converged": true
     },
     {
@@ -53,7 +53,7 @@
         "spark",
         "worker"
       ],
-      "span_count": 1145,
+      "span_count": 1389,
       "runtime_revision_converged": true
     }
   ],

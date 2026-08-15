@@ -1,13 +1,13 @@
 {
   "schema_version": "evm.scale_validation.benchmark_evidence.v1",
   "scenario_id": "S0",
-  "benchmark_suite_id": "s0-low-load-20260815T001013Z",
-  "generated_at": "2026-08-15T00:10:13.133486Z",
+  "benchmark_suite_id": "s0-low-load-20260815T094633Z",
+  "generated_at": "2026-08-15T10:25:23.802715Z",
   "identity": {
-    "source_revision": "7ef3d951173d4f1f6a546f00775db6d9e7655b20",
+    "source_revision": "f4a855d9ea2c326a818c8d19243cca7f3394d4b1",
     "data_digest": "8bce3a7ad9c60599100ba59d1e538ce29d08434f98b7e9521d2b212427bed7a1",
     "model_digest": "9135f9045b92f2bb5914818e47d168187c327307b2ff2826a4d319b78cb6534b",
-    "runtime_digest": "16eae4398900f01baa56842cabc53e9205c27f5e06341d834265f006cee9b751"
+    "runtime_digest": "b1e42ca85413e2416954c039ad29dd3df4f6b0036c2b697bc33a8d76d51470bc"
   },
   "environment": {
     "physical_nodes": 1,
@@ -24,25 +24,43 @@
     "target_requests_per_second": 0.05,
     "warmup_seconds": 0.0,
     "duration_seconds": 60.0,
-    "seed": 20260815
+    "seed": 20260815,
+    "arrival_model": "fixed_rate_open_loop",
+    "request_count": 3,
+    "seed_scope": "deterministic_test_sample_selection"
   },
   "control_runs": [
     {
       "repetition": 1,
-      "started_at": "2026-08-14T23:40:23.558856Z",
-      "finished_at": "2026-08-14T23:50:20.356914Z",
+      "started_at": "2026-08-15T09:46:33.704752Z",
+      "finished_at": "2026-08-15T09:59:33.035666Z",
+      "lifecycle_elapsed_seconds": 779.330914,
+      "inference_measurement": {
+        "basis": "fixed_duration_open_loop",
+        "target_requests_per_second": 0.05,
+        "declared_duration_seconds": 60.0,
+        "observed_elapsed_seconds": 60.00030459999107,
+        "planned_request_count": 3,
+        "completed_request_count": 3,
+        "scheduled_interval_seconds": 20.0,
+        "max_request_start_lag_seconds": 0.0005094999796710908,
+        "seed": 20260815,
+        "seed_scope": "deterministic_test_sample_selection",
+        "request_sequence_sha256": "f282e3e21075e52593ab65f8378c5b9d8a6d9ae56c0f7e48fff32f16cc4d46e8",
+        "throughput_basis": "completed_requests_per_declared_window"
+      },
       "metrics": [
         {
           "metric": "request_latency_seconds",
           "unit": "seconds",
           "sample_count": 3,
           "statistics": {
-            "min": 0.5737692000111565,
-            "mean": 0.6553770333412103,
-            "max": 0.801879500009818,
-            "p50": 0.5904824000026565,
-            "p95": 0.801879500009818,
-            "p99": 0.801879500009818
+            "min": 0.9309002999798395,
+            "mean": 0.9901822333340533,
+            "max": 1.0465124999755062,
+            "p50": 0.9931339000468142,
+            "p95": 1.0465124999755062,
+            "p99": 1.0465124999755062
           },
           "query": "client-observed round-trip latency for exact local CUDA /infer requests"
         },
@@ -51,19 +69,30 @@
           "unit": "requests_per_second",
           "sample_count": 1,
           "statistics": {
-            "min": 1.5258361442008115,
-            "mean": 1.5258361442008115,
-            "max": 1.5258361442008115
+            "min": 0.05,
+            "mean": 0.05,
+            "max": 0.05
           },
-          "query": "completed exact local CUDA /infer requests divided by observation interval"
+          "query": "completed exact local CUDA /infer requests divided by the declared fixed window"
+        },
+        {
+          "metric": "inference_measurement_window_seconds",
+          "unit": "seconds",
+          "sample_count": 1,
+          "statistics": {
+            "min": 60.00030459999107,
+            "mean": 60.00030459999107,
+            "max": 60.00030459999107
+          },
+          "query": "monotonic elapsed time for the declared fixed inference measurement window"
         },
         {
           "metric": "queue_depth",
           "unit": "runs",
-          "sample_count": 293,
+          "sample_count": 355,
           "statistics": {
             "min": 0.0,
-            "mean": 0.006825938566552901,
+            "mean": 0.005633802816901409,
             "max": 1.0
           },
           "query": "exact LifecycleRun queued-state cardinality; historical ledger excluded"
@@ -71,21 +100,21 @@
         {
           "metric": "queue_oldest_age_seconds",
           "unit": "seconds",
-          "sample_count": 293,
+          "sample_count": 355,
           "statistics": {
             "min": 0.0,
-            "mean": 0.006886818771327626,
-            "max": 2.017837099992903
+            "mean": 0.005674938591603767,
+            "max": 2.014602300012484
           },
           "query": "monotonic age of the exact LifecycleRun while queued"
         },
         {
           "metric": "worker_active_count",
           "unit": "workers",
-          "sample_count": 293,
+          "sample_count": 355,
           "statistics": {
             "min": 0.0,
-            "mean": 0.04436860068259386,
+            "mean": 0.09295774647887324,
             "max": 1.0
           },
           "query": "worker.current_run_id exact-match cardinality for this LifecycleRun"
@@ -95,9 +124,9 @@
           "unit": "ratio",
           "sample_count": 2,
           "statistics": {
-            "min": 0.0003600464380026397,
-            "mean": 0.00041535607340745055,
-            "max": 0.00047066570881226143
+            "min": 0.0004164847062248702,
+            "mean": 0.0011204778048314367,
+            "max": 0.001824470903438003
           },
           "query": "rate(process_cpu_seconds_total{job=\"evm-api\"}[1m]) / 24"
         },
@@ -106,9 +135,9 @@
           "unit": "bytes",
           "sample_count": 2,
           "statistics": {
-            "min": 163860480.0,
-            "mean": 166178816.0,
-            "max": 168497152.0
+            "min": 165011456.0,
+            "mean": 165775360.0,
+            "max": 166539264.0
           },
           "query": "process_resident_memory_bytes{job=\"evm-api\"}"
         },
@@ -117,9 +146,9 @@
           "unit": "ratio",
           "sample_count": 2,
           "statistics": {
-            "min": 0.03,
-            "mean": 0.105,
-            "max": 0.18
+            "min": 0.22,
+            "mean": 0.24,
+            "max": 0.26
           },
           "query": "nvidia-smi physical GPU utilization sampled before and after control"
         },
@@ -128,20 +157,20 @@
           "unit": "bytes",
           "sample_count": 2,
           "statistics": {
-            "min": 6807355392.0,
-            "mean": 6813646848.0,
-            "max": 6819938304.0
+            "min": 6425673728.0,
+            "mean": 7304380416.0,
+            "max": 8183087104.0
           },
           "query": "nvidia-smi physical GPU used memory sampled before and after control"
         },
         {
-          "metric": "connection_pool_wait_seconds",
+          "metric": "load_generator_permit_wait_seconds",
           "unit": "seconds",
-          "sample_count": 592,
+          "sample_count": 716,
           "statistics": {
-            "min": 1.2999807950109243e-06,
-            "mean": 6.417060855735169e-06,
-            "max": 0.0001548999862279743
+            "min": 1.1999509297311306e-06,
+            "mean": 5.973741514920439e-06,
+            "max": 7.880001794546843e-05
           },
           "query": "bounded load-generator HTTP permit wait; not a database pool metric"
         },
@@ -160,28 +189,43 @@
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s0-low-load-control-1.json",
-          "sha256": "552af2a85fdb2d3bfcdf0407abb19b1aa3ff6c12e97f47db63bb9444f8d30a24",
-          "generated_at": "2026-08-15T00:10:13.133486Z",
-          "claim": "Historical functional control 1; not accepted as fixed-window load evidence."
+          "sha256": "d1f3c212a7a61b4f76c7f796b27e0eee06e18ddb55ea5d61add8397b73bdedbb",
+          "generated_at": "2026-08-15T10:25:23.802715Z",
+          "claim": "S0 independent low-load control 1 passed the runtime contract."
         }
       ]
     },
     {
       "repetition": 2,
-      "started_at": "2026-08-14T23:50:20.358909Z",
-      "finished_at": "2026-08-15T00:00:17.966883Z",
+      "started_at": "2026-08-15T09:59:33.037586Z",
+      "finished_at": "2026-08-15T10:12:22.736211Z",
+      "lifecycle_elapsed_seconds": 769.698625,
+      "inference_measurement": {
+        "basis": "fixed_duration_open_loop",
+        "target_requests_per_second": 0.05,
+        "declared_duration_seconds": 60.0,
+        "observed_elapsed_seconds": 60.000306500005536,
+        "planned_request_count": 3,
+        "completed_request_count": 3,
+        "scheduled_interval_seconds": 20.0,
+        "max_request_start_lag_seconds": 0.0004382000188343227,
+        "seed": 20260815,
+        "seed_scope": "deterministic_test_sample_selection",
+        "request_sequence_sha256": "f282e3e21075e52593ab65f8378c5b9d8a6d9ae56c0f7e48fff32f16cc4d46e8",
+        "throughput_basis": "completed_requests_per_declared_window"
+      },
       "metrics": [
         {
           "metric": "request_latency_seconds",
           "unit": "seconds",
           "sample_count": 3,
           "statistics": {
-            "min": 0.5899943000113126,
-            "mean": 0.6977036333313057,
-            "max": 0.9125789999961853,
-            "p50": 0.5905375999864191,
-            "p95": 0.9125789999961853,
-            "p99": 0.9125789999961853
+            "min": 0.8281385999871418,
+            "mean": 0.9359574999737864,
+            "max": 1.064903599966783,
+            "p50": 0.9148302999674343,
+            "p95": 1.064903599966783,
+            "p99": 1.064903599966783
           },
           "query": "client-observed round-trip latency for exact local CUDA /infer requests"
         },
@@ -190,19 +234,30 @@
           "unit": "requests_per_second",
           "sample_count": 1,
           "statistics": {
-            "min": 1.4332711245963652,
-            "mean": 1.4332711245963652,
-            "max": 1.4332711245963652
+            "min": 0.05,
+            "mean": 0.05,
+            "max": 0.05
           },
-          "query": "completed exact local CUDA /infer requests divided by observation interval"
+          "query": "completed exact local CUDA /infer requests divided by the declared fixed window"
+        },
+        {
+          "metric": "inference_measurement_window_seconds",
+          "unit": "seconds",
+          "sample_count": 1,
+          "statistics": {
+            "min": 60.000306500005536,
+            "mean": 60.000306500005536,
+            "max": 60.000306500005536
+          },
+          "query": "monotonic elapsed time for the declared fixed inference measurement window"
         },
         {
           "metric": "queue_depth",
           "unit": "runs",
-          "sample_count": 292,
+          "sample_count": 350,
           "statistics": {
             "min": 0.0,
-            "mean": 0.003424657534246575,
+            "mean": 0.005714285714285714,
             "max": 1.0
           },
           "query": "exact LifecycleRun queued-state cardinality; historical ledger excluded"
@@ -210,21 +265,21 @@
         {
           "metric": "queue_oldest_age_seconds",
           "unit": "seconds",
-          "sample_count": 292,
+          "sample_count": 350,
           "statistics": {
             "min": 0.0,
-            "mean": 1.3698734445114658e-09,
-            "max": 4.00003045797348e-07
+            "mean": 0.005764096285815218,
+            "max": 2.017433400033042
           },
           "query": "monotonic age of the exact LifecycleRun while queued"
         },
         {
           "metric": "worker_active_count",
           "unit": "workers",
-          "sample_count": 292,
+          "sample_count": 350,
           "statistics": {
             "min": 0.0,
-            "mean": 0.06164383561643835,
+            "mean": 0.04,
             "max": 1.0
           },
           "query": "worker.current_run_id exact-match cardinality for this LifecycleRun"
@@ -234,9 +289,9 @@
           "unit": "ratio",
           "sample_count": 2,
           "statistics": {
-            "min": 0.0004519396551724146,
-            "mean": 0.0005196963294660563,
-            "max": 0.0005874530037596979
+            "min": 0.00041452863147552064,
+            "mean": 0.0009484800474383532,
+            "max": 0.0014824314634011857
           },
           "query": "rate(process_cpu_seconds_total{job=\"evm-api\"}[1m]) / 24"
         },
@@ -245,9 +300,9 @@
           "unit": "bytes",
           "sample_count": 2,
           "statistics": {
-            "min": 168497152.0,
-            "mean": 168747008.0,
-            "max": 168996864.0
+            "min": 166539264.0,
+            "mean": 167868416.0,
+            "max": 169197568.0
           },
           "query": "process_resident_memory_bytes{job=\"evm-api\"}"
         },
@@ -256,9 +311,9 @@
           "unit": "ratio",
           "sample_count": 2,
           "statistics": {
-            "min": 0.06,
-            "mean": 0.14500000000000002,
-            "max": 0.23
+            "min": 0.19,
+            "mean": 0.195,
+            "max": 0.2
           },
           "query": "nvidia-smi physical GPU utilization sampled before and after control"
         },
@@ -267,20 +322,20 @@
           "unit": "bytes",
           "sample_count": 2,
           "statistics": {
-            "min": 6801063936.0,
-            "mean": 6813646848.0,
-            "max": 6826229760.0
+            "min": 8194621440.0,
+            "mean": 8199864320.0,
+            "max": 8205107200.0
           },
           "query": "nvidia-smi physical GPU used memory sampled before and after control"
         },
         {
-          "metric": "connection_pool_wait_seconds",
+          "metric": "load_generator_permit_wait_seconds",
           "unit": "seconds",
-          "sample_count": 590,
+          "sample_count": 706,
           "statistics": {
-            "min": 1.1999800335615873e-06,
-            "mean": 5.614237713832724e-06,
-            "max": 3.339999238960445e-05
+            "min": 1.200009137392044e-06,
+            "mean": 6.026913304404268e-06,
+            "max": 0.00011500000255182385
           },
           "query": "bounded load-generator HTTP permit wait; not a database pool metric"
         },
@@ -299,28 +354,43 @@
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s0-low-load-control-2.json",
-          "sha256": "a3ae4a4939042355ae80567cc0de2fcd5453a91d9f23d35a6e009856c9a4525b",
-          "generated_at": "2026-08-15T00:10:13.133486Z",
-          "claim": "Historical functional control 2; not accepted as fixed-window load evidence."
+          "sha256": "516d3112ab50a8d0d440fe9c0b261868f7d4ed89dc3bcba6f052cf04ecae75c6",
+          "generated_at": "2026-08-15T10:25:23.802715Z",
+          "claim": "S0 independent low-load control 2 passed the runtime contract."
         }
       ]
     },
     {
       "repetition": 3,
-      "started_at": "2026-08-15T00:00:17.969060Z",
-      "finished_at": "2026-08-15T00:10:13.131658Z",
+      "started_at": "2026-08-15T10:12:22.738280Z",
+      "finished_at": "2026-08-15T10:25:23.800713Z",
+      "lifecycle_elapsed_seconds": 781.062433,
+      "inference_measurement": {
+        "basis": "fixed_duration_open_loop",
+        "target_requests_per_second": 0.05,
+        "declared_duration_seconds": 60.0,
+        "observed_elapsed_seconds": 60.000260500004515,
+        "planned_request_count": 3,
+        "completed_request_count": 3,
+        "scheduled_interval_seconds": 20.0,
+        "max_request_start_lag_seconds": 0.000145500001963228,
+        "seed": 20260815,
+        "seed_scope": "deterministic_test_sample_selection",
+        "request_sequence_sha256": "f282e3e21075e52593ab65f8378c5b9d8a6d9ae56c0f7e48fff32f16cc4d46e8",
+        "throughput_basis": "completed_requests_per_declared_window"
+      },
       "metrics": [
         {
           "metric": "request_latency_seconds",
           "unit": "seconds",
           "sample_count": 3,
           "statistics": {
-            "min": 0.546114700002363,
-            "mean": 0.627541566665362,
-            "max": 0.7323585000121966,
-            "p50": 0.6041514999815263,
-            "p95": 0.7323585000121966,
-            "p99": 0.7323585000121966
+            "min": 0.8562421000096947,
+            "mean": 0.9684977666474879,
+            "max": 1.1108074999647215,
+            "p50": 0.9384436999680474,
+            "p95": 1.1108074999647215,
+            "p99": 1.1108074999647215
           },
           "query": "client-observed round-trip latency for exact local CUDA /infer requests"
         },
@@ -329,19 +399,30 @@
           "unit": "requests_per_second",
           "sample_count": 1,
           "statistics": {
-            "min": 1.5935179937527226,
-            "mean": 1.5935179937527226,
-            "max": 1.5935179937527226
+            "min": 0.05,
+            "mean": 0.05,
+            "max": 0.05
           },
-          "query": "completed exact local CUDA /infer requests divided by observation interval"
+          "query": "completed exact local CUDA /infer requests divided by the declared fixed window"
+        },
+        {
+          "metric": "inference_measurement_window_seconds",
+          "unit": "seconds",
+          "sample_count": 1,
+          "statistics": {
+            "min": 60.000260500004515,
+            "mean": 60.000260500004515,
+            "max": 60.000260500004515
+          },
+          "query": "monotonic elapsed time for the declared fixed inference measurement window"
         },
         {
           "metric": "queue_depth",
           "unit": "runs",
-          "sample_count": 292,
+          "sample_count": 356,
           "statistics": {
             "min": 0.0,
-            "mean": 0.003424657534246575,
+            "mean": 0.0056179775280898875,
             "max": 1.0
           },
           "query": "exact LifecycleRun queued-state cardinality; historical ledger excluded"
@@ -349,21 +430,21 @@
         {
           "metric": "queue_oldest_age_seconds",
           "unit": "seconds",
-          "sample_count": 292,
+          "sample_count": 356,
           "statistics": {
             "min": 0.0,
-            "mean": 1.3698734445114658e-09,
-            "max": 4.00003045797348e-07
+            "mean": 0.00567845589895942,
+            "max": 2.021530000027269
           },
           "query": "monotonic age of the exact LifecycleRun while queued"
         },
         {
           "metric": "worker_active_count",
           "unit": "workers",
-          "sample_count": 292,
+          "sample_count": 356,
           "statistics": {
             "min": 0.0,
-            "mean": 0.0410958904109589,
+            "mean": 0.05056179775280899,
             "max": 1.0
           },
           "query": "worker.current_run_id exact-match cardinality for this LifecycleRun"
@@ -373,9 +454,9 @@
           "unit": "ratio",
           "sample_count": 2,
           "statistics": {
-            "min": 0.0004827492967229276,
-            "mean": 0.000516360899048928,
-            "max": 0.0005499725013749284
+            "min": 0.00034722222222222224,
+            "mean": 0.000914826842811704,
+            "max": 0.0014824314634011857
           },
           "query": "rate(process_cpu_seconds_total{job=\"evm-api\"}[1m]) / 24"
         },
@@ -384,9 +465,9 @@
           "unit": "bytes",
           "sample_count": 2,
           "statistics": {
-            "min": 168996864.0,
-            "mean": 169451520.0,
-            "max": 169906176.0
+            "min": 168456192.0,
+            "mean": 168826880.0,
+            "max": 169197568.0
           },
           "query": "process_resident_memory_bytes{job=\"evm-api\"}"
         },
@@ -395,9 +476,9 @@
           "unit": "ratio",
           "sample_count": 2,
           "statistics": {
-            "min": 0.11,
-            "mean": 0.555,
-            "max": 1.0
+            "min": 0.2,
+            "mean": 0.23500000000000001,
+            "max": 0.27
           },
           "query": "nvidia-smi physical GPU utilization sampled before and after control"
         },
@@ -406,20 +487,20 @@
           "unit": "bytes",
           "sample_count": 2,
           "statistics": {
-            "min": 6808403968.0,
-            "mean": 6812598272.0,
-            "max": 6816792576.0
+            "min": 8194621440.0,
+            "mean": 8206155776.0,
+            "max": 8217690112.0
           },
           "query": "nvidia-smi physical GPU used memory sampled before and after control"
         },
         {
-          "metric": "connection_pool_wait_seconds",
+          "metric": "load_generator_permit_wait_seconds",
           "unit": "seconds",
-          "sample_count": 590,
+          "sample_count": 718,
           "statistics": {
-            "min": 1.1999800335615873e-06,
-            "mean": 5.9344071768603086e-06,
-            "max": 0.00010549998842179775
+            "min": 1.200009137392044e-06,
+            "mean": 5.971310396930384e-06,
+            "max": 3.649998689070344e-05
           },
           "query": "bounded load-generator HTTP permit wait; not a database pool metric"
         },
@@ -438,9 +519,9 @@
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s0-low-load-control-3.json",
-          "sha256": "3b713445967002e60d8a6f5a2c2d3fe635c6530e0a9c9a309cf8b3bce24535f0",
-          "generated_at": "2026-08-15T00:10:13.133486Z",
-          "claim": "Historical functional control 3; not accepted as fixed-window load evidence."
+          "sha256": "392d6b440a2b11ad60fd21598147fc7e1253cbe19fbb8bdd2adf683242f2d8fc",
+          "generated_at": "2026-08-15T10:25:23.802715Z",
+          "claim": "S0 independent low-load control 3 passed the runtime contract."
         }
       ]
     }
@@ -466,23 +547,18 @@
     "metric_labels_bounded": true,
     "trace_artifact": {
       "path": "docs/status/evidence/s0-cross-runtime-trace-summary.json",
-      "sha256": "0fafe770b87713d33fa370f75b03c26d7ff762d6ff31a6fff37f8e2160cb1e6c",
-      "generated_at": "2026-08-15T00:10:13.133486Z",
-      "claim": "Historical trace linkage only; not fixed-window benchmark acceptance."
+      "sha256": "531ec01523fb41aaa8f74088bd2b5ef370552ab5f749457794f147b82b922e05",
+      "generated_at": "2026-08-15T10:25:23.802715Z",
+      "claim": "All controls observed the required existing-runtime trace stages."
     }
   },
   "variance": {
-    "request_latency_p95_cv": 0.09099022286303038,
-    "request_throughput_cv": 0.04328242483096556
+    "request_latency_p95_cv": 0.025172853121171998,
+    "request_throughput_cv": 0.0
   },
   "closure": {
-    "decision": "failed",
-    "blockers": [
-      "declared_fixed_window_profile_not_executed",
-      "declared_seed_not_applied",
-      "permit_wait_metric_mislabeled_as_connection_pool_wait",
-      "published_hashes_not_canonical_git_blob_bytes"
-    ],
-    "completed_at": "2026-08-15T09:34:11Z"
+    "decision": "passed",
+    "blockers": [],
+    "completed_at": "2026-08-15T10:25:23.802715Z"
   }
 }
