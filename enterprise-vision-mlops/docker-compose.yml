@@ -11,6 +11,7 @@ services:
     volumes:
       - control-plane-postgres-data:/var/lib/postgresql/data
       - ./infra/postgres/control-plane/001_transactional_control_plane.sql:/docker-entrypoint-initdb.d/001_transactional_control_plane.sql:ro
+      - ./infra/postgres/control-plane/002_bounded_admission_queue.sql:/docker-entrypoint-initdb.d/002_bounded_admission_queue.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -311,6 +312,8 @@ services:
       EVM_CONTROL_PLANE_POOL_ACQUIRE_TIMEOUT_SECONDS: ${EVM_CONTROL_PLANE_POOL_ACQUIRE_TIMEOUT_SECONDS:-2}
       EVM_CONTROL_PLANE_LOCK_TIMEOUT_SECONDS: ${EVM_CONTROL_PLANE_LOCK_TIMEOUT_SECONDS:-2}
       EVM_CONTROL_PLANE_STATEMENT_TIMEOUT_SECONDS: ${EVM_CONTROL_PLANE_STATEMENT_TIMEOUT_SECONDS:-10}
+      EVM_TASK_ADMISSION_MODE: ${EVM_TASK_ADMISSION_MODE:-durable}
+      EVM_TASK_QUEUE_CONFIG: configs/s2_bounded_queue_v1.toml
       EVM_PIPELINE_PROFILE_ROOT: /app/artifacts/w7/pipeline_profiles
       EVM_PIPELINE_PROFILE_RUNTIME_ROOT: /mnt/evm-data/artifacts/w7/pipeline_profiles
       EVM_LIFECYCLE_RUN_ROOT: /app/artifacts/w7/lifecycle_runs
@@ -366,6 +369,59 @@ services:
         condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mlops-local
+
+  task-queue-worker:
+    image: enterprise-vision-mlops-api
+    container_name: evm-task-queue-worker
+    command:
+      - python
+      - -m
+      - evm.control_panel.task_queue_worker
+      - --config
+      - configs/s2_bounded_queue_v1.toml
+      - --worker-id
+      - compose-task-queue-worker
+      - --heartbeat-path
+      - /app/artifacts/w7/task_queue_worker/heartbeat.json
+    environment:
+      PYTHONPATH: /app/src
+      EVM_GIT_COMMIT: ${EVM_GIT_COMMIT:-unknown}
+      EVM_CONTROL_PANEL_LEDGER_ROOT: /app/artifacts/w7/operations
+      EVM_CONTROL_PLANE_STORE_MODE: ${EVM_CONTROL_PLANE_STORE_MODE:-dual}
+      EVM_CONTROL_PLANE_DATABASE_URL: postgresql://${CONTROL_PLANE_POSTGRES_USER:-evm_control_plane}:${CONTROL_PLANE_POSTGRES_PASSWORD:-evm_control_plane_local}@control-plane-postgres:5432/${CONTROL_PLANE_POSTGRES_DB:-evm_control_plane}
+      EVM_CONTROL_PLANE_DATABASE_SCHEMA: evm_control_plane
+      EVM_CONTROL_PLANE_POOL_MIN_SIZE: ${EVM_CONTROL_PLANE_POOL_MIN_SIZE:-1}
+      EVM_CONTROL_PLANE_POOL_MAX_SIZE: ${EVM_CONTROL_PLANE_POOL_MAX_SIZE:-8}
+      EVM_CONTROL_PLANE_POOL_ACQUIRE_TIMEOUT_SECONDS: ${EVM_CONTROL_PLANE_POOL_ACQUIRE_TIMEOUT_SECONDS:-2}
+      EVM_CONTROL_PLANE_LOCK_TIMEOUT_SECONDS: ${EVM_CONTROL_PLANE_LOCK_TIMEOUT_SECONDS:-2}
+      EVM_CONTROL_PLANE_STATEMENT_TIMEOUT_SECONDS: ${EVM_CONTROL_PLANE_STATEMENT_TIMEOUT_SECONDS:-10}
+      EVM_TASK_ADMISSION_MODE: ${EVM_TASK_ADMISSION_MODE:-durable}
+      EVM_TASK_QUEUE_CONFIG: configs/s2_bounded_queue_v1.toml
+      EVM_AIRFLOW_API_URL: http://airflow-webserver:8080/api/v1
+      EVM_AIRFLOW_API_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
+      EVM_AIRFLOW_API_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+      EVM_OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_SERVICE_NAMESPACE: enterprise-mlops
+      OTEL_SERVICE_INSTANCE_ID: compose-task-queue-worker
+    expose:
+      - "9465"
+    volumes:
+      - ${EVM_HOST_ARTIFACTS_ROOT:-F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts}/w7:/app/artifacts/w7
+    depends_on:
+      control-plane-postgres:
+        condition: service_healthy
+      airflow-webserver:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9465/metrics').read()"]
       interval: 10s
       timeout: 5s
       retries: 10

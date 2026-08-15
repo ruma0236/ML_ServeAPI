@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-15T14:31:30.830558Z`
+- Generated: `2026-08-15T15:49:05.000318Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -198,22 +198,23 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S2: Bounded Queue & Backpressure
 
-- Status: `planned`
+- Status: `implementing`
 - Engineering question: Does overload stay memory-bounded while accepted work reaches an explicit outcome?
 - Why now: A bounded queue is required before capacity and recovery experiments scale up.
 - Observed gap: Durable admission, byte/age bounds, retry budget, and DLQ are incomplete.
-- Existing-system baseline: The existing worker polls lifecycle files and dispatches task assignments, but admission, bytes, age, retries, and poison-work isolation do not share one bounded durable queue contract.
+- Existing-system baseline: The existing task API wrote assignments to the operations ledger and required explicit dispatch, while the separate lifecycle worker exclusively processed LifecycleRun state. Task admission had no shared depth, byte, age, retry-budget, or poison-work boundary and no dedicated task consumer.
 - Architecture before: Admission and retries do not share one end-to-end resource boundary.
 - Architecture after: Durable queue, local semaphore, rejection, retry, DLQ, and CPU scale are bounded.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Begin after S1 has protected mutation idempotency.
+- Next action: Freeze and execute three independent runs of every S2 profile through external TCP/HTTP, real PostgreSQL, the real queue-worker process, Prometheus, restart recovery, and GPU max-in-flight validation; then run full S0/S1/lifecycle regressions and canonical evidence closure.
 
 ### Affected Existing Components
 
-- Task admission and dispatch: `src/evm/control_panel/operations.py`, `src/evm/control_panel/lifecycle_worker.py`
-- Control API: `src/evm/control_panel/router.py`, `apps/api/main.py`
-- Operational telemetry: `monitoring/prometheus/prometheus.yml`, `src/evm/operations/metrics.py`
+- Task admission and dispatch: `src/evm/control_panel/operations.py`, `src/evm/control_panel/task_queue_worker.py`, `src/evm/control_panel/transactional_store.py`
+- Control API: `apps/api/control_panel_tasks.py`, `apps/api/main.py`
+- Operational telemetry: `monitoring/prometheus/prometheus.yml`, `src/evm/control_panel/admission_queue.py`
+- Runtime and migration: `configs/s2_bounded_queue_v1.toml`, `infra/postgres/control-plane/002_bounded_admission_queue.sql`, `docker-compose.yml`
 
 ### Architecture Delta
 
@@ -231,18 +232,23 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Implementation Delta
 
-- No existing-system code change has started.
+- Durable admission and task state: `src/evm/control_panel/admission_queue.py`, `src/evm/control_panel/transactional_store.py`, `src/evm/control_panel/operations.py`, `apps/api/control_panel_tasks.py`
+- Dedicated bounded task worker: `src/evm/control_panel/task_queue_worker.py`, `src/evm/control_panel/task_queue_executor.py`, `src/evm/scale_validation/s2_airflow_fixture.py`
+- Frozen runtime, migration, and telemetry: `configs/s2_bounded_queue_v1.toml`, `infra/postgres/control-plane/002_bounded_admission_queue.sql`, `docker-compose.yml`, `monitoring/prometheus/prometheus.yml`
+- Focused verification: `contracts/control-panel/control-panel.openapi.json`, `tests/test_bounded_task_queue.py`, `tests/test_control_panel_contract.py`, `tests/test_s2_airflow_fixture.py`
 - Compatibility: Existing task payload and lifecycle state-machine contracts must remain valid.
-- Migration: Introduce bounded admission before redirecting existing producers and retain a rollback path to the prior dispatcher.
+- Migration: The 002 migration adds the durable queue and retry budget to the dedicated control-plane schema without modifying Airflow or MLflow databases.
+- Migration: EVM_TASK_ADMISSION_MODE=legacy retains the prior dispatcher as an explicit rollback path; durable is enabled in the local Compose stack for S2 validation.
 
 ### Experiment Contract
 
 - Workload/input: Independent burst, sustained, duplicate, expired, and poison task streams through the existing assignment endpoint.
 - Precondition: S1 commits one idempotent task outcome and S0 telemetry is queryable.
-- Controlled variable: Arrival rate, queue depth/bytes/age, worker count, timeout, retry budget, and poison ratio.
+- Controlled variable: The versioned frozen profile controls depth, aggregate bytes, item bytes, age, wait, local buffers, work timeout, CPU min/max, GPU=1, lease, retry/jitter/budget, drain, RSS cap, and RSS slope tolerance.
+- Controlled variable: Arrival rate and independent baseline, depth burst, byte burst, sustained, duplicate, expired, transient-budget, poison-plus-healthy, timeout-restart, and GPU-bound workload identities.
 - Signal: Admission status, Retry-After, queue depth/bytes/age, RSS, wait time, retry amplification, DLQ, and terminal closure.
-- Stop condition: RSS or in-flight bytes exceed the bound, accepted work loses terminal closure, or duplicates appear.
-- Recovery condition: Queue drains to zero, poison work is quarantined, workers are healthy, and no duplicate side effect remains.
+- Stop condition: RSS, queue depth, queue bytes, local bytes, or GPU in-flight exceed the frozen bound; accepted work is lost or unclosed; duplicate effects, poison head-of-line blocking, retry amplification, unbounded wait, trace gaps, or S0/S1 regression appear.
+- Recovery condition: Admission closes, active/leased/local work drains to zero, poison work is quarantined, stale ownership is reconciled, worker and Prometheus health recover, temporary schema/processes are removed, and duplicate effects remain zero.
 
 ### Acceptance
 
@@ -258,6 +264,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
+- `2026-08-15T15:47:07.929559Z` `implementation` / `implementing`: Durable bounded admission, distinct 413/429 responses, a dedicated queue worker with a killable child-process timeout boundary, retry/DLQ policy, frozen configuration, Compose startup and Prometheus scrape wiring passed 39 focused tests and an isolated real-PostgreSQL API-worker checkpoint. No acceptance criterion is credited before the full external workload matrix.
 
 ## S3: HIGGS Lightweight Capacity Envelope
 

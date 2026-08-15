@@ -208,7 +208,19 @@
               }
             }
           },
-          "400": {"$ref": "#/components/responses/BadRequest"}
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "413": {
+            "description": "Canonical task payload exceeds the per-item byte limit."
+          },
+          "429": {
+            "description": "Durable queue depth or aggregate byte capacity is exhausted.",
+            "headers": {
+              "Retry-After": {
+                "description": "Integer seconds before bounded admission should be retried.",
+                "schema": {"type": "integer"}
+              }
+            }
+          }
         }
       }
     },

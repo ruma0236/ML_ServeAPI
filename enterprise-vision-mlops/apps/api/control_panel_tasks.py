@@ -18,6 +18,8 @@ from evm.control_panel.schemas import (
     TaskTransitionRequest,
 )
 from evm.control_panel.transactional_store import (
+    ControlPlaneAdmissionRejected,
+    ControlPlaneItemTooLarge,
     ControlPlanePoolTimeout,
     ControlPlaneStoreError,
     ControlPlaneTransactionTimeout,
@@ -40,7 +42,23 @@ def default_task_assignment() -> TaskAssignmentRequest:
     return default_task_request()
 
 
-@router.post("/tasks", response_model=TaskAssignment, status_code=202)
+@router.post(
+    "/tasks",
+    response_model=TaskAssignment,
+    status_code=202,
+    responses={
+        413: {"description": "Canonical task payload exceeds the per-item byte limit."},
+        429: {
+            "description": "Durable queue depth or aggregate byte capacity is exhausted.",
+            "headers": {
+                "Retry-After": {
+                    "description": "Integer seconds before bounded admission should be retried.",
+                    "schema": {"type": "integer"},
+                }
+            },
+        },
+    },
+)
 def create_task(request: TaskAssignmentRequest) -> TaskAssignment:
     try:
         return create_task_assignment(request)
@@ -79,15 +97,39 @@ def task_http(
         status_code = exc.status_code
         code = exc.code
     else:
-        status_code = (
-            503
-            if isinstance(exc, (ControlPlanePoolTimeout, ControlPlaneTransactionTimeout))
-            else 409
-        )
+        if isinstance(exc, ControlPlaneItemTooLarge):
+            status_code = 413
+        elif isinstance(exc, ControlPlaneAdmissionRejected):
+            status_code = 429
+        else:
+            status_code = (
+                503
+                if isinstance(exc, (ControlPlanePoolTimeout, ControlPlaneTransactionTimeout))
+                else 409
+            )
         code = type(exc).__name__
+    details = {"error": code, "message": str(exc), "task_id": task_id}
+    headers = None
+    if isinstance(exc, ControlPlaneItemTooLarge):
+        details.update(
+            {
+                "payload_bytes": exc.payload_bytes,
+                "max_item_bytes": exc.max_item_bytes,
+            }
+        )
+    elif isinstance(exc, ControlPlaneAdmissionRejected):
+        details.update(
+            {
+                "reason": exc.reason,
+                "current_depth": exc.current_depth,
+                "current_bytes": exc.current_bytes,
+            }
+        )
+        headers = {"Retry-After": str(exc.retry_after_seconds)}
     return HTTPException(
         status_code=status_code,
-        detail={"error": code, "message": str(exc), "task_id": task_id},
+        detail=details,
+        headers=headers,
     )
 
 

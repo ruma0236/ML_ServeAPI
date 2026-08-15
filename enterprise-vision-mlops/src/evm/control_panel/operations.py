@@ -15,6 +15,12 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
+from evm.control_panel.admission_queue import (
+    QUEUE_ADMISSIONS,
+    admission_queue_mode,
+    load_admission_queue_config,
+    priority_value,
+)
 from evm.control_panel.aggregation import build_latest_cycle
 from evm.control_panel.promotion_policy import PromotionPolicyDenied, evaluate_cycle_promotion
 from evm.control_panel.schemas import (
@@ -47,10 +53,18 @@ _LEDGER_LOCK = RLock()
 
 
 class TaskDispatchError(RuntimeError):
-    def __init__(self, code: str, message: str, *, status_code: int = 409):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int = 409,
+        retryable: bool = False,
+    ):
         super().__init__(message)
         self.code = code
         self.status_code = status_code
+        self.retryable = retryable
 
 
 @dataclass(frozen=True)
@@ -151,6 +165,11 @@ def write_tasks(tasks: TaskAssignmentList) -> None:
     write_json_array(task_ledger_path(), payload)
 
 
+def write_task_json_mirror(tasks: TaskAssignmentList) -> None:
+    payload = [task.model_dump(mode="json") for task in tasks.tasks]
+    write_json_array(task_ledger_path(), payload)
+
+
 def read_commands() -> CommandIntentList:
     store = get_transactional_store()
     if store.enabled:
@@ -198,13 +217,18 @@ def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
     if store.enabled:
         replay = store.lookup_idempotency("task.create", effective_key, request_payload)
         if replay is not None:
+            if admission_queue_mode() == "durable":
+                QUEUE_ADMISSIONS.labels(outcome="replayed", reason="idempotency").inc()
             return TaskAssignment.model_validate(replay)
+    durable_admission = admission_queue_mode() == "durable" and store.enabled
     with trace_span(
         "queue.enqueue",
         kind="producer",
         attributes={
             "evm.stage": "queue",
-            "messaging.system": "evm-file-ledger",
+            "messaging.system": (
+                "postgresql-durable-queue" if durable_admission else "evm-file-ledger"
+            ),
             "messaging.operation.type": "create",
             "evm.task.type": request.task_type,
         },
@@ -223,8 +247,25 @@ def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
                 "idempotency_key": effective_key,
             }
         )
-        task = _create_task_assignment(traced_request)
-        if store.enabled:
+        if durable_admission and resolve_task_status(traced_request) == "queued":
+            task = _build_task_assignment(traced_request)
+            result = store.admit_task_assignment(
+                scope="task.create",
+                idempotency_key=effective_key,
+                request_payload=request_payload,
+                task_payload=task.model_dump(mode="json"),
+                priority=priority_value(task.priority),
+                config=load_admission_queue_config(),
+            )
+            task = TaskAssignment.model_validate(result.task_payload)
+            write_task_json_mirror(read_tasks())
+            QUEUE_ADMISSIONS.labels(
+                outcome="replayed" if result.replayed else "accepted",
+                reason="idempotency" if result.replayed else "within_bounds",
+            ).inc()
+        else:
+            task = _create_task_assignment(traced_request)
+        if store.enabled and not (durable_admission and task.status == "queued"):
             store.record_idempotency(
                 "task.create",
                 effective_key,
@@ -240,9 +281,16 @@ def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
 
 def _create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
     tasks = read_tasks()
+    task = _build_task_assignment(request)
+    tasks.tasks.insert(0, task)
+    write_tasks(tasks)
+    return task
+
+
+def _build_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
     status = resolve_task_status(request)
     created_at = utc_now()
-    task = TaskAssignment(
+    return TaskAssignment(
         **request.model_dump(),
         task_id=f"task-{created_at.replace(':', '').replace('-', '').replace('Z', '')}-{uuid4().hex[:8]}",
         status=status,
@@ -264,9 +312,6 @@ def _create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
             )
         ],
     )
-    tasks.tasks.insert(0, task)
-    write_tasks(tasks)
-    return task
 
 
 @ledger_transaction
@@ -283,7 +328,10 @@ def confirm_task_assignment(
     if store.enabled:
         replay = store.lookup_idempotency("task.confirm", effective_key, request_payload)
         if replay is not None:
+            if admission_queue_mode() == "durable":
+                QUEUE_ADMISSIONS.labels(outcome="replayed", reason="idempotency").inc()
             return TaskAssignment.model_validate(replay)
+    durable_admission = admission_queue_mode() == "durable" and store.enabled
     tasks = read_tasks()
     for index, task in enumerate(tasks.tasks):
         if task.task_id != task_id:
@@ -315,8 +363,25 @@ def confirm_task_assignment(
             )
         )
         tasks.tasks[index] = task
-        write_tasks(tasks)
-        if store.enabled:
+        if durable_admission:
+            result = store.admit_task_assignment(
+                scope="task.confirm",
+                idempotency_key=effective_key,
+                request_payload=request_payload,
+                task_payload=task.model_dump(mode="json"),
+                priority=priority_value(task.priority),
+                config=load_admission_queue_config(),
+                replace_existing=True,
+            )
+            task = TaskAssignment.model_validate(result.task_payload)
+            write_task_json_mirror(read_tasks())
+            QUEUE_ADMISSIONS.labels(
+                outcome="replayed" if result.replayed else "accepted",
+                reason="idempotency" if result.replayed else "within_bounds",
+            ).inc()
+        else:
+            write_tasks(tasks)
+        if store.enabled and not durable_admission:
             store.record_idempotency(
                 "task.confirm",
                 effective_key,
@@ -368,6 +433,36 @@ def dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
         return task
 
 
+@ledger_transaction
+def dispatch_queued_task_assignment(task_id: str) -> TaskAssignment | None:
+    """Dispatch one durable-queue item without making a transient error terminal."""
+    task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
+    if task is None:
+        return None
+    if task.status in {"running", "done"}:
+        return task
+    parent = task_trace_context(task)
+    with trace_span(
+        "queue.dispatch",
+        parent=parent,
+        kind="consumer",
+        attributes={
+            "evm.stage": "queue",
+            "messaging.system": "postgresql-durable-queue",
+            "messaging.operation.type": "process",
+            "evm.task.id": task_id,
+        },
+    ) as active:
+        dispatched = _dispatch_task_assignment(
+            task_id,
+            failure_is_terminal=False,
+            reconcile_existing=True,
+        )
+        if dispatched is not None:
+            active.set_attribute("evm.task.status", dispatched.status)
+        return dispatched
+
+
 def task_trace_context(task: TaskAssignment | None) -> W3CTraceContext | None:
     if task is None:
         return None
@@ -384,7 +479,12 @@ def task_trace_context(task: TaskAssignment | None) -> W3CTraceContext | None:
         return None
 
 
-def _dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
+def _dispatch_task_assignment(
+    task_id: str,
+    *,
+    failure_is_terminal: bool = True,
+    reconcile_existing: bool = False,
+) -> TaskAssignment | None:
     tasks = read_tasks()
     for index, task in enumerate(tasks.tasks):
         if task.task_id != task_id:
@@ -421,19 +521,43 @@ def _dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
                     "tracestate": active_context.tracestate,
                 }
             )
+        run_path = (
+            f"/dags/{quote(dag_id, safe='')}/dagRuns/{quote(dag_run_id, safe='')}"
+        )
         try:
-            response = airflow_api_request(
-                f"/dags/{quote(dag_id, safe='')}/dagRuns",
-                method="POST",
-                payload=payload,
-            )
+            response = None
+            if reconcile_existing:
+                try:
+                    response = airflow_api_request(run_path)
+                except TaskDispatchError as exc:
+                    if exc.code != "airflow_dag_run_not_found":
+                        raise
+            if response is None:
+                try:
+                    response = airflow_api_request(
+                        f"/dags/{quote(dag_id, safe='')}/dagRuns",
+                        method="POST",
+                        payload=payload,
+                    )
+                except TaskDispatchError as exc:
+                    if reconcile_existing and exc.code == "airflow_dag_run_conflict":
+                        response = airflow_api_request(run_path)
+                    else:
+                        raise
         except TaskDispatchError as exc:
-            task.status = "failed"
             task.version += 1
-            task.finished_at = utc_now()
-            task.failure_reason = exc.code
+            if failure_is_terminal:
+                task.status = "failed"
+                task.finished_at = utc_now()
+                task.failure_reason = exc.code
             task.audit.append(
-                audit(task.owner, "task_dispatch_failed", error_code=exc.code, runtime="airflow")
+                audit(
+                    task.owner,
+                    "task_dispatch_failed" if failure_is_terminal else "task_dispatch_attempt_failed",
+                    error_code=exc.code,
+                    runtime="airflow",
+                    retryable=exc.retryable,
+                )
             )
             tasks.tasks[index] = task
             write_tasks(tasks)
@@ -601,16 +725,24 @@ def airflow_api_request_url(
                 parsed = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             active.set_attribute("http.response.status_code", exc.code)
+            if exc.code == 404:
+                code = "airflow_dag_run_not_found"
+            elif exc.code == 409:
+                code = "airflow_dag_run_conflict"
+            else:
+                code = "airflow_api_rejected"
             raise TaskDispatchError(
-                "airflow_api_rejected",
+                code,
                 f"Airflow API returned HTTP {exc.code}.",
                 status_code=502,
+                retryable=exc.code == 429 or exc.code >= 500,
             ) from exc
         except (URLError, TimeoutError, OSError) as exc:
             raise TaskDispatchError(
                 "airflow_api_unavailable",
                 f"Airflow API is unavailable: {exc}",
                 status_code=502,
+                retryable=True,
             ) from exc
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise TaskDispatchError(

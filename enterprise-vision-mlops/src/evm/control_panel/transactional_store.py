@@ -9,13 +9,23 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any, Callable, Iterator, Mapping, Sequence
 from uuid import uuid4
 
 from prometheus_client import Counter, Histogram
 
+from evm.control_panel.admission_queue import (
+    ACTIVE_QUEUE_STATES,
+    QUEUE_ADMISSION_WAIT_SECONDS,
+    AdmissionQueueConfig,
+    canonical_payload_size,
+)
 
-SCHEMA_VERSION = "001_transactional_control_plane"
+
+SCHEMA_VERSIONS = (
+    "001_transactional_control_plane",
+    "002_bounded_admission_queue",
+)
 CONTROL_PLANE_DB_POOL_ACQUIRE_SECONDS = Histogram(
     "evm_control_plane_db_pool_acquire_seconds",
     "Seconds spent acquiring a dedicated control-plane PostgreSQL connection.",
@@ -60,6 +70,31 @@ class ControlPlaneLeaseConflict(ControlPlaneStoreError):
 
 class ControlPlaneParityError(ControlPlaneStoreError):
     pass
+
+
+class ControlPlaneItemTooLarge(ControlPlaneStoreError):
+    def __init__(self, *, payload_bytes: int, max_item_bytes: int) -> None:
+        super().__init__(
+            f"canonical task payload is {payload_bytes} bytes; maximum is {max_item_bytes}"
+        )
+        self.payload_bytes = payload_bytes
+        self.max_item_bytes = max_item_bytes
+
+
+class ControlPlaneAdmissionRejected(ControlPlaneStoreError):
+    def __init__(
+        self,
+        *,
+        reason: str,
+        retry_after_seconds: int,
+        current_depth: int,
+        current_bytes: int,
+    ) -> None:
+        super().__init__(f"task admission rejected because {reason}")
+        self.reason = reason
+        self.retry_after_seconds = retry_after_seconds
+        self.current_depth = current_depth
+        self.current_bytes = current_bytes
 
 
 @dataclass(frozen=True)
@@ -115,6 +150,36 @@ class ClaimResult:
     acquired: bool
     reason: str
     claim: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class TaskAdmissionResult:
+    queue_id: str
+    task_payload: dict[str, Any]
+    payload_bytes: int
+    replayed: bool
+
+
+@dataclass(frozen=True)
+class TaskQueueSnapshot:
+    active_depth: int
+    active_bytes: int
+    oldest_age_seconds: float
+    state_counts: dict[str, int]
+    state_bytes: dict[str, int]
+
+
+@dataclass(frozen=True)
+class TaskQueueLease:
+    queue_id: str
+    task_id: str
+    task_payload: dict[str, Any]
+    payload_bytes: int
+    attempt_count: int
+    lease_owner: str
+    lease_epoch: int
+    lease_expires_at: str
+    deadline_at: str
 
 
 _BOUND_CONNECTION: ContextVar[Any | None] = ContextVar(
@@ -321,14 +386,15 @@ class TransactionalControlPlaneStore:
         with self.transaction("schema_migration") as connection:
             for statement in statements:
                 connection.execute(statement)
-            connection.execute(
-                f"""
-                INSERT INTO {schema}.schema_migrations(version)
-                VALUES (%s)
-                ON CONFLICT (version) DO NOTHING
-                """,
-                (SCHEMA_VERSION,),
-            )
+            for version in SCHEMA_VERSIONS:
+                connection.execute(
+                    f"""
+                    INSERT INTO {schema}.schema_migrations(version)
+                    VALUES (%s)
+                    ON CONFLICT (version) DO NOTHING
+                    """,
+                    (version,),
+                )
 
     def get_entity(self, entity_kind: str, entity_id: str) -> dict[str, Any] | None:
         schema = _safe_identifier(self.configuration.schema)
@@ -593,6 +659,584 @@ class TransactionalControlPlaneStore:
                     raise ControlPlaneIdempotencyConflict(
                         f"idempotency key {key!r} conflicts with an existing request"
                     )
+
+    def admit_task_assignment(
+        self,
+        *,
+        scope: str,
+        idempotency_key: str,
+        request_payload: Mapping[str, Any],
+        task_payload: Mapping[str, Any],
+        priority: int,
+        config: AdmissionQueueConfig,
+        replace_existing: bool = False,
+        now: datetime | None = None,
+    ) -> TaskAdmissionResult:
+        """Atomically reserve bounded capacity, task state, and idempotency identity."""
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        payload_bytes = canonical_payload_size(task_payload)
+        if payload_bytes > config.max_item_bytes:
+            raise ControlPlaneItemTooLarge(
+                payload_bytes=payload_bytes,
+                max_item_bytes=config.max_item_bytes,
+            )
+        request_digest = canonical_digest(request_payload)
+        started = time.monotonic()
+        try:
+            with self.serialized("task-admission-capacity") as connection:
+                existing = connection.execute(
+                    f"""
+                    SELECT request_sha256, response_payload, entity_id
+                    FROM {schema}.idempotency_keys
+                    WHERE scope=%s AND idempotency_key=%s
+                    FOR UPDATE
+                    """,
+                    (scope, idempotency_key),
+                ).fetchone()
+                if existing is not None:
+                    if existing["request_sha256"] != request_digest:
+                        raise ControlPlaneIdempotencyConflict(
+                            f"idempotency key {idempotency_key!r} was reused with a different request"
+                        )
+                    queue_row = connection.execute(
+                        f"""
+                        SELECT queue_id, payload_bytes
+                        FROM {schema}.task_admission_queue
+                        WHERE task_id=%s
+                        """,
+                        (existing["entity_id"],),
+                    ).fetchone()
+                    return TaskAdmissionResult(
+                        queue_id=str(queue_row["queue_id"]) if queue_row else "not-applicable",
+                        task_payload=dict(existing["response_payload"]),
+                        payload_bytes=int(queue_row["payload_bytes"]) if queue_row else 0,
+                        replayed=True,
+                    )
+
+                capacity = connection.execute(
+                    f"""
+                    SELECT count(*) AS depth, COALESCE(sum(payload_bytes), 0) AS bytes
+                    FROM {schema}.task_admission_queue
+                    WHERE state = ANY(%s)
+                    """,
+                    (list(ACTIVE_QUEUE_STATES),),
+                ).fetchone()
+                current_depth = int(capacity["depth"])
+                current_bytes = int(capacity["bytes"])
+                reason = None
+                if current_depth + 1 > config.durable_max_depth:
+                    reason = "durable_depth_limit"
+                elif current_bytes + payload_bytes > config.durable_max_bytes:
+                    reason = "durable_bytes_limit"
+                if reason:
+                    raise ControlPlaneAdmissionRejected(
+                        reason=reason,
+                        retry_after_seconds=config.retry_after_seconds,
+                        current_depth=current_depth,
+                        current_bytes=current_bytes,
+                    )
+
+                queue_id = f"queue-{uuid4().hex}"
+                task_id = str(task_payload["task_id"])
+                deadline_at = observed_at + timedelta(seconds=config.max_age_seconds)
+                connection.execute(
+                    f"""
+                    INSERT INTO {schema}.task_admission_queue
+                        (queue_id, task_id, idempotency_scope, idempotency_key,
+                         request_sha256, state, priority, payload_bytes, task_payload,
+                         available_at, deadline_at)
+                    VALUES (%s, %s, %s, %s, %s, 'available', %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        queue_id,
+                        task_id,
+                        scope,
+                        idempotency_key,
+                        request_digest,
+                        priority,
+                        payload_bytes,
+                        self._json(task_payload),
+                        observed_at,
+                        deadline_at,
+                    ),
+                )
+                self._write_task_collection_locked(
+                    connection,
+                    task_payload,
+                    replace_existing=replace_existing,
+                )
+                connection.execute(
+                    f"""
+                    INSERT INTO {schema}.idempotency_keys
+                        (scope, idempotency_key, request_sha256, entity_kind, entity_id,
+                         response_payload)
+                    VALUES (%s, %s, %s, 'task_assignment', %s, %s)
+                    """,
+                    (
+                        scope,
+                        idempotency_key,
+                        request_digest,
+                        task_id,
+                        self._json(task_payload),
+                    ),
+                )
+                return TaskAdmissionResult(
+                    queue_id=queue_id,
+                    task_payload=dict(task_payload),
+                    payload_bytes=payload_bytes,
+                    replayed=False,
+                )
+        finally:
+            QUEUE_ADMISSION_WAIT_SECONDS.observe(time.monotonic() - started)
+
+    def task_queue_snapshot(self, *, now: datetime | None = None) -> TaskQueueSnapshot:
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        with self.transaction("task_queue_snapshot") as connection:
+            rows = connection.execute(
+                f"""
+                SELECT state, count(*) AS depth, COALESCE(sum(payload_bytes), 0) AS bytes
+                FROM {schema}.task_admission_queue
+                GROUP BY state
+                """
+            ).fetchall()
+            oldest = connection.execute(
+                f"""
+                SELECT EXTRACT(EPOCH FROM (%s - min(created_at))) AS age
+                FROM {schema}.task_admission_queue
+                WHERE state = ANY(%s)
+                """,
+                (observed_at, list(ACTIVE_QUEUE_STATES)),
+            ).fetchone()
+        state_counts = {str(row["state"]): int(row["depth"]) for row in rows}
+        state_bytes = {str(row["state"]): int(row["bytes"]) for row in rows}
+        return TaskQueueSnapshot(
+            active_depth=sum(state_counts.get(state, 0) for state in ACTIVE_QUEUE_STATES),
+            active_bytes=sum(state_bytes.get(state, 0) for state in ACTIVE_QUEUE_STATES),
+            oldest_age_seconds=max(0.0, float(oldest["age"] or 0.0)),
+            state_counts=state_counts,
+            state_bytes=state_bytes,
+        )
+
+    def list_task_queue_items(
+        self,
+        *,
+        states: Sequence[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        schema = _safe_identifier(self.configuration.schema)
+        with self.transaction("task_queue_list") as connection:
+            if states:
+                rows = connection.execute(
+                    f"""
+                    SELECT * FROM {schema}.task_admission_queue
+                    WHERE state = ANY(%s)
+                    ORDER BY created_at, queue_id
+                    """,
+                    (list(states),),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    f"SELECT * FROM {schema}.task_admission_queue ORDER BY created_at, queue_id"
+                ).fetchall()
+        return [self._queue_row(row) for row in rows]
+
+    def reconcile_task_queue(
+        self,
+        *,
+        max_attempts: int,
+        now: datetime | None = None,
+    ) -> dict[str, int]:
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        outcome = {"expired": 0, "requeued": 0, "dlq": 0}
+        with self.serialized("task-queue-reconciliation") as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM {schema}.task_admission_queue
+                WHERE state = ANY(%s)
+                  AND (deadline_at <= %s OR (state='leased' AND lease_expires_at <= %s))
+                FOR UPDATE
+                """,
+                (list(ACTIVE_QUEUE_STATES), observed_at, observed_at),
+            ).fetchall()
+            for row in rows:
+                queue_id = str(row["queue_id"])
+                if row["deadline_at"] <= observed_at:
+                    connection.execute(
+                        f"""
+                        UPDATE {schema}.task_admission_queue
+                        SET state='expired', terminal_reason='deadline_exceeded',
+                            terminal_at=%s, lease_owner=NULL, lease_expires_at=NULL,
+                            updated_at=clock_timestamp()
+                        WHERE queue_id=%s
+                        """,
+                        (observed_at, queue_id),
+                    )
+                    outcome["expired"] += 1
+                elif int(row["attempt_count"]) >= max_attempts:
+                    connection.execute(
+                        f"""
+                        UPDATE {schema}.task_admission_queue
+                        SET state='dlq', terminal_reason='lease_lost_attempts_exhausted',
+                            terminal_at=%s, lease_owner=NULL, lease_expires_at=NULL,
+                            last_failure_class='owner_lost', updated_at=clock_timestamp()
+                        WHERE queue_id=%s
+                        """,
+                        (observed_at, queue_id),
+                    )
+                    outcome["dlq"] += 1
+                else:
+                    connection.execute(
+                        f"""
+                        UPDATE {schema}.task_admission_queue
+                        SET state='retry_wait', available_at=%s, lease_owner=NULL,
+                            lease_expires_at=NULL, last_failure_class='owner_lost',
+                            updated_at=clock_timestamp()
+                        WHERE queue_id=%s
+                        """,
+                        (observed_at, queue_id),
+                    )
+                    outcome["requeued"] += 1
+        return outcome
+
+    def claim_task_queue_items(
+        self,
+        *,
+        owner: str,
+        max_items: int,
+        max_bytes: int,
+        lease_seconds: float,
+        scan_limit: int,
+        now: datetime | None = None,
+    ) -> list[TaskQueueLease]:
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        leases: list[TaskQueueLease] = []
+        selected_bytes = 0
+        with self.transaction("task_queue_claim") as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM {schema}.task_admission_queue
+                WHERE state IN ('available', 'retry_wait')
+                  AND available_at <= %s AND deadline_at > %s
+                ORDER BY priority DESC, available_at, created_at, queue_id
+                FOR UPDATE SKIP LOCKED
+                LIMIT %s
+                """,
+                (observed_at, observed_at, scan_limit),
+            ).fetchall()
+            for row in rows:
+                if len(leases) >= max_items:
+                    break
+                payload_bytes = int(row["payload_bytes"])
+                if selected_bytes + payload_bytes > max_bytes:
+                    continue
+                lease_epoch = int(row["lease_epoch"]) + 1
+                lease_expires_at = observed_at + timedelta(seconds=lease_seconds)
+                connection.execute(
+                    f"""
+                    UPDATE {schema}.task_admission_queue
+                    SET state='leased', lease_owner=%s, lease_epoch=%s,
+                        lease_expires_at=%s, attempt_count=attempt_count + 1,
+                        updated_at=clock_timestamp()
+                    WHERE queue_id=%s
+                    """,
+                    (owner, lease_epoch, lease_expires_at, row["queue_id"]),
+                )
+                selected_bytes += payload_bytes
+                leases.append(
+                    TaskQueueLease(
+                        queue_id=str(row["queue_id"]),
+                        task_id=str(row["task_id"]),
+                        task_payload=dict(row["task_payload"]),
+                        payload_bytes=payload_bytes,
+                        attempt_count=int(row["attempt_count"]) + 1,
+                        lease_owner=owner,
+                        lease_epoch=lease_epoch,
+                        lease_expires_at=lease_expires_at.isoformat(),
+                        deadline_at=row["deadline_at"].isoformat(),
+                    )
+                )
+        return leases
+
+    def complete_task_queue_item(
+        self,
+        lease: TaskQueueLease,
+        *,
+        state: str,
+        reason: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        if state not in {"completed", "failed", "dlq", "expired", "cancelled"}:
+            raise ValueError(f"invalid task queue terminal state: {state}")
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        with self.transaction("task_queue_complete") as connection:
+            row = connection.execute(
+                f"""
+                SELECT * FROM {schema}.task_admission_queue
+                WHERE queue_id=%s FOR UPDATE
+                """,
+                (lease.queue_id,),
+            ).fetchone()
+            self._assert_queue_lease(row, lease, observed_at)
+            connection.execute(
+                f"""
+                UPDATE {schema}.task_admission_queue
+                SET state=%s, terminal_reason=%s, terminal_at=%s,
+                    lease_owner=NULL, lease_expires_at=NULL,
+                    updated_at=clock_timestamp()
+                WHERE queue_id=%s
+                """,
+                (state, reason, observed_at, lease.queue_id),
+            )
+            payload = self._queue_row(row)
+            payload.update(
+                {
+                    "state": state,
+                    "terminal_reason": reason,
+                    "terminal_at": observed_at.isoformat(),
+                    "lease_owner": None,
+                    "lease_expires_at": None,
+                }
+            )
+            return payload
+
+    def release_task_queue_lease(
+        self,
+        lease: TaskQueueLease,
+        *,
+        reason: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Return unstarted local work to the durable queue without consuming retry budget."""
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        with self.transaction("task_queue_release") as connection:
+            row = connection.execute(
+                f"SELECT * FROM {schema}.task_admission_queue WHERE queue_id=%s FOR UPDATE",
+                (lease.queue_id,),
+            ).fetchone()
+            self._assert_queue_lease(row, lease, observed_at)
+            connection.execute(
+                f"""
+                UPDATE {schema}.task_admission_queue
+                SET state='available', available_at=%s, lease_owner=NULL,
+                    lease_expires_at=NULL, last_failure_class=%s,
+                    updated_at=clock_timestamp()
+                WHERE queue_id=%s
+                """,
+                (observed_at, reason, lease.queue_id),
+            )
+            return {
+                "queue_id": lease.queue_id,
+                "state": "available",
+                "release_reason": reason,
+                "available_at": observed_at.isoformat(),
+            }
+
+    def reschedule_task_queue_item(
+        self,
+        lease: TaskQueueLease,
+        *,
+        failure_class: str,
+        transient: bool,
+        config: AdmissionQueueConfig,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        with self.serialized("task-queue-retry-budget") as connection:
+            row = connection.execute(
+                f"SELECT * FROM {schema}.task_admission_queue WHERE queue_id=%s FOR UPDATE",
+                (lease.queue_id,),
+            ).fetchone()
+            self._assert_queue_lease(row, lease, observed_at)
+            if not transient:
+                return self._finish_locked_queue_item(
+                    connection,
+                    lease.queue_id,
+                    state="dlq",
+                    reason=f"permanent:{failure_class}",
+                    failure_class=failure_class,
+                    observed_at=observed_at,
+                )
+            if int(row["attempt_count"]) >= config.max_attempts:
+                return self._finish_locked_queue_item(
+                    connection,
+                    lease.queue_id,
+                    state="dlq",
+                    reason=f"attempts_exhausted:{failure_class}",
+                    failure_class=failure_class,
+                    observed_at=observed_at,
+                )
+            budget = connection.execute(
+                f"""
+                SELECT * FROM {schema}.task_retry_budget
+                WHERE budget_name='task-dispatch' FOR UPDATE
+                """
+            ).fetchone()
+            if budget is None or (
+                observed_at - budget["window_started_at"]
+            ).total_seconds() >= config.retry_budget_window_seconds:
+                consumed = 0
+                window_started_at = observed_at
+            else:
+                consumed = int(budget["consumed"])
+                window_started_at = budget["window_started_at"]
+            if consumed >= config.global_retry_budget:
+                return self._finish_locked_queue_item(
+                    connection,
+                    lease.queue_id,
+                    state="dlq",
+                    reason=f"retry_budget_exhausted:{failure_class}",
+                    failure_class=failure_class,
+                    observed_at=observed_at,
+                )
+            connection.execute(
+                f"""
+                INSERT INTO {schema}.task_retry_budget
+                    (budget_name, window_started_at, consumed)
+                VALUES ('task-dispatch', %s, %s)
+                ON CONFLICT (budget_name) DO UPDATE
+                SET window_started_at=EXCLUDED.window_started_at,
+                    consumed=EXCLUDED.consumed,
+                    updated_at=clock_timestamp()
+                """,
+                (window_started_at, consumed + 1),
+            )
+            base = min(
+                config.backoff_max_seconds,
+                config.backoff_base_seconds * (2 ** max(0, lease.attempt_count - 1)),
+            )
+            digest = hashlib.sha256(
+                f"{lease.queue_id}:{lease.attempt_count}".encode("utf-8")
+            ).digest()
+            unit = int.from_bytes(digest[:8], "big") / float(2**64 - 1)
+            jitter = (unit * 2.0 - 1.0) * config.jitter_ratio
+            delay = max(0.0, base * (1.0 + jitter))
+            available_at = observed_at + timedelta(seconds=delay)
+            connection.execute(
+                f"""
+                UPDATE {schema}.task_admission_queue
+                SET state='retry_wait', available_at=%s, lease_owner=NULL,
+                    lease_expires_at=NULL, last_failure_class=%s,
+                    updated_at=clock_timestamp()
+                WHERE queue_id=%s
+                """,
+                (available_at, failure_class, lease.queue_id),
+            )
+            return {
+                "queue_id": lease.queue_id,
+                "state": "retry_wait",
+                "failure_class": failure_class,
+                "delay_seconds": delay,
+                "available_at": available_at.isoformat(),
+            }
+
+    def _write_task_collection_locked(
+        self,
+        connection: Any,
+        task_payload: Mapping[str, Any],
+        *,
+        replace_existing: bool,
+    ) -> None:
+        schema = _safe_identifier(self.configuration.schema)
+        row = connection.execute(
+            f"""
+            SELECT version, payload FROM {schema}.collections
+            WHERE collection_name='task_assignments' FOR UPDATE
+            """
+        ).fetchone()
+        items = [dict(item) for item in row["payload"]] if row else []
+        task_id = str(task_payload["task_id"])
+        matching = next((index for index, item in enumerate(items) if item.get("task_id") == task_id), None)
+        if matching is None:
+            items.insert(0, dict(task_payload))
+        elif replace_existing:
+            items[matching] = dict(task_payload)
+        else:
+            raise ControlPlaneVersionConflict(f"task_assignment/{task_id} already exists")
+        if row:
+            connection.execute(
+                f"""
+                UPDATE {schema}.collections
+                SET version=version + 1, payload=%s, updated_at=clock_timestamp()
+                WHERE collection_name='task_assignments'
+                """,
+                (self._json(items),),
+            )
+        else:
+            connection.execute(
+                f"""
+                INSERT INTO {schema}.collections(collection_name, version, payload)
+                VALUES ('task_assignments', 1, %s)
+                """,
+                (self._json(items),),
+            )
+
+    def _assert_queue_lease(
+        self,
+        row: Mapping[str, Any] | None,
+        lease: TaskQueueLease,
+        observed_at: datetime,
+    ) -> None:
+        if row is None:
+            raise ControlPlaneLeaseConflict("task_queue_item_missing")
+        if str(row["state"]) != "leased":
+            raise ControlPlaneLeaseConflict("task_queue_item_not_leased")
+        if str(row["lease_owner"]) != lease.lease_owner:
+            raise ControlPlaneLeaseConflict("task_queue_owner_mismatch")
+        if int(row["lease_epoch"]) != lease.lease_epoch:
+            raise ControlPlaneLeaseConflict("task_queue_epoch_mismatch")
+        if row["lease_expires_at"] is None or row["lease_expires_at"] <= observed_at:
+            raise ControlPlaneLeaseConflict("task_queue_lease_expired")
+
+    def _finish_locked_queue_item(
+        self,
+        connection: Any,
+        queue_id: str,
+        *,
+        state: str,
+        reason: str,
+        failure_class: str,
+        observed_at: datetime,
+    ) -> dict[str, Any]:
+        schema = _safe_identifier(self.configuration.schema)
+        connection.execute(
+            f"""
+            UPDATE {schema}.task_admission_queue
+            SET state=%s, terminal_reason=%s, terminal_at=%s,
+                lease_owner=NULL, lease_expires_at=NULL,
+                last_failure_class=%s, updated_at=clock_timestamp()
+            WHERE queue_id=%s
+            """,
+            (state, reason, observed_at, failure_class, queue_id),
+        )
+        return {
+            "queue_id": queue_id,
+            "state": state,
+            "terminal_reason": reason,
+            "terminal_at": observed_at.isoformat(),
+            "failure_class": failure_class,
+        }
+
+    @staticmethod
+    def _queue_row(row: Mapping[str, Any]) -> dict[str, Any]:
+        payload = dict(row)
+        payload["task_payload"] = dict(row["task_payload"])
+        for key in (
+            "available_at",
+            "deadline_at",
+            "lease_expires_at",
+            "terminal_at",
+            "created_at",
+            "updated_at",
+        ):
+            if payload.get(key) is not None:
+                payload[key] = payload[key].isoformat()
+        return payload
 
     def acquire_claim(
         self,
@@ -1072,5 +1716,51 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
         f"""
         CREATE INDEX IF NOT EXISTS side_effect_run_state_idx
         ON {schema}.side_effect_outbox(lifecycle_run_id, state, created_at)
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS {schema}.task_admission_queue (
+            queue_id text PRIMARY KEY,
+            task_id text NOT NULL UNIQUE,
+            idempotency_scope text NOT NULL,
+            idempotency_key text NOT NULL,
+            request_sha256 char(64) NOT NULL,
+            state text NOT NULL CHECK (
+                state IN ('available', 'retry_wait', 'leased', 'completed', 'failed',
+                          'dlq', 'expired', 'cancelled')
+            ),
+            priority smallint NOT NULL,
+            payload_bytes bigint NOT NULL CHECK (payload_bytes > 0),
+            task_payload jsonb NOT NULL,
+            attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+            available_at timestamptz NOT NULL,
+            deadline_at timestamptz NOT NULL,
+            lease_owner text,
+            lease_epoch bigint NOT NULL DEFAULT 0 CHECK (lease_epoch >= 0),
+            lease_expires_at timestamptz,
+            last_failure_class text,
+            terminal_reason text,
+            terminal_at timestamptz,
+            created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+            updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+            UNIQUE (idempotency_scope, idempotency_key)
+        )
+        """,
+        f"""
+        CREATE INDEX IF NOT EXISTS task_admission_claim_idx
+        ON {schema}.task_admission_queue(state, available_at, priority DESC, created_at)
+        WHERE state IN ('available', 'retry_wait')
+        """,
+        f"""
+        CREATE INDEX IF NOT EXISTS task_admission_active_idx
+        ON {schema}.task_admission_queue(state, deadline_at, lease_expires_at)
+        WHERE state IN ('available', 'retry_wait', 'leased')
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS {schema}.task_retry_budget (
+            budget_name text PRIMARY KEY,
+            window_started_at timestamptz NOT NULL,
+            consumed integer NOT NULL CHECK (consumed >= 0),
+            updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
+        )
         """,
     )

@@ -159,6 +159,10 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert "/control-panel/v1/cycles" in openapi["paths"]
     assert "/control-panel/v1/tasks/{task_id}/dispatch" in openapi["paths"]
     assert "/control-panel/v1/tasks/{task_id}/confirm" in openapi["paths"]
+    create_task_responses = openapi["paths"]["/control-panel/v1/tasks"]["post"]["responses"]
+    assert "413" in create_task_responses
+    assert "429" in create_task_responses
+    assert "Retry-After" in create_task_responses["429"]["headers"]
     assert "/control-panel/v1/orchestrators" in openapi["paths"]
     assert "/control-panel/v1/deployment-intents/{intent_id}/queue" in openapi["paths"]
     assert "/control-panel/v1/diagnostics/latest" in openapi["paths"]

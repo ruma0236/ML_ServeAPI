@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-15T14:31:30.830558Z",
+  "generated_at": "2026-08-15T15:49:05.000318Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1087,11 +1087,51 @@
         "Retry only transient failures with backoff, jitter, and a global budget; isolate poison work.",
         "Scale CPU workers from queue telemetry while keeping the GPU worker count at one."
       ],
-      "changed_components": [],
-      "implementation_summary": [
-        "Implementation has not started."
+      "changed_components": [
+        {
+          "component": "Durable admission and task state",
+          "files": [
+            "src/evm/control_panel/admission_queue.py",
+            "src/evm/control_panel/transactional_store.py",
+            "src/evm/control_panel/operations.py",
+            "apps/api/control_panel_tasks.py"
+          ]
+        },
+        {
+          "component": "Dedicated bounded task worker",
+          "files": [
+            "src/evm/control_panel/task_queue_worker.py",
+            "src/evm/control_panel/task_queue_executor.py",
+            "src/evm/scale_validation/s2_airflow_fixture.py"
+          ]
+        },
+        {
+          "component": "Frozen runtime, migration, and telemetry",
+          "files": [
+            "configs/s2_bounded_queue_v1.toml",
+            "infra/postgres/control-plane/002_bounded_admission_queue.sql",
+            "docker-compose.yml",
+            "monitoring/prometheus/prometheus.yml"
+          ]
+        },
+        {
+          "component": "Focused verification",
+          "files": [
+            "contracts/control-panel/control-panel.openapi.json",
+            "tests/test_bounded_task_queue.py",
+            "tests/test_control_panel_contract.py",
+            "tests/test_s2_airflow_fixture.py"
+          ]
+        }
       ],
-      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "implementation_summary": [
+        "The existing task create and confirmation boundaries now reserve durable PostgreSQL queue capacity atomically with idempotency and task collection state when durable mode is enabled.",
+        "Accepted idempotency replay returns the original task without another depth or byte reservation; rejected capacity does not reserve the key.",
+        "Canonical UTF-8 item size fails with 413 while aggregate depth or byte pressure fails with 429 and an integer Retry-After.",
+        "A dedicated bounded task queue worker, separate from the lifecycle worker, claims with SKIP LOCKED and owner/epoch leases, enforces local count and byte budgets, and applies retry/DLQ policy.",
+        "This is an implementation checkpoint only; the required three-run overload matrix, RSS slope, restart, GPU serialization, and full regressions remain pending."
+      ],
+      "experiment_environment": "Implementation checkpoint exercised an isolated schema in the existing PostgreSQL 16 service, a separate real Uvicorn API socket, a real dedicated queue-worker process, and a deterministic Airflow-compatible HTTP dependency on one local physical node. Full S2 workload repetitions have not run.",
       "test_or_experiment_steps": [
         "Use provisional safe bounds before S3, then recalibrate from measured service rate.",
         "Inject burst, sustained, duplicate, expired, and poison requests independently.",
@@ -1125,7 +1165,7 @@
       ],
       "observed_result": null,
       "evidence_artifacts": [],
-      "status": "planned",
+      "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
       "unresolved_items": [
         "Queue depth, in-flight bytes, and process memory remain bounded under overload.",
@@ -1133,22 +1173,23 @@
         "Duplicate effects are zero and poison work does not block healthy work.",
         "Over-capacity demand is rejected with an observable retry contract."
       ],
-      "next_action": "Begin after S1 has protected mutation idempotency.",
+      "next_action": "Freeze and execute three independent runs of every S2 profile through external TCP/HTTP, real PostgreSQL, the real queue-worker process, Prometheus, restart recovery, and GPU max-in-flight validation; then run full S0/S1/lifecycle regressions and canonical evidence closure.",
       "architecture_before": "Admission and retries do not share one end-to-end resource boundary.",
       "architecture_after": "Durable queue, local semaphore, rejection, retry, DLQ, and CPU scale are bounded.",
-      "existing_system_baseline": "The existing worker polls lifecycle files and dispatches task assignments, but admission, bytes, age, retries, and poison-work isolation do not share one bounded durable queue contract.",
+      "existing_system_baseline": "The existing task API wrote assignments to the operations ledger and required explicit dispatch, while the separate lifecycle worker exclusively processed LifecycleRun state. Task admission had no shared depth, byte, age, retry-budget, or poison-work boundary and no dedicated task consumer.",
       "affected_existing_components": [
         {
           "component": "Task admission and dispatch",
           "files": [
             "src/evm/control_panel/operations.py",
-            "src/evm/control_panel/lifecycle_worker.py"
+            "src/evm/control_panel/task_queue_worker.py",
+            "src/evm/control_panel/transactional_store.py"
           ]
         },
         {
           "component": "Control API",
           "files": [
-            "src/evm/control_panel/router.py",
+            "apps/api/control_panel_tasks.py",
             "apps/api/main.py"
           ]
         },
@@ -1156,7 +1197,15 @@
           "component": "Operational telemetry",
           "files": [
             "monitoring/prometheus/prometheus.yml",
-            "src/evm/operations/metrics.py"
+            "src/evm/control_panel/admission_queue.py"
+          ]
+        },
+        {
+          "component": "Runtime and migration",
+          "files": [
+            "configs/s2_bounded_queue_v1.toml",
+            "infra/postgres/control-plane/002_bounded_admission_queue.sql",
+            "docker-compose.yml"
           ]
         }
       ],
@@ -1172,12 +1221,49 @@
         ]
       },
       "implementation_delta": {
-        "modified_existing_components": [],
+        "modified_existing_components": [
+          {
+            "component": "Durable admission and task state",
+            "files": [
+              "src/evm/control_panel/admission_queue.py",
+              "src/evm/control_panel/transactional_store.py",
+              "src/evm/control_panel/operations.py",
+              "apps/api/control_panel_tasks.py"
+            ]
+          },
+          {
+            "component": "Dedicated bounded task worker",
+          "files": [
+            "src/evm/control_panel/task_queue_worker.py",
+            "src/evm/control_panel/task_queue_executor.py",
+            "src/evm/scale_validation/s2_airflow_fixture.py"
+            ]
+          },
+          {
+            "component": "Frozen runtime, migration, and telemetry",
+            "files": [
+              "configs/s2_bounded_queue_v1.toml",
+              "infra/postgres/control-plane/002_bounded_admission_queue.sql",
+              "docker-compose.yml",
+              "monitoring/prometheus/prometheus.yml"
+            ]
+          },
+          {
+            "component": "Focused verification",
+            "files": [
+              "contracts/control-panel/control-panel.openapi.json",
+              "tests/test_bounded_task_queue.py",
+              "tests/test_control_panel_contract.py",
+              "tests/test_s2_airflow_fixture.py"
+            ]
+          }
+        ],
         "compatibility": [
           "Existing task payload and lifecycle state-machine contracts must remain valid."
         ],
         "migration": [
-          "Introduce bounded admission before redirecting existing producers and retain a rollback path to the prior dispatcher."
+          "The 002 migration adds the durable queue and retry budget to the dedicated control-plane schema without modifying Airflow or MLflow databases.",
+          "EVM_TASK_ADMISSION_MODE=legacy retains the prior dispatcher as an explicit rollback path; durable is enabled in the local Compose stack for S2 validation."
         ]
       },
       "experiment_contract": {
@@ -1191,7 +1277,8 @@
           "Measure queue age, bytes, RSS, terminal closure, rejection, retry, and DLQ behavior."
         ],
         "controlled_variables": [
-          "Arrival rate, queue depth/bytes/age, worker count, timeout, retry budget, and poison ratio."
+          "The versioned frozen profile controls depth, aggregate bytes, item bytes, age, wait, local buffers, work timeout, CPU min/max, GPU=1, lease, retry/jitter/budget, drain, RSS cap, and RSS slope tolerance.",
+          "Arrival rate and independent baseline, depth burst, byte burst, sustained, duplicate, expired, transient-budget, poison-plus-healthy, timeout-restart, and GPU-bound workload identities."
         ],
         "signals": [
           "Admission status, Retry-After, queue depth/bytes/age, RSS, wait time, retry amplification, DLQ, and terminal closure."
@@ -1203,10 +1290,10 @@
           "Over-capacity demand is rejected with an observable retry contract."
         ],
         "stop_conditions": [
-          "RSS or in-flight bytes exceed the bound, accepted work loses terminal closure, or duplicates appear."
+          "RSS, queue depth, queue bytes, local bytes, or GPU in-flight exceed the frozen bound; accepted work is lost or unclosed; duplicate effects, poison head-of-line blocking, retry amplification, unbounded wait, trace gaps, or S0/S1 regression appear."
         ],
         "recovery_conditions": [
-          "Queue drains to zero, poison work is quarantined, workers are healthy, and no duplicate side effect remains."
+          "Admission closes, active/leased/local work drains to zero, poison work is quarantined, stale ownership is reconciled, worker and Prometheus health recover, temporary schema/processes are removed, and duplicate effects remain zero."
         ],
         "existing_system_regression_required": true,
         "lifecycle_e2e_regression_required": true
@@ -1223,6 +1310,13 @@
           "phase": "design",
           "status": "planned",
           "summary": "The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-15T15:47:07.929559Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "Durable bounded admission, distinct 413/429 responses, a dedicated queue worker with a killable child-process timeout boundary, retry/DLQ policy, frozen configuration, Compose startup and Prometheus scrape wiring passed 39 focused tests and an isolated real-PostgreSQL API-worker checkpoint. No acceptance criterion is credited before the full external workload matrix.",
           "evidence_refs": []
         }
       ]

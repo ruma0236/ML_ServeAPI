@@ -1,0 +1,37 @@
+[profile]
+version = "s2-bounded-queue-v1-frozen-20260816"
+status = "frozen-before-experiment"
+
+[durable_queue]
+max_depth = 64
+max_bytes = 4194304
+max_item_bytes = 262144
+max_age_seconds = 120.0
+admission_wait_seconds = 0.25
+retry_after_seconds = 2
+
+[local_queue]
+max_depth = 8
+max_bytes = 1048576
+
+[worker]
+work_timeout_seconds = 10.0
+cpu_workers_min = 1
+cpu_workers_max = 4
+gpu_workers = 1
+lease_seconds = 15.0
+poll_interval_seconds = 0.1
+drain_timeout_seconds = 60.0
+metrics_port = 9465
+
+[retry]
+max_attempts = 3
+backoff_base_seconds = 0.25
+backoff_max_seconds = 2.0
+jitter_ratio = 0.20
+global_budget = 32
+budget_window_seconds = 60.0
+
+[resource_limits]
+rss_cap_bytes = 1073741824
+rss_slope_tolerance_bytes_per_minute = 16777216
