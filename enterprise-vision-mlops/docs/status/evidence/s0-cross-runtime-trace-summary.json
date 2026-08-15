@@ -1,0 +1,62 @@
+{
+  "schema_version": "evm.scale_validation.s0_trace_summary.v1",
+  "scenario_id": "S0",
+  "generated_at": "2026-08-15T00:10:13.133486+00:00",
+  "required_stages": [
+    "api",
+    "queue",
+    "worker",
+    "spark",
+    "mlflow",
+    "serving"
+  ],
+  "controls": [
+    {
+      "repetition": 1,
+      "observed_stages": [
+        "airflow",
+        "api",
+        "data",
+        "mlflow",
+        "queue",
+        "serving",
+        "spark",
+        "worker"
+      ],
+      "span_count": 1150,
+      "runtime_revision_converged": true
+    },
+    {
+      "repetition": 2,
+      "observed_stages": [
+        "airflow",
+        "api",
+        "data",
+        "mlflow",
+        "queue",
+        "serving",
+        "spark",
+        "worker"
+      ],
+      "span_count": 1147,
+      "runtime_revision_converged": true
+    },
+    {
+      "repetition": 3,
+      "observed_stages": [
+        "airflow",
+        "api",
+        "data",
+        "mlflow",
+        "queue",
+        "serving",
+        "spark",
+        "worker"
+      ],
+      "span_count": 1145,
+      "runtime_revision_converged": true
+    }
+  ],
+  "metric_labels_bounded": true,
+  "claim_boundary": "Exact trace IDs remain in private local evidence."
+}

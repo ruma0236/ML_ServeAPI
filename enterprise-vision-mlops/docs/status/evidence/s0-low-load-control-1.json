@@ -1,0 +1,163 @@
+{
+  "schema_version": "evm.scale_validation.s0_control_public.v1",
+  "scenario_id": "S0",
+  "repetition": 1,
+  "started_at": "2026-08-14T23:40:23.558856+00:00",
+  "finished_at": "2026-08-14T23:50:20.356914+00:00",
+  "identity": {
+    "source_revision": "7ef3d951173d4f1f6a546f00775db6d9e7655b20",
+    "data_digest": "8bce3a7ad9c60599100ba59d1e538ce29d08434f98b7e9521d2b212427bed7a1",
+    "model_digest": "9135f9045b92f2bb5914818e47d168187c327307b2ff2826a4d319b78cb6534b",
+    "runtime_digest": "16eae4398900f01baa56842cabc53e9205c27f5e06341d834265f006cee9b751"
+  },
+  "metrics": [
+    {
+      "metric": "request_latency_seconds",
+      "unit": "seconds",
+      "sample_count": 3,
+      "statistics": {
+        "min": 0.5737692000111565,
+        "mean": 0.6553770333412103,
+        "max": 0.801879500009818,
+        "p50": 0.5904824000026565,
+        "p95": 0.801879500009818,
+        "p99": 0.801879500009818
+      },
+      "query": "client-observed round-trip latency for exact local CUDA /infer requests"
+    },
+    {
+      "metric": "request_throughput_per_second",
+      "unit": "requests_per_second",
+      "sample_count": 1,
+      "statistics": {
+        "min": 1.5258361442008115,
+        "mean": 1.5258361442008115,
+        "max": 1.5258361442008115
+      },
+      "query": "completed exact local CUDA /infer requests divided by observation interval"
+    },
+    {
+      "metric": "queue_depth",
+      "unit": "runs",
+      "sample_count": 293,
+      "statistics": {
+        "min": 0.0,
+        "mean": 0.006825938566552901,
+        "max": 1.0
+      },
+      "query": "exact LifecycleRun queued-state cardinality; historical ledger excluded"
+    },
+    {
+      "metric": "queue_oldest_age_seconds",
+      "unit": "seconds",
+      "sample_count": 293,
+      "statistics": {
+        "min": 0.0,
+        "mean": 0.006886818771327626,
+        "max": 2.017837099992903
+      },
+      "query": "monotonic age of the exact LifecycleRun while queued"
+    },
+    {
+      "metric": "worker_active_count",
+      "unit": "workers",
+      "sample_count": 293,
+      "statistics": {
+        "min": 0.0,
+        "mean": 0.04436860068259386,
+        "max": 1.0
+      },
+      "query": "worker.current_run_id exact-match cardinality for this LifecycleRun"
+    },
+    {
+      "metric": "cpu_utilization_ratio",
+      "unit": "ratio",
+      "sample_count": 2,
+      "statistics": {
+        "min": 0.0003600464380026397,
+        "mean": 0.00041535607340745055,
+        "max": 0.00047066570881226143
+      },
+      "query": "rate(process_cpu_seconds_total{job=\"evm-api\"}[1m]) / 24"
+    },
+    {
+      "metric": "memory_working_set_bytes",
+      "unit": "bytes",
+      "sample_count": 2,
+      "statistics": {
+        "min": 163860480.0,
+        "mean": 166178816.0,
+        "max": 168497152.0
+      },
+      "query": "process_resident_memory_bytes{job=\"evm-api\"}"
+    },
+    {
+      "metric": "gpu_utilization_ratio",
+      "unit": "ratio",
+      "sample_count": 2,
+      "statistics": {
+        "min": 0.03,
+        "mean": 0.105,
+        "max": 0.18
+      },
+      "query": "nvidia-smi physical GPU utilization sampled before and after control"
+    },
+    {
+      "metric": "gpu_memory_used_bytes",
+      "unit": "bytes",
+      "sample_count": 2,
+      "statistics": {
+        "min": 6807355392.0,
+        "mean": 6813646848.0,
+        "max": 6819938304.0
+      },
+      "query": "nvidia-smi physical GPU used memory sampled before and after control"
+    },
+    {
+      "metric": "connection_pool_wait_seconds",
+      "unit": "seconds",
+      "sample_count": 592,
+      "statistics": {
+        "min": 1.2999807950109243e-06,
+        "mean": 6.417060855735169e-06,
+        "max": 0.0001548999862279743
+      },
+      "query": "bounded load-generator HTTP permit wait; not a database pool metric"
+    },
+    {
+      "metric": "retry_attempt_total",
+      "unit": "attempts",
+      "sample_count": 1,
+      "statistics": {
+        "min": 0.0,
+        "mean": 0.0,
+        "max": 0.0
+      },
+      "query": "exact LifecycleRun data-stage attempt minus initial attempt"
+    }
+  ],
+  "trace": {
+    "required_stages": [
+      "api",
+      "queue",
+      "worker",
+      "spark",
+      "mlflow",
+      "serving"
+    ],
+    "observed_stages": [
+      "airflow",
+      "api",
+      "data",
+      "mlflow",
+      "queue",
+      "serving",
+      "spark",
+      "worker"
+    ],
+    "span_count": 1150,
+    "runtime_revision_converged": true
+  },
+  "private_evidence_sha256": "9b00c69199c71a4d3e54ce03c4399dd10cc818630eee42b1ad9fb673cdaa2090",
+  "claim_boundary": "Existing local single-node runtime, controlled low load, and no customer traffic. Exact run and trace identifiers remain in private evidence."
+}

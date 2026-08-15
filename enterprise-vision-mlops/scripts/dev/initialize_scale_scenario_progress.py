@@ -81,6 +81,9 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
         )
         observed_result: str | None = None
         status = "planned"
+        verdict = "not_run"
+        unresolved_items = list(definition["acceptance"])
+        next_action = definition["next_action"]
         updates = [
             ChronologicalUpdate(
                 occurred_at=PLAN_REVIEWED_AT,
@@ -209,6 +212,52 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         "604-test regression passed; accepted controls remain at zero."
                     ),
                 ),
+                EvidenceArtifact(
+                    path="docs/status/evidence/s0-low-load-control-1.json",
+                    sha256=(
+                        "7dbbc736c81da677d28dc62a7a64960825c5d26216bee5d685db48690d289cc7"
+                    ),
+                    generated_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
+                    claim="S0 independent low-load control 1 passed the runtime contract.",
+                ),
+                EvidenceArtifact(
+                    path="docs/status/evidence/s0-low-load-control-2.json",
+                    sha256=(
+                        "986448314a14405606237f8423804f649c82f4c58b64b12743ff928ee15ea1da"
+                    ),
+                    generated_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
+                    claim="S0 independent low-load control 2 passed the runtime contract.",
+                ),
+                EvidenceArtifact(
+                    path="docs/status/evidence/s0-low-load-control-3.json",
+                    sha256=(
+                        "0042c6e0ae8a02997896dc1a1767fe38262538a8e488f0cded093a69cd987dc4"
+                    ),
+                    generated_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
+                    claim="S0 independent low-load control 3 passed the runtime contract.",
+                ),
+                EvidenceArtifact(
+                    path="docs/status/evidence/s0-cross-runtime-trace-summary.json",
+                    sha256=(
+                        "1ed4b64fa109d09dbefc5d8a3e7e713a417a112bff02709e3bf3a8a15364f347"
+                    ),
+                    generated_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
+                    claim=(
+                        "All three controls observed API, queue, worker, Spark, MLflow, and "
+                        "serving stages with zero missing links."
+                    ),
+                ),
+                EvidenceArtifact(
+                    path="docs/status/evidence/s0-low-load-benchmark-evidence.json",
+                    sha256=(
+                        "4f9e4abaafee8ed8cdc282485580fcba92d22be407b263b2fa2d61e1866e6e55"
+                    ),
+                    generated_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
+                    claim=(
+                        "Three independent controls passed with hashed evidence, complete "
+                        "runtime identity, bounded metrics, and reported variance."
+                    ),
+                ),
             ]
             changed_components = [
                 ChangedComponent(
@@ -322,17 +371,26 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 "A fail-closed runner now drives the existing stepwise lifecycle, exact CUDA serving, MLflow, scoped queue and worker metrics, and OTLP evidence contract.",
                 "A failed fresh control exposed missing serving OTLP configuration and stale API image identity; required serving telemetry and immutable image revision checks are now implemented.",
                 "A subsequent exact serving replacement exposed the missing host OTLP exporter; compatible OpenTelemetry and protobuf versions are now pinned and startup-preflighted.",
+                "Three independent real controls now pass the existing Airflow, Spark, MLflow, and CUDA serving path with complete trace stages and hashed variance evidence.",
                 "Strict public progress, scenario evidence, and benchmark evidence contracts are implemented at schema level.",
             ]
             experiment_environment = (
-                "Partially exercised in the existing generalized local single-node Airflow "
-                "runtime. One fresh bounded control traversed Airflow, Spark, MLflow, and real "
-                "CUDA inference but was rejected because the serving trace stage was absent. "
-                "A revision-aligned serving replacement then failed closed on a missing host "
-                "exporter and restored the B0 holder. No accepted full lifecycle control or "
-                "repeated-control result exists yet."
+                "Exercised in the existing local single-node runtime with 24 logical CPUs, "
+                "about 63.75 GiB RAM, one discrete accelerator, co-located load generation, "
+                "real Airflow/Spark/MLflow execution, and real CUDA inference."
             )
-            status = "implementing"
+            observed_result = (
+                "Three independent controls passed. Required trace stages were complete with "
+                "zero missing links; request-latency p95 CV was 0.09099, throughput CV was "
+                "0.04328, and observed retry attempts were zero."
+            )
+            status = "verified"
+            verdict = "passed"
+            unresolved_items = []
+            next_action = (
+                "Begin S1 transactional job state and idempotency implementation while keeping "
+                "the S0 control suite as the regression baseline."
+            )
             updates.extend(
                 [
                     ChronologicalUpdate(
@@ -437,6 +495,21 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                         ),
                         evidence_refs=[checkpoint_evidence[7].path],
                     ),
+                    ChronologicalUpdate(
+                        occurred_at=datetime(2026, 8, 15, 0, 10, 13, tzinfo=UTC),
+                        phase="verification",
+                        status="verified",
+                        summary=(
+                            "Three fresh controls passed through the existing Airflow, Spark, "
+                            "MLflow, and real CUDA serving path. All six required trace stages "
+                            "were present, identity and artifact hashes matched, variance was "
+                            "reported, retry attempts were zero, and post-run workers were idle."
+                        ),
+                        evidence_refs=[
+                            checkpoint_evidence[11].path,
+                            checkpoint_evidence[12].path,
+                        ],
+                    ),
                 ]
             )
 
@@ -449,6 +522,20 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
             )
             for index, description in enumerate(definition["acceptance"], start=1)
         ]
+        if is_s0:
+            benchmark_path = "docs/status/evidence/s0-low-load-benchmark-evidence.json"
+            trace_path = "docs/status/evidence/s0-cross-runtime-trace-summary.json"
+            criteria = [
+                AcceptanceCriterion(
+                    criterion_id=f"S0-AC-{index:02d}",
+                    description=description,
+                    status="passed",
+                    evidence_refs=(
+                        [benchmark_path, trace_path] if index == 4 else [benchmark_path]
+                    ),
+                )
+                for index, description in enumerate(definition["acceptance"], start=1)
+            ]
         scenarios.append(
             ScenarioProgress(
                 scenario_id=scenario_id,
@@ -466,8 +553,8 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 evidence_artifacts=checkpoint_evidence,
                 status=status,
                 claim_boundary=PUBLIC_CLAIM_BOUNDARY,
-                unresolved_items=list(definition["acceptance"]),
-                next_action=definition["next_action"],
+                unresolved_items=unresolved_items,
+                next_action=next_action,
                 architecture_before=definition["before"],
                 architecture_after=definition["after"],
                 existing_system_baseline=in_place["existing_system_baseline"],
@@ -501,7 +588,7 @@ def build_ledger(generated_at: datetime) -> ScenarioProgressLedger:
                 ),
                 evidence_index=checkpoint_evidence,
                 verdict_and_claim_boundary=VerdictAndClaimBoundary(
-                    verdict="not_run",
+                    verdict=verdict,
                     claim_boundary=PUBLIC_CLAIM_BOUNDARY,
                     final_system_validation_required=True,
                 ),
