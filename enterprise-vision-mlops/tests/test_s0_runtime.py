@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -142,3 +143,13 @@ def test_fixed_window_rejects_request_count_that_does_not_match_profile() -> Non
             seed=20260815,
             request=lambda _: "unused",
         )
+
+
+def test_private_evidence_config_can_be_scoped_per_suite(tmp_path: Path) -> None:
+    from evm.scale_validation.s0_runtime import S0RuntimeConfig
+
+    config = S0RuntimeConfig(private_evidence_root=tmp_path)
+    scoped = replace(config, private_evidence_root=config.private_evidence_root / "suite-1")
+
+    assert scoped.private_evidence_root == tmp_path / "suite-1"
+    assert config.private_evidence_root == tmp_path

@@ -8,7 +8,7 @@ import platform
 import random
 import statistics
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import BoundedSemaphore
@@ -854,8 +854,14 @@ def execute_suite(config: S0RuntimeConfig, *, source_revision: str) -> Benchmark
     if config.repetitions < 3:
         raise S0RuntimeError("s0_requires_three_controls")
     configure_tracing("evm-s0-control-runner", service_version=runtime_service_version())
+    suite_started_at = utc_now()
+    benchmark_suite_id = f"s0-low-load-{suite_started_at.strftime('%Y%m%dT%H%M%SZ')}"
+    suite_config = replace(
+        config,
+        private_evidence_root=config.private_evidence_root / benchmark_suite_id,
+    )
     controls = [
-        execute_control(config, repetition=repetition, source_revision=source_revision)
+        execute_control(suite_config, repetition=repetition, source_revision=source_revision)
         for repetition in range(1, config.repetitions + 1)
     ]
     identities = {canonical_sha256(control["identity"]) for control in controls}
@@ -953,7 +959,7 @@ def execute_suite(config: S0RuntimeConfig, *, source_revision: str) -> Benchmark
     evidence = BenchmarkEvidence(
         schema_version=BENCHMARK_SCHEMA_VERSION,
         scenario_id="S0",
-        benchmark_suite_id=f"s0-low-load-{generated_at.strftime('%Y%m%dT%H%M%SZ')}",
+        benchmark_suite_id=benchmark_suite_id,
         generated_at=generated_at,
         identity=BenchmarkIdentity.model_validate(controls[0]["identity"]),
         environment=BenchmarkEnvironment(
