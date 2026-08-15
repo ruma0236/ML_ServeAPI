@@ -77,6 +77,14 @@ class AirflowTaskProgress:
     active_task_ids: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class QueuedDispatchPlan:
+    task: TaskAssignment
+    dag_id: str
+    dag_run_id: str
+    run_path: str
+
+
 def ledger_transaction(function):
     @wraps(function)
     def synchronized(*args, **kwargs):
@@ -89,6 +97,28 @@ def ledger_transaction(function):
         with _LEDGER_LOCK:
             with ledger_file_lock():
                 return function(*args, **kwargs)
+
+    return synchronized
+
+
+def task_ledger_transaction(function):
+    """Use row-level PostgreSQL ownership for durable tasks, legacy lock otherwise."""
+    legacy = ledger_transaction(function)
+
+    @wraps(function)
+    def synchronized(*args, **kwargs):
+        store = get_transactional_store()
+        durable = store.enabled and admission_queue_mode() == "durable"
+        if (
+            durable
+            and function.__name__ == "create_task_assignment"
+            and args
+            and resolve_task_status(args[0]) != "queued"
+        ):
+            return legacy(*args, **kwargs)
+        if durable:
+            return function(*args, **kwargs)
+        return legacy(*args, **kwargs)
 
     return synchronized
 
@@ -110,24 +140,36 @@ def command_ledger_path() -> Path:
 
 
 @contextmanager
-def ledger_file_lock(timeout_seconds: float = 30.0):
+def ledger_file_lock(
+    timeout_seconds: float = 30.0,
+    *,
+    filename: str = ".operations.lock",
+):
     root = ledger_root()
     root.mkdir(parents=True, exist_ok=True)
-    path = root / ".operations.lock"
+    path = root / filename
     deadline = time.monotonic() + timeout_seconds
-    descriptor: int | None = None
-    while descriptor is None:
+    handle = path.open("a+b")
+    handle.seek(0, os.SEEK_END)
+    if handle.tell() == 0:
+        handle.write(b"\0")
+        handle.flush()
+    acquired = False
+    while not acquired:
         try:
-            descriptor = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(descriptor, f"{os.getpid()} {utc_now()}".encode("utf-8"))
-        except FileExistsError:
-            try:
-                if time.time() - path.stat().st_mtime > 300:
-                    path.unlink(missing_ok=True)
-                    continue
-            except OSError:
-                pass
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except (BlockingIOError, OSError):
             if time.monotonic() >= deadline:
+                handle.close()
                 raise TaskDispatchError(
                     "operations_ledger_lock_timeout",
                     "Timed out waiting for the cross-process operations ledger lock.",
@@ -137,9 +179,18 @@ def ledger_file_lock(timeout_seconds: float = 30.0):
     try:
         yield
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        path.unlink(missing_ok=True)
+        try:
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
 def audit(actor: str, event: str, **details: str | int | float | bool | None) -> AuditEvent:
@@ -149,11 +200,10 @@ def audit(actor: str, event: str, **details: str | int | float | bool | None) ->
 def read_tasks() -> TaskAssignmentList:
     store = get_transactional_store()
     if store.enabled:
-        payload = store.read_collection("task_assignments")
-        if payload is not None:
-            return TaskAssignmentList(
-                tasks=[TaskAssignment.model_validate(item) for item in payload]
-            )
+        payload = store.list_entities("task_assignment")
+        return TaskAssignmentList(
+            tasks=[TaskAssignment.model_validate(item) for item in payload]
+        )
     return TaskAssignmentList(tasks=[TaskAssignment.model_validate(item) for item in read_json_array(task_ledger_path())])
 
 
@@ -161,7 +211,7 @@ def write_tasks(tasks: TaskAssignmentList) -> None:
     payload = [task.model_dump(mode="json") for task in tasks.tasks]
     store = get_transactional_store()
     if store.enabled:
-        store.write_collection("task_assignments", payload)
+        store.replace_task_entities(payload)
     write_json_array(task_ledger_path(), payload)
 
 
@@ -209,7 +259,7 @@ def write_json_array(path: Path, payload: list[dict[str, object]]) -> None:
     temporary.replace(path)
 
 
-@ledger_transaction
+@task_ledger_transaction
 def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
     store = get_transactional_store()
     effective_key = request.idempotency_key or f"generated-{uuid4().hex}"
@@ -258,7 +308,6 @@ def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
                 config=load_admission_queue_config(),
             )
             task = TaskAssignment.model_validate(result.task_payload)
-            write_task_json_mirror(read_tasks())
             QUEUE_ADMISSIONS.labels(
                 outcome="replayed" if result.replayed else "accepted",
                 reason="idempotency" if result.replayed else "within_bounds",
@@ -314,7 +363,7 @@ def _build_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
     )
 
 
-@ledger_transaction
+@task_ledger_transaction
 def confirm_task_assignment(
     task_id: str,
     request: TaskTransitionRequest,
@@ -374,7 +423,6 @@ def confirm_task_assignment(
                 replace_existing=True,
             )
             task = TaskAssignment.model_validate(result.task_payload)
-            write_task_json_mirror(read_tasks())
             QUEUE_ADMISSIONS.labels(
                 outcome="replayed" if result.replayed else "accepted",
                 reason="idempotency" if result.replayed else "within_bounds",
@@ -396,6 +444,13 @@ def confirm_task_assignment(
 
 @ledger_transaction
 def dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
+    store = get_transactional_store()
+    if store.enabled and admission_queue_mode() == "durable":
+        raise TaskDispatchError(
+            "durable_queue_owns_dispatch",
+            "Direct dispatch is disabled while the durable task queue owns execution.",
+            status_code=409,
+        )
     task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
     if task is None:
         return None
@@ -433,15 +488,20 @@ def dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
         return task
 
 
-@ledger_transaction
 def dispatch_queued_task_assignment(task_id: str) -> TaskAssignment | None:
-    """Dispatch one durable-queue item without making a transient error terminal."""
-    task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
-    if task is None:
+    """Dispatch a fenced durable item without holding the ledger lock across HTTP."""
+    store = get_transactional_store()
+    lease = store.bound_task_queue_lease()
+    if lease is None or lease.task_id != task_id:
+        raise TaskDispatchError(
+            "task_queue_lease_required",
+            "Durable dispatch requires the exact bound queue lease.",
+            status_code=409,
+        )
+    plan = _prepare_queued_task_dispatch(task_id)
+    if plan is None:
         return None
-    if task.status in {"running", "done"}:
-        return task
-    parent = task_trace_context(task)
+    parent = task_trace_context(plan.task)
     with trace_span(
         "queue.dispatch",
         parent=parent,
@@ -453,14 +513,174 @@ def dispatch_queued_task_assignment(task_id: str) -> TaskAssignment | None:
             "evm.task.id": task_id,
         },
     ) as active:
-        dispatched = _dispatch_task_assignment(
-            task_id,
-            failure_is_terminal=False,
-            reconcile_existing=True,
+        payload = {
+            "dag_run_id": plan.dag_run_id,
+            "conf": {
+                **plan.task.config_payload,
+                "control_panel_task_id": plan.task.task_id,
+                "cycle_id": plan.task.cycle_id,
+                "trace_id": active.context.trace_id,
+                "traceparent": active.context.traceparent,
+                "tracestate": active.context.tracestate,
+            },
+        }
+        reservation = store.reserve_task_dispatch_effect(
+            lease,
+            dag_id=plan.dag_id,
+            dag_run_id=plan.dag_run_id,
         )
-        if dispatched is not None:
-            active.set_attribute("evm.task.status", dispatched.status)
-        return dispatched
+        store.assert_task_queue_lease(lease)
+        try:
+            response = None
+            try:
+                response = airflow_api_request(plan.run_path)
+            except TaskDispatchError as exc:
+                if exc.code != "airflow_dag_run_not_found":
+                    raise
+                if reservation["state"] in {"submitted", "terminal"}:
+                    raise TaskDispatchError(
+                        "airflow_effect_missing_after_commit",
+                        "A committed deterministic Airflow effect could not be reconciled.",
+                        status_code=502,
+                    ) from exc
+            if response is None:
+                response = airflow_api_request(
+                    f"/dags/{quote(plan.dag_id, safe='')}/dagRuns",
+                    method="POST",
+                    payload=payload,
+                )
+            store.assert_task_queue_lease(lease)
+            task = _task_from_runtime_response(plan.task, response, plan)
+            runtime_state = str(task.runtime_state or "unknown")
+            terminal = task.status in {"done", "failed"}
+            store.commit_task_dispatch_effect(
+                lease,
+                effect_key=str(reservation["effect_key"]),
+                runtime_state=runtime_state,
+                runtime_payload=response,
+                task_payload=task.model_dump(mode="json"),
+                terminal=terminal,
+                succeeded=task.status == "done" if terminal else True,
+            )
+            active.set_attribute("evm.task.status", task.status)
+            active.set_attribute("evm.task.runtime_state", runtime_state)
+            return task
+        except TaskDispatchError as exc:
+            _record_queued_dispatch_failure(task_id, exc)
+            raise
+
+
+def _prepare_queued_task_dispatch(task_id: str) -> QueuedDispatchPlan | None:
+    store = get_transactional_store()
+    lease = store.bound_task_queue_lease()
+    if lease is None or lease.task_id != task_id:
+        raise TaskDispatchError(
+            "task_queue_lease_required",
+            "Durable dispatch preparation requires the exact bound queue lease.",
+            status_code=409,
+        )
+    current_payload = store.get_entity("task_assignment", task_id)
+    task = TaskAssignment.model_validate(current_payload or lease.task_payload)
+    if task.task_type != "airflow_dag_run":
+        raise TaskDispatchError(
+            "task_dispatcher_not_available",
+            f"No runtime dispatcher is registered for {task.task_type}.",
+        )
+    if task.status not in {"queued", "running", "done"}:
+        raise TaskDispatchError(
+            "task_not_dispatchable",
+            f"Task {task_id} is {task.status}; durable dispatch requires queued or running.",
+        )
+    dag_id = str(
+        task.config_payload.get("dag_id")
+        or (task.airflow.dag_id if task.airflow else "")
+    )
+    if not dag_id:
+        raise TaskDispatchError("airflow_dag_id_missing", "Airflow DAG ID is required.")
+    dag_run_id = f"cp__{task.task_id.replace('task-', '')}"
+    return QueuedDispatchPlan(
+        task=task,
+        dag_id=dag_id,
+        dag_run_id=dag_run_id,
+        run_path=f"/dags/{quote(dag_id, safe='')}/dagRuns/{quote(dag_run_id, safe='')}",
+    )
+
+
+def _task_from_runtime_response(
+    task: TaskAssignment,
+    response: dict[str, object],
+    plan: QueuedDispatchPlan,
+) -> TaskAssignment:
+    updated = task.model_copy(deep=True)
+    runtime_state = str(response.get("state") or "queued").lower()
+    updated.status = (
+        "done"
+        if runtime_state == "success"
+        else "failed"
+        if runtime_state in {"failed", "upstream_failed"}
+        else "running"
+    )
+    updated.version += 1
+    updated.dispatched_at = updated.dispatched_at or utc_now()
+    updated.finished_at = utc_now() if updated.status in {"done", "failed"} else None
+    updated.runtime_system = "airflow"
+    updated.runtime_id = str(response.get("dag_run_id") or plan.dag_run_id)
+    updated.runtime_state = runtime_state
+    updated.runtime_url = (
+        f"{airflow_api_root()}/dags/{quote(plan.dag_id, safe='')}/dagRuns/"
+        f"{quote(updated.runtime_id, safe='')}"
+    )
+    updated.failure_reason = runtime_state if updated.status == "failed" else None
+    updated.audit.append(
+        audit(
+            updated.owner,
+            "task_dispatched" if task.status == "queued" else "task_dispatch_reconciled",
+            runtime="airflow",
+            runtime_id=updated.runtime_id,
+            runtime_state=runtime_state,
+        )
+    )
+    return updated
+
+
+def _record_queued_dispatch_failure(task_id: str, exc: TaskDispatchError) -> None:
+    store = get_transactional_store()
+
+    def record(payload: dict[str, object]) -> dict[str, object]:
+        task = TaskAssignment.model_validate(payload)
+        task.audit.append(
+            audit(
+                task.owner,
+                "task_dispatch_attempt_failed",
+                error_code=exc.code,
+                runtime="airflow",
+                retryable=exc.retryable,
+            )
+        )
+        task.version += 1
+        return task.model_dump(mode="json")
+
+    try:
+        store.mutate_entity(
+            "task_assignment",
+            task_id,
+            expected_version=None,
+            fallback_payload=None,
+            mutate=record,
+        )
+    except KeyError:
+        return
+
+
+def sync_task_json_mirror_from_store() -> None:
+    tasks = read_tasks()
+    payload = [task.model_dump(mode="json") for task in tasks.tasks]
+    store = get_transactional_store()
+    if store.enabled:
+        store.replace_task_mirror(payload)
+    with _LEDGER_LOCK:
+        with ledger_file_lock(filename=".task-mirror.lock"):
+            write_task_json_mirror(tasks)
 
 
 def task_trace_context(task: TaskAssignment | None) -> W3CTraceContext | None:
@@ -635,6 +855,37 @@ def sync_running_tasks(limit: int = 20) -> TaskAssignmentList:
     if changed:
         write_tasks(tasks)
     return tasks
+
+
+def reconcile_queued_task_runtime(task_id: str) -> TaskAssignment | None:
+    """Poll one submitted runtime outside the ledger lock, then close it atomically."""
+    task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
+    if task is None or task.status in {"done", "failed", "cancelled"}:
+        return task
+    if task.runtime_system != "airflow" or not task.runtime_url:
+        raise TaskDispatchError(
+            "task_runtime_identity_missing",
+            f"Task {task_id} has no reconciliable Airflow runtime identity.",
+        )
+    response = airflow_api_request_url(task.runtime_url)
+    runtime_state = str(response.get("state") or task.runtime_state or "unknown").lower()
+    if runtime_state not in {"success", "failed", "upstream_failed"}:
+        return task
+    store = get_transactional_store()
+    queue_item = store.get_task_queue_item(task_id=task_id)
+    if queue_item is None or queue_item["state"] != "runtime_pending":
+        raise TaskDispatchError(
+            "task_runtime_queue_identity_mismatch",
+            f"Task {task_id} has no matching runtime-pending queue row.",
+            status_code=409,
+        )
+    store.complete_runtime_pending_task(
+        queue_id=str(queue_item["queue_id"]),
+        task_id=task_id,
+        runtime_state=runtime_state,
+        succeeded=runtime_state == "success",
+    )
+    return next((item for item in read_tasks().tasks if item.task_id == task_id), None)
 
 
 @ledger_transaction

@@ -12,6 +12,8 @@ services:
       - control-plane-postgres-data:/var/lib/postgresql/data
       - ./infra/postgres/control-plane/001_transactional_control_plane.sql:/docker-entrypoint-initdb.d/001_transactional_control_plane.sql:ro
       - ./infra/postgres/control-plane/002_bounded_admission_queue.sql:/docker-entrypoint-initdb.d/002_bounded_admission_queue.sql:ro
+      - ./infra/postgres/control-plane/003_task_queue_safety.sql:/docker-entrypoint-initdb.d/003_task_queue_safety.sql:ro
+      - ./infra/postgres/control-plane/004_task_entity_storage.sql:/docker-entrypoint-initdb.d/004_task_entity_storage.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

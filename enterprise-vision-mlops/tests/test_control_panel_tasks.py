@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from apps.api.control_panel_tasks import create_task, default_task_assignment, list_task_assignments
 from evm.control_panel.schemas import TaskAssignmentRequest
 
@@ -44,3 +47,22 @@ def test_task_assignment_blocks_failed_cdct_gate(tmp_path, monkeypatch):
     assert task.queued_at is None
     assert task.cdct_gate is not None
     assert task.cdct_gate.failed_checks
+
+
+def test_task_assignment_config_payload_has_bounded_shape():
+    default_request = default_task_assignment()
+
+    with pytest.raises(ValidationError):
+        TaskAssignmentRequest.model_validate(
+            {
+                **default_request.model_dump(),
+                "config_payload": {f"field-{index}": index for index in range(65)},
+            }
+        )
+    with pytest.raises(ValidationError):
+        TaskAssignmentRequest.model_validate(
+            {
+                **default_request.model_dump(),
+                "config_payload": {"items": ["value"] * 129},
+            }
+        )

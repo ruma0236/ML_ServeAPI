@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
+import os
+import time
 
 import pytest
 
@@ -22,6 +25,13 @@ class FakeResponse:
 
     def read(self) -> bytes:
         return json.dumps(self.payload).encode("utf-8")
+
+
+def _hold_operations_lock(root: str, ready) -> None:
+    os.environ["EVM_CONTROL_PANEL_LEDGER_ROOT"] = root
+    with operations.ledger_file_lock():
+        ready.put(True)
+        time.sleep(30)
 
 
 def request(task_type: str = "airflow_dag_run") -> TaskAssignmentRequest:
@@ -155,3 +165,21 @@ def test_external_approval_task_cannot_use_manual_confirmation(tmp_path, monkeyp
         )
 
     assert exc.value.code == "task_external_approval_required"
+
+
+def test_operations_lock_is_released_when_holder_process_is_killed(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVM_CONTROL_PANEL_LEDGER_ROOT", str(tmp_path))
+    context = multiprocessing.get_context("spawn")
+    ready = context.Queue()
+    process = context.Process(
+        target=_hold_operations_lock,
+        args=(str(tmp_path), ready),
+    )
+    process.start()
+    assert ready.get(timeout=5) is True
+
+    process.kill()
+    process.join(timeout=5)
+    assert process.exitcode is not None
+    with operations.ledger_file_lock(timeout_seconds=1):
+        pass

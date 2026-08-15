@@ -12,7 +12,7 @@ from prometheus_client import Counter, Gauge, Histogram
 
 
 DEFAULT_PROFILE_PATH = Path("configs/s2_bounded_queue_v1.toml")
-ACTIVE_QUEUE_STATES = ("available", "retry_wait", "leased")
+ACTIVE_QUEUE_STATES = ("available", "retry_wait", "leased", "runtime_pending")
 TERMINAL_QUEUE_STATES = ("completed", "failed", "dlq", "expired", "cancelled")
 
 QUEUE_ADMISSIONS = Counter(
@@ -23,6 +23,10 @@ QUEUE_ADMISSIONS = Counter(
 QUEUE_RETRY_AFTER_SECONDS = Histogram(
     "evm_task_queue_retry_after_seconds",
     "Retry-After values returned by bounded task admission.",
+)
+QUEUE_INGRESS_BODY_BYTES = Histogram(
+    "evm_task_queue_ingress_body_bytes",
+    "Bytes observed at the bounded task-ingress boundary.",
 )
 QUEUE_DURABLE_DEPTH = Gauge(
     "evm_task_queue_durable_depth",
@@ -56,6 +60,26 @@ QUEUE_WORKER_CAPACITY = Gauge(
     "Configured worker capacity by resource class.",
     ("resource_class",),
 )
+QUEUE_WORKER_LIVE_CONSUMERS = Gauge(
+    "evm_task_queue_worker_live_consumers",
+    "Live task queue consumers by resource class.",
+    ("resource_class",),
+)
+QUEUE_CONSUMER_FAILURES = Counter(
+    "evm_task_queue_consumer_failures_total",
+    "Consumer failures caught by the task queue supervisor.",
+    ("resource_class", "failure_class"),
+)
+QUEUE_CPU_SCALE_EVENTS = Counter(
+    "evm_task_queue_cpu_scale_events_total",
+    "Bounded CPU consumer target changes.",
+    ("direction",),
+)
+QUEUE_LEASE_RENEWALS = Counter(
+    "evm_task_queue_lease_renewals_total",
+    "Lease renewal outcomes for prefetched and executing work.",
+    ("outcome",),
+)
 QUEUE_ADMISSION_WAIT_SECONDS = Histogram(
     "evm_task_queue_admission_wait_seconds",
     "Time spent in the durable admission transaction.",
@@ -77,12 +101,27 @@ QUEUE_DLQ = Counter(
 )
 QUEUE_PROCESS_RSS_BYTES = Gauge(
     "evm_task_queue_process_rss_bytes",
-    "Resident memory used by the task queue worker process.",
+    "Resident memory used by the task queue worker and executor process tree.",
 )
 QUEUE_WORK_SECONDS = Histogram(
     "evm_task_queue_work_seconds",
     "Task queue execution duration by terminal class.",
     ("outcome",),
+)
+QUEUE_HISTORY_ROWS = Gauge(
+    "evm_task_queue_history_rows",
+    "Persisted task-control rows by bounded history class.",
+    ("history_class",),
+)
+QUEUE_HISTORY_BYTES = Gauge(
+    "evm_task_queue_history_bytes",
+    "Approximate persisted task-control bytes by bounded history class.",
+    ("history_class",),
+)
+QUEUE_COMPACTIONS = Counter(
+    "evm_task_queue_compactions_total",
+    "Rows removed by bounded task-control history compaction.",
+    ("history_class",),
 )
 
 
@@ -92,6 +131,7 @@ class AdmissionQueueConfig:
     durable_max_depth: int
     durable_max_bytes: int
     max_item_bytes: int
+    ingress_max_body_bytes: int
     max_age_seconds: float
     admission_wait_seconds: float
     retry_after_seconds: int
@@ -102,17 +142,25 @@ class AdmissionQueueConfig:
     cpu_workers_max: int
     gpu_workers: int
     lease_seconds: float
+    lease_renew_interval_seconds: float
+    runtime_poll_interval_seconds: float
+    runtime_terminal_timeout_seconds: float
     max_attempts: int
     backoff_base_seconds: float
     backoff_max_seconds: float
     jitter_ratio: float
     global_retry_budget: int
     retry_budget_window_seconds: float
+    retry_budget_scope: str
     drain_timeout_seconds: float
     rss_cap_bytes: int
     rss_slope_tolerance_bytes_per_minute: int
     poll_interval_seconds: float
     metrics_port: int
+    terminal_queue_max_rows: int
+    terminal_queue_max_age_seconds: float
+    task_history_max_terminal_rows: int
+    compaction_batch_size: int
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> AdmissionQueueConfig:
@@ -122,11 +170,13 @@ class AdmissionQueueConfig:
         worker = payload.get("worker", {})
         retry = payload.get("retry", {})
         limits = payload.get("resource_limits", {})
+        retention = payload.get("retention", {})
         config = cls(
             profile_version=str(profile["version"]),
             durable_max_depth=int(durable["max_depth"]),
             durable_max_bytes=int(durable["max_bytes"]),
             max_item_bytes=int(durable["max_item_bytes"]),
+            ingress_max_body_bytes=int(durable["ingress_max_body_bytes"]),
             max_age_seconds=float(durable["max_age_seconds"]),
             admission_wait_seconds=float(durable["admission_wait_seconds"]),
             retry_after_seconds=int(durable["retry_after_seconds"]),
@@ -137,12 +187,18 @@ class AdmissionQueueConfig:
             cpu_workers_max=int(worker["cpu_workers_max"]),
             gpu_workers=int(worker["gpu_workers"]),
             lease_seconds=float(worker["lease_seconds"]),
+            lease_renew_interval_seconds=float(worker["lease_renew_interval_seconds"]),
+            runtime_poll_interval_seconds=float(worker["runtime_poll_interval_seconds"]),
+            runtime_terminal_timeout_seconds=float(
+                worker["runtime_terminal_timeout_seconds"]
+            ),
             max_attempts=int(retry["max_attempts"]),
             backoff_base_seconds=float(retry["backoff_base_seconds"]),
             backoff_max_seconds=float(retry["backoff_max_seconds"]),
             jitter_ratio=float(retry["jitter_ratio"]),
             global_retry_budget=int(retry["global_budget"]),
             retry_budget_window_seconds=float(retry["budget_window_seconds"]),
+            retry_budget_scope=str(retry["budget_scope"]),
             drain_timeout_seconds=float(worker["drain_timeout_seconds"]),
             rss_cap_bytes=int(limits["rss_cap_bytes"]),
             rss_slope_tolerance_bytes_per_minute=int(
@@ -150,6 +206,14 @@ class AdmissionQueueConfig:
             ),
             poll_interval_seconds=float(worker["poll_interval_seconds"]),
             metrics_port=int(worker["metrics_port"]),
+            terminal_queue_max_rows=int(retention["terminal_queue_max_rows"]),
+            terminal_queue_max_age_seconds=float(
+                retention["terminal_queue_max_age_seconds"]
+            ),
+            task_history_max_terminal_rows=int(
+                retention["task_history_max_terminal_rows"]
+            ),
+            compaction_batch_size=int(retention["compaction_batch_size"]),
         )
         config.validate()
         return config
@@ -164,6 +228,7 @@ class AdmissionQueueConfig:
             "durable_max_depth": self.durable_max_depth,
             "durable_max_bytes": self.durable_max_bytes,
             "max_item_bytes": self.max_item_bytes,
+            "ingress_max_body_bytes": self.ingress_max_body_bytes,
             "max_age_seconds": self.max_age_seconds,
             "admission_wait_seconds": self.admission_wait_seconds,
             "retry_after_seconds": self.retry_after_seconds,
@@ -174,6 +239,9 @@ class AdmissionQueueConfig:
             "cpu_workers_max": self.cpu_workers_max,
             "gpu_workers": self.gpu_workers,
             "lease_seconds": self.lease_seconds,
+            "lease_renew_interval_seconds": self.lease_renew_interval_seconds,
+            "runtime_poll_interval_seconds": self.runtime_poll_interval_seconds,
+            "runtime_terminal_timeout_seconds": self.runtime_terminal_timeout_seconds,
             "max_attempts": self.max_attempts,
             "backoff_base_seconds": self.backoff_base_seconds,
             "backoff_max_seconds": self.backoff_max_seconds,
@@ -183,6 +251,10 @@ class AdmissionQueueConfig:
             "rss_cap_bytes": self.rss_cap_bytes,
             "poll_interval_seconds": self.poll_interval_seconds,
             "metrics_port": self.metrics_port,
+            "terminal_queue_max_rows": self.terminal_queue_max_rows,
+            "terminal_queue_max_age_seconds": self.terminal_queue_max_age_seconds,
+            "task_history_max_terminal_rows": self.task_history_max_terminal_rows,
+            "compaction_batch_size": self.compaction_batch_size,
         }
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:
@@ -203,6 +275,29 @@ class AdmissionQueueConfig:
             raise ValueError("jitter_ratio must be between 0 and 1")
         if self.rss_slope_tolerance_bytes_per_minute < 0:
             raise ValueError("rss_slope_tolerance_bytes_per_minute cannot be negative")
+        if self.ingress_max_body_bytes > self.max_item_bytes:
+            raise ValueError("ingress_max_body_bytes cannot exceed max_item_bytes")
+        if self.local_max_depth > self.durable_max_depth:
+            raise ValueError("local queue depth cannot exceed durable queue depth")
+        if self.local_max_bytes > self.durable_max_bytes:
+            raise ValueError("local queue bytes cannot exceed durable queue bytes")
+        if self.lease_renew_interval_seconds >= self.lease_seconds:
+            raise ValueError("lease renewal interval must be shorter than the lease")
+        if not self.retry_budget_scope or len(self.retry_budget_scope) > 128:
+            raise ValueError("retry_budget_scope must be between 1 and 128 characters")
+        retention_positive = {
+            "terminal_queue_max_rows": self.terminal_queue_max_rows,
+            "terminal_queue_max_age_seconds": self.terminal_queue_max_age_seconds,
+            "task_history_max_terminal_rows": self.task_history_max_terminal_rows,
+            "compaction_batch_size": self.compaction_batch_size,
+        }
+        invalid_retention = [
+            name for name, value in retention_positive.items() if value <= 0
+        ]
+        if invalid_retention:
+            raise ValueError(
+                f"S2 retention configuration values must be positive: {invalid_retention}"
+            )
 
     def public_dict(self) -> dict[str, int | float | str]:
         return {
@@ -210,6 +305,7 @@ class AdmissionQueueConfig:
             "durable_max_depth": self.durable_max_depth,
             "durable_max_bytes": self.durable_max_bytes,
             "max_item_bytes": self.max_item_bytes,
+            "ingress_max_body_bytes": self.ingress_max_body_bytes,
             "max_age_seconds": self.max_age_seconds,
             "admission_wait_seconds": self.admission_wait_seconds,
             "retry_after_seconds": self.retry_after_seconds,
@@ -220,17 +316,25 @@ class AdmissionQueueConfig:
             "cpu_workers_max": self.cpu_workers_max,
             "gpu_workers": self.gpu_workers,
             "lease_seconds": self.lease_seconds,
+            "lease_renew_interval_seconds": self.lease_renew_interval_seconds,
+            "runtime_poll_interval_seconds": self.runtime_poll_interval_seconds,
+            "runtime_terminal_timeout_seconds": self.runtime_terminal_timeout_seconds,
             "max_attempts": self.max_attempts,
             "backoff_base_seconds": self.backoff_base_seconds,
             "backoff_max_seconds": self.backoff_max_seconds,
             "jitter_ratio": self.jitter_ratio,
             "global_retry_budget": self.global_retry_budget,
             "retry_budget_window_seconds": self.retry_budget_window_seconds,
+            "retry_budget_scope": self.retry_budget_scope,
             "drain_timeout_seconds": self.drain_timeout_seconds,
             "rss_cap_bytes": self.rss_cap_bytes,
             "rss_slope_tolerance_bytes_per_minute": self.rss_slope_tolerance_bytes_per_minute,
             "poll_interval_seconds": self.poll_interval_seconds,
             "metrics_port": self.metrics_port,
+            "terminal_queue_max_rows": self.terminal_queue_max_rows,
+            "terminal_queue_max_age_seconds": self.terminal_queue_max_age_seconds,
+            "task_history_max_terminal_rows": self.task_history_max_terminal_rows,
+            "compaction_batch_size": self.compaction_batch_size,
         }
 
     @property
@@ -265,3 +369,14 @@ def load_admission_queue_config() -> AdmissionQueueConfig:
 
 def priority_value(priority: str) -> int:
     return {"low": 10, "normal": 20, "high": 30, "urgent": 40}.get(priority, 20)
+
+
+def task_resource_class(task_payload: Mapping[str, Any]) -> str:
+    config_payload = task_payload.get("config_payload")
+    explicit = (
+        str(config_payload.get("resource_class", "")).strip().lower()
+        if isinstance(config_payload, Mapping)
+        else ""
+    )
+    profile = str(task_payload.get("resource_profile", "")).strip().lower()
+    return "gpu" if explicit == "gpu" or "gpu" in profile else "cpu"

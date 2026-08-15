@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -20,6 +22,7 @@ from evm.control_panel.transactional_store import (
     ControlPlaneAdmissionRejected,
     ControlPlaneItemTooLarge,
     ControlPlaneLeaseConflict,
+    ControlPlaneTaskValidationError,
     StoreConfiguration,
     TransactionalControlPlaneStore,
     reset_transactional_store,
@@ -105,8 +108,11 @@ def test_s2_profile_is_frozen_and_uses_canonical_utf8_bytes():
     active = load_admission_queue_config()
     payload = {"z": "한글", "a": 1}
 
-    assert active.profile_version == "s2-bounded-queue-v1-frozen-20260816"
+    assert active.profile_version == "s2-bounded-queue-v2-frozen-20260816"
     assert active.gpu_workers == 1
+    assert active.lease_renew_interval_seconds < active.lease_seconds
+    assert active.ingress_max_body_bytes <= active.max_item_bytes
+    assert active.retry_budget_scope == "s2-bounded-queue-v2"
     assert active.local_max_depth <= active.durable_max_depth
     assert active.max_item_bytes <= active.local_max_bytes
     assert canonical_json_bytes(payload) == '{"a":1,"z":"한글"}'.encode("utf-8")
@@ -189,6 +195,7 @@ def test_real_postgres_claim_fences_stale_owner_and_closes_once(
         scan_limit=active.durable_max_depth,
         now=now,
     )[0]
+    first = store.begin_task_queue_attempt(first, lease_seconds=2, now=now)
     reconciliation = store.reconcile_task_queue(
         max_attempts=active.max_attempts,
         now=now + timedelta(seconds=3),
@@ -201,6 +208,11 @@ def test_real_postgres_claim_fences_stale_owner_and_closes_once(
         scan_limit=active.durable_max_depth,
         now=now + timedelta(seconds=3),
     )[0]
+    second = store.begin_task_queue_attempt(
+        second,
+        lease_seconds=2,
+        now=now + timedelta(seconds=3),
+    )
 
     assert reconciliation == {"expired": 0, "requeued": 1, "dlq": 0}
     assert second.lease_epoch == first.lease_epoch + 1
@@ -238,6 +250,14 @@ def test_real_postgres_retry_budget_and_poison_work_reach_dlq(
         now=now,
     )
     by_task = {lease.task_id: lease for lease in leases}
+    by_task = {
+        task_id: store.begin_task_queue_attempt(
+            lease,
+            lease_seconds=active.lease_seconds,
+            now=now,
+        )
+        for task_id, lease in by_task.items()
+    }
 
     retry = store.reschedule_task_queue_item(
         by_task["task-transient-a"],
@@ -316,3 +336,307 @@ def test_existing_task_api_uses_atomic_durable_admission_and_returns_429(
 
         with psycopg.connect(postgres_dsn, autocommit=True) as connection:
             connection.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+
+
+def test_real_postgres_release_before_start_does_not_consume_attempt(store):
+    now = datetime(2026, 8, 16, 2, 0, tzinfo=UTC)
+    active = config()
+    admit(store, "task-restart-before-start", active_config=active, now=now)
+    first = store.claim_task_queue_items(
+        owner="worker-one",
+        max_items=1,
+        max_bytes=active.local_max_bytes,
+        lease_seconds=active.lease_seconds,
+        scan_limit=active.durable_max_depth,
+        now=now,
+    )[0]
+
+    store.release_task_queue_lease(
+        first,
+        reason="graceful_shutdown_before_start",
+        now=now + timedelta(milliseconds=1),
+    )
+    row = store.get_task_queue_item(task_id=first.task_id)
+
+    assert row["claim_count"] == 1
+    assert row["attempt_count"] == 0
+    assert row["state"] == "available"
+
+
+def test_real_postgres_existing_gpu_profiles_are_claimed_only_by_gpu_consumer(store):
+    now = datetime(2026, 8, 16, 3, 0, tzinfo=UTC)
+    active = config()
+    payload = task_payload("task-gpu")
+    payload["resource_profile"] = "gpu-rtx4080-exclusive"
+    store.admit_task_assignment(
+        scope="task.create",
+        idempotency_key="idem-task-gpu",
+        request_payload={"task_id": "task-gpu"},
+        task_payload=payload,
+        priority=20,
+        config=active,
+        now=now,
+    )
+
+    assert store.claim_task_queue_items(
+        owner="cpu-worker",
+        max_items=1,
+        max_bytes=active.local_max_bytes,
+        lease_seconds=active.lease_seconds,
+        scan_limit=active.durable_max_depth,
+        resource_class="cpu",
+        now=now,
+    ) == []
+    gpu = store.claim_task_queue_items(
+        owner="gpu-worker",
+        max_items=1,
+        max_bytes=active.local_max_bytes,
+        lease_seconds=active.lease_seconds,
+        scan_limit=active.durable_max_depth,
+        resource_class="gpu",
+        now=now,
+    )[0]
+    assert gpu.resource_class == "gpu"
+
+
+def test_real_postgres_request_deadline_can_only_narrow_frozen_max_age(store):
+    observed_at = datetime.now(UTC)
+    active = config(max_age_seconds=120)
+    payload = task_payload("task-short-deadline")
+    payload["config_payload"]["queue_deadline_seconds"] = 1.5
+    store.admit_task_assignment(
+        scope="task.create",
+        idempotency_key="idem-task-short-deadline",
+        request_payload={"task_id": "task-short-deadline"},
+        task_payload=payload,
+        priority=20,
+        config=active,
+        now=observed_at,
+    )
+    row = store.get_task_queue_item(task_id="task-short-deadline")
+
+    assert row["deadline_at"] == (observed_at + timedelta(seconds=1.5)).isoformat()
+
+    invalid = task_payload("task-invalid-deadline")
+    invalid["config_payload"]["queue_deadline_seconds"] = 121
+    with pytest.raises(ControlPlaneTaskValidationError) as rejected:
+        store.admit_task_assignment(
+            scope="task.create",
+            idempotency_key="idem-task-invalid-deadline",
+            request_payload={"task_id": "task-invalid-deadline"},
+            task_payload=invalid,
+            priority=20,
+            config=active,
+            now=observed_at,
+        )
+    assert rejected.value.reason == "queue_deadline_out_of_bounds"
+
+
+def test_real_postgres_admission_lock_wait_is_bounded(store):
+    active = config(admission_wait_seconds=0.25)
+    locked = threading.Event()
+    release = threading.Event()
+
+    def holder():
+        with store.serialized("task-admission-capacity"):
+            locked.set()
+            release.wait(timeout=2)
+
+    thread = threading.Thread(target=holder, daemon=True)
+    thread.start()
+    assert locked.wait(timeout=1)
+    started = time.monotonic()
+    try:
+        with pytest.raises(ControlPlaneAdmissionRejected) as rejected:
+            admit(store, "task-lock-contention", active_config=active)
+    finally:
+        release.set()
+        thread.join(timeout=2)
+
+    assert rejected.value.reason == "admission_lock_timeout"
+    assert time.monotonic() - started < 1.0
+
+
+def test_real_postgres_effect_reservation_is_deterministic_and_fenced(store):
+    now = datetime(2026, 8, 16, 4, 0, tzinfo=UTC)
+    active = config()
+    admit(store, "task-effect", active_config=active, now=now)
+    lease = store.claim_task_queue_items(
+        owner="worker",
+        max_items=1,
+        max_bytes=active.local_max_bytes,
+        lease_seconds=active.lease_seconds,
+        scan_limit=active.durable_max_depth,
+        now=now,
+    )[0]
+    lease = store.begin_task_queue_attempt(
+        lease,
+        lease_seconds=active.lease_seconds,
+        now=now,
+    )
+    first = store.reserve_task_dispatch_effect(
+        lease,
+        dag_id="deterministic",
+        dag_run_id="cp__task-effect",
+        now=now,
+    )
+    second = store.reserve_task_dispatch_effect(
+        lease,
+        dag_id="deterministic",
+        dag_run_id="cp__task-effect",
+        now=now,
+    )
+
+    assert first["effect_key"] == second["effect_key"]
+    with pytest.raises(ControlPlaneLeaseConflict):
+        store.reserve_task_dispatch_effect(
+            lease,
+            dag_id="deterministic",
+            dag_run_id="changed-run-id",
+            now=now,
+        )
+
+
+def test_durable_mode_rejects_direct_dispatch(store, monkeypatch):
+    active = config()
+    admit(store, "task-direct-bypass", active_config=active)
+    monkeypatch.setenv("EVM_TASK_ADMISSION_MODE", "durable")
+    monkeypatch.setattr(operations, "get_transactional_store", lambda: store)
+
+    with pytest.raises(operations.TaskDispatchError) as rejected:
+        operations.dispatch_task_assignment("task-direct-bypass")
+
+    assert rejected.value.code == "durable_queue_owns_dispatch"
+
+
+def test_real_postgres_durable_dispatches_do_not_share_global_ledger_lock(
+    store,
+    monkeypatch,
+):
+    active = config()
+    observed_at = datetime.now(UTC)
+    for index in range(2):
+        admit(
+            store,
+            f"task-parallel-{index}",
+            active_config=active,
+            now=observed_at,
+        )
+    leases = store.claim_task_queue_items(
+        owner="parallel-worker",
+        max_items=2,
+        max_bytes=active.local_max_bytes,
+        lease_seconds=active.lease_seconds,
+        scan_limit=active.durable_max_depth,
+        now=observed_at,
+    )
+    leases = [
+        store.begin_task_queue_attempt(
+            lease,
+            lease_seconds=active.lease_seconds,
+            now=observed_at,
+        )
+        for lease in leases
+    ]
+    barrier = threading.Barrier(2)
+    counter_lock = threading.Lock()
+    running = 0
+    peak = 0
+
+    def fake_airflow(path, *, method="GET", payload=None):
+        nonlocal running, peak
+        if method == "GET":
+            raise operations.TaskDispatchError(
+                "airflow_dag_run_not_found",
+                "not created yet",
+                status_code=404,
+            )
+        with counter_lock:
+            running += 1
+            peak = max(peak, running)
+        barrier.wait(timeout=2)
+        time.sleep(0.05)
+        with counter_lock:
+            running -= 1
+        return {"dag_run_id": payload["dag_run_id"], "state": "success"}
+
+    monkeypatch.setenv("EVM_TASK_ADMISSION_MODE", "durable")
+    monkeypatch.setattr(operations, "get_transactional_store", lambda: store)
+    monkeypatch.setattr(operations, "airflow_api_request", fake_airflow)
+    failures = []
+
+    def dispatch(lease):
+        try:
+            with store.bind_task_queue_lease(lease):
+                operations.dispatch_queued_task_assignment(lease.task_id)
+        except Exception as exc:  # pragma: no cover - asserted below
+            failures.append(exc)
+
+    threads = [threading.Thread(target=dispatch, args=(lease,)) for lease in leases]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert failures == []
+    assert peak == 2
+    assert all(not thread.is_alive() for thread in threads)
+    assert {
+        item["state"] for item in store.list_task_queue_items()
+    } == {"completed"}
+
+
+def test_real_postgres_compaction_bounds_row_history_and_rollback_mirror(store):
+    observed_at = datetime.now(UTC)
+    active = config(
+        terminal_queue_max_rows=2,
+        task_history_max_terminal_rows=2,
+        terminal_queue_max_age_seconds=3600,
+        compaction_batch_size=16,
+    )
+    for index in range(5):
+        admit(
+            store,
+            f"task-history-{index}",
+            active_config=active,
+            now=observed_at,
+        )
+    leases = store.claim_task_queue_items(
+        owner="history-worker",
+        max_items=5,
+        max_bytes=active.local_max_bytes,
+        lease_seconds=active.lease_seconds,
+        scan_limit=active.durable_max_depth,
+        now=observed_at,
+    )
+    for lease in leases:
+        started = store.begin_task_queue_attempt(
+            lease,
+            lease_seconds=active.lease_seconds,
+            now=observed_at,
+        )
+        store.complete_task_queue_item(
+            started,
+            state="completed",
+            reason="test_terminal",
+            now=observed_at + timedelta(milliseconds=1),
+        )
+
+    compacted = store.compact_task_queue_history(
+        config=active,
+        now=observed_at + timedelta(seconds=1),
+    )
+    remaining = store.list_entities("task_assignment")
+    store.replace_task_mirror(remaining)
+    snapshot = store.task_queue_history_snapshot()
+
+    assert compacted == {"queue_rows": 3, "effect_rows": 0, "task_rows": 3}
+    assert snapshot.queue_rows == 2
+    assert snapshot.task_rows == 2
+    assert snapshot.mirror_rows == 2
+    assert snapshot.compacted_rows == {"queue": 3, "task": 3}
+    assert snapshot.compacted_bytes["queue"] > 0
+    assert snapshot.compacted_bytes["task"] > 0
+    assert snapshot.queue_bytes > 0
+    assert snapshot.task_bytes > 0
+    assert snapshot.mirror_bytes > 0

@@ -29,6 +29,7 @@ from apps.api.control_panel_scenarios import router as control_panel_scenarios_r
 from apps.api.control_panel_tasks import router as control_panel_tasks_router
 from apps.api.control_panel_workloads import router as control_panel_workloads_router
 from apps.api.control_panel import router as control_panel_router
+from apps.api.task_ingress import TaskIngressBodyLimitMiddleware
 from evm.core.image_feature_model import extract_image_features, predict_with_model, resolve_image_path
 from evm.observability.trace_context import (
     TraceContextError,
@@ -271,6 +272,7 @@ app = FastAPI(
     lifespan=lifespan,
     separate_input_output_schemas=False,
 )
+app.add_middleware(TaskIngressBodyLimitMiddleware)
 
 
 @app.middleware("http")

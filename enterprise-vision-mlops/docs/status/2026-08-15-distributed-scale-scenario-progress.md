@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-15T15:49:05.000318Z`
+- Generated: `2026-08-15T17:05:42.248111Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -214,7 +214,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Task admission and dispatch: `src/evm/control_panel/operations.py`, `src/evm/control_panel/task_queue_worker.py`, `src/evm/control_panel/transactional_store.py`
 - Control API: `apps/api/control_panel_tasks.py`, `apps/api/main.py`
 - Operational telemetry: `monitoring/prometheus/prometheus.yml`, `src/evm/control_panel/admission_queue.py`
-- Runtime and migration: `configs/s2_bounded_queue_v1.toml`, `infra/postgres/control-plane/002_bounded_admission_queue.sql`, `docker-compose.yml`
+- Runtime and migration: `configs/s2_bounded_queue_v1.toml`, `configs/s2_bounded_queue_cpu1_control.toml`, `infra/postgres/control-plane/002_bounded_admission_queue.sql`, `infra/postgres/control-plane/003_task_queue_safety.sql`, `infra/postgres/control-plane/004_task_entity_storage.sql`, `docker-compose.yml`
 
 ### Architecture Delta
 
@@ -234,10 +234,11 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 - Durable admission and task state: `src/evm/control_panel/admission_queue.py`, `src/evm/control_panel/transactional_store.py`, `src/evm/control_panel/operations.py`, `apps/api/control_panel_tasks.py`
 - Dedicated bounded task worker: `src/evm/control_panel/task_queue_worker.py`, `src/evm/control_panel/task_queue_executor.py`, `src/evm/scale_validation/s2_airflow_fixture.py`
-- Frozen runtime, migration, and telemetry: `configs/s2_bounded_queue_v1.toml`, `infra/postgres/control-plane/002_bounded_admission_queue.sql`, `docker-compose.yml`, `monitoring/prometheus/prometheus.yml`
+- Frozen runtime, migration, and telemetry: `configs/s2_bounded_queue_v1.toml`, `configs/s2_bounded_queue_cpu1_control.toml`, `infra/postgres/control-plane/002_bounded_admission_queue.sql`, `infra/postgres/control-plane/003_task_queue_safety.sql`, `infra/postgres/control-plane/004_task_entity_storage.sql`, `docker-compose.yml`, `monitoring/prometheus/prometheus.yml`
 - Focused verification: `contracts/control-panel/control-panel.openapi.json`, `tests/test_bounded_task_queue.py`, `tests/test_control_panel_contract.py`, `tests/test_s2_airflow_fixture.py`
 - Compatibility: Existing task payload and lifecycle state-machine contracts must remain valid.
 - Migration: The 002 migration adds the durable queue and retry budget to the dedicated control-plane schema without modifying Airflow or MLflow databases.
+- Migration: The 003 and 004 migrations add lease-safe queue execution, row-level task entities, and bounded terminal-history rollups; the JSON collection remains a bounded rollback mirror.
 - Migration: EVM_TASK_ADMISSION_MODE=legacy retains the prior dispatcher as an explicit rollback path; durable is enabled in the local Compose stack for S2 validation.
 
 ### Experiment Contract
@@ -265,6 +266,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
 - `2026-08-15T15:47:07.929559Z` `implementation` / `implementing`: Durable bounded admission, distinct 413/429 responses, a dedicated queue worker with a killable child-process timeout boundary, retry/DLQ policy, frozen configuration, Compose startup and Prometheus scrape wiring passed 39 focused tests and an isolated real-PostgreSQL API-worker checkpoint. No acceptance criterion is credited before the full external workload matrix.
+- `2026-08-15T17:05:42.248111Z` `implementation` / `implementing`: Durable dispatch no longer holds the global operations-ledger lock across Airflow HTTP, task state is row-addressable, and terminal queue/effect/task history is compacted into fixed-cardinality rollups with a bounded JSON mirror. Fifty-eight focused tests passed, including two concurrent real-PostgreSQL dispatches, retained-versus-compacted history accounting, and progress/evidence contract validation. External throughput, process-tree memory, three-repeat workload, and all S2 acceptance criteria remain pending.
 
 ## S3: HIGGS Lightweight Capacity Envelope
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-15T15:49:05.000318Z",
+  "generated_at": "2026-08-15T17:05:42.248111Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1109,7 +1109,10 @@
           "component": "Frozen runtime, migration, and telemetry",
           "files": [
             "configs/s2_bounded_queue_v1.toml",
+            "configs/s2_bounded_queue_cpu1_control.toml",
             "infra/postgres/control-plane/002_bounded_admission_queue.sql",
+            "infra/postgres/control-plane/003_task_queue_safety.sql",
+            "infra/postgres/control-plane/004_task_entity_storage.sql",
             "docker-compose.yml",
             "monitoring/prometheus/prometheus.yml"
           ]
@@ -1129,9 +1132,11 @@
         "Accepted idempotency replay returns the original task without another depth or byte reservation; rejected capacity does not reserve the key.",
         "Canonical UTF-8 item size fails with 413 while aggregate depth or byte pressure fails with 429 and an integer Retry-After.",
         "A dedicated bounded task queue worker, separate from the lifecycle worker, claims with SKIP LOCKED and owner/epoch leases, enforces local count and byte budgets, and applies retry/DLQ policy.",
-        "This is an implementation checkpoint only; the required three-run overload matrix, RSS slope, restart, GPU serialization, and full regressions remain pending."
+        "Durable task dispatch releases the legacy operations-ledger advisory and file lock before external Airflow HTTP, while fenced row-level PostgreSQL ownership protects the task and effect commit.",
+        "Terminal queue, effect, and task detail rows are compacted under frozen row and age limits into fixed-cardinality rollups; the JSON task collection is retained only as a bounded rollback mirror.",
+        "This is an implementation checkpoint only; external throughput, process-tree memory and history growth, the required three-run overload matrix, restart, GPU serialization, and full regressions remain pending."
       ],
-      "experiment_environment": "Implementation checkpoint exercised an isolated schema in the existing PostgreSQL 16 service, a separate real Uvicorn API socket, a real dedicated queue-worker process, and a deterministic Airflow-compatible HTTP dependency on one local physical node. Full S2 workload repetitions have not run.",
+      "experiment_environment": "Implementation checkpoints exercised an isolated schema in the existing PostgreSQL 16 service, a separate real Uvicorn API socket, a real dedicated queue-worker process, and a deterministic Airflow-compatible HTTP dependency on one local physical node. Focused real-PostgreSQL tests also exercised concurrent external-dispatch entry and bounded terminal-history compaction. Full S2 workload repetitions have not run.",
       "test_or_experiment_steps": [
         "Use provisional safe bounds before S3, then recalibrate from measured service rate.",
         "Inject burst, sustained, duplicate, expired, and poison requests independently.",
@@ -1204,7 +1209,10 @@
           "component": "Runtime and migration",
           "files": [
             "configs/s2_bounded_queue_v1.toml",
+            "configs/s2_bounded_queue_cpu1_control.toml",
             "infra/postgres/control-plane/002_bounded_admission_queue.sql",
+            "infra/postgres/control-plane/003_task_queue_safety.sql",
+            "infra/postgres/control-plane/004_task_entity_storage.sql",
             "docker-compose.yml"
           ]
         }
@@ -1242,9 +1250,12 @@
           {
             "component": "Frozen runtime, migration, and telemetry",
             "files": [
-              "configs/s2_bounded_queue_v1.toml",
-              "infra/postgres/control-plane/002_bounded_admission_queue.sql",
-              "docker-compose.yml",
+                "configs/s2_bounded_queue_v1.toml",
+                "configs/s2_bounded_queue_cpu1_control.toml",
+                "infra/postgres/control-plane/002_bounded_admission_queue.sql",
+                "infra/postgres/control-plane/003_task_queue_safety.sql",
+                "infra/postgres/control-plane/004_task_entity_storage.sql",
+                "docker-compose.yml",
               "monitoring/prometheus/prometheus.yml"
             ]
           },
@@ -1263,6 +1274,7 @@
         ],
         "migration": [
           "The 002 migration adds the durable queue and retry budget to the dedicated control-plane schema without modifying Airflow or MLflow databases.",
+          "The 003 and 004 migrations add lease-safe execution, row-level task entities, and bounded terminal-history rollups; the JSON collection remains a bounded rollback mirror.",
           "EVM_TASK_ADMISSION_MODE=legacy retains the prior dispatcher as an explicit rollback path; durable is enabled in the local Compose stack for S2 validation."
         ]
       },
@@ -1317,6 +1329,13 @@
           "phase": "implementation",
           "status": "implementing",
           "summary": "Durable bounded admission, distinct 413/429 responses, a dedicated queue worker with a killable child-process timeout boundary, retry/DLQ policy, frozen configuration, Compose startup and Prometheus scrape wiring passed 39 focused tests and an isolated real-PostgreSQL API-worker checkpoint. No acceptance criterion is credited before the full external workload matrix.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-15T17:05:42.248111Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "Durable dispatch no longer holds the global operations-ledger lock across Airflow HTTP, task state is row-addressable, and terminal queue/effect/task history is compacted into fixed-cardinality rollups with a bounded JSON mirror. Fifty-eight focused tests passed, including two concurrent real-PostgreSQL dispatches, retained-versus-compacted history accounting, and progress/evidence contract validation. External throughput, process-tree memory, three-repeat workload, and all S2 acceptance criteria remain pending.",
           "evidence_refs": []
         }
       ]

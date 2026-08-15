@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 State = Literal[
@@ -748,6 +748,37 @@ class TaskAssignmentRequest(ContractModel):
         max_length=128,
         pattern=r"^[A-Za-z0-9._:-]+$",
     )
+
+    @field_validator("config_payload")
+    @classmethod
+    def bounded_config_payload(cls, value):
+        if len(value) > 64:
+            raise ValueError("config_payload cannot contain more than 64 fields")
+        for key, item in value.items():
+            if len(key) > 128:
+                raise ValueError("config_payload keys cannot exceed 128 characters")
+            if isinstance(item, str) and len(item) > 8192:
+                raise ValueError("config_payload string values cannot exceed 8192 characters")
+            if isinstance(item, list):
+                if len(item) > 128:
+                    raise ValueError("config_payload lists cannot contain more than 128 items")
+                if any(len(entry) > 2048 for entry in item):
+                    raise ValueError("config_payload list strings cannot exceed 2048 characters")
+            if isinstance(item, dict):
+                if len(item) > 64:
+                    raise ValueError("nested config_payload cannot contain more than 64 fields")
+                if any(len(str(nested_key)) > 128 for nested_key in item):
+                    raise ValueError(
+                        "nested config_payload keys cannot exceed 128 characters"
+                    )
+                if any(
+                    isinstance(nested_value, str) and len(nested_value) > 8192
+                    for nested_value in item.values()
+                ):
+                    raise ValueError(
+                        "nested config_payload strings cannot exceed 8192 characters"
+                    )
+        return value
 
 
 class TaskAssignment(TaskAssignmentRequest):

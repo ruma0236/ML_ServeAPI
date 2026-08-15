@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from evm.control_panel.admission_queue import QUEUE_ADMISSIONS, QUEUE_RETRY_AFTER_SECONDS
 from evm.control_panel.operations import (
     TaskDispatchError,
     confirm_task_assignment,
@@ -22,6 +23,7 @@ from evm.control_panel.transactional_store import (
     ControlPlaneItemTooLarge,
     ControlPlanePoolTimeout,
     ControlPlaneStoreError,
+    ControlPlaneTaskValidationError,
     ControlPlaneTransactionTimeout,
 )
 
@@ -101,6 +103,8 @@ def task_http(
             status_code = 413
         elif isinstance(exc, ControlPlaneAdmissionRejected):
             status_code = 429
+        elif isinstance(exc, ControlPlaneTaskValidationError):
+            status_code = 422
         else:
             status_code = (
                 503
@@ -111,6 +115,7 @@ def task_http(
     details = {"error": code, "message": str(exc), "task_id": task_id}
     headers = None
     if isinstance(exc, ControlPlaneItemTooLarge):
+        QUEUE_ADMISSIONS.labels(outcome="rejected", reason="item_size_limit").inc()
         details.update(
             {
                 "payload_bytes": exc.payload_bytes,
@@ -118,6 +123,8 @@ def task_http(
             }
         )
     elif isinstance(exc, ControlPlaneAdmissionRejected):
+        QUEUE_ADMISSIONS.labels(outcome="rejected", reason=exc.reason).inc()
+        QUEUE_RETRY_AFTER_SECONDS.observe(exc.retry_after_seconds)
         details.update(
             {
                 "reason": exc.reason,
@@ -126,6 +133,9 @@ def task_http(
             }
         )
         headers = {"Retry-After": str(exc.retry_after_seconds)}
+    elif isinstance(exc, ControlPlaneTaskValidationError):
+        QUEUE_ADMISSIONS.labels(outcome="rejected", reason=exc.reason).inc()
+        details["reason"] = exc.reason
     return HTTPException(
         status_code=status_code,
         detail=details,
