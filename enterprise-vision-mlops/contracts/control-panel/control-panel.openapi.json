@@ -1059,7 +1059,8 @@
           "target": {"$ref": "#/components/schemas/ResourceRef"},
           "actor": {"type": "string"},
           "reason": {"type": "string"},
-          "dry_run": {"type": "boolean", "const": true}
+          "dry_run": {"type": "boolean", "const": true},
+          "idempotency_key": {"type": ["string", "null"], "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}
         }
       },
       "DeploymentTransitionRequest": {
@@ -1068,7 +1069,8 @@
         "properties": {
           "actor": {"type": "string"},
           "reason": {"type": "string"},
-          "expected_version": {"type": "integer", "minimum": 1}
+          "expected_version": {"type": "integer", "minimum": 1},
+          "idempotency_key": {"type": ["string", "null"], "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}
         }
       },
       "DeploymentTransition": {
@@ -1721,7 +1723,8 @@
           "mlflow": {"$ref": "#/components/schemas/MLflowRef"},
           "cdct_gate": {"$ref": "#/components/schemas/CDCTGate"},
           "config_payload": {"type": "object"},
-          "dry_run": {"type": "boolean", "default": true}
+          "dry_run": {"type": "boolean", "default": true},
+          "idempotency_key": {"type": ["string", "null"], "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}
         }
       },
       "TaskAssignment": {
@@ -1732,6 +1735,7 @@
             "required": ["task_id", "status", "created_at", "audit"],
             "properties": {
               "task_id": {"type": "string"},
+              "version": {"type": "integer", "minimum": 1, "default": 1},
               "status": {"type": "string", "enum": ["draft", "dry_run", "queued", "pending_confirmation", "running", "done", "failed", "cancelled", "blocked"]},
               "created_at": {"type": "string", "format": "date-time"},
               "queued_at": {"type": ["string", "null"], "format": "date-time"},
@@ -1756,7 +1760,9 @@
         "required": ["actor", "reason"],
         "properties": {
           "actor": {"type": "string"},
-          "reason": {"type": "string"}
+          "reason": {"type": "string"},
+          "expected_version": {"type": ["integer", "null"], "minimum": 1},
+          "idempotency_key": {"type": ["string", "null"], "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}
         }
       },
       "CommandIntentRequest": {
@@ -2542,7 +2548,8 @@
           "actor": {"type": "string", "minLength": 2},
           "reason": {"type": "string", "minLength": 8},
           "dry_run": {"type": "boolean"},
-          "execution_mode": {"type": "string", "enum": ["automatic", "stepwise"], "default": "automatic"}
+          "execution_mode": {"type": "string", "enum": ["automatic", "stepwise"], "default": "automatic"},
+          "idempotency_key": {"type": ["string", "null"], "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}
         }
       },
       "LifecycleActionRequest": {
@@ -2551,7 +2558,8 @@
         "properties": {
           "actor": {"type": "string", "minLength": 2},
           "reason": {"type": "string", "minLength": 8},
-          "expected_version": {"type": "integer", "minimum": 1}
+          "expected_version": {"type": "integer", "minimum": 1},
+          "idempotency_key": {"type": ["string", "null"], "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}
         }
       },
       "LifecycleApprovalRequest": {
@@ -2657,6 +2665,7 @@
           "version": {"type": "integer", "minimum": 1},
           "actor": {"type": "string"},
           "reason": {"type": "string"},
+          "idempotency_key": {"type": ["string", "null"]},
           "dry_run": {"type": "boolean"},
           "execution_mode": {"type": "string", "enum": ["automatic", "stepwise"], "default": "automatic"},
           "created_at": {"type": "string"},

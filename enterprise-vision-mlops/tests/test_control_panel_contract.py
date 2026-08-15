@@ -266,6 +266,18 @@ def test_openapi_components_expose_enterprise_readiness_fields():
     assert set(LifecycleActionRequest.model_fields).issubset(
         schemas["LifecycleActionRequest"]["properties"]
     )
+    for schema_name in (
+        "LifecycleRunRequest",
+        "LifecycleActionRequest",
+        "LifecycleRun",
+        "TaskAssignmentRequest",
+        "TaskTransitionRequest",
+        "DeploymentIntentRequest",
+        "DeploymentTransitionRequest",
+    ):
+        assert "idempotency_key" in schema_properties(schemas[schema_name])
+    assert "version" in schema_properties(schemas["TaskAssignment"])
+    assert "expected_version" in schema_properties(schemas["TaskTransitionRequest"])
     approval_properties = {
         *schema_properties(schemas["LifecycleActionRequest"]),
         *schema_properties(schemas["LifecycleApprovalRequest"]),
