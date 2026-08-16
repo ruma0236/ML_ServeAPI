@@ -10,6 +10,7 @@ from evm.scale_validation.s2_runtime import (
     S2MatrixConfig,
     build_task_payload,
     payload_digest,
+    progress_verdict,
     profile_payloads,
     summarize_submission,
     trace_summary,
@@ -26,6 +27,14 @@ def test_s2_matrix_is_frozen_with_exact_a_to_j_profiles():
     assert matrix.repetitions == 3
     assert matrix.version == "s2-external-matrix-v1-20260816"
     assert len(matrix.sha256) == 64
+
+
+def test_progress_verdict_reads_current_nested_contract_and_legacy_field():
+    assert progress_verdict(
+        {"verdict_and_claim_boundary": {"verdict": "passed"}}
+    ) == "passed"
+    assert progress_verdict({"verdict": "failed"}) == "failed"
+    assert progress_verdict({}) is None
 
 
 def test_large_byte_profile_stays_below_single_item_limit():
@@ -95,4 +104,3 @@ def test_trace_summary_requires_full_existing_runtime_chain(tmp_path):
     assert result["complete_count"] == 1
     assert result["missing"] == 0
     assert len(result["raw_tail_sha256"]) == 64
-

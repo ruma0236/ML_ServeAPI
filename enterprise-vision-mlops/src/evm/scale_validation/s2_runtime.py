@@ -2510,6 +2510,17 @@ def runtime_results(results: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]
     return flattened
 
 
+def progress_verdict(scenario: Mapping[str, Any]) -> str | None:
+    direct = scenario.get("verdict")
+    if isinstance(direct, str):
+        return direct
+    boundary = scenario.get("verdict_and_claim_boundary")
+    if isinstance(boundary, Mapping):
+        nested = boundary.get("verdict")
+        return nested if isinstance(nested, str) else None
+    return None
+
+
 def validate_start_gate(root: Path, progress_path: Path) -> dict[str, Any]:
     tracked_dirty = subprocess.check_output(
         ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
@@ -2522,7 +2533,7 @@ def validate_start_gate(root: Path, progress_path: Path) -> dict[str, Any]:
     statuses = {
         scenario_id: {
             "status": scenarios.get(scenario_id, {}).get("status"),
-            "verdict": scenarios.get(scenario_id, {}).get("verdict"),
+            "verdict": progress_verdict(scenarios.get(scenario_id, {})),
         }
         for scenario_id in ("S0", "S1")
     }
