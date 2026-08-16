@@ -32,8 +32,8 @@ def test_s2_matrix_is_frozen_with_exact_a_to_j_profiles():
     assert matrix.repetitions == 3
     assert matrix.version == "s2-external-matrix-v2-20260817"
     assert matrix.rss_slope_measurement_seconds == 30.0
-    assert matrix.profiles["D"]["arrival_duration_seconds"] == 30.0
-    assert matrix.profiles["D"]["request_count"] == 240
+    assert matrix.profiles["D"]["arrival_duration_seconds"] == 45.0
+    assert matrix.profiles["D"]["request_count"] == 360
     assert len(matrix.sha256) == 64
 
 

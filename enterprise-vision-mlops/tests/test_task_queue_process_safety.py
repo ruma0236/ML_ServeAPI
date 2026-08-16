@@ -8,7 +8,7 @@ from pathlib import Path
 
 import psutil
 
-from evm.control_panel.task_queue_worker import process_tree_rss_bytes
+from evm.control_panel.task_queue_worker import process_rss_bytes, process_tree_rss_bytes
 
 
 def test_process_tree_rss_includes_executor_child():
@@ -36,6 +36,14 @@ def test_process_tree_rss_includes_executor_child():
         except subprocess.TimeoutExpired:
             child.kill()
             child.wait(timeout=3)
+
+
+def test_process_rss_reports_parent_only_baseline():
+    parent = process_rss_bytes()
+    tree = process_tree_rss_bytes()
+
+    assert parent > 0
+    assert tree >= parent
 
 
 def test_executor_exits_when_exact_parent_process_is_killed(tmp_path: Path):

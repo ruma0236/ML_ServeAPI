@@ -35,10 +35,10 @@ terminal_after_seconds = 0.10
 
 [profiles.D]
 name = "sustained-overload-and-cpu1-control"
-request_count = 240
+request_count = 360
 concurrency = 32
 arrival_rate_per_second = 8.0
-arrival_duration_seconds = 30.0
+arrival_duration_seconds = 45.0
 dispatch_delay_seconds = 0.20
 terminal_after_seconds = 0.50
 

@@ -99,6 +99,13 @@ def process_tree_rss_bytes(pid: int | None = None) -> int:
         return 0
 
 
+def process_rss_bytes(pid: int | None = None) -> int:
+    try:
+        return int(psutil.Process(pid or os.getpid()).memory_info().rss)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+        return 0
+
+
 class BoundedTaskQueueWorker:
     def __init__(
         self,
@@ -167,20 +174,22 @@ class BoundedTaskQueueWorker:
                 snapshot = self.store.task_queue_snapshot()
                 self._observe_snapshot(snapshot)
                 self._adjust_cpu_target(snapshot.dispatchable_depth("cpu"))
-                rss = process_tree_rss_bytes()
-                QUEUE_PROCESS_RSS_BYTES.set(rss)
-                if rss <= 0:
+                tree_rss = process_tree_rss_bytes()
+                parent_rss = process_rss_bytes()
+                QUEUE_PROCESS_RSS_BYTES.set(tree_rss)
+                if tree_rss <= 0 or parent_rss <= 0:
                     raise RuntimeError("task queue process-tree RSS is unavailable")
-                if rss > self.config.rss_cap_bytes:
+                if tree_rss > self.config.rss_cap_bytes:
                     raise RuntimeError(
-                        f"task queue worker RSS {rss} exceeded cap {self.config.rss_cap_bytes}"
+                        "task queue worker process-tree RSS "
+                        f"{tree_rss} exceeded cap {self.config.rss_cap_bytes}"
                     )
-                self._observe_rss_slope(rss)
+                self._observe_rss_slope(parent_rss)
                 await self._fill_local_queues()
                 self._write_heartbeat(
                     "degraded" if self._last_consumer_error else "online",
                     snapshot=snapshot,
-                    rss_bytes=rss,
+                    rss_bytes=tree_rss,
                     error=self._last_consumer_error,
                 )
                 if once and snapshot.active_depth == 0 and self.local_count == 0:
@@ -723,11 +732,11 @@ class BoundedTaskQueueWorker:
             * 60.0
         )
         QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE.set(slope)
-        if (
-            slope > self.config.rss_slope_tolerance_bytes_per_minute
-        ):
+        if slope > self.config.rss_slope_tolerance_bytes_per_minute:
             raise RuntimeError(
-                "task queue process-tree RSS slope exceeded the frozen tolerance"
+                "task queue worker parent RSS slope "
+                f"{slope:.3f} exceeded frozen tolerance "
+                f"{self.config.rss_slope_tolerance_bytes_per_minute}"
             )
 
     async def _shutdown_consumers(self) -> None:

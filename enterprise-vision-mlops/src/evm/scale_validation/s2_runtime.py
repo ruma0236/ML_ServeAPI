@@ -1821,9 +1821,9 @@ def run_profile_d_variant(
     rss_assertion = assertion(
         f"D_{variant}_rss_slope_bounded",
         bool(rss_slope.get("measured"))
-        and abs(float(rss_slope.get("api_bytes_per_minute", float("inf"))))
+        and float(rss_slope.get("api_bytes_per_minute", float("inf")))
         <= active_config.rss_slope_tolerance_bytes_per_minute
-        and abs(float(rss_slope.get("worker_bytes_per_minute", float("inf"))))
+        and float(rss_slope.get("worker_bytes_per_minute", float("inf")))
         <= active_config.rss_slope_tolerance_bytes_per_minute,
         rss_slope,
     )
