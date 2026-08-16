@@ -119,7 +119,7 @@ QUEUE_PROCESS_RSS_BYTES = Gauge(
 )
 QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE = Gauge(
     "evm_task_queue_process_rss_slope_bytes_per_minute",
-    "One-minute worker and executor process-tree RSS slope.",
+    "Idle-window RSS slope of the queue-worker parent; process-tree cap is separate.",
 )
 QUEUE_WORK_SECONDS = Histogram(
     "evm_task_queue_work_seconds",

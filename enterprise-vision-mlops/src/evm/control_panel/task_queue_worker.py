@@ -184,7 +184,14 @@ class BoundedTaskQueueWorker:
                         "task queue worker process-tree RSS "
                         f"{tree_rss} exceeded cap {self.config.rss_cap_bytes}"
                     )
-                self._observe_rss_slope(parent_rss)
+                self._observe_rss_slope(
+                    parent_rss,
+                    busy=(
+                        snapshot.active_depth > 0
+                        or self.local_count > 0
+                        or any(self.in_flight.values())
+                    ),
+                )
                 await self._fill_local_queues()
                 self._write_heartbeat(
                     "degraded" if self._last_consumer_error else "online",
@@ -715,8 +722,15 @@ class BoundedTaskQueueWorker:
         QUEUE_LOCAL_DEPTH.set(self.local_count)
         QUEUE_LOCAL_BYTES.set(self.local_bytes)
 
-    def _observe_rss_slope(self, rss_bytes: int) -> None:
+    def _observe_rss_slope(self, rss_bytes: int, *, busy: bool) -> None:
         observed_at = time.monotonic()
+        if busy:
+            self._rss_samples.clear()
+            self._rss_warmup_deadline = (
+                observed_at + self.config.rss_slope_warmup_seconds
+            )
+            QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE.set(0)
+            return
         if observed_at < self._rss_warmup_deadline:
             self._rss_samples.clear()
             QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE.set(0)

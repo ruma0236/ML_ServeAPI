@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections import deque
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -12,7 +13,7 @@ import pytest
 from fastapi import HTTPException
 
 from apps.api.control_panel_tasks import create_task, task_http
-from evm.control_panel import operations
+from evm.control_panel import operations, task_queue_worker
 from evm.control_panel.admission_queue import (
     canonical_json_bytes,
     canonical_payload_size,
@@ -109,11 +110,11 @@ def test_s2_profile_is_frozen_and_uses_canonical_utf8_bytes():
     active = load_admission_queue_config()
     payload = {"z": "한글", "a": 1}
 
-    assert active.profile_version == "s2-bounded-queue-v4-frozen-20260817"
+    assert active.profile_version == "s2-bounded-queue-v5-frozen-20260817"
     assert active.gpu_workers == 1
     assert active.lease_renew_interval_seconds < active.lease_seconds
     assert active.ingress_max_body_bytes <= active.max_item_bytes
-    assert active.retry_budget_scope == "s2-bounded-queue-v4"
+    assert active.retry_budget_scope == "s2-bounded-queue-v5"
     assert active.local_max_depth <= active.durable_max_depth
     assert active.rss_slope_warmup_seconds == 5.0
     assert active.rss_slope_window_seconds == 30.0
@@ -121,6 +122,25 @@ def test_s2_profile_is_frozen_and_uses_canonical_utf8_bytes():
     assert canonical_json_bytes(payload) == '{"a":1,"z":"한글"}'.encode("utf-8")
     assert canonical_payload_size(payload) == len(canonical_json_bytes(payload))
     assert len(active.sha256) == 64
+
+
+def test_worker_rss_slope_starts_a_fresh_idle_window_after_active_work(monkeypatch):
+    active = load_admission_queue_config()
+    worker = object.__new__(BoundedTaskQueueWorker)
+    worker.config = active
+    worker._rss_samples = deque([(1.0, 100)])
+    worker._rss_warmup_deadline = 0.0
+    observed = iter((10.0, 16.0))
+    monkeypatch.setattr(task_queue_worker.time, "monotonic", lambda: next(observed))
+
+    worker._observe_rss_slope(200, busy=True)
+
+    assert list(worker._rss_samples) == []
+    assert worker._rss_warmup_deadline == 15.0
+
+    worker._observe_rss_slope(220, busy=False)
+
+    assert list(worker._rss_samples) == [(16.0, 220)]
 
 
 def test_api_maps_item_size_and_capacity_to_distinct_contracts():
