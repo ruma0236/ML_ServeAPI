@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
+
 import pytest
 
 from fastapi.testclient import TestClient
@@ -62,14 +66,30 @@ def test_fixture_binds_cuda_probe_to_existing_gpu_profile(monkeypatch):
 
 
 def test_cuda_probe_runs_on_the_current_trusted_cuda_device():
-    torch = pytest.importorskip("torch")
-    if not torch.cuda.is_available():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json,torch\n"
+                "from evm.scale_validation.s2_airflow_fixture import _execute_cuda_probe\n"
+                "if not torch.cuda.is_available(): raise SystemExit(77)\n"
+                "print(json.dumps(_execute_cuda_probe('task-cuda-contract',20260816)))\n"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode == 77:
         pytest.skip("trusted CUDA device is unavailable")
+    assert result.returncode == 0, result.stderr
 
-    result = s2_airflow_fixture._execute_cuda_probe("task-cuda-contract", 20260816)
+    probe = json.loads(result.stdout.strip().splitlines()[-1])
 
-    assert result["backend"] == "cuda"
-    assert result["device_count"] >= 1
-    assert result["nonzero_activity"] is True
-    assert result["peak_allocated_bytes"] > 0
-    assert len(result["result_sha256"]) == 64
+    assert probe["backend"] == "cuda"
+    assert probe["device_count"] >= 1
+    assert probe["nonzero_activity"] is True
+    assert probe["peak_allocated_bytes"] > 0
+    assert len(probe["result_sha256"]) == 64
