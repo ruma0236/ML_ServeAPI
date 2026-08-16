@@ -903,6 +903,59 @@ def accepted_tasks(submission: Mapping[str, Any]) -> dict[str, str]:
     return accepted
 
 
+def retry_rejected_payloads(
+    *,
+    api_url: str,
+    payloads: Sequence[dict[str, Any]],
+    trace_seeds: Sequence[str],
+    initial_submission: Mapping[str, Any],
+    max_rounds: int,
+    concurrency: int,
+    retry_after_cap_seconds: int,
+) -> tuple[list[dict[str, Any]], set[int]]:
+    """Retry only bounded 429 admissions with their original idempotency identity."""
+    pending_indices = {
+        int(item["index"])
+        for item in initial_submission.get("results", [])
+        if int(item.get("status_code", 0)) == 429
+    }
+    retries: list[dict[str, Any]] = []
+    for _round in range(max_rounds):
+        if not pending_indices:
+            break
+        previous_results = [
+            item
+            for item in (
+                initial_submission.get("results", []) if not retries else retries[-1]["results"]
+            )
+            if int(item.get("original_index", item["index"])) in pending_indices
+        ]
+        retry_after_values = [
+            int(item["retry_after"])
+            for item in previous_results
+            if str(item.get("retry_after") or "").isdigit()
+        ]
+        if retry_after_values:
+            time.sleep(min(max(retry_after_values), retry_after_cap_seconds))
+
+        ordered_indices = sorted(pending_indices)
+        retry = submit_payloads(
+            api_url=api_url,
+            payloads=[payloads[index] for index in ordered_indices],
+            trace_seeds=[trace_seeds[index] for index in ordered_indices],
+            concurrency=min(concurrency, len(ordered_indices)),
+        )
+        for item in retry["results"]:
+            item["original_index"] = ordered_indices[int(item["index"])]
+        retries.append(retry)
+        pending_indices = {
+            int(item["original_index"])
+            for item in retry["results"]
+            if int(item.get("status_code", 0)) == 429
+        }
+    return retries, pending_indices
+
+
 def summarize_submission(submission: Mapping[str, Any]) -> dict[str, Any]:
     results = list(submission.get("results", []))
     retry_after = [
@@ -1941,7 +1994,19 @@ def run_profile_e(
             concurrency=min(int(spec["concurrency"]), batch_size),
         )
         submissions.append(submission)
+        retries, pending_indices = retry_rejected_payloads(
+            api_url=scope.api.base_url,
+            payloads=payloads[offset : offset + batch_size],
+            trace_seeds=traces[offset : offset + batch_size],
+            initial_submission=submission,
+            max_rounds=int(spec["rejected_retry_max_rounds"]),
+            concurrency=int(spec["rejected_retry_concurrency"]),
+            retry_after_cap_seconds=int(spec["retry_after_cap_seconds"]),
+        )
+        submissions.extend(retries)
         batch_accepted = accepted_tasks(submission)
+        for retry in retries:
+            batch_accepted.update(accepted_tasks(retry))
         accepted.update(batch_accepted)
         terminal_batch = wait_for_terminal(
             scope,
@@ -1950,7 +2015,7 @@ def run_profile_e(
             sample_interval=matrix.sample_interval_seconds,
         )
         terminals.append(terminal_batch)
-        if not terminal_batch["closed"]:
+        if pending_indices or not terminal_batch["closed"]:
             break
     terminal = merge_terminal_results(terminals, set(accepted))
     deadline = time.monotonic() + 15

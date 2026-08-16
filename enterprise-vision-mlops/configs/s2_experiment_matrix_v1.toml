@@ -1,5 +1,5 @@
 [matrix]
-version = "s2-external-matrix-v3-20260817"
+version = "s2-external-matrix-v4-20260817"
 status = "frozen-before-experiment"
 seed = 20260816
 repetitions = 3
@@ -48,6 +48,9 @@ request_count = 520
 concurrency = 32
 terminal_after_seconds = 0.05
 batch_size = 52
+rejected_retry_max_rounds = 3
+rejected_retry_concurrency = 1
+retry_after_cap_seconds = 2
 
 [profiles.F]
 name = "expiry-and-following-healthy"

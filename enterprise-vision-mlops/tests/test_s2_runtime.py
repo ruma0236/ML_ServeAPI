@@ -7,6 +7,7 @@ from evm.control_panel.admission_queue import (
     canonical_payload_size,
     load_admission_queue_config,
 )
+from evm.scale_validation import s2_runtime
 from evm.scale_validation.s2_runtime import (
     EXPECTED_PROFILE_IDS,
     FULL_TRACE_NAMES,
@@ -31,12 +32,13 @@ def test_s2_matrix_is_frozen_with_exact_a_to_j_profiles():
 
     assert tuple(sorted(matrix.profiles)) == EXPECTED_PROFILE_IDS
     assert matrix.repetitions == 3
-    assert matrix.version == "s2-external-matrix-v3-20260817"
+    assert matrix.version == "s2-external-matrix-v4-20260817"
     assert matrix.rss_slope_measurement_seconds == 30.0
     assert matrix.profiles["D"]["arrival_duration_seconds"] == 45.0
     assert matrix.profiles["D"]["request_count"] == 360
     assert matrix.profiles["E"]["request_count"] == 520
     assert matrix.profiles["E"]["batch_size"] == 52
+    assert matrix.profiles["E"]["rejected_retry_max_rounds"] == 3
     assert len(matrix.sha256) == 64
 
 
@@ -164,6 +166,50 @@ def test_submission_summary_preserves_integer_retry_after():
 
     assert summary["retry_after_values"] == [2]
     assert summary["transport_failures"] == 0
+
+
+def test_retry_rejected_payloads_reuses_original_identity(monkeypatch):
+    calls = []
+
+    def fake_submit_payloads(**kwargs):
+        calls.append(kwargs)
+        return {
+            "results": [
+                {
+                    "index": index,
+                    "status_code": 202,
+                    "body": {"task_id": f"task-{payload['idempotency_key']}"},
+                    "retry_after": None,
+                    "trace_id": f"trace-{index}",
+                }
+                for index, payload in enumerate(kwargs["payloads"])
+            ],
+            "peak_in_flight": 1,
+            "status_counts": {"202": len(kwargs["payloads"])},
+        }
+
+    monkeypatch.setattr(s2_runtime, "submit_payloads", fake_submit_payloads)
+    monkeypatch.setattr(s2_runtime.time, "sleep", lambda _seconds: None)
+    payloads = [{"idempotency_key": f"key-{index}"} for index in range(3)]
+    retries, pending = s2_runtime.retry_rejected_payloads(
+        api_url="http://runtime.invalid",
+        payloads=payloads,
+        trace_seeds=["a", "b", "c"],
+        initial_submission={
+            "results": [
+                {"index": 0, "status_code": 202, "retry_after": None},
+                {"index": 1, "status_code": 429, "retry_after": "2"},
+                {"index": 2, "status_code": 429, "retry_after": "2"},
+            ]
+        },
+        max_rounds=3,
+        concurrency=1,
+        retry_after_cap_seconds=2,
+    )
+
+    assert pending == set()
+    assert [item["idempotency_key"] for item in calls[0]["payloads"]] == ["key-1", "key-2"]
+    assert [item["original_index"] for item in retries[0]["results"]] == [1, 2]
 
 
 def test_trace_summary_requires_full_existing_runtime_chain(tmp_path):
