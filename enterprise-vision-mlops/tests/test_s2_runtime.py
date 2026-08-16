@@ -14,6 +14,7 @@ from evm.scale_validation.s2_runtime import (
     aggregate_acceptance,
     build_task_payload,
     payload_digest,
+    process_tree_rss_slope,
     progress_verdict,
     profile_payloads,
     summarize_submission,
@@ -32,6 +33,7 @@ def test_s2_matrix_is_frozen_with_exact_a_to_j_profiles():
     assert matrix.version == "s2-external-matrix-v2-20260817"
     assert matrix.rss_slope_measurement_seconds == 30.0
     assert matrix.profiles["D"]["arrival_duration_seconds"] == 30.0
+    assert matrix.profiles["D"]["request_count"] == 240
     assert len(matrix.sha256) == 64
 
 
@@ -70,6 +72,24 @@ def test_partial_profile_run_cannot_vacuously_pass_cross_profile_gates():
     assert readiness["RG-08-retry-dlq-backpressure-observed"] is False
     assert readiness["RG-09-real-worker-loss-recovery"] is False
     assert readiness["RG-10-trusted-cuda-bound-to-effect"] is False
+
+
+def test_process_tree_rss_slope_uses_declared_tail_window():
+    samples = [
+        {
+            "monotonic": float(index),
+            "api_rss": {"total": 1000 + index * 10},
+            "worker_rss": {"total": 2000 - index * 5},
+        }
+        for index in range(31)
+    ]
+
+    measured = process_tree_rss_slope(samples, window_seconds=30.0)
+
+    assert measured["measured"] is True
+    assert measured["window_seconds"] == 30.0
+    assert measured["api_bytes_per_minute"] == 600.0
+    assert measured["worker_bytes_per_minute"] == -300.0
 
 
 def test_large_byte_profile_stays_below_single_item_limit():

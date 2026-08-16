@@ -136,6 +136,9 @@ class BoundedTaskQueueWorker:
         self._parent_create_time = psutil.Process(os.getpid()).create_time()
         self._executor_processes: dict[int, asyncio.subprocess.Process] = {}
         self._rss_samples: deque[tuple[float, int]] = deque()
+        self._rss_warmup_deadline = (
+            time.monotonic() + config.rss_slope_warmup_seconds
+        )
         QUEUE_WORKER_CAPACITY.labels(resource_class="cpu").set(self.cpu_target)
         QUEUE_WORKER_CAPACITY.labels(resource_class="gpu").set(config.gpu_workers)
         QUEUE_WORKER_LIVE_CONSUMERS.labels(resource_class="cpu").set(0)
@@ -697,14 +700,22 @@ class BoundedTaskQueueWorker:
 
     def _observe_rss_slope(self, rss_bytes: int) -> None:
         observed_at = time.monotonic()
+        if observed_at < self._rss_warmup_deadline:
+            self._rss_samples.clear()
+            QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE.set(0)
+            return
         self._rss_samples.append((observed_at, rss_bytes))
-        while self._rss_samples and observed_at - self._rss_samples[0][0] > 60.0:
+        window = self.config.rss_slope_window_seconds
+        while self._rss_samples and observed_at - self._rss_samples[0][0] > window:
             self._rss_samples.popleft()
         if len(self._rss_samples) < 2:
             QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE.set(0)
             return
         elapsed = self._rss_samples[-1][0] - self._rss_samples[0][0]
         if elapsed <= 0:
+            return
+        if elapsed < window * 0.95:
+            QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE.set(0)
             return
         slope = (
             (self._rss_samples[-1][1] - self._rss_samples[0][1])
@@ -713,8 +724,7 @@ class BoundedTaskQueueWorker:
         )
         QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE.set(slope)
         if (
-            elapsed >= 30.0
-            and slope > self.config.rss_slope_tolerance_bytes_per_minute
+            slope > self.config.rss_slope_tolerance_bytes_per_minute
         ):
             raise RuntimeError(
                 "task queue process-tree RSS slope exceeded the frozen tolerance"

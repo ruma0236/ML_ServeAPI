@@ -182,6 +182,8 @@ class AdmissionQueueConfig:
     drain_timeout_seconds: float
     rss_cap_bytes: int
     rss_slope_tolerance_bytes_per_minute: int
+    rss_slope_warmup_seconds: float
+    rss_slope_window_seconds: float
     poll_interval_seconds: float
     metrics_port: int
     terminal_queue_max_rows: int
@@ -248,6 +250,8 @@ class AdmissionQueueConfig:
             rss_slope_tolerance_bytes_per_minute=int(
                 limits["rss_slope_tolerance_bytes_per_minute"]
             ),
+            rss_slope_warmup_seconds=float(limits["rss_slope_warmup_seconds"]),
+            rss_slope_window_seconds=float(limits["rss_slope_window_seconds"]),
             poll_interval_seconds=float(worker["poll_interval_seconds"]),
             metrics_port=int(worker["metrics_port"]),
             terminal_queue_max_rows=int(retention["terminal_queue_max_rows"]),
@@ -308,6 +312,7 @@ class AdmissionQueueConfig:
             "retry_budget_window_seconds": self.retry_budget_window_seconds,
             "drain_timeout_seconds": self.drain_timeout_seconds,
             "rss_cap_bytes": self.rss_cap_bytes,
+            "rss_slope_window_seconds": self.rss_slope_window_seconds,
             "poll_interval_seconds": self.poll_interval_seconds,
             "metrics_port": self.metrics_port,
             "terminal_queue_max_rows": self.terminal_queue_max_rows,
@@ -338,6 +343,10 @@ class AdmissionQueueConfig:
             raise ValueError("jitter_ratio must be between 0 and 1")
         if self.rss_slope_tolerance_bytes_per_minute < 0:
             raise ValueError("rss_slope_tolerance_bytes_per_minute cannot be negative")
+        if self.rss_slope_warmup_seconds < 0:
+            raise ValueError("rss_slope_warmup_seconds cannot be negative")
+        if self.rss_slope_window_seconds <= 0:
+            raise ValueError("rss_slope_window_seconds must be positive")
         if self.ingress_max_body_bytes > self.max_item_bytes:
             raise ValueError("ingress_max_body_bytes cannot exceed max_item_bytes")
         if self.ingress_max_body_bytes > self.ingress_max_inflight_bytes:
@@ -417,6 +426,8 @@ class AdmissionQueueConfig:
             "drain_timeout_seconds": self.drain_timeout_seconds,
             "rss_cap_bytes": self.rss_cap_bytes,
             "rss_slope_tolerance_bytes_per_minute": self.rss_slope_tolerance_bytes_per_minute,
+            "rss_slope_warmup_seconds": self.rss_slope_warmup_seconds,
+            "rss_slope_window_seconds": self.rss_slope_window_seconds,
             "poll_interval_seconds": self.poll_interval_seconds,
             "metrics_port": self.metrics_port,
             "terminal_queue_max_rows": self.terminal_queue_max_rows,

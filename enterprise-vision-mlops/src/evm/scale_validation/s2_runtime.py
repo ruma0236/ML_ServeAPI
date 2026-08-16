@@ -937,6 +937,60 @@ def collect_runtime_sample(scope: RuntimeScope) -> dict[str, Any]:
     }
 
 
+def process_tree_rss_slope(
+    samples: Sequence[Mapping[str, Any]],
+    *,
+    window_seconds: float,
+) -> dict[str, Any]:
+    if not samples:
+        return {"measured": False, "window_seconds": 0.0, "sample_count": 0}
+    end = float(samples[-1]["monotonic"])
+    selected = [
+        item
+        for item in samples
+        if end - float(item["monotonic"]) <= window_seconds
+    ]
+    if len(selected) < 2:
+        return {
+            "measured": False,
+            "window_seconds": 0.0,
+            "sample_count": len(selected),
+        }
+    start = float(selected[0]["monotonic"])
+    elapsed = end - start
+    if elapsed < window_seconds * 0.95:
+        return {
+            "measured": False,
+            "window_seconds": elapsed,
+            "sample_count": len(selected),
+        }
+    x_values = [float(item["monotonic"]) - start for item in selected]
+
+    def slope(key: str) -> float:
+        values = [
+            float(item[f"{key}_rss"]["total"])
+            for item in selected
+        ]
+        x_mean = sum(x_values) / len(x_values)
+        y_mean = sum(values) / len(values)
+        denominator = sum((value - x_mean) ** 2 for value in x_values)
+        if denominator <= 0:
+            return 0.0
+        per_second = sum(
+            (x_value - x_mean) * (y_value - y_mean)
+            for x_value, y_value in zip(x_values, values, strict=True)
+        ) / denominator
+        return per_second * 60.0
+
+    return {
+        "measured": True,
+        "window_seconds": elapsed,
+        "sample_count": len(selected),
+        "api_bytes_per_minute": slope("api"),
+        "worker_bytes_per_minute": slope("worker"),
+    }
+
+
 def wait_for_terminal(
     scope: RuntimeScope,
     accepted_ids: set[str],
@@ -1459,6 +1513,7 @@ def finalize_profile_scope(
             "idempotency": terminal.get("final", {}).get("idempotency", {}),
             "mirror": terminal.get("final", {}).get("mirror", {}),
         },
+        "profile_observations": dict(extra or {}),
         "assertions": all_assertions,
         "private_evidence_sha256": private_hash,
         "passed": passed,
@@ -1671,6 +1726,7 @@ def run_profile_d_variant(
     variant: str,
 ) -> dict[str, Any]:
     spec = matrix.profiles["D"]
+    active_config = AdmissionQueueConfig.from_path(scope.queue_config_path)
     profile_label = f"D-{variant}"
     payloads, traces = profile_payloads(
         profile_id=profile_label,
@@ -1738,6 +1794,43 @@ def run_profile_d_variant(
             int(terminal["peaks"].get("executor_children_rss_bytes", 0)),
             max(int(item["worker_rss"]["children"]) for item in sustained_samples),
         )
+    rss_slope = process_tree_rss_slope(
+        sustained_samples,
+        window_seconds=matrix.rss_slope_measurement_seconds,
+    )
+    status_counts = dict(submission["status_counts"])
+    retry_after = {
+        str(item.get("retry_after"))
+        for item in submission["results"]
+        if item.get("retry_after") is not None
+    }
+    if variant == "adaptive":
+        admission_assertion = assertion(
+            "D_adaptive_all_accepted",
+            status_counts == {"202": len(payloads)},
+            status_counts,
+        )
+    else:
+        admission_assertion = assertion(
+            "D_cpu1_backpressure_is_explicit",
+            int(status_counts.get("202", 0)) > 0
+            and int(status_counts.get("429", 0)) > 0
+            and retry_after == {str(active_config.retry_after_seconds)},
+            {"status_counts": status_counts, "retry_after": sorted(retry_after)},
+        )
+    rss_assertion = assertion(
+        f"D_{variant}_rss_slope_bounded",
+        bool(rss_slope.get("measured"))
+        and abs(float(rss_slope.get("api_bytes_per_minute", float("inf"))))
+        <= active_config.rss_slope_tolerance_bytes_per_minute
+        and abs(float(rss_slope.get("worker_bytes_per_minute", float("inf"))))
+        <= active_config.rss_slope_tolerance_bytes_per_minute,
+        rss_slope,
+    )
+    total_window = (
+        float(submission["observed_arrival_window_seconds"])
+        + float(terminal["elapsed_seconds"])
+    )
     return {
         "submissions": [submission],
         "accepted": accepted,
@@ -1745,13 +1838,7 @@ def run_profile_d_variant(
         "trace_expected": accepted,
         "effect_expected": set(accepted),
         "no_effect_expected": set(),
-        "assertions": [
-            assertion(
-                f"D_{variant}_all_accepted",
-                submission["status_counts"] == {"202": len(payloads)},
-                submission["status_counts"],
-            )
-        ],
+        "assertions": [admission_assertion, rss_assertion],
         "input_sequence_sha256": payload_digest(payloads),
         "variant": variant,
         "extra": {
@@ -1761,6 +1848,10 @@ def run_profile_d_variant(
                 "observed_arrival_window_seconds"
             ],
             "sustained_sample_count": len(sustained_samples),
+            "rss_slope": rss_slope,
+            "accepted_completion_throughput_per_second": (
+                len(accepted) / total_window if total_window > 0 else 0.0
+            ),
         },
     }
 
@@ -2475,20 +2566,45 @@ def run_profile_d(
         trace_path=trace_path,
         variant="cpu1",
     )
-    adaptive_elapsed = float(adaptive.get("terminal", {}).get("elapsed_seconds", 0))
-    cpu1_elapsed = float(cpu1.get("terminal", {}).get("elapsed_seconds", 0))
-    adaptive_capacity = float(adaptive.get("metrics", {}).get("cpu_capacity", 0))
-    cpu1_capacity = float(cpu1.get("metrics", {}).get("cpu_capacity", 0))
+    adaptive_scale_up = float(adaptive.get("metrics", {}).get("cpu_scale", {}).get("up", 0))
+    cpu1_scale_up = float(cpu1.get("metrics", {}).get("cpu_scale", {}).get("up", 0))
+    adaptive_runtime_concurrency = int(
+        adaptive.get("external_effects", {}).get("max_runtime_concurrency", {}).get("cpu", 0)
+    )
+    cpu1_runtime_concurrency = int(
+        cpu1.get("external_effects", {}).get("max_runtime_concurrency", {}).get("cpu", 0)
+    )
+    adaptive_throughput = float(
+        adaptive.get("profile_observations", {}).get(
+            "accepted_completion_throughput_per_second", 0
+        )
+    )
+    cpu1_throughput = float(
+        cpu1.get("profile_observations", {}).get(
+            "accepted_completion_throughput_per_second", 0
+        )
+    )
     assertions = [
         assertion(
             "D_adaptive_cpu_scaled_non_vacuously",
-            adaptive_capacity >= 2 and cpu1_capacity == 1,
-            {"adaptive_capacity": adaptive_capacity, "cpu1_capacity": cpu1_capacity},
+            adaptive_scale_up >= 1
+            and cpu1_scale_up == 0
+            and adaptive_runtime_concurrency > 1
+            and cpu1_runtime_concurrency == 1,
+            {
+                "adaptive_scale_up_events": adaptive_scale_up,
+                "cpu1_scale_up_events": cpu1_scale_up,
+                "adaptive_runtime_concurrency": adaptive_runtime_concurrency,
+                "cpu1_runtime_concurrency": cpu1_runtime_concurrency,
+            },
         ),
         assertion(
             "D_adaptive_throughput_exceeds_cpu1",
-            adaptive_elapsed > 0 and cpu1_elapsed > adaptive_elapsed,
-            {"adaptive_elapsed": adaptive_elapsed, "cpu1_elapsed": cpu1_elapsed},
+            adaptive_throughput > cpu1_throughput > 0,
+            {
+                "adaptive_accepted_throughput": adaptive_throughput,
+                "cpu1_accepted_throughput": cpu1_throughput,
+            },
         ),
     ]
     return {
@@ -2614,8 +2730,7 @@ def aggregate_acceptance(
     exact_matrix = all(counts[profile_id] == 3 for profile_id in EXPECTED_PROFILE_IDS)
     d_entries = [item for item in flattened if item.get("profile_id") == "D"]
     slope_bounded = len(d_entries) == 6 and all(
-        abs(float(item.get("metrics", {}).get("rss_slope_bytes_per_minute", 0)))
-        <= queue_config.rss_slope_tolerance_bytes_per_minute
+        find_assertion(item, f"D_{item.get('variant')}_rss_slope_bounded")
         for item in d_entries
     )
     executor_entries = [
