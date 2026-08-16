@@ -1,6 +1,10 @@
 # S2 Bounded Queue Implementation Checkpoint
 
-Status: `implementing`
+Status: historical `implementing` checkpoint; superseded by the verified S2
+closure recorded in
+`docs/status/2026-08-15-distributed-scale-scenario-progress.md`,
+`docs/status/evidence/s2-bounded-queue-experiment.json`, and
+`docs/status/evidence/s2-bounded-queue-closure.json` on 2026-08-17 KST.
 
 This checkpoint strengthens the existing ML Serve task path in place. It is not
 an S2 benchmark, overload pass, availability claim, or production proof.

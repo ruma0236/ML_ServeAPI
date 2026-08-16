@@ -1,0 +1,75 @@
+{
+  "schema_version": "evm.s2_bounded_queue_closure.v1",
+  "generated_at": "2026-08-16T18:51:40.120338Z",
+  "source_identity": {
+    "implementation_revision": "31ee37c4528ff275bbce3199699dbedca980747c",
+    "branch": "codex/distributed-scale-validation-plan"
+  },
+  "final_runtime_evidence": {
+    "path": "docs/status/evidence/s2-bounded-queue-experiment.json",
+    "sha256": "6fa6e0dbc69347e88be94442c192826a609faad61fb49592fe65631c388d2357",
+    "matrix_version": "s2-external-matrix-v6-20260817",
+    "profile_results": 30,
+    "profiles": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "G",
+      "H",
+      "I",
+      "J"
+    ],
+    "repetitions_per_profile": 3,
+    "acceptance": {
+      "S2-AC-01": true,
+      "S2-AC-02": true,
+      "S2-AC-03": true,
+      "S2-AC-04": true
+    },
+    "readiness_gates_passed": 11,
+    "readiness_gates_total": 11,
+    "runtime_verdict": "passed",
+    "private_artifact_count": 402,
+    "private_aggregate_sha256": "aa018eb7b09a0ff2c116612d4f974d502f22f08217524feebfedb9fb8616dc65"
+  },
+  "regression": {
+    "focused_real_postgresql_tests": 42,
+    "full_python_tests": 681,
+    "control_panel_tests": 59,
+    "control_panel_production_build": "passed",
+    "s0_s1_git_blob_start_gate": "passed"
+  },
+  "failed_attempts_and_rca": [
+    {
+      "implementation_revision": "f4a9a3cc6b85a8da41a41dc9456fe4c527aa846c",
+      "observed": "All 30 profile runs passed, but S2-AC-01 failed because the external sampler missed short-lived executor child RSS in three byte-burst repetitions.",
+      "root_cause": "Executor RSS was sampled only from instantaneous OS process-tree snapshots after short executor processes had already exited.",
+      "remediation": "The queue worker now retains aggregate executor process-tree peak RSS in Prometheus and its heartbeat; the evidence runner merges that retained peak with instantaneous samples.",
+      "private_artifact_count": 402,
+      "private_aggregate_sha256": "eda454e6446685fab61582629a96e2e04d6a98eb89e4d7709bf967955b6ad6a0",
+      "cleanup_verified": true
+    },
+    {
+      "implementation_revision": "921a8cc61b8473392e1e29f681c4756be8fc64a2",
+      "observed": "A through C and the adaptive half of D passed; the CPU-one D worker exited and the suite stopped before E through J.",
+      "root_cause": "A transient Windows reader lock caused atomic heartbeat replacement to raise WinError 5, which terminated the worker and removed its Prometheus target.",
+      "remediation": "Heartbeat replacement now uses a short bounded retry and still fails closed if all attempts are exhausted.",
+      "private_artifact_count": 139,
+      "private_aggregate_sha256": "0085bf4ff8ac965f09263c500b8e4e0ed8f4be1f6908293ab77cd4ae66392d03",
+      "cleanup_verified": true
+    }
+  ],
+  "cleanup": {
+    "all_final_profile_and_variant_cleanup_assertions_passed": true,
+    "active_queue_after_each_scope": 0,
+    "marker_processes_remaining_after_each_scope": 0,
+    "isolated_schemas_dropped": true,
+    "production_serving_mutated": false,
+    "customer_traffic_used": false
+  },
+  "verdict": "passed",
+  "claim_boundary": "Controlled external HTTP, PostgreSQL, process, Prometheus, OTLP, and one-GPU evidence on one local physical node. No customer traffic, production SLA, physical-node HA, DR, or multi-GPU claim. S2 verification does not imply S3 or final S0-S8 system verification."
+}

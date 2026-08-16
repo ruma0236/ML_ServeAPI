@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-16T14:38:09Z`
+- Generated: `2026-08-16T18:51:40.120338Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -198,16 +198,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S2: Bounded Queue & Backpressure
 
-- Status: `implementing`
+- Status: `verified`
 - Engineering question: Does overload stay memory-bounded while accepted work reaches an explicit outcome?
 - Why now: A bounded queue is required before capacity and recovery experiments scale up.
 - Observed gap: Durable admission, byte/age bounds, retry budget, and DLQ are incomplete.
 - Existing-system baseline: The existing task API wrote assignments to the operations ledger and required explicit dispatch, while the separate lifecycle worker exclusively processed LifecycleRun state. Task admission had no shared depth, byte, age, retry-budget, or poison-work boundary and no dedicated task consumer.
 - Architecture before: Admission and retries do not share one end-to-end resource boundary.
 - Architecture after: Durable queue, local semaphore, rejection, retry, DLQ, and CPU scale are bounded.
-- Verdict: `not_run`
+- Verdict: `passed`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Freeze and execute three independent runs of every S2 profile through external TCP/HTTP, real PostgreSQL, the real queue-worker process, Prometheus, restart recovery, and GPU max-in-flight validation; then run full S0/S1/lifecycle regressions and canonical evidence closure.
+- Next action: Keep S2 as the regression boundary. Do not start S3 in this work unit.
 
 ### Affected Existing Components
 
@@ -234,8 +234,8 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 - Durable admission and task state: `src/evm/control_panel/admission_queue.py`, `src/evm/control_panel/transactional_store.py`, `src/evm/control_panel/operations.py`, `apps/api/control_panel_tasks.py`, `apps/api/task_ingress.py`, `apps/api/main.py`
 - Dedicated bounded task worker: `src/evm/control_panel/task_queue_worker.py`, `src/evm/control_panel/task_queue_executor.py`, `src/evm/scale_validation/s2_airflow_fixture.py`
-- Frozen runtime, migration, and telemetry: `configs/s2_bounded_queue_v1.toml`, `configs/s2_bounded_queue_cpu1_control.toml`, `infra/postgres/control-plane/002_bounded_admission_queue.sql`, `infra/postgres/control-plane/003_task_queue_safety.sql`, `infra/postgres/control-plane/004_task_entity_storage.sql`, `infra/postgres/control-plane/005_task_queue_operational_safety.sql`, `docker-compose.yml`, `monitoring/prometheus/prometheus.yml`
-- Focused verification: `contracts/control-panel/control-panel.openapi.json`, `tests/test_bounded_task_queue.py`, `tests/test_task_ingress.py`, `tests/test_task_queue_process_safety.py`, `tests/test_control_panel_contract.py`, `tests/test_s2_airflow_fixture.py`
+- Frozen runtime, migration, and telemetry: `configs/s2_bounded_queue_v1.toml`, `configs/s2_bounded_queue_cpu1_control.toml`, `infra/postgres/control-plane/002_bounded_admission_queue.sql`, `infra/postgres/control-plane/003_task_queue_safety.sql`, `infra/postgres/control-plane/004_task_entity_storage.sql`, `infra/postgres/control-plane/005_task_queue_operational_safety.sql`, `docker-compose.yml`, `monitoring/prometheus/prometheus.yml`, `configs/s2_experiment_matrix_v1.toml`
+- Focused verification: `contracts/control-panel/control-panel.openapi.json`, `tests/test_bounded_task_queue.py`, `tests/test_task_ingress.py`, `tests/test_task_queue_process_safety.py`, `tests/test_control_panel_contract.py`, `tests/test_s2_airflow_fixture.py`, `src/evm/scale_validation/s2_runtime.py`, `scripts/validation/run_s2_bounded_queue_experiment.py`, `scripts/dev/close_s2_scale_validation.py`, `tests/test_s2_runtime.py`
 - Compatibility: Existing task payload and lifecycle state-machine contracts must remain valid.
 - Migration: The 002 migration adds the durable queue and retry budget to the dedicated control-plane schema without modifying Airflow or MLflow databases.
 - Migration: The 003 and 004 migrations add lease-safe execution, row-level task entities, and bounded terminal-history rollups; the JSON collection remains a bounded rollback mirror.
@@ -254,14 +254,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S2-AC-01` [pending]: Queue depth, in-flight bytes, and process memory remain bounded under overload.
-- `S2-AC-02` [pending]: Accepted work completes or reaches one explicit terminal failure.
-- `S2-AC-03` [pending]: Duplicate effects are zero and poison work does not block healthy work.
-- `S2-AC-04` [pending]: Over-capacity demand is rejected with an observable retry contract.
+- `S2-AC-01` [passed]: Queue depth, in-flight bytes, and process memory remain bounded under overload.
+- `S2-AC-02` [passed]: Accepted work completes or reaches one explicit terminal failure.
+- `S2-AC-03` [passed]: Duplicate effects are zero and poison work does not block healthy work.
+- `S2-AC-04` [passed]: Over-capacity demand is rejected with an observable retry contract.
 
 ### Current Evidence
 
 - `docs/status/evidence/s2-operational-safety-checkpoint.json` (`1b9316b397662b0ade60861a7d1b77b2a32cc62082cf99561bf5d307dc5c6faf`): At revision 5de1c41, in-place S2 operational-safety code and regressions passed; all external workload and S2 acceptance evidence remains pending.
+- `docs/status/evidence/s2-bounded-queue-experiment.json` (`6fa6e0dbc69347e88be94442c192826a609faad61fb49592fe65631c388d2357`): Thirty independent A-J profile repetitions passed the frozen external HTTP, PostgreSQL, worker, Prometheus, OTLP, recovery, and one-GPU contract.
+- `docs/status/evidence/s2-bounded-queue-closure.json` (`6c71f1ea9699ff776b5ead7038fdbb02a7922d9c056a5c5f89da93be30a152d6`): S2 closure records regressions, two retained failed attempts with RCA, cleanup, residual limits, and the accepted claim boundary.
 
 ### Chronological Updates
 
@@ -269,6 +271,9 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-15T15:47:07.929559Z` `implementation` / `implementing`: Durable bounded admission, distinct 413/429 responses, a dedicated queue worker with a killable child-process timeout boundary, retry/DLQ policy, frozen configuration, Compose startup and Prometheus scrape wiring passed 39 focused tests and an isolated real-PostgreSQL API-worker checkpoint. No acceptance criterion is credited before the full external workload matrix.
 - `2026-08-15T17:05:42.248111Z` `implementation` / `implementing`: Durable dispatch no longer holds the global operations-ledger lock across Airflow HTTP, task state is row-addressable, and terminal queue/effect/task history is compacted into fixed-cardinality rollups with a bounded JSON mirror. Fifty-eight focused tests passed, including two concurrent real-PostgreSQL dispatches, retained-versus-compacted history accounting, and progress/evidence contract validation. External throughput, process-tree memory, three-repeat workload, and all S2 acceptance criteria remain pending.
 - `2026-08-16T14:38:09Z` `implementation` / `implementing`: Revision 5de1c41 closes audited ingress, tombstone, deadline, lease/effect fencing, fair polling, outcome-unknown, cutover, mirror parity, process-tree RSS, executor cleanup, consumer supervision, CPU scaling, and GPU downstream-bound gaps. Thirty-eight focused, 661 full Python, and 59 Control Panel tests plus build and Compose validation passed. A-J external experiments and all S2 ACs remain pending.
+- `2026-08-16T17:38:16.247374Z` `experiment` / `implementing`: The first complete 30-profile suite preserved all passing profile assertions but failed S2-AC-01 because instantaneous sampling missed three short-lived executor process trees. The failure and cleanup were retained; no acceptance credit was awarded.
+- `2026-08-16T17:55:36.258827Z` `recovery` / `implementing`: After retained executor RSS was added, a transient Windows heartbeat replace lock terminated the D CPU-one worker. The suite stopped before E-J, cleanup passed, and bounded heartbeat replacement retry was added.
+- `2026-08-16T18:51:40.120338Z` `verification` / `verified`: At 31ee37c, the fresh A-J matrix passed 30 of 30 profile repetitions, S2-AC-01 through S2-AC-04, all 11 readiness gates, 42 focused real-PostgreSQL tests, 681 full Python tests, 59 Control Panel tests, and the production frontend build. Canonical public evidence and the two failed-attempt RCAs are hash-linked.
 
 ## S3: HIGGS Lightweight Capacity Envelope
 
