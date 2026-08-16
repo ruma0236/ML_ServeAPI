@@ -170,6 +170,41 @@ def test_real_postgres_admission_replay_does_not_consume_capacity_or_reserve_rej
     assert len(store.list_task_queue_items()) == 1
 
 
+def test_real_postgres_task_collection_stays_atomic_during_concurrent_admission(
+    store: TransactionalControlPlaneStore,
+):
+    active = config(
+        durable_max_depth=32,
+        durable_max_bytes=2_000_000,
+        admission_wait_seconds=1.0,
+    )
+    failures: list[BaseException] = []
+
+    def submit(index: int) -> None:
+        try:
+            admit(store, f"task-mirror-race-{index}", active_config=active)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            failures.append(exc)
+
+    threads = [threading.Thread(target=submit, args=(index,)) for index in range(16)]
+    for thread in threads:
+        thread.start()
+
+    observed = []
+    while any(thread.is_alive() for thread in threads):
+        observed.append(store.task_mirror_parity())
+        time.sleep(0.005)
+    for thread in threads:
+        thread.join(timeout=2)
+
+    observed.append(store.task_mirror_parity())
+    assert failures == []
+    assert observed
+    assert all(item["matches"] for item in observed)
+    assert observed[-1]["authority_count"] == 16
+    assert observed[-1]["mirror_count"] == 16
+
+
 def test_real_postgres_oversized_item_is_not_persisted(store: TransactionalControlPlaneStore):
     payload = task_payload("task-large", fill="x" * 256)
     size = canonical_payload_size(payload)

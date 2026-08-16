@@ -711,11 +711,17 @@ def _record_queued_dispatch_failure(task_id: str, exc: TaskDispatchError) -> Non
 
 
 def sync_task_json_mirror_from_store() -> None:
-    tasks = read_tasks()
-    payload = [task.model_dump(mode="json") for task in tasks.tasks]
     store = get_transactional_store()
     if store.enabled:
-        store.replace_task_mirror(payload)
+        payload = store.read_collection("task_assignments")
+        if payload is None:
+            store.refresh_task_mirror_from_authority()
+            payload = store.read_collection("task_assignments") or []
+        tasks = TaskAssignmentList(
+            tasks=[TaskAssignment.model_validate(item) for item in payload]
+        )
+    else:
+        tasks = read_tasks()
     with _LEDGER_LOCK:
         with ledger_file_lock(filename=".task-mirror.lock"):
             write_task_json_mirror(tasks)

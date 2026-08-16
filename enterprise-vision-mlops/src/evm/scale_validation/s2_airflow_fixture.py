@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
 from collections import Counter
 from threading import Lock
@@ -26,6 +27,10 @@ _TASK_EFFECTS: dict[str, set[tuple[str, str]]] = {}
 _TRACE_CONTEXT_TASKS: set[str] = set()
 _MISSING_TRACE_CONTEXT_TASKS: set[str] = set()
 _MAX_RUNTIME_CONCURRENCY: Counter[str] = Counter()
+_EXTERNAL_IN_FLIGHT: Counter[str] = Counter()
+_MAX_EXTERNAL_IN_FLIGHT: Counter[str] = Counter()
+_CUDA_PROBES: dict[str, dict[str, Any]] = {}
+_CUDA_FAILURES: dict[str, str] = {}
 
 
 @app.get("/health")
@@ -50,14 +55,48 @@ async def create_dag_run(dag_id: str, request: DagRunRequest) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="deterministic transient failure")
     if mode == "always_transient":
         raise HTTPException(status_code=503, detail="deterministic persistent transient failure")
-    delay_seconds = float(request.conf.get("s2_delay_seconds", 0.0) or 0.0)
-    if mode == "timeout_once" and attempt == 1:
-        await asyncio.sleep(delay_seconds)
-        raise HTTPException(status_code=503, detail="deterministic delayed transient failure")
-    if mode == "timeout_once":
-        delay_seconds = 0.0
-    if delay_seconds > 0:
-        await asyncio.sleep(delay_seconds)
+    resource_class = _resource_class({"conf": request.conf})
+    task_identity = str(request.conf.get("control_panel_task_id") or "unknown")
+    with _LOCK:
+        _EXTERNAL_IN_FLIGHT[resource_class] += 1
+        _MAX_EXTERNAL_IN_FLIGHT[resource_class] = max(
+            _MAX_EXTERNAL_IN_FLIGHT[resource_class],
+            _EXTERNAL_IN_FLIGHT[resource_class],
+        )
+    try:
+        delay_seconds = float(request.conf.get("s2_delay_seconds", 0.0) or 0.0)
+        if mode == "timeout_once" and attempt == 1:
+            await asyncio.sleep(delay_seconds)
+            raise HTTPException(
+                status_code=503,
+                detail="deterministic delayed transient failure",
+            )
+        if mode == "timeout_once":
+            delay_seconds = 0.0
+        if delay_seconds > 0:
+            await asyncio.sleep(delay_seconds)
+        if bool(request.conf.get("s2_cuda_probe", False)):
+            try:
+                probe = await asyncio.to_thread(
+                    _execute_cuda_probe,
+                    task_identity,
+                    int(request.conf.get("s2_cuda_seed", 0) or 0),
+                )
+            except Exception as exc:
+                with _LOCK:
+                    _CUDA_FAILURES[task_identity] = type(exc).__name__
+                raise HTTPException(
+                    status_code=503,
+                    detail="trusted CUDA probe failed",
+                ) from exc
+            with _LOCK:
+                _CUDA_PROBES[task_identity] = probe
+    finally:
+        with _LOCK:
+            _EXTERNAL_IN_FLIGHT[resource_class] = max(
+                0,
+                _EXTERNAL_IN_FLIGHT[resource_class] - 1,
+            )
 
     payload = {
         "dag_id": dag_id,
@@ -75,7 +114,6 @@ async def create_dag_run(dag_id: str, request: DagRunRequest) -> dict[str, Any]:
         _refresh_locked()
         _RUNS[key] = payload
         _UNIQUE_EFFECTS[key] += 1
-        task_identity = str(request.conf.get("control_panel_task_id") or "unknown")
         _TASK_EFFECTS.setdefault(task_identity, set()).add(key)
         if request.conf.get("trace_id") and request.conf.get("traceparent"):
             _TRACE_CONTEXT_TASKS.add(task_identity)
@@ -106,6 +144,33 @@ def _current_run(key: tuple[str, str]) -> dict[str, Any]:
 def _resource_class(payload: dict[str, Any]) -> str:
     profile = str(payload.get("conf", {}).get("resource_profile", "")).lower()
     return "gpu" if any(marker in profile for marker in ("gpu", "cuda", "rtx")) else "cpu"
+
+
+def _execute_cuda_probe(task_identity: str, seed: int) -> dict[str, Any]:
+    """Run a small deterministic CUDA operation bound to the logical task identity."""
+    import torch
+
+    if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
+        raise RuntimeError("cuda_unavailable")
+    effective_seed = seed ^ int(
+        hashlib.sha256(task_identity.encode("utf-8")).hexdigest()[:8],
+        16,
+    )
+    torch.manual_seed(effective_seed)
+    torch.cuda.manual_seed_all(effective_seed)
+    torch.cuda.reset_peak_memory_stats(0)
+    left = torch.arange(128 * 128, dtype=torch.float32, device="cuda").reshape(128, 128)
+    right = torch.eye(128, dtype=torch.float32, device="cuda")
+    result = left @ right
+    torch.cuda.synchronize(0)
+    digest = hashlib.sha256(result.cpu().numpy().tobytes()).hexdigest()
+    return {
+        "backend": "cuda",
+        "device_count": int(torch.cuda.device_count()),
+        "result_sha256": digest,
+        "peak_allocated_bytes": int(torch.cuda.max_memory_allocated(0)),
+        "nonzero_activity": bool(result.numel() and torch.cuda.max_memory_allocated(0) > 0),
+    }
 
 
 def _refresh_locked() -> None:
@@ -149,6 +214,9 @@ def evidence() -> dict[str, Any]:
         trace_context_tasks = len(_TRACE_CONTEXT_TASKS)
         missing_trace_context_tasks = len(_MISSING_TRACE_CONTEXT_TASKS)
         max_runtime_concurrency = dict(_MAX_RUNTIME_CONCURRENCY)
+        max_external_in_flight = dict(_MAX_EXTERNAL_IN_FLIGHT)
+        cuda_probes = dict(_CUDA_PROBES)
+        cuda_failures = dict(_CUDA_FAILURES)
     return {
         "schema_version": "evm.s2_airflow_fixture_evidence.v1",
         "attempts": attempts,
@@ -160,6 +228,21 @@ def evidence() -> dict[str, Any]:
         "trace_context_tasks": trace_context_tasks,
         "missing_trace_context_tasks": missing_trace_context_tasks,
         "max_runtime_concurrency": max_runtime_concurrency,
+        "max_external_in_flight": max_external_in_flight,
+        "cuda_probe_count": len(cuda_probes),
+        "cuda_failure_count": len(cuda_failures),
+        "cuda_nonzero_activity_count": sum(
+            1 for item in cuda_probes.values() if item.get("nonzero_activity")
+        ),
+        "cuda_result_digests": sorted(
+            str(item["result_sha256"])
+            for item in cuda_probes.values()
+            if item.get("result_sha256")
+        ),
+        "cuda_peak_allocated_bytes": max(
+            [int(item.get("peak_allocated_bytes", 0)) for item in cuda_probes.values()],
+            default=0,
+        ),
     }
 
 
@@ -175,4 +258,8 @@ def reset() -> dict[str, int]:
         _TRACE_CONTEXT_TASKS.clear()
         _MISSING_TRACE_CONTEXT_TASKS.clear()
         _MAX_RUNTIME_CONCURRENCY.clear()
+        _EXTERNAL_IN_FLIGHT.clear()
+        _MAX_EXTERNAL_IN_FLIGHT.clear()
+        _CUDA_PROBES.clear()
+        _CUDA_FAILURES.clear()
     return {"runs": 0, "attempts": 0}

@@ -616,7 +616,6 @@ class BoundedTaskQueueWorker:
             count = int(compacted.get(f"{history_class}_rows", 0))
             if count:
                 QUEUE_COMPACTIONS.labels(history_class=history_class).inc(count)
-        await asyncio.to_thread(sync_task_json_mirror_from_store)
         history = await asyncio.to_thread(self.store.task_queue_history_snapshot)
         QUEUE_HISTORY_ROWS.labels(history_class="queue").set(history.queue_rows)
         QUEUE_HISTORY_BYTES.labels(history_class="queue").set(history.queue_bytes)
@@ -639,9 +638,19 @@ class BoundedTaskQueueWorker:
             QUEUE_HISTORY_BYTES.labels(history_class=f"{history_class}_compacted").set(
                 history.compacted_bytes.get(history_class, 0)
             )
-        parity = await asyncio.to_thread(verify_task_json_mirror_parity)
-        if not parity["matches"]:
-            raise ControlPlaneStoreError("PostgreSQL and JSON rollback mirror diverged")
+        snapshot = await asyncio.to_thread(self.store.task_queue_snapshot)
+        stable = (
+            snapshot.active_depth == 0
+            and self.local_count == 0
+            and sum(self.in_flight.values()) == 0
+        )
+        if stable:
+            await asyncio.to_thread(sync_task_json_mirror_from_store)
+            parity = await asyncio.to_thread(verify_task_json_mirror_parity)
+            if not parity["matches"]:
+                raise ControlPlaneStoreError(
+                    "PostgreSQL and JSON rollback mirror diverged after queue drain"
+                )
 
     def _adjust_cpu_target(self, durable_depth: int) -> None:
         previous = self.cpu_target

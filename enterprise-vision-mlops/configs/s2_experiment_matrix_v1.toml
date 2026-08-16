@@ -1,0 +1,78 @@
+[matrix]
+version = "s2-external-matrix-v1-20260816"
+status = "frozen-before-experiment"
+seed = 20260816
+repetitions = 3
+warmup_seconds = 1.0
+sample_interval_seconds = 0.10
+drain_timeout_seconds = 90.0
+trace_flush_seconds = 3.0
+prometheus_scrape_interval_seconds = 1.0
+
+[profiles.A]
+name = "healthy-baseline"
+request_count = 12
+concurrency = 12
+terminal_after_seconds = 0.10
+
+[profiles.B]
+name = "depth-burst"
+request_count = 96
+concurrency = 32
+dispatch_delay_seconds = 0.20
+terminal_after_seconds = 0.10
+
+[profiles.C]
+name = "byte-burst-and-item-limit"
+request_count = 12
+concurrency = 12
+padding_chunks = 60
+padding_chunk_bytes = 2000
+oversized_request_count = 1
+dispatch_delay_seconds = 0.20
+terminal_after_seconds = 0.10
+
+[profiles.D]
+name = "sustained-overload-and-cpu1-control"
+request_count = 32
+concurrency = 32
+arrival_rate_per_second = 8.0
+arrival_duration_seconds = 4.0
+dispatch_delay_seconds = 0.20
+terminal_after_seconds = 0.50
+
+[profiles.E]
+name = "idempotency-compaction-restart-replay"
+request_count = 70
+concurrency = 32
+terminal_after_seconds = 0.05
+
+[profiles.F]
+name = "expiry-and-following-healthy"
+request_count = 2
+concurrency = 1
+
+[profiles.G]
+name = "retry-budget-and-backoff"
+transient_request_count = 20
+healthy_request_count = 2
+concurrency = 16
+
+[profiles.H]
+name = "poison-dlq-and-healthy-hol"
+poison_request_count = 4
+healthy_request_count = 12
+concurrency = 16
+
+[profiles.I]
+name = "timeout-and-real-worker-restart"
+worker_loss_delay_seconds = 5.0
+timeout_delay_seconds = 12.0
+healthy_request_count = 1
+concurrency = 2
+
+[profiles.J]
+name = "trusted-cuda-gpu-bound"
+request_count = 3
+concurrency = 3
+terminal_after_seconds = 0.20

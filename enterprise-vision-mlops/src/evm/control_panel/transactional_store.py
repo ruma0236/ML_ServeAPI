@@ -17,7 +17,6 @@ from prometheus_client import Counter, Histogram
 from evm.control_panel.admission_queue import (
     ACTIVE_QUEUE_STATES,
     QUEUE_ADMISSION_WAIT_SECONDS,
-    TERMINAL_QUEUE_STATES,
     AdmissionQueueConfig,
     canonical_payload_size,
     task_resource_class,
@@ -544,6 +543,11 @@ class TransactionalControlPlaneStore:
         """Refresh the bounded rollback mirror without making it authoritative."""
         return self.write_collection("task_assignments", payload)
 
+    def refresh_task_mirror_from_authority(self) -> int:
+        """Refresh the PostgreSQL rollback mirror in one database transaction."""
+        with self.transaction("task-mirror-refresh") as connection:
+            return self._refresh_task_collection_locked(connection)
+
     def replace_task_entities(self, payload: list[Mapping[str, Any]]) -> None:
         """Compatibility path for legacy bulk task mutations.
 
@@ -569,17 +573,7 @@ class TransactionalControlPlaneStore:
                     """,
                     (task_id, version, state, self._json(item)),
                 )
-            connection.execute(
-                f"""
-                INSERT INTO {schema}.collections(collection_name, version, payload)
-                VALUES ('task_assignments', 1, %s)
-                ON CONFLICT (collection_name) DO UPDATE
-                SET version={schema}.collections.version + 1,
-                    payload=EXCLUDED.payload,
-                    updated_at=clock_timestamp()
-                """,
-                (self._json(payload),),
-            )
+            self._refresh_task_collection_locked(connection)
 
     def insert_entity(
         self,
@@ -601,6 +595,8 @@ class TransactionalControlPlaneStore:
                     """,
                     (entity_kind, entity_id, version, state, self._json(payload)),
                 )
+                if entity_kind == "task_assignment":
+                    self._refresh_task_collection_locked(connection)
             except Exception as exc:
                 if getattr(exc, "sqlstate", None) == "23505":
                     raise ControlPlaneVersionConflict(
@@ -631,6 +627,8 @@ class TransactionalControlPlaneStore:
                     raise ControlPlaneParityError(
                         f"import parity mismatch for {entity_kind}/{entity_id}"
                     )
+                if entity_kind == "task_assignment":
+                    self._refresh_task_collection_locked(connection)
                 return "unchanged"
             connection.execute(
                 f"""
@@ -640,6 +638,8 @@ class TransactionalControlPlaneStore:
                 """,
                 (entity_kind, entity_id, version, state, self._json(payload)),
             )
+            if entity_kind == "task_assignment":
+                self._refresh_task_collection_locked(connection)
             return "imported"
 
     def mutate_entity(
@@ -715,6 +715,8 @@ class TransactionalControlPlaneStore:
                 raise ControlPlaneVersionConflict(
                     f"concurrent version conflict for {entity_kind}/{entity_id}"
                 )
+            if entity_kind == "task_assignment":
+                self._refresh_task_collection_locked(connection)
             return updated
 
     def read_collection(self, collection_name: str) -> list[dict[str, Any]] | None:
@@ -1282,11 +1284,31 @@ class TransactionalControlPlaneStore:
 
     def task_mirror_parity(self) -> dict[str, Any]:
         """Compare PostgreSQL task authority with its bounded rollback mirror."""
-        entities = sorted(
-            self.list_entities("task_assignment"),
-            key=lambda item: str(item.get("task_id", "")),
-        )
-        mirror_payload = self.read_collection("task_assignments") or []
+        schema = _safe_identifier(self.configuration.schema)
+        with self.transaction("task-mirror-parity") as connection:
+            row = connection.execute(
+                f"""
+                SELECT
+                    COALESCE(
+                        (
+                            SELECT jsonb_agg(payload ORDER BY entity_id)
+                            FROM {schema}.entities
+                            WHERE entity_kind='task_assignment'
+                        ),
+                        '[]'::jsonb
+                    ) AS authority,
+                    COALESCE(
+                        (
+                            SELECT payload
+                            FROM {schema}.collections
+                            WHERE collection_name='task_assignments'
+                        ),
+                        '[]'::jsonb
+                    ) AS mirror
+                """
+            ).fetchone()
+        entities = [dict(item) for item in row["authority"]]
+        mirror_payload = row["mirror"]
         mirror = sorted(
             [dict(item) for item in mirror_payload if isinstance(item, Mapping)],
             key=lambda item: str(item.get("task_id", "")),
@@ -1514,6 +1536,8 @@ class TransactionalControlPlaneStore:
                         stale_task_ids,
                     ),
                 )
+            if queue_ids or stale_task_ids:
+                self._refresh_task_collection_locked(connection)
             removed_idempotency = connection.execute(
                 f"""
                 WITH ranked AS (
@@ -2802,6 +2826,7 @@ class TransactionalControlPlaneStore:
                 """,
                 (task_id, incoming_version, incoming_state, self._json(task_payload)),
             )
+            self._refresh_task_collection_locked(connection)
             return
         if not replace_existing:
             raise ControlPlaneVersionConflict(f"task_assignment/{task_id} already exists")
@@ -2829,6 +2854,7 @@ class TransactionalControlPlaneStore:
             raise ControlPlaneVersionConflict(
                 f"concurrent task_assignment version conflict for {task_id}"
             )
+        self._refresh_task_collection_locked(connection)
 
     def _update_task_runtime_locked(
         self,
@@ -2891,7 +2917,30 @@ class TransactionalControlPlaneStore:
             raise ControlPlaneVersionConflict(
                 f"concurrent task_assignment runtime conflict for {task_id}"
             )
+        self._refresh_task_collection_locked(connection)
         return True
+
+    def _refresh_task_collection_locked(self, connection: Any) -> int:
+        """Keep the PostgreSQL rollback collection atomic with task authority writes."""
+        schema = _safe_identifier(self.configuration.schema)
+        row = connection.execute(
+            f"""
+            INSERT INTO {schema}.collections(collection_name, version, payload)
+            SELECT 'task_assignments', 1,
+                   COALESCE(
+                       jsonb_agg(payload ORDER BY entity_id),
+                       '[]'::jsonb
+                   )
+            FROM {schema}.entities
+            WHERE entity_kind='task_assignment'
+            ON CONFLICT (collection_name) DO UPDATE
+            SET version={schema}.collections.version + 1,
+                payload=EXCLUDED.payload,
+                updated_at=clock_timestamp()
+            RETURNING version
+            """
+        ).fetchone()
+        return int(row["version"])
 
     def _assert_queue_lease(
         self,
