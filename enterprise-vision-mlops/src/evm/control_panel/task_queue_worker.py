@@ -23,6 +23,7 @@ from evm.control_panel.admission_queue import (
     QUEUE_DLQ,
     QUEUE_DURABLE_BYTES,
     QUEUE_DURABLE_DEPTH,
+    QUEUE_EXECUTOR_PROCESS_TREE_RSS_PEAK_BYTES,
     QUEUE_HISTORY_BYTES,
     QUEUE_HISTORY_ROWS,
     QUEUE_IN_FLIGHT,
@@ -142,6 +143,7 @@ class BoundedTaskQueueWorker:
         self._loop_count = 0
         self._parent_create_time = psutil.Process(os.getpid()).create_time()
         self._executor_processes: dict[int, asyncio.subprocess.Process] = {}
+        self._executor_process_tree_rss_peak_bytes = 0
         self._rss_samples: deque[tuple[float, int]] = deque()
         self._rss_warmup_deadline = (
             time.monotonic() + config.rss_slope_warmup_seconds
@@ -150,6 +152,7 @@ class BoundedTaskQueueWorker:
         QUEUE_WORKER_CAPACITY.labels(resource_class="gpu").set(config.gpu_workers)
         QUEUE_WORKER_LIVE_CONSUMERS.labels(resource_class="cpu").set(0)
         QUEUE_WORKER_LIVE_CONSUMERS.labels(resource_class="gpu").set(0)
+        QUEUE_EXECUTOR_PROCESS_TREE_RSS_PEAK_BYTES.set(0)
 
     async def run(self, *, once: bool = False) -> None:
         await asyncio.to_thread(
@@ -470,6 +473,9 @@ class BoundedTaskQueueWorker:
     ) -> tuple[bytes, bytes]:
         communication = asyncio.create_task(process.communicate())
         renewal = asyncio.create_task(self._renew_lease_until_done(lease, communication))
+        rss_sampling = asyncio.create_task(
+            self._sample_executor_rss_until_done(communication)
+        )
         try:
             done, _pending = await asyncio.wait(
                 {communication, renewal},
@@ -488,10 +494,31 @@ class BoundedTaskQueueWorker:
             return communication.result()
         finally:
             renewal.cancel()
-            await asyncio.gather(renewal, return_exceptions=True)
+            rss_sampling.cancel()
+            await asyncio.gather(renewal, rss_sampling, return_exceptions=True)
             if not communication.done():
                 communication.cancel()
                 await asyncio.gather(communication, return_exceptions=True)
+
+    async def _sample_executor_rss_until_done(
+        self,
+        communication: asyncio.Task[tuple[bytes, bytes]],
+    ) -> None:
+        sample_interval = min(self.config.poll_interval_seconds, 0.05)
+        while True:
+            self._observe_executor_process_tree_rss()
+            if communication.done():
+                return
+            await asyncio.sleep(sample_interval)
+
+    def _observe_executor_process_tree_rss(self) -> int:
+        observed = sum(
+            process_tree_rss_bytes(pid) for pid in tuple(self._executor_processes)
+        )
+        if observed > self._executor_process_tree_rss_peak_bytes:
+            self._executor_process_tree_rss_peak_bytes = observed
+            QUEUE_EXECUTOR_PROCESS_TREE_RSS_PEAK_BYTES.set(observed)
+        return observed
 
     async def _renew_lease_until_done(
         self,
@@ -828,6 +855,9 @@ class BoundedTaskQueueWorker:
             "consumer_failures": dict(self._consumer_failures),
             "in_flight": dict(self.in_flight),
             "rss_bytes": rss_bytes,
+            "executor_process_tree_rss_peak_bytes": (
+                self._executor_process_tree_rss_peak_bytes
+            ),
             "error": error,
         }
         self.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)

@@ -14,6 +14,7 @@ from evm.scale_validation.s2_runtime import (
     S2MatrixConfig,
     aggregate_acceptance,
     build_task_payload,
+    executor_process_tree_rss_peak,
     merge_terminal_results,
     payload_digest,
     process_tree_rss_slope,
@@ -22,6 +23,7 @@ from evm.scale_validation.s2_runtime import (
     summarize_submission,
     terminal_failure_reasons,
     trace_summary,
+    worker_executor_rss_peak,
 )
 
 
@@ -97,6 +99,30 @@ def test_process_tree_rss_slope_uses_declared_tail_window():
     assert measured["window_seconds"] == 30.0
     assert measured["api_bytes_per_minute"] == 600.0
     assert measured["worker_bytes_per_minute"] == -300.0
+
+
+def test_worker_executor_rss_peak_reads_retained_heartbeat_value(tmp_path):
+    heartbeat = tmp_path / "worker-heartbeat.json"
+    heartbeat.write_text(
+        json.dumps({"executor_process_tree_rss_peak_bytes": 12_345}) + "\n",
+        encoding="utf-8",
+    )
+
+    assert worker_executor_rss_peak(heartbeat) == 12_345
+
+    heartbeat.write_text("{invalid", encoding="utf-8")
+    assert worker_executor_rss_peak(heartbeat) == 0
+
+
+def test_executor_rss_peak_uses_heartbeat_when_os_sample_misses_short_child():
+    assert executor_process_tree_rss_peak(
+        [
+            {
+                "worker_rss": {"children": 0},
+                "executor_process_tree_rss_peak_bytes": 12_345,
+            }
+        ]
+    ) == 12_345
 
 
 def test_terminal_batches_preserve_exact_identity_after_compaction_boundary():

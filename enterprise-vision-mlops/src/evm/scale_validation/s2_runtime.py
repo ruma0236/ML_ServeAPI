@@ -333,6 +333,17 @@ def wait_for_worker_heartbeat(
     raise RuntimeError(f"queue_worker_heartbeat_timeout:{heartbeat_path}")
 
 
+def worker_executor_rss_peak(heartbeat_path: Path | None) -> int:
+    if heartbeat_path is None or not heartbeat_path.is_file():
+        return 0
+    try:
+        payload = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+        value = payload.get("executor_process_tree_rss_peak_bytes", 0)
+        return max(0, int(value))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return 0
+
+
 def terminate_process_tree(pid: int, *, force: bool = False) -> list[int]:
     try:
         parent = psutil.Process(pid)
@@ -998,6 +1009,9 @@ def collect_runtime_sample(scope: RuntimeScope) -> dict[str, Any]:
         "state_counts": snapshot["state_counts"],
         "api_rss": api_rss,
         "worker_rss": worker_rss,
+        "executor_process_tree_rss_peak_bytes": worker_executor_rss_peak(
+            scope.worker_heartbeat
+        ),
     }
 
 
@@ -1055,6 +1069,19 @@ def process_tree_rss_slope(
     }
 
 
+def executor_process_tree_rss_peak(samples: Sequence[Mapping[str, Any]]) -> int:
+    return max(
+        (
+            max(
+                int(item["worker_rss"]["children"]),
+                int(item.get("executor_process_tree_rss_peak_bytes", 0)),
+            )
+            for item in samples
+        ),
+        default=0,
+    )
+
+
 def wait_for_terminal(
     scope: RuntimeScope,
     accepted_ids: set[str],
@@ -1090,9 +1117,7 @@ def wait_for_terminal(
         "worker_process_tree_rss_bytes": max(
             (int(item["worker_rss"]["total"]) for item in samples), default=0
         ),
-        "executor_children_rss_bytes": max(
-            (int(item["worker_rss"]["children"]) for item in samples), default=0
-        ),
+        "executor_children_rss_bytes": executor_process_tree_rss_peak(samples),
     }
     return {
         "closed": accepted_ids.issubset(terminal_seen) and final["active_depth"] == 0,

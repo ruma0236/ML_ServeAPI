@@ -117,6 +117,10 @@ QUEUE_PROCESS_RSS_BYTES = Gauge(
     "evm_task_queue_process_rss_bytes",
     "Resident memory used by the task queue worker and executor process tree.",
 )
+QUEUE_EXECUTOR_PROCESS_TREE_RSS_PEAK_BYTES = Gauge(
+    "evm_task_queue_executor_process_tree_rss_peak_bytes",
+    "Peak aggregate resident memory observed across live task executor process trees.",
+)
 QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE = Gauge(
     "evm_task_queue_process_rss_slope_bytes_per_minute",
     "Idle-window RSS slope of the queue-worker parent; process-tree cap is separate.",

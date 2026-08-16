@@ -8,7 +8,11 @@ from pathlib import Path
 
 import psutil
 
-from evm.control_panel.task_queue_worker import process_rss_bytes, process_tree_rss_bytes
+from evm.control_panel.task_queue_worker import (
+    BoundedTaskQueueWorker,
+    process_rss_bytes,
+    process_tree_rss_bytes,
+)
 
 
 def test_process_tree_rss_includes_executor_child():
@@ -44,6 +48,35 @@ def test_process_rss_reports_parent_only_baseline():
 
     assert parent > 0
     assert tree >= parent
+
+
+def test_worker_retains_short_lived_executor_process_tree_rss_peak():
+    child = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import time; payload=bytearray(8*1024*1024); time.sleep(0.2)",
+        ]
+    )
+    worker = object.__new__(BoundedTaskQueueWorker)
+    worker._executor_processes = {child.pid: child}
+    worker._executor_process_tree_rss_peak_bytes = 0
+    try:
+        deadline = time.monotonic() + 2
+        while worker._executor_process_tree_rss_peak_bytes == 0:
+            worker._observe_executor_process_tree_rss()
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.01)
+        retained = worker._executor_process_tree_rss_peak_bytes
+        child.wait(timeout=2)
+        assert retained > 0
+        assert worker._observe_executor_process_tree_rss() == 0
+        assert worker._executor_process_tree_rss_peak_bytes == retained
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=2)
 
 
 def test_executor_exits_when_exact_parent_process_is_killed(tmp_path: Path):
