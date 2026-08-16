@@ -1,11 +1,11 @@
 [matrix]
-version = "s2-external-matrix-v4-20260817"
+version = "s2-external-matrix-v5-20260817"
 status = "frozen-before-experiment"
 seed = 20260816
 repetitions = 3
 warmup_seconds = 5.0
 sample_interval_seconds = 0.10
-drain_timeout_seconds = 150.0
+drain_timeout_seconds = 210.0
 trace_flush_seconds = 3.0
 prometheus_scrape_interval_seconds = 1.0
 rss_slope_measurement_seconds = 30.0

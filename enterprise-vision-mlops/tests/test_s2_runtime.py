@@ -20,6 +20,7 @@ from evm.scale_validation.s2_runtime import (
     progress_verdict,
     profile_payloads,
     summarize_submission,
+    terminal_failure_reasons,
     trace_summary,
 )
 
@@ -32,7 +33,8 @@ def test_s2_matrix_is_frozen_with_exact_a_to_j_profiles():
 
     assert tuple(sorted(matrix.profiles)) == EXPECTED_PROFILE_IDS
     assert matrix.repetitions == 3
-    assert matrix.version == "s2-external-matrix-v4-20260817"
+    assert matrix.version == "s2-external-matrix-v5-20260817"
+    assert matrix.drain_timeout_seconds == 210.0
     assert matrix.rss_slope_measurement_seconds == 30.0
     assert matrix.profiles["D"]["arrival_duration_seconds"] == 45.0
     assert matrix.profiles["D"]["request_count"] == 360
@@ -210,6 +212,29 @@ def test_retry_rejected_payloads_reuses_original_identity(monkeypatch):
     assert pending == set()
     assert [item["idempotency_key"] for item in calls[0]["payloads"]] == ["key-1", "key-2"]
     assert [item["original_index"] for item in retries[0]["results"]] == [1, 2]
+
+
+def test_terminal_failure_reasons_preserves_retry_budget_rca_after_reconciliation():
+    reasons = terminal_failure_reasons(
+        [
+            {
+                "task_id": "task-a",
+                "last_failure_class": "retry_budget_exhausted:airflow_api_rejected",
+                "terminal_reason": "external_effect_not_found_after_timeout",
+            },
+            {
+                "task_id": "task-b",
+                "last_failure_class": None,
+                "terminal_reason": "permanent:invalid_payload",
+            },
+        ],
+        {"task-a", "task-b"},
+    )
+
+    assert reasons == {
+        "retry_budget_exhausted:airflow_api_rejected": 1,
+        "permanent:invalid_payload": 1,
+    }
 
 
 def test_trace_summary_requires_full_existing_runtime_chain(tmp_path):

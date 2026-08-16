@@ -975,6 +975,17 @@ def summarize_submission(submission: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def terminal_failure_reasons(
+    queue_rows: Sequence[Mapping[str, Any]],
+    task_ids: set[str],
+) -> Counter[str]:
+    return Counter(
+        str(row.get("last_failure_class") or row.get("terminal_reason"))
+        for row in queue_rows
+        if row.get("task_id") in task_ids
+    )
+
+
 def collect_runtime_sample(scope: RuntimeScope) -> dict[str, Any]:
     snapshot = database_snapshot(scope.database_url, scope.schema)
     api_rss = process_tree_rss(scope.api.process.pid)
@@ -2193,10 +2204,9 @@ def run_profile_g(
     )
     healthy = {task for task, mode in mode_by_task.items() if mode == "healthy"}
     transient = set(accepted) - healthy
-    reasons = Counter(
-        str(row.get("terminal_reason"))
-        for row in terminal["final"]["queue"]
-        if row["task_id"] in transient
+    reasons = terminal_failure_reasons(
+        terminal["final"]["queue"],
+        transient,
     )
     return {
         "submissions": [submission],
