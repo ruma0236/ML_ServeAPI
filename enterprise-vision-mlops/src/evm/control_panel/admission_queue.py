@@ -12,7 +12,13 @@ from prometheus_client import Counter, Gauge, Histogram
 
 
 DEFAULT_PROFILE_PATH = Path("configs/s2_bounded_queue_v1.toml")
-ACTIVE_QUEUE_STATES = ("available", "retry_wait", "leased", "runtime_pending")
+ACTIVE_QUEUE_STATES = (
+    "available",
+    "retry_wait",
+    "leased",
+    "runtime_pending",
+    "outcome_unknown",
+)
 TERMINAL_QUEUE_STATES = ("completed", "failed", "dlq", "expired", "cancelled")
 
 QUEUE_ADMISSIONS = Counter(
@@ -27,6 +33,14 @@ QUEUE_RETRY_AFTER_SECONDS = Histogram(
 QUEUE_INGRESS_BODY_BYTES = Histogram(
     "evm_task_queue_ingress_body_bytes",
     "Bytes observed at the bounded task-ingress boundary.",
+)
+QUEUE_INGRESS_IN_FLIGHT_REQUESTS = Gauge(
+    "evm_task_queue_ingress_in_flight_requests",
+    "Task mutation requests currently buffered by one API process.",
+)
+QUEUE_INGRESS_IN_FLIGHT_BYTES = Gauge(
+    "evm_task_queue_ingress_in_flight_bytes",
+    "Task mutation body bytes currently reserved by one API process.",
 )
 QUEUE_DURABLE_DEPTH = Gauge(
     "evm_task_queue_durable_depth",
@@ -103,6 +117,10 @@ QUEUE_PROCESS_RSS_BYTES = Gauge(
     "evm_task_queue_process_rss_bytes",
     "Resident memory used by the task queue worker and executor process tree.",
 )
+QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE = Gauge(
+    "evm_task_queue_process_rss_slope_bytes_per_minute",
+    "One-minute worker and executor process-tree RSS slope.",
+)
 QUEUE_WORK_SECONDS = Histogram(
     "evm_task_queue_work_seconds",
     "Task queue execution duration by terminal class.",
@@ -132,9 +150,15 @@ class AdmissionQueueConfig:
     durable_max_bytes: int
     max_item_bytes: int
     ingress_max_body_bytes: int
+    ingress_max_concurrent_requests: int
+    ingress_max_inflight_bytes: int
+    ingress_max_chunks: int
     max_age_seconds: float
     admission_wait_seconds: float
     retry_after_seconds: int
+    pending_max_depth: int
+    pending_max_bytes: int
+    pending_max_age_seconds: float
     local_max_depth: int
     local_max_bytes: int
     work_timeout_seconds: float
@@ -144,7 +168,10 @@ class AdmissionQueueConfig:
     lease_seconds: float
     lease_renew_interval_seconds: float
     runtime_poll_interval_seconds: float
+    runtime_poll_batch_size: int
     runtime_terminal_timeout_seconds: float
+    cpu_downstream_max_outstanding: int
+    gpu_downstream_max_outstanding: int
     max_attempts: int
     backoff_base_seconds: float
     backoff_max_seconds: float
@@ -160,6 +187,8 @@ class AdmissionQueueConfig:
     terminal_queue_max_rows: int
     terminal_queue_max_age_seconds: float
     task_history_max_terminal_rows: int
+    idempotency_tombstone_max_rows: int
+    idempotency_tombstone_retention_seconds: float
     compaction_batch_size: int
 
     @classmethod
@@ -177,9 +206,17 @@ class AdmissionQueueConfig:
             durable_max_bytes=int(durable["max_bytes"]),
             max_item_bytes=int(durable["max_item_bytes"]),
             ingress_max_body_bytes=int(durable["ingress_max_body_bytes"]),
+            ingress_max_concurrent_requests=int(
+                durable["ingress_max_concurrent_requests"]
+            ),
+            ingress_max_inflight_bytes=int(durable["ingress_max_inflight_bytes"]),
+            ingress_max_chunks=int(durable["ingress_max_chunks"]),
             max_age_seconds=float(durable["max_age_seconds"]),
             admission_wait_seconds=float(durable["admission_wait_seconds"]),
             retry_after_seconds=int(durable["retry_after_seconds"]),
+            pending_max_depth=int(durable["pending_max_depth"]),
+            pending_max_bytes=int(durable["pending_max_bytes"]),
+            pending_max_age_seconds=float(durable["pending_max_age_seconds"]),
             local_max_depth=int(local["max_depth"]),
             local_max_bytes=int(local["max_bytes"]),
             work_timeout_seconds=float(worker["work_timeout_seconds"]),
@@ -189,8 +226,15 @@ class AdmissionQueueConfig:
             lease_seconds=float(worker["lease_seconds"]),
             lease_renew_interval_seconds=float(worker["lease_renew_interval_seconds"]),
             runtime_poll_interval_seconds=float(worker["runtime_poll_interval_seconds"]),
+            runtime_poll_batch_size=int(worker["runtime_poll_batch_size"]),
             runtime_terminal_timeout_seconds=float(
                 worker["runtime_terminal_timeout_seconds"]
+            ),
+            cpu_downstream_max_outstanding=int(
+                worker["cpu_downstream_max_outstanding"]
+            ),
+            gpu_downstream_max_outstanding=int(
+                worker["gpu_downstream_max_outstanding"]
             ),
             max_attempts=int(retry["max_attempts"]),
             backoff_base_seconds=float(retry["backoff_base_seconds"]),
@@ -213,6 +257,12 @@ class AdmissionQueueConfig:
             task_history_max_terminal_rows=int(
                 retention["task_history_max_terminal_rows"]
             ),
+            idempotency_tombstone_max_rows=int(
+                retention["idempotency_tombstone_max_rows"]
+            ),
+            idempotency_tombstone_retention_seconds=float(
+                retention["idempotency_tombstone_retention_seconds"]
+            ),
             compaction_batch_size=int(retention["compaction_batch_size"]),
         )
         config.validate()
@@ -229,9 +279,15 @@ class AdmissionQueueConfig:
             "durable_max_bytes": self.durable_max_bytes,
             "max_item_bytes": self.max_item_bytes,
             "ingress_max_body_bytes": self.ingress_max_body_bytes,
+            "ingress_max_concurrent_requests": self.ingress_max_concurrent_requests,
+            "ingress_max_inflight_bytes": self.ingress_max_inflight_bytes,
+            "ingress_max_chunks": self.ingress_max_chunks,
             "max_age_seconds": self.max_age_seconds,
             "admission_wait_seconds": self.admission_wait_seconds,
             "retry_after_seconds": self.retry_after_seconds,
+            "pending_max_depth": self.pending_max_depth,
+            "pending_max_bytes": self.pending_max_bytes,
+            "pending_max_age_seconds": self.pending_max_age_seconds,
             "local_max_depth": self.local_max_depth,
             "local_max_bytes": self.local_max_bytes,
             "work_timeout_seconds": self.work_timeout_seconds,
@@ -241,7 +297,10 @@ class AdmissionQueueConfig:
             "lease_seconds": self.lease_seconds,
             "lease_renew_interval_seconds": self.lease_renew_interval_seconds,
             "runtime_poll_interval_seconds": self.runtime_poll_interval_seconds,
+            "runtime_poll_batch_size": self.runtime_poll_batch_size,
             "runtime_terminal_timeout_seconds": self.runtime_terminal_timeout_seconds,
+            "cpu_downstream_max_outstanding": self.cpu_downstream_max_outstanding,
+            "gpu_downstream_max_outstanding": self.gpu_downstream_max_outstanding,
             "max_attempts": self.max_attempts,
             "backoff_base_seconds": self.backoff_base_seconds,
             "backoff_max_seconds": self.backoff_max_seconds,
@@ -254,6 +313,10 @@ class AdmissionQueueConfig:
             "terminal_queue_max_rows": self.terminal_queue_max_rows,
             "terminal_queue_max_age_seconds": self.terminal_queue_max_age_seconds,
             "task_history_max_terminal_rows": self.task_history_max_terminal_rows,
+            "idempotency_tombstone_max_rows": self.idempotency_tombstone_max_rows,
+            "idempotency_tombstone_retention_seconds": (
+                self.idempotency_tombstone_retention_seconds
+            ),
             "compaction_batch_size": self.compaction_batch_size,
         }
         invalid = [name for name, value in positive.items() if value <= 0]
@@ -277,18 +340,34 @@ class AdmissionQueueConfig:
             raise ValueError("rss_slope_tolerance_bytes_per_minute cannot be negative")
         if self.ingress_max_body_bytes > self.max_item_bytes:
             raise ValueError("ingress_max_body_bytes cannot exceed max_item_bytes")
+        if self.ingress_max_body_bytes > self.ingress_max_inflight_bytes:
+            raise ValueError(
+                "ingress_max_body_bytes cannot exceed ingress_max_inflight_bytes"
+            )
         if self.local_max_depth > self.durable_max_depth:
             raise ValueError("local queue depth cannot exceed durable queue depth")
         if self.local_max_bytes > self.durable_max_bytes:
             raise ValueError("local queue bytes cannot exceed durable queue bytes")
         if self.lease_renew_interval_seconds >= self.lease_seconds:
             raise ValueError("lease renewal interval must be shorter than the lease")
+        if self.gpu_downstream_max_outstanding != 1:
+            raise ValueError(
+                "the local single-GPU S2 contract requires one downstream GPU runtime"
+            )
+        if self.cpu_downstream_max_outstanding < self.cpu_workers_max:
+            raise ValueError(
+                "CPU downstream outstanding capacity cannot be below CPU worker maximum"
+            )
         if not self.retry_budget_scope or len(self.retry_budget_scope) > 128:
             raise ValueError("retry_budget_scope must be between 1 and 128 characters")
         retention_positive = {
             "terminal_queue_max_rows": self.terminal_queue_max_rows,
             "terminal_queue_max_age_seconds": self.terminal_queue_max_age_seconds,
             "task_history_max_terminal_rows": self.task_history_max_terminal_rows,
+            "idempotency_tombstone_max_rows": self.idempotency_tombstone_max_rows,
+            "idempotency_tombstone_retention_seconds": (
+                self.idempotency_tombstone_retention_seconds
+            ),
             "compaction_batch_size": self.compaction_batch_size,
         }
         invalid_retention = [
@@ -306,9 +385,15 @@ class AdmissionQueueConfig:
             "durable_max_bytes": self.durable_max_bytes,
             "max_item_bytes": self.max_item_bytes,
             "ingress_max_body_bytes": self.ingress_max_body_bytes,
+            "ingress_max_concurrent_requests": self.ingress_max_concurrent_requests,
+            "ingress_max_inflight_bytes": self.ingress_max_inflight_bytes,
+            "ingress_max_chunks": self.ingress_max_chunks,
             "max_age_seconds": self.max_age_seconds,
             "admission_wait_seconds": self.admission_wait_seconds,
             "retry_after_seconds": self.retry_after_seconds,
+            "pending_max_depth": self.pending_max_depth,
+            "pending_max_bytes": self.pending_max_bytes,
+            "pending_max_age_seconds": self.pending_max_age_seconds,
             "local_max_depth": self.local_max_depth,
             "local_max_bytes": self.local_max_bytes,
             "work_timeout_seconds": self.work_timeout_seconds,
@@ -318,7 +403,10 @@ class AdmissionQueueConfig:
             "lease_seconds": self.lease_seconds,
             "lease_renew_interval_seconds": self.lease_renew_interval_seconds,
             "runtime_poll_interval_seconds": self.runtime_poll_interval_seconds,
+            "runtime_poll_batch_size": self.runtime_poll_batch_size,
             "runtime_terminal_timeout_seconds": self.runtime_terminal_timeout_seconds,
+            "cpu_downstream_max_outstanding": self.cpu_downstream_max_outstanding,
+            "gpu_downstream_max_outstanding": self.gpu_downstream_max_outstanding,
             "max_attempts": self.max_attempts,
             "backoff_base_seconds": self.backoff_base_seconds,
             "backoff_max_seconds": self.backoff_max_seconds,
@@ -334,6 +422,10 @@ class AdmissionQueueConfig:
             "terminal_queue_max_rows": self.terminal_queue_max_rows,
             "terminal_queue_max_age_seconds": self.terminal_queue_max_age_seconds,
             "task_history_max_terminal_rows": self.task_history_max_terminal_rows,
+            "idempotency_tombstone_max_rows": self.idempotency_tombstone_max_rows,
+            "idempotency_tombstone_retention_seconds": (
+                self.idempotency_tombstone_retention_seconds
+            ),
             "compaction_batch_size": self.compaction_batch_size,
         }
 
@@ -379,4 +471,50 @@ def task_resource_class(task_payload: Mapping[str, Any]) -> str:
         else ""
     )
     profile = str(task_payload.get("resource_profile", "")).strip().lower()
-    return "gpu" if explicit == "gpu" or "gpu" in profile else "cpu"
+    gpu_profile_markers = ("gpu", "cuda", "rtx", "accelerator")
+    return (
+        "gpu"
+        if explicit == "gpu" or any(marker in profile for marker in gpu_profile_markers)
+        else "cpu"
+    )
+
+
+def bounded_queue_metric_reason(value: object) -> str:
+    candidate = str(value or "unknown").strip().lower()
+    exact = {
+        "within_bounds",
+        "idempotency",
+        "pending_approval",
+        "item_size_limit",
+        "ingress_body_limit",
+        "ingress_chunk_limit",
+        "ingress_aggregate_limit",
+        "invalid_content_length",
+        "durable_depth_limit",
+        "durable_bytes_limit",
+        "pending_depth_limit",
+        "pending_bytes_limit",
+        "idempotency_capacity_limit",
+        "admission_lock_timeout",
+        "deadline_exceeded",
+        "runtime_terminal_timeout",
+        "owner_lost",
+        "work_timeout",
+        "control_plane_pool_timeout",
+        "airflow_api_unavailable",
+        "airflow_api_rejected",
+        "airflow_dag_run_conflict",
+        "invalid_payload",
+        "dependency_503",
+    }
+    if candidate in exact:
+        return candidate
+    for prefix in (
+        "runtime_terminal:",
+        "permanent:",
+        "attempts_exhausted:",
+        "retry_budget_exhausted:",
+    ):
+        if candidate.startswith(prefix):
+            return prefix[:-1]
+    return "other"

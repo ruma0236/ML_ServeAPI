@@ -4,5 +4,5 @@ docs/status/evidence/*.json text eol=lf
 docs/status/*scenario-progress.json text eol=lf
 docs/status/*scenario-progress.md text eol=lf
 contracts/distributed-scale/*.json text eol=lf
-configs/s2_bounded_queue_v1.toml text eol=lf
+configs/s2_bounded_queue_*.toml text eol=lf
 infra/postgres/control-plane/*.sql text eol=lf

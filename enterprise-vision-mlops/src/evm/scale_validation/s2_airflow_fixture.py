@@ -25,6 +25,7 @@ _TERMINAL_STATE: dict[tuple[str, str], str] = {}
 _TASK_EFFECTS: dict[str, set[tuple[str, str]]] = {}
 _TRACE_CONTEXT_TASKS: set[str] = set()
 _MISSING_TRACE_CONTEXT_TASKS: set[str] = set()
+_MAX_RUNTIME_CONCURRENCY: Counter[str] = Counter()
 
 
 @app.get("/health")
@@ -71,6 +72,7 @@ async def create_dag_run(dag_id: str, request: DagRunRequest) -> dict[str, Any]:
     with _LOCK:
         if key in _RUNS:
             raise HTTPException(status_code=409, detail="dag run already exists")
+        _refresh_locked()
         _RUNS[key] = payload
         _UNIQUE_EFFECTS[key] += 1
         task_identity = str(request.conf.get("control_panel_task_id") or "unknown")
@@ -82,6 +84,7 @@ async def create_dag_run(dag_id: str, request: DagRunRequest) -> dict[str, Any]:
         if terminal_state != "queued":
             _TERMINAL_AT[key] = time.monotonic() + terminal_after
             _TERMINAL_STATE[key] = terminal_state
+        _observe_runtime_concurrency_locked()
     return _current_run(key)
 
 
@@ -96,17 +99,42 @@ def get_dag_run(dag_id: str, dag_run_id: str) -> dict[str, Any]:
 
 def _current_run(key: tuple[str, str]) -> dict[str, Any]:
     with _LOCK:
-        payload = dict(_RUNS[key])
-        terminal_at = _TERMINAL_AT.get(key)
-        if terminal_at is not None and time.monotonic() >= terminal_at:
+        _refresh_locked()
+        return dict(_RUNS[key])
+
+
+def _resource_class(payload: dict[str, Any]) -> str:
+    profile = str(payload.get("conf", {}).get("resource_profile", "")).lower()
+    return "gpu" if any(marker in profile for marker in ("gpu", "cuda", "rtx")) else "cpu"
+
+
+def _refresh_locked() -> None:
+    observed_at = time.monotonic()
+    for key, terminal_at in list(_TERMINAL_AT.items()):
+        if observed_at >= terminal_at and key in _RUNS:
+            payload = dict(_RUNS[key])
             payload["state"] = _TERMINAL_STATE[key]
-            _RUNS[key] = dict(payload)
-    return payload
+            _RUNS[key] = payload
+
+
+def _observe_runtime_concurrency_locked() -> None:
+    active = Counter(
+        _resource_class(payload)
+        for payload in _RUNS.values()
+        if str(payload.get("state")) == "queued"
+    )
+    for resource_class, depth in active.items():
+        _MAX_RUNTIME_CONCURRENCY[resource_class] = max(
+            _MAX_RUNTIME_CONCURRENCY[resource_class],
+            depth,
+        )
 
 
 @app.get("/evidence")
 def evidence() -> dict[str, Any]:
     with _LOCK:
+        _refresh_locked()
+        _observe_runtime_concurrency_locked()
         attempts = sum(_ATTEMPTS.values())
         unique_effects = sum(_UNIQUE_EFFECTS.values())
         duplicate_effects = sum(max(0, count - 1) for count in _UNIQUE_EFFECTS.values())
@@ -120,6 +148,7 @@ def evidence() -> dict[str, Any]:
         )
         trace_context_tasks = len(_TRACE_CONTEXT_TASKS)
         missing_trace_context_tasks = len(_MISSING_TRACE_CONTEXT_TASKS)
+        max_runtime_concurrency = dict(_MAX_RUNTIME_CONCURRENCY)
     return {
         "schema_version": "evm.s2_airflow_fixture_evidence.v1",
         "attempts": attempts,
@@ -130,6 +159,7 @@ def evidence() -> dict[str, Any]:
         "tasks_with_multiple_logical_effects": tasks_with_multiple_effects,
         "trace_context_tasks": trace_context_tasks,
         "missing_trace_context_tasks": missing_trace_context_tasks,
+        "max_runtime_concurrency": max_runtime_concurrency,
     }
 
 
@@ -144,4 +174,5 @@ def reset() -> dict[str, int]:
         _TASK_EFFECTS.clear()
         _TRACE_CONTEXT_TASKS.clear()
         _MISSING_TRACE_CONTEXT_TASKS.clear()
+        _MAX_RUNTIME_CONCURRENCY.clear()
     return {"runs": 0, "attempts": 0}

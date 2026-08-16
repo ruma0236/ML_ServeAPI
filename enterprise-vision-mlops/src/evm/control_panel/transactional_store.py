@@ -17,6 +17,7 @@ from prometheus_client import Counter, Histogram
 from evm.control_panel.admission_queue import (
     ACTIVE_QUEUE_STATES,
     QUEUE_ADMISSION_WAIT_SECONDS,
+    TERMINAL_QUEUE_STATES,
     AdmissionQueueConfig,
     canonical_payload_size,
     task_resource_class,
@@ -28,6 +29,7 @@ SCHEMA_VERSIONS = (
     "002_bounded_admission_queue",
     "003_task_queue_safety",
     "004_task_entity_storage",
+    "005_task_queue_operational_safety",
 )
 CONTROL_PLANE_DB_POOL_ACQUIRE_SECONDS = Histogram(
     "evm_control_plane_db_pool_acquire_seconds",
@@ -68,6 +70,10 @@ class ControlPlaneIdempotencyConflict(ControlPlaneStoreError):
 
 
 class ControlPlaneLeaseConflict(ControlPlaneStoreError):
+    pass
+
+
+class ControlPlaneDeadlineExceeded(ControlPlaneLeaseConflict):
     pass
 
 
@@ -176,6 +182,19 @@ class TaskQueueSnapshot:
     oldest_age_seconds: float
     state_counts: dict[str, int]
     state_bytes: dict[str, int]
+    resource_state_counts: dict[str, dict[str, int]]
+    resource_state_bytes: dict[str, dict[str, int]]
+
+    def dispatchable_depth(self, resource_class: str) -> int:
+        counts = self.resource_state_counts.get(resource_class, {})
+        return sum(counts.get(state, 0) for state in ("available", "retry_wait"))
+
+    def downstream_outstanding(self, resource_class: str) -> int:
+        counts = self.resource_state_counts.get(resource_class, {})
+        return sum(
+            counts.get(state, 0)
+            for state in ("leased", "runtime_pending", "outcome_unknown")
+        )
 
 
 @dataclass(frozen=True)
@@ -188,6 +207,8 @@ class TaskQueueHistorySnapshot:
     task_bytes: int
     mirror_rows: int
     mirror_bytes: int
+    idempotency_rows: int
+    idempotency_bytes: int
     compacted_rows: dict[str, int]
     compacted_bytes: dict[str, int]
 
@@ -859,6 +880,25 @@ class TransactionalControlPlaneStore:
                         replayed=True,
                     )
 
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(%s)",
+                    (_advisory_key("task-idempotency-capacity"),),
+                )
+                idempotency_depth = connection.execute(
+                    f"""
+                    SELECT count(*) AS depth
+                    FROM {schema}.idempotency_keys
+                    WHERE entity_kind='task_assignment'
+                    """
+                ).fetchone()
+                if int(idempotency_depth["depth"]) >= config.idempotency_tombstone_max_rows:
+                    raise ControlPlaneAdmissionRejected(
+                        reason="idempotency_capacity_limit",
+                        retry_after_seconds=config.retry_after_seconds,
+                        current_depth=int(idempotency_depth["depth"]),
+                        current_bytes=0,
+                    )
+
                 capacity = connection.execute(
                     f"""
                     SELECT count(*) AS depth, COALESCE(sum(payload_bytes), 0) AS bytes
@@ -940,8 +980,8 @@ class TransactionalControlPlaneStore:
                     f"""
                     INSERT INTO {schema}.idempotency_keys
                         (scope, idempotency_key, request_sha256, entity_kind, entity_id,
-                         response_payload)
-                    VALUES (%s, %s, %s, 'task_assignment', %s, %s)
+                         response_payload, retain_until)
+                    VALUES (%s, %s, %s, 'task_assignment', %s, %s, %s)
                     """,
                     (
                         scope,
@@ -949,10 +989,168 @@ class TransactionalControlPlaneStore:
                         request_digest,
                         task_id,
                         self._json(task_payload),
+                        observed_at
+                        + timedelta(
+                            seconds=config.idempotency_tombstone_retention_seconds
+                        ),
                     ),
                 )
                 return TaskAdmissionResult(
                     queue_id=queue_id,
+                    task_payload=dict(task_payload),
+                    payload_bytes=payload_bytes,
+                    replayed=False,
+                )
+        except ControlPlaneTransactionTimeout as exc:
+            raise ControlPlaneAdmissionRejected(
+                reason="admission_lock_timeout",
+                retry_after_seconds=config.retry_after_seconds,
+                current_depth=-1,
+                current_bytes=-1,
+            ) from exc
+        finally:
+            QUEUE_ADMISSION_WAIT_SECONDS.observe(time.monotonic() - started)
+
+    def admit_pending_task_assignment(
+        self,
+        *,
+        scope: str,
+        idempotency_key: str,
+        request_payload: Mapping[str, Any],
+        task_payload: Mapping[str, Any],
+        config: AdmissionQueueConfig,
+        now: datetime | None = None,
+    ) -> TaskAdmissionResult:
+        """Bound manual approval state without reserving runnable queue capacity."""
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        payload_bytes = canonical_payload_size(task_payload)
+        if payload_bytes > config.max_item_bytes:
+            raise ControlPlaneItemTooLarge(
+                payload_bytes=payload_bytes,
+                max_item_bytes=config.max_item_bytes,
+            )
+        request_digest = canonical_digest(request_payload)
+        started = time.monotonic()
+        try:
+            with self.serialized(
+                "task-pending-capacity",
+                wait_seconds=config.admission_wait_seconds,
+            ) as connection:
+                existing = connection.execute(
+                    f"""
+                    SELECT request_sha256, response_payload
+                    FROM {schema}.idempotency_keys
+                    WHERE scope=%s AND idempotency_key=%s
+                    FOR UPDATE
+                    """,
+                    (scope, idempotency_key),
+                ).fetchone()
+                if existing is not None:
+                    if existing["request_sha256"] != request_digest:
+                        raise ControlPlaneIdempotencyConflict(
+                            f"idempotency key {idempotency_key!r} was reused with a different request"
+                        )
+                    return TaskAdmissionResult(
+                        queue_id="pending-approval",
+                        task_payload=dict(existing["response_payload"]),
+                        payload_bytes=0,
+                        replayed=True,
+                    )
+
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(%s)",
+                    (_advisory_key("task-idempotency-capacity"),),
+                )
+                idempotency_depth = connection.execute(
+                    f"""
+                    SELECT count(*) AS depth
+                    FROM {schema}.idempotency_keys
+                    WHERE entity_kind='task_assignment'
+                    """
+                ).fetchone()
+                if int(idempotency_depth["depth"]) >= config.idempotency_tombstone_max_rows:
+                    raise ControlPlaneAdmissionRejected(
+                        reason="idempotency_capacity_limit",
+                        retry_after_seconds=config.retry_after_seconds,
+                        current_depth=int(idempotency_depth["depth"]),
+                        current_bytes=0,
+                    )
+
+                stale = connection.execute(
+                    f"""
+                    SELECT entity_id FROM {schema}.entities
+                    WHERE entity_kind='task_assignment'
+                      AND state='pending_confirmation'
+                      AND updated_at <= %s
+                    FOR UPDATE
+                    """,
+                    (
+                        observed_at
+                        - timedelta(seconds=config.pending_max_age_seconds),
+                    ),
+                ).fetchall()
+                for row in stale:
+                    self._update_task_runtime_locked(
+                        connection,
+                        task_id=str(row["entity_id"]),
+                        status="blocked",
+                        runtime_state="pending_approval_expired",
+                        failure_reason="pending_approval_expired",
+                        event="task_pending_approval_expired",
+                        observed_at=observed_at,
+                    )
+
+                pending = connection.execute(
+                    f"""
+                    SELECT count(*) AS depth,
+                           COALESCE(sum(pg_column_size(payload)), 0) AS bytes
+                    FROM {schema}.entities
+                    WHERE entity_kind='task_assignment'
+                      AND state='pending_confirmation'
+                    """
+                ).fetchone()
+                current_depth = int(pending["depth"])
+                current_bytes = int(pending["bytes"])
+                reason = None
+                if current_depth + 1 > config.pending_max_depth:
+                    reason = "pending_depth_limit"
+                elif current_bytes + payload_bytes > config.pending_max_bytes:
+                    reason = "pending_bytes_limit"
+                if reason:
+                    raise ControlPlaneAdmissionRejected(
+                        reason=reason,
+                        retry_after_seconds=config.retry_after_seconds,
+                        current_depth=current_depth,
+                        current_bytes=current_bytes,
+                    )
+
+                self._write_task_entity_locked(
+                    connection,
+                    task_payload,
+                    replace_existing=False,
+                )
+                connection.execute(
+                    f"""
+                    INSERT INTO {schema}.idempotency_keys
+                        (scope, idempotency_key, request_sha256, entity_kind, entity_id,
+                         response_payload, retain_until)
+                    VALUES (%s, %s, %s, 'task_assignment', %s, %s, %s)
+                    """,
+                    (
+                        scope,
+                        idempotency_key,
+                        request_digest,
+                        str(task_payload["task_id"]),
+                        self._json(task_payload),
+                        observed_at
+                        + timedelta(
+                            seconds=config.idempotency_tombstone_retention_seconds
+                        ),
+                    ),
+                )
+                return TaskAdmissionResult(
+                    queue_id="pending-approval",
                     task_payload=dict(task_payload),
                     payload_bytes=payload_bytes,
                     replayed=False,
@@ -978,6 +1176,14 @@ class TransactionalControlPlaneStore:
                 GROUP BY state
                 """
             ).fetchall()
+            resource_rows = connection.execute(
+                f"""
+                SELECT resource_class, state, count(*) AS depth,
+                       COALESCE(sum(payload_bytes), 0) AS bytes
+                FROM {schema}.task_admission_queue
+                GROUP BY resource_class, state
+                """
+            ).fetchall()
             oldest = connection.execute(
                 f"""
                 SELECT EXTRACT(EPOCH FROM (%s - min(created_at))) AS age
@@ -988,13 +1194,112 @@ class TransactionalControlPlaneStore:
             ).fetchone()
         state_counts = {str(row["state"]): int(row["depth"]) for row in rows}
         state_bytes = {str(row["state"]): int(row["bytes"]) for row in rows}
+        resource_state_counts: dict[str, dict[str, int]] = {}
+        resource_state_bytes: dict[str, dict[str, int]] = {}
+        for row in resource_rows:
+            resource = str(row["resource_class"])
+            state = str(row["state"])
+            resource_state_counts.setdefault(resource, {})[state] = int(row["depth"])
+            resource_state_bytes.setdefault(resource, {})[state] = int(row["bytes"])
         return TaskQueueSnapshot(
             active_depth=sum(state_counts.get(state, 0) for state in ACTIVE_QUEUE_STATES),
             active_bytes=sum(state_bytes.get(state, 0) for state in ACTIVE_QUEUE_STATES),
             oldest_age_seconds=max(0.0, float(oldest["age"] or 0.0)),
             state_counts=state_counts,
             state_bytes=state_bytes,
+            resource_state_counts=resource_state_counts,
+            resource_state_bytes=resource_state_bytes,
         )
+
+    def verify_task_queue_cutover(
+        self,
+        *,
+        mode: str,
+        config: AdmissionQueueConfig,
+    ) -> dict[str, int]:
+        """Fail closed when durable/legacy ownership cannot be proven exclusive."""
+        if mode not in {"durable", "legacy"}:
+            raise ValueError(f"unsupported task queue ownership mode: {mode}")
+        schema = _safe_identifier(self.configuration.schema)
+        with self.serialized("task-queue-cutover") as connection:
+            active = connection.execute(
+                f"""
+                SELECT count(*) AS depth
+                FROM {schema}.task_admission_queue
+                WHERE state = ANY(%s)
+                """,
+                (list(ACTIVE_QUEUE_STATES),),
+            ).fetchone()
+            active_depth = int(active["depth"])
+            if mode == "legacy" and active_depth:
+                raise ControlPlaneParityError(
+                    "legacy task ownership cannot start while durable queue work is active"
+                )
+            stranded = connection.execute(
+                f"""
+                SELECT count(*) AS depth
+                FROM {schema}.entities entity
+                WHERE entity.entity_kind='task_assignment'
+                  AND entity.state IN ('queued', 'running')
+                  AND entity.payload->>'task_type'='airflow_dag_run'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM {schema}.task_admission_queue queue
+                    WHERE queue.task_id=entity.entity_id
+                      AND queue.state = ANY(%s)
+                  )
+                """,
+                (list(ACTIVE_QUEUE_STATES),),
+            ).fetchone()
+            stranded_depth = int(stranded["depth"])
+            if mode == "durable" and stranded_depth:
+                raise ControlPlaneParityError(
+                    "durable task ownership found queued Airflow entities without queue rows"
+                )
+            pending = connection.execute(
+                f"""
+                SELECT count(*) AS depth,
+                       COALESCE(sum(pg_column_size(payload)), 0) AS bytes
+                FROM {schema}.entities
+                WHERE entity_kind='task_assignment'
+                  AND state='pending_confirmation'
+                """
+            ).fetchone()
+            pending_depth = int(pending["depth"])
+            pending_bytes = int(pending["bytes"])
+            if mode == "durable" and (
+                pending_depth > config.pending_max_depth
+                or pending_bytes > config.pending_max_bytes
+            ):
+                raise ControlPlaneParityError(
+                    "pending approval state exceeds the frozen durable cutover bounds"
+                )
+        return {
+            "active_depth": active_depth,
+            "stranded_depth": stranded_depth,
+            "pending_depth": pending_depth,
+            "pending_bytes": pending_bytes,
+        }
+
+    def task_mirror_parity(self) -> dict[str, Any]:
+        """Compare PostgreSQL task authority with its bounded rollback mirror."""
+        entities = sorted(
+            self.list_entities("task_assignment"),
+            key=lambda item: str(item.get("task_id", "")),
+        )
+        mirror_payload = self.read_collection("task_assignments") or []
+        mirror = sorted(
+            [dict(item) for item in mirror_payload if isinstance(item, Mapping)],
+            key=lambda item: str(item.get("task_id", "")),
+        )
+        authority_digest = canonical_digest(entities)
+        mirror_digest = canonical_digest(mirror)
+        return {
+            "authority_count": len(entities),
+            "mirror_count": len(mirror),
+            "authority_sha256": authority_digest,
+            "mirror_sha256": mirror_digest,
+            "matches": authority_digest == mirror_digest,
+        }
 
     def task_queue_history_snapshot(self) -> TaskQueueHistorySnapshot:
         schema = _safe_identifier(self.configuration.schema)
@@ -1029,6 +1334,14 @@ class TransactionalControlPlaneStore:
                 WHERE collection_name='task_assignments'
                 """
             ).fetchone()
+            idempotency = connection.execute(
+                f"""
+                SELECT count(*) AS rows,
+                       COALESCE(sum(pg_column_size(idempotency_keys)), 0) AS bytes
+                FROM {schema}.idempotency_keys
+                WHERE entity_kind='task_assignment'
+                """
+            ).fetchone()
             rollups = connection.execute(
                 f"""
                 SELECT history_class, COALESCE(sum(item_count), 0) AS rows,
@@ -1052,6 +1365,8 @@ class TransactionalControlPlaneStore:
             task_bytes=int(tasks["bytes"]) if tasks else 0,
             mirror_rows=int(mirror["rows"]) if mirror else 0,
             mirror_bytes=int(mirror["bytes"]) if mirror else 0,
+            idempotency_rows=int(idempotency["rows"]) if idempotency else 0,
+            idempotency_bytes=int(idempotency["bytes"]) if idempotency else 0,
             compacted_rows=compacted_rows,
             compacted_bytes=compacted_bytes,
         )
@@ -1110,10 +1425,23 @@ class TransactionalControlPlaneStore:
                 )
                 connection.execute(
                     f"""
-                    DELETE FROM {schema}.idempotency_keys
+                    UPDATE {schema}.idempotency_keys
+                    SET compacted_at=%s,
+                        retain_until=GREATEST(
+                            COALESCE(retain_until, %s),
+                            %s
+                        )
                     WHERE entity_kind='task_assignment' AND entity_id = ANY(%s)
                     """,
-                    (task_ids,),
+                    (
+                        observed_at,
+                        observed_at,
+                        observed_at
+                        + timedelta(
+                            seconds=config.idempotency_tombstone_retention_seconds
+                        ),
+                        task_ids,
+                    ),
                 )
                 connection.execute(
                     f"""
@@ -1168,15 +1496,57 @@ class TransactionalControlPlaneStore:
                 )
                 connection.execute(
                     f"""
-                    DELETE FROM {schema}.idempotency_keys
+                    UPDATE {schema}.idempotency_keys
+                    SET compacted_at=%s,
+                        retain_until=GREATEST(
+                            COALESCE(retain_until, %s),
+                            %s
+                        )
                     WHERE entity_kind='task_assignment' AND entity_id = ANY(%s)
                     """,
-                    (stale_task_ids,),
+                    (
+                        observed_at,
+                        observed_at,
+                        observed_at
+                        + timedelta(
+                            seconds=config.idempotency_tombstone_retention_seconds
+                        ),
+                        stale_task_ids,
+                    ),
                 )
+            removed_idempotency = connection.execute(
+                f"""
+                WITH ranked AS (
+                    SELECT scope, idempotency_key, retain_until,
+                           row_number() OVER (
+                               ORDER BY compacted_at DESC NULLS LAST,
+                                        created_at DESC, scope, idempotency_key
+                           ) AS tombstone_rank
+                    FROM {schema}.idempotency_keys
+                    WHERE entity_kind='task_assignment'
+                      AND compacted_at IS NOT NULL
+                ), removable AS (
+                    SELECT scope, idempotency_key
+                    FROM ranked
+                    WHERE retain_until <= %s
+                    ORDER BY retain_until NULLS FIRST, scope, idempotency_key
+                    LIMIT %s
+                )
+                DELETE FROM {schema}.idempotency_keys target
+                USING removable
+                WHERE target.scope=removable.scope
+                  AND target.idempotency_key=removable.idempotency_key
+                """,
+                (
+                    observed_at,
+                    config.compaction_batch_size,
+                ),
+            ).rowcount
         return {
             "queue_rows": len(queue_ids),
             "effect_rows": effect_rows,
             "task_rows": task_rows,
+            "idempotency_rows": int(removed_idempotency),
         }
 
     def _rollup_task_history_locked(
@@ -1288,30 +1658,138 @@ class TransactionalControlPlaneStore:
             ).fetchone()
         return self._queue_row(row) if row is not None else None
 
+    def get_task_dispatch_effect(
+        self,
+        *,
+        queue_id: str | None = None,
+        task_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        if (queue_id is None) == (task_id is None):
+            raise ValueError("exactly one task dispatch effect identity is required")
+        schema = _safe_identifier(self.configuration.schema)
+        field = "queue_id" if queue_id is not None else "task_id"
+        value = queue_id if queue_id is not None else task_id
+        with self.transaction("task_dispatch_effect_get") as connection:
+            row = connection.execute(
+                f"SELECT * FROM {schema}.task_dispatch_effects WHERE {field}=%s",
+                (value,),
+            ).fetchone()
+        if row is None:
+            return None
+        payload = dict(row)
+        if payload.get("runtime_payload") is not None:
+            payload["runtime_payload"] = dict(payload["runtime_payload"])
+        for key in ("created_at", "updated_at"):
+            if payload.get(key) is not None:
+                payload[key] = payload[key].isoformat()
+        return payload
+
     def reconcile_task_queue(
         self,
         *,
-        max_attempts: int,
+        config: AdmissionQueueConfig,
         include_transitions: bool = False,
         now: datetime | None = None,
     ) -> dict[str, Any]:
         schema = _safe_identifier(self.configuration.schema)
         observed_at = now or utc_now()
-        outcome = {"expired": 0, "requeued": 0, "dlq": 0}
+        outcome = {"expired": 0, "requeued": 0, "dlq": 0, "outcome_unknown": 0}
         transitions: list[dict[str, str]] = []
         with self.serialized("task-queue-reconciliation") as connection:
             rows = connection.execute(
                 f"""
-                SELECT * FROM {schema}.task_admission_queue
-                WHERE state = ANY(%s)
-                  AND (deadline_at <= %s OR (state='leased' AND lease_expires_at <= %s))
-                FOR UPDATE
+                SELECT queue.*, effect.state AS effect_state
+                FROM {schema}.task_admission_queue queue
+                LEFT JOIN {schema}.task_dispatch_effects effect
+                  ON effect.queue_id=queue.queue_id
+                WHERE queue.state = ANY(%s)
+                  AND (
+                    (
+                      queue.state IN ('available', 'retry_wait', 'leased')
+                      AND queue.deadline_at <= %s
+                    )
+                    OR (
+                      queue.state='leased'
+                      AND queue.lease_expires_at <= %s
+                    )
+                    OR (
+                      queue.state='runtime_pending'
+                      AND queue.runtime_pending_at IS NOT NULL
+                      AND queue.runtime_pending_at + (%s * interval '1 second') <= %s
+                    )
+                  )
+                FOR UPDATE OF queue
                 """,
-                (list(ACTIVE_QUEUE_STATES), observed_at, observed_at),
+                (
+                    list(ACTIVE_QUEUE_STATES),
+                    observed_at,
+                    observed_at,
+                    config.runtime_terminal_timeout_seconds,
+                    observed_at,
+                ),
             ).fetchall()
             for row in rows:
                 queue_id = str(row["queue_id"])
-                if row["deadline_at"] <= observed_at:
+                effect_state = str(row["effect_state"] or "")
+                external_effect_may_exist = effect_state in {
+                    "submitting",
+                    "submitted",
+                    "outcome_unknown",
+                }
+                if str(row["state"]) == "runtime_pending" or (
+                    row["deadline_at"] <= observed_at and external_effect_may_exist
+                ):
+                    connection.execute(
+                        f"""
+                        UPDATE {schema}.task_admission_queue
+                        SET state='outcome_unknown',
+                            terminal_reason=NULL, terminal_at=NULL,
+                            outcome_unknown_at=COALESCE(outcome_unknown_at, %s),
+                            next_runtime_poll_at=%s,
+                            lease_owner=NULL, lease_expires_at=NULL,
+                            updated_at=clock_timestamp()
+                        WHERE queue_id=%s
+                        """,
+                        (observed_at, observed_at, queue_id),
+                    )
+                    if effect_state:
+                        connection.execute(
+                            f"""
+                            UPDATE {schema}.task_dispatch_effects
+                            SET state='outcome_unknown', updated_at=clock_timestamp()
+                            WHERE queue_id=%s AND state <> 'terminal'
+                            """,
+                            (queue_id,),
+                        )
+                    outcome["outcome_unknown"] += 1
+                    self._update_task_runtime_locked(
+                        connection,
+                        task_id=str(row["task_id"]),
+                        status="running",
+                        runtime_state="outcome_unknown",
+                        failure_reason="runtime_terminal_timeout",
+                        event="task_runtime_outcome_unknown",
+                        observed_at=observed_at,
+                    )
+                    transitions.append(
+                        {
+                            "queue_id": queue_id,
+                            "task_id": str(row["task_id"]),
+                            "state": "outcome_unknown",
+                            "reason": "runtime_terminal_timeout",
+                        }
+                    )
+                elif row["deadline_at"] <= observed_at:
+                    if effect_state == "reserved":
+                        connection.execute(
+                            f"""
+                            UPDATE {schema}.task_dispatch_effects
+                            SET state='failed', runtime_state='deadline_exceeded',
+                                updated_at=clock_timestamp()
+                            WHERE queue_id=%s
+                            """,
+                            (queue_id,),
+                        )
                     connection.execute(
                         f"""
                         UPDATE {schema}.task_admission_queue
@@ -1340,53 +1818,26 @@ class TransactionalControlPlaneStore:
                             "reason": "deadline_exceeded",
                         }
                     )
-                elif int(row["attempt_count"]) >= max_attempts:
-                    connection.execute(
-                        f"""
-                        UPDATE {schema}.task_admission_queue
-                        SET state='dlq', terminal_reason='lease_lost_attempts_exhausted',
-                            terminal_at=%s, lease_owner=NULL, lease_expires_at=NULL,
-                            last_failure_class='owner_lost', updated_at=clock_timestamp()
-                        WHERE queue_id=%s
-                        """,
-                        (observed_at, queue_id),
-                    )
-                    outcome["dlq"] += 1
-                    self._update_task_runtime_locked(
+                else:
+                    retry = self._reschedule_locked_queue_item(
                         connection,
-                        task_id=str(row["task_id"]),
-                        status="failed",
-                        runtime_state="dlq",
-                        failure_reason="lease_lost_attempts_exhausted",
-                        event="task_queue_dlq",
+                        row,
+                        failure_class="owner_lost",
+                        transient=True,
+                        config=config,
                         observed_at=observed_at,
                     )
+                    state = str(retry["state"])
+                    if state == "retry_wait":
+                        outcome["requeued"] += 1
+                    elif state == "dlq":
+                        outcome["dlq"] += 1
                     transitions.append(
                         {
                             "queue_id": queue_id,
                             "task_id": str(row["task_id"]),
-                            "state": "dlq",
-                            "reason": "lease_lost_attempts_exhausted",
-                        }
-                    )
-                else:
-                    connection.execute(
-                        f"""
-                        UPDATE {schema}.task_admission_queue
-                        SET state='retry_wait', available_at=%s, lease_owner=NULL,
-                            lease_expires_at=NULL, last_failure_class='owner_lost',
-                            updated_at=clock_timestamp()
-                        WHERE queue_id=%s
-                        """,
-                        (observed_at, queue_id),
-                    )
-                    outcome["requeued"] += 1
-                    transitions.append(
-                        {
-                            "queue_id": queue_id,
-                            "task_id": str(row["task_id"]),
-                            "state": "retry_wait",
-                            "reason": "owner_lost",
+                            "state": state,
+                            "reason": str(retry.get("terminal_reason") or "owner_lost"),
                         }
                     )
         if include_transitions:
@@ -1402,6 +1853,7 @@ class TransactionalControlPlaneStore:
         lease_seconds: float,
         scan_limit: int,
         resource_class: str | None = None,
+        max_outstanding: int | None = None,
         now: datetime | None = None,
     ) -> list[TaskQueueLease]:
         schema = _safe_identifier(self.configuration.schema)
@@ -1417,6 +1869,26 @@ class TransactionalControlPlaneStore:
             parameters.append(resource_class)
         parameters.append(scan_limit)
         with self.transaction("task_queue_claim") as connection:
+            if resource_class is not None and max_outstanding is not None:
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(%s)",
+                    (_advisory_key(f"task-queue-outstanding:{resource_class}"),),
+                )
+                outstanding = connection.execute(
+                    f"""
+                    SELECT COUNT(*) AS depth
+                    FROM {schema}.task_admission_queue
+                    WHERE resource_class=%s
+                      AND state IN ('leased', 'runtime_pending', 'outcome_unknown')
+                    """,
+                    (resource_class,),
+                ).fetchone()
+                max_items = min(
+                    max_items,
+                    max(0, max_outstanding - int(outstanding["depth"])),
+                )
+                if max_items <= 0:
+                    return []
             rows = connection.execute(
                 f"""
                 SELECT * FROM {schema}.task_admission_queue
@@ -1688,6 +2160,54 @@ class TransactionalControlPlaneStore:
             "dag_run_id": dag_run_id,
         }
 
+    def mark_task_dispatch_effect_submitting(
+        self,
+        lease: TaskQueueLease,
+        *,
+        effect_key: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Fence the last local step before the external Airflow mutation."""
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        with self.transaction("task_dispatch_effect_submitting") as connection:
+            queue_row = connection.execute(
+                f"SELECT * FROM {schema}.task_admission_queue WHERE queue_id=%s FOR UPDATE",
+                (lease.queue_id,),
+            ).fetchone()
+            self._assert_queue_lease(queue_row, lease, observed_at)
+            effect_row = connection.execute(
+                f"""
+                SELECT * FROM {schema}.task_dispatch_effects
+                WHERE effect_key=%s FOR UPDATE
+                """,
+                (effect_key,),
+            ).fetchone()
+            if effect_row is None:
+                raise ControlPlaneLeaseConflict("task_dispatch_effect_missing")
+            if (
+                str(effect_row["queue_id"]) != lease.queue_id
+                or str(effect_row["lease_owner"]) != lease.lease_owner
+                or int(effect_row["lease_epoch"]) != lease.lease_epoch
+            ):
+                raise ControlPlaneLeaseConflict("task_dispatch_effect_fence_mismatch")
+            state = str(effect_row["state"])
+            if state in {"submitted", "terminal"}:
+                return {"effect_key": effect_key, "state": state, "replayed": True}
+            if state in {"failed", "outcome_unknown"}:
+                raise ControlPlaneLeaseConflict(
+                    f"task_dispatch_effect_not_submittable:{state}"
+                )
+            connection.execute(
+                f"""
+                UPDATE {schema}.task_dispatch_effects
+                SET state='submitting', updated_at=clock_timestamp()
+                WHERE effect_key=%s
+                """,
+                (effect_key,),
+            )
+        return {"effect_key": effect_key, "state": "submitting", "replayed": False}
+
     def commit_task_dispatch_effect(
         self,
         lease: TaskQueueLease,
@@ -1748,6 +2268,8 @@ class TransactionalControlPlaneStore:
                     terminal_reason=CASE WHEN %s THEN %s ELSE NULL END,
                     terminal_at=CASE WHEN %s THEN %s ELSE NULL END,
                     runtime_pending_at=CASE WHEN %s THEN NULL ELSE %s END,
+                    next_runtime_poll_at=CASE WHEN %s THEN NULL ELSE %s END,
+                    outcome_unknown_at=NULL,
                     lease_owner=NULL, lease_expires_at=NULL,
                     updated_at=clock_timestamp()
                 WHERE queue_id=%s
@@ -1756,6 +2278,8 @@ class TransactionalControlPlaneStore:
                     queue_state,
                     terminal,
                     reason,
+                    terminal,
+                    observed_at,
                     terminal,
                     observed_at,
                     terminal,
@@ -1776,6 +2300,43 @@ class TransactionalControlPlaneStore:
             "runtime_state": runtime_state,
         }
 
+    def claim_runtime_pending_for_poll(
+        self,
+        *,
+        max_items: int,
+        poll_interval_seconds: float,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Reserve a fair bounded poll batch without holding locks across HTTP."""
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        next_poll = observed_at + timedelta(seconds=poll_interval_seconds)
+        with self.transaction("task_runtime_poll_claim") as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM {schema}.task_admission_queue
+                WHERE state IN ('runtime_pending', 'outcome_unknown')
+                  AND COALESCE(next_runtime_poll_at, runtime_pending_at, created_at) <= %s
+                ORDER BY COALESCE(next_runtime_poll_at, runtime_pending_at, created_at),
+                         runtime_poll_count, queue_id
+                FOR UPDATE SKIP LOCKED
+                LIMIT %s
+                """,
+                (observed_at, max_items),
+            ).fetchall()
+            if rows:
+                connection.execute(
+                    f"""
+                    UPDATE {schema}.task_admission_queue
+                    SET next_runtime_poll_at=%s,
+                        runtime_poll_count=runtime_poll_count + 1,
+                        updated_at=clock_timestamp()
+                    WHERE queue_id = ANY(%s)
+                    """,
+                    (next_poll, [str(row["queue_id"]) for row in rows]),
+                )
+        return [self._queue_row(row) for row in rows]
+
     def complete_runtime_pending_task(
         self,
         *,
@@ -1783,6 +2344,7 @@ class TransactionalControlPlaneStore:
         task_id: str,
         runtime_state: str,
         succeeded: bool,
+        task_payload: Mapping[str, Any] | None = None,
         now: datetime | None = None,
     ) -> dict[str, Any]:
         schema = _safe_identifier(self.configuration.schema)
@@ -1798,12 +2360,13 @@ class TransactionalControlPlaneStore:
             ).fetchone()
             if row is None or str(row["task_id"]) != task_id:
                 raise ControlPlaneLeaseConflict("runtime_pending_identity_mismatch")
-            if str(row["state"]) != "runtime_pending":
+            if str(row["state"]) not in {"runtime_pending", "outcome_unknown"}:
                 raise ControlPlaneLeaseConflict("task_queue_item_not_runtime_pending")
             connection.execute(
                 f"""
                 UPDATE {schema}.task_admission_queue
                 SET state=%s, terminal_reason=%s, terminal_at=%s,
+                    next_runtime_poll_at=NULL, outcome_unknown_at=NULL,
                     updated_at=clock_timestamp()
                 WHERE queue_id=%s
                 """,
@@ -1822,20 +2385,98 @@ class TransactionalControlPlaneStore:
                 """,
                 (runtime_state, queue_id),
             )
-            self._update_task_runtime_locked(
-                connection,
-                task_id=task_id,
-                status="done" if succeeded else "failed",
-                runtime_state=runtime_state,
-                failure_reason=None if succeeded else runtime_state,
-                event="task_runtime_terminal",
-                observed_at=observed_at,
-            )
+            if task_payload is not None:
+                if str(task_payload.get("task_id")) != task_id:
+                    raise ControlPlaneLeaseConflict(
+                        "runtime_pending_task_payload_identity_mismatch"
+                    )
+                self._write_task_entity_locked(
+                    connection,
+                    task_payload,
+                    replace_existing=True,
+                )
+            else:
+                self._update_task_runtime_locked(
+                    connection,
+                    task_id=task_id,
+                    status="done" if succeeded else "failed",
+                    runtime_state=runtime_state,
+                    failure_reason=None if succeeded else runtime_state,
+                    event="task_runtime_terminal",
+                    observed_at=observed_at,
+                )
         return {
             "queue_id": queue_id,
             "task_id": task_id,
             "state": queue_state,
             "runtime_state": runtime_state,
+        }
+
+    def resolve_missing_outcome_unknown(
+        self,
+        *,
+        queue_id: str,
+        task_id: str,
+        timeout_seconds: float,
+        minimum_polls: int = 3,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Close a local unknown only after a bounded, reachable 404 observation window."""
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        with self.transaction("task_runtime_missing_resolution") as connection:
+            row = connection.execute(
+                f"""
+                SELECT * FROM {schema}.task_admission_queue
+                WHERE queue_id=%s FOR UPDATE
+                """,
+                (queue_id,),
+            ).fetchone()
+            if row is None or str(row["task_id"]) != task_id:
+                raise ControlPlaneLeaseConflict("outcome_unknown_identity_mismatch")
+            if str(row["state"]) != "outcome_unknown":
+                return {"queue_id": queue_id, "state": str(row["state"])}
+            unknown_at = row["outcome_unknown_at"] or row["updated_at"]
+            elapsed = (observed_at - unknown_at).total_seconds()
+            if elapsed < timeout_seconds or int(row["runtime_poll_count"]) < minimum_polls:
+                return {
+                    "queue_id": queue_id,
+                    "state": "outcome_unknown",
+                    "elapsed_seconds": max(0.0, elapsed),
+                    "poll_count": int(row["runtime_poll_count"]),
+                }
+            reason = "external_effect_not_found_after_timeout"
+            connection.execute(
+                f"""
+                UPDATE {schema}.task_admission_queue
+                SET state='failed', terminal_reason=%s, terminal_at=%s,
+                    next_runtime_poll_at=NULL, updated_at=clock_timestamp()
+                WHERE queue_id=%s
+                """,
+                (reason, observed_at, queue_id),
+            )
+            connection.execute(
+                f"""
+                UPDATE {schema}.task_dispatch_effects
+                SET state='failed', runtime_state=%s, updated_at=clock_timestamp()
+                WHERE queue_id=%s AND state <> 'terminal'
+                """,
+                (reason, queue_id),
+            )
+            self._update_task_runtime_locked(
+                connection,
+                task_id=task_id,
+                status="failed",
+                runtime_state="failed",
+                failure_reason=reason,
+                event="task_runtime_missing_terminal",
+                observed_at=observed_at,
+            )
+        return {
+            "queue_id": queue_id,
+            "task_id": task_id,
+            "state": "failed",
+            "terminal_reason": reason,
         }
 
     def complete_task_queue_item(
@@ -1934,95 +2575,205 @@ class TransactionalControlPlaneStore:
     ) -> dict[str, Any]:
         schema = _safe_identifier(self.configuration.schema)
         observed_at = now or utc_now()
-        budget_name = f"task-dispatch:{config.retry_budget_scope}"
         with self.serialized(f"task-queue-retry-budget:{config.retry_budget_scope}") as connection:
             row = connection.execute(
                 f"SELECT * FROM {schema}.task_admission_queue WHERE queue_id=%s FOR UPDATE",
                 (lease.queue_id,),
             ).fetchone()
             self._assert_queue_lease(row, lease, observed_at)
-            if not transient:
-                return self._finish_locked_queue_item(
+            return self._reschedule_locked_queue_item(
+                connection,
+                row,
+                failure_class=failure_class,
+                transient=transient,
+                config=config,
+                observed_at=observed_at,
+            )
+
+    def _reschedule_locked_queue_item(
+        self,
+        connection: Any,
+        row: Mapping[str, Any],
+        *,
+        failure_class: str,
+        transient: bool,
+        config: AdmissionQueueConfig,
+        observed_at: datetime,
+    ) -> dict[str, Any]:
+        schema = _safe_identifier(self.configuration.schema)
+        queue_id = str(row["queue_id"])
+        if str(row["retry_budget_scope"]) != config.retry_budget_scope:
+            raise ControlPlaneStoreError(
+                "task queue retry-budget scope differs from the frozen runtime config"
+            )
+        effect = connection.execute(
+            f"""
+            SELECT state FROM {schema}.task_dispatch_effects
+            WHERE queue_id=%s FOR UPDATE
+            """,
+            (queue_id,),
+        ).fetchone()
+        effect_may_exist = effect is not None and str(effect["state"]) in {
+            "submitting",
+            "submitted",
+            "outcome_unknown",
+        }
+        if not transient:
+            return self._finish_locked_queue_item(
+                connection,
+                queue_id,
+                state="dlq",
+                reason=f"permanent:{failure_class}",
+                failure_class=failure_class,
+                observed_at=observed_at,
+            )
+        if int(row["attempt_count"]) >= config.max_attempts:
+            if effect_may_exist:
+                return self._mark_locked_outcome_unknown(
                     connection,
-                    lease.queue_id,
-                    state="dlq",
-                    reason=f"permanent:{failure_class}",
-                    failure_class=failure_class,
-                    observed_at=observed_at,
-                )
-            if int(row["attempt_count"]) >= config.max_attempts:
-                return self._finish_locked_queue_item(
-                    connection,
-                    lease.queue_id,
-                    state="dlq",
+                    row,
                     reason=f"attempts_exhausted:{failure_class}",
-                    failure_class=failure_class,
                     observed_at=observed_at,
                 )
-            budget = connection.execute(
-                f"""
-                SELECT * FROM {schema}.task_retry_budget
-                WHERE budget_name=%s FOR UPDATE
-                """,
-                (budget_name,),
-            ).fetchone()
-            if budget is None or (
-                observed_at - budget["window_started_at"]
-            ).total_seconds() >= config.retry_budget_window_seconds:
-                consumed = 0
-                window_started_at = observed_at
-            else:
-                consumed = int(budget["consumed"])
-                window_started_at = budget["window_started_at"]
-            if consumed >= config.global_retry_budget:
-                return self._finish_locked_queue_item(
+            return self._finish_locked_queue_item(
+                connection,
+                queue_id,
+                state="dlq",
+                reason=f"attempts_exhausted:{failure_class}",
+                failure_class=failure_class,
+                observed_at=observed_at,
+            )
+        budget_name = f"task-dispatch:{config.retry_budget_scope}"
+        connection.execute(
+            "SELECT pg_advisory_xact_lock(%s)",
+            (_advisory_key(f"task-queue-retry-budget:{config.retry_budget_scope}"),),
+        )
+        budget = connection.execute(
+            f"""
+            SELECT * FROM {schema}.task_retry_budget
+            WHERE budget_name=%s FOR UPDATE
+            """,
+            (budget_name,),
+        ).fetchone()
+        if budget is None or (
+            observed_at - budget["window_started_at"]
+        ).total_seconds() >= config.retry_budget_window_seconds:
+            consumed = 0
+            window_started_at = observed_at
+        else:
+            consumed = int(budget["consumed"])
+            window_started_at = budget["window_started_at"]
+        if consumed >= config.global_retry_budget:
+            if effect_may_exist:
+                return self._mark_locked_outcome_unknown(
                     connection,
-                    lease.queue_id,
-                    state="dlq",
+                    row,
                     reason=f"retry_budget_exhausted:{failure_class}",
-                    failure_class=failure_class,
                     observed_at=observed_at,
                 )
-            connection.execute(
-                f"""
-                INSERT INTO {schema}.task_retry_budget
-                    (budget_name, window_started_at, consumed)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (budget_name) DO UPDATE
-                SET window_started_at=EXCLUDED.window_started_at,
-                    consumed=EXCLUDED.consumed,
-                    updated_at=clock_timestamp()
-                """,
-                (budget_name, window_started_at, consumed + 1),
+            return self._finish_locked_queue_item(
+                connection,
+                queue_id,
+                state="dlq",
+                reason=f"retry_budget_exhausted:{failure_class}",
+                failure_class=failure_class,
+                observed_at=observed_at,
             )
-            base = min(
-                config.backoff_max_seconds,
-                config.backoff_base_seconds * (2 ** max(0, lease.attempt_count - 1)),
-            )
-            digest = hashlib.sha256(
-                f"{lease.queue_id}:{lease.attempt_count}".encode("utf-8")
-            ).digest()
-            unit = int.from_bytes(digest[:8], "big") / float(2**64 - 1)
-            jitter = (unit * 2.0 - 1.0) * config.jitter_ratio
-            delay = max(0.0, base * (1.0 + jitter))
-            available_at = observed_at + timedelta(seconds=delay)
-            connection.execute(
-                f"""
-                UPDATE {schema}.task_admission_queue
-                SET state='retry_wait', available_at=%s, lease_owner=NULL,
-                    lease_expires_at=NULL, last_failure_class=%s,
-                    updated_at=clock_timestamp()
-                WHERE queue_id=%s
-                """,
-                (available_at, failure_class, lease.queue_id),
-            )
-            return {
-                "queue_id": lease.queue_id,
-                "state": "retry_wait",
-                "failure_class": failure_class,
-                "delay_seconds": delay,
-                "available_at": available_at.isoformat(),
-            }
+        connection.execute(
+            f"""
+            INSERT INTO {schema}.task_retry_budget
+                (budget_name, window_started_at, consumed)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (budget_name) DO UPDATE
+            SET window_started_at=EXCLUDED.window_started_at,
+                consumed=EXCLUDED.consumed,
+                updated_at=clock_timestamp()
+            """,
+            (budget_name, window_started_at, consumed + 1),
+        )
+        attempt_count = int(row["attempt_count"])
+        base = min(
+            config.backoff_max_seconds,
+            config.backoff_base_seconds * (2 ** max(0, attempt_count - 1)),
+        )
+        digest = hashlib.sha256(
+            f"{queue_id}:{attempt_count}:{config.retry_budget_scope}".encode("utf-8")
+        ).digest()
+        unit = int.from_bytes(digest[:8], "big") / float(2**64 - 1)
+        jitter = (unit * 2.0 - 1.0) * config.jitter_ratio
+        delay = max(0.0, base * (1.0 + jitter))
+        available_at = observed_at + timedelta(seconds=delay)
+        connection.execute(
+            f"""
+            UPDATE {schema}.task_admission_queue
+            SET state='retry_wait', available_at=%s, lease_owner=NULL,
+                lease_expires_at=NULL, last_failure_class=%s,
+                updated_at=clock_timestamp()
+            WHERE queue_id=%s
+            """,
+            (available_at, failure_class, queue_id),
+        )
+        self._update_task_runtime_locked(
+            connection,
+            task_id=str(row["task_id"]),
+            status="queued",
+            runtime_state="retry_wait",
+            failure_reason=failure_class,
+            event="task_queue_retry_scheduled",
+            observed_at=observed_at,
+        )
+        return {
+            "queue_id": queue_id,
+            "state": "retry_wait",
+            "failure_class": failure_class,
+            "delay_seconds": delay,
+            "available_at": available_at.isoformat(),
+        }
+
+    def _mark_locked_outcome_unknown(
+        self,
+        connection: Any,
+        row: Mapping[str, Any],
+        *,
+        reason: str,
+        observed_at: datetime,
+    ) -> dict[str, Any]:
+        schema = _safe_identifier(self.configuration.schema)
+        queue_id = str(row["queue_id"])
+        connection.execute(
+            f"""
+            UPDATE {schema}.task_admission_queue
+            SET state='outcome_unknown', outcome_unknown_at=%s,
+                next_runtime_poll_at=%s, terminal_reason=NULL, terminal_at=NULL,
+                lease_owner=NULL, lease_expires_at=NULL,
+                last_failure_class=%s, updated_at=clock_timestamp()
+            WHERE queue_id=%s
+            """,
+            (observed_at, observed_at, reason, queue_id),
+        )
+        connection.execute(
+            f"""
+            UPDATE {schema}.task_dispatch_effects
+            SET state='outcome_unknown', runtime_state=%s,
+                updated_at=clock_timestamp()
+            WHERE queue_id=%s AND state <> 'terminal'
+            """,
+            (reason, queue_id),
+        )
+        self._update_task_runtime_locked(
+            connection,
+            task_id=str(row["task_id"]),
+            status="running",
+            runtime_state="outcome_unknown",
+            failure_reason=reason,
+            event="task_runtime_outcome_unknown",
+            observed_at=observed_at,
+        )
+        return {
+            "queue_id": queue_id,
+            "state": "outcome_unknown",
+            "failure_class": reason,
+        }
 
     def _write_task_entity_locked(
         self,
@@ -2158,6 +2909,8 @@ class TransactionalControlPlaneStore:
             raise ControlPlaneLeaseConflict("task_queue_epoch_mismatch")
         if row["lease_expires_at"] is None or row["lease_expires_at"] <= observed_at:
             raise ControlPlaneLeaseConflict("task_queue_lease_expired")
+        if row["deadline_at"] <= observed_at:
+            raise ControlPlaneDeadlineExceeded("task_queue_deadline_exceeded")
 
     def _finish_locked_queue_item(
         self,
@@ -2212,6 +2965,8 @@ class TransactionalControlPlaneStore:
             "lease_expires_at",
             "execution_started_at",
             "runtime_pending_at",
+            "next_runtime_poll_at",
+            "outcome_unknown_at",
             "terminal_at",
             "created_at",
             "updated_at",
@@ -2685,13 +3440,25 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
             entity_kind text NOT NULL,
             entity_id text NOT NULL,
             response_payload jsonb NOT NULL,
+            compacted_at timestamptz,
+            retain_until timestamptz,
             created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
             PRIMARY KEY (scope, idempotency_key)
         )
         """,
         f"""
+        ALTER TABLE {schema}.idempotency_keys
+            ADD COLUMN IF NOT EXISTS compacted_at timestamptz,
+            ADD COLUMN IF NOT EXISTS retain_until timestamptz
+        """,
+        f"""
         CREATE INDEX IF NOT EXISTS idempotency_entity_idx
         ON {schema}.idempotency_keys(entity_kind, entity_id)
+        """,
+        f"""
+        CREATE INDEX IF NOT EXISTS idempotency_retention_idx
+        ON {schema}.idempotency_keys(compacted_at, retain_until, created_at)
+        WHERE compacted_at IS NOT NULL
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {schema}.lifecycle_claims (
@@ -2741,7 +3508,7 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
                 CHECK (resource_class IN ('cpu', 'gpu')),
             claim_count integer NOT NULL DEFAULT 0 CHECK (claim_count >= 0),
             attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
-            retry_budget_scope text NOT NULL DEFAULT 's2-bounded-queue-v2',
+            retry_budget_scope text NOT NULL DEFAULT 's2-bounded-queue-v3',
             available_at timestamptz NOT NULL,
             deadline_at timestamptz NOT NULL,
             lease_owner text,
@@ -2749,6 +3516,9 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
             lease_expires_at timestamptz,
             execution_started_at timestamptz,
             runtime_pending_at timestamptz,
+            next_runtime_poll_at timestamptz,
+            runtime_poll_count integer NOT NULL DEFAULT 0 CHECK (runtime_poll_count >= 0),
+            outcome_unknown_at timestamptz,
             last_failure_class text,
             terminal_reason text,
             terminal_at timestamptz,
@@ -2762,20 +3532,37 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
             ADD COLUMN IF NOT EXISTS resource_class text NOT NULL DEFAULT 'cpu',
             ADD COLUMN IF NOT EXISTS claim_count integer NOT NULL DEFAULT 0,
             ADD COLUMN IF NOT EXISTS retry_budget_scope text NOT NULL
-                DEFAULT 's2-bounded-queue-v2',
+                DEFAULT 's2-bounded-queue-v3',
             ADD COLUMN IF NOT EXISTS execution_started_at timestamptz,
-            ADD COLUMN IF NOT EXISTS runtime_pending_at timestamptz
+            ADD COLUMN IF NOT EXISTS runtime_pending_at timestamptz,
+            ADD COLUMN IF NOT EXISTS next_runtime_poll_at timestamptz,
+            ADD COLUMN IF NOT EXISTS runtime_poll_count integer NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS outcome_unknown_at timestamptz
+        """,
+        f"""
+        ALTER TABLE {schema}.task_admission_queue
+            ALTER COLUMN retry_budget_scope SET DEFAULT 's2-bounded-queue-v3'
         """,
         f"""
         UPDATE {schema}.task_admission_queue
         SET resource_class = CASE
-            WHEN lower(COALESCE(task_payload->>'resource_profile', '')) LIKE '%gpu%'
+            WHEN (
+                 lower(COALESCE(task_payload->>'resource_profile', '')) LIKE '%gpu%'
+              OR lower(COALESCE(task_payload->>'resource_profile', '')) LIKE '%cuda%'
+              OR lower(COALESCE(task_payload->>'resource_profile', '')) LIKE '%rtx%'
+              OR lower(COALESCE(task_payload->>'resource_profile', '')) LIKE '%accelerator%'
+            )
               OR lower(COALESCE(task_payload->'config_payload'->>'resource_class', '')) = 'gpu'
             THEN 'gpu'
             ELSE 'cpu'
         END
         WHERE resource_class IS DISTINCT FROM CASE
-            WHEN lower(COALESCE(task_payload->>'resource_profile', '')) LIKE '%gpu%'
+            WHEN (
+                 lower(COALESCE(task_payload->>'resource_profile', '')) LIKE '%gpu%'
+              OR lower(COALESCE(task_payload->>'resource_profile', '')) LIKE '%cuda%'
+              OR lower(COALESCE(task_payload->>'resource_profile', '')) LIKE '%rtx%'
+              OR lower(COALESCE(task_payload->>'resource_profile', '')) LIKE '%accelerator%'
+            )
               OR lower(COALESCE(task_payload->'config_payload'->>'resource_class', '')) = 'gpu'
             THEN 'gpu'
             ELSE 'cpu'
@@ -2789,7 +3576,8 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
         ALTER TABLE {schema}.task_admission_queue
             ADD CONSTRAINT task_admission_queue_state_check CHECK (
                 state IN ('available', 'retry_wait', 'leased', 'runtime_pending',
-                          'completed', 'failed', 'dlq', 'expired', 'cancelled')
+                          'outcome_unknown', 'completed', 'failed', 'dlq', 'expired',
+                          'cancelled')
             )
         """,
         f"""
@@ -2809,7 +3597,8 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
         f"""
         CREATE INDEX IF NOT EXISTS task_admission_active_idx
         ON {schema}.task_admission_queue(state, deadline_at, lease_expires_at)
-        WHERE state IN ('available', 'retry_wait', 'leased')
+        WHERE state IN ('available', 'retry_wait', 'leased', 'runtime_pending',
+                        'outcome_unknown')
         """,
         f"""
         CREATE INDEX IF NOT EXISTS task_admission_resource_claim_idx
@@ -2817,6 +3606,13 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
             resource_class, state, available_at, priority DESC, created_at
         )
         WHERE state IN ('available', 'retry_wait')
+        """,
+        f"""
+        CREATE INDEX IF NOT EXISTS task_runtime_poll_idx
+        ON {schema}.task_admission_queue(
+            next_runtime_poll_at, runtime_pending_at, created_at, queue_id
+        )
+        WHERE state IN ('runtime_pending', 'outcome_unknown')
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {schema}.task_dispatch_effects (
@@ -2827,7 +3623,8 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
             dag_id text NOT NULL,
             dag_run_id text NOT NULL,
             state text NOT NULL CHECK (
-                state IN ('reserved', 'submitted', 'terminal', 'failed')
+                state IN ('reserved', 'submitting', 'submitted', 'terminal',
+                          'failed', 'outcome_unknown')
             ),
             lease_owner text NOT NULL,
             lease_epoch bigint NOT NULL CHECK (lease_epoch >= 1),
@@ -2837,6 +3634,17 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
             updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
             UNIQUE (task_id, dag_id, dag_run_id)
         )
+        """,
+        f"""
+        ALTER TABLE {schema}.task_dispatch_effects
+            DROP CONSTRAINT IF EXISTS task_dispatch_effects_state_check
+        """,
+        f"""
+        ALTER TABLE {schema}.task_dispatch_effects
+            ADD CONSTRAINT task_dispatch_effects_state_check CHECK (
+                state IN ('reserved', 'submitting', 'submitted', 'terminal',
+                          'failed', 'outcome_unknown')
+            )
         """,
         f"""
         CREATE INDEX IF NOT EXISTS task_dispatch_effect_state_idx

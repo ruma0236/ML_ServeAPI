@@ -1,5 +1,5 @@
 [profile]
-version = "s2-bounded-queue-v2-cpu1-control-20260816"
+version = "s2-bounded-queue-v3-cpu1-control-20260816"
 status = "frozen-before-experiment"
 
 [durable_queue]
@@ -7,9 +7,15 @@ max_depth = 64
 max_bytes = 393216
 max_item_bytes = 262144
 ingress_max_body_bytes = 262144
+ingress_max_concurrent_requests = 32
+ingress_max_inflight_bytes = 1048576
+ingress_max_chunks = 128
 max_age_seconds = 120.0
 admission_wait_seconds = 0.25
 retry_after_seconds = 2
+pending_max_depth = 32
+pending_max_bytes = 262144
+pending_max_age_seconds = 600.0
 
 [local_queue]
 max_depth = 8
@@ -24,7 +30,10 @@ lease_seconds = 6.0
 lease_renew_interval_seconds = 2.0
 poll_interval_seconds = 0.1
 runtime_poll_interval_seconds = 0.25
+runtime_poll_batch_size = 4
 runtime_terminal_timeout_seconds = 120.0
+cpu_downstream_max_outstanding = 8
+gpu_downstream_max_outstanding = 1
 drain_timeout_seconds = 60.0
 metrics_port = 9465
 
@@ -35,7 +44,7 @@ backoff_max_seconds = 2.0
 jitter_ratio = 0.20
 global_budget = 32
 budget_window_seconds = 60.0
-budget_scope = "s2-bounded-queue-v2-cpu1-control"
+budget_scope = "s2-bounded-queue-v3-cpu1-control"
 
 [resource_limits]
 rss_cap_bytes = 1073741824
@@ -45,4 +54,6 @@ rss_slope_tolerance_bytes_per_minute = 16777216
 terminal_queue_max_rows = 64
 terminal_queue_max_age_seconds = 600.0
 task_history_max_terminal_rows = 64
+idempotency_tombstone_max_rows = 4096
+idempotency_tombstone_retention_seconds = 86400.0
 compaction_batch_size = 64

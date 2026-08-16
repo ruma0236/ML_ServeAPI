@@ -38,7 +38,7 @@ from evm.control_panel.schemas import (
     TaskStatus,
     TaskTransitionRequest,
 )
-from evm.control_panel.transactional_store import get_transactional_store
+from evm.control_panel.transactional_store import canonical_digest, get_transactional_store
 from evm.observability.otel import trace_span
 from evm.observability.trace_context import (
     TraceContextError,
@@ -113,7 +113,10 @@ def task_ledger_transaction(function):
             durable
             and function.__name__ == "create_task_assignment"
             and args
-            and resolve_task_status(args[0]) != "queued"
+            and not (
+                args[0].task_type == "airflow_dag_run"
+                and resolve_task_status(args[0]) in {"queued", "pending_confirmation"}
+            )
         ):
             return legacy(*args, **kwargs)
         if durable:
@@ -270,7 +273,11 @@ def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
             if admission_queue_mode() == "durable":
                 QUEUE_ADMISSIONS.labels(outcome="replayed", reason="idempotency").inc()
             return TaskAssignment.model_validate(replay)
-    durable_admission = admission_queue_mode() == "durable" and store.enabled
+    durable_admission = (
+        admission_queue_mode() == "durable"
+        and store.enabled
+        and request.task_type == "airflow_dag_run"
+    )
     with trace_span(
         "queue.enqueue",
         kind="producer",
@@ -312,9 +319,28 @@ def create_task_assignment(request: TaskAssignmentRequest) -> TaskAssignment:
                 outcome="replayed" if result.replayed else "accepted",
                 reason="idempotency" if result.replayed else "within_bounds",
             ).inc()
+        elif (
+            durable_admission
+            and resolve_task_status(traced_request) == "pending_confirmation"
+        ):
+            task = _build_task_assignment(traced_request)
+            result = store.admit_pending_task_assignment(
+                scope="task.create",
+                idempotency_key=effective_key,
+                request_payload=request_payload,
+                task_payload=task.model_dump(mode="json"),
+                config=load_admission_queue_config(),
+            )
+            task = TaskAssignment.model_validate(result.task_payload)
+            QUEUE_ADMISSIONS.labels(
+                outcome="replayed" if result.replayed else "accepted",
+                reason="idempotency" if result.replayed else "pending_approval",
+            ).inc()
         else:
             task = _create_task_assignment(traced_request)
-        if store.enabled and not (durable_admission and task.status == "queued"):
+        if store.enabled and not (
+            durable_admission and task.status in {"queued", "pending_confirmation"}
+        ):
             store.record_idempotency(
                 "task.create",
                 effective_key,
@@ -380,7 +406,6 @@ def confirm_task_assignment(
             if admission_queue_mode() == "durable":
                 QUEUE_ADMISSIONS.labels(outcome="replayed", reason="idempotency").inc()
             return TaskAssignment.model_validate(replay)
-    durable_admission = admission_queue_mode() == "durable" and store.enabled
     tasks = read_tasks()
     for index, task in enumerate(tasks.tasks):
         if task.task_id != task_id:
@@ -400,6 +425,11 @@ def confirm_task_assignment(
                 "task_external_approval_required",
                 f"Task {task_id} requires an external {task.approval_policy} approval record.",
             )
+        durable_admission = (
+            admission_queue_mode() == "durable"
+            and store.enabled
+            and task.task_type == "airflow_dag_run"
+        )
         task.status = "queued"
         task.version += 1
         task.queued_at = utc_now()
@@ -446,11 +476,10 @@ def confirm_task_assignment(
 def dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
     store = get_transactional_store()
     if store.enabled and admission_queue_mode() == "durable":
-        raise TaskDispatchError(
-            "durable_queue_owns_dispatch",
-            "Direct dispatch is disabled while the durable task queue owns execution.",
-            status_code=409,
-        )
+        task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
+        queue_item = store.get_task_queue_item(task_id=task_id) if task is not None else None
+        if queue_item is not None:
+            return task
     task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
     if task is None:
         return None
@@ -488,7 +517,11 @@ def dispatch_task_assignment(task_id: str) -> TaskAssignment | None:
         return task
 
 
-def dispatch_queued_task_assignment(task_id: str) -> TaskAssignment | None:
+def dispatch_queued_task_assignment(
+    task_id: str,
+    *,
+    parent: W3CTraceContext | None = None,
+) -> TaskAssignment | None:
     """Dispatch a fenced durable item without holding the ledger lock across HTTP."""
     store = get_transactional_store()
     lease = store.bound_task_queue_lease()
@@ -501,10 +534,10 @@ def dispatch_queued_task_assignment(task_id: str) -> TaskAssignment | None:
     plan = _prepare_queued_task_dispatch(task_id)
     if plan is None:
         return None
-    parent = task_trace_context(plan.task)
+    effective_parent = parent or task_trace_context(plan.task)
     with trace_span(
         "queue.dispatch",
-        parent=parent,
+        parent=effective_parent,
         kind="consumer",
         attributes={
             "evm.stage": "queue",
@@ -519,6 +552,7 @@ def dispatch_queued_task_assignment(task_id: str) -> TaskAssignment | None:
                 **plan.task.config_payload,
                 "control_panel_task_id": plan.task.task_id,
                 "cycle_id": plan.task.cycle_id,
+                "resource_profile": plan.task.resource_profile,
                 "trace_id": active.context.trace_id,
                 "traceparent": active.context.traceparent,
                 "tracestate": active.context.tracestate,
@@ -544,6 +578,10 @@ def dispatch_queued_task_assignment(task_id: str) -> TaskAssignment | None:
                         status_code=502,
                     ) from exc
             if response is None:
+                store.mark_task_dispatch_effect_submitting(
+                    lease,
+                    effect_key=str(reservation["effect_key"]),
+                )
                 response = airflow_api_request(
                     f"/dags/{quote(plan.dag_id, safe='')}/dagRuns",
                     method="POST",
@@ -683,6 +721,30 @@ def sync_task_json_mirror_from_store() -> None:
             write_task_json_mirror(tasks)
 
 
+def verify_task_json_mirror_parity() -> dict[str, object]:
+    store = get_transactional_store()
+    if not store.enabled:
+        return {"matches": True, "mode": "file"}
+    authority = sorted(
+        store.list_entities("task_assignment"),
+        key=lambda item: str(item.get("task_id", "")),
+    )
+    collection_parity = store.task_mirror_parity()
+    file_payload = sorted(
+        read_json_array(task_ledger_path()),
+        key=lambda item: str(item.get("task_id", "")),
+    )
+    authority_digest = canonical_digest(authority)
+    file_digest = canonical_digest(file_payload)
+    return {
+        **collection_parity,
+        "file_count": len(file_payload),
+        "file_sha256": file_digest,
+        "matches": bool(collection_parity["matches"])
+        and authority_digest == file_digest,
+    }
+
+
 def task_trace_context(task: TaskAssignment | None) -> W3CTraceContext | None:
     if task is None:
         return None
@@ -810,6 +872,9 @@ def _dispatch_task_assignment(
 
 @ledger_transaction
 def sync_running_tasks(limit: int = 20) -> TaskAssignmentList:
+    store = get_transactional_store()
+    if store.enabled and admission_queue_mode() == "durable":
+        return read_tasks()
     tasks = read_tasks()
     changed = False
     running = 0
@@ -857,33 +922,74 @@ def sync_running_tasks(limit: int = 20) -> TaskAssignmentList:
     return tasks
 
 
-def reconcile_queued_task_runtime(task_id: str) -> TaskAssignment | None:
+def reconcile_queued_task_runtime(
+    task_id: str,
+    *,
+    outcome_unknown_timeout_seconds: float | None = None,
+) -> TaskAssignment | None:
     """Poll one submitted runtime outside the ledger lock, then close it atomically."""
     task = next((item for item in read_tasks().tasks if item.task_id == task_id), None)
     if task is None or task.status in {"done", "failed", "cancelled"}:
         return task
-    if task.runtime_system != "airflow" or not task.runtime_url:
-        raise TaskDispatchError(
-            "task_runtime_identity_missing",
-            f"Task {task_id} has no reconciliable Airflow runtime identity.",
-        )
-    response = airflow_api_request_url(task.runtime_url)
-    runtime_state = str(response.get("state") or task.runtime_state or "unknown").lower()
-    if runtime_state not in {"success", "failed", "upstream_failed"}:
-        return task
     store = get_transactional_store()
     queue_item = store.get_task_queue_item(task_id=task_id)
-    if queue_item is None or queue_item["state"] != "runtime_pending":
+    if queue_item is None or queue_item["state"] not in {
+        "runtime_pending",
+        "outcome_unknown",
+    }:
         raise TaskDispatchError(
             "task_runtime_queue_identity_mismatch",
             f"Task {task_id} has no matching runtime-pending queue row.",
             status_code=409,
         )
+    effect = store.get_task_dispatch_effect(queue_id=str(queue_item["queue_id"]))
+    if effect is None:
+        raise TaskDispatchError(
+            "task_runtime_effect_identity_missing",
+            f"Task {task_id} has no durable Airflow effect identity.",
+            status_code=409,
+        )
+    if task.runtime_system == "airflow" and task.runtime_url:
+        runtime_url = task.runtime_url
+    else:
+        runtime_url = (
+            f"{airflow_api_root()}/dags/{quote(str(effect['dag_id']), safe='')}/dagRuns/"
+            f"{quote(str(effect['dag_run_id']), safe='')}"
+        )
+    try:
+        response = airflow_api_request_url(runtime_url)
+    except TaskDispatchError as exc:
+        if (
+            exc.code == "airflow_dag_run_not_found"
+            and queue_item["state"] == "outcome_unknown"
+            and outcome_unknown_timeout_seconds is not None
+        ):
+            store.resolve_missing_outcome_unknown(
+                queue_id=str(queue_item["queue_id"]),
+                task_id=task_id,
+                timeout_seconds=outcome_unknown_timeout_seconds,
+            )
+            return next(
+                (item for item in read_tasks().tasks if item.task_id == task_id),
+                None,
+            )
+        raise
+    runtime_state = str(response.get("state") or task.runtime_state or "unknown").lower()
+    if runtime_state not in {"success", "failed", "upstream_failed"}:
+        return task
+    plan = QueuedDispatchPlan(
+        task=task,
+        dag_id=str(effect["dag_id"]),
+        dag_run_id=str(effect["dag_run_id"]),
+        run_path="",
+    )
+    updated = _task_from_runtime_response(task, response, plan)
     store.complete_runtime_pending_task(
         queue_id=str(queue_item["queue_id"]),
         task_id=task_id,
         runtime_state=runtime_state,
         succeeded=runtime_state == "success",
+        task_payload=updated.model_dump(mode="json"),
     )
     return next((item for item in read_tasks().tasks if item.task_id == task_id), None)
 
@@ -986,7 +1092,7 @@ def airflow_api_request_url(
                 code,
                 f"Airflow API returned HTTP {exc.code}.",
                 status_code=502,
-                retryable=exc.code == 429 or exc.code >= 500,
+                retryable=exc.code in {409, 429} or exc.code >= 500,
             ) from exc
         except (URLError, TimeoutError, OSError) as exc:
             raise TaskDispatchError(

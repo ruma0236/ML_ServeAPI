@@ -7,11 +7,13 @@ import os
 import signal
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+import psutil
 from prometheus_client import start_http_server
 
 from evm.control_panel.admission_queue import (
@@ -29,6 +31,7 @@ from evm.control_panel.admission_queue import (
     QUEUE_LOCAL_DEPTH,
     QUEUE_OLDEST_AGE_SECONDS,
     QUEUE_PROCESS_RSS_BYTES,
+    QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE,
     QUEUE_RETRIES,
     QUEUE_TERMINALS,
     QUEUE_WORK_SECONDS,
@@ -36,6 +39,7 @@ from evm.control_panel.admission_queue import (
     QUEUE_WORKER_LIVE_CONSUMERS,
     AdmissionQueueConfig,
     admission_queue_mode,
+    bounded_queue_metric_reason,
     load_admission_queue_config,
     task_resource_class,
 )
@@ -43,6 +47,7 @@ from evm.control_panel.operations import (
     TaskDispatchError,
     reconcile_queued_task_runtime,
     sync_task_json_mirror_from_store,
+    verify_task_json_mirror_parity,
 )
 from evm.control_panel.transactional_store import (
     ControlPlanePoolTimeout,
@@ -80,52 +85,18 @@ def resource_class(lease: TaskQueueLease) -> str:
 
 def process_tree_rss_bytes(pid: int | None = None) -> int:
     root_pid = pid or os.getpid()
-    proc_root = Path("/proc")
-    if proc_root.exists():
-        page_size = int(os.sysconf("SC_PAGE_SIZE"))
-        seen: set[int] = set()
-
-        def collect(process_id: int) -> int:
-            if process_id in seen:
-                return 0
-            seen.add(process_id)
-            rss = 0
-            statm = proc_root / str(process_id) / "statm"
-            try:
-                rss = int(statm.read_text(encoding="ascii").split()[1]) * page_size
-            except (FileNotFoundError, IndexError, OSError, ValueError):
-                pass
-            children_path = proc_root / str(process_id) / "task" / str(process_id) / "children"
-            try:
-                children = [
-                    int(value)
-                    for value in children_path.read_text(encoding="ascii").split()
-                ]
-            except (FileNotFoundError, OSError, ValueError):
-                children = []
-            return rss + sum(collect(child) for child in children)
-
-        return collect(root_pid)
     try:
-        import resource
-
-        value = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-        return value if sys.platform == "darwin" else value * 1024
-    except (ImportError, OSError, ValueError):
+        root = psutil.Process(root_pid)
+        processes = [root, *root.children(recursive=True)]
+        rss = 0
+        for process in processes:
+            try:
+                rss += int(process.memory_info().rss)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return rss
+    except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
         return 0
-
-
-def _linux_parent_death_signal() -> None:
-    if not sys.platform.startswith("linux"):
-        return
-    import ctypes
-
-    parent = os.getppid()
-    libc = ctypes.CDLL(None)
-    if libc.prctl(1, signal.SIGKILL) != 0:
-        raise OSError("failed to bind executor lifetime to its worker parent")
-    if os.getppid() != parent:
-        os.kill(os.getpid(), signal.SIGKILL)
 
 
 class BoundedTaskQueueWorker:
@@ -162,12 +133,20 @@ class BoundedTaskQueueWorker:
         self._last_consumer_error: str | None = None
         self._consumer_failures = {"cpu": 0, "gpu": 0}
         self._loop_count = 0
+        self._parent_create_time = psutil.Process(os.getpid()).create_time()
+        self._executor_processes: dict[int, asyncio.subprocess.Process] = {}
+        self._rss_samples: deque[tuple[float, int]] = deque()
         QUEUE_WORKER_CAPACITY.labels(resource_class="cpu").set(self.cpu_target)
         QUEUE_WORKER_CAPACITY.labels(resource_class="gpu").set(config.gpu_workers)
         QUEUE_WORKER_LIVE_CONSUMERS.labels(resource_class="cpu").set(0)
         QUEUE_WORKER_LIVE_CONSUMERS.labels(resource_class="gpu").set(0)
 
     async def run(self, *, once: bool = False) -> None:
+        await asyncio.to_thread(
+            self.store.verify_task_queue_cutover,
+            mode="durable",
+            config=self.config,
+        )
         self._start_consumers()
         try:
             while not self.stop_event.is_set():
@@ -175,7 +154,7 @@ class BoundedTaskQueueWorker:
                 await self._supervise_consumers()
                 reconciliation = await asyncio.to_thread(
                     self.store.reconcile_task_queue,
-                    max_attempts=self.config.max_attempts,
+                    config=self.config,
                     include_transitions=True,
                 )
                 self._observe_reconciliation(reconciliation)
@@ -184,13 +163,16 @@ class BoundedTaskQueueWorker:
                     await self._compact_and_observe_history()
                 snapshot = self.store.task_queue_snapshot()
                 self._observe_snapshot(snapshot)
-                self._adjust_cpu_target(snapshot.active_depth)
+                self._adjust_cpu_target(snapshot.dispatchable_depth("cpu"))
                 rss = process_tree_rss_bytes()
                 QUEUE_PROCESS_RSS_BYTES.set(rss)
+                if rss <= 0:
+                    raise RuntimeError("task queue process-tree RSS is unavailable")
                 if rss > self.config.rss_cap_bytes:
                     raise RuntimeError(
                         f"task queue worker RSS {rss} exceeded cap {self.config.rss_cap_bytes}"
                     )
+                self._observe_rss_slope(rss)
                 await self._fill_local_queues()
                 self._write_heartbeat(
                     "degraded" if self._last_consumer_error else "online",
@@ -288,6 +270,11 @@ class BoundedTaskQueueWorker:
                 lease_seconds=self.config.lease_seconds,
                 scan_limit=self.config.durable_max_depth,
                 resource_class=kind,
+                max_outstanding=(
+                    self.config.gpu_downstream_max_outstanding
+                    if kind == "gpu"
+                    else self.config.cpu_downstream_max_outstanding
+                ),
             )
             for lease in leases:
                 if resource_class(lease) != kind:
@@ -364,11 +351,6 @@ class BoundedTaskQueueWorker:
                     "evm.task.resource_class": lease.resource_class,
                 },
             ) as active:
-                options = (
-                    {"preexec_fn": _linux_parent_death_signal}
-                    if sys.platform.startswith("linux")
-                    else {}
-                )
                 process = await asyncio.create_subprocess_exec(
                     sys.executable,
                     "-m",
@@ -381,50 +363,66 @@ class BoundedTaskQueueWorker:
                     lease.lease_owner,
                     "--lease-epoch",
                     str(lease.lease_epoch),
+                    "--parent-pid",
+                    str(os.getpid()),
+                    "--parent-create-time",
+                    repr(self._parent_create_time),
+                    "--traceparent",
+                    active.context.traceparent,
+                    "--tracestate",
+                    active.context.tracestate or "",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env={**os.environ, "EVM_CONTROL_PLANE_AUTO_MIGRATE": "false"},
-                    **options,
                 )
+                self._executor_processes[process.pid] = process
                 try:
-                    stdout, _stderr = await self._communicate_with_lease_renewal(
-                        process,
-                        lease,
-                    )
-                except TimeoutError:
+                    try:
+                        stdout, _stderr = await self._communicate_with_lease_renewal(
+                            process,
+                            lease,
+                        )
+                    except TimeoutError:
+                        await self._terminate_executor(process)
+                        await self._handle_failure(
+                            lease,
+                            failure_class="work_timeout",
+                            transient=True,
+                        )
+                        return
+                    result = self._executor_result(stdout)
+                    if process.returncode != 0:
+                        await self._handle_failure(
+                            lease,
+                            failure_class=str(
+                                result.get("failure_class") or "executor_failed"
+                            ),
+                            transient=str(result.get("outcome")) == "transient",
+                        )
+                        return
+                    task_status = str(result.get("task_status") or "unknown")
+                    queue_state = str(result.get("queue_state") or "unknown")
+                    expected = {
+                        "running": "runtime_pending",
+                        "done": "completed",
+                        "failed": "failed",
+                    }
+                    if task_status not in expected or queue_state != expected[task_status]:
+                        raise ControlPlaneStoreError(
+                            "executor task/queue terminal semantics diverged"
+                        )
+                    active.set_attribute("evm.task.status", task_status)
+                    active.set_attribute("evm.queue.state", queue_state)
+                    if queue_state in {"completed", "failed"}:
+                        QUEUE_TERMINALS.labels(
+                            state=queue_state,
+                            reason="runtime_terminal",
+                        ).inc()
+                except asyncio.CancelledError:
                     await self._terminate_executor(process)
-                    await self._handle_failure(
-                        lease,
-                        failure_class="work_timeout",
-                        transient=True,
-                    )
-                    return
-                result = self._executor_result(stdout)
-                if process.returncode != 0:
-                    await self._handle_failure(
-                        lease,
-                        failure_class=str(
-                            result.get("failure_class") or "executor_failed"
-                        ),
-                        transient=str(result.get("outcome")) == "transient",
-                    )
-                    return
-                task_status = str(result.get("task_status") or "unknown")
-                queue_state = str(result.get("queue_state") or "unknown")
-                expected = {
-                    "running": "runtime_pending",
-                    "done": "completed",
-                    "failed": "failed",
-                }
-                if task_status not in expected or queue_state != expected[task_status]:
-                    raise ControlPlaneStoreError(
-                        "executor task/queue terminal semantics diverged"
-                    )
-                active.set_attribute("evm.task.status", task_status)
-                active.set_attribute("evm.queue.state", queue_state)
-                if queue_state in {"completed", "failed"}:
-                    reason = f"runtime_terminal:{result.get('runtime_state') or 'unknown'}"
-                    QUEUE_TERMINALS.labels(state=queue_state, reason=reason).inc()
+                    raise
+                finally:
+                    self._executor_processes.pop(process.pid, None)
         except ControlPlanePoolTimeout:
             await self._handle_failure(
                 lease,
@@ -500,11 +498,32 @@ class BoundedTaskQueueWorker:
     async def _terminate_executor(process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
             return
-        process.terminate()
+        try:
+            root = psutil.Process(process.pid)
+            descendants = root.children(recursive=True)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            descendants = []
+            root = None
+        for descendant in reversed(descendants):
+            try:
+                descendant.terminate()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        if root is not None:
+            try:
+                root.terminate()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
         try:
             await asyncio.wait_for(process.wait(), timeout=2.0)
         except TimeoutError:
-            process.kill()
+            for descendant in reversed(descendants):
+                try:
+                    descendant.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            if process.returncode is None:
+                process.kill()
             await process.wait()
 
     @staticmethod
@@ -536,10 +555,11 @@ class BoundedTaskQueueWorker:
             config=self.config,
         )
         state = str(result["state"])
-        QUEUE_RETRIES.labels(outcome=state, failure_class=failure_class).inc()
+        metric_failure = bounded_queue_metric_reason(failure_class)
+        QUEUE_RETRIES.labels(outcome=state, failure_class=metric_failure).inc()
         if state == "dlq":
-            QUEUE_DLQ.labels(reason=failure_class).inc()
-            QUEUE_TERMINALS.labels(state="dlq", reason=failure_class).inc()
+            QUEUE_DLQ.labels(reason=metric_failure).inc()
+            QUEUE_TERMINALS.labels(state="dlq", reason=metric_failure).inc()
 
     def _observe_reconciliation(self, result: dict[str, object]) -> None:
         transitions = result.get("transitions")
@@ -550,12 +570,17 @@ class BoundedTaskQueueWorker:
                 state = str(transition.get("state") or "unknown")
                 reason = str(transition.get("reason") or "unknown")
                 if state in {"expired", "dlq"}:
-                    QUEUE_TERMINALS.labels(state=state, reason=reason).inc()
+                    metric_reason = bounded_queue_metric_reason(reason)
+                    QUEUE_TERMINALS.labels(state=state, reason=metric_reason).inc()
                     if state == "dlq":
-                        QUEUE_DLQ.labels(reason=reason).inc()
+                        QUEUE_DLQ.labels(reason=metric_reason).inc()
 
     async def _reconcile_runtime_pending(self) -> None:
-        pending = self.store.list_task_queue_items(states=("runtime_pending",))[:4]
+        pending = await asyncio.to_thread(
+            self.store.claim_runtime_pending_for_poll,
+            max_items=self.config.runtime_poll_batch_size,
+            poll_interval_seconds=self.config.runtime_poll_interval_seconds,
+        )
         for item in pending:
             task_id = str(item["task_id"])
             try:
@@ -570,11 +595,14 @@ class BoundedTaskQueueWorker:
                     task = await asyncio.to_thread(
                         reconcile_queued_task_runtime,
                         task_id,
+                        outcome_unknown_timeout_seconds=(
+                            self.config.runtime_terminal_timeout_seconds
+                        ),
                     )
                 if task is not None and task.status in {"done", "failed"}:
                     QUEUE_TERMINALS.labels(
                         state="completed" if task.status == "done" else "failed",
-                        reason=f"runtime_terminal:{task.runtime_state or 'unknown'}",
+                        reason="runtime_terminal",
                     ).inc()
             except (TaskDispatchError, ControlPlaneStoreError):
                 continue
@@ -598,6 +626,12 @@ class BoundedTaskQueueWorker:
         QUEUE_HISTORY_BYTES.labels(history_class="task").set(history.task_bytes)
         QUEUE_HISTORY_ROWS.labels(history_class="mirror").set(history.mirror_rows)
         QUEUE_HISTORY_BYTES.labels(history_class="mirror").set(history.mirror_bytes)
+        QUEUE_HISTORY_ROWS.labels(history_class="idempotency").set(
+            history.idempotency_rows
+        )
+        QUEUE_HISTORY_BYTES.labels(history_class="idempotency").set(
+            history.idempotency_bytes
+        )
         for history_class in ("queue", "effect", "task"):
             QUEUE_HISTORY_ROWS.labels(history_class=f"{history_class}_compacted").set(
                 history.compacted_rows.get(history_class, 0)
@@ -605,6 +639,9 @@ class BoundedTaskQueueWorker:
             QUEUE_HISTORY_BYTES.labels(history_class=f"{history_class}_compacted").set(
                 history.compacted_bytes.get(history_class, 0)
             )
+        parity = await asyncio.to_thread(verify_task_json_mirror_parity)
+        if not parity["matches"]:
+            raise ControlPlaneStoreError("PostgreSQL and JSON rollback mirror diverged")
 
     def _adjust_cpu_target(self, durable_depth: int) -> None:
         previous = self.cpu_target
@@ -625,7 +662,14 @@ class BoundedTaskQueueWorker:
             ).inc()
 
     def _observe_snapshot(self, snapshot) -> None:
-        states = ("available", "retry_wait", "leased", "runtime_pending", "terminal")
+        states = (
+            "available",
+            "retry_wait",
+            "leased",
+            "runtime_pending",
+            "outcome_unknown",
+            "terminal",
+        )
         for state in states:
             if state == "terminal":
                 terminal_states = ("completed", "failed", "dlq", "expired", "cancelled")
@@ -641,6 +685,31 @@ class BoundedTaskQueueWorker:
     def _observe_local(self) -> None:
         QUEUE_LOCAL_DEPTH.set(self.local_count)
         QUEUE_LOCAL_BYTES.set(self.local_bytes)
+
+    def _observe_rss_slope(self, rss_bytes: int) -> None:
+        observed_at = time.monotonic()
+        self._rss_samples.append((observed_at, rss_bytes))
+        while self._rss_samples and observed_at - self._rss_samples[0][0] > 60.0:
+            self._rss_samples.popleft()
+        if len(self._rss_samples) < 2:
+            QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE.set(0)
+            return
+        elapsed = self._rss_samples[-1][0] - self._rss_samples[0][0]
+        if elapsed <= 0:
+            return
+        slope = (
+            (self._rss_samples[-1][1] - self._rss_samples[0][1])
+            / elapsed
+            * 60.0
+        )
+        QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE.set(slope)
+        if (
+            elapsed >= 30.0
+            and slope > self.config.rss_slope_tolerance_bytes_per_minute
+        ):
+            raise RuntimeError(
+                "task queue process-tree RSS slope exceeded the frozen tolerance"
+            )
 
     async def _shutdown_consumers(self) -> None:
         deadline = time.monotonic() + self.config.drain_timeout_seconds
@@ -666,6 +735,9 @@ class BoundedTaskQueueWorker:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        for process in list(self._executor_processes.values()):
+            await self._terminate_executor(process)
+        self._executor_processes.clear()
         self._observe_local()
 
     def _write_heartbeat(

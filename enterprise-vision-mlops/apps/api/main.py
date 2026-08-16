@@ -30,6 +30,10 @@ from apps.api.control_panel_tasks import router as control_panel_tasks_router
 from apps.api.control_panel_workloads import router as control_panel_workloads_router
 from apps.api.control_panel import router as control_panel_router
 from apps.api.task_ingress import TaskIngressBodyLimitMiddleware
+from evm.control_panel.operations import (
+    sync_task_json_mirror_from_store,
+    verify_task_json_mirror_parity,
+)
 from evm.core.image_feature_model import extract_image_features, predict_with_model, resolve_image_path
 from evm.observability.trace_context import (
     TraceContextError,
@@ -40,6 +44,14 @@ from evm.observability.otel import (
     runtime_service_version,
     shutdown_tracing,
     trace_span,
+)
+from evm.control_panel.admission_queue import (
+    admission_queue_mode,
+    load_admission_queue_config,
+)
+from evm.control_panel.transactional_store import (
+    ControlPlaneParityError,
+    get_transactional_store,
 )
 from evm.operations.metrics import OperationalMetrics, load_metric_projection
 
@@ -259,6 +271,17 @@ class PredictResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_tracing(APP_NAME, service_version=runtime_service_version())
+    store = get_transactional_store()
+    if store.enabled:
+        store.verify_task_queue_cutover(
+            mode=admission_queue_mode(),
+            config=load_admission_queue_config(),
+        )
+        sync_task_json_mirror_from_store()
+        if not verify_task_json_mirror_parity()["matches"]:
+            raise ControlPlaneParityError(
+                "PostgreSQL task authority and rollback mirrors diverged at startup"
+            )
     refresh_model_state()
     try:
         yield
