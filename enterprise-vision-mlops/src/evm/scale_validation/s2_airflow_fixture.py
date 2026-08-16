@@ -158,18 +158,18 @@ def _execute_cuda_probe(task_identity: str, seed: int) -> dict[str, Any]:
     )
     torch.manual_seed(effective_seed)
     torch.cuda.manual_seed_all(effective_seed)
-    torch.cuda.reset_peak_memory_stats(0)
+    torch.cuda.reset_peak_memory_stats()
     left = torch.arange(128 * 128, dtype=torch.float32, device="cuda").reshape(128, 128)
     right = torch.eye(128, dtype=torch.float32, device="cuda")
     result = left @ right
-    torch.cuda.synchronize(0)
+    torch.cuda.synchronize()
     digest = hashlib.sha256(result.cpu().numpy().tobytes()).hexdigest()
     return {
         "backend": "cuda",
         "device_count": int(torch.cuda.device_count()),
         "result_sha256": digest,
-        "peak_allocated_bytes": int(torch.cuda.max_memory_allocated(0)),
-        "nonzero_activity": bool(result.numel() and torch.cuda.max_memory_allocated(0) > 0),
+        "peak_allocated_bytes": int(torch.cuda.max_memory_allocated()),
+        "nonzero_activity": bool(result.numel() and torch.cuda.max_memory_allocated() > 0),
     }
 
 

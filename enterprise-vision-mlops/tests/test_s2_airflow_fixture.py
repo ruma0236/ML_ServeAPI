@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from evm.scale_validation import s2_airflow_fixture
@@ -57,3 +59,17 @@ def test_fixture_binds_cuda_probe_to_existing_gpu_profile(monkeypatch):
     assert evidence["cuda_failure_count"] == 0
     assert evidence["cuda_nonzero_activity_count"] == 1
     assert evidence["cuda_peak_allocated_bytes"] == 4096
+
+
+def test_cuda_probe_runs_on_the_current_trusted_cuda_device():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("trusted CUDA device is unavailable")
+
+    result = s2_airflow_fixture._execute_cuda_probe("task-cuda-contract", 20260816)
+
+    assert result["backend"] == "cuda"
+    assert result["device_count"] >= 1
+    assert result["nonzero_activity"] is True
+    assert result["peak_allocated_bytes"] > 0
+    assert len(result["result_sha256"]) == 64
