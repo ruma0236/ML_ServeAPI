@@ -78,6 +78,7 @@ class S2MatrixConfig:
     drain_timeout_seconds: float
     trace_flush_seconds: float
     prometheus_scrape_interval_seconds: float
+    rss_slope_measurement_seconds: float
     profiles: dict[str, dict[str, Any]]
     sha256: str
 
@@ -106,9 +107,17 @@ class S2MatrixConfig:
             "prometheus_scrape_interval_seconds": float(
                 matrix.get("prometheus_scrape_interval_seconds", 0)
             ),
+            "rss_slope_measurement_seconds": float(
+                matrix.get("rss_slope_measurement_seconds", 0)
+            ),
         }
         if any(value <= 0 for value in numeric.values()):
             raise ValueError("S2 matrix timing values must be positive")
+        if (
+            float(profiles["D"].get("arrival_duration_seconds", 0))
+            < numeric["rss_slope_measurement_seconds"]
+        ):
+            raise ValueError("profile D must cover the frozen RSS slope window")
         return cls(
             path=resolved,
             version=str(matrix["version"]),
@@ -2588,7 +2597,7 @@ def aggregate_acceptance(
     queue_config: AdmissionQueueConfig,
 ) -> tuple[dict[str, bool], dict[str, bool]]:
     flattened = runtime_results(results)
-    bounded = all(
+    hard_bounded = all(
         int(item.get("peaks", {}).get("active_depth", 0))
         <= queue_config.durable_max_depth
         and int(item.get("peaks", {}).get("active_bytes", 0))
@@ -2599,14 +2608,24 @@ def aggregate_acceptance(
         and 0
         < int(item.get("peaks", {}).get("worker_process_tree_rss_bytes", 0))
         <= queue_config.rss_cap_bytes
-        and abs(float(item.get("metrics", {}).get("rss_slope_bytes_per_minute", 0)))
-        <= queue_config.rss_slope_tolerance_bytes_per_minute
         for item in flattened
     )
-    executor_observed = all(
-        int(item.get("peaks", {}).get("executor_children_rss_bytes", 0)) > 0
+    counts = Counter(str(item.get("profile_id")) for item in results)
+    exact_matrix = all(counts[profile_id] == 3 for profile_id in EXPECTED_PROFILE_IDS)
+    d_entries = [item for item in flattened if item.get("profile_id") == "D"]
+    slope_bounded = len(d_entries) == 6 and all(
+        abs(float(item.get("metrics", {}).get("rss_slope_bytes_per_minute", 0)))
+        <= queue_config.rss_slope_tolerance_bytes_per_minute
+        for item in d_entries
+    )
+    executor_entries = [
+        item
         for item in flattened
         if item.get("profile_id") in {"B", "C", "D", "I", "J"}
+    ]
+    executor_observed = len(executor_entries) == 18 and all(
+        int(item.get("peaks", {}).get("executor_children_rss_bytes", 0)) > 0
+        for item in executor_entries
     )
     explicit_closure = all(
         find_assertion(item, "accepted_equals_terminal")
@@ -2617,25 +2636,33 @@ def aggregate_acceptance(
     exactly_once = all(
         find_assertion(item, "logical_effect_exactly_once") for item in flattened
     )
-    poison_isolated = all(
+    poison_entries = [
+        item for item in results if item.get("profile_id") in {"E", "H", "I", "J"}
+    ]
+    poison_isolated = len(poison_entries) == 12 and all(
         bool(item.get("passed"))
-        for item in results
-        if item.get("profile_id") in {"E", "H", "I", "J"}
+        for item in poison_entries
     )
-    rejection_observed = all(
+    rejection_entries = [
+        item for item in results if item.get("profile_id") in {"B", "C", "G", "H"}
+    ]
+    rejection_observed = len(rejection_entries) == 12 and all(
         bool(item.get("passed"))
-        for item in results
-        if item.get("profile_id") in {"B", "C", "G", "H"}
+        for item in rejection_entries
     )
+    worker_loss_entries = [
+        item for item in flattened if item.get("profile_id") == "I"
+    ]
+    gpu_entries = [item for item in flattened if item.get("profile_id") == "J"]
     acceptance = {
-        "S2-AC-01": bounded and executor_observed,
+        "S2-AC-01": hard_bounded and slope_bounded and executor_observed,
         "S2-AC-02": explicit_closure,
         "S2-AC-03": exactly_once and poison_isolated,
         "S2-AC-04": rejection_observed,
     }
     readiness = {
         "RG-01-s0-s1-start-gate": True,
-        "RG-02-exact-a-j-three-repetitions": len(results) == 30,
+        "RG-02-exact-a-j-three-repetitions": exact_matrix and len(results) == 30,
         "RG-03-external-http-no-transport-loss": all(
             int(item.get("submission", {}).get("transport_failures", 0)) == 0
             for item in flattened
@@ -2652,17 +2679,15 @@ def aggregate_acceptance(
             find_assertion(item, "trace_chain_complete") for item in flattened
         ),
         "RG-08-retry-dlq-backpressure-observed": rejection_observed,
-        "RG-09-real-worker-loss-recovery": all(
+        "RG-09-real-worker-loss-recovery": len(worker_loss_entries) == 3 and all(
             find_assertion(item, "I_exact_worker_process_replaced")
             and find_assertion(item, "I_lease_epoch_increased")
-            for item in flattened
-            if item.get("profile_id") == "I"
+            for item in worker_loss_entries
         ),
-        "RG-10-trusted-cuda-bound-to-effect": all(
+        "RG-10-trusted-cuda-bound-to-effect": len(gpu_entries) == 3 and all(
             find_assertion(item, "J_trusted_cuda_nonzero")
             and find_assertion(item, "J_external_gpu_runtime_max_one")
-            for item in flattened
-            if item.get("profile_id") == "J"
+            for item in gpu_entries
         ),
     }
     return acceptance, readiness
@@ -2802,6 +2827,7 @@ def run_external_s2_experiment(args: argparse.Namespace) -> dict[str, Any]:
             "profiles": list(selected_profiles),
             "warmup_seconds": matrix.warmup_seconds,
             "sample_interval_seconds": matrix.sample_interval_seconds,
+            "rss_slope_measurement_seconds": matrix.rss_slope_measurement_seconds,
             "drain_timeout_seconds": matrix.drain_timeout_seconds,
         },
         "environment": {

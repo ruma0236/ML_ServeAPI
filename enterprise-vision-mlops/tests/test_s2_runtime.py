@@ -3,11 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from evm.control_panel.admission_queue import canonical_payload_size
+from evm.control_panel.admission_queue import (
+    canonical_payload_size,
+    load_admission_queue_config,
+)
 from evm.scale_validation.s2_runtime import (
     EXPECTED_PROFILE_IDS,
     FULL_TRACE_NAMES,
     S2MatrixConfig,
+    aggregate_acceptance,
     build_task_payload,
     payload_digest,
     progress_verdict,
@@ -25,7 +29,9 @@ def test_s2_matrix_is_frozen_with_exact_a_to_j_profiles():
 
     assert tuple(sorted(matrix.profiles)) == EXPECTED_PROFILE_IDS
     assert matrix.repetitions == 3
-    assert matrix.version == "s2-external-matrix-v1-20260816"
+    assert matrix.version == "s2-external-matrix-v2-20260817"
+    assert matrix.rss_slope_measurement_seconds == 30.0
+    assert matrix.profiles["D"]["arrival_duration_seconds"] == 30.0
     assert len(matrix.sha256) == 64
 
 
@@ -35,6 +41,35 @@ def test_progress_verdict_reads_current_nested_contract_and_legacy_field():
     ) == "passed"
     assert progress_verdict({"verdict": "failed"}) == "failed"
     assert progress_verdict({}) is None
+
+
+def test_partial_profile_run_cannot_vacuously_pass_cross_profile_gates():
+    matrix = S2MatrixConfig.from_path(ROOT / "configs" / "s2_experiment_matrix_v1.toml")
+    acceptance, readiness = aggregate_acceptance(
+        [
+            {
+                "profile_id": "A",
+                "passed": True,
+                "peaks": {
+                    "active_depth": 1,
+                    "active_bytes": 1,
+                    "api_process_tree_rss_bytes": 1,
+                    "worker_process_tree_rss_bytes": 1,
+                },
+                "metrics": {"rss_slope_bytes_per_minute": 0},
+                "submission": {"transport_failures": 0},
+                "assertions": [],
+            }
+        ],
+        load_admission_queue_config(),
+    )
+
+    assert matrix.repetitions == 3
+    assert acceptance["S2-AC-01"] is False
+    assert acceptance["S2-AC-04"] is False
+    assert readiness["RG-08-retry-dlq-backpressure-observed"] is False
+    assert readiness["RG-09-real-worker-loss-recovery"] is False
+    assert readiness["RG-10-trusted-cuda-bound-to-effect"] is False
 
 
 def test_large_byte_profile_stays_below_single_item_limit():

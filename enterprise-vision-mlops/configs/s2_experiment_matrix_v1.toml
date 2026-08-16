@@ -1,5 +1,5 @@
 [matrix]
-version = "s2-external-matrix-v1-20260816"
+version = "s2-external-matrix-v2-20260817"
 status = "frozen-before-experiment"
 seed = 20260816
 repetitions = 3
@@ -8,6 +8,7 @@ sample_interval_seconds = 0.10
 drain_timeout_seconds = 90.0
 trace_flush_seconds = 3.0
 prometheus_scrape_interval_seconds = 1.0
+rss_slope_measurement_seconds = 30.0
 
 [profiles.A]
 name = "healthy-baseline"
@@ -37,7 +38,7 @@ name = "sustained-overload-and-cpu1-control"
 request_count = 32
 concurrency = 32
 arrival_rate_per_second = 8.0
-arrival_duration_seconds = 4.0
+arrival_duration_seconds = 30.0
 dispatch_delay_seconds = 0.20
 terminal_after_seconds = 0.50
 
