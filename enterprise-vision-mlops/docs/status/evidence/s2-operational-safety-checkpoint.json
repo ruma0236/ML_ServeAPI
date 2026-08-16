@@ -1,0 +1,56 @@
+{
+  "schema_version": "evm.scale_validation.s2_implementation_checkpoint.v1",
+  "generated_at": "2026-08-16T14:38:09Z",
+  "scenario_id": "S2",
+  "status": "implementing",
+  "source_revision": "5de1c41bcbf6b74d0f89289f9ac5b959097ee6ee",
+  "checkpoint": "operational_safety_boundaries",
+  "existing_system_path": "POST /control-panel/v1/tasks -> PostgreSQL durable admission -> bounded task queue worker -> deterministic Airflow dispatch/runtime reconciliation",
+  "implemented_boundaries": [
+    "Task create and confirm bodies are bounded before FastAPI JSON materialization by request count, aggregate bytes, per-body bytes, and chunk count.",
+    "Existing task APIs preserve response identifiers while durable direct dispatch is a queue-owned acknowledgement rather than a second execution path.",
+    "PostgreSQL admission atomically reserves canonical UTF-8 depth and bytes, preserves accepted-key replay, and retains bounded idempotency tombstones after history compaction.",
+    "Lease owner, epoch, deadline, deterministic effect identity, submitting state, and commit state are fenced around external Airflow mutation.",
+    "Worker-loss retries consume scoped retry budget with deterministic backoff and jitter; ambiguous submitted effects remain outcome_unknown until evidence-backed reconciliation.",
+    "Runtime polling uses a fair bounded database schedule; queue, task entity, effect, and rollback mirror terminal state are reconciled by the worker.",
+    "CPU scaling excludes GPU and runtime-pending backlog; downstream CPU outstanding is bounded and GPU outstanding is globally fixed at one.",
+    "Worker and executor process-tree RSS is portable through psutil, RSS slope is enforced, consumers are supervised, and executor lifetime is bound to exact parent process identity.",
+    "Durable-to-legacy ownership cutover fails closed on active or stranded work, and PostgreSQL-to-JSON rollback parity is machine-checkable.",
+    "Terminal history is compacted into bounded rollups while accepted idempotency replay remains valid for the frozen retention window."
+  ],
+  "validation": {
+    "focused_python": {
+      "command_scope": "bounded queue, ingress, process safety, Airflow fixture, and Control Panel contract tests",
+      "passed": 38,
+      "failed": 0,
+      "real_postgresql_required": true,
+      "real_postgresql_skipped": 0
+    },
+    "full_python": {
+      "passed": 661,
+      "failed": 0,
+      "skipped": 0
+    },
+    "control_panel": {
+      "unit_tests_passed": 59,
+      "unit_tests_failed": 0,
+      "production_build": "passed"
+    },
+    "compose_config": "passed"
+  },
+  "acceptance": {
+    "S2-AC-01": "pending",
+    "S2-AC-02": "pending",
+    "S2-AC-03": "pending",
+    "S2-AC-04": "pending"
+  },
+  "not_yet_credited": [
+    "A-J external workload profiles repeated three times",
+    "sustained API and worker process-tree memory envelope",
+    "actual worker PID kill and replacement recovery",
+    "nonzero trusted CUDA task with measured external runtime max concurrency one",
+    "Prometheus query and OTLP trace closure at the final experiment revision",
+    "fresh hash-linked S2 acceptance evidence"
+  ],
+  "claim_boundary": "Implementation and regression checkpoint on one local physical node. This is not S2 acceptance, customer traffic, production SLA, HA, DR, or multi-node proof."
+}

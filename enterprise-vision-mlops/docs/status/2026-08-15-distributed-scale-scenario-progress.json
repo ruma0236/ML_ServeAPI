@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-15T17:05:42.248111Z",
+  "generated_at": "2026-08-16T14:38:09Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1094,7 +1094,9 @@
             "src/evm/control_panel/admission_queue.py",
             "src/evm/control_panel/transactional_store.py",
             "src/evm/control_panel/operations.py",
-            "apps/api/control_panel_tasks.py"
+            "apps/api/control_panel_tasks.py",
+            "apps/api/task_ingress.py",
+            "apps/api/main.py"
           ]
         },
         {
@@ -1113,6 +1115,7 @@
             "infra/postgres/control-plane/002_bounded_admission_queue.sql",
             "infra/postgres/control-plane/003_task_queue_safety.sql",
             "infra/postgres/control-plane/004_task_entity_storage.sql",
+            "infra/postgres/control-plane/005_task_queue_operational_safety.sql",
             "docker-compose.yml",
             "monitoring/prometheus/prometheus.yml"
           ]
@@ -1122,6 +1125,8 @@
           "files": [
             "contracts/control-panel/control-panel.openapi.json",
             "tests/test_bounded_task_queue.py",
+            "tests/test_task_ingress.py",
+            "tests/test_task_queue_process_safety.py",
             "tests/test_control_panel_contract.py",
             "tests/test_s2_airflow_fixture.py"
           ]
@@ -1134,13 +1139,14 @@
         "A dedicated bounded task queue worker, separate from the lifecycle worker, claims with SKIP LOCKED and owner/epoch leases, enforces local count and byte budgets, and applies retry/DLQ policy.",
         "Durable task dispatch releases the legacy operations-ledger advisory and file lock before external Airflow HTTP, while fenced row-level PostgreSQL ownership protects the task and effect commit.",
         "Terminal queue, effect, and task detail rows are compacted under frozen row and age limits into fixed-cardinality rollups; the JSON task collection is retained only as a bounded rollback mirror.",
-        "This is an implementation checkpoint only; external throughput, process-tree memory and history growth, the required three-run overload matrix, restart, GPU serialization, and full regressions remain pending."
+        "The operational-safety checkpoint adds bounded pre-FastAPI ingress, approval-state bounds, idempotency tombstones, deadline and effect fencing, fair runtime polling, evidence-backed outcome_unknown handling, cutover and rollback parity, exact parent-bound executor cleanup, portable process-tree RSS, and globally bounded downstream GPU work.",
+        "At source revision 5de1c41, 38 focused tests, 661 full Python tests, 59 Control Panel tests, the production frontend build, and Compose configuration passed. This remains implementation evidence only; the required A-J three-repeat external experiment matrix and every S2 acceptance criterion remain pending."
       ],
       "experiment_environment": "Implementation checkpoints exercised an isolated schema in the existing PostgreSQL 16 service, a separate real Uvicorn API socket, a real dedicated queue-worker process, and a deterministic Airflow-compatible HTTP dependency on one local physical node. Focused real-PostgreSQL tests also exercised concurrent external-dispatch entry and bounded terminal-history compaction. Full S2 workload repetitions have not run.",
       "test_or_experiment_steps": [
         "Use provisional safe bounds before S3, then recalibrate from measured service rate.",
-        "Inject burst, sustained, duplicate, expired, and poison requests independently.",
-        "Measure queue age, bytes, RSS, terminal closure, rejection, retry, and DLQ behavior."
+        "Execute independent healthy, depth-burst, byte-burst, sustained-plus-CPU1-control, idempotency-compaction-replay, expiry-plus-healthy, retry-budget, poison-plus-healthy, timeout-worker-restart, and trusted-GPU profiles three times each.",
+        "Measure queue age, bytes, API and worker process-tree RSS, terminal closure, rejection, retry, DLQ, trace continuity, effect identity, cleanup, and GPU external runtime concurrency."
       ],
       "acceptance_criteria": [
         {
@@ -1169,7 +1175,14 @@
         }
       ],
       "observed_result": null,
-      "evidence_artifacts": [],
+      "evidence_artifacts": [
+        {
+          "path": "docs/status/evidence/s2-operational-safety-checkpoint.json",
+          "sha256": "1b9316b397662b0ade60861a7d1b77b2a32cc62082cf99561bf5d307dc5c6faf",
+          "generated_at": "2026-08-16T14:38:09Z",
+          "claim": "At revision 5de1c41, in-place S2 operational-safety code and regressions passed; all external workload and S2 acceptance evidence remains pending."
+        }
+      ],
       "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
       "unresolved_items": [
@@ -1188,13 +1201,15 @@
           "files": [
             "src/evm/control_panel/operations.py",
             "src/evm/control_panel/task_queue_worker.py",
-            "src/evm/control_panel/transactional_store.py"
+            "src/evm/control_panel/transactional_store.py",
+            "src/evm/control_panel/task_queue_executor.py"
           ]
         },
         {
           "component": "Control API",
           "files": [
             "apps/api/control_panel_tasks.py",
+            "apps/api/task_ingress.py",
             "apps/api/main.py"
           ]
         },
@@ -1213,6 +1228,7 @@
             "infra/postgres/control-plane/002_bounded_admission_queue.sql",
             "infra/postgres/control-plane/003_task_queue_safety.sql",
             "infra/postgres/control-plane/004_task_entity_storage.sql",
+            "infra/postgres/control-plane/005_task_queue_operational_safety.sql",
             "docker-compose.yml"
           ]
         }
@@ -1236,7 +1252,9 @@
               "src/evm/control_panel/admission_queue.py",
               "src/evm/control_panel/transactional_store.py",
               "src/evm/control_panel/operations.py",
-              "apps/api/control_panel_tasks.py"
+              "apps/api/control_panel_tasks.py",
+              "apps/api/task_ingress.py",
+              "apps/api/main.py"
             ]
           },
           {
@@ -1255,6 +1273,7 @@
                 "infra/postgres/control-plane/002_bounded_admission_queue.sql",
                 "infra/postgres/control-plane/003_task_queue_safety.sql",
                 "infra/postgres/control-plane/004_task_entity_storage.sql",
+                "infra/postgres/control-plane/005_task_queue_operational_safety.sql",
                 "docker-compose.yml",
               "monitoring/prometheus/prometheus.yml"
             ]
@@ -1264,6 +1283,8 @@
             "files": [
               "contracts/control-panel/control-panel.openapi.json",
               "tests/test_bounded_task_queue.py",
+              "tests/test_task_ingress.py",
+              "tests/test_task_queue_process_safety.py",
               "tests/test_control_panel_contract.py",
               "tests/test_s2_airflow_fixture.py"
             ]
@@ -1275,6 +1296,7 @@
         "migration": [
           "The 002 migration adds the durable queue and retry budget to the dedicated control-plane schema without modifying Airflow or MLflow databases.",
           "The 003 and 004 migrations add lease-safe execution, row-level task entities, and bounded terminal-history rollups; the JSON collection remains a bounded rollback mirror.",
+          "The 005 migration adds fair runtime polling, outcome-unknown state, bounded idempotency tombstones, and effect-state fencing without changing Airflow or MLflow stores.",
           "EVM_TASK_ADMISSION_MODE=legacy retains the prior dispatcher as an explicit rollback path; durable is enabled in the local Compose stack for S2 validation."
         ]
       },
@@ -1285,8 +1307,8 @@
         "workload_input": "Independent burst, sustained, duplicate, expired, and poison task streams through the existing assignment endpoint.",
         "procedure": [
           "Use provisional safe bounds before S3, then recalibrate from measured service rate.",
-          "Inject burst, sustained, duplicate, expired, and poison requests independently.",
-          "Measure queue age, bytes, RSS, terminal closure, rejection, retry, and DLQ behavior."
+          "Execute independent healthy, depth-burst, byte-burst, sustained-plus-CPU1-control, idempotency-compaction-replay, expiry-plus-healthy, retry-budget, poison-plus-healthy, timeout-worker-restart, and trusted-GPU profiles three times each.",
+          "Measure queue age, bytes, API and worker process-tree RSS, terminal closure, rejection, retry, DLQ, trace continuity, effect identity, cleanup, and GPU external runtime concurrency."
         ],
         "controlled_variables": [
           "The versioned frozen profile controls depth, aggregate bytes, item bytes, age, wait, local buffers, work timeout, CPU min/max, GPU=1, lease, retry/jitter/budget, drain, RSS cap, and RSS slope tolerance.",
@@ -1310,7 +1332,14 @@
         "existing_system_regression_required": true,
         "lifecycle_e2e_regression_required": true
       },
-      "evidence_index": [],
+      "evidence_index": [
+        {
+          "path": "docs/status/evidence/s2-operational-safety-checkpoint.json",
+          "sha256": "1b9316b397662b0ade60861a7d1b77b2a32cc62082cf99561bf5d307dc5c6faf",
+          "generated_at": "2026-08-16T14:38:09Z",
+          "claim": "At revision 5de1c41, in-place S2 operational-safety code and regressions passed; all external workload and S2 acceptance evidence remains pending."
+        }
+      ],
       "verdict_and_claim_boundary": {
         "verdict": "not_run",
         "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
@@ -1337,6 +1366,15 @@
           "status": "implementing",
           "summary": "Durable dispatch no longer holds the global operations-ledger lock across Airflow HTTP, task state is row-addressable, and terminal queue/effect/task history is compacted into fixed-cardinality rollups with a bounded JSON mirror. Fifty-eight focused tests passed, including two concurrent real-PostgreSQL dispatches, retained-versus-compacted history accounting, and progress/evidence contract validation. External throughput, process-tree memory, three-repeat workload, and all S2 acceptance criteria remain pending.",
           "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-16T14:38:09Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "Revision 5de1c41 closes audited ingress, tombstone, deadline, lease/effect fencing, fair polling, outcome-unknown, cutover, mirror parity, process-tree RSS, executor cleanup, consumer supervision, CPU scaling, and GPU downstream-bound gaps. Thirty-eight focused, 661 full Python, and 59 Control Panel tests plus build and Compose validation passed. A-J external experiments and all S2 ACs remain pending.",
+          "evidence_refs": [
+            "docs/status/evidence/s2-operational-safety-checkpoint.json"
+          ]
         }
       ]
     },
