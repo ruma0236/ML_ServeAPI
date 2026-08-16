@@ -33,8 +33,8 @@ def test_s2_matrix_is_frozen_with_exact_a_to_j_profiles():
 
     assert tuple(sorted(matrix.profiles)) == EXPECTED_PROFILE_IDS
     assert matrix.repetitions == 3
-    assert matrix.version == "s2-external-matrix-v5-20260817"
-    assert matrix.drain_timeout_seconds == 210.0
+    assert matrix.version == "s2-external-matrix-v6-20260817"
+    assert matrix.drain_timeout_seconds == 270.0
     assert matrix.rss_slope_measurement_seconds == 30.0
     assert matrix.profiles["D"]["arrival_duration_seconds"] == 45.0
     assert matrix.profiles["D"]["request_count"] == 360
