@@ -13,6 +13,7 @@ from evm.scale_validation.s2_runtime import (
     S2MatrixConfig,
     aggregate_acceptance,
     build_task_payload,
+    merge_terminal_results,
     payload_digest,
     process_tree_rss_slope,
     progress_verdict,
@@ -30,10 +31,12 @@ def test_s2_matrix_is_frozen_with_exact_a_to_j_profiles():
 
     assert tuple(sorted(matrix.profiles)) == EXPECTED_PROFILE_IDS
     assert matrix.repetitions == 3
-    assert matrix.version == "s2-external-matrix-v2-20260817"
+    assert matrix.version == "s2-external-matrix-v3-20260817"
     assert matrix.rss_slope_measurement_seconds == 30.0
     assert matrix.profiles["D"]["arrival_duration_seconds"] == 45.0
     assert matrix.profiles["D"]["request_count"] == 360
+    assert matrix.profiles["E"]["request_count"] == 520
+    assert matrix.profiles["E"]["batch_size"] == 52
     assert len(matrix.sha256) == 64
 
 
@@ -90,6 +93,31 @@ def test_process_tree_rss_slope_uses_declared_tail_window():
     assert measured["window_seconds"] == 30.0
     assert measured["api_bytes_per_minute"] == 600.0
     assert measured["worker_bytes_per_minute"] == -300.0
+
+
+def test_terminal_batches_preserve_exact_identity_after_compaction_boundary():
+    first = {
+        "closed": True,
+        "elapsed_seconds": 1.0,
+        "terminal_seen_task_ids": ["task-a"],
+        "peaks": {},
+        "samples": [],
+        "final": {"active_depth": 0},
+    }
+    second = {
+        "closed": True,
+        "elapsed_seconds": 2.0,
+        "terminal_seen_task_ids": ["task-b"],
+        "peaks": {},
+        "samples": [],
+        "final": {"active_depth": 0},
+    }
+
+    merged = merge_terminal_results([first, second], {"task-a", "task-b"})
+
+    assert merged["closed"] is True
+    assert merged["terminal_seen_task_ids"] == ["task-a", "task-b"]
+    assert merged["accepted_count"] == merged["terminal_seen_count"] == 2
 
 
 def test_large_byte_profile_stays_below_single_item_limit():

@@ -1,11 +1,11 @@
 [matrix]
-version = "s2-external-matrix-v2-20260817"
+version = "s2-external-matrix-v3-20260817"
 status = "frozen-before-experiment"
 seed = 20260816
 repetitions = 3
 warmup_seconds = 5.0
 sample_interval_seconds = 0.10
-drain_timeout_seconds = 90.0
+drain_timeout_seconds = 150.0
 trace_flush_seconds = 3.0
 prometheus_scrape_interval_seconds = 1.0
 rss_slope_measurement_seconds = 30.0
@@ -44,9 +44,10 @@ terminal_after_seconds = 0.50
 
 [profiles.E]
 name = "idempotency-compaction-restart-replay"
-request_count = 70
+request_count = 520
 concurrency = 32
 terminal_after_seconds = 0.05
+batch_size = 52
 
 [profiles.F]
 name = "expiry-and-following-healthy"

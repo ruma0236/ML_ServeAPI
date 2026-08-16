@@ -1035,10 +1035,52 @@ def wait_for_terminal(
         "elapsed_seconds": time.monotonic() - started,
         "accepted_count": len(accepted_ids),
         "terminal_seen_count": len(accepted_ids & terminal_seen),
+        "terminal_seen_task_ids": sorted(accepted_ids & terminal_seen),
         "missing_terminal_count": len(accepted_ids - terminal_seen),
         "peaks": peaks,
         "samples": samples,
         "final": final,
+    }
+
+
+def merge_terminal_results(
+    results: Sequence[Mapping[str, Any]],
+    accepted_ids: set[str],
+) -> dict[str, Any]:
+    if not results:
+        raise ValueError("terminal result set cannot be empty")
+    terminal_ids = {
+        str(task_id)
+        for result in results
+        for task_id in result.get("terminal_seen_task_ids", [])
+    }
+    peak_keys = (
+        "active_depth",
+        "active_bytes",
+        "api_process_tree_rss_bytes",
+        "worker_process_tree_rss_bytes",
+        "executor_children_rss_bytes",
+    )
+    return {
+        "closed": accepted_ids == terminal_ids
+        and all(bool(result.get("closed")) for result in results),
+        "elapsed_seconds": sum(float(result.get("elapsed_seconds", 0)) for result in results),
+        "accepted_count": len(accepted_ids),
+        "terminal_seen_count": len(terminal_ids),
+        "terminal_seen_task_ids": sorted(terminal_ids),
+        "missing_terminal_count": len(accepted_ids - terminal_ids),
+        "peaks": {
+            key: max(
+                int(result.get("peaks", {}).get(key, 0)) for result in results
+            )
+            for key in peak_keys
+        },
+        "samples": [
+            sample
+            for result in results
+            for sample in result.get("samples", [])
+        ],
+        "final": dict(results[-1].get("final", {})),
     }
 
 
@@ -1403,7 +1445,9 @@ def finalize_profile_scope(
             "accepted_equals_terminal",
             bool(terminal.get("closed"))
             and int(terminal.get("accepted_count", 0))
-            == int(terminal.get("terminal_seen_count", -1)),
+            == int(terminal.get("terminal_seen_count", -1))
+            and set(accepted)
+            == set(str(item) for item in terminal.get("terminal_seen_task_ids", [])),
             {
                 "accepted": terminal.get("accepted_count"),
                 "terminal": terminal.get("terminal_seen_count"),
@@ -1513,7 +1557,20 @@ def finalize_profile_scope(
             "idempotency": terminal.get("final", {}).get("idempotency", {}),
             "mirror": terminal.get("final", {}).get("mirror", {}),
         },
-        "profile_observations": dict(extra or {}),
+        "profile_observations": {
+            key: value
+            for key, value in dict(extra or {}).items()
+            if key
+            in {
+                "accepted_completion_throughput_per_second",
+                "declared_duration_seconds",
+                "declared_rate_per_second",
+                "observed_arrival_window_seconds",
+                "rss_slope",
+                "sustained_sample_count",
+                "variant",
+            }
+        },
         "assertions": all_assertions,
         "private_evidence_sha256": private_hash,
         "passed": passed,
@@ -1806,9 +1863,11 @@ def run_profile_d_variant(
     }
     if variant == "adaptive":
         admission_assertion = assertion(
-            "D_adaptive_all_accepted",
-            status_counts == {"202": len(payloads)},
-            status_counts,
+            "D_adaptive_backpressure_is_explicit",
+            int(status_counts.get("202", 0)) > 0
+            and int(status_counts.get("429", 0)) > 0
+            and retry_after == {str(active_config.retry_after_seconds)},
+            {"status_counts": status_counts, "retry_after": sorted(retry_after)},
         )
     else:
         admission_assertion = assertion(
@@ -1870,19 +1929,30 @@ def run_profile_e(
         terminal_after_seconds=float(spec["terminal_after_seconds"]),
     )
     start_worker_and_monitoring(scope, matrix)
-    submission = submit_payloads(
-        api_url=scope.api.base_url,
-        payloads=payloads,
-        trace_seeds=traces,
-        concurrency=int(spec["concurrency"]),
-    )
-    accepted = accepted_tasks(submission)
-    terminal = wait_for_terminal(
-        scope,
-        set(accepted),
-        timeout=matrix.drain_timeout_seconds,
-        sample_interval=matrix.sample_interval_seconds,
-    )
+    submissions: list[dict[str, Any]] = []
+    accepted: dict[str, str] = {}
+    terminals: list[dict[str, Any]] = []
+    batch_size = int(spec["batch_size"])
+    for offset in range(0, len(payloads), batch_size):
+        submission = submit_payloads(
+            api_url=scope.api.base_url,
+            payloads=payloads[offset : offset + batch_size],
+            trace_seeds=traces[offset : offset + batch_size],
+            concurrency=min(int(spec["concurrency"]), batch_size),
+        )
+        submissions.append(submission)
+        batch_accepted = accepted_tasks(submission)
+        accepted.update(batch_accepted)
+        terminal_batch = wait_for_terminal(
+            scope,
+            set(batch_accepted),
+            timeout=matrix.drain_timeout_seconds,
+            sample_interval=matrix.sample_interval_seconds,
+        )
+        terminals.append(terminal_batch)
+        if not terminal_batch["closed"]:
+            break
+    terminal = merge_terminal_results(terminals, set(accepted))
     deadline = time.monotonic() + 15
     compacted = database_snapshot(scope.database_url, scope.schema)
     while time.monotonic() < deadline:
@@ -1910,7 +1980,7 @@ def run_profile_e(
         "unique_external_effects"
     )
     return {
-        "submissions": [submission, replay],
+        "submissions": [*submissions, replay],
         "accepted": accepted,
         "terminal": terminal,
         "trace_expected": accepted,

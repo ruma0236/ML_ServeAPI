@@ -53,9 +53,9 @@ rss_slope_warmup_seconds = 5.0
 rss_slope_window_seconds = 30.0
 
 [retention]
-terminal_queue_max_rows = 64
+terminal_queue_max_rows = 512
 terminal_queue_max_age_seconds = 600.0
-task_history_max_terminal_rows = 64
+task_history_max_terminal_rows = 512
 idempotency_tombstone_max_rows = 4096
 idempotency_tombstone_retention_seconds = 86400.0
 compaction_batch_size = 64
