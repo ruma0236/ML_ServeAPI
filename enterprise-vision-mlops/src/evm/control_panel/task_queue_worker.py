@@ -107,6 +107,23 @@ def process_rss_bytes(pid: int | None = None) -> int:
         return 0
 
 
+def replace_file_with_retry(
+    source: Path,
+    target: Path,
+    *,
+    attempts: int = 5,
+    initial_delay_seconds: float = 0.01,
+) -> None:
+    for attempt in range(attempts):
+        try:
+            source.replace(target)
+            return
+        except PermissionError:
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(initial_delay_seconds * (attempt + 1))
+
+
 class BoundedTaskQueueWorker:
     def __init__(
         self,
@@ -864,8 +881,11 @@ class BoundedTaskQueueWorker:
         temporary = self.heartbeat_path.with_suffix(
             f"{self.heartbeat_path.suffix}.{uuid4().hex}.tmp"
         )
-        temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        temporary.replace(self.heartbeat_path)
+        try:
+            temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            replace_file_with_retry(temporary, self.heartbeat_path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def parse_args() -> argparse.Namespace:

@@ -12,6 +12,7 @@ from evm.control_panel.task_queue_worker import (
     BoundedTaskQueueWorker,
     process_rss_bytes,
     process_tree_rss_bytes,
+    replace_file_with_retry,
 )
 
 
@@ -77,6 +78,33 @@ def test_worker_retains_short_lived_executor_process_tree_rss_peak():
         if child.poll() is None:
             child.kill()
             child.wait(timeout=2)
+
+
+def test_heartbeat_replace_retries_transient_windows_reader_lock(
+    tmp_path: Path,
+    monkeypatch,
+):
+    source = tmp_path / "heartbeat.tmp"
+    target = tmp_path / "heartbeat.json"
+    source.write_text("new", encoding="ascii")
+    target.write_text("old", encoding="ascii")
+    original_replace = Path.replace
+    calls = 0
+
+    def transient_replace(path: Path, destination: Path):
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise PermissionError("transient reader lock")
+        return original_replace(path, destination)
+
+    monkeypatch.setattr(Path, "replace", transient_replace)
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    replace_file_with_retry(source, target)
+
+    assert calls == 3
+    assert target.read_text(encoding="ascii") == "new"
 
 
 def test_executor_exits_when_exact_parent_process_is_killed(tmp_path: Path):
