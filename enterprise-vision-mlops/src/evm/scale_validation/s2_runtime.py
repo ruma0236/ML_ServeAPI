@@ -2546,6 +2546,10 @@ def validate_start_gate(root: Path, progress_path: Path) -> dict[str, Any]:
         [
             sys.executable,
             str(root / "scripts" / "dev" / "validate_scale_scenario_progress.py"),
+            "--progress",
+            str(progress_path),
+            "--markdown",
+            str(progress_path.with_suffix(".md")),
             "--git-revision",
             "HEAD",
         ],
