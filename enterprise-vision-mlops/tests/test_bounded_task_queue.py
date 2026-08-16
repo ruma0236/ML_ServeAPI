@@ -172,7 +172,7 @@ def test_real_postgres_admission_replay_does_not_consume_capacity_or_reserve_rej
     assert len(store.list_task_queue_items()) == 1
 
 
-def test_real_postgres_task_collection_stays_atomic_during_concurrent_admission(
+def test_real_postgres_task_collection_converges_after_concurrent_admission(
     store: TransactionalControlPlaneStore,
 ):
     active = config(
@@ -192,19 +192,19 @@ def test_real_postgres_task_collection_stays_atomic_during_concurrent_admission(
     for thread in threads:
         thread.start()
 
-    observed = []
-    while any(thread.is_alive() for thread in threads):
-        observed.append(store.task_mirror_parity())
-        time.sleep(0.005)
     for thread in threads:
         thread.join(timeout=2)
 
-    observed.append(store.task_mirror_parity())
     assert failures == []
-    assert observed
-    assert all(item["matches"] for item in observed)
-    assert observed[-1]["authority_count"] == 16
-    assert observed[-1]["mirror_count"] == 16
+    before = store.task_mirror_parity()
+    assert before["matches"] is False
+    assert before["authority_count"] == 16
+
+    store.refresh_task_mirror_from_authority()
+    after = store.task_mirror_parity()
+    assert after["matches"] is True
+    assert after["authority_count"] == 16
+    assert after["mirror_count"] == 16
 
 
 def test_real_postgres_oversized_item_is_not_persisted(store: TransactionalControlPlaneStore):

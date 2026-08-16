@@ -713,10 +713,9 @@ def _record_queued_dispatch_failure(task_id: str, exc: TaskDispatchError) -> Non
 def sync_task_json_mirror_from_store() -> None:
     store = get_transactional_store()
     if store.enabled:
+        store.refresh_task_mirror_from_authority()
         payload = store.read_collection("task_assignments")
-        if payload is None:
-            store.refresh_task_mirror_from_authority()
-            payload = store.read_collection("task_assignments") or []
+        payload = payload or []
         tasks = TaskAssignmentList(
             tasks=[TaskAssignment.model_validate(item) for item in payload]
         )

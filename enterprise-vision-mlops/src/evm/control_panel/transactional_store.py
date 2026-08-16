@@ -595,8 +595,6 @@ class TransactionalControlPlaneStore:
                     """,
                     (entity_kind, entity_id, version, state, self._json(payload)),
                 )
-                if entity_kind == "task_assignment":
-                    self._refresh_task_collection_locked(connection)
             except Exception as exc:
                 if getattr(exc, "sqlstate", None) == "23505":
                     raise ControlPlaneVersionConflict(
@@ -627,8 +625,6 @@ class TransactionalControlPlaneStore:
                     raise ControlPlaneParityError(
                         f"import parity mismatch for {entity_kind}/{entity_id}"
                     )
-                if entity_kind == "task_assignment":
-                    self._refresh_task_collection_locked(connection)
                 return "unchanged"
             connection.execute(
                 f"""
@@ -638,8 +634,6 @@ class TransactionalControlPlaneStore:
                 """,
                 (entity_kind, entity_id, version, state, self._json(payload)),
             )
-            if entity_kind == "task_assignment":
-                self._refresh_task_collection_locked(connection)
             return "imported"
 
     def mutate_entity(
@@ -715,8 +709,6 @@ class TransactionalControlPlaneStore:
                 raise ControlPlaneVersionConflict(
                     f"concurrent version conflict for {entity_kind}/{entity_id}"
                 )
-            if entity_kind == "task_assignment":
-                self._refresh_task_collection_locked(connection)
             return updated
 
     def read_collection(self, collection_name: str) -> list[dict[str, Any]] | None:
@@ -1536,8 +1528,6 @@ class TransactionalControlPlaneStore:
                         stale_task_ids,
                     ),
                 )
-            if queue_ids or stale_task_ids:
-                self._refresh_task_collection_locked(connection)
             removed_idempotency = connection.execute(
                 f"""
                 WITH ranked AS (
@@ -2826,7 +2816,6 @@ class TransactionalControlPlaneStore:
                 """,
                 (task_id, incoming_version, incoming_state, self._json(task_payload)),
             )
-            self._refresh_task_collection_locked(connection)
             return
         if not replace_existing:
             raise ControlPlaneVersionConflict(f"task_assignment/{task_id} already exists")
@@ -2854,7 +2843,6 @@ class TransactionalControlPlaneStore:
             raise ControlPlaneVersionConflict(
                 f"concurrent task_assignment version conflict for {task_id}"
             )
-        self._refresh_task_collection_locked(connection)
 
     def _update_task_runtime_locked(
         self,
@@ -2917,7 +2905,6 @@ class TransactionalControlPlaneStore:
             raise ControlPlaneVersionConflict(
                 f"concurrent task_assignment runtime conflict for {task_id}"
             )
-        self._refresh_task_collection_locked(connection)
         return True
 
     def _refresh_task_collection_locked(self, connection: Any) -> int:

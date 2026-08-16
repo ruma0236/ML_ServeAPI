@@ -657,9 +657,17 @@ class BoundedTaskQueueWorker:
             and sum(self.in_flight.values()) == 0
         )
         if stable:
-            await asyncio.to_thread(sync_task_json_mirror_from_store)
-            parity = await asyncio.to_thread(verify_task_json_mirror_parity)
-            if not parity["matches"]:
+            for attempt in range(3):
+                await asyncio.to_thread(sync_task_json_mirror_from_store)
+                parity = await asyncio.to_thread(verify_task_json_mirror_parity)
+                current = await asyncio.to_thread(self.store.task_queue_snapshot)
+                if parity["matches"]:
+                    break
+                if current.active_depth or self.local_count or sum(self.in_flight.values()):
+                    return
+                if attempt < 2:
+                    await asyncio.sleep(self.config.poll_interval_seconds)
+            else:
                 raise ControlPlaneStoreError(
                     "PostgreSQL and JSON rollback mirror diverged after queue drain"
                 )
