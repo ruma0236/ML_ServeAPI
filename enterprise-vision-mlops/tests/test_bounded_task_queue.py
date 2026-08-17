@@ -110,11 +110,11 @@ def test_s2_profile_is_frozen_and_uses_canonical_utf8_bytes():
     active = load_admission_queue_config()
     payload = {"z": "한글", "a": 1}
 
-    assert active.profile_version == "s2-bounded-queue-v5-frozen-20260817"
+    assert active.profile_version == "s2-bounded-queue-v6-strict-evidence-20260817"
     assert active.gpu_workers == 1
     assert active.lease_renew_interval_seconds < active.lease_seconds
     assert active.ingress_max_body_bytes <= active.max_item_bytes
-    assert active.retry_budget_scope == "s2-bounded-queue-v5"
+    assert active.retry_budget_scope == "s2-bounded-queue-v6-strict-evidence"
     assert active.local_max_depth <= active.durable_max_depth
     assert active.rss_slope_warmup_seconds == 5.0
     assert active.rss_slope_window_seconds == 30.0

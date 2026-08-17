@@ -16,9 +16,13 @@ from prometheus_client import Counter, Histogram
 
 from evm.control_panel.admission_queue import (
     ACTIVE_QUEUE_STATES,
+    QUEUE_ADMISSION_WAIT_MAX_SECONDS,
     QUEUE_ADMISSION_WAIT_SECONDS,
+    QUEUE_QUEUE_WAIT_MAX_SECONDS,
+    QUEUE_QUEUE_WAIT_SECONDS,
     AdmissionQueueConfig,
     canonical_payload_size,
+    observe_peak_gauge,
     task_resource_class,
 )
 
@@ -1003,7 +1007,9 @@ class TransactionalControlPlaneStore:
                 current_bytes=-1,
             ) from exc
         finally:
-            QUEUE_ADMISSION_WAIT_SECONDS.observe(time.monotonic() - started)
+            admission_wait = time.monotonic() - started
+            QUEUE_ADMISSION_WAIT_SECONDS.observe(admission_wait)
+            observe_peak_gauge(QUEUE_ADMISSION_WAIT_MAX_SECONDS, admission_wait)
 
     def admit_pending_task_assignment(
         self,
@@ -1157,7 +1163,9 @@ class TransactionalControlPlaneStore:
                 current_bytes=-1,
             ) from exc
         finally:
-            QUEUE_ADMISSION_WAIT_SECONDS.observe(time.monotonic() - started)
+            admission_wait = time.monotonic() - started
+            QUEUE_ADMISSION_WAIT_SECONDS.observe(admission_wait)
+            observe_peak_gauge(QUEUE_ADMISSION_WAIT_MAX_SECONDS, admission_wait)
 
     def task_queue_snapshot(self, *, now: datetime | None = None) -> TaskQueueSnapshot:
         schema = _safe_identifier(self.configuration.schema)
@@ -1968,6 +1976,10 @@ class TransactionalControlPlaneStore:
                 (lease.queue_id,),
             ).fetchone()
             self._assert_queue_lease(row, lease, observed_at)
+            eligible_at = row["available_at"] or row["created_at"]
+            queue_wait = max(0.0, (observed_at - eligible_at).total_seconds())
+            QUEUE_QUEUE_WAIT_SECONDS.observe(queue_wait)
+            observe_peak_gauge(QUEUE_QUEUE_WAIT_MAX_SECONDS, queue_wait)
             updated = connection.execute(
                 f"""
                 UPDATE {schema}.task_admission_queue

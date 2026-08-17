@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from copy import deepcopy
 
 from evm.control_panel.admission_queue import (
     canonical_payload_size,
@@ -18,6 +19,7 @@ from evm.scale_validation.s2_runtime import (
     merge_terminal_results,
     payload_digest,
     process_tree_rss_slope,
+    recompute_s2_acceptance,
     progress_verdict,
     profile_payloads,
     summarize_submission,
@@ -35,7 +37,7 @@ def test_s2_matrix_is_frozen_with_exact_a_to_j_profiles():
 
     assert tuple(sorted(matrix.profiles)) == EXPECTED_PROFILE_IDS
     assert matrix.repetitions == 3
-    assert matrix.version == "s2-external-matrix-v6-20260817"
+    assert matrix.version == "s2-external-matrix-v7-20260817-strict-evidence"
     assert matrix.drain_timeout_seconds == 270.0
     assert matrix.rss_slope_measurement_seconds == 30.0
     assert matrix.profiles["D"]["arrival_duration_seconds"] == 45.0
@@ -284,3 +286,342 @@ def test_trace_summary_requires_full_existing_runtime_chain(tmp_path):
     assert result["complete_count"] == 1
     assert result["missing"] == 0
     assert len(result["raw_tail_sha256"]) == 64
+
+
+def _strict_runtime_result(profile_id: str, repetition: int, *, variant=None):
+    submitted = 1
+    statuses = {"202": 1}
+    accepted = 1
+    eligible = 1
+    no_effect = 0
+    assertions = []
+    metrics = {"retry": {}, "dlq": {}, "cpu_scale": {}}
+    observations = {"variant": variant}
+    if profile_id == "B":
+        submitted, statuses = 2, {"202": 1, "429": 1}
+    elif profile_id == "C":
+        submitted, statuses = 3, {"202": 1, "429": 1, "413": 1}
+    elif profile_id == "D":
+        submitted, statuses = 2, {"202": 1, "429": 1}
+        assertions.append(
+            {
+                "assertion_id": f"D_{variant}_backpressure_is_explicit",
+                "passed": False,
+                "observed": {
+                    "status_counts": statuses,
+                    "retry_after": ["2"],
+                },
+            }
+        )
+        observations["rss_slope"] = {
+            "measured": True,
+            "api_bytes_per_minute": 1.0,
+            "worker_bytes_per_minute": 1.0,
+        }
+    elif profile_id == "E":
+        assertions.extend(
+            [
+                {
+                    "assertion_id": "E_all_unique_requests_accepted",
+                    "passed": False,
+                    "observed": {"accepted": 1, "expected": 1},
+                },
+                {
+                    "assertion_id": "E_history_compacted_with_tombstone",
+                    "passed": False,
+                    "observed": {
+                        "history": [{"item_count": 1}],
+                        "idempotency": {"tombstones": 1},
+                    },
+                },
+                {
+                    "assertion_id": "E_restart_replay_same_task_no_new_effect",
+                    "passed": False,
+                    "observed": {
+                        "worker_replaced": True,
+                        "replay_matches": True,
+                        "effects_before": 1,
+                        "effects_after": 1,
+                    },
+                },
+            ]
+        )
+    elif profile_id == "F":
+        submitted, statuses, accepted, eligible, no_effect = 2, {"202": 2}, 2, 1, 1
+        assertions.extend(
+            [
+                {
+                    "assertion_id": "F_expired_without_effect",
+                    "passed": False,
+                    "observed": {"state": "expired"},
+                },
+                {
+                    "assertion_id": "F_following_healthy_completed",
+                    "passed": False,
+                    "observed": {"healthy_accepted": 1},
+                },
+            ]
+        )
+    elif profile_id == "G":
+        submitted, statuses, accepted, eligible, no_effect = 2, {"202": 2}, 2, 1, 1
+        metrics = {
+            "retry": {"dlq:transient": 2.0},
+            "dlq": {"transient": 1.0},
+            "cpu_scale": {},
+        }
+        assertions.extend(
+            [
+                {
+                    "assertion_id": "G_retry_budget_observed",
+                    "passed": False,
+                    "observed": {
+                        "retry_budget": [{"consumed": 1}],
+                        "reasons": {"retry_budget_exhausted:test": 1},
+                    },
+                },
+                {
+                    "assertion_id": "G_healthy_completed_after_retry_pressure",
+                    "passed": False,
+                    "observed": {"healthy": 1, "expected": 1},
+                },
+            ]
+        )
+    elif profile_id == "H":
+        submitted, statuses, accepted, eligible, no_effect = 2, {"202": 2}, 2, 1, 1
+        metrics = {"retry": {}, "dlq": {"permanent": 1.0}, "cpu_scale": {}}
+        assertions.extend(
+            [
+                {
+                    "assertion_id": "H_poison_quarantined",
+                    "passed": False,
+                    "observed": {"poison": 1, "states": ["dlq"]},
+                },
+                {
+                    "assertion_id": "H_healthy_not_head_of_line_blocked",
+                    "passed": False,
+                    "observed": {"healthy": 1, "expected": 1},
+                },
+            ]
+        )
+    elif profile_id == "I":
+        submitted, statuses, accepted, eligible = 3, {"202": 3}, 3, 3
+        assertions.extend(
+            [
+                {
+                    "assertion_id": "I_exact_worker_process_replaced",
+                    "passed": False,
+                    "observed": {
+                        "worker_identity_changed": True,
+                        "old_process_dead": True,
+                        "stopped_process_count": 2,
+                        "orphan_child_count": 0,
+                    },
+                },
+                {
+                    "assertion_id": "I_lease_epoch_increased",
+                    "passed": False,
+                    "observed": {"slow_task_lease_epoch": 2},
+                },
+                {
+                    "assertion_id": "I_timeout_does_not_block_healthy",
+                    "passed": False,
+                    "observed": {
+                        "healthy_terminal_at": "2026-01-01T00:00:01Z",
+                        "timeout_terminal_at": "2026-01-01T00:00:02Z",
+                    },
+                },
+                {
+                    "assertion_id": "I_slow_item_recovered",
+                    "passed": False,
+                    "observed": True,
+                },
+            ]
+        )
+    elif profile_id == "J":
+        assertions.append(
+            {
+                "assertion_id": "J_existing_gpu_profile_routed_gpu",
+                "passed": False,
+                "observed": ["gpu"],
+            }
+        )
+    identity_hash = "a" * 64
+    effect_hash = "b" * 64
+    assertions.append(
+        {
+            "assertion_id": "postgres_json_mirror_parity",
+            "passed": False,
+            "observed": {
+                "authority_count": accepted,
+                "mirror_count": accepted,
+                "file_count": accepted,
+                "authority_sha256": identity_hash,
+                "mirror_sha256": identity_hash,
+                "file_sha256": identity_hash,
+            },
+        }
+    )
+    retry_delay = (
+        {"transient": {"count": 2.0, "sum": 0.5, "max": 0.3}}
+        if profile_id == "G"
+        else {}
+    )
+    return {
+        "profile_id": profile_id,
+        "repetition": repetition,
+        "variant": variant,
+        "submission": {
+            "submitted": submitted,
+            "status_counts": statuses,
+            "retry_after_values": [2] if "429" in statuses else [],
+            "transport_failures": 0,
+        },
+        "terminal": {
+            "accepted_count": accepted,
+            "terminal_count": accepted,
+            "missing_count": 0,
+            "final_state_counts": {"completed": eligible, "dlq": no_effect},
+        },
+        "peaks": {
+            "active_depth": 2,
+            "active_bytes": 100,
+            "local_depth": 1,
+            "local_bytes": 50,
+            "worker_in_flight": 1,
+            "worker_in_flight_bytes": 50,
+            "cpu_downstream_outstanding": 1,
+            "gpu_downstream_outstanding": 1 if profile_id == "J" else 0,
+            "api_process_tree_rss_bytes": 1000,
+            "worker_process_tree_rss_bytes": 1000,
+            "executor_children_rss_bytes": 500,
+            "ingress_active_requests": 1,
+            "ingress_in_flight_bytes": 100,
+        },
+        "metrics": metrics,
+        "prometheus": {"targets": {"api": 1, "worker": 1}},
+        "trace": {"task_count": accepted, "complete_count": accepted, "missing": 0},
+        "external_effects": {
+            "cuda_probe_count": 1 if profile_id == "J" else 0,
+            "cuda_nonzero_activity_count": 1 if profile_id == "J" else 0,
+            "cuda_failure_count": 0,
+            "cuda_peak_allocated_bytes": 1 if profile_id == "J" else 0,
+            "max_external_in_flight": {"gpu": 1} if profile_id == "J" else {},
+            "max_runtime_concurrency": {"gpu": 1} if profile_id == "J" else {},
+        },
+        "profile_observations": observations,
+        "assertions": assertions,
+        "strict_evidence": {
+            "identity_closure": {
+                "accepted_count": accepted,
+                "terminal_count": accepted,
+                "accepted_identity_set_sha256": identity_hash,
+                "terminal_identity_set_sha256": identity_hash,
+                "active_final_depth": 0,
+                "outcome_unknown_final": 0,
+            },
+            "effect_accounting": {
+                "eligible_count": eligible,
+                "eligible_exactly_once_count": eligible,
+                "actual_effect_count": eligible,
+                "eligible_identity_set_sha256": effect_hash,
+                "actual_effect_identity_set_sha256": effect_hash,
+                "no_effect_expected_count": no_effect,
+                "no_effect_observed_count": no_effect,
+                "duplicate_effect_count": 0,
+                "multiple_logical_effect_count": 0,
+            },
+            "waits": {
+                "admission": {"count": 1.0, "sum": 0.01, "max": 0.01},
+                "queue": {"count": 1.0, "sum": 0.01, "max": 0.01},
+                "load_generator_permit": {
+                    "count": submitted,
+                    "sum": 0.01,
+                    "max": 0.01,
+                },
+                "retry_delay": retry_delay,
+            },
+        },
+        "cleanup": {
+            "schema_dropped": True,
+            "marker_processes_remaining": [],
+            "errors": [],
+        },
+        "passed": False,
+    }
+
+
+def _strict_suite():
+    results = []
+    for repetition in range(1, 4):
+        for profile_id in EXPECTED_PROFILE_IDS:
+            if profile_id == "D":
+                adaptive = _strict_runtime_result("D", repetition, variant="adaptive")
+                cpu1 = _strict_runtime_result("D", repetition, variant="cpu1")
+                results.append(
+                    {
+                        "profile_id": "D",
+                        "repetition": repetition,
+                        "variants": [adaptive, cpu1],
+                        "assertions": [
+                            {
+                                "assertion_id": "D_adaptive_cpu_scaled_non_vacuously",
+                                "passed": False,
+                                "observed": {
+                                    "adaptive_scale_up_events": 1.0,
+                                    "cpu1_scale_up_events": 0.0,
+                                    "adaptive_runtime_concurrency": 2,
+                                    "cpu1_runtime_concurrency": 1,
+                                },
+                            },
+                            {
+                                "assertion_id": "D_adaptive_throughput_exceeds_cpu1",
+                                "passed": False,
+                                "observed": {
+                                    "adaptive_accepted_throughput": 2.0,
+                                    "cpu1_accepted_throughput": 1.0,
+                                },
+                            },
+                        ],
+                        "passed": False,
+                    }
+                )
+            else:
+                results.append(_strict_runtime_result(profile_id, repetition))
+    return results
+
+
+def test_strict_s2_recalculation_ignores_passed_booleans_and_uses_raw_values():
+    config = load_admission_queue_config()
+    acceptance, readiness, _details = recompute_s2_acceptance(
+        _strict_suite(), config
+    )
+
+    assert set(acceptance.values()) == {True}
+    assert set(readiness.values()) == {True}
+
+
+def test_strict_s2_recalculation_fails_closed_for_mutated_numeric_evidence():
+    config = load_admission_queue_config()
+    mutations = []
+    for mutate in (
+        lambda suite: suite[0]["peaks"].__setitem__(
+            "local_bytes", config.local_max_bytes + 1
+        ),
+        lambda suite: suite[0]["strict_evidence"]["identity_closure"].__setitem__(
+            "terminal_identity_set_sha256", "c" * 64
+        ),
+        lambda suite: suite[0]["strict_evidence"]["effect_accounting"].__setitem__(
+            "duplicate_effect_count", 1
+        ),
+        lambda suite: next(
+            item for item in suite if item["profile_id"] == "G"
+        )["strict_evidence"]["waits"].__setitem__("retry_delay", {}),
+    ):
+        suite = deepcopy(_strict_suite())
+        mutate(suite)
+        mutations.append(recompute_s2_acceptance(suite, config)[0])
+
+    assert mutations[0]["S2-AC-01"] is False
+    assert mutations[1]["S2-AC-02"] is False
+    assert mutations[2]["S2-AC-03"] is False
+    assert mutations[3]["S2-AC-04"] is False

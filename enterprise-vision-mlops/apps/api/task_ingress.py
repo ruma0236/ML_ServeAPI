@@ -10,6 +10,8 @@ from evm.control_panel.admission_queue import (
     QUEUE_INGRESS_BODY_BYTES,
     QUEUE_INGRESS_IN_FLIGHT_BYTES,
     QUEUE_INGRESS_IN_FLIGHT_REQUESTS,
+    QUEUE_INGRESS_PEAK_BYTES,
+    QUEUE_INGRESS_PEAK_REQUESTS,
     AdmissionQueueConfig,
     load_admission_queue_config,
 )
@@ -33,6 +35,8 @@ class TaskIngressBodyLimitMiddleware:
         self._lock = asyncio.Lock()
         self._in_flight_requests = 0
         self._in_flight_bytes = 0
+        self._peak_requests = 0
+        self._peak_bytes = 0
 
     async def __call__(self, scope, receive, send) -> None:
         if not self._is_bounded_task_mutation(scope):
@@ -183,8 +187,12 @@ class TaskIngressBodyLimitMiddleware:
             self._observe_in_flight()
 
     def _observe_in_flight(self) -> None:
+        self._peak_requests = max(self._peak_requests, self._in_flight_requests)
+        self._peak_bytes = max(self._peak_bytes, self._in_flight_bytes)
         QUEUE_INGRESS_IN_FLIGHT_REQUESTS.set(self._in_flight_requests)
         QUEUE_INGRESS_IN_FLIGHT_BYTES.set(self._in_flight_bytes)
+        QUEUE_INGRESS_PEAK_REQUESTS.set(self._peak_requests)
+        QUEUE_INGRESS_PEAK_BYTES.set(self._peak_bytes)
 
     @staticmethod
     async def _reject(

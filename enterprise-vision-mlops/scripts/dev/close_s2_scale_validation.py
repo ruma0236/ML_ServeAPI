@@ -18,6 +18,12 @@ from evm.scale_validation.evidence import (  # noqa: E402
     public_file_sha256,
     write_public_json,
 )
+from evm.control_panel.admission_queue import (  # noqa: E402
+    AdmissionQueueConfig,
+)
+from evm.scale_validation.s2_runtime import (  # noqa: E402
+    recompute_s2_acceptance,
+)
 
 
 RUNTIME_PATH = "docs/status/evidence/s2-bounded-queue-experiment.json"
@@ -54,14 +60,33 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_runtime(payload: dict[str, Any]) -> None:
-    if payload.get("runtime_verdict") != "passed":
-        raise ValueError("S2 runtime evidence is not passed")
     if len(payload.get("profile_results", [])) != 30:
         raise ValueError("S2 runtime evidence must contain 30 profile results")
-    if set(payload.get("acceptance", {}).values()) != {True}:
-        raise ValueError("S2 acceptance criteria are not all passed")
-    if set(payload.get("readiness_gates", {}).values()) != {True}:
-        raise ValueError("S2 readiness gates are not all passed")
+    queue_config = AdmissionQueueConfig.from_path(
+        ROOT / "configs" / "s2_bounded_queue_v1.toml"
+    )
+    expected_contract = {**queue_config.public_dict(), "sha256": queue_config.sha256}
+    if payload.get("queue_contract") != expected_contract:
+        raise ValueError("S2 evidence queue contract differs from the frozen config")
+    acceptance, readiness, details = recompute_s2_acceptance(
+        payload["profile_results"], queue_config
+    )
+    repeatability = dict(payload.get("deterministic_input_repeatability", {}))
+    readiness["RG-11-fixed-seed-input-repeatability"] = (
+        bool(repeatability) and all(value is True for value in repeatability.values())
+    )
+    if payload.get("acceptance") != acceptance:
+        raise ValueError("S2 acceptance differs from raw-derived recalculation")
+    if payload.get("readiness_gates") != readiness:
+        raise ValueError("S2 readiness differs from raw-derived recalculation")
+    if payload.get("strict_recalculation") != details:
+        raise ValueError("S2 strict recalculation projection is stale or mutated")
+    if not all(acceptance.values()):
+        raise ValueError("S2 raw-derived acceptance criteria are not all passed")
+    if not all(readiness.values()):
+        raise ValueError("S2 raw-derived readiness gates are not all passed")
+    if payload.get("runtime_verdict") != "passed":
+        raise ValueError("S2 runtime evidence is not passed")
     if payload.get("failed_attempts_and_rca"):
         raise ValueError("final S2 runtime evidence contains a failed profile")
 
@@ -97,6 +122,12 @@ def close_s2(
     closure_sha256: str,
 ) -> ScenarioProgressLedger:
     generated_at = str(closure["generated_at"])
+    revision = str(runtime["source_identity"]["implementation_revision"])
+    short_revision = revision[:7]
+    regression = dict(closure.get("regression", {}))
+    readiness_count = sum(
+        value is True for value in runtime.get("readiness_gates", {}).values()
+    )
     scenario = next(
         item for item in ledger_payload["scenarios"] if item["scenario_id"] == "S2"
     )
@@ -109,13 +140,17 @@ def close_s2(
         for item in scenario["implementation_summary"]
         if not item.startswith("At source revision 5de1c41")
         and not item.startswith("At implementation revision 31ee37c")
+        and not item.startswith("The strict-evidence checkpoint")
     ]
     scenario["implementation_summary"].append(
-        "At implementation revision 31ee37c, the frozen A-J external matrix "
+        f"At strict-evidence revision {short_revision}, the frozen A-J external matrix "
         "completed 30 of 30 profile repetitions with all four acceptance criteria "
-        "and all 11 readiness gates passed. Forty-two focused real-PostgreSQL "
-        "tests, 681 full Python tests, 59 Control Panel tests, and the production "
-        "frontend build also passed."
+        f"and all {readiness_count} readiness gates passed. "
+        f"{regression.get('focused_real_postgresql_tests')} focused real-PostgreSQL "
+        f"tests, {regression.get('full_python_tests')} full Python tests, "
+        f"{regression.get('control_panel_tests')} Control Panel tests, and the "
+        "production frontend build also passed. All acceptance values were "
+        "recomputed from persisted numeric evidence rather than stored pass flags."
     )
     scenario["experiment_environment"] = (
         "The accepted matrix used an isolated PostgreSQL 16 schema per runtime, "
@@ -156,7 +191,7 @@ def close_s2(
         criterion["evidence_refs"] = evidence_refs
     scenario["observed_result"] = (
         "A-J each ran three times through the existing external task path. All 30 "
-        "profile results, S2-AC-01 through S2-AC-04, and 11 readiness gates passed; "
+        f"profile results, S2-AC-01 through S2-AC-04, and {readiness_count} readiness gates passed; "
         "accepted work reached one terminal outcome, duplicate logical effects were "
         "zero, backpressure was explicit, worker loss recovered, and real CUDA GPU "
         "runtime concurrency remained one."
@@ -168,49 +203,31 @@ def close_s2(
         "S3 and final S0-S8 cross-scenario validation have not started."
     ]
     scenario["next_action"] = (
-        "Keep S2 as the regression boundary. Do not start S3 in this work unit."
+        "Keep S2 as the strict regression boundary and evaluate the S3 start gate."
     )
     scenario["verdict_and_claim_boundary"]["verdict"] = "passed"
     scenario["chronological_updates"] = [
         item
         for item in scenario["chronological_updates"]
-        if not any(ref in {RUNTIME_PATH, CLOSURE_PATH} for ref in item["evidence_refs"])
+        if not (
+            item.get("phase") == "verification"
+            and any(
+                ref in {RUNTIME_PATH, CLOSURE_PATH}
+                for ref in item["evidence_refs"]
+            )
+        )
     ]
     scenario["chronological_updates"].extend(
         [
-            {
-                "occurred_at": "2026-08-16T17:38:16.247374Z",
-                "phase": "experiment",
-                "status": "implementing",
-                "summary": (
-                    "The first complete 30-profile suite preserved all passing profile "
-                    "assertions but failed S2-AC-01 because instantaneous sampling missed "
-                    "three short-lived executor process trees. The failure and cleanup "
-                    "were retained; no acceptance credit was awarded."
-                ),
-                "evidence_refs": [CLOSURE_PATH],
-            },
-            {
-                "occurred_at": "2026-08-16T17:55:36.258827Z",
-                "phase": "recovery",
-                "status": "implementing",
-                "summary": (
-                    "After retained executor RSS was added, a transient Windows heartbeat "
-                    "replace lock terminated the D CPU-one worker. The suite stopped before "
-                    "E-J, cleanup passed, and bounded heartbeat replacement retry was added."
-                ),
-                "evidence_refs": [CLOSURE_PATH],
-            },
             {
                 "occurred_at": generated_at,
                 "phase": "verification",
                 "status": "verified",
                 "summary": (
-                    "At 31ee37c, the fresh A-J matrix passed 30 of 30 profile repetitions, "
-                    "S2-AC-01 through S2-AC-04, all 11 readiness gates, 42 focused real-"
-                    "PostgreSQL tests, 681 full Python tests, 59 Control Panel tests, and "
-                    "the production frontend build. Canonical public evidence and the two "
-                    "failed-attempt RCAs are hash-linked."
+                    f"At {short_revision}, the strict-evidence A-J matrix passed 30 of 30 "
+                    f"profile repetitions, S2-AC-01 through S2-AC-04, all {readiness_count} "
+                    "readiness gates, regressions, and the production frontend build. "
+                    "Canonical public evidence and retained failed-attempt RCAs are hash-linked."
                 ),
                 "evidence_refs": evidence_refs,
             },
@@ -227,12 +244,22 @@ def main() -> int:
     validate_runtime(runtime)
     if closure.get("verdict") != "passed":
         raise ValueError("S2 closure evidence is not passed")
+    if closure.get("source_identity") != runtime.get("source_identity"):
+        raise ValueError("S2 closure source identity differs from runtime evidence")
+    runtime_sha256 = public_file_sha256(args.runtime_evidence)
+    final_runtime = dict(closure.get("final_runtime_evidence", {}))
+    if final_runtime.get("path") != RUNTIME_PATH:
+        raise ValueError("S2 closure points to an unexpected runtime evidence path")
+    if final_runtime.get("sha256") != runtime_sha256:
+        raise ValueError("S2 closure runtime evidence hash is stale")
+    if final_runtime.get("acceptance") != runtime.get("acceptance"):
+        raise ValueError("S2 closure acceptance projection differs from runtime")
     ledger_payload = json.loads(args.progress.read_text(encoding="utf-8"))
     ledger = close_s2(
         ledger_payload,
         runtime=runtime,
         closure=closure,
-        runtime_sha256=public_file_sha256(args.runtime_evidence),
+        runtime_sha256=runtime_sha256,
         closure_sha256=public_file_sha256(args.closure_evidence),
     )
     write_public_json(args.progress, ledger.model_dump(mode="json"))

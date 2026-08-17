@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-16T18:51:40.120338Z",
+  "generated_at": "2026-08-17T02:00:00.262659Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1080,7 +1080,7 @@
       "title": "Bounded Queue & Backpressure",
       "engineering_question": "Does overload stay memory-bounded while accepted work reaches an explicit outcome?",
       "why_now": "A bounded queue is required before capacity and recovery experiments scale up.",
-      "observed_gap": "Durable admission, byte/age bounds, retry budget, and DLQ are incomplete.",
+      "observed_gap": "The prior S2 closure did not persist every V3 bound and wait signal or independently recompute acceptance from numeric evidence; its 30-profile result is retained as historical baseline only until a fresh strict-evidence rerun passes.",
       "proposed_design": [
         "Combine a durable queue with a bounded process-local async queue and semaphore.",
         "Bound depth, bytes, age, and time; reject excess work with Retry-After.",
@@ -1145,9 +1145,10 @@
         "Durable task dispatch releases the legacy operations-ledger advisory and file lock before external Airflow HTTP, while fenced row-level PostgreSQL ownership protects the task and effect commit.",
         "Terminal queue, effect, and task detail rows are compacted under frozen row and age limits into fixed-cardinality rollups; the JSON task collection is retained only as a bounded rollback mirror.",
         "The operational-safety checkpoint adds bounded pre-FastAPI ingress, approval-state bounds, idempotency tombstones, deadline and effect fencing, fair runtime polling, evidence-backed outcome_unknown handling, cutover and rollback parity, exact parent-bound executor cleanup, portable process-tree RSS, and globally bounded downstream GPU work.",
-        "At implementation revision 31ee37c, the frozen A-J external matrix completed 30 of 30 profile repetitions with all four acceptance criteria and all 11 readiness gates passed. Forty-two focused real-PostgreSQL tests, 681 full Python tests, 59 Control Panel tests, and the production frontend build also passed."
+        "At implementation revision 31ee37c, the frozen A-J external matrix completed 30 of 30 profile repetitions with all four acceptance criteria and all 11 readiness gates passed. Forty-two focused real-PostgreSQL tests, 681 full Python tests, 59 Control Panel tests, and the production frontend build also passed.",
+        "The strict-evidence checkpoint reopens S2 before S3: API ingress peaks, durable/local/in-flight byte bounds, downstream outstanding work, admission/queue/load-generator waits, retry delay, DLQ, and API/worker/executor process-tree RSS are now projected numerically. A fail-closed validator recomputes every AC and readiness gate while ignoring stored passed booleans."
       ],
-      "experiment_environment": "The accepted matrix used an isolated PostgreSQL 16 schema per runtime, an external Uvicorn TCP/HTTP API, a real dedicated queue-worker process, a deterministic Airflow-compatible HTTP dependency, Prometheus file_sd queries, per-task W3C OTLP chains, and a trusted real CUDA producer on one local physical node. No customer traffic or production endpoint was used.",
+      "experiment_environment": "The previous matrix remains historical baseline evidence. The strict-evidence rerun will use a fresh isolated PostgreSQL 16 schema per runtime, external Uvicorn TCP/HTTP, the real dedicated queue-worker process, a deterministic Airflow-compatible HTTP dependency, Prometheus file_sd, per-task W3C OTLP chains, and the trusted local CUDA producer. No customer traffic or production endpoint is used.",
       "test_or_experiment_steps": [
         "Use provisional safe bounds before S3, then recalibrate from measured service rate.",
         "Execute independent healthy, depth-burst, byte-burst, sustained-plus-CPU1-control, idempotency-compaction-replay, expiry-plus-healthy, retry-budget, poison-plus-healthy, timeout-worker-restart, and trusted-GPU profiles three times each.",
@@ -1157,41 +1158,29 @@
         {
           "criterion_id": "S2-AC-01",
           "description": "Queue depth, in-flight bytes, and process memory remain bounded under overload.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s2-bounded-queue-experiment.json",
-            "docs/status/evidence/s2-bounded-queue-closure.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         },
         {
           "criterion_id": "S2-AC-02",
           "description": "Accepted work completes or reaches one explicit terminal failure.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s2-bounded-queue-experiment.json",
-            "docs/status/evidence/s2-bounded-queue-closure.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         },
         {
           "criterion_id": "S2-AC-03",
           "description": "Duplicate effects are zero and poison work does not block healthy work.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s2-bounded-queue-experiment.json",
-            "docs/status/evidence/s2-bounded-queue-closure.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         },
         {
           "criterion_id": "S2-AC-04",
-          "description": "Over-capacity demand is rejected with an observable retry contract.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s2-bounded-queue-experiment.json",
-            "docs/status/evidence/s2-bounded-queue-closure.json"
-          ]
+          "description": "Rejection, wait, retry, and DLQ behavior are measured from persisted numeric evidence.",
+          "status": "pending",
+          "evidence_refs": []
         }
       ],
-      "observed_result": "A-J each ran three times through the existing external task path. All 30 profile results, S2-AC-01 through S2-AC-04, and 11 readiness gates passed; accepted work reached one terminal outcome, duplicate logical effects were zero, backpressure was explicit, worker loss recovered, and real CUDA GPU runtime concurrency remained one.",
+      "observed_result": null,
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s2-operational-safety-checkpoint.json",
@@ -1212,14 +1201,15 @@
           "claim": "S2 closure records regressions, two retained failed attempts with RCA, cleanup, residual limits, and the accepted claim boundary."
         }
       ],
-      "status": "verified",
+      "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
       "unresolved_items": [
         "The result is limited to one local physical node and controlled traffic.",
         "Multi-node availability, customer traffic, production SLA, HA, DR, and multi-GPU behavior remain outside this evidence.",
+        "A fresh strict-evidence A-J x3 matrix must pass before S3 load execution starts.",
         "S3 and final S0-S8 cross-scenario validation have not started."
       ],
-      "next_action": "Keep S2 as the regression boundary. Do not start S3 in this work unit.",
+      "next_action": "Commit the strict-evidence implementation, run fresh A-J x3 on that clean revision, close S2 only from raw-derived numeric evidence, then re-evaluate the S3 start gate.",
       "architecture_before": "Admission and retries do not share one end-to-end resource boundary.",
       "architecture_after": "Durable queue, local semaphore, rejection, retry, DLQ, and CPU scale are bounded.",
       "existing_system_baseline": "The existing task API wrote assignments to the operations ledger and required explicit dispatch, while the separate lifecycle worker exclusively processed LifecycleRun state. Task admission had no shared depth, byte, age, retry-budget, or poison-work boundary and no dedicated task consumer.",
@@ -1261,7 +1251,7 @@
           ]
         }
       ],
-      "engineering_gap_and_reason": "Durable admission, byte/age bounds, retry budget, and DLQ are incomplete.",
+      "engineering_gap_and_reason": "The prior S2 closure did not persist every V3 bound and wait signal or independently recompute acceptance from numeric evidence; its 30-profile result is retained as historical baseline only until a fresh strict-evidence rerun passes.",
       "architecture_delta": {
         "before": "Admission and retries do not share one end-to-end resource boundary.",
         "after": "Durable queue, local semaphore, rejection, retry, DLQ, and CPU scale are bounded.",
@@ -1354,7 +1344,7 @@
           "Queue depth, in-flight bytes, and process memory remain bounded under overload.",
           "Accepted work completes or reaches one explicit terminal failure.",
           "Duplicate effects are zero and poison work does not block healthy work.",
-          "Over-capacity demand is rejected with an observable retry contract."
+          "Rejection, wait, retry, and DLQ behavior are measured from persisted numeric evidence."
         ],
         "stop_conditions": [
           "RSS, queue depth, queue bytes, local bytes, or GPU in-flight exceed the frozen bound; accepted work is lost or unclosed; duplicate effects, poison head-of-line blocking, retry amplification, unbounded wait, trace gaps, or S0/S1 regression appear."
@@ -1386,7 +1376,7 @@
         }
       ],
       "verdict_and_claim_boundary": {
-        "verdict": "passed",
+        "verdict": "not_run",
         "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
         "final_system_validation_required": true
       },
@@ -1448,6 +1438,13 @@
             "docs/status/evidence/s2-bounded-queue-experiment.json",
             "docs/status/evidence/s2-bounded-queue-closure.json"
           ]
+        },
+        {
+          "occurred_at": "2026-08-17T02:00:00.262659Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "Independent V3 review found that the previous public projection trusted assertion booleans and did not persist every durable/local/in-flight byte, ingress, wait, retry-delay, DLQ, and process-tree RSS signal. S2 was reopened; old 30-profile evidence is baseline-only. Strict numeric recomputation and mutation tests passed focused verification, while the mandatory fresh A-J x3 rerun remains pending.",
+          "evidence_refs": []
         }
       ]
     },

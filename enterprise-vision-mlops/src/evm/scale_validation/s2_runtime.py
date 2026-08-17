@@ -629,8 +629,14 @@ def database_snapshot(database_url: str, schema: str) -> dict[str, Any]:
     queue_rows = [normalize(row) for row in queue]
     state_counts = Counter(str(row["state"]) for row in queue_rows)
     state_bytes = Counter()
+    resource_state_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    resource_state_bytes: dict[str, Counter[str]] = defaultdict(Counter)
     for row in queue_rows:
-        state_bytes[str(row["state"])] += int(row["payload_bytes"])
+        state = str(row["state"])
+        resource = str(row["resource_class"])
+        state_bytes[state] += int(row["payload_bytes"])
+        resource_state_counts[resource][state] += 1
+        resource_state_bytes[resource][state] += int(row["payload_bytes"])
     return {
         "queue": queue_rows,
         "effects": [normalize(row) for row in effects],
@@ -641,6 +647,14 @@ def database_snapshot(database_url: str, schema: str) -> dict[str, Any]:
         "mirror": normalize(mirror or {"rows": 0, "bytes": 0}),
         "state_counts": dict(state_counts),
         "state_bytes": dict(state_bytes),
+        "resource_state_counts": {
+            resource: dict(counts)
+            for resource, counts in resource_state_counts.items()
+        },
+        "resource_state_bytes": {
+            resource: dict(counts)
+            for resource, counts in resource_state_bytes.items()
+        },
         "active_depth": sum(state_counts[state] for state in ACTIVE_QUEUE_STATES),
         "active_bytes": sum(state_bytes[state] for state in ACTIVE_QUEUE_STATES),
         "terminal_depth": sum(state_counts[state] for state in TERMINAL_QUEUE_STATES),
@@ -694,6 +708,37 @@ def max_metric(
             continue
         values.append(float(sample.get("value", 0)))
     return max(values, default=0.0)
+
+
+def histogram_metric_summary(
+    samples: Mapping[str, Sequence[Mapping[str, Any]]],
+    name: str,
+    *,
+    labels: Mapping[str, str] | None = None,
+) -> dict[str, float]:
+    count = max_metric(samples, f"{name}_count", labels=labels)
+    total = max_metric(samples, f"{name}_sum", labels=labels)
+    upper_bound = 0.0
+    if count > 0:
+        candidates = []
+        for sample in samples.get(f"{name}_bucket", []):
+            sample_labels = dict(sample.get("labels", {}))
+            if labels and any(
+                sample_labels.get(key) != value for key, value in labels.items()
+            ):
+                continue
+            if float(sample.get("value", 0)) < count:
+                continue
+            raw = str(sample_labels.get("le", "+Inf"))
+            if raw not in {"+Inf", "Inf"}:
+                candidates.append(float(raw))
+        upper_bound = min(candidates, default=float("inf"))
+    return {
+        "count": count,
+        "sum": total,
+        "average": total / count if count else 0.0,
+        "observed_upper_bound": upper_bound,
+    }
 
 
 def build_task_payload(
@@ -768,8 +813,9 @@ def submit_payloads(
     in_flight = 0
     peak_in_flight = 0
     results: list[dict[str, Any]] = []
+    permits = threading.BoundedSemaphore(max(1, min(concurrency, len(payloads))))
 
-    def send(index: int) -> dict[str, Any]:
+    def send(index: int, permit_wait_seconds: float) -> dict[str, Any]:
         nonlocal in_flight, peak_in_flight
         with lock:
             in_flight += 1
@@ -792,6 +838,7 @@ def submit_payloads(
                 "body": body,
                 "retry_after": response.headers.get("Retry-After"),
                 "elapsed_seconds": time.monotonic() - started,
+                "load_generator_permit_wait_seconds": permit_wait_seconds,
                 "trace_id": trace_id(traceparent(trace_seeds[index])),
             }
         except requests.RequestException as exc:
@@ -801,14 +848,25 @@ def submit_payloads(
                 "body": {"error": type(exc).__name__},
                 "retry_after": None,
                 "elapsed_seconds": time.monotonic() - started,
+                "load_generator_permit_wait_seconds": permit_wait_seconds,
                 "trace_id": trace_id(traceparent(trace_seeds[index])),
             }
         finally:
             with lock:
                 in_flight = max(0, in_flight - 1)
+            permits.release()
 
     with ThreadPoolExecutor(max_workers=min(concurrency, len(payloads))) as pool:
-        futures = [pool.submit(send, index) for index in range(len(payloads))]
+        futures = []
+        for index in range(len(payloads)):
+            wait_started = time.perf_counter()
+            permits.acquire()
+            permit_wait_seconds = time.perf_counter() - wait_started
+            try:
+                futures.append(pool.submit(send, index, permit_wait_seconds))
+            except BaseException:
+                permits.release()
+                raise
         for future in as_completed(futures):
             results.append(future.result())
     results.sort(key=lambda item: int(item["index"]))
@@ -840,8 +898,9 @@ def submit_payloads_at_rate(
     in_flight = 0
     peak_in_flight = 0
     results: list[dict[str, Any]] = []
+    permits = threading.BoundedSemaphore(max(1, min(concurrency, len(payloads))))
 
-    def send(index: int) -> dict[str, Any]:
+    def send(index: int, permit_wait_seconds: float) -> dict[str, Any]:
         nonlocal in_flight, peak_in_flight
         with lock:
             in_flight += 1
@@ -864,6 +923,7 @@ def submit_payloads_at_rate(
                 "body": body,
                 "retry_after": response.headers.get("Retry-After"),
                 "elapsed_seconds": time.monotonic() - started,
+                "load_generator_permit_wait_seconds": permit_wait_seconds,
                 "trace_id": trace_id(traceparent(trace_seeds[index])),
             }
         except requests.RequestException as exc:
@@ -873,11 +933,13 @@ def submit_payloads_at_rate(
                 "body": {"error": type(exc).__name__},
                 "retry_after": None,
                 "elapsed_seconds": time.monotonic() - started,
+                "load_generator_permit_wait_seconds": permit_wait_seconds,
                 "trace_id": trace_id(traceparent(trace_seeds[index])),
             }
         finally:
             with lock:
                 in_flight = max(0, in_flight - 1)
+            permits.release()
 
     started = time.monotonic()
     with ThreadPoolExecutor(max_workers=min(concurrency, len(payloads))) as pool:
@@ -887,7 +949,14 @@ def submit_payloads_at_rate(
             remaining = target - time.monotonic()
             if remaining > 0:
                 time.sleep(remaining)
-            futures.append(pool.submit(send, index))
+            wait_started = time.perf_counter()
+            permits.acquire()
+            permit_wait_seconds = time.perf_counter() - wait_started
+            try:
+                futures.append(pool.submit(send, index, permit_wait_seconds))
+            except BaseException:
+                permits.release()
+                raise
         for future in as_completed(futures):
             results.append(future.result())
     observed_window = time.monotonic() - started
@@ -975,13 +1044,26 @@ def summarize_submission(submission: Mapping[str, Any]) -> dict[str, Any]:
         if str(item.get("retry_after") or "").isdigit()
     ]
     latencies = sorted(float(item.get("elapsed_seconds", 0)) for item in results)
+    permit_waits = sorted(
+        float(item.get("load_generator_permit_wait_seconds", 0))
+        for item in results
+    )
     p95_index = max(0, min(len(latencies) - 1, int(len(latencies) * 0.95) - 1))
+    permit_p95_index = max(
+        0, min(len(permit_waits) - 1, int(len(permit_waits) * 0.95) - 1)
+    )
     return {
         "submitted": len(results),
         "status_counts": dict(submission.get("status_counts", {})),
         "peak_client_in_flight": int(submission.get("peak_in_flight", 0)),
         "retry_after_values": sorted(set(retry_after)),
         "p95_seconds": latencies[p95_index] if latencies else 0.0,
+        "load_generator_permit_wait_seconds": {
+            "count": len(permit_waits),
+            "sum": sum(permit_waits),
+            "max": max(permit_waits, default=0.0),
+            "p95": permit_waits[permit_p95_index] if permit_waits else 0.0,
+        },
         "transport_failures": sum(1 for item in results if item.get("status_code") == 0),
     }
 
@@ -1001,6 +1083,26 @@ def collect_runtime_sample(scope: RuntimeScope) -> dict[str, Any]:
     snapshot = database_snapshot(scope.database_url, scope.schema)
     api_rss = process_tree_rss(scope.api.process.pid)
     worker_rss = process_tree_rss(scope.worker.pid if scope.worker else None)
+    heartbeat: dict[str, Any] = {}
+    if scope.worker_heartbeat and scope.worker_heartbeat.is_file():
+        try:
+            heartbeat = json.loads(scope.worker_heartbeat.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            heartbeat = {}
+    downstream_counts = {
+        resource: sum(
+            int(snapshot["resource_state_counts"].get(resource, {}).get(state, 0))
+            for state in ("leased", "runtime_pending", "outcome_unknown")
+        )
+        for resource in ("cpu", "gpu")
+    }
+    downstream_bytes = {
+        resource: sum(
+            int(snapshot["resource_state_bytes"].get(resource, {}).get(state, 0))
+            for state in ("leased", "runtime_pending", "outcome_unknown")
+        )
+        for resource in ("cpu", "gpu")
+    }
     return {
         "monotonic": time.monotonic(),
         "active_depth": snapshot["active_depth"],
@@ -1012,6 +1114,29 @@ def collect_runtime_sample(scope: RuntimeScope) -> dict[str, Any]:
         "executor_process_tree_rss_peak_bytes": worker_executor_rss_peak(
             scope.worker_heartbeat
         ),
+        "local_depth": int(
+            dict(heartbeat.get("bounded_peaks", {})).get(
+                "local_depth", heartbeat.get("local_depth", 0)
+            )
+        ),
+        "local_bytes": int(
+            dict(heartbeat.get("bounded_peaks", {})).get(
+                "local_bytes", heartbeat.get("local_bytes", 0)
+            )
+        ),
+        "in_flight": {
+            resource: int(dict(heartbeat.get("in_flight", {})).get(resource, 0))
+            for resource in ("cpu", "gpu")
+        },
+        "in_flight_bytes": {
+            resource: int(
+                dict(heartbeat.get("in_flight_bytes", {})).get(resource, 0)
+            )
+            for resource in ("cpu", "gpu")
+        },
+        "downstream_outstanding": downstream_counts,
+        "downstream_outstanding_bytes": downstream_bytes,
+        "bounded_worker_peaks": dict(heartbeat.get("bounded_peaks", {})),
     }
 
 
@@ -1082,6 +1207,73 @@ def executor_process_tree_rss_peak(samples: Sequence[Mapping[str, Any]]) -> int:
     )
 
 
+def runtime_sample_peaks(samples: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    def maximum(key: str) -> int:
+        return max((int(item.get(key, 0)) for item in samples), default=0)
+
+    def nested_maximum(key: str, resource: str) -> int:
+        return max(
+            (
+                int(dict(item.get(key, {})).get(resource, 0))
+                for item in samples
+            ),
+            default=0,
+        )
+
+    def retained_maximum(key: str, fallback: int) -> int:
+        return max(
+            fallback,
+            max(
+                (
+                    int(dict(item.get("bounded_worker_peaks", {})).get(key, 0))
+                    for item in samples
+                ),
+                default=0,
+            ),
+        )
+
+    return {
+        "active_depth": maximum("active_depth"),
+        "active_bytes": maximum("active_bytes"),
+        "local_depth": retained_maximum("local_depth", maximum("local_depth")),
+        "local_bytes": retained_maximum("local_bytes", maximum("local_bytes")),
+        "worker_in_flight": retained_maximum(
+            "worker_in_flight",
+            sum(nested_maximum("in_flight", resource) for resource in ("cpu", "gpu")),
+        ),
+        "worker_in_flight_bytes": retained_maximum(
+            "worker_in_flight_bytes",
+            sum(
+                nested_maximum("in_flight_bytes", resource)
+                for resource in ("cpu", "gpu")
+            ),
+        ),
+        "cpu_downstream_outstanding": retained_maximum(
+            "cpu_downstream_outstanding",
+            nested_maximum("downstream_outstanding", "cpu"),
+        ),
+        "gpu_downstream_outstanding": retained_maximum(
+            "gpu_downstream_outstanding",
+            nested_maximum("downstream_outstanding", "gpu"),
+        ),
+        "cpu_downstream_outstanding_bytes": retained_maximum(
+            "cpu_downstream_outstanding_bytes",
+            nested_maximum("downstream_outstanding_bytes", "cpu"),
+        ),
+        "gpu_downstream_outstanding_bytes": retained_maximum(
+            "gpu_downstream_outstanding_bytes",
+            nested_maximum("downstream_outstanding_bytes", "gpu"),
+        ),
+        "api_process_tree_rss_bytes": max(
+            (int(item["api_rss"]["total"]) for item in samples), default=0
+        ),
+        "worker_process_tree_rss_bytes": max(
+            (int(item["worker_rss"]["total"]) for item in samples), default=0
+        ),
+        "executor_children_rss_bytes": executor_process_tree_rss_peak(samples),
+    }
+
+
 def wait_for_terminal(
     scope: RuntimeScope,
     accepted_ids: set[str],
@@ -1108,17 +1300,7 @@ def wait_for_terminal(
     for row in final["queue"]:
         if str(row["state"]) in TERMINAL_QUEUE_STATES:
             terminal_seen.add(str(row["task_id"]))
-    peaks = {
-        "active_depth": max((int(item["active_depth"]) for item in samples), default=0),
-        "active_bytes": max((int(item["active_bytes"]) for item in samples), default=0),
-        "api_process_tree_rss_bytes": max(
-            (int(item["api_rss"]["total"]) for item in samples), default=0
-        ),
-        "worker_process_tree_rss_bytes": max(
-            (int(item["worker_rss"]["total"]) for item in samples), default=0
-        ),
-        "executor_children_rss_bytes": executor_process_tree_rss_peak(samples),
-    }
+    peaks = runtime_sample_peaks(samples)
     return {
         "closed": accepted_ids.issubset(terminal_seen) and final["active_depth"] == 0,
         "elapsed_seconds": time.monotonic() - started,
@@ -1146,6 +1328,14 @@ def merge_terminal_results(
     peak_keys = (
         "active_depth",
         "active_bytes",
+        "local_depth",
+        "local_bytes",
+        "worker_in_flight",
+        "worker_in_flight_bytes",
+        "cpu_downstream_outstanding",
+        "gpu_downstream_outstanding",
+        "cpu_downstream_outstanding_bytes",
+        "gpu_downstream_outstanding_bytes",
         "api_process_tree_rss_bytes",
         "worker_process_tree_rss_bytes",
         "executor_children_rss_bytes",
@@ -1398,12 +1588,97 @@ def bounded_metric_summary(
         str(sample["labels"].get("direction")): sample["value"]
         for sample in worker.get("evm_task_queue_cpu_scale_events_total", [])
     }
+    retry_delay = {
+        str(sample["labels"].get("failure_class")): {
+            **histogram_metric_summary(
+                worker,
+                "evm_task_queue_retry_delay_seconds",
+                labels={"failure_class": str(sample["labels"].get("failure_class"))},
+            ),
+            "max": max_metric(
+                worker,
+                "evm_task_queue_retry_delay_max_seconds",
+                labels={"failure_class": str(sample["labels"].get("failure_class"))},
+            ),
+        }
+        for sample in worker.get("evm_task_queue_retry_delay_seconds_count", [])
+    }
+    admission_wait = histogram_metric_summary(
+        api, "evm_task_queue_admission_wait_seconds"
+    )
+    admission_wait["max"] = max_metric(
+        api, "evm_task_queue_admission_wait_max_seconds"
+    )
+    queue_wait = histogram_metric_summary(worker, "evm_task_queue_wait_seconds")
+    queue_wait["max"] = max_metric(worker, "evm_task_queue_wait_max_seconds")
     return {
         "admission": admission,
         "terminal": terminals,
         "retry": retries,
         "dlq": dlq,
         "cpu_scale": cpu_scale,
+        "ingress_peak_requests": max_metric(
+            api, "evm_task_queue_ingress_peak_requests"
+        ),
+        "ingress_peak_bytes": max_metric(
+            api, "evm_task_queue_ingress_peak_bytes"
+        ),
+        "admission_wait_seconds": admission_wait,
+        "queue_wait_seconds": queue_wait,
+        "retry_delay_seconds": retry_delay,
+        "worker_in_flight_bytes": {
+            resource: max_metric(
+                worker,
+                "evm_task_queue_in_flight_bytes",
+                labels={"resource_class": resource},
+            )
+            for resource in ("cpu", "gpu")
+        },
+        "downstream_outstanding": {
+            resource: max_metric(
+                worker,
+                "evm_task_queue_downstream_outstanding",
+                labels={"resource_class": resource},
+            )
+            for resource in ("cpu", "gpu")
+        },
+        "downstream_outstanding_bytes": {
+            resource: max_metric(
+                worker,
+                "evm_task_queue_downstream_outstanding_bytes",
+                labels={"resource_class": resource},
+            )
+            for resource in ("cpu", "gpu")
+        },
+        "retained_peaks": {
+            "local_depth": max_metric(worker, "evm_task_queue_local_peak_depth"),
+            "local_bytes": max_metric(worker, "evm_task_queue_local_peak_bytes"),
+            "worker_in_flight": max_metric(
+                worker, "evm_task_queue_in_flight_peak"
+            ),
+            "worker_in_flight_bytes": max_metric(
+                worker, "evm_task_queue_in_flight_peak_bytes"
+            ),
+            "executor_children_rss_bytes": max_metric(
+                worker, "evm_task_queue_executor_process_tree_rss_peak_bytes"
+            ),
+            **{
+                f"{resource}_downstream_outstanding": max_metric(
+                    worker,
+                    "evm_task_queue_downstream_outstanding_peak",
+                    labels={"resource_class": resource},
+                )
+                for resource in ("cpu", "gpu")
+            },
+            **{
+                f"{resource}_downstream_outstanding_bytes": max_metric(
+                    worker,
+                    "evm_task_queue_downstream_outstanding_peak_bytes",
+                    labels={"resource_class": resource},
+                )
+                for resource in ("cpu", "gpu")
+            },
+        },
         "rss_bytes": max_metric(worker, "evm_task_queue_process_rss_bytes"),
         "rss_slope_bytes_per_minute": max_metric(
             worker,
@@ -1529,6 +1804,86 @@ def finalize_profile_scope(
     }
     expected_effect_ok = all(len(logical_effects.get(task_id, [])) == 1 for task_id in effect_expected)
     no_effect_ok = all(len(logical_effects.get(task_id, [])) == 0 for task_id in no_effect_expected)
+    accepted_identity = set(accepted)
+    terminal_identity = {
+        str(item) for item in terminal.get("terminal_seen_task_ids", [])
+    }
+    actual_effect_identity = {
+        task_id for task_id, values in logical_effects.items() if values
+    }
+    merged = merge_submissions(submissions)
+    submission_summary = summarize_submission(merged)
+    public_peaks = dict(terminal.get("peaks", {}))
+    public_peaks.update(
+        {
+            "ingress_active_requests": int(
+                metric_summary.get("ingress_peak_requests", 0)
+            ),
+            "ingress_in_flight_bytes": int(
+                metric_summary.get("ingress_peak_bytes", 0)
+            ),
+        }
+    )
+    for key, value in dict(metric_summary.get("retained_peaks", {})).items():
+        public_peaks[key] = max(int(public_peaks.get(key, 0)), int(value))
+    assertion_observations = {
+        str(item.get("assertion_id")): item.get("observed")
+        for item in assertions
+    }
+    strict_evidence = {
+        "identity_closure": {
+            "accepted_count": len(accepted_identity),
+            "terminal_count": len(terminal_identity),
+            "accepted_identity_set_sha256": canonical_digest(
+                sorted(accepted_identity)
+            ),
+            "terminal_identity_set_sha256": canonical_digest(
+                sorted(terminal_identity)
+            ),
+            "active_final_depth": int(
+                terminal.get("final", {}).get("active_depth", -1)
+            ),
+            "outcome_unknown_final": int(
+                terminal.get("final", {})
+                .get("state_counts", {})
+                .get("outcome_unknown", 0)
+            ),
+        },
+        "effect_accounting": {
+            "eligible_count": len(effect_expected),
+            "eligible_identity_set_sha256": canonical_digest(
+                sorted(effect_expected)
+            ),
+            "actual_effect_count": len(actual_effect_identity),
+            "actual_effect_identity_set_sha256": canonical_digest(
+                sorted(actual_effect_identity)
+            ),
+            "eligible_exactly_once_count": sum(
+                len(logical_effects.get(task_id, [])) == 1
+                for task_id in effect_expected
+            ),
+            "no_effect_expected_count": len(no_effect_expected),
+            "no_effect_observed_count": sum(
+                len(logical_effects.get(task_id, [])) == 0
+                for task_id in no_effect_expected
+            ),
+            "duplicate_effect_count": int(
+                fixture.get("duplicate_external_effects", -1)
+            ),
+            "multiple_logical_effect_count": int(
+                fixture.get("tasks_with_multiple_logical_effects", -1)
+            ),
+        },
+        "waits": {
+            "admission": metric_summary.get("admission_wait_seconds", {}),
+            "queue": metric_summary.get("queue_wait_seconds", {}),
+            "load_generator_permit": submission_summary.get(
+                "load_generator_permit_wait_seconds", {}
+            ),
+            "retry_delay": metric_summary.get("retry_delay_seconds", {}),
+        },
+        "assertion_observations": assertion_observations,
+    }
     generic_assertions = [
         assertion(
             "accepted_equals_terminal",
@@ -1582,12 +1937,11 @@ def finalize_profile_scope(
             "process_tree_rss_nonzero",
             int(terminal.get("peaks", {}).get("api_process_tree_rss_bytes", 0)) > 0
             and int(terminal.get("peaks", {}).get("worker_process_tree_rss_bytes", 0)) > 0,
-            terminal.get("peaks", {}),
+            public_peaks,
         ),
     ]
     all_assertions = [*assertions, *generic_assertions]
     passed = all(bool(item["passed"]) for item in all_assertions)
-    merged = merge_submissions(submissions)
     private_payload = {
         "schema_version": "evm.s2_profile_private.v1",
         "generated_at": utc_now(),
@@ -1617,7 +1971,7 @@ def finalize_profile_scope(
         "config_version": queue_config.profile_version,
         "config_sha256": queue_config.sha256,
         "input_sequence_sha256": input_sequence_sha256,
-        "submission": summarize_submission(merged),
+        "submission": submission_summary,
         "terminal": {
             "accepted_count": terminal.get("accepted_count"),
             "terminal_count": terminal.get("terminal_seen_count"),
@@ -1625,7 +1979,7 @@ def finalize_profile_scope(
             "elapsed_seconds": terminal.get("elapsed_seconds"),
             "final_state_counts": terminal.get("final", {}).get("state_counts", {}),
         },
-        "peaks": terminal.get("peaks", {}),
+        "peaks": public_peaks,
         "metrics": metric_summary,
         "prometheus": {"targets": targets, "rss_query_series": len(prometheus_rss)},
         "trace": public_trace_summary(trace),
@@ -1660,6 +2014,7 @@ def finalize_profile_scope(
                 "variant",
             }
         },
+        "strict_evidence": strict_evidence,
         "assertions": all_assertions,
         "private_evidence_sha256": private_hash,
         "passed": passed,
@@ -1920,26 +2275,10 @@ def run_profile_d_variant(
         monitor_stop.set()
         monitor_thread.join(timeout=5)
     if sustained_samples:
-        terminal["peaks"]["active_depth"] = max(
-            int(terminal["peaks"].get("active_depth", 0)),
-            max(int(item["active_depth"]) for item in sustained_samples),
-        )
-        terminal["peaks"]["active_bytes"] = max(
-            int(terminal["peaks"].get("active_bytes", 0)),
-            max(int(item["active_bytes"]) for item in sustained_samples),
-        )
-        terminal["peaks"]["api_process_tree_rss_bytes"] = max(
-            int(terminal["peaks"].get("api_process_tree_rss_bytes", 0)),
-            max(int(item["api_rss"]["total"]) for item in sustained_samples),
-        )
-        terminal["peaks"]["worker_process_tree_rss_bytes"] = max(
-            int(terminal["peaks"].get("worker_process_tree_rss_bytes", 0)),
-            max(int(item["worker_rss"]["total"]) for item in sustained_samples),
-        )
-        terminal["peaks"]["executor_children_rss_bytes"] = max(
-            int(terminal["peaks"].get("executor_children_rss_bytes", 0)),
-            max(int(item["worker_rss"]["children"]) for item in sustained_samples),
-        )
+        for key, value in runtime_sample_peaks(sustained_samples).items():
+            terminal["peaks"][key] = max(
+                int(terminal["peaks"].get(key, 0)), int(value)
+            )
     rss_slope = process_tree_rss_slope(
         sustained_samples,
         window_seconds=matrix.rss_slope_measurement_seconds,
@@ -2794,6 +3133,13 @@ def find_assertion(payload: Mapping[str, Any], assertion_id: str) -> bool:
     )
 
 
+def assertion_observation(payload: Mapping[str, Any], assertion_id: str) -> Any:
+    for item in payload.get("assertions", []):
+        if item.get("assertion_id") == assertion_id:
+            return item.get("observed")
+    return None
+
+
 def runtime_results(results: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     flattened: list[dict[str, Any]] = []
     for result in results:
@@ -2803,6 +3149,124 @@ def runtime_results(results: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]
         else:
             flattened.append(dict(result))
     return flattened
+
+
+def strict_profile_behavior(payload: Mapping[str, Any]) -> bool:
+    profile_id = str(payload.get("profile_id"))
+    submission = dict(payload.get("submission", {}))
+    statuses = {
+        str(key): int(value)
+        for key, value in dict(submission.get("status_counts", {})).items()
+    }
+    if profile_id == "A":
+        return statuses == {"202": int(submission.get("submitted", -1))}
+    if profile_id == "B":
+        return statuses.get("202", 0) > 0 and statuses.get("429", 0) > 0
+    if profile_id == "C":
+        return (
+            statuses.get("202", 0) > 0
+            and statuses.get("429", 0) > 0
+            and statuses.get("413", 0) == 1
+        )
+    if profile_id == "D":
+        observed = assertion_observation(
+            payload,
+            f"D_{payload.get('variant')}_backpressure_is_explicit",
+        )
+        return (
+            isinstance(observed, Mapping)
+            and int(dict(observed.get("status_counts", {})).get("202", 0)) > 0
+            and int(dict(observed.get("status_counts", {})).get("429", 0)) > 0
+            and all(int(value) > 0 for value in observed.get("retry_after", []))
+        )
+    if profile_id == "E":
+        accepted = assertion_observation(payload, "E_all_unique_requests_accepted")
+        compacted = assertion_observation(payload, "E_history_compacted_with_tombstone")
+        replay = assertion_observation(
+            payload, "E_restart_replay_same_task_no_new_effect"
+        )
+        return (
+            isinstance(accepted, Mapping)
+            and accepted.get("accepted") == accepted.get("expected")
+            and int(accepted.get("expected", 0)) > 0
+            and isinstance(compacted, Mapping)
+            and sum(
+                int(item.get("item_count", 0))
+                for item in compacted.get("history", [])
+            ) > 0
+            and int(dict(compacted.get("idempotency", {})).get("tombstones", 0)) > 0
+            and isinstance(replay, Mapping)
+            and replay.get("worker_replaced") is True
+            and replay.get("replay_matches") is True
+            and replay.get("effects_before") == replay.get("effects_after")
+        )
+    if profile_id == "F":
+        expired = assertion_observation(payload, "F_expired_without_effect")
+        healthy = assertion_observation(payload, "F_following_healthy_completed")
+        return (
+            isinstance(expired, Mapping)
+            and expired.get("state") == "expired"
+            and isinstance(healthy, Mapping)
+            and int(healthy.get("healthy_accepted", 0)) == 1
+        )
+    if profile_id == "G":
+        budget = assertion_observation(payload, "G_retry_budget_observed")
+        healthy = assertion_observation(
+            payload, "G_healthy_completed_after_retry_pressure"
+        )
+        return (
+            isinstance(budget, Mapping)
+            and bool(budget.get("retry_budget"))
+            and any(
+                "retry_budget_exhausted" in str(reason)
+                for reason in dict(budget.get("reasons", {}))
+            )
+            and isinstance(healthy, Mapping)
+            and healthy.get("healthy") == healthy.get("expected")
+            and int(healthy.get("expected", 0)) > 0
+        )
+    if profile_id == "H":
+        poison = assertion_observation(payload, "H_poison_quarantined")
+        healthy = assertion_observation(payload, "H_healthy_not_head_of_line_blocked")
+        return (
+            isinstance(poison, Mapping)
+            and int(poison.get("poison", 0)) > 0
+            and all(state == "dlq" for state in poison.get("states", []))
+            and isinstance(healthy, Mapping)
+            and healthy.get("healthy") == healthy.get("expected")
+            and int(healthy.get("expected", 0)) > 0
+        )
+    if profile_id == "I":
+        replacement = assertion_observation(payload, "I_exact_worker_process_replaced")
+        epoch = assertion_observation(payload, "I_lease_epoch_increased")
+        ordering = assertion_observation(payload, "I_timeout_does_not_block_healthy")
+        recovered = assertion_observation(payload, "I_slow_item_recovered")
+        return (
+            isinstance(replacement, Mapping)
+            and replacement.get("worker_identity_changed") is True
+            and replacement.get("old_process_dead") is True
+            and int(replacement.get("orphan_child_count", -1)) == 0
+            and isinstance(epoch, Mapping)
+            and int(epoch.get("slow_task_lease_epoch", 0)) >= 2
+            and isinstance(ordering, Mapping)
+            and bool(ordering.get("healthy_terminal_at"))
+            and str(ordering.get("healthy_terminal_at"))
+            < str(ordering.get("timeout_terminal_at"))
+            and recovered is True
+        )
+    if profile_id == "J":
+        routed = assertion_observation(payload, "J_existing_gpu_profile_routed_gpu")
+        effects = dict(payload.get("external_effects", {}))
+        return (
+            routed == ["gpu"]
+            and int(effects.get("cuda_probe_count", 0)) > 0
+            and int(effects.get("cuda_nonzero_activity_count", 0))
+            == int(effects.get("cuda_probe_count", -1))
+            and int(effects.get("cuda_failure_count", -1)) == 0
+            and int(effects.get("max_external_in_flight", {}).get("gpu", 0)) == 1
+            and int(effects.get("max_runtime_concurrency", {}).get("gpu", 0)) == 1
+        )
+    return False
 
 
 def progress_verdict(scenario: Mapping[str, Any]) -> str | None:
@@ -2882,100 +3346,299 @@ def aggregate_acceptance(
     results: Sequence[Mapping[str, Any]],
     queue_config: AdmissionQueueConfig,
 ) -> tuple[dict[str, bool], dict[str, bool]]:
+    acceptance, readiness, _details = recompute_s2_acceptance(
+        results, queue_config
+    )
+    return acceptance, readiness
+
+
+def recompute_s2_acceptance(
+    results: Sequence[Mapping[str, Any]],
+    queue_config: AdmissionQueueConfig,
+) -> tuple[dict[str, bool], dict[str, bool], dict[str, Any]]:
+    """Recompute S2 gates from persisted numeric evidence, never pass flags."""
     flattened = runtime_results(results)
-    hard_bounded = all(
-        int(item.get("peaks", {}).get("active_depth", 0))
-        <= queue_config.durable_max_depth
-        and int(item.get("peaks", {}).get("active_bytes", 0))
-        <= queue_config.durable_max_bytes
-        and 0
-        < int(item.get("peaks", {}).get("api_process_tree_rss_bytes", 0))
-        <= queue_config.rss_cap_bytes
-        and 0
-        < int(item.get("peaks", {}).get("worker_process_tree_rss_bytes", 0))
-        <= queue_config.rss_cap_bytes
-        for item in flattened
+    per_runtime: list[dict[str, Any]] = []
+    for item in flattened:
+        peaks = dict(item.get("peaks", {}))
+        strict = dict(item.get("strict_evidence", {}))
+        identity = dict(strict.get("identity_closure", {}))
+        effects = dict(strict.get("effect_accounting", {}))
+        waits = dict(strict.get("waits", {}))
+        submission = dict(item.get("submission", {}))
+        terminal = dict(item.get("terminal", {}))
+        final_states = dict(terminal.get("final_state_counts", {}))
+        active_final = sum(
+            int(final_states.get(state, 0)) for state in ACTIVE_QUEUE_STATES
+        )
+        resource_bounded = (
+            0 <= int(peaks.get("active_depth", -1)) <= queue_config.durable_max_depth
+            and 0 <= int(peaks.get("active_bytes", -1)) <= queue_config.durable_max_bytes
+            and 0 <= int(peaks.get("local_depth", -1)) <= queue_config.local_max_depth
+            and 0 <= int(peaks.get("local_bytes", -1)) <= queue_config.local_max_bytes
+            and 0
+            < int(peaks.get("ingress_active_requests", 0))
+            <= queue_config.ingress_max_concurrent_requests
+            and 0
+            < int(peaks.get("ingress_in_flight_bytes", 0))
+            <= queue_config.ingress_max_inflight_bytes
+            and 0
+            < int(peaks.get("worker_in_flight", 0))
+            <= queue_config.cpu_workers_max + queue_config.gpu_workers
+            and 0
+            < int(peaks.get("worker_in_flight_bytes", 0))
+            <= queue_config.local_max_bytes
+            and int(peaks.get("cpu_downstream_outstanding", -1))
+            <= queue_config.cpu_downstream_max_outstanding
+            and int(peaks.get("gpu_downstream_outstanding", -1))
+            <= queue_config.gpu_downstream_max_outstanding
+            and 0
+            < int(peaks.get("api_process_tree_rss_bytes", 0))
+            <= queue_config.rss_cap_bytes
+            and 0
+            < int(peaks.get("worker_process_tree_rss_bytes", 0))
+            <= queue_config.rss_cap_bytes
+            and 0
+            < int(peaks.get("executor_children_rss_bytes", 0))
+            <= queue_config.rss_cap_bytes
+        )
+        identity_closed = (
+            int(identity.get("accepted_count", -1))
+            == int(identity.get("terminal_count", -2))
+            == int(terminal.get("accepted_count", -3))
+            == int(terminal.get("terminal_count", -4))
+            and int(terminal.get("missing_count", -1)) == 0
+            and str(identity.get("accepted_identity_set_sha256", ""))
+            == str(identity.get("terminal_identity_set_sha256", "missing"))
+            and len(str(identity.get("accepted_identity_set_sha256", ""))) == 64
+            and int(identity.get("active_final_depth", -1)) == 0
+            and int(identity.get("outcome_unknown_final", -1)) == 0
+            and active_final == 0
+        )
+        effects_exact = (
+            int(effects.get("eligible_count", -1))
+            == int(effects.get("eligible_exactly_once_count", -2))
+            == int(effects.get("actual_effect_count", -3))
+            and str(effects.get("eligible_identity_set_sha256", ""))
+            == str(effects.get("actual_effect_identity_set_sha256", "missing"))
+            and len(str(effects.get("eligible_identity_set_sha256", ""))) == 64
+            and int(effects.get("no_effect_expected_count", -1))
+            == int(effects.get("no_effect_observed_count", -2))
+            and int(effects.get("duplicate_effect_count", -1)) == 0
+            and int(effects.get("multiple_logical_effect_count", -1)) == 0
+        )
+        admission_wait = dict(waits.get("admission", {}))
+        queue_wait = dict(waits.get("queue", {}))
+        permit_wait = dict(waits.get("load_generator_permit", {}))
+        waits_measured = (
+            float(admission_wait.get("count", 0)) > 0
+            and float(queue_wait.get("count", 0)) > 0
+            and int(permit_wait.get("count", -1))
+            == int(submission.get("submitted", -2))
+            and float(admission_wait.get("sum", -1)) >= 0
+            and float(queue_wait.get("sum", -1)) >= 0
+            and float(permit_wait.get("sum", -1)) >= 0
+            and 0
+            <= float(admission_wait.get("max", -1))
+            <= queue_config.admission_wait_seconds + 0.25
+            and 0
+            <= float(queue_wait.get("max", -1))
+            <= queue_config.max_age_seconds
+            and 0
+            <= float(permit_wait.get("max", -1))
+            <= queue_config.drain_timeout_seconds
+        )
+        trace = dict(item.get("trace", {}))
+        prometheus = dict(item.get("prometheus", {}))
+        targets = dict(prometheus.get("targets", {}))
+        cleanup = dict(item.get("cleanup", {}))
+        per_runtime.append(
+            {
+                "profile_id": item.get("profile_id"),
+                "variant": item.get("variant"),
+                "resource_bounded": resource_bounded,
+                "identity_closed": identity_closed,
+                "effects_exact": effects_exact,
+                "waits_measured": waits_measured,
+                "profile_behavior": strict_profile_behavior(item),
+                "transport_ok": int(submission.get("transport_failures", -1)) == 0,
+                "trace_complete": int(trace.get("task_count", -1))
+                == int(trace.get("complete_count", -2))
+                and int(trace.get("missing", -1)) == 0,
+                "prometheus_up": targets.get("api") == 1
+                and targets.get("worker") == 1,
+                "cleanup": bool(cleanup.get("schema_dropped"))
+                and not cleanup.get("marker_processes_remaining")
+                and not cleanup.get("errors"),
+                "mirror_parity": (
+                    lambda observed: isinstance(observed, Mapping)
+                    and observed.get("authority_count")
+                    == observed.get("mirror_count")
+                    == observed.get("file_count")
+                    and observed.get("authority_sha256")
+                    == observed.get("mirror_sha256")
+                    == observed.get("file_sha256")
+                )(
+                    assertion_observation(item, "postgres_json_mirror_parity")
+                ),
+            }
+        )
+
+    hard_bounded = bool(per_runtime) and all(
+        item["resource_bounded"] for item in per_runtime
     )
     counts = Counter(str(item.get("profile_id")) for item in results)
     exact_matrix = all(counts[profile_id] == 3 for profile_id in EXPECTED_PROFILE_IDS)
     d_entries = [item for item in flattened if item.get("profile_id") == "D"]
     slope_bounded = len(d_entries) == 6 and all(
-        find_assertion(item, f"D_{item.get('variant')}_rss_slope_bounded")
+        bool(dict(item.get("profile_observations", {})).get("rss_slope", {}).get("measured"))
+        and float(
+            dict(item.get("profile_observations", {}))
+            .get("rss_slope", {})
+            .get("api_bytes_per_minute", float("inf"))
+        ) <= queue_config.rss_slope_tolerance_bytes_per_minute
+        and float(
+            dict(item.get("profile_observations", {}))
+            .get("rss_slope", {})
+            .get("worker_bytes_per_minute", float("inf"))
+        ) <= queue_config.rss_slope_tolerance_bytes_per_minute
         for item in d_entries
     )
-    executor_entries = [
-        item
-        for item in flattened
-        if item.get("profile_id") in {"B", "C", "D", "I", "J"}
-    ]
-    executor_observed = len(executor_entries) == 18 and all(
-        int(item.get("peaks", {}).get("executor_children_rss_bytes", 0)) > 0
-        for item in executor_entries
+    d_wrappers = [item for item in results if item.get("profile_id") == "D"]
+    d_scaling_non_vacuous = len(d_wrappers) == 3 and all(
+        (lambda scaling, throughput: isinstance(scaling, Mapping)
+         and float(scaling.get("adaptive_scale_up_events", 0)) > 0
+         and float(scaling.get("cpu1_scale_up_events", -1)) == 0
+         and int(scaling.get("adaptive_runtime_concurrency", 0))
+         > int(scaling.get("cpu1_runtime_concurrency", 0)) >= 1
+         and isinstance(throughput, Mapping)
+         and float(throughput.get("adaptive_accepted_throughput", 0))
+         > float(throughput.get("cpu1_accepted_throughput", 0)) > 0)(
+            assertion_observation(item, "D_adaptive_cpu_scaled_non_vacuously"),
+            assertion_observation(item, "D_adaptive_throughput_exceeds_cpu1"),
+        )
+        for item in d_wrappers
     )
-    explicit_closure = all(
-        find_assertion(item, "accepted_equals_terminal")
-        and find_assertion(item, "active_queue_drained")
-        and find_assertion(item, "outcome_unknown_zero")
-        for item in flattened
+    explicit_closure = bool(per_runtime) and all(
+        item["identity_closed"] for item in per_runtime
     )
-    exactly_once = all(
-        find_assertion(item, "logical_effect_exactly_once") for item in flattened
+    exactly_once = bool(per_runtime) and all(
+        item["effects_exact"] for item in per_runtime
     )
-    poison_entries = [
-        item for item in results if item.get("profile_id") in {"E", "H", "I", "J"}
-    ]
-    poison_isolated = len(poison_entries) == 12 and all(
-        bool(item.get("passed"))
-        for item in poison_entries
+    h_entries = [item for item in flattened if item.get("profile_id") == "H"]
+    poison_isolated = len(h_entries) == 3 and all(
+        int(item.get("strict_evidence", {}).get("effect_accounting", {}).get("eligible_count", 0)) > 0
+        and int(item.get("strict_evidence", {}).get("effect_accounting", {}).get("no_effect_expected_count", 0)) > 0
+        for item in h_entries
     )
     rejection_entries = [
-        item for item in results if item.get("profile_id") in {"B", "C", "G", "H"}
+        item for item in flattened if item.get("profile_id") in {"B", "C", "D"}
     ]
     rejection_observed = len(rejection_entries) == 12 and all(
-        bool(item.get("passed"))
+        int(item.get("submission", {}).get("status_counts", {}).get("429", 0)) > 0
+        and all(
+            int(value) > 0
+            for value in item.get("submission", {}).get("retry_after_values", [])
+        )
         for item in rejection_entries
+    )
+    c_entries = [item for item in flattened if item.get("profile_id") == "C"]
+    oversized_observed = len(c_entries) == 3 and all(
+        int(item.get("submission", {}).get("status_counts", {}).get("413", 0)) == 1
+        for item in c_entries
+    )
+    g_entries = [item for item in flattened if item.get("profile_id") == "G"]
+    retry_measured = len(g_entries) == 3 and all(
+        sum(float(value) for value in item.get("metrics", {}).get("retry", {}).values()) > 0
+        and sum(
+            float(summary.get("count", 0))
+            for summary in item.get("strict_evidence", {}).get("waits", {}).get("retry_delay", {}).values()
+        ) > 0
+        and any(
+            float(summary.get("sum", 0)) > 0
+            for summary in item.get("strict_evidence", {}).get("waits", {}).get("retry_delay", {}).values()
+        )
+        and all(
+            0 < float(summary.get("max", 0))
+            <= queue_config.backoff_max_seconds * (1 + queue_config.jitter_ratio)
+            for summary in item.get("strict_evidence", {}).get("waits", {}).get("retry_delay", {}).values()
+        )
+        for item in g_entries
+    )
+    dlq_entries = [item for item in flattened if item.get("profile_id") in {"G", "H"}]
+    dlq_measured = len(dlq_entries) == 6 and all(
+        sum(float(value) for value in item.get("metrics", {}).get("dlq", {}).values()) > 0
+        for item in dlq_entries
+    )
+    waits_measured = bool(per_runtime) and all(
+        item["waits_measured"] for item in per_runtime
     )
     worker_loss_entries = [
         item for item in flattened if item.get("profile_id") == "I"
     ]
     gpu_entries = [item for item in flattened if item.get("profile_id") == "J"]
     acceptance = {
-        "S2-AC-01": hard_bounded and slope_bounded and executor_observed,
-        "S2-AC-02": explicit_closure,
+        "S2-AC-01": hard_bounded and slope_bounded and d_scaling_non_vacuous,
+        "S2-AC-02": explicit_closure
+        and all(item["profile_behavior"] for item in per_runtime),
         "S2-AC-03": exactly_once and poison_isolated,
-        "S2-AC-04": rejection_observed,
+        "S2-AC-04": (
+            rejection_observed
+            and oversized_observed
+            and waits_measured
+            and retry_measured
+            and dlq_measured
+        ),
     }
     readiness = {
         "RG-01-s0-s1-start-gate": True,
         "RG-02-exact-a-j-three-repetitions": exact_matrix and len(results) == 30,
-        "RG-03-external-http-no-transport-loss": all(
-            int(item.get("submission", {}).get("transport_failures", 0)) == 0
-            for item in flattened
-        ),
+        "RG-03-external-http-no-transport-loss": bool(per_runtime)
+        and all(item["transport_ok"] for item in per_runtime),
         "RG-04-real-postgresql-terminal-parity": explicit_closure
-        and all(find_assertion(item, "postgres_json_mirror_parity") for item in flattened),
-        "RG-05-real-worker-process-and-cleanup": all(
-            find_assertion(item, "isolated_runtime_cleanup") for item in flattened
-        ),
-        "RG-06-prometheus-queryable": all(
-            find_assertion(item, "prometheus_targets_up") for item in flattened
-        ),
-        "RG-07-per-task-otel-chain": all(
-            find_assertion(item, "trace_chain_complete") for item in flattened
-        ),
-        "RG-08-retry-dlq-backpressure-observed": rejection_observed,
+        and all(item["mirror_parity"] for item in per_runtime),
+        "RG-05-real-worker-process-and-cleanup": bool(per_runtime)
+        and all(item["cleanup"] for item in per_runtime),
+        "RG-06-prometheus-queryable": bool(per_runtime)
+        and all(item["prometheus_up"] for item in per_runtime),
+        "RG-07-per-task-otel-chain": bool(per_runtime)
+        and all(item["trace_complete"] for item in per_runtime),
+        "RG-08-retry-dlq-backpressure-observed": acceptance["S2-AC-04"],
         "RG-09-real-worker-loss-recovery": len(worker_loss_entries) == 3 and all(
-            find_assertion(item, "I_exact_worker_process_replaced")
-            and find_assertion(item, "I_lease_epoch_increased")
+            (lambda replaced, epoch: isinstance(replaced, Mapping)
+             and replaced.get("worker_identity_changed") is True
+             and replaced.get("old_process_dead") is True
+             and int(replaced.get("orphan_child_count", -1)) == 0
+             and int(replaced.get("stopped_process_count", 0)) > 0
+             and isinstance(epoch, Mapping)
+             and int(epoch.get("slow_task_lease_epoch", 0)) >= 2)(
+                assertion_observation(item, "I_exact_worker_process_replaced"),
+                assertion_observation(item, "I_lease_epoch_increased"),
+            )
             for item in worker_loss_entries
         ),
         "RG-10-trusted-cuda-bound-to-effect": len(gpu_entries) == 3 and all(
-            find_assertion(item, "J_trusted_cuda_nonzero")
-            and find_assertion(item, "J_external_gpu_runtime_max_one")
+            int(item.get("external_effects", {}).get("cuda_probe_count", 0)) > 0
+            and int(item.get("external_effects", {}).get("cuda_nonzero_activity_count", 0))
+            == int(item.get("external_effects", {}).get("cuda_probe_count", -1))
+            and int(item.get("external_effects", {}).get("cuda_failure_count", -1)) == 0
+            and int(item.get("external_effects", {}).get("cuda_peak_allocated_bytes", 0)) > 0
+            and int(item.get("external_effects", {}).get("max_external_in_flight", {}).get("gpu", 0)) == 1
+            and int(item.get("external_effects", {}).get("max_runtime_concurrency", {}).get("gpu", 0)) == 1
             for item in gpu_entries
         ),
     }
-    return acceptance, readiness
+    details = {
+        "per_runtime": per_runtime,
+        "rejection_observed": rejection_observed,
+        "oversized_observed": oversized_observed,
+        "retry_measured": retry_measured,
+        "dlq_measured": dlq_measured,
+        "waits_measured": waits_measured,
+        "slope_bounded": slope_bounded,
+        "d_scaling_non_vacuous": d_scaling_non_vacuous,
+    }
+    return acceptance, readiness, details
 
 
 def private_evidence_index(suite_root: Path) -> dict[str, Any]:
@@ -3070,7 +3733,9 @@ def run_external_s2_experiment(args: argparse.Namespace) -> dict[str, Any]:
                 break
         if failures:
             break
-    acceptance, readiness = aggregate_acceptance(results, queue_config)
+    acceptance, readiness, strict_recalculation = recompute_s2_acceptance(
+        results, queue_config
+    )
     deterministic_inputs: dict[str, bool] = {}
     for profile_id in selected_profiles:
         profile_entries = [item for item in results if item.get("profile_id") == profile_id]
@@ -3087,11 +3752,9 @@ def run_external_s2_experiment(args: argparse.Namespace) -> dict[str, Any]:
             digests = {str(item.get("input_sequence_sha256")) for item in profile_entries}
             deterministic_inputs[profile_id] = len(digests) == 1 and "None" not in digests
     readiness["RG-11-fixed-seed-input-repeatability"] = all(deterministic_inputs.values())
-    all_runtime_passed = bool(results) and all(bool(item.get("passed")) for item in results)
     runtime_passed = (
         closure_eligible
         and len(results) == len(EXPECTED_PROFILE_IDS) * matrix.repetitions
-        and all_runtime_passed
         and all(acceptance.values())
         and all(readiness.values())
         and not failures
@@ -3115,6 +3778,10 @@ def run_external_s2_experiment(args: argparse.Namespace) -> dict[str, Any]:
             "rss_slope_measurement_seconds": matrix.rss_slope_measurement_seconds,
             "drain_timeout_seconds": matrix.drain_timeout_seconds,
         },
+        "queue_contract": {
+            **queue_config.public_dict(),
+            "sha256": queue_config.sha256,
+        },
         "environment": {
             "database_engine": "PostgreSQL 16",
             "api_transport": "external_tcp_http",
@@ -3133,6 +3800,7 @@ def run_external_s2_experiment(args: argparse.Namespace) -> dict[str, Any]:
         "deterministic_input_repeatability": deterministic_inputs,
         "acceptance": acceptance,
         "readiness_gates": readiness,
+        "strict_recalculation": strict_recalculation,
         "failed_attempts_and_rca": failures,
         "runtime_verdict": "passed" if runtime_passed else "failed",
         "scenario_status": (

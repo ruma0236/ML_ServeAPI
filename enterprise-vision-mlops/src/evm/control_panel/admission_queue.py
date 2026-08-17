@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,14 @@ QUEUE_INGRESS_IN_FLIGHT_BYTES = Gauge(
     "evm_task_queue_ingress_in_flight_bytes",
     "Task mutation body bytes currently reserved by one API process.",
 )
+QUEUE_INGRESS_PEAK_REQUESTS = Gauge(
+    "evm_task_queue_ingress_peak_requests",
+    "Peak task mutation requests concurrently buffered since API start.",
+)
+QUEUE_INGRESS_PEAK_BYTES = Gauge(
+    "evm_task_queue_ingress_peak_bytes",
+    "Peak task mutation body bytes concurrently reserved since API start.",
+)
 QUEUE_DURABLE_DEPTH = Gauge(
     "evm_task_queue_durable_depth",
     "Durable task queue item count by bounded state class.",
@@ -67,6 +76,47 @@ QUEUE_LOCAL_BYTES = Gauge(
 QUEUE_IN_FLIGHT = Gauge(
     "evm_task_queue_in_flight",
     "Task queue work currently executing by resource class.",
+    ("resource_class",),
+)
+QUEUE_LOCAL_PEAK_DEPTH = Gauge(
+    "evm_task_queue_local_peak_depth",
+    "Peak process-local bounded queue depth since worker start.",
+)
+QUEUE_LOCAL_PEAK_BYTES = Gauge(
+    "evm_task_queue_local_peak_bytes",
+    "Peak process-local bounded queue bytes since worker start.",
+)
+QUEUE_IN_FLIGHT_BYTES = Gauge(
+    "evm_task_queue_in_flight_bytes",
+    "Canonical payload bytes currently executing by resource class.",
+    ("resource_class",),
+)
+QUEUE_IN_FLIGHT_PEAK = Gauge(
+    "evm_task_queue_in_flight_peak",
+    "Peak concurrently executing task count since worker start.",
+)
+QUEUE_IN_FLIGHT_PEAK_BYTES = Gauge(
+    "evm_task_queue_in_flight_peak_bytes",
+    "Peak concurrently executing canonical payload bytes since worker start.",
+)
+QUEUE_DOWNSTREAM_OUTSTANDING = Gauge(
+    "evm_task_queue_downstream_outstanding",
+    "Leased or externally pending work by resource class.",
+    ("resource_class",),
+)
+QUEUE_DOWNSTREAM_OUTSTANDING_BYTES = Gauge(
+    "evm_task_queue_downstream_outstanding_bytes",
+    "Canonical bytes leased or externally pending by resource class.",
+    ("resource_class",),
+)
+QUEUE_DOWNSTREAM_OUTSTANDING_PEAK = Gauge(
+    "evm_task_queue_downstream_outstanding_peak",
+    "Peak downstream outstanding work by resource class.",
+    ("resource_class",),
+)
+QUEUE_DOWNSTREAM_OUTSTANDING_PEAK_BYTES = Gauge(
+    "evm_task_queue_downstream_outstanding_peak_bytes",
+    "Peak downstream outstanding canonical bytes by resource class.",
     ("resource_class",),
 )
 QUEUE_WORKER_CAPACITY = Gauge(
@@ -97,6 +147,28 @@ QUEUE_LEASE_RENEWALS = Counter(
 QUEUE_ADMISSION_WAIT_SECONDS = Histogram(
     "evm_task_queue_admission_wait_seconds",
     "Time spent in the durable admission transaction.",
+)
+QUEUE_ADMISSION_WAIT_MAX_SECONDS = Gauge(
+    "evm_task_queue_admission_wait_max_seconds",
+    "Maximum durable admission transaction time since API start.",
+)
+QUEUE_QUEUE_WAIT_SECONDS = Histogram(
+    "evm_task_queue_wait_seconds",
+    "Time from durable eligibility to an execution attempt.",
+)
+QUEUE_QUEUE_WAIT_MAX_SECONDS = Gauge(
+    "evm_task_queue_wait_max_seconds",
+    "Maximum durable eligibility-to-execution wait since worker start.",
+)
+QUEUE_RETRY_DELAY_SECONDS = Histogram(
+    "evm_task_queue_retry_delay_seconds",
+    "Computed retry delay after exponential backoff and deterministic jitter.",
+    ("failure_class",),
+)
+QUEUE_RETRY_DELAY_MAX_SECONDS = Gauge(
+    "evm_task_queue_retry_delay_max_seconds",
+    "Maximum computed retry delay by bounded failure class.",
+    ("failure_class",),
 )
 QUEUE_RETRIES = Counter(
     "evm_task_queue_retries_total",
@@ -145,6 +217,17 @@ QUEUE_COMPACTIONS = Counter(
     "Rows removed by bounded task-control history compaction.",
     ("history_class",),
 )
+
+
+_PEAK_GAUGE_LOCK = threading.Lock()
+
+
+def observe_peak_gauge(gauge: Gauge, value: float) -> None:
+    """Set a process-local Prometheus gauge only when a new peak is observed."""
+    with _PEAK_GAUGE_LOCK:
+        current = float(gauge._value.get())
+        if value > current:
+            gauge.set(value)
 
 
 @dataclass(frozen=True)

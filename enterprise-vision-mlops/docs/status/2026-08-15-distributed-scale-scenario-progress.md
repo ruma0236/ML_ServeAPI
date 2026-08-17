@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-16T18:51:40.120338Z`
+- Generated: `2026-08-17T02:00:00.262659Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -198,16 +198,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S2: Bounded Queue & Backpressure
 
-- Status: `verified`
+- Status: `implementing`
 - Engineering question: Does overload stay memory-bounded while accepted work reaches an explicit outcome?
 - Why now: A bounded queue is required before capacity and recovery experiments scale up.
-- Observed gap: Durable admission, byte/age bounds, retry budget, and DLQ are incomplete.
+- Observed gap: The prior S2 closure did not persist every V3 bound and wait signal or independently recompute acceptance from numeric evidence; its 30-profile result is retained as historical baseline only until a fresh strict-evidence rerun passes.
 - Existing-system baseline: The existing task API wrote assignments to the operations ledger and required explicit dispatch, while the separate lifecycle worker exclusively processed LifecycleRun state. Task admission had no shared depth, byte, age, retry-budget, or poison-work boundary and no dedicated task consumer.
 - Architecture before: Admission and retries do not share one end-to-end resource boundary.
 - Architecture after: Durable queue, local semaphore, rejection, retry, DLQ, and CPU scale are bounded.
-- Verdict: `passed`
+- Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Keep S2 as the regression boundary. Do not start S3 in this work unit.
+- Next action: Commit the strict-evidence implementation, run fresh A-J x3 on that clean revision, close S2 only from raw-derived numeric evidence, then re-evaluate the S3 start gate.
 
 ### Affected Existing Components
 
@@ -254,10 +254,10 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S2-AC-01` [passed]: Queue depth, in-flight bytes, and process memory remain bounded under overload.
-- `S2-AC-02` [passed]: Accepted work completes or reaches one explicit terminal failure.
-- `S2-AC-03` [passed]: Duplicate effects are zero and poison work does not block healthy work.
-- `S2-AC-04` [passed]: Over-capacity demand is rejected with an observable retry contract.
+- `S2-AC-01` [pending]: Queue depth, in-flight bytes, and process memory remain bounded under overload.
+- `S2-AC-02` [pending]: Accepted work completes or reaches one explicit terminal failure.
+- `S2-AC-03` [pending]: Duplicate effects are zero and poison work does not block healthy work.
+- `S2-AC-04` [pending]: Rejection, wait, retry, and DLQ behavior are measured from persisted numeric evidence.
 
 ### Current Evidence
 
@@ -274,6 +274,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-16T17:38:16.247374Z` `experiment` / `implementing`: The first complete 30-profile suite preserved all passing profile assertions but failed S2-AC-01 because instantaneous sampling missed three short-lived executor process trees. The failure and cleanup were retained; no acceptance credit was awarded.
 - `2026-08-16T17:55:36.258827Z` `recovery` / `implementing`: After retained executor RSS was added, a transient Windows heartbeat replace lock terminated the D CPU-one worker. The suite stopped before E-J, cleanup passed, and bounded heartbeat replacement retry was added.
 - `2026-08-16T18:51:40.120338Z` `verification` / `verified`: At 31ee37c, the fresh A-J matrix passed 30 of 30 profile repetitions, S2-AC-01 through S2-AC-04, all 11 readiness gates, 42 focused real-PostgreSQL tests, 681 full Python tests, 59 Control Panel tests, and the production frontend build. Canonical public evidence and the two failed-attempt RCAs are hash-linked.
+- `2026-08-17T02:00:00.262659Z` `recovery` / `implementing`: Independent V3 review found that the previous public projection trusted assertion booleans and did not persist every durable/local/in-flight byte, ingress, wait, retry-delay, DLQ, and process-tree RSS signal. S2 was reopened; old 30-profile evidence is baseline-only. Strict numeric recomputation and mutation tests passed focused verification, while the mandatory fresh A-J x3 rerun remains pending.
 
 ## S3: HIGGS Lightweight Capacity Envelope
 

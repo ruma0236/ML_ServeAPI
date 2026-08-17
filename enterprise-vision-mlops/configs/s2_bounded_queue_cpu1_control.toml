@@ -1,5 +1,5 @@
 [profile]
-version = "s2-bounded-queue-v5-cpu1-control-20260817"
+version = "s2-bounded-queue-v6-cpu1-control-strict-evidence-20260817"
 status = "frozen-before-experiment"
 
 [durable_queue]
@@ -44,7 +44,7 @@ backoff_max_seconds = 2.0
 jitter_ratio = 0.20
 global_budget = 32
 budget_window_seconds = 60.0
-budget_scope = "s2-bounded-queue-v5-cpu1-control"
+budget_scope = "s2-bounded-queue-v6-cpu1-strict-evidence"
 
 [resource_limits]
 rss_cap_bytes = 1073741824

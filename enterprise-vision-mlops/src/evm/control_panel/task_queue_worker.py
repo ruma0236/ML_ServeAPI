@@ -21,19 +21,30 @@ from evm.control_panel.admission_queue import (
     QUEUE_CONSUMER_FAILURES,
     QUEUE_CPU_SCALE_EVENTS,
     QUEUE_DLQ,
+    QUEUE_DOWNSTREAM_OUTSTANDING,
+    QUEUE_DOWNSTREAM_OUTSTANDING_BYTES,
+    QUEUE_DOWNSTREAM_OUTSTANDING_PEAK,
+    QUEUE_DOWNSTREAM_OUTSTANDING_PEAK_BYTES,
     QUEUE_DURABLE_BYTES,
     QUEUE_DURABLE_DEPTH,
     QUEUE_EXECUTOR_PROCESS_TREE_RSS_PEAK_BYTES,
     QUEUE_HISTORY_BYTES,
     QUEUE_HISTORY_ROWS,
     QUEUE_IN_FLIGHT,
+    QUEUE_IN_FLIGHT_BYTES,
+    QUEUE_IN_FLIGHT_PEAK,
+    QUEUE_IN_FLIGHT_PEAK_BYTES,
     QUEUE_LEASE_RENEWALS,
     QUEUE_LOCAL_BYTES,
     QUEUE_LOCAL_DEPTH,
+    QUEUE_LOCAL_PEAK_BYTES,
+    QUEUE_LOCAL_PEAK_DEPTH,
     QUEUE_OLDEST_AGE_SECONDS,
     QUEUE_PROCESS_RSS_BYTES,
     QUEUE_PROCESS_RSS_SLOPE_BYTES_PER_MINUTE,
     QUEUE_RETRIES,
+    QUEUE_RETRY_DELAY_MAX_SECONDS,
+    QUEUE_RETRY_DELAY_SECONDS,
     QUEUE_TERMINALS,
     QUEUE_WORK_SECONDS,
     QUEUE_WORKER_CAPACITY,
@@ -42,6 +53,7 @@ from evm.control_panel.admission_queue import (
     admission_queue_mode,
     bounded_queue_metric_reason,
     load_admission_queue_config,
+    observe_peak_gauge,
     task_resource_class,
 )
 from evm.control_panel.operations import (
@@ -150,6 +162,17 @@ class BoundedTaskQueueWorker:
         self.local_bytes = 0
         self.local_count = 0
         self.in_flight = {"cpu": 0, "gpu": 0}
+        self.in_flight_bytes = {"cpu": 0, "gpu": 0}
+        self._bounded_peaks = {
+            "local_depth": 0,
+            "local_bytes": 0,
+            "worker_in_flight": 0,
+            "worker_in_flight_bytes": 0,
+            "cpu_downstream_outstanding": 0,
+            "gpu_downstream_outstanding": 0,
+            "cpu_downstream_outstanding_bytes": 0,
+            "gpu_downstream_outstanding_bytes": 0,
+        }
         self.cpu_target = config.cpu_workers_min
         self.idle_polls = 0
         self._cpu_consumers: list[asyncio.Task[None]] = []
@@ -346,8 +369,26 @@ class BoundedTaskQueueWorker:
                     lease_seconds=self.config.lease_seconds,
                 )
                 self.in_flight[kind] += 1
+                self.in_flight_bytes[kind] += lease.payload_bytes
+                self._bounded_peaks["worker_in_flight"] = max(
+                    self._bounded_peaks["worker_in_flight"],
+                    sum(self.in_flight.values()),
+                )
+                self._bounded_peaks["worker_in_flight_bytes"] = max(
+                    self._bounded_peaks["worker_in_flight_bytes"],
+                    sum(self.in_flight_bytes.values()),
+                )
+                QUEUE_IN_FLIGHT_PEAK.set(
+                    self._bounded_peaks["worker_in_flight"]
+                )
+                QUEUE_IN_FLIGHT_PEAK_BYTES.set(
+                    self._bounded_peaks["worker_in_flight_bytes"]
+                )
                 execution_started = True
                 QUEUE_IN_FLIGHT.labels(resource_class=kind).set(self.in_flight[kind])
+                QUEUE_IN_FLIGHT_BYTES.labels(resource_class=kind).set(
+                    self.in_flight_bytes[kind]
+                )
                 await self._execute_lease(lease)
                 self._last_consumer_error = None
             except ControlPlaneStoreError as exc:
@@ -364,9 +405,15 @@ class BoundedTaskQueueWorker:
                 )
                 if execution_started:
                     self.in_flight[kind] = max(0, self.in_flight[kind] - 1)
+                    self.in_flight_bytes[kind] = max(
+                        0, self.in_flight_bytes[kind] - lease.payload_bytes
+                    )
                 self.local_count -= 1
                 self.local_bytes -= lease.payload_bytes
                 QUEUE_IN_FLIGHT.labels(resource_class=kind).set(self.in_flight[kind])
+                QUEUE_IN_FLIGHT_BYTES.labels(resource_class=kind).set(
+                    self.in_flight_bytes[kind]
+                )
                 self._observe_local()
                 queue.task_done()
 
@@ -620,6 +667,17 @@ class BoundedTaskQueueWorker:
         state = str(result["state"])
         metric_failure = bounded_queue_metric_reason(failure_class)
         QUEUE_RETRIES.labels(outcome=state, failure_class=metric_failure).inc()
+        if state == "retry_wait":
+            retry_delay = float(result.get("delay_seconds", 0))
+            QUEUE_RETRY_DELAY_SECONDS.labels(
+                failure_class=metric_failure
+            ).observe(retry_delay)
+            observe_peak_gauge(
+                QUEUE_RETRY_DELAY_MAX_SECONDS.labels(
+                    failure_class=metric_failure
+                ),
+                retry_delay,
+            )
         if state == "dlq":
             QUEUE_DLQ.labels(reason=metric_failure).inc()
             QUEUE_TERMINALS.labels(state="dlq", reason=metric_failure).inc()
@@ -761,10 +819,56 @@ class BoundedTaskQueueWorker:
             QUEUE_DURABLE_DEPTH.labels(state=state).set(depth)
             QUEUE_DURABLE_BYTES.labels(state=state).set(payload_bytes)
         QUEUE_OLDEST_AGE_SECONDS.set(snapshot.oldest_age_seconds)
+        for resource_class in ("cpu", "gpu"):
+            counts = snapshot.resource_state_counts.get(resource_class, {})
+            payload_bytes = snapshot.resource_state_bytes.get(resource_class, {})
+            states = ("leased", "runtime_pending", "outcome_unknown")
+            outstanding = sum(int(counts.get(state, 0)) for state in states)
+            outstanding_bytes = sum(
+                int(payload_bytes.get(state, 0)) for state in states
+            )
+            self._bounded_peaks[f"{resource_class}_downstream_outstanding"] = max(
+                self._bounded_peaks[f"{resource_class}_downstream_outstanding"],
+                outstanding,
+            )
+            self._bounded_peaks[
+                f"{resource_class}_downstream_outstanding_bytes"
+            ] = max(
+                self._bounded_peaks[
+                    f"{resource_class}_downstream_outstanding_bytes"
+                ],
+                outstanding_bytes,
+            )
+            QUEUE_DOWNSTREAM_OUTSTANDING.labels(
+                resource_class=resource_class
+            ).set(outstanding)
+            QUEUE_DOWNSTREAM_OUTSTANDING_BYTES.labels(
+                resource_class=resource_class
+            ).set(outstanding_bytes)
+            QUEUE_DOWNSTREAM_OUTSTANDING_PEAK.labels(
+                resource_class=resource_class
+            ).set(
+                self._bounded_peaks[f"{resource_class}_downstream_outstanding"]
+            )
+            QUEUE_DOWNSTREAM_OUTSTANDING_PEAK_BYTES.labels(
+                resource_class=resource_class
+            ).set(
+                self._bounded_peaks[
+                    f"{resource_class}_downstream_outstanding_bytes"
+                ]
+            )
 
     def _observe_local(self) -> None:
+        self._bounded_peaks["local_depth"] = max(
+            self._bounded_peaks["local_depth"], self.local_count
+        )
+        self._bounded_peaks["local_bytes"] = max(
+            self._bounded_peaks["local_bytes"], self.local_bytes
+        )
         QUEUE_LOCAL_DEPTH.set(self.local_count)
         QUEUE_LOCAL_BYTES.set(self.local_bytes)
+        QUEUE_LOCAL_PEAK_DEPTH.set(self._bounded_peaks["local_depth"])
+        QUEUE_LOCAL_PEAK_BYTES.set(self._bounded_peaks["local_bytes"])
 
     def _observe_rss_slope(self, rss_bytes: int, *, busy: bool) -> None:
         observed_at = time.monotonic()
@@ -871,6 +975,23 @@ class BoundedTaskQueueWorker:
             },
             "consumer_failures": dict(self._consumer_failures),
             "in_flight": dict(self.in_flight),
+            "in_flight_bytes": dict(self.in_flight_bytes),
+            "downstream_outstanding": {
+                resource_class: snapshot.downstream_outstanding(resource_class)
+                for resource_class in ("cpu", "gpu")
+            },
+            "downstream_outstanding_bytes": {
+                resource_class: sum(
+                    int(
+                        snapshot.resource_state_bytes.get(resource_class, {}).get(
+                            state, 0
+                        )
+                    )
+                    for state in ("leased", "runtime_pending", "outcome_unknown")
+                )
+                for resource_class in ("cpu", "gpu")
+            },
+            "bounded_peaks": dict(self._bounded_peaks),
             "rss_bytes": rss_bytes,
             "executor_process_tree_rss_peak_bytes": (
                 self._executor_process_tree_rss_peak_bytes
