@@ -18,6 +18,7 @@ from evm.scale_validation.s3_runtime import (
     S3LoadPoint,
     S3RuntimeConfig,
     S3RuntimeError,
+    evaluate_point_assertions,
     otlp_trace_summary,
     recalculate_s2_capacity,
     run_load_phase,
@@ -178,6 +179,92 @@ def test_load_summary_uses_fixed_measurement_window() -> None:
     assert summary["successful_count"] == 2
     assert summary["successful_within_window"] == 1
     assert summary["service_rate_per_second"] == pytest.approx(0.1)
+
+
+def test_transport_error_is_accounted_without_forging_server_trace() -> None:
+    payload = {
+        "measurement": {
+            "declared_duration_seconds": 10,
+            "observed_elapsed_seconds": 10,
+            "stopped": False,
+            "observations": [
+                {
+                    "request_index": 0,
+                    "trace_id": "a" * 32,
+                    "status_code": 200,
+                    "transport_error": None,
+                    "completed_offset_seconds": 1,
+                    "latency_ms": 10,
+                    "response_trace_id": "a" * 32,
+                    "trace_identity_matches": True,
+                    "server_timings": {},
+                    "runtime": {},
+                },
+                {
+                    "request_index": 1,
+                    "trace_id": "b" * 32,
+                    "status_code": 0,
+                    "transport_error": "ReadTimeout",
+                    "completed_offset_seconds": 2,
+                    "latency_ms": 1000,
+                    "response_trace_id": None,
+                    "trace_identity_matches": False,
+                    "server_timings": {},
+                    "runtime": {},
+                },
+            ],
+        },
+        "trace": {
+            "expected_sampled_trace_count": 1,
+            "complete_sampled_trace_count": 1,
+        },
+        "cleanup": {
+            "lingering_pid_count": 0,
+            "marker_process_count": 0,
+            "prometheus_container_absent": True,
+        },
+        "resource_samples": [
+            {
+                "api_process_tree_rss_bytes": 1,
+                "load_generator_rss_bytes": 1,
+            }
+        ],
+        "prometheus_targets": {"api": 1},
+        "terminal_gauges": {"in_flight": 0},
+    }
+
+    assertions = evaluate_point_assertions(payload)
+
+    assert assertions["transport_errors_accounted"]
+    assert assertions["client_request_identity_complete"]
+    assert assertions["response_trace_identity_complete"]
+
+
+def test_load_summary_fails_identity_when_request_metadata_is_missing() -> None:
+    phase = {
+        "declared_duration_seconds": 10,
+        "observed_elapsed_seconds": 10,
+        "observations": [
+            {
+                "request_index": 0,
+                "trace_id": None,
+                "status_code": 200,
+                "transport_error": None,
+                "completed_offset_seconds": 1,
+                "latency_ms": 10,
+                "response_trace_id": None,
+                "trace_identity_matches": False,
+                "server_timings": {},
+                "runtime": {},
+            }
+        ],
+    }
+
+    summary = summarize_load_phase(phase)
+
+    assert summary["client_request_identity_count"] == 0
+    assert summary["server_response_count"] == 1
+    assert summary["trace_identity_match_count"] == 0
 
 
 def test_open_arrival_records_each_task_once_and_bounds_pending(

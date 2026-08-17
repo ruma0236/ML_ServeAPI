@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T07:35:13Z",
+  "generated_at": "2026-08-17T08:29:41Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1568,7 +1568,8 @@
         "The actual capacity subroute now uses process-local count and canonical-byte admission, a fixed CPU worker pool, bounded wait/timeout, 413 item rejection, 429 Retry-After overload rejection, queue and in-flight telemetry, cross-thread trace propagation, and lifespan cleanup.",
         "At clean revision 69876df, an external 100-request pressure smoke returned 32 successful and 68 bounded overload responses, propagated 100 trace IDs, and drained all six queue and byte gauges to zero.",
         "Preparation and API smoke are implementation evidence only; no S3 capacity sweep or acceptance result exists yet.",
-        "At clean revision 6f43d87, the external S3 runner started the existing FastAPI Workloads API, an isolated Prometheus target, the running OTLP collector, a bounded CPU executor, and a co-located measured load generator. A 15-second closed-concurrency pilot completed 3,371 requests at 224.67 requests/second with zero errors, p99 12.50 ms, 34/34 complete sampled six-span traces, nonzero API/load-generator resource telemetry, terminal drain, and exact cleanup."
+        "At clean revision 6f43d87, the external S3 runner started the existing FastAPI Workloads API, an isolated Prometheus target, the running OTLP collector, a bounded CPU executor, and a co-located measured load generator. A 15-second closed-concurrency pilot completed 3,371 requests at 224.67 requests/second with zero errors, p99 12.50 ms, 34/34 complete sampled six-span traces, nonzero API/load-generator resource telemetry, terminal drain, and exact cleanup.",
+        "The first frozen-matrix attempt stopped fail closed after 30 point repetitions because one transport error among 2,984 observations was treated as evidence corruption instead of a measured 0.034% error. The failed aggregate and private-evidence hash are retained. The assertion contract now requires deterministic client identity for every attempt and exact W3C response identity for every server response while preserving transport errors in the guardrail curve. A three-repetition RCA pilot at the same point passed all evidence assertions; this does not count as S3 acceptance."
       ],
       "experiment_environment": "Implementation smoke and one non-acceptance orchestration pilot used the actual local FastAPI application, governed HIGGS artifacts, isolated Prometheus, and the running OTLP collector on one physical node. The full three-repetition capacity matrix has not run.",
       "test_or_experiment_steps": [
@@ -1621,6 +1622,12 @@
           "sha256": "af7a4b0b9991a6648f4456b45b337f645ce1a7705724663e2f79378ae27d3884",
           "generated_at": "2026-08-17T07:35:13Z",
           "claim": "The actual external S3 orchestration path, bounded executor telemetry, sampled cross-thread trace chain, resource sampling, and cleanup passed one low-load implementation pilot; all S3 capacity acceptance criteria remain pending."
+        },
+        {
+          "path": "docs/status/evidence/s3-capacity-experiment-attempt-01.json",
+          "sha256": "ea6a2ec373c88ae5412363f8fc65a125df0a7163c6c6982982f9937311c6a82c",
+          "generated_at": "2026-08-17T08:29:41Z",
+          "claim": "The first full matrix attempt retained 30 point repetitions and stopped fail closed on an overly strict transport-error assertion; the RCA pilot separated measured errors from evidence identity without granting acceptance credit."
         }
       ],
       "status": "implementing",
@@ -1761,6 +1768,12 @@
           "sha256": "af7a4b0b9991a6648f4456b45b337f645ce1a7705724663e2f79378ae27d3884",
           "generated_at": "2026-08-17T07:35:13Z",
           "claim": "The actual external S3 orchestration path, bounded executor telemetry, sampled cross-thread trace chain, resource sampling, and cleanup passed one low-load implementation pilot; all S3 capacity acceptance criteria remain pending."
+        },
+        {
+          "path": "docs/status/evidence/s3-capacity-experiment-attempt-01.json",
+          "sha256": "ea6a2ec373c88ae5412363f8fc65a125df0a7163c6c6982982f9937311c6a82c",
+          "generated_at": "2026-08-17T08:29:41Z",
+          "claim": "The first full matrix attempt retained 30 point repetitions and stopped fail closed on an overly strict transport-error assertion; the RCA pilot separated measured errors from evidence identity without granting acceptance credit."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -1815,6 +1828,15 @@
           "summary": "At 6f43d87, the external capacity runner and frozen runtime contract passed 30 focused tests. A clean-revision low-load pilot completed 3,371 requests with zero errors, p99 12.50 ms, 34/34 complete sampled trace chains, nonzero API and load-generator resource telemetry, terminal drain, and exact cleanup. The initial zero-CPU telemetry defect was retained as RCA and corrected with cumulative CPU-time deltas. This is not capacity acceptance.",
           "evidence_refs": [
             "docs/status/evidence/s3-capacity-runner-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-17T08:29:41Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "The first full frozen-matrix attempt stopped after 30 point repetitions when one transport error in 2,984 observations failed an absolute-zero assertion. The failed aggregate and private hash were retained. The runner now keeps transport failures in the error-rate curve, requires client identity for every attempt and response trace identity for every server response, and a three-repetition same-point RCA pilot passed all evidence assertions. Full acceptance remains pending and must restart from a clean revision.",
+          "evidence_refs": [
+            "docs/status/evidence/s3-capacity-experiment-attempt-01.json"
           ]
         }
       ]

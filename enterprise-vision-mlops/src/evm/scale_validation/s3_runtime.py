@@ -1179,8 +1179,20 @@ def summarize_load_phase(phase: Mapping[str, Any]) -> dict[str, Any]:
         )
         for item in successful
     )
-    response_trace_count = sum(bool(item.get("response_trace_id")) for item in observations)
-    trace_matches = sum(bool(item.get("trace_identity_matches")) for item in observations)
+    server_responses = [
+        item for item in observations if int(item.get("status_code", 0)) > 0
+    ]
+    response_trace_count = sum(
+        bool(item.get("response_trace_id")) for item in server_responses
+    )
+    trace_matches = sum(
+        bool(item.get("trace_identity_matches")) for item in server_responses
+    )
+    client_request_identity_count = sum(
+        isinstance(item.get("request_index"), int)
+        and bool(item.get("trace_id"))
+        for item in observations
+    )
     return {
         "declared_duration_seconds": duration,
         "observed_elapsed_seconds": float(phase["observed_elapsed_seconds"]),
@@ -1218,6 +1230,8 @@ def summarize_load_phase(phase: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "response_trace_id_count": response_trace_count,
         "trace_identity_match_count": trace_matches,
+        "server_response_count": len(server_responses),
+        "client_request_identity_count": client_request_identity_count,
         "replica_request_counts": dict(replica_counts),
         "worker_request_counts": {
             f"{replica}/slot-{slot}": count
@@ -1793,10 +1807,17 @@ def evaluate_point_assertions(payload: Mapping[str, Any]) -> dict[str, bool]:
     return {
         "runtime_completed": not bool(measurement.get("stopped")),
         "requests_observed": int(load.get("request_count", 0)) > 0,
-        "transport_errors_zero": int(load.get("transport_error_count", 0)) == 0,
+        "transport_errors_accounted": (
+            int(load.get("transport_error_count", -1))
+            == int(dict(load.get("status_counts", {})).get("0", 0))
+        ),
+        "client_request_identity_complete": (
+            int(load.get("client_request_identity_count", -1))
+            == int(load.get("request_count", 0))
+        ),
         "response_trace_identity_complete": (
             int(load.get("trace_identity_match_count", -1))
-            == int(load.get("request_count", 0))
+            == int(load.get("server_response_count", 0))
         ),
         "sampled_trace_nonzero": expected_traces > 0,
         "sampled_trace_chain_complete": (
