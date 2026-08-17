@@ -2344,6 +2344,14 @@ def aggregate_point_repetitions(
         float(item["load"]["server_timings_ms"]["prediction_ms"]["p99"])
         for item in results
     ]
+    server_total = [
+        float(item["load"]["server_timings_ms"]["total_ms"]["p99"])
+        for item in results
+    ]
+    client_minus_server = [
+        max(0.0, client_p99 - server_p99)
+        for client_p99, server_p99 in zip(p99, server_total, strict=True)
+    ]
     guardrails = [
         bool(dict(item.get("guardrails", {})).get("within_guardrails"))
         for item in results
@@ -2368,6 +2376,8 @@ def aggregate_point_repetitions(
             },
             "queue_wait_p99_ms": _statistics(queue_wait),
             "prediction_p99_ms": _statistics(prediction),
+            "server_total_p99_ms": _statistics(server_total),
+            "client_minus_server_p99_ms": _statistics(client_minus_server),
         },
         "resource_summary": resources,
         "trace_complete": all(
@@ -2396,10 +2406,25 @@ def identify_first_bottleneck(
             error = float(load["error_rate"]["mean"])
             p99 = float(load["latency_ms"]["p99"]["mean"])
             host_cpu = float(resources["host_cpu_percent"]["mean"])
+            api_cpu = float(resources["api_process_tree_cpu_percent"]["mean"])
+            load_generator_cpu = float(
+                resources["load_generator_cpu_percent"]["mean"]
+            )
             queue_wait = float(load["queue_wait_p99_ms"]["mean"])
             prediction = float(load["prediction_p99_ms"]["mean"])
+            server_total = float(load["server_total_p99_ms"]["mean"])
+            client_minus_server = float(
+                load["client_minus_server_p99_ms"]["mean"]
+            )
             if error > config.maximum_error_rate:
                 cause = "api_admission_or_capacity_rejection"
+            elif (
+                p99 > config.maximum_p99_ms
+                and client_minus_server > max(server_total, 50.0)
+                and load_generator_cpu >= 90.0
+                and queue_wait > max(prediction * 2, 1.0)
+            ):
+                cause = "co_located_client_http_and_process_local_worker_queue"
             elif queue_wait > max(prediction * 2, 1.0):
                 cause = "process_local_worker_queue"
             elif host_cpu > config.maximum_host_cpu_percent:
@@ -2418,8 +2443,12 @@ def identify_first_bottleneck(
                         "error_rate": error,
                         "p99_ms": p99,
                         "host_cpu_percent": host_cpu,
+                        "api_process_tree_cpu_percent": api_cpu,
+                        "load_generator_cpu_percent": load_generator_cpu,
                         "queue_wait_p99_ms": queue_wait,
                         "prediction_p99_ms": prediction,
+                        "server_total_p99_ms": server_total,
+                        "client_minus_server_p99_ms": client_minus_server,
                     },
                 }
             )
@@ -2435,8 +2464,14 @@ def identify_first_bottleneck(
         "curve_boundaries": candidates,
         "topology_point_count": len(topology),
         "method": (
-            "first frozen guardrail crossing, attributed with queue-wait, "
-            "prediction, host CPU, error, W3C span, and topology telemetry"
+            "first frozen guardrail crossing, attributed with client-versus-"
+            "server latency, queue-wait, prediction, API/load-generator CPU, "
+            "error, W3C span, and topology telemetry"
+        ),
+        "attribution_boundary": (
+            "The load generator and API share one physical host, so client "
+            "HTTP scheduling and host contention cannot be isolated as a "
+            "remote-generator network result."
         ),
     }
 

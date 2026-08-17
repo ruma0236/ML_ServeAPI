@@ -19,6 +19,7 @@ from evm.scale_validation.s3_runtime import (
     S3RuntimeConfig,
     S3RuntimeError,
     evaluate_point_assertions,
+    identify_first_bottleneck,
     otlp_trace_summary,
     recalculate_s2_capacity,
     run_load_phase,
@@ -465,6 +466,48 @@ def test_capacity_recalculation_is_conservative_without_auto_increase(
     assert result["calculated_depth"] == 140
     assert result["selected_depth"] == config.prior_depth == 64
     assert result["rollback_depth"] == 64
+
+
+def test_bottleneck_attribution_preserves_colocated_client_boundary(
+    tmp_path: Path,
+) -> None:
+    config, _ = _runtime_fixture(tmp_path)
+    point = {
+        "point": {
+            "probe_family": "logistic",
+            "mode": "closed",
+            "load": 16.0,
+            "api_replicas": 1,
+            "cpu_workers": 1,
+            "matrix_scope": "baseline",
+        },
+        "within_guardrails": False,
+        "load_summary": {
+            "error_rate": {"mean": 0.0},
+            "latency_ms": {"p99": {"mean": 500.0}},
+            "queue_wait_p99_ms": {"mean": 60.0},
+            "prediction_p99_ms": {"mean": 0.2},
+            "server_total_p99_ms": {"mean": 70.0},
+            "client_minus_server_p99_ms": {"mean": 430.0},
+        },
+        "resource_summary": {
+            "host_cpu_percent": {"mean": 45.0},
+            "api_process_tree_cpu_percent": {"mean": 140.0},
+            "load_generator_cpu_percent": {"mean": 100.0},
+        },
+    }
+
+    result = identify_first_bottleneck(
+        {"logistic:closed": [point]},
+        [point],
+        config,
+    )
+
+    assert result["identified"]
+    assert result["first_observed"]["cause"] == (
+        "co_located_client_http_and_process_local_worker_queue"
+    )
+    assert "one physical host" in result["attribution_boundary"]
 
 
 def test_s3_runner_help_bootstraps_without_pythonpath() -> None:
