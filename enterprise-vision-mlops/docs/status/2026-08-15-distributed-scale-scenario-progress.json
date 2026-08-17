@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T03:50:33.637758Z",
+  "generated_at": "2026-08-17T04:01:46.723977Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1147,7 +1147,8 @@
         "The operational-safety checkpoint adds bounded pre-FastAPI ingress, approval-state bounds, idempotency tombstones, deadline and effect fencing, fair runtime polling, evidence-backed outcome_unknown handling, cutover and rollback parity, exact parent-bound executor cleanup, portable process-tree RSS, and globally bounded downstream GPU work.",
         "At implementation revision 31ee37c, the frozen A-J external matrix completed 30 of 30 profile repetitions with all four acceptance criteria and all 11 readiness gates passed. Forty-two focused real-PostgreSQL tests, 681 full Python tests, 59 Control Panel tests, and the production frontend build also passed.",
         "The strict-evidence checkpoint reopens S2 before S3: API ingress peaks, durable/local/in-flight byte bounds, downstream outstanding work, admission/queue/load-generator waits, retry delay, DLQ, and API/worker/executor process-tree RSS are now projected numerically. A fail-closed validator recomputes every AC and readiness gate while ignoring stored passed booleans.",
-        "The first clean strict run exposed a real CPU downstream-cap bypass and a worker-restart queue-wait evidence gap. A rejected deterministic submission is now reset to reserved only after absence is proven; ambiguous effects move directly to outcome_unknown, and pre-restart queue-wait histograms are retained for final evidence."
+        "The first clean strict run exposed a real CPU downstream-cap bypass and a worker-restart queue-wait evidence gap. A rejected deterministic submission is now reset to reserved only after absence is proven; ambiguous effects move directly to outcome_unknown, and pre-restart queue-wait histograms are retained for final evidence.",
+        "The external E/G/H preflight confirmed queue-wait count 520 for every E repetition, CPU downstream peaks at or below 8, and 20 transient G items in DLQ. Its first G run exposed a projection-only reason-precedence bug; retry-budget and attempts-exhausted terminal reasons now take precedence over their generic last failure class."
       ],
       "experiment_environment": "The previous matrix remains historical baseline evidence. The strict-evidence rerun will use a fresh isolated PostgreSQL 16 schema per runtime, external Uvicorn TCP/HTTP, the real dedicated queue-worker process, a deterministic Airflow-compatible HTTP dependency, Prometheus file_sd, per-task W3C OTLP chains, and the trusted local CUDA producer. No customer traffic or production endpoint is used.",
       "test_or_experiment_steps": [
@@ -1466,6 +1467,13 @@
           "phase": "recovery",
           "status": "implementing",
           "summary": "Known-rejected deterministic submissions now reset their fenced effect to reserved only after a follow-up GET proves absence; ambiguous submissions become outcome_unknown immediately and continue to consume the downstream bound. Profile E carries its pre-restart queue-wait histogram into final evidence. Sixty-five focused real-PostgreSQL tests, 688 full Python tests, 59 Control Panel tests, lint, and the production frontend build passed. A clean external preflight and full A-J x3 rerun remain required.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-17T04:01:46.723977Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "The clean 277d578 E/G/H preflight confirmed that all three E runs retained 520 queue-wait observations and downstream peaks stayed within the frozen limit, while the first G run closed 20 transient tasks in DLQ with a CPU downstream peak of 4. The preflight stopped because the evidence helper preferred the generic last failure class over the retry-budget terminal reason. Reason precedence and its regression were corrected; no acceptance credit was awarded and a fresh clean preflight remains required.",
           "evidence_refs": []
         }
       ]

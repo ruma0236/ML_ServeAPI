@@ -330,12 +330,17 @@ def test_terminal_failure_reasons_preserves_retry_budget_rca_after_reconciliatio
                 "last_failure_class": None,
                 "terminal_reason": "permanent:invalid_payload",
             },
+            {
+                "task_id": "task-c",
+                "last_failure_class": "airflow_api_rejected",
+                "terminal_reason": "retry_budget_exhausted:airflow_api_rejected",
+            },
         ],
-        {"task-a", "task-b"},
+        {"task-a", "task-b", "task-c"},
     )
 
     assert reasons == {
-        "retry_budget_exhausted:airflow_api_rejected": 1,
+        "retry_budget_exhausted:airflow_api_rejected": 2,
         "permanent:invalid_payload": 1,
     }
 

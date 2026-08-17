@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T03:50:33.637758Z`
+- Generated: `2026-08-17T04:01:46.723977Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -278,6 +278,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-17T02:55:16.782956Z` `recovery` / `implementing`: The first strict-evidence rerun was rejected before acceptance because the Python editable installation resolved s2_runtime.py from a different worktree, so it executed the historical v6/v5 contract rather than the checked-out v7/v6 revision. The generated public file was restored, the private failed-attempt RCA and cleanup proof were retained, and the entrypoint now pins and verifies the repository-local runtime module with hostile-PYTHONPATH and root-mismatch regressions. A fresh A-J x3 rerun is still required.
 - `2026-08-17T03:39:06.132903Z` `experiment` / `implementing`: The clean d41ab21 strict A-J x3 run completed all 30 profile repetitions but failed closed: S2-AC-01 and S2-AC-04 were false. Profile G reached 20 CPU downstream outstanding against the frozen limit of 8, and profile E lost its pre-restart queue-wait histogram from the final projection. Identity closure, exactly-once effects, traces, GPU activity, worker recovery, and cleanup passed, but no S2 acceptance credit was awarded; private raw evidence and RCA were retained.
 - `2026-08-17T03:50:33.637758Z` `recovery` / `implementing`: Known-rejected deterministic submissions now reset their fenced effect to reserved only after a follow-up GET proves absence; ambiguous submissions become outcome_unknown immediately and continue to consume the downstream bound. Profile E carries its pre-restart queue-wait histogram into final evidence. Sixty-five focused real-PostgreSQL tests, 688 full Python tests, 59 Control Panel tests, lint, and the production frontend build passed. A clean external preflight and full A-J x3 rerun remain required.
+- `2026-08-17T04:01:46.723977Z` `recovery` / `implementing`: The clean 277d578 E/G/H preflight confirmed that all three E runs retained 520 queue-wait observations and downstream peaks stayed within the frozen limit, while the first G run closed 20 transient tasks in DLQ with a CPU downstream peak of 4. The preflight stopped because the evidence helper preferred the generic last failure class over the retry-budget terminal reason. Reason precedence and its regression were corrected; no acceptance credit was awarded and a fresh clean preflight remains required.
 
 ## S3: HIGGS Lightweight Capacity Envelope
 

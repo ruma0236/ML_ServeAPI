@@ -1072,8 +1072,23 @@ def terminal_failure_reasons(
     queue_rows: Sequence[Mapping[str, Any]],
     task_ids: set[str],
 ) -> Counter[str]:
+    def reason(row: Mapping[str, Any]) -> str:
+        candidates = [
+            str(value)
+            for value in (
+                row.get("terminal_reason"),
+                row.get("last_failure_class"),
+            )
+            if value
+        ]
+        for marker in ("retry_budget_exhausted", "attempts_exhausted"):
+            for candidate in candidates:
+                if marker in candidate:
+                    return candidate
+        return candidates[0] if candidates else "unknown"
+
     return Counter(
-        str(row.get("last_failure_class") or row.get("terminal_reason"))
+        reason(row)
         for row in queue_rows
         if row.get("task_id") in task_ids
     )
