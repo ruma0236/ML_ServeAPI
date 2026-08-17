@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T05:19:47.579355Z",
+  "generated_at": "2026-08-17T05:33:02.210477Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1495,6 +1495,13 @@
           "phase": "recovery",
           "status": "implementing",
           "summary": "The clean 48b5742 rerun passed A through H for 24 profile repetitions and then stopped fail-closed at I repetition one. Worker replacement, epoch-two recovery, slow and healthy exactly-once effects, explicit timeout failure without an effect, PostgreSQL/JSON parity, Prometheus targets, and cleanup all succeeded. The evidence runner incorrectly classified the timeout closure as a success-effect and full-success-trace obligation. Private RCA was retained; the runner now separates success and timeout-failure effect/trace contracts. An independent I x3 preflight and a fresh complete A-J x3 run remain required, so no S2 acceptance credit is awarded.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-17T05:33:02.210477Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "At clean revision 3b32136, the isolated I preflight passed all three repetitions. Each run replaced the exact worker process with no orphan child, recovered the slow task at lease epoch two, closed two effect-eligible tasks exactly once, closed one timeout task as an explicit failure with no effect, completed all three required trace contracts, preserved PostgreSQL/JSON parity, and cleaned its schema and processes. The private evidence aggregate is c844843160bb9e93b1785869312a0440251630fa56511a8661e825ecf7d3beea. This partial run receives no S2 acceptance credit; a fresh complete A-J x3 run remains required.",
           "evidence_refs": []
         }
       ]

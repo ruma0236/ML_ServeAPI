@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T05:19:47.579355Z`
+- Generated: `2026-08-17T05:33:02.210477Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -282,6 +282,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-17T04:14:09.495721Z` `experiment` / `implementing`: At clean revision 1e49f81, the independent E/G/H preflight passed all nine profile repetitions. Every E run retained 520 queue-wait observations and exactly-once identity closure, every G run measured bounded retry delay and retry-budget DLQ closure with CPU downstream outstanding at four of eight, every H run isolated poison work while healthy work completed, and every isolated schema/process cleanup passed. This partial matrix receives no S2 acceptance credit; the full clean A-J x3 matrix remains required.
 - `2026-08-17T04:41:22.389871Z` `recovery` / `implementing`: The clean 9db0f56 A-J rerun stopped fail-closed after F repetition three: the PostgreSQL-clock-minus-one-second expiry fixture was still future-dated relative to the worker clock, so the intended expired item completed and emitted an external effect. Eighteen completed repetitions and cleanup were retained outside Git with RCA. The injection now selects the earlier PostgreSQL/worker clock minus a fixed ten-second margin and records both clocks, delta, deadline, and margin; 46 focused and real-PostgreSQL tests passed. A clean F x3 preflight and full A-J x3 rerun remain required.
 - `2026-08-17T05:19:47.579355Z` `recovery` / `implementing`: The clean 48b5742 rerun passed A through H for 24 profile repetitions and then stopped fail-closed at I repetition one. Worker replacement, epoch-two recovery, slow and healthy exactly-once effects, explicit timeout failure without an effect, PostgreSQL/JSON parity, Prometheus targets, and cleanup all succeeded. The evidence runner incorrectly classified the timeout closure as a success-effect and full-success-trace obligation. Private RCA was retained; the runner now separates success and timeout-failure effect/trace contracts. An independent I x3 preflight and a fresh complete A-J x3 run remain required, so no S2 acceptance credit is awarded.
+- `2026-08-17T05:33:02.210477Z` `experiment` / `implementing`: At clean revision 3b32136, the isolated I preflight passed all three repetitions. Each run replaced the exact worker process with no orphan child, recovered the slow task at lease epoch two, closed two effect-eligible tasks exactly once, closed one timeout task as an explicit failure with no effect, completed all three required trace contracts, preserved PostgreSQL/JSON parity, and cleaned its schema and processes. The private evidence aggregate is c844843160bb9e93b1785869312a0440251630fa56511a8661e825ecf7d3beea. This partial run receives no S2 acceptance credit; a fresh complete A-J x3 run remains required.
 
 ## S3: HIGGS Lightweight Capacity Envelope
 
