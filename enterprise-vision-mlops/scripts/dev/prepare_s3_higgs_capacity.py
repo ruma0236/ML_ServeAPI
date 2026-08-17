@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from evm.scale_validation.s3_higgs import (
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from evm.scale_validation.s3_higgs import (  # noqa: E402
     load_higgs_preparation_config,
     prepare_higgs_capacity,
 )

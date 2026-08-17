@@ -1,0 +1,75 @@
+{
+  "schema_version": "evm.scale_validation.s3_preparation_checkpoint.v1",
+  "generated_at": "2026-08-17T06:51:57Z",
+  "scenario_id": "S3",
+  "status": "implementing",
+  "source_revision": "bf76c4461c0a85ef37f0aa2bbef2ab458a6d792b",
+  "checkpoint": "governed_higgs_preparation_and_external_api_smoke",
+  "dataset": {
+    "source": "UCI Machine Learning Repository HIGGS",
+    "source_uri": "https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz",
+    "source_doi": "10.24432/C5V312",
+    "license": "CC BY 4.0",
+    "source_sha256": "ea302c18164d4e3d916a1e2e83a9a8d07069fa6ebc7771e4c0540d54e593b698",
+    "source_bytes": 2816407858,
+    "source_rows": 11000000,
+    "feature_count": 28,
+    "dataset_identity_sha256": "eecb0f824e149c8e9062f216d834e8ccc519ea774c0f79392f23bb11f3f7550d",
+    "split_manifest_sha256": "7058c9fd81e06465e64d8be98cfad065aefccea2063c0404775fcaf0d7c19e00",
+    "sample_counts": {
+      "train": 250000,
+      "validation": 50000,
+      "test": 50000,
+      "replay": 200000
+    },
+    "seed": 20260817
+  },
+  "model_artifacts": {
+    "logistic": "b4bbd5b76612b18b945b4441682688b759614d12748089e368d5c12b1614e18b",
+    "probabilistic": "515db1565b4dcbbb7573a37349fa512318683ed3b8be93f588befffe9cca03ab5",
+    "online-linear": "2fe07d4bfaf444cdfc9f69c040a3930af6d75225fd72f11bf16a0822363f39c5",
+    "branch-heavy": "9d69be5037afa13a6a7ad2c700e4adcf50941b036678175673320ddc42fb8bec",
+    "incremental": "2dcc427fcc7a66b289e377bf6183ca2f39665167025e02fa2b4ec97e562c3cd9"
+  },
+  "validation": {
+    "split_file_hashes_matched": 12,
+    "model_artifact_hashes_matched": 5,
+    "temporary_build_directories_remaining": 0,
+    "runtime_probe_families_loaded": 5,
+    "external_tcp_catalog_status": 200,
+    "external_tcp_prediction_statuses": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "existing_vlm_llm_preset_contract_status": 200,
+    "prometheus_metric_families_observed": 4,
+    "runtime_process_cleanup": "passed"
+  },
+  "failed_attempts_and_rca": [
+    {
+      "failure": "A manually transcribed source digest did not match the downloaded archive.",
+      "resolution": "The archive was rehashed directly and preparation remained fail-closed before output creation."
+    },
+    {
+      "failure": "A PowerShell interpolation error prevented command construction.",
+      "resolution": "The invocation was corrected without changing data or artifacts."
+    },
+    {
+      "failure": "The direct preparation script required an external PYTHONPATH value.",
+      "resolution": "The script now bootstraps the repository src directory and has a subprocess regression test."
+    }
+  ],
+  "warnings": [
+    "The bounded online-linear probe reached its frozen maximum iteration count; finite held-out metrics were retained because this is a capacity probe rather than a model-quality release claim."
+  ],
+  "acceptance": {
+    "S3-AC-01": "pending",
+    "S3-AC-02": "pending",
+    "S3-AC-03": "pending",
+    "S3-AC-04": "pending"
+  },
+  "claim_boundary": "This checkpoint proves governed full-source integrity, deterministic bounded split preparation, five lightweight CPU model artifacts, and external API smoke on one local physical node. It does not prove S3 capacity, saturation, production traffic, SLA, HA, or multi-node behavior."
+}

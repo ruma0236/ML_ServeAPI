@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import gzip
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -119,3 +122,31 @@ def test_preparation_fails_before_output_on_source_digest_mismatch(
 
     assert not config.output_root.exists()
     assert not config.registry_path.exists()
+
+
+def test_preparation_cli_bootstraps_repository_source_without_pythonpath(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key.upper() != "PYTHONPATH"
+    }
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "dev" / "prepare_s3_higgs_capacity.py"),
+            "--help",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Prepare governed HIGGS samples" in result.stdout

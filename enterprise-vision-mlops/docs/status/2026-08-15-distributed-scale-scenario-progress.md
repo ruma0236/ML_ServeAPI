@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T06:44:10.199901Z`
+- Generated: `2026-08-17T06:53:33.066608Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -295,7 +295,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: A measured CPU/API capacity envelope supplies operational and queue limits.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Audit the existing workload/API/metrics boundaries, add a backward-compatible tabular CPU capacity contract, and keep all acceptance criteria pending until fresh external sweeps and hash closure pass.
+- Next action: Add the bounded queue-wait and worker execution boundary plus the external closed/open load runner, then keep all acceptance criteria pending until fresh three-repeat sweeps and hash closure pass.
 
 ### Affected Existing Components
 
@@ -342,13 +342,14 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Current Evidence
 
-- No accepted execution evidence yet.
+- `docs/status/evidence/s3-higgs-preparation-checkpoint.json` (`f565ac51948b108c9dc1975536f9e795efa70bf7cfc2d85a4343040a19df2e87`): Governed full-source preparation, artifact integrity, and external API implementation smoke passed; all S3 capacity acceptance criteria remain pending.
 
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
 - `2026-08-17T06:22:20.608833Z` `implementation` / `implementing`: The strict S0-S2 Git-blob evidence gate passed at synchronized revision f7beb6e. S3 entered in-place implementation with verdict not_run, all four acceptance criteria pending, three independent repetitions retained as a global procedure, and S3-AC-04 restored to measured-service-rate S2 queue-capacity recalculation.
 - `2026-08-17T06:44:10.199901Z` `implementation` / `implementing`: The governed HIGGS preparation path and frozen experiment TOML were implemented and covered by synthetic streaming/runtime tests. The official source was downloaded outside Git and observed at 2,816,407,858 bytes with SHA-256 ea302c18164d4e3d916a1e2e83a9a8d07069fa6ebc7771e4c0540d54e593b698; full preparation has not run yet.
+- `2026-08-17T06:53:33.066608Z` `implementation` / `implementing`: The governed full-source preparation completed at bf76c44, all 12 split and five model hashes matched, five external TCP predictions and the existing VLM/LLM preset contract returned 200, four bounded S3 metric families were observed, and runtime cleanup passed. This remains an implementation checkpoint with all S3 acceptance criteria pending.
 
 ## S4: HIGGS Tiny MLP GPU Batching
 
