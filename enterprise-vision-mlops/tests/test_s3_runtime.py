@@ -24,6 +24,7 @@ from evm.scale_validation.s3_runtime import (
     run_load_phase,
     summarize_load_phase,
     verify_runtime_identity,
+    wait_for_otlp_trace_summary,
 )
 
 
@@ -265,6 +266,43 @@ def test_load_summary_fails_identity_when_request_metadata_is_missing() -> None:
     assert summary["client_request_identity_count"] == 0
     assert summary["server_response_count"] == 1
     assert summary["trace_identity_match_count"] == 0
+
+
+def test_trace_flush_polls_until_expected_chain_is_complete(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    observed = iter(
+        [
+            {
+                "missing_sampled_trace_count": 1,
+                "complete_sampled_trace_count": 0,
+            },
+            {
+                "missing_sampled_trace_count": 0,
+                "complete_sampled_trace_count": 1,
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        "evm.scale_validation.s3_runtime.otlp_trace_summary",
+        lambda *args, **kwargs: next(observed),
+    )
+    monkeypatch.setattr(
+        "evm.scale_validation.s3_runtime.time.sleep",
+        lambda seconds: None,
+    )
+
+    summary = wait_for_otlp_trace_summary(
+        tmp_path / "traces.jsonl",
+        offset=0,
+        expected_trace_ids=["a" * 32],
+        timeout_seconds=1,
+        poll_interval_seconds=0.01,
+    )
+
+    assert summary["flush_completed"]
+    assert summary["flush_poll_count"] == 2
 
 
 def test_open_arrival_records_each_task_once_and_bounds_pending(

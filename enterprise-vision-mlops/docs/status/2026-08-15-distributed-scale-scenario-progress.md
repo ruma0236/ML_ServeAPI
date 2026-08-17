@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T08:29:41Z`
+- Generated: `2026-08-17T08:51:24Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -348,6 +348,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s3-bounded-executor-checkpoint.json` (`7067b26fa4c4b62c48fb0b04c6f01a5f53797f31f1d66dc44715e3dc04e46ff6`): Bounded count/byte admission, CPU worker execution, overload response, trace propagation, and terminal drain passed through the actual external API; capacity acceptance remains pending.
 - `docs/status/evidence/s3-capacity-runner-checkpoint.json` (`af7a4b0b9991a6648f4456b45b337f645ce1a7705724663e2f79378ae27d3884`): The actual external S3 orchestration path, bounded executor telemetry, sampled cross-thread trace chain, resource sampling, and cleanup passed one low-load implementation pilot; all S3 capacity acceptance criteria remain pending.
 - `docs/status/evidence/s3-capacity-experiment-attempt-01.json` (`ea6a2ec373c88ae5412363f8fc65a125df0a7163c6c6982982f9937311c6a82c`): The first full matrix attempt retained 30 point repetitions and stopped fail closed on an overly strict transport-error assertion; the RCA pilot separated measured errors from evidence identity without granting acceptance credit.
+- `docs/status/evidence/s3-capacity-experiment-attempt-02.json` (`2fd4396c464888c009688edf4407289780aaa0724627173deb310387e0ce406d`): The second full matrix attempt retained 21 point repetitions and stopped on an incomplete OTLP exporter tail; bounded polling closed 52/52 sampled traces in a three-repetition RCA pilot without granting acceptance credit.
 
 ### Chronological Updates
 
@@ -358,6 +359,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-17T07:05:29.142118Z` `implementation` / `implementing`: At clean revision 69876df, the actual external API enforced process-local count and byte admission with a fixed CPU worker pool: 100 concurrent requests produced 32 successes and 68 bounded 429 responses with valid Retry-After, all 100 trace IDs propagated, and queue, bytes, in-flight, and outstanding gauges drained to zero. This is implementation smoke only; all S3 ACs remain pending.
 - `2026-08-17T07:35:13Z` `implementation` / `implementing`: At 6f43d87, the external capacity runner and frozen runtime contract passed 30 focused tests. A clean-revision low-load pilot completed 3,371 requests with zero errors, p99 12.50 ms, 34/34 complete sampled trace chains, nonzero API and load-generator resource telemetry, terminal drain, and exact cleanup. The initial zero-CPU telemetry defect was retained as RCA and corrected with cumulative CPU-time deltas. This is not capacity acceptance.
 - `2026-08-17T08:29:41Z` `experiment` / `implementing`: The first full frozen-matrix attempt stopped after 30 point repetitions when one transport error in 2,984 observations failed an absolute-zero assertion. The failed aggregate and private hash were retained. The runner now keeps transport failures in the error-rate curve, requires client identity for every attempt and response trace identity for every server response, and a three-repetition same-point RCA pilot passed all evidence assertions. Full acceptance remains pending and must restart from a clean revision.
+- `2026-08-17T08:51:24Z` `experiment` / `implementing`: The second full attempt stopped after 21 point repetitions because 4 of 52 sampled traces were absent from a one-shot OTLP tail read despite complete API identities and cleanup. The frozen runtime now uses bounded polling rather than a fixed sleep; the same point then completed 52/52 sampled traces in three independent RCA repetitions with at most 0.27 seconds flush wait. No acceptance credit is carried forward, and the full matrix must restart from the clean fix revision.
 
 ## S4: HIGGS Tiny MLP GPU Batching
 

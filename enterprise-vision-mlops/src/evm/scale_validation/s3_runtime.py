@@ -95,6 +95,7 @@ class S3RuntimeConfig:
     client_max_in_flight: int
     resource_sample_interval_seconds: float
     trace_flush_seconds: float
+    trace_poll_interval_seconds: float
     prometheus_scrape_interval_seconds: float
     repetitions: int
     closed_warmup_seconds: float
@@ -172,6 +173,9 @@ class S3RuntimeConfig:
                 execution["resource_sample_interval_seconds"]
             ),
             trace_flush_seconds=float(execution["trace_flush_seconds"]),
+            trace_poll_interval_seconds=float(
+                execution["trace_poll_interval_seconds"]
+            ),
             prometheus_scrape_interval_seconds=float(
                 execution["prometheus_scrape_interval_seconds"]
             ),
@@ -245,6 +249,7 @@ class S3RuntimeConfig:
             self.request_timeout_seconds,
             self.resource_sample_interval_seconds,
             self.trace_flush_seconds,
+            self.trace_poll_interval_seconds,
             self.prometheus_scrape_interval_seconds,
             self.closed_warmup_seconds,
             self.closed_measurement_seconds,
@@ -1524,6 +1529,38 @@ def otlp_trace_summary(
     }
 
 
+def wait_for_otlp_trace_summary(
+    path: Path,
+    *,
+    offset: int,
+    expected_trace_ids: Sequence[str],
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    deadline = started + timeout_seconds
+    poll_count = 0
+    while True:
+        poll_count += 1
+        summary = otlp_trace_summary(
+            path,
+            offset=offset,
+            expected_trace_ids=expected_trace_ids,
+        )
+        if int(summary["missing_sampled_trace_count"]) == 0:
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(poll_interval_seconds, remaining))
+    summary["flush_wait_seconds"] = max(0.0, time.monotonic() - started)
+    summary["flush_poll_count"] = poll_count
+    summary["flush_completed"] = (
+        int(summary["missing_sampled_trace_count"]) == 0
+    )
+    return summary
+
+
 def run_capacity_point(
     *,
     root: Path,
@@ -1681,13 +1718,14 @@ def run_capacity_point(
                 cleanup.setdefault("errors", []).append(
                     f"{replica.replica_id}:{type(exc).__name__}"
                 )
-        time.sleep(config.trace_flush_seconds)
-        trace = otlp_trace_summary(
+        trace = wait_for_otlp_trace_summary(
             trace_path,
             offset=trace_offset,
             expected_trace_ids=private_payload.get(
                 "expected_sampled_trace_ids", []
             ),
+            timeout_seconds=config.trace_flush_seconds,
+            poll_interval_seconds=config.trace_poll_interval_seconds,
         )
         lingering_pids = [pid for pid in stopped_pids if psutil.pid_exists(pid)]
         marker_pids = marker_processes(marker)

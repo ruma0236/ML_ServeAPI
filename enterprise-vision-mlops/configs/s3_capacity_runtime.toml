@@ -16,7 +16,8 @@ request_timeout_seconds = 5.0
 retry_after_seconds = 1
 client_max_in_flight = 2048
 resource_sample_interval_seconds = 0.25
-trace_flush_seconds = 2.0
+trace_flush_seconds = 10.0
+trace_poll_interval_seconds = 0.25
 prometheus_scrape_interval_seconds = 1.0
 
 [closed_concurrency]
