@@ -1,27 +1,19 @@
 {
-  "schema_version": "evm.s2_bounded_queue_closure.v1",
-  "generated_at": "2026-08-16T18:51:40.120338Z",
+  "schema_version": "evm.s2_bounded_queue_closure.v2",
+  "generated_at": "2026-08-17T06:12:10.817351Z",
   "source_identity": {
-    "implementation_revision": "31ee37c4528ff275bbce3199699dbedca980747c",
-    "branch": "codex/distributed-scale-validation-plan"
+    "implementation_revision": "e5b399a06fcbff2596fadb2575ab147b5fee0d51",
+    "branch": "codex/distributed-scale-validation-plan",
+    "runtime_module": "src/evm/scale_validation/s2_runtime.py",
+    "runtime_module_sha256": "3412c4bead8c54bb882b6d40b44aaf9fa1a45077254dcc3320f07853f3904166"
   },
   "final_runtime_evidence": {
     "path": "docs/status/evidence/s2-bounded-queue-experiment.json",
-    "sha256": "6fa6e0dbc69347e88be94442c192826a609faad61fb49592fe65631c388d2357",
-    "matrix_version": "s2-external-matrix-v6-20260817",
+    "sha256": "3ad2c5173e1b19effe75267713d1e5e264b2dfb1a55758db4eb37ab1ab87a7cd",
+    "matrix_version": "s2-external-matrix-v7-20260817-strict-evidence",
+    "matrix_sha256": "c62baa4300907614d1f5160287ff1357c8b41a1d66547b004b595cf7808706ba",
     "profile_results": 30,
-    "profiles": [
-      "A",
-      "B",
-      "C",
-      "D",
-      "E",
-      "F",
-      "G",
-      "H",
-      "I",
-      "J"
-    ],
+    "profiles": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
     "repetitions_per_profile": 3,
     "acceptance": {
       "S2-AC-01": true,
@@ -33,32 +25,65 @@
     "readiness_gates_total": 11,
     "runtime_verdict": "passed",
     "private_artifact_count": 402,
-    "private_aggregate_sha256": "aa018eb7b09a0ff2c116612d4f974d502f22f08217524feebfedb9fb8616dc65"
+    "private_aggregate_sha256": "65bac86c359b9a224029d98927b9c4d94589d1e0064be4ded1728ef0720b93a1"
   },
   "regression": {
-    "focused_real_postgresql_tests": 42,
-    "full_python_tests": 681,
+    "focused_real_postgresql_tests": 61,
+    "full_python_tests": 692,
+    "lifecycle_host_tests": 50,
+    "s0_s1_evidence_tests": 28,
     "control_panel_tests": 59,
     "control_panel_production_build": "passed",
+    "changed_file_lint": "passed",
     "s0_s1_git_blob_start_gate": "passed"
   },
   "failed_attempts_and_rca": [
     {
       "implementation_revision": "f4a9a3cc6b85a8da41a41dc9456fe4c527aa846c",
-      "observed": "All 30 profile runs passed, but S2-AC-01 failed because the external sampler missed short-lived executor child RSS in three byte-burst repetitions.",
-      "root_cause": "Executor RSS was sampled only from instantaneous OS process-tree snapshots after short executor processes had already exited.",
-      "remediation": "The queue worker now retains aggregate executor process-tree peak RSS in Prometheus and its heartbeat; the evidence runner merges that retained peak with instantaneous samples.",
+      "observed": "All profile runs completed, but short-lived executor RSS was absent from three byte-burst evidence samples.",
+      "root_cause": "Instantaneous process-tree sampling occurred after short executor children had exited.",
+      "remediation": "The worker retains executor process-tree peak RSS and the evidence runner merges retained and instantaneous samples.",
       "private_artifact_count": 402,
       "private_aggregate_sha256": "eda454e6446685fab61582629a96e2e04d6a98eb89e4d7709bf967955b6ad6a0",
       "cleanup_verified": true
     },
     {
       "implementation_revision": "921a8cc61b8473392e1e29f681c4756be8fc64a2",
-      "observed": "A through C and the adaptive half of D passed; the CPU-one D worker exited and the suite stopped before E through J.",
-      "root_cause": "A transient Windows reader lock caused atomic heartbeat replacement to raise WinError 5, which terminated the worker and removed its Prometheus target.",
-      "remediation": "Heartbeat replacement now uses a short bounded retry and still fails closed if all attempts are exhausted.",
+      "observed": "A transient Windows heartbeat replace lock stopped the CPU-one worker during D.",
+      "root_cause": "Atomic heartbeat replacement raised a bounded WinError 5 while a reader held the file.",
+      "remediation": "Heartbeat replacement uses bounded retry and remains fail-closed after retry exhaustion.",
       "private_artifact_count": 139,
       "private_aggregate_sha256": "0085bf4ff8ac965f09263c500b8e4e0ed8f4be1f6908293ab77cd4ae66392d03",
+      "cleanup_verified": true
+    },
+    {
+      "implementation_revision": "d41ab2180391c04db3d12b51fdf253087b92bf4e",
+      "observed": "A full strict run failed S2-AC-01 and S2-AC-04 after G reached twenty CPU downstream outstanding and E lost pre-restart queue-wait evidence.",
+      "root_cause": "Ambiguous rejected submissions released fenced reservations too early, and restart evidence did not merge the pre-restart queue-wait histogram.",
+      "remediation": "Ambiguous effects remain outcome_unknown until reconciled, and restart evidence merges the retained queue-wait histogram.",
+      "private_artifact_count": 403,
+      "private_aggregate_sha256": "08e590630139ed9de9705de830b38177c6e31f4d0eb519d9eea8c80e027696e3",
+      "private_rca_sha256": "2154eb83d10d3abbf2ad8783d913d06550f67e4c09e661fcbe0c4177c215f7f3",
+      "cleanup_verified": true
+    },
+    {
+      "implementation_revision": "9db0f56a6c947a0d63f6771498ae6f55646a708e",
+      "observed": "The run stopped after F repetition three because the injected deadline was expired in the database clock but still future-dated in the worker clock.",
+      "root_cause": "The fixture assumed synchronized clocks and subtracted only one second.",
+      "remediation": "The fixture chooses the earlier database or worker clock minus a fixed ten-second margin and records both clocks and the delta.",
+      "private_artifact_count": 259,
+      "private_aggregate_sha256": "bfb9d61178570b2e5999eb6265ee129865f4a30e56b60a1f79c0069b515c0507",
+      "private_rca_sha256": "9bdd55a6945112dfdc927b8ed4a31d9f151df5994285a8bff19b9c2f8a7b43a5",
+      "cleanup_verified": true
+    },
+    {
+      "implementation_revision": "48b5742b106c03e63ce6efd84f84e881a2d1cc73",
+      "observed": "The run stopped at I repetition one even though worker recovery, terminal closure, parity, and cleanup passed.",
+      "root_cause": "The evidence contract incorrectly treated the intended timeout failure as a success-effect and full-success-trace obligation.",
+      "remediation": "The timeout task now requires an explicit failed/no-effect contract and a failure-path trace, while recovered and healthy tasks retain the full success contract.",
+      "private_artifact_count": 342,
+      "private_aggregate_sha256": "ead8b48558238700a3e0ce49428d526cfa8c30f2b0782a8583ac492ef8e21925",
+      "private_rca_sha256": "e08f533df06deac8684425f1b9841fc01117ae17e42d51af164ac0f13f29a8b8",
       "cleanup_verified": true
     }
   ],

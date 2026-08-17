@@ -125,6 +125,7 @@ def close_s2(
     revision = str(runtime["source_identity"]["implementation_revision"])
     short_revision = revision[:7]
     regression = dict(closure.get("regression", {}))
+    failed_attempt_count = len(closure.get("failed_attempts_and_rca", []))
     readiness_count = sum(
         value is True for value in runtime.get("readiness_gates", {}).values()
     )
@@ -174,7 +175,8 @@ def close_s2(
             "sha256": closure_sha256,
             "generated_at": generated_at,
             "claim": (
-                "S2 closure records regressions, two retained failed attempts with RCA, "
+                f"S2 closure records regressions, {failed_attempt_count} retained failed "
+                "attempts with RCA, "
                 "cleanup, residual limits, and the accepted claim boundary."
             ),
         },

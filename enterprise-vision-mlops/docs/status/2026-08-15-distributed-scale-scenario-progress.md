@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T05:33:02.210477Z`
+- Generated: `2026-08-17T06:12:10.817351Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -198,16 +198,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S2: Bounded Queue & Backpressure
 
-- Status: `implementing`
+- Status: `verified`
 - Engineering question: Does overload stay memory-bounded while accepted work reaches an explicit outcome?
 - Why now: A bounded queue is required before capacity and recovery experiments scale up.
 - Observed gap: The prior S2 closure did not persist every V3 bound and wait signal or independently recompute acceptance from numeric evidence; its 30-profile result is retained as historical baseline only until a fresh strict-evidence rerun passes.
 - Existing-system baseline: The existing task API wrote assignments to the operations ledger and required explicit dispatch, while the separate lifecycle worker exclusively processed LifecycleRun state. Task admission had no shared depth, byte, age, retry-budget, or poison-work boundary and no dedicated task consumer.
 - Architecture before: Admission and retries do not share one end-to-end resource boundary.
 - Architecture after: Durable queue, local semaphore, rejection, retry, DLQ, and CPU scale are bounded.
-- Verdict: `not_run`
+- Verdict: `passed`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Commit the downstream-effect and restart-telemetry remediation, run an external E/G/H preflight and then fresh A-J x3 on that clean revision, close S2 only from raw-derived numeric evidence, then re-evaluate the S3 start gate.
+- Next action: Keep S2 as the strict regression boundary and evaluate the S3 start gate.
 
 ### Affected Existing Components
 
@@ -254,16 +254,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S2-AC-01` [pending]: Queue depth, in-flight bytes, and process memory remain bounded under overload.
-- `S2-AC-02` [pending]: Accepted work completes or reaches one explicit terminal failure.
-- `S2-AC-03` [pending]: Duplicate effects are zero and poison work does not block healthy work.
-- `S2-AC-04` [pending]: Rejection, wait, retry, and DLQ behavior are measured from persisted numeric evidence.
+- `S2-AC-01` [passed]: Queue depth, in-flight bytes, and process memory remain bounded under overload.
+- `S2-AC-02` [passed]: Accepted work completes or reaches one explicit terminal failure.
+- `S2-AC-03` [passed]: Duplicate effects are zero and poison work does not block healthy work.
+- `S2-AC-04` [passed]: Rejection, wait, retry, and DLQ behavior are measured from persisted numeric evidence.
 
 ### Current Evidence
 
 - `docs/status/evidence/s2-operational-safety-checkpoint.json` (`1b9316b397662b0ade60861a7d1b77b2a32cc62082cf99561bf5d307dc5c6faf`): At revision 5de1c41, in-place S2 operational-safety code and regressions passed; all external workload and S2 acceptance evidence remains pending.
-- `docs/status/evidence/s2-bounded-queue-experiment.json` (`6fa6e0dbc69347e88be94442c192826a609faad61fb49592fe65631c388d2357`): Thirty independent A-J profile repetitions passed the frozen external HTTP, PostgreSQL, worker, Prometheus, OTLP, recovery, and one-GPU contract.
-- `docs/status/evidence/s2-bounded-queue-closure.json` (`6c71f1ea9699ff776b5ead7038fdbb02a7922d9c056a5c5f89da93be30a152d6`): S2 closure records regressions, two retained failed attempts with RCA, cleanup, residual limits, and the accepted claim boundary.
+- `docs/status/evidence/s2-bounded-queue-experiment.json` (`3ad2c5173e1b19effe75267713d1e5e264b2dfb1a55758db4eb37ab1ab87a7cd`): Thirty independent A-J profile repetitions passed the frozen external HTTP, PostgreSQL, worker, Prometheus, OTLP, recovery, and one-GPU contract.
+- `docs/status/evidence/s2-bounded-queue-closure.json` (`dc9da8e714a8a8bece40f31591e6f389df90c20f7d25d672c2157a45785800d8`): S2 closure records regressions, 5 retained failed attempts with RCA, cleanup, residual limits, and the accepted claim boundary.
 
 ### Chronological Updates
 
@@ -273,7 +273,6 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-16T14:38:09Z` `implementation` / `implementing`: Revision 5de1c41 closes audited ingress, tombstone, deadline, lease/effect fencing, fair polling, outcome-unknown, cutover, mirror parity, process-tree RSS, executor cleanup, consumer supervision, CPU scaling, and GPU downstream-bound gaps. Thirty-eight focused, 661 full Python, and 59 Control Panel tests plus build and Compose validation passed. A-J external experiments and all S2 ACs remain pending.
 - `2026-08-16T17:38:16.247374Z` `experiment` / `implementing`: The first complete 30-profile suite preserved all passing profile assertions but failed S2-AC-01 because instantaneous sampling missed three short-lived executor process trees. The failure and cleanup were retained; no acceptance credit was awarded.
 - `2026-08-16T17:55:36.258827Z` `recovery` / `implementing`: After retained executor RSS was added, a transient Windows heartbeat replace lock terminated the D CPU-one worker. The suite stopped before E-J, cleanup passed, and bounded heartbeat replacement retry was added.
-- `2026-08-16T18:51:40.120338Z` `verification` / `verified`: At 31ee37c, the fresh A-J matrix passed 30 of 30 profile repetitions, S2-AC-01 through S2-AC-04, all 11 readiness gates, 42 focused real-PostgreSQL tests, 681 full Python tests, 59 Control Panel tests, and the production frontend build. Canonical public evidence and the two failed-attempt RCAs are hash-linked.
 - `2026-08-17T02:00:00.262659Z` `recovery` / `implementing`: Independent V3 review found that the previous public projection trusted assertion booleans and did not persist every durable/local/in-flight byte, ingress, wait, retry-delay, DLQ, and process-tree RSS signal. S2 was reopened; old 30-profile evidence is baseline-only. Strict numeric recomputation and mutation tests passed focused verification, while the mandatory fresh A-J x3 rerun remains pending.
 - `2026-08-17T02:55:16.782956Z` `recovery` / `implementing`: The first strict-evidence rerun was rejected before acceptance because the Python editable installation resolved s2_runtime.py from a different worktree, so it executed the historical v6/v5 contract rather than the checked-out v7/v6 revision. The generated public file was restored, the private failed-attempt RCA and cleanup proof were retained, and the entrypoint now pins and verifies the repository-local runtime module with hostile-PYTHONPATH and root-mismatch regressions. A fresh A-J x3 rerun is still required.
 - `2026-08-17T03:39:06.132903Z` `experiment` / `implementing`: The clean d41ab21 strict A-J x3 run completed all 30 profile repetitions but failed closed: S2-AC-01 and S2-AC-04 were false. Profile G reached 20 CPU downstream outstanding against the frozen limit of 8, and profile E lost its pre-restart queue-wait histogram from the final projection. Identity closure, exactly-once effects, traces, GPU activity, worker recovery, and cleanup passed, but no S2 acceptance credit was awarded; private raw evidence and RCA were retained.
@@ -283,6 +282,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-17T04:41:22.389871Z` `recovery` / `implementing`: The clean 9db0f56 A-J rerun stopped fail-closed after F repetition three: the PostgreSQL-clock-minus-one-second expiry fixture was still future-dated relative to the worker clock, so the intended expired item completed and emitted an external effect. Eighteen completed repetitions and cleanup were retained outside Git with RCA. The injection now selects the earlier PostgreSQL/worker clock minus a fixed ten-second margin and records both clocks, delta, deadline, and margin; 46 focused and real-PostgreSQL tests passed. A clean F x3 preflight and full A-J x3 rerun remain required.
 - `2026-08-17T05:19:47.579355Z` `recovery` / `implementing`: The clean 48b5742 rerun passed A through H for 24 profile repetitions and then stopped fail-closed at I repetition one. Worker replacement, epoch-two recovery, slow and healthy exactly-once effects, explicit timeout failure without an effect, PostgreSQL/JSON parity, Prometheus targets, and cleanup all succeeded. The evidence runner incorrectly classified the timeout closure as a success-effect and full-success-trace obligation. Private RCA was retained; the runner now separates success and timeout-failure effect/trace contracts. An independent I x3 preflight and a fresh complete A-J x3 run remain required, so no S2 acceptance credit is awarded.
 - `2026-08-17T05:33:02.210477Z` `experiment` / `implementing`: At clean revision 3b32136, the isolated I preflight passed all three repetitions. Each run replaced the exact worker process with no orphan child, recovered the slow task at lease epoch two, closed two effect-eligible tasks exactly once, closed one timeout task as an explicit failure with no effect, completed all three required trace contracts, preserved PostgreSQL/JSON parity, and cleaned its schema and processes. The private evidence aggregate is c844843160bb9e93b1785869312a0440251630fa56511a8661e825ecf7d3beea. This partial run receives no S2 acceptance credit; a fresh complete A-J x3 run remains required.
+- `2026-08-17T06:12:10.817351Z` `verification` / `verified`: At e5b399a, the strict-evidence A-J matrix passed 30 of 30 profile repetitions, S2-AC-01 through S2-AC-04, all 11 readiness gates, regressions, and the production frontend build. Canonical public evidence and retained failed-attempt RCAs are hash-linked.
 
 ## S3: HIGGS Lightweight Capacity Envelope
 
