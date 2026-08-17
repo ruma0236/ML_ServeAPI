@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T04:01:46.723977Z",
+  "generated_at": "2026-08-17T04:14:09.495721Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1474,6 +1474,13 @@
           "phase": "recovery",
           "status": "implementing",
           "summary": "The clean 277d578 E/G/H preflight confirmed that all three E runs retained 520 queue-wait observations and downstream peaks stayed within the frozen limit, while the first G run closed 20 transient tasks in DLQ with a CPU downstream peak of 4. The preflight stopped because the evidence helper preferred the generic last failure class over the retry-budget terminal reason. Reason precedence and its regression were corrected; no acceptance credit was awarded and a fresh clean preflight remains required.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-17T04:14:09.495721Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "At clean revision 1e49f81, the independent E/G/H preflight passed all nine profile repetitions. Every E run retained 520 queue-wait observations and exactly-once identity closure, every G run measured bounded retry delay and retry-budget DLQ closure with CPU downstream outstanding at four of eight, every H run isolated poison work while healthy work completed, and every isolated schema/process cleanup passed. This partial matrix receives no S2 acceptance credit; the full clean A-J x3 matrix remains required.",
           "evidence_refs": []
         }
       ]

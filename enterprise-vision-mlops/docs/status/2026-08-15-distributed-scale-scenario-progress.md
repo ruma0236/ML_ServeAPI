@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T04:01:46.723977Z`
+- Generated: `2026-08-17T04:14:09.495721Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -279,6 +279,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-17T03:39:06.132903Z` `experiment` / `implementing`: The clean d41ab21 strict A-J x3 run completed all 30 profile repetitions but failed closed: S2-AC-01 and S2-AC-04 were false. Profile G reached 20 CPU downstream outstanding against the frozen limit of 8, and profile E lost its pre-restart queue-wait histogram from the final projection. Identity closure, exactly-once effects, traces, GPU activity, worker recovery, and cleanup passed, but no S2 acceptance credit was awarded; private raw evidence and RCA were retained.
 - `2026-08-17T03:50:33.637758Z` `recovery` / `implementing`: Known-rejected deterministic submissions now reset their fenced effect to reserved only after a follow-up GET proves absence; ambiguous submissions become outcome_unknown immediately and continue to consume the downstream bound. Profile E carries its pre-restart queue-wait histogram into final evidence. Sixty-five focused real-PostgreSQL tests, 688 full Python tests, 59 Control Panel tests, lint, and the production frontend build passed. A clean external preflight and full A-J x3 rerun remain required.
 - `2026-08-17T04:01:46.723977Z` `recovery` / `implementing`: The clean 277d578 E/G/H preflight confirmed that all three E runs retained 520 queue-wait observations and downstream peaks stayed within the frozen limit, while the first G run closed 20 transient tasks in DLQ with a CPU downstream peak of 4. The preflight stopped because the evidence helper preferred the generic last failure class over the retry-budget terminal reason. Reason precedence and its regression were corrected; no acceptance credit was awarded and a fresh clean preflight remains required.
+- `2026-08-17T04:14:09.495721Z` `experiment` / `implementing`: At clean revision 1e49f81, the independent E/G/H preflight passed all nine profile repetitions. Every E run retained 520 queue-wait observations and exactly-once identity closure, every G run measured bounded retry delay and retry-budget DLQ closure with CPU downstream outstanding at four of eight, every H run isolated poison work while healthy work completed, and every isolated schema/process cleanup passed. This partial matrix receives no S2 acceptance credit; the full clean A-J x3 matrix remains required.
 
 ## S3: HIGGS Lightweight Capacity Envelope
 
