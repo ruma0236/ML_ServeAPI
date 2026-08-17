@@ -133,6 +133,147 @@ def validate_s3_capacity_evidence(
     }
 
 
+def validate_s3_capacity_closure(
+    closure: Mapping[str, Any],
+    *,
+    experiment: Mapping[str, Any],
+    experiment_sha256: str,
+    config: S3RuntimeConfig,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    if closure.get("schema_version") != "evm.s3_capacity_closure.v1":
+        errors.append("closure_schema_version")
+    validated = validate_s3_capacity_evidence(experiment, config=config)
+    final = dict(closure.get("final_runtime_evidence", {}))
+    expected_final = {
+        "git_blob_sha256": experiment_sha256,
+        "point_result_count": validated["point_result_count"],
+        "executed_point_count": validated["executed_point_count"],
+        "skipped_point_count": validated["skipped_point_count"],
+        "acceptance": validated["acceptance"],
+        "runtime_verdict": validated["runtime_verdict"],
+        "private_artifact_count": validated["private_artifact_count"],
+        "private_aggregate_sha256": validated["private_aggregate_sha256"],
+    }
+    for key, expected in expected_final.items():
+        if final.get(key) != expected:
+            errors.append(f"closure_final_{key}")
+    if final.get("path") != "docs/status/evidence/s3-capacity-experiment.json":
+        errors.append("closure_final_path")
+    if int(final.get("repetitions_per_executed_point", 0)) != config.repetitions:
+        errors.append("closure_repetitions")
+
+    analysis = dict(experiment.get("analysis", {}))
+    capacity = dict(analysis.get("s2_capacity_recalculation", {}))
+    closure_capacity = dict(closure.get("s2_capacity_recalculation", {}))
+    for key in (
+        "formula",
+        "measured_service_rate_per_second",
+        "maximum_queue_wait_seconds",
+        "safety_factor",
+        "calculated_depth",
+        "prior_depth",
+        "selected_depth",
+        "rollback_depth",
+        "automatic_increase_allowed",
+    ):
+        if closure_capacity.get(key) != capacity.get(key):
+            errors.append(f"closure_capacity_{key}")
+
+    bottleneck = dict(analysis.get("bottleneck", {}))
+    first = dict(bottleneck.get("first_observed", {}))
+    measured = dict(closure.get("measured_capacity", {}))
+    closure_knee = dict(measured.get("first_saturation_knee", {}))
+    if closure_knee.get("curve") != first.get("curve"):
+        errors.append("closure_bottleneck_curve")
+    if closure_knee.get("cause") != first.get("cause"):
+        errors.append("closure_bottleneck_cause")
+    signal_map = {
+        "client_p99_ms": "p99_ms",
+        "server_total_p99_ms": "server_total_p99_ms",
+        "queue_wait_p99_ms": "queue_wait_p99_ms",
+        "prediction_p99_ms": "prediction_p99_ms",
+        "api_process_tree_cpu_percent": "api_process_tree_cpu_percent",
+        "load_generator_cpu_percent": "load_generator_cpu_percent",
+    }
+    signals = dict(first.get("signals", {}))
+    for closure_key, signal_key in signal_map.items():
+        if closure_knee.get(closure_key) != signals.get(signal_key):
+            errors.append(f"closure_bottleneck_{closure_key}")
+    if closure_knee.get("attribution_boundary") != bottleneck.get(
+        "attribution_boundary"
+    ):
+        errors.append("closure_bottleneck_boundary")
+
+    topology = dict(closure.get("topology_result", {}))
+    if int(topology.get("topology_point_count", 0)) != int(
+        bottleneck.get("topology_point_count", -1)
+    ):
+        errors.append("closure_topology_count")
+    if topology.get("monotonic_throughput_gain_observed") is not False:
+        errors.append("closure_topology_claim")
+
+    regression = dict(closure.get("regression", {}))
+    for key in (
+        "focused_s3_tests",
+        "full_python_tests_with_real_postgresql",
+        "lifecycle_host_tests",
+        "control_panel_tests",
+    ):
+        if int(regression.get(key, 0)) <= 0:
+            errors.append(f"closure_regression_{key}")
+    if regression.get("control_panel_production_build") != "passed":
+        errors.append("closure_frontend_build")
+    smoke = dict(regression.get("current_revision_runtime_smoke", {}))
+    if (
+        not bool(smoke.get("external_tcp_http"))
+        or smoke.get("sampled_trace_chains") != "33/33"
+        or not bool(smoke.get("prometheus_targets_up"))
+        or not bool(smoke.get("terminal_gauges_zero"))
+        or not bool(smoke.get("cleanup_complete"))
+    ):
+        errors.append("closure_runtime_smoke")
+
+    attempts = closure.get("failed_attempts_and_rca")
+    if not isinstance(attempts, Sequence) or len(attempts) != 4:
+        errors.append("closure_failed_attempts")
+    else:
+        for index, attempt in enumerate(attempts):
+            if not isinstance(attempt, Mapping) or not SHA256_PATTERN.fullmatch(
+                str(attempt.get("sha256") or "")
+            ):
+                errors.append(f"closure_failed_attempt_{index}")
+    cleanup = dict(closure.get("cleanup", {}))
+    required_cleanup = (
+        "all_accepted_point_cleanup_assertions_passed",
+        "private_inventory_rehash_passed",
+    )
+    if not all(bool(cleanup.get(key)) for key in required_cleanup):
+        errors.append("closure_cleanup")
+    if (
+        int(cleanup.get("active_or_in_flight_gauges_after_each_point", -1)) != 0
+        or int(cleanup.get("marker_processes_remaining", -1)) != 0
+        or int(cleanup.get("isolated_prometheus_containers_remaining", -1)) != 0
+    ):
+        errors.append("closure_cleanup_counts")
+    if closure.get("verdict") != "passed":
+        errors.append("closure_verdict")
+
+    if errors:
+        raise S3EvidenceValidationError(
+            "s3_capacity_closure_invalid:" + ",".join(sorted(set(errors)))
+        )
+    return {
+        "status": "valid",
+        "verdict": "passed",
+        "experiment_sha256": experiment_sha256,
+        "point_result_count": validated["point_result_count"],
+        "acceptance": validated["acceptance"],
+        "selected_s2_depth": closure_capacity["selected_depth"],
+        "failed_attempt_count": len(attempts),
+    }
+
+
 def _validate_point_result(
     item: Mapping[str, Any],
     *,

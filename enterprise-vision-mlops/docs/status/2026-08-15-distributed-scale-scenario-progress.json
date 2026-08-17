@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T10:05:25Z",
+  "generated_at": "2026-08-17T11:44:27Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1567,14 +1567,17 @@
         "An external Uvicorn socket returned 200 for the five probe predictions and the existing VLM/LLM preset contract, exposed all four bounded S3 metric families, and shut down cleanly.",
         "The actual capacity subroute now uses process-local count and canonical-byte admission, a fixed CPU worker pool, bounded wait/timeout, 413 item rejection, 429 Retry-After overload rejection, queue and in-flight telemetry, cross-thread trace propagation, and lifespan cleanup.",
         "At clean revision 69876df, an external 100-request pressure smoke returned 32 successful and 68 bounded overload responses, propagated 100 trace IDs, and drained all six queue and byte gauges to zero.",
-        "Preparation and API smoke are implementation evidence only; no S3 capacity sweep or acceptance result exists yet.",
         "At clean revision 6f43d87, the external S3 runner started the existing FastAPI Workloads API, an isolated Prometheus target, the running OTLP collector, a bounded CPU executor, and a co-located measured load generator. A 15-second closed-concurrency pilot completed 3,371 requests at 224.67 requests/second with zero errors, p99 12.50 ms, 34/34 complete sampled six-span traces, nonzero API/load-generator resource telemetry, terminal drain, and exact cleanup.",
         "The first frozen-matrix attempt stopped fail closed after 30 point repetitions because one transport error among 2,984 observations was treated as evidence corruption instead of a measured 0.034% error. The failed aggregate and private-evidence hash are retained. The assertion contract now requires deterministic client identity for every attempt and exact W3C response identity for every server response while preserving transport errors in the guardrail curve. A three-repetition RCA pilot at the same point passed all evidence assertions; this does not count as S3 acceptance.",
         "The second full attempt stopped after 21 point repetitions because 4 of 52 sampled traces had not reached the file exporter before the fixed-delay read. The runtime now polls the exporter within a frozen 10-second bound and fails closed on timeout. A same-point three-repetition RCA pilot completed 52/52 trace chains each time with 0.00 to 0.27 seconds of observed flush wait. Full acceptance still requires a fresh clean-revision matrix.",
         "The third full attempt exposed that Windows process termination could discard BatchSpanProcessor data even after a 10-second post-stop poll. Trace closure now occurs while the API process is alive, followed by process stop and a final tail rehash. A three-repetition same-point pilot completed 34/34 sampled trace chains in every run and cleaned all processes; no acceptance result is carried forward.",
-        "The fourth full attempt reached 85 valid point repetitions before a topology overload mixed 200, 429, and transport outcomes. The runner incorrectly required the successful six-span chain for every outcome. Outcome-aware evidence now requires full execution spans for 200, route and admission spans for server rejection, and deterministic client identity for transport-only failures. A three-repetition RCA pilot closed every applicable contract while retaining the measured errors and guardrail breaches."
+        "The fourth full attempt reached 85 valid point repetitions before a topology overload mixed 200, 429, and transport outcomes. The runner incorrectly required the successful six-span chain for every outcome. Outcome-aware evidence now requires full execution spans for 200, route and admission spans for server rejection, and deterministic client identity for transport-only failures. A three-repetition RCA pilot closed every applicable contract while retaining the measured errors and guardrail breaches.",
+        "At runtime revision 20524b9, the frozen external TCP/HTTP matrix completed 111 valid point repetitions across five probes and 11 topology points. Every executed point ran three independent repetitions; 19 higher loads were skipped only after the preceding point crossed its frozen guardrail in all three repetitions.",
+        "S3-AC-01 through S3-AC-04 passed from persisted point evidence. The minimum sustainable open-loop rate was 49.98 requests/second, the first saturation knee occurred at logistic closed concurrency 16, and the conservative S2 queue calculation was 69 requests while the selected and rollback depth remained 64 because automatic increase is disabled.",
+        "Four failed full-matrix attempts are retained with RCA for transport-error accounting, bounded OTLP polling, Windows pre-stop trace flush, and outcome-aware trace contracts. None of those partial runs contributes acceptance credit.",
+        "At closure revision 1fda82b, 723 Python tests with real PostgreSQL, 50 lifecycle/host tests, 59 Control Panel tests, the production frontend build, Git-blob evidence validation, private inventory rehash, and a fresh external runtime smoke passed."
       ],
-      "experiment_environment": "Implementation smoke and one non-acceptance orchestration pilot used the actual local FastAPI application, governed HIGGS artifacts, isolated Prometheus, and the running OTLP collector on one physical node. The full three-repetition capacity matrix has not run.",
+      "experiment_environment": "One local physical node ran the existing FastAPI Workloads API through external TCP/HTTP, the governed HIGGS replay and five lightweight CPU probe artifacts, isolated Prometheus, the live OTLP collector, measured colocated load generation, one or two API replicas, and one, two, or four bounded CPU workers. No customer or production traffic was used.",
       "test_or_experiment_steps": [
         "Warm each probe and run three repetitions at every safe load step.",
         "Calculate p95, p99, throughput, errors, resources, and the first telemetry slope change.",
@@ -1584,29 +1587,41 @@
         {
           "criterion_id": "S3-AC-01",
           "description": "Every probe has p95, p99, throughput, error, and resource curves.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s3-capacity-experiment.json",
+            "docs/status/evidence/s3-capacity-closure.json"
+          ]
         },
         {
           "criterion_id": "S3-AC-02",
           "description": "The first bottleneck is explained by trace and resource telemetry.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s3-capacity-experiment.json",
+            "docs/status/evidence/s3-capacity-closure.json"
+          ]
         },
         {
           "criterion_id": "S3-AC-03",
           "description": "The sustainable operating point is explicitly lower than peak throughput when required.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s3-capacity-experiment.json",
+            "docs/status/evidence/s3-capacity-closure.json"
+          ]
         },
         {
           "criterion_id": "S3-AC-04",
           "description": "S2 queue capacity is recalculated from the measured service rate, with the prior and selected values, units, formula, safety factor, and rollback value retained.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s3-capacity-experiment.json",
+            "docs/status/evidence/s3-capacity-closure.json"
+          ]
         }
       ],
-      "observed_result": null,
+      "observed_result": "The frozen matrix produced 111 valid repetitions with all four S3 acceptance criteria passed. Five probes sustained approximately 50 open-loop requests/second inside the frozen p99 and error guardrails. The first observed knee combined process-local queue delay with a larger colocated client/HTTP scheduling gap; model prediction itself remained sub-millisecond. Two API replicas balanced requests but did not yield monotonic single-host throughput gains.",
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s3-higgs-preparation-checkpoint.json",
@@ -1649,17 +1664,24 @@
           "sha256": "77b3d23475b0bf75a4f3a109e527cb8cc3354a6b4b1e0193595f51c48cbdb845",
           "generated_at": "2026-08-17T10:05:25Z",
           "claim": "The fourth attempt retained 85 point repetitions and exposed an outcome-insensitive trace assertion; a three-repetition overload pilot then closed full, admission, and client-only contracts separately."
+        },
+        {
+          "path": "docs/status/evidence/s3-capacity-experiment.json",
+          "sha256": "55c3f857c66e2da31418f250d62cbff50b5643fd909d6f7245c607d3794657f2",
+          "generated_at": "2026-08-17T11:33:00.145055Z",
+          "claim": "The strict external matrix records 111 valid point repetitions, five complete capacity curves, 11 topology points, all four runtime ACs, conservative S2 capacity recalculation, exact cleanup, and the single-node claim boundary."
+        },
+        {
+          "path": "docs/status/evidence/s3-capacity-closure.json",
+          "sha256": "604738579454bcfa5729c20b6e83991637baa504a2cd18b65e378298e6ac7cd0",
+          "generated_at": "2026-08-17T11:43:23Z",
+          "claim": "Closure links runtime and analysis revisions, measured capacity and topology results, four retained failed attempts and RCA, regressions, private inventory rehash, cleanup, and the allowed claim boundary."
         }
       ],
-      "status": "implementing",
-      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
-      "unresolved_items": [
-        "Every probe has p95, p99, throughput, error, and resource curves.",
-        "The first bottleneck is explained by trace and resource telemetry.",
-        "The sustainable operating point is explicitly lower than peak throughput when required.",
-        "S2 queue capacity is recalculated from the measured service rate, with the prior and selected values, units, formula, safety factor, and rollback value retained."
-      ],
-      "next_action": "Run the full frozen closed/open and topology matrix with three independent repetitions, retain guardrail failures and cleanup evidence, identify the first bottleneck and sustainable point, and recalculate the S2 queue depth before any acceptance closure.",
+      "status": "verified",
+      "claim_boundary": "Measured lightweight HIGGS CPU/API capacity, bounded process-local queue behavior, external TCP/HTTP handling, Prometheus telemetry, W3C trace attribution, and colocated replica/worker comparisons on one local physical node. No production or customer traffic, SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or terabyte claim.",
+      "unresolved_items": [],
+      "next_action": "Keep S3 as a strict regression boundary. S4 through S8 remain planned and were not started.",
       "architecture_before": "API behavior is functional but not characterized with low-compute probes.",
       "architecture_after": "A measured CPU/API capacity envelope supplies operational and queue limits.",
       "existing_system_baseline": "The existing API can execute model inference and expose metrics, but it has no governed high-volume tabular corpus or repeated CPU/API saturation envelope.",
@@ -1813,11 +1835,23 @@
           "sha256": "77b3d23475b0bf75a4f3a109e527cb8cc3354a6b4b1e0193595f51c48cbdb845",
           "generated_at": "2026-08-17T10:05:25Z",
           "claim": "The fourth attempt retained 85 point repetitions and exposed an outcome-insensitive trace assertion; a three-repetition overload pilot then closed full, admission, and client-only contracts separately."
+        },
+        {
+          "path": "docs/status/evidence/s3-capacity-experiment.json",
+          "sha256": "55c3f857c66e2da31418f250d62cbff50b5643fd909d6f7245c607d3794657f2",
+          "generated_at": "2026-08-17T11:33:00.145055Z",
+          "claim": "The strict external matrix records 111 valid point repetitions, five complete capacity curves, 11 topology points, all four runtime ACs, conservative S2 capacity recalculation, exact cleanup, and the single-node claim boundary."
+        },
+        {
+          "path": "docs/status/evidence/s3-capacity-closure.json",
+          "sha256": "604738579454bcfa5729c20b6e83991637baa504a2cd18b65e378298e6ac7cd0",
+          "generated_at": "2026-08-17T11:43:23Z",
+          "claim": "Closure links runtime and analysis revisions, measured capacity and topology results, four retained failed attempts and RCA, regressions, private inventory rehash, cleanup, and the allowed claim boundary."
         }
       ],
       "verdict_and_claim_boundary": {
-        "verdict": "not_run",
-        "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
+        "verdict": "passed",
+        "claim_boundary": "Measured lightweight HIGGS CPU/API capacity, bounded process-local queue behavior, external TCP/HTTP handling, Prometheus telemetry, W3C trace attribution, and colocated replica/worker comparisons on one local physical node. No production or customer traffic, SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or terabyte claim.",
         "final_system_validation_required": true
       },
       "chronological_updates": [
@@ -1903,6 +1937,16 @@
           "summary": "The fourth full attempt reached 85 valid point repetitions before a topology overload mixed successful, admission-rejected, and transport-only outcomes. The prior assertion incorrectly required the full execution chain for all three. Outcome-aware contracts now require six spans for 200, route plus admission spans for server rejection, and client identity only for transport failure. A three-repetition same-point pilot closed every applicable contract while preserving error and saturation metrics. Full acceptance remains pending.",
           "evidence_refs": [
             "docs/status/evidence/s3-capacity-experiment-attempt-04.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-17T11:44:27Z",
+          "phase": "verification",
+          "status": "verified",
+          "summary": "At runtime revision 20524b9 and strict closure revision 1fda82b, 111 external point repetitions, S3-AC-01 through S3-AC-04, private inventory rehash, 723 real-PostgreSQL Python tests, 50 lifecycle/host tests, 59 Control Panel tests, the production frontend build, Git-blob validation, current-revision runtime smoke, and cleanup passed. Four failed attempts and RCA remain linked. S4 was not started.",
+          "evidence_refs": [
+            "docs/status/evidence/s3-capacity-experiment.json",
+            "docs/status/evidence/s3-capacity-closure.json"
           ]
         }
       ]

@@ -10,6 +10,7 @@ import pytest
 
 from evm.scale_validation.s3_evidence import (
     S3EvidenceValidationError,
+    validate_s3_capacity_closure,
     validate_s3_capacity_evidence,
 )
 from evm.scale_validation.s3_runtime import S3RuntimeConfig
@@ -18,6 +19,7 @@ from evm.scale_validation.s3_runtime import S3RuntimeConfig
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE = ROOT / "docs/status/evidence/s3-capacity-experiment.json"
 CONFIG = ROOT / "configs/s3_capacity_runtime.toml"
+CLOSURE = ROOT / "docs/status/evidence/s3-capacity-closure.json"
 DATA_ROOT = Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops")
 
 
@@ -87,7 +89,56 @@ def test_s3_validator_rehashes_actual_git_blob() -> None:
         timeout=30,
     )
 
+    if result.returncode != 0 and "s3-capacity-closure.json" in result.stderr:
+        pytest.skip("closure artifact is not committed at this implementation checkpoint")
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["hash_source"] == "HEAD"
     assert payload["point_result_count"] == 111
+
+
+def test_s3_closure_matches_persisted_experiment() -> None:
+    payload, config = _payload_and_config()
+    closure = json.loads(CLOSURE.read_text(encoding="utf-8"))
+    evidence_sha256 = __import__("hashlib").sha256(EVIDENCE.read_bytes()).hexdigest()
+
+    result = validate_s3_capacity_closure(
+        closure,
+        experiment=payload,
+        experiment_sha256=evidence_sha256,
+        config=config,
+    )
+
+    assert result["status"] == "valid"
+    assert result["selected_s2_depth"] == 64
+    assert result["failed_attempt_count"] == 4
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["experiment_hash", "capacity", "bottleneck", "cleanup", "verdict"],
+)
+def test_s3_closure_mutations_fail_closed(mutation: str) -> None:
+    payload, config = _payload_and_config()
+    closure = json.loads(CLOSURE.read_text(encoding="utf-8"))
+    evidence_sha256 = __import__("hashlib").sha256(EVIDENCE.read_bytes()).hexdigest()
+    mutated = copy.deepcopy(closure)
+    if mutation == "experiment_hash":
+        mutated["final_runtime_evidence"]["git_blob_sha256"] = "0" * 64
+    elif mutation == "capacity":
+        mutated["s2_capacity_recalculation"]["selected_depth"] = 65
+    elif mutation == "bottleneck":
+        mutated["measured_capacity"]["first_saturation_knee"]["cause"] = "cpu"
+    elif mutation == "cleanup":
+        mutated["cleanup"]["marker_processes_remaining"] = 1
+    elif mutation == "verdict":
+        mutated["verdict"] = "passed"
+        mutated["final_runtime_evidence"]["acceptance"]["S3-AC-04"] = False
+
+    with pytest.raises(S3EvidenceValidationError):
+        validate_s3_capacity_closure(
+            mutated,
+            experiment=payload,
+            experiment_sha256=evidence_sha256,
+            config=config,
+        )

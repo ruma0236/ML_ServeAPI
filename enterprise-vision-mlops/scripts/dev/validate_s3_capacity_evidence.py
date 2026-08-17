@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 
 from evm.scale_validation.s3_evidence import (  # noqa: E402
     S3EvidenceValidationError,
+    validate_s3_capacity_closure,
     validate_s3_capacity_evidence,
 )
 from evm.scale_validation.s3_runtime import S3RuntimeConfig  # noqa: E402
@@ -31,6 +32,11 @@ def parse_args() -> argparse.Namespace:
         "--config",
         type=Path,
         default=ROOT / "configs/s3_capacity_runtime.toml",
+    )
+    parser.add_argument(
+        "--closure",
+        type=Path,
+        default=ROOT / "docs/status/evidence/s3-capacity-closure.json",
     )
     parser.add_argument(
         "--data-root",
@@ -70,7 +76,19 @@ def main() -> int:
     payload = json.loads(raw)
     config = S3RuntimeConfig.from_path(args.config, data_root=args.data_root)
     result = validate_s3_capacity_evidence(payload, config=config)
-    result["evidence_sha256"] = hashlib.sha256(raw).hexdigest()
+    evidence_sha256 = hashlib.sha256(raw).hexdigest()
+    result["evidence_sha256"] = evidence_sha256
+    closure_raw = load_evidence(args.closure, args.git_revision)
+    if b"\r\n" in closure_raw or not closure_raw.endswith(b"\n"):
+        raise S3EvidenceValidationError("s3_capacity_closure_not_canonical_lf")
+    closure_result = validate_s3_capacity_closure(
+        json.loads(closure_raw),
+        experiment=payload,
+        experiment_sha256=evidence_sha256,
+        config=config,
+    )
+    result["closure"] = closure_result
+    result["closure_sha256"] = hashlib.sha256(closure_raw).hexdigest()
     result["hash_source"] = args.git_revision or "worktree"
     print(json.dumps(result, sort_keys=True))
     return 0
