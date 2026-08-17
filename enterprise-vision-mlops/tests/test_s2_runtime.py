@@ -18,6 +18,7 @@ from evm.scale_validation import s2_runtime
 from evm.scale_validation.s2_runtime import (
     EXPECTED_PROFILE_IDS,
     FULL_TRACE_NAMES,
+    TIMEOUT_FAILURE_TRACE_NAMES,
     S2MatrixConfig,
     aggregate_acceptance,
     build_task_payload,
@@ -400,6 +401,39 @@ def test_trace_summary_requires_full_existing_runtime_chain(tmp_path):
     assert len(result["raw_tail_sha256"]) == 64
 
 
+def test_trace_summary_supports_explicit_timeout_failure_chain(tmp_path):
+    trace_identity = "b" * 32
+    spans = [
+        {"traceId": trace_identity, "name": name}
+        for name in TIMEOUT_FAILURE_TRACE_NAMES
+    ]
+    trace_path = tmp_path / "traces.json"
+    trace_path.write_text(
+        json.dumps(
+            {
+                "resourceSpans": [
+                    {"scopeSpans": [{"scope": {"name": "test"}, "spans": spans}]}
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = trace_summary(
+        trace_path,
+        0,
+        {"timeout-task": trace_identity},
+        {"timeout-task": TIMEOUT_FAILURE_TRACE_NAMES},
+    )
+
+    assert result["complete_count"] == 1
+    assert result["missing"] == 0
+    assert result["required_span_names"]["timeout-task"] == sorted(
+        TIMEOUT_FAILURE_TRACE_NAMES
+    )
+
+
 def _strict_runtime_result(profile_id: str, repetition: int, *, variant=None):
     submitted = 1
     statuses = {"202": 1}
@@ -516,7 +550,13 @@ def _strict_runtime_result(profile_id: str, repetition: int, *, variant=None):
             ]
         )
     elif profile_id == "I":
-        submitted, statuses, accepted, eligible = 3, {"202": 3}, 3, 3
+        submitted, statuses, accepted, eligible, no_effect = (
+            3,
+            {"202": 3},
+            3,
+            2,
+            1,
+        )
         assertions.extend(
             [
                 {
@@ -545,7 +585,29 @@ def _strict_runtime_result(profile_id: str, repetition: int, *, variant=None):
                 {
                     "assertion_id": "I_slow_item_recovered",
                     "passed": False,
-                    "observed": True,
+                    "observed": {
+                        "closed": True,
+                        "state": "completed",
+                        "lease_epoch": 2,
+                    },
+                },
+                {
+                    "assertion_id": "I_timeout_closed_without_effect",
+                    "passed": False,
+                    "observed": {
+                        "state": "failed",
+                        "terminal_reason": "external_effect_not_found_after_timeout",
+                        "effect_expected": False,
+                    },
+                },
+                {
+                    "assertion_id": "I_healthy_completed",
+                    "passed": False,
+                    "observed": {
+                        "state": "completed",
+                        "terminal_reason": "runtime_terminal:success",
+                        "effect_expected": True,
+                    },
                 },
             ]
         )
@@ -700,6 +762,23 @@ def _strict_suite():
             else:
                 results.append(_strict_runtime_result(profile_id, repetition))
     return results
+
+
+def test_profile_i_strict_behavior_rejects_timeout_as_success_effect():
+    payload = _strict_runtime_result("I", 1)
+
+    assert s2_runtime.strict_profile_behavior(payload) is True
+
+    payload["strict_evidence"]["effect_accounting"].update(
+        {
+            "eligible_count": 3,
+            "eligible_exactly_once_count": 3,
+            "no_effect_expected_count": 0,
+            "no_effect_observed_count": 0,
+        }
+    )
+
+    assert s2_runtime.strict_profile_behavior(payload) is False
 
 
 def test_strict_s2_recalculation_ignores_passed_booleans_and_uses_raw_values():

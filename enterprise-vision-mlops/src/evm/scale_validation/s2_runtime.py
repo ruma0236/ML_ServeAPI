@@ -60,6 +60,12 @@ FULL_TRACE_NAMES = {
     "queue.dispatch",
     "airflow.rest",
 }
+TIMEOUT_FAILURE_TRACE_NAMES = {
+    "POST /control-panel/v1/tasks",
+    "queue.enqueue",
+    "task_queue.execute",
+    "airflow.rest",
+}
 CLAIM_BOUNDARY = (
     "Controlled external HTTP, PostgreSQL, process, Prometheus, OTLP, and one-GPU "
     "evidence on one local physical node. No customer traffic, production SLA, "
@@ -1408,7 +1414,12 @@ def merge_terminal_results(
     }
 
 
-def trace_summary(path: Path, offset: int, task_traces: Mapping[str, str]) -> dict[str, Any]:
+def trace_summary(
+    path: Path,
+    offset: int,
+    task_traces: Mapping[str, str],
+    required_names_by_task: Mapping[str, set[str]] | None = None,
+) -> dict[str, Any]:
     by_trace: dict[str, set[str]] = defaultdict(set)
     if not path.is_file():
         return {"task_count": len(task_traces), "complete_count": 0, "missing": len(task_traces)}
@@ -1428,10 +1439,14 @@ def trace_summary(path: Path, offset: int, task_traces: Mapping[str, str]) -> di
                     if trace_identity and name:
                         by_trace[trace_identity].add(name)
     task_names = {task_id: sorted(by_trace.get(identity, set())) for task_id, identity in task_traces.items()}
+    required_names = {
+        task_id: set((required_names_by_task or {}).get(task_id, FULL_TRACE_NAMES))
+        for task_id in task_traces
+    }
     complete = {
         task_id
         for task_id, names in task_names.items()
-        if FULL_TRACE_NAMES.issubset(set(names))
+        if required_names[task_id].issubset(set(names))
     }
     return {
         "task_count": len(task_traces),
@@ -1439,6 +1454,9 @@ def trace_summary(path: Path, offset: int, task_traces: Mapping[str, str]) -> di
         "missing": len(task_traces) - len(complete),
         "complete_task_ids": sorted(complete),
         "task_span_names": task_names,
+        "required_span_names": {
+            task_id: sorted(names) for task_id, names in required_names.items()
+        },
         "raw_tail_sha256": hashlib.sha256(raw).hexdigest(),
         "raw_tail_bytes": len(raw),
     }
@@ -1835,6 +1853,7 @@ def finalize_profile_scope(
     accepted: Mapping[str, str],
     terminal: Mapping[str, Any],
     trace_expected: Mapping[str, str],
+    trace_requirements: Mapping[str, set[str]] | None,
     effect_expected: set[str],
     no_effect_expected: set[str],
     assertions: list[dict[str, Any]],
@@ -1851,6 +1870,7 @@ def finalize_profile_scope(
         ),
         scope.trace_offset,
         trace_expected,
+        trace_requirements,
     )
     fixture = fixture_evidence(scope)
     api_sample = api_metrics(scope)
@@ -2868,13 +2888,21 @@ def run_profile_i(
     )
     healthy_terminal_at = rows.get(healthy_task, {}).get("terminal_at")
     timeout_terminal_at = rows.get(timeout_task, {}).get("terminal_at")
+    slow_row = dict(rows.get(slow_task, {}))
+    timeout_row = dict(rows.get(timeout_task, {}))
+    healthy_row = dict(rows.get(healthy_task, {}))
     return {
         "submissions": [slow_submission, follow_submission],
         "accepted": accepted,
         "terminal": terminal,
         "trace_expected": accepted,
-        "effect_expected": set(accepted),
-        "no_effect_expected": set(),
+        "trace_requirements": {
+            slow_task: set(FULL_TRACE_NAMES),
+            timeout_task: set(TIMEOUT_FAILURE_TRACE_NAMES),
+            healthy_task: set(FULL_TRACE_NAMES),
+        },
+        "effect_expected": {slow_task, healthy_task},
+        "no_effect_expected": {timeout_task},
         "assertions": [
             assertion(
                 "I_exact_worker_process_replaced",
@@ -2901,7 +2929,37 @@ def run_profile_i(
                     "timeout_terminal_at": timeout_terminal_at,
                 },
             ),
-            assertion("I_slow_item_recovered", bool(slow_terminal["closed"]), slow_terminal["closed"]),
+            assertion(
+                "I_slow_item_recovered",
+                bool(slow_terminal["closed"])
+                and slow_row.get("state") == "completed"
+                and int(slow_row.get("lease_epoch", 0)) >= 2,
+                {
+                    "closed": bool(slow_terminal["closed"]),
+                    "state": slow_row.get("state"),
+                    "lease_epoch": slow_row.get("lease_epoch"),
+                },
+            ),
+            assertion(
+                "I_timeout_closed_without_effect",
+                timeout_row.get("state") == "failed"
+                and timeout_row.get("terminal_reason")
+                == "external_effect_not_found_after_timeout",
+                {
+                    "state": timeout_row.get("state"),
+                    "terminal_reason": timeout_row.get("terminal_reason"),
+                    "effect_expected": False,
+                },
+            ),
+            assertion(
+                "I_healthy_completed",
+                healthy_row.get("state") == "completed",
+                {
+                    "state": healthy_row.get("state"),
+                    "terminal_reason": healthy_row.get("terminal_reason"),
+                    "effect_expected": True,
+                },
+            ),
         ],
         "input_sequence_sha256": payload_digest([slow, timeout_payload, healthy]),
         "extra": {"worker_replacement": replacement_identity, "heartbeat": heartbeat},
@@ -3056,6 +3114,7 @@ def run_profile_scope(
             accepted=result["accepted"],
             terminal=result["terminal"],
             trace_expected=result["trace_expected"],
+            trace_requirements=result.get("trace_requirements"),
             effect_expected=result["effect_expected"],
             no_effect_expected=result["no_effect_expected"],
             assertions=result["assertions"],
@@ -3324,6 +3383,11 @@ def strict_profile_behavior(payload: Mapping[str, Any]) -> bool:
         epoch = assertion_observation(payload, "I_lease_epoch_increased")
         ordering = assertion_observation(payload, "I_timeout_does_not_block_healthy")
         recovered = assertion_observation(payload, "I_slow_item_recovered")
+        timeout = assertion_observation(payload, "I_timeout_closed_without_effect")
+        healthy = assertion_observation(payload, "I_healthy_completed")
+        effects = dict(
+            payload.get("strict_evidence", {}).get("effect_accounting", {})
+        )
         return (
             isinstance(replacement, Mapping)
             and replacement.get("worker_identity_changed") is True
@@ -3335,7 +3399,22 @@ def strict_profile_behavior(payload: Mapping[str, Any]) -> bool:
             and bool(ordering.get("healthy_terminal_at"))
             and str(ordering.get("healthy_terminal_at"))
             < str(ordering.get("timeout_terminal_at"))
-            and recovered is True
+            and isinstance(recovered, Mapping)
+            and recovered.get("closed") is True
+            and recovered.get("state") == "completed"
+            and int(recovered.get("lease_epoch", 0)) >= 2
+            and isinstance(timeout, Mapping)
+            and timeout.get("state") == "failed"
+            and timeout.get("terminal_reason")
+            == "external_effect_not_found_after_timeout"
+            and timeout.get("effect_expected") is False
+            and isinstance(healthy, Mapping)
+            and healthy.get("state") == "completed"
+            and healthy.get("effect_expected") is True
+            and int(effects.get("eligible_count", -1)) == 2
+            and int(effects.get("eligible_exactly_once_count", -1)) == 2
+            and int(effects.get("no_effect_expected_count", -1)) == 1
+            and int(effects.get("no_effect_observed_count", -1)) == 1
         )
     if profile_id == "J":
         routed = assertion_observation(payload, "J_existing_gpu_profile_routed_gpu")

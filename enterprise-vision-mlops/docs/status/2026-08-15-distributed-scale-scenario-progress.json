@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T04:41:22.389871Z",
+  "generated_at": "2026-08-17T05:19:47.579355Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1488,6 +1488,13 @@
           "phase": "recovery",
           "status": "implementing",
           "summary": "The clean 9db0f56 A-J rerun stopped fail-closed after F repetition three: the PostgreSQL-clock-minus-one-second expiry fixture was still future-dated relative to the worker clock, so the intended expired item completed and emitted an external effect. Eighteen completed repetitions and cleanup were retained outside Git with RCA. The injection now selects the earlier PostgreSQL/worker clock minus a fixed ten-second margin and records both clocks, delta, deadline, and margin; 46 focused and real-PostgreSQL tests passed. A clean F x3 preflight and full A-J x3 rerun remain required.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-17T05:19:47.579355Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "The clean 48b5742 rerun passed A through H for 24 profile repetitions and then stopped fail-closed at I repetition one. Worker replacement, epoch-two recovery, slow and healthy exactly-once effects, explicit timeout failure without an effect, PostgreSQL/JSON parity, Prometheus targets, and cleanup all succeeded. The evidence runner incorrectly classified the timeout closure as a success-effect and full-success-trace obligation. Private RCA was retained; the runner now separates success and timeout-failure effect/trace contracts. An independent I x3 preflight and a fresh complete A-J x3 run remain required, so no S2 acceptance credit is awarded.",
           "evidence_refs": []
         }
       ]
