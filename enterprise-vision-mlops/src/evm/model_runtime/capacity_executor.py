@@ -173,7 +173,7 @@ class CapacityProbeExecutor:
     async def execute_async(
         self, request: CapacityProbeRequest
     ) -> CapacityProbeResponse:
-        admitted = self._admit(request)
+        admitted = await self._admit_async(request)
         try:
             worker_result = await asyncio.wait_for(
                 asyncio.shield(asyncio.wrap_future(admitted.future)),
@@ -192,15 +192,7 @@ class CapacityProbeExecutor:
 
     def _admit(self, request: CapacityProbeRequest) -> _AdmittedWork:
         request_bytes = _canonical_request_bytes(request)
-        if request_bytes > self.config.max_request_bytes:
-            CAPACITY_EXECUTOR_ADMISSION_TOTAL.labels(
-                outcome="rejected", reason="item_bytes"
-            ).inc()
-            raise CapacityProbeError(
-                "capacity_request_too_large",
-                "Canonical S3 capacity request exceeds the per-item byte bound.",
-                status_code=413,
-            )
+        self._assert_item_size(request_bytes)
 
         admission_started = time.perf_counter()
         with trace_span(
@@ -220,15 +212,67 @@ class CapacityProbeExecutor:
             admission_span.set_attribute("evm.admission_wait_seconds", admission_wait)
             if not acquired:
                 self._reject_capacity("count")
-            with self._lock:
-                outstanding_bytes = self._queued_bytes + self._in_flight_bytes
-                if outstanding_bytes + request_bytes > self.config.max_outstanding_bytes:
-                    self._permits.release()
-                    self._reject_capacity("bytes")
-                self._queued_count += 1
-                self._queued_bytes += request_bytes
-                self._publish_state_locked()
+            self._reserve_bytes(request_bytes)
 
+        return self._submit(request, request_bytes, admission_wait)
+
+    async def _admit_async(self, request: CapacityProbeRequest) -> _AdmittedWork:
+        request_bytes = _canonical_request_bytes(request)
+        self._assert_item_size(request_bytes)
+        admission_started = time.perf_counter()
+        deadline = admission_started + self.config.admission_wait_seconds
+        with trace_span(
+            "s3.capacity.admission",
+            kind="producer",
+            attributes={
+                "evm.stage": "admission",
+                "evm.probe_family": request.probe_family,
+                "evm.request_bytes": request_bytes,
+            },
+        ) as admission_span:
+            acquired = self._permits.acquire(blocking=False)
+            while not acquired and time.perf_counter() < deadline:
+                await asyncio.sleep(
+                    min(0.001, max(0.0, deadline - time.perf_counter()))
+                )
+                acquired = self._permits.acquire(blocking=False)
+            admission_wait = time.perf_counter() - admission_started
+            CAPACITY_EXECUTOR_ADMISSION_WAIT_SECONDS.observe(admission_wait)
+            admission_span.set_attribute("evm.admission_wait_seconds", admission_wait)
+            if not acquired:
+                self._reject_capacity("count")
+            self._reserve_bytes(request_bytes)
+
+        return self._submit(request, request_bytes, admission_wait)
+
+    def _assert_item_size(self, request_bytes: int) -> None:
+        if request_bytes <= self.config.max_request_bytes:
+            return
+        CAPACITY_EXECUTOR_ADMISSION_TOTAL.labels(
+            outcome="rejected", reason="item_bytes"
+        ).inc()
+        raise CapacityProbeError(
+            "capacity_request_too_large",
+            "Canonical S3 capacity request exceeds the per-item byte bound.",
+            status_code=413,
+        )
+
+    def _reserve_bytes(self, request_bytes: int) -> None:
+        with self._lock:
+            outstanding_bytes = self._queued_bytes + self._in_flight_bytes
+            if outstanding_bytes + request_bytes > self.config.max_outstanding_bytes:
+                self._permits.release()
+                self._reject_capacity("bytes")
+            self._queued_count += 1
+            self._queued_bytes += request_bytes
+            self._publish_state_locked()
+
+    def _submit(
+        self,
+        request: CapacityProbeRequest,
+        request_bytes: int,
+        admission_wait: float,
+    ) -> _AdmittedWork:
         accepted_at = time.perf_counter()
         parent = current_trace_context()
         future = self._pool.submit(

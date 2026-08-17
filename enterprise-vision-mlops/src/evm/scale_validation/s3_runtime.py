@@ -874,6 +874,7 @@ async def run_load_phase(
     started_monotonic = time.perf_counter()
     started_utc = utc_now()
     request_index = 0
+    planned_request_count: int | None = None
     request_index_lock = asyncio.Lock()
 
     async def next_index() -> int:
@@ -914,26 +915,19 @@ async def run_load_phase(
         elif point.mode == "open":
             rate = float(point.load)
             planned = max(1, int(math.floor(rate * duration_seconds)))
-            permits = asyncio.Semaphore(client_max_in_flight)
+            planned_request_count = planned
+            phase_deadline = started_monotonic + duration_seconds
             tasks: set[asyncio.Task[dict[str, Any]]] = set()
 
-            async def open_request(index: int, scheduled_at: float) -> dict[str, Any]:
-                permit_started = time.perf_counter()
-                await permits.acquire()
-                permit_wait = time.perf_counter() - permit_started
-                try:
-                    return await _send_capacity_request(
-                        client=client,
-                        base_url=replicas[index % len(replicas)].base_url,
-                        body=payloads.body(index),
-                        run_id=run_id,
-                        request_index=index,
-                        phase_started=started_monotonic,
-                        scheduled_at=scheduled_at,
-                        load_generator_permit_wait_seconds=permit_wait,
-                    )
-                finally:
-                    permits.release()
+            async def record_completed(
+                completed: set[asyncio.Task[dict[str, Any]]],
+            ) -> None:
+                for task in completed:
+                    observation = task.result()
+                    if capture:
+                        observations.append(observation)
+                        if observation["trace_sampled"]:
+                            expected_sampled_traces.add(observation["trace_id"])
 
             for index in range(planned):
                 if stop.event.is_set():
@@ -942,20 +936,40 @@ async def run_load_phase(
                 delay = target - time.perf_counter()
                 if delay > 0:
                     await asyncio.sleep(delay)
-                task = asyncio.create_task(open_request(index, target))
+                if time.perf_counter() >= phase_deadline:
+                    break
+                permit_started = time.perf_counter()
+                while len(tasks) >= client_max_in_flight:
+                    completed, tasks = await asyncio.wait(
+                        tasks,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    await record_completed(completed)
+                    if time.perf_counter() >= phase_deadline:
+                        break
+                if time.perf_counter() >= phase_deadline:
+                    break
+                permit_wait = time.perf_counter() - permit_started
+                task = asyncio.create_task(
+                    _send_capacity_request(
+                        client=client,
+                        base_url=replicas[index % len(replicas)].base_url,
+                        body=payloads.body(index),
+                        run_id=run_id,
+                        request_index=index,
+                        phase_started=started_monotonic,
+                        scheduled_at=target,
+                        load_generator_permit_wait_seconds=permit_wait,
+                    )
+                )
                 tasks.add(task)
-                task.add_done_callback(tasks.discard)
+                request_index += 1
             while tasks:
-                completed, _ = await asyncio.wait(
+                completed, tasks = await asyncio.wait(
                     tasks,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-                if capture:
-                    for task in completed:
-                        observation = task.result()
-                        observations.append(observation)
-                        if observation["trace_sampled"]:
-                            expected_sampled_traces.add(observation["trace_id"])
+                await record_completed(completed)
         else:
             raise S3RuntimeError(f"s3_load_mode_invalid:{point.mode}")
 
@@ -966,6 +980,12 @@ async def run_load_phase(
         "declared_duration_seconds": duration_seconds,
         "observed_elapsed_seconds": finished_monotonic - started_monotonic,
         "request_count": request_index,
+        "planned_request_count": planned_request_count,
+        "unscheduled_request_count": (
+            max(0, planned_request_count - request_index)
+            if planned_request_count is not None
+            else 0
+        ),
         "observations": observations,
         "expected_sampled_trace_ids": sorted(expected_sampled_traces),
         "stopped": stop.event.is_set(),
@@ -1165,11 +1185,20 @@ def summarize_load_phase(phase: Mapping[str, Any]) -> dict[str, Any]:
         "declared_duration_seconds": duration,
         "observed_elapsed_seconds": float(phase["observed_elapsed_seconds"]),
         "request_count": len(observations),
+        "planned_request_count": phase.get("planned_request_count"),
+        "unscheduled_request_count": int(
+            phase.get("unscheduled_request_count", 0)
+        ),
         "status_counts": {str(key): value for key, value in sorted(statuses.items())},
         "successful_count": len(successful),
         "successful_within_window": len(completed_in_window),
         "service_rate_per_second": len(completed_in_window) / duration,
         "offered_rate_per_second": len(observations) / duration,
+        "target_arrival_rate_per_second": (
+            int(phase["planned_request_count"]) / duration
+            if phase.get("planned_request_count") is not None
+            else None
+        ),
         "error_rate": (
             (len(observations) - len(successful)) / len(observations)
             if observations
@@ -1740,6 +1769,9 @@ def evaluate_point_guardrails(
                 dict(load.get("start_lag_ms", {})).get("p99", math.inf)
             )
             <= config.maximum_load_generator_start_lag_ms
+        ),
+        "load_generator_schedule_complete": (
+            int(load.get("unscheduled_request_count", 0)) == 0
         ),
     }
     return {

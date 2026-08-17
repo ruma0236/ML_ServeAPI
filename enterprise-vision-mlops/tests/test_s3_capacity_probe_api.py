@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import threading
@@ -13,7 +14,7 @@ from fastapi.testclient import TestClient
 from pydantic import TypeAdapter, ValidationError
 
 from apps.api.control_panel_workloads import router
-from evm.control_panel.scenario_workloads import WorkloadModelFamily
+from evm.control_panel.scenario_workloads import CapacityProbeRequest, WorkloadModelFamily
 from evm.model_runtime import capacity_executor
 from evm.model_runtime.capacity_probe import clear_capacity_probe_cache
 from evm.model_runtime.capacity_executor import shutdown_capacity_probe_executor
@@ -286,6 +287,56 @@ def test_capacity_executor_returns_bounded_429_with_retry_after(
     assert pressure.headers["Retry-After"] == "1"
     assert pressure.json()["detail"]["error"] == "capacity_executor_saturated"
     assert completed.status_code == 200
+
+
+def test_async_admission_wait_does_not_block_the_event_loop(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    registry_path, dataset_identity = _install_registry(tmp_path)
+    monkeypatch.setenv("EVM_S3_CAPACITY_REGISTRY_PATH", str(registry_path))
+    monkeypatch.setenv("EVM_S3_CAPACITY_CPU_WORKERS", "1")
+    monkeypatch.setenv("EVM_S3_CAPACITY_MAX_OUTSTANDING", "1")
+    monkeypatch.setenv("EVM_S3_CAPACITY_ADMISSION_WAIT_SECONDS", "0.05")
+    clear_capacity_probe_cache()
+    started = threading.Event()
+    release = threading.Event()
+    original = capacity_executor.run_capacity_probe
+
+    def slow_probe(request):
+        started.set()
+        assert release.wait(timeout=5)
+        return original(request)
+
+    monkeypatch.setattr(capacity_executor, "run_capacity_probe", slow_probe)
+    request = CapacityProbeRequest(
+        probe_family="logistic",
+        dataset_identity_sha256=dataset_identity,
+        features=[0.0] * 28,
+    )
+
+    async def exercise() -> float:
+        accepted = asyncio.create_task(
+            capacity_executor.execute_capacity_probe_async(request)
+        )
+        while not started.is_set():
+            await asyncio.sleep(0.001)
+        pressure = asyncio.create_task(
+            capacity_executor.execute_capacity_probe_async(request)
+        )
+        ticker_started = time.perf_counter()
+        await asyncio.sleep(0.01)
+        ticker_elapsed = time.perf_counter() - ticker_started
+        with pytest.raises(capacity_executor.CapacityProbeError) as failure:
+            await pressure
+        assert failure.value.status_code == 429
+        release.set()
+        await accepted
+        return ticker_elapsed
+
+    ticker_elapsed = asyncio.run(exercise())
+
+    assert ticker_elapsed < 0.04
 
 
 def test_capacity_executor_rejects_oversized_canonical_item_before_execution(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -14,10 +15,12 @@ from evm.scale_validation.s3_runtime import (
     PROBE_FAMILIES,
     REQUIRED_TRACE_SPANS,
     ReplayPayloadFactory,
+    S3LoadPoint,
     S3RuntimeConfig,
     S3RuntimeError,
     otlp_trace_summary,
     recalculate_s2_capacity,
+    run_load_phase,
     summarize_load_phase,
     verify_runtime_identity,
 )
@@ -175,6 +178,80 @@ def test_load_summary_uses_fixed_measurement_window() -> None:
     assert summary["successful_count"] == 2
     assert summary["successful_within_window"] == 1
     assert summary["service_rate_per_second"] == pytest.approx(0.1)
+
+
+def test_open_arrival_records_each_task_once_and_bounds_pending(
+    monkeypatch,
+) -> None:
+    active = 0
+    peak = 0
+
+    async def fake_send(**kwargs):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        index = kwargs["request_index"]
+        return {
+            "request_index": index,
+            "status_code": 200,
+            "transport_error": None,
+            "started_offset_seconds": 0,
+            "completed_offset_seconds": 0.01,
+            "latency_ms": 10,
+            "start_lag_ms": 0,
+            "load_generator_permit_wait_ms": 0,
+            "retry_after": None,
+            "trace_id": f"{index:032x}",
+            "trace_sampled": index == 0,
+            "response_trace_id": f"{index:032x}",
+            "trace_identity_matches": True,
+            "server_timings": {},
+            "runtime": {},
+            "error_code": None,
+        }
+
+    monkeypatch.setattr(
+        "evm.scale_validation.s3_runtime._send_capacity_request",
+        fake_send,
+    )
+
+    class Payloads:
+        @staticmethod
+        def body(index: int) -> bytes:
+            return str(index).encode("ascii")
+
+    phase = asyncio.run(
+        run_load_phase(
+            point=S3LoadPoint(
+                mode="open",
+                probe_family="logistic",
+                load=100.0,
+                api_replicas=1,
+                cpu_workers=1,
+                matrix_scope="baseline",
+            ),
+            replicas=[type("Replica", (), {"base_url": "http://unused"})()],
+            payloads=Payloads(),
+            run_id="test-open",
+            duration_seconds=0.1,
+            client_max_in_flight=2,
+            request_timeout_seconds=1,
+            stop=type("Stop", (), {"event": asyncio.Event(), "reason": None})(),
+            capture=True,
+        )
+    )
+
+    assert phase["planned_request_count"] == 10
+    assert (
+        phase["request_count"] + phase["unscheduled_request_count"]
+    ) == phase["planned_request_count"]
+    assert len(phase["observations"]) == phase["request_count"]
+    assert len({item["request_index"] for item in phase["observations"]}) == phase[
+        "request_count"
+    ]
+    assert peak <= 2
 
 
 def test_otlp_trace_summary_requires_full_cross_thread_chain(tmp_path: Path) -> None:
