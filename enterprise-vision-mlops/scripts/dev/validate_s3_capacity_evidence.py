@@ -44,7 +44,16 @@ def parse_args() -> argparse.Namespace:
 def load_evidence(path: Path, git_revision: str | None) -> bytes:
     if not git_revision:
         return path.read_bytes()
-    relative = path.resolve().relative_to(ROOT).as_posix()
+    git_root = Path(
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    ).resolve()
+    relative = path.resolve().relative_to(git_root).as_posix()
     return subprocess.run(
         ["git", "show", f"{git_revision}:{relative}"],
         cwd=ROOT,

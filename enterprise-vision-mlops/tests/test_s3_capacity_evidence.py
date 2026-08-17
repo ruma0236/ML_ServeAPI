@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -69,3 +71,23 @@ def test_s3_public_capacity_evidence_mutations_fail_closed(
 
     with pytest.raises(S3EvidenceValidationError):
         validate_s3_capacity_evidence(mutated, config=config)
+
+
+def test_s3_validator_rehashes_actual_git_blob() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/dev/validate_s3_capacity_evidence.py",
+            "--git-revision",
+            "HEAD",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["hash_source"] == "HEAD"
+    assert payload["point_result_count"] == 111
