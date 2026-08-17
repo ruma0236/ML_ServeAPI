@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from copy import deepcopy
 
@@ -21,6 +22,7 @@ from evm.scale_validation.s2_runtime import (
     aggregate_acceptance,
     build_task_payload,
     executor_process_tree_rss_peak,
+    injected_expired_deadline,
     merge_histogram_summaries,
     merge_terminal_results,
     payload_digest,
@@ -36,6 +38,36 @@ from evm.scale_validation.s2_runtime import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_expiry_injection_is_past_both_worker_and_database_clocks():
+    worker_now = datetime(2026, 8, 17, 4, 37, 24, tzinfo=UTC)
+    database_now = worker_now + timedelta(seconds=3)
+
+    deadline = injected_expired_deadline(
+        worker_now=worker_now,
+        database_now=database_now,
+        safety_margin_seconds=10,
+    )
+
+    assert deadline == worker_now - timedelta(seconds=10)
+    assert deadline < worker_now
+    assert deadline < database_now
+
+
+def test_expiry_injection_handles_database_clock_behind_worker():
+    worker_now = datetime(2026, 8, 17, 4, 37, 24, tzinfo=UTC)
+    database_now = worker_now - timedelta(seconds=4)
+
+    deadline = injected_expired_deadline(
+        worker_now=worker_now,
+        database_now=database_now,
+        safety_margin_seconds=10,
+    )
+
+    assert deadline == database_now - timedelta(seconds=10)
+    assert deadline < worker_now
+    assert deadline < database_now
 
 
 def test_s2_entrypoint_pins_repository_local_runtime_module(tmp_path):

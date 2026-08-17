@@ -13,7 +13,7 @@ import tomllib
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 from uuid import uuid4
@@ -661,22 +661,52 @@ def database_snapshot(database_url: str, schema: str) -> dict[str, Any]:
     }
 
 
-def expire_task(database_url: str, schema: str, task_id: str) -> None:
+def injected_expired_deadline(
+    *,
+    worker_now: datetime,
+    database_now: datetime,
+    safety_margin_seconds: float = 10.0,
+) -> datetime:
+    if worker_now.tzinfo is None or database_now.tzinfo is None:
+        raise ValueError("expiry_injection_requires_timezone_aware_clocks")
+    if safety_margin_seconds <= 0:
+        raise ValueError("expiry_injection_safety_margin_must_be_positive")
+    return min(worker_now, database_now) - timedelta(seconds=safety_margin_seconds)
+
+
+def expire_task(database_url: str, schema: str, task_id: str) -> dict[str, Any]:
     import psycopg
 
     schema_identifier(schema)
+    worker_now = datetime.now(UTC)
     with psycopg.connect(database_url) as connection:
-        updated = connection.execute(
+        database_now = connection.execute("SELECT clock_timestamp()").fetchone()[0]
+        deadline_at = injected_expired_deadline(
+            worker_now=worker_now,
+            database_now=database_now,
+        )
+        row = connection.execute(
             f"""
             UPDATE {schema}.task_admission_queue
-            SET deadline_at=clock_timestamp() - interval '1 second'
+            SET deadline_at=%s, updated_at=clock_timestamp()
             WHERE task_id=%s AND state='available'
+            RETURNING deadline_at
             """,
-            (task_id,),
-        ).rowcount
+            (deadline_at, task_id),
+        ).fetchone()
         connection.commit()
-    if updated != 1:
+    if row is None:
         raise RuntimeError("expiry_injection_identity_mismatch")
+    persisted_deadline = row[0]
+    if persisted_deadline > worker_now or persisted_deadline > database_now:
+        raise RuntimeError("expiry_injection_not_past_both_clocks")
+    return {
+        "worker_now": worker_now.isoformat(),
+        "database_now": database_now.isoformat(),
+        "deadline_at": persisted_deadline.isoformat(),
+        "clock_delta_seconds": (database_now - worker_now).total_seconds(),
+        "safety_margin_seconds": 10.0,
+    }
 
 
 def metric_samples(text: str) -> dict[str, list[dict[str, Any]]]:
@@ -2529,7 +2559,7 @@ def run_profile_f(
     if len(expired) != 1:
         raise RuntimeError("F_expiry_item_not_accepted")
     expired_task = next(iter(expired))
-    expire_task(scope.database_url, scope.schema, expired_task)
+    expiry_injection = expire_task(scope.database_url, scope.schema, expired_task)
     start_worker_and_monitoring(scope, matrix)
     expired_terminal = wait_for_terminal(
         scope,
@@ -2568,6 +2598,7 @@ def run_profile_f(
                 {
                     "state": expired_row.get("state"),
                     "terminal_reason": expired_row.get("terminal_reason"),
+                    "injection": expiry_injection,
                 },
             ),
             assertion(
@@ -2577,6 +2608,7 @@ def run_profile_f(
             ),
         ],
         "input_sequence_sha256": payload_digest(payloads),
+        "extra": {"expiry_injection": expiry_injection},
     }
 
 

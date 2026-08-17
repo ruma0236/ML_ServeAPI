@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T04:14:09.495721Z",
+  "generated_at": "2026-08-17T04:41:22.389871Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1481,6 +1481,13 @@
           "phase": "experiment",
           "status": "implementing",
           "summary": "At clean revision 1e49f81, the independent E/G/H preflight passed all nine profile repetitions. Every E run retained 520 queue-wait observations and exactly-once identity closure, every G run measured bounded retry delay and retry-budget DLQ closure with CPU downstream outstanding at four of eight, every H run isolated poison work while healthy work completed, and every isolated schema/process cleanup passed. This partial matrix receives no S2 acceptance credit; the full clean A-J x3 matrix remains required.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-17T04:41:22.389871Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "The clean 9db0f56 A-J rerun stopped fail-closed after F repetition three: the PostgreSQL-clock-minus-one-second expiry fixture was still future-dated relative to the worker clock, so the intended expired item completed and emitted an external effect. Eighteen completed repetitions and cleanup were retained outside Git with RCA. The injection now selects the earlier PostgreSQL/worker clock minus a fixed ten-second margin and records both clocks, delta, deadline, and margin; 46 focused and real-PostgreSQL tests passed. A clean F x3 preflight and full A-J x3 rerun remain required.",
           "evidence_refs": []
         }
       ]
