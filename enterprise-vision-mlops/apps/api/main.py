@@ -54,6 +54,7 @@ from evm.control_panel.transactional_store import (
     get_transactional_store,
 )
 from evm.operations.metrics import OperationalMetrics, load_metric_projection
+from evm.model_runtime.capacity_executor import shutdown_capacity_probe_executor
 
 
 APP_NAME = os.getenv("APP_NAME", "enterprise-vision-mlops-api")
@@ -286,6 +287,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        shutdown_capacity_probe_executor()
         shutdown_tracing()
 
 

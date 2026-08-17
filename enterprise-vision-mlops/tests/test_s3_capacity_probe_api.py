@@ -2,15 +2,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import TypeAdapter, ValidationError
 
 from apps.api.control_panel_workloads import router
 from evm.control_panel.scenario_workloads import WorkloadModelFamily
+from evm.model_runtime import capacity_executor
 from evm.model_runtime.capacity_probe import clear_capacity_probe_cache
+from evm.model_runtime.capacity_executor import shutdown_capacity_probe_executor
 
 
 FAMILIES = (
@@ -27,6 +33,13 @@ MODEL_TYPES = {
     "branch-heavy": "decision_tree",
     "incremental": "linear_logit",
 }
+
+
+@pytest.fixture(autouse=True)
+def _reset_capacity_executor():
+    shutdown_capacity_probe_executor()
+    yield
+    shutdown_capacity_probe_executor()
 
 
 def _json_bytes(value: object) -> bytes:
@@ -167,6 +180,15 @@ def test_capacity_catalog_and_all_probe_families_are_backward_compatible(
         assert payload["prediction"] in {0, 1}
         assert 0 <= payload["positive_probability"] <= 1
         assert payload["timings"]["total_ms"] >= payload["timings"]["prediction_ms"]
+        assert payload["timings"]["compute_ms"] >= payload["timings"]["prediction_ms"]
+        assert payload["timings"]["queue_wait_ms"] >= 0
+        assert payload["runtime"] == {
+            "api_replica_id": "replica-0",
+            "cpu_worker_count": 1,
+            "worker_slot": 0,
+            "canonical_request_bytes": payload["runtime"]["canonical_request_bytes"],
+        }
+        assert payload["runtime"]["canonical_request_bytes"] > 0
 
     try:
         TypeAdapter(WorkloadModelFamily).validate_python("tabular")
@@ -221,3 +243,106 @@ def test_capacity_probe_fails_closed_when_artifact_bytes_change(
 
     assert response.status_code == 503
     assert response.json()["detail"]["error"] == "capacity_probe_artifact_digest_mismatch"
+
+
+def test_capacity_executor_returns_bounded_429_with_retry_after(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EVM_S3_CAPACITY_CPU_WORKERS", "1")
+    monkeypatch.setenv("EVM_S3_CAPACITY_MAX_OUTSTANDING", "1")
+    monkeypatch.setenv("EVM_S3_CAPACITY_ADMISSION_WAIT_SECONDS", "0.01")
+    client, dataset_identity = _client(tmp_path, monkeypatch)
+    started = threading.Event()
+    release = threading.Event()
+    original = capacity_executor.run_capacity_probe
+
+    def slow_probe(request):
+        started.set()
+        assert release.wait(timeout=5)
+        return original(request)
+
+    monkeypatch.setattr(capacity_executor, "run_capacity_probe", slow_probe)
+    payload = {
+        "probe_family": "logistic",
+        "dataset_identity_sha256": dataset_identity,
+        "features": [0.0] * 28,
+    }
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        accepted = pool.submit(
+            client.post,
+            "/control-panel/v1/scenario-workloads/capacity-probes/predict",
+            json=payload,
+        )
+        assert started.wait(timeout=5)
+        pressure = client.post(
+            "/control-panel/v1/scenario-workloads/capacity-probes/predict",
+            json=payload,
+        )
+        release.set()
+        completed = accepted.result(timeout=5)
+
+    assert pressure.status_code == 429
+    assert pressure.headers["Retry-After"] == "1"
+    assert pressure.json()["detail"]["error"] == "capacity_executor_saturated"
+    assert completed.status_code == 200
+
+
+def test_capacity_executor_rejects_oversized_canonical_item_before_execution(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EVM_S3_CAPACITY_MAX_REQUEST_BYTES", "256")
+    client, dataset_identity = _client(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/control-panel/v1/scenario-workloads/capacity-probes/predict",
+        json={
+            "probe_family": "logistic",
+            "dataset_identity_sha256": dataset_identity,
+            "features": [0.0] * 28,
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["error"] == "capacity_request_too_large"
+
+
+def test_capacity_executor_timeout_releases_capacity_after_worker_finishes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EVM_S3_CAPACITY_CPU_WORKERS", "1")
+    monkeypatch.setenv("EVM_S3_CAPACITY_MAX_OUTSTANDING", "1")
+    monkeypatch.setenv("EVM_S3_CAPACITY_REQUEST_TIMEOUT_SECONDS", "0.1")
+    client, dataset_identity = _client(tmp_path, monkeypatch)
+    original = capacity_executor.run_capacity_probe
+    call_count = 0
+
+    def timeout_once(request):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            time.sleep(0.2)
+        return original(request)
+
+    monkeypatch.setattr(capacity_executor, "run_capacity_probe", timeout_once)
+    payload = {
+        "probe_family": "logistic",
+        "dataset_identity_sha256": dataset_identity,
+        "features": [0.0] * 28,
+    }
+
+    timed_out = client.post(
+        "/control-panel/v1/scenario-workloads/capacity-probes/predict",
+        json=payload,
+    )
+    time.sleep(0.15)
+    healthy = client.post(
+        "/control-panel/v1/scenario-workloads/capacity-probes/predict",
+        json=payload,
+    )
+
+    assert timed_out.status_code == 504
+    assert timed_out.json()["detail"]["error"] == "capacity_execution_timeout"
+    assert healthy.status_code == 200

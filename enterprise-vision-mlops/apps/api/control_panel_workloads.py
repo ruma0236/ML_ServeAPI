@@ -23,8 +23,8 @@ from evm.control_panel.scenario_workloads import (
 from evm.model_runtime.capacity_probe import (
     CapacityProbeError,
     load_capacity_probe_catalog,
-    run_capacity_probe,
 )
+from evm.model_runtime.capacity_executor import execute_capacity_probe_async
 from evm.control_panel.scenario_workload_control import (
     ScenarioWorkloadApprovalRequest,
     ScenarioWorkloadLaunchRequest,
@@ -220,10 +220,17 @@ def scenario_capacity_probe_catalog() -> CapacityProbeCatalog:
     "/scenario-workloads/capacity-probes/predict",
     response_model=CapacityProbeResponse,
 )
-def predict_scenario_capacity_probe(
+async def predict_scenario_capacity_probe(
     request: CapacityProbeRequest,
 ) -> CapacityProbeResponse:
-    return capacity_probe_operation(lambda: run_capacity_probe(request))
+    try:
+        return await execute_capacity_probe_async(request)
+    except CapacityProbeError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": str(exc)},
+            headers=exc.headers,
+        ) from exc
 
 
 @router.get("/scenario-workloads/{run_id}", response_model=ScenarioWorkloadRunView)
@@ -254,6 +261,7 @@ def capacity_probe_operation(operation):
         raise HTTPException(
             status_code=exc.status_code,
             detail={"error": exc.code, "message": str(exc)},
+            headers=exc.headers,
         ) from exc
 
 

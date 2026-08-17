@@ -125,10 +125,22 @@ class CapacityProbeRequest(ContractModel):
 class CapacityProbeStageTimings(ContractModel):
     model_config = ConfigDict(extra="forbid")
 
+    admission_wait_ms: float = Field(default=0, ge=0)
+    queue_wait_ms: float = Field(default=0, ge=0)
     validation_ms: float = Field(ge=0)
     transform_ms: float = Field(ge=0)
     prediction_ms: float = Field(ge=0)
+    compute_ms: float = Field(default=0, ge=0)
     total_ms: float = Field(ge=0)
+
+
+class CapacityProbeRuntime(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    api_replica_id: str = Field(min_length=1, max_length=64)
+    cpu_worker_count: int = Field(ge=1, le=64)
+    worker_slot: int = Field(ge=0, le=63)
+    canonical_request_bytes: int = Field(ge=1)
 
 
 class CapacityProbeResponse(ContractModel):
@@ -143,6 +155,7 @@ class CapacityProbeResponse(ContractModel):
     prediction: Literal[0, 1]
     positive_probability: float = Field(ge=0, le=1)
     timings: CapacityProbeStageTimings
+    runtime: CapacityProbeRuntime | None = None
 
 
 class CapacityProbeDescriptor(ContractModel):
