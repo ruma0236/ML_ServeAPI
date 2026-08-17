@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T08:58:07Z`
+- Generated: `2026-08-17T10:05:25Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -350,6 +350,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s3-capacity-experiment-attempt-01.json` (`ea6a2ec373c88ae5412363f8fc65a125df0a7163c6c6982982f9937311c6a82c`): The first full matrix attempt retained 30 point repetitions and stopped fail closed on an overly strict transport-error assertion; the RCA pilot separated measured errors from evidence identity without granting acceptance credit.
 - `docs/status/evidence/s3-capacity-experiment-attempt-02.json` (`2fd4396c464888c009688edf4407289780aaa0724627173deb310387e0ce406d`): The second full matrix attempt retained 21 point repetitions and stopped on an incomplete OTLP exporter tail; bounded polling closed 52/52 sampled traces in a three-repetition RCA pilot without granting acceptance credit.
 - `docs/status/evidence/s3-capacity-experiment-attempt-03.json` (`62f68e276b67c7a3149fcdf91d331ef317b4aeccd3bc60292fbf5c4e7d8455c5`): The third attempt retained the Windows shutdown trace-loss failure; pre-stop bounded export closure then completed 34/34 sampled chains across a three-repetition RCA pilot.
+- `docs/status/evidence/s3-capacity-experiment-attempt-04.json` (`77b3d23475b0bf75a4f3a109e527cb8cc3354a6b4b1e0193595f51c48cbdb845`): The fourth attempt retained 85 point repetitions and exposed an outcome-insensitive trace assertion; a three-repetition overload pilot then closed full, admission, and client-only contracts separately.
 
 ### Chronological Updates
 
@@ -362,6 +363,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-17T08:29:41Z` `experiment` / `implementing`: The first full frozen-matrix attempt stopped after 30 point repetitions when one transport error in 2,984 observations failed an absolute-zero assertion. The failed aggregate and private hash were retained. The runner now keeps transport failures in the error-rate curve, requires client identity for every attempt and response trace identity for every server response, and a three-repetition same-point RCA pilot passed all evidence assertions. Full acceptance remains pending and must restart from a clean revision.
 - `2026-08-17T08:51:24Z` `experiment` / `implementing`: The second full attempt stopped after 21 point repetitions because 4 of 52 sampled traces were absent from a one-shot OTLP tail read despite complete API identities and cleanup. The frozen runtime now uses bounded polling rather than a fixed sleep; the same point then completed 52/52 sampled traces in three independent RCA repetitions with at most 0.27 seconds flush wait. No acceptance credit is carried forward, and the full matrix must restart from the clean fix revision.
 - `2026-08-17T08:58:07Z` `experiment` / `implementing`: The third full attempt stopped after two repetitions because Windows terminated the API before two sampled trace chains were exported; a post-stop poll could not recover dropped BatchSpanProcessor data. Trace closure now runs against the live API before process termination and final tail rehash. A three-repetition same-point pilot completed 34/34 chains each time with exact cleanup. Full acceptance remains pending.
+- `2026-08-17T10:05:25Z` `experiment` / `implementing`: The fourth full attempt reached 85 valid point repetitions before a topology overload mixed successful, admission-rejected, and transport-only outcomes. The prior assertion incorrectly required the full execution chain for all three. Outcome-aware contracts now require six spans for 200, route plus admission spans for server rejection, and client identity only for transport failure. A three-repetition same-point pilot closed every applicable contract while preserving error and saturation metrics. Full acceptance remains pending.
 
 ## S4: HIGGS Tiny MLP GPU Batching
 

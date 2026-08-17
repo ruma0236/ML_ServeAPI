@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T08:58:07Z",
+  "generated_at": "2026-08-17T10:05:25Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1571,7 +1571,8 @@
         "At clean revision 6f43d87, the external S3 runner started the existing FastAPI Workloads API, an isolated Prometheus target, the running OTLP collector, a bounded CPU executor, and a co-located measured load generator. A 15-second closed-concurrency pilot completed 3,371 requests at 224.67 requests/second with zero errors, p99 12.50 ms, 34/34 complete sampled six-span traces, nonzero API/load-generator resource telemetry, terminal drain, and exact cleanup.",
         "The first frozen-matrix attempt stopped fail closed after 30 point repetitions because one transport error among 2,984 observations was treated as evidence corruption instead of a measured 0.034% error. The failed aggregate and private-evidence hash are retained. The assertion contract now requires deterministic client identity for every attempt and exact W3C response identity for every server response while preserving transport errors in the guardrail curve. A three-repetition RCA pilot at the same point passed all evidence assertions; this does not count as S3 acceptance.",
         "The second full attempt stopped after 21 point repetitions because 4 of 52 sampled traces had not reached the file exporter before the fixed-delay read. The runtime now polls the exporter within a frozen 10-second bound and fails closed on timeout. A same-point three-repetition RCA pilot completed 52/52 trace chains each time with 0.00 to 0.27 seconds of observed flush wait. Full acceptance still requires a fresh clean-revision matrix.",
-        "The third full attempt exposed that Windows process termination could discard BatchSpanProcessor data even after a 10-second post-stop poll. Trace closure now occurs while the API process is alive, followed by process stop and a final tail rehash. A three-repetition same-point pilot completed 34/34 sampled trace chains in every run and cleaned all processes; no acceptance result is carried forward."
+        "The third full attempt exposed that Windows process termination could discard BatchSpanProcessor data even after a 10-second post-stop poll. Trace closure now occurs while the API process is alive, followed by process stop and a final tail rehash. A three-repetition same-point pilot completed 34/34 sampled trace chains in every run and cleaned all processes; no acceptance result is carried forward.",
+        "The fourth full attempt reached 85 valid point repetitions before a topology overload mixed 200, 429, and transport outcomes. The runner incorrectly required the successful six-span chain for every outcome. Outcome-aware evidence now requires full execution spans for 200, route and admission spans for server rejection, and deterministic client identity for transport-only failures. A three-repetition RCA pilot closed every applicable contract while retaining the measured errors and guardrail breaches."
       ],
       "experiment_environment": "Implementation smoke and one non-acceptance orchestration pilot used the actual local FastAPI application, governed HIGGS artifacts, isolated Prometheus, and the running OTLP collector on one physical node. The full three-repetition capacity matrix has not run.",
       "test_or_experiment_steps": [
@@ -1642,6 +1643,12 @@
           "sha256": "62f68e276b67c7a3149fcdf91d331ef317b4aeccd3bc60292fbf5c4e7d8455c5",
           "generated_at": "2026-08-17T08:58:07Z",
           "claim": "The third attempt retained the Windows shutdown trace-loss failure; pre-stop bounded export closure then completed 34/34 sampled chains across a three-repetition RCA pilot."
+        },
+        {
+          "path": "docs/status/evidence/s3-capacity-experiment-attempt-04.json",
+          "sha256": "77b3d23475b0bf75a4f3a109e527cb8cc3354a6b4b1e0193595f51c48cbdb845",
+          "generated_at": "2026-08-17T10:05:25Z",
+          "claim": "The fourth attempt retained 85 point repetitions and exposed an outcome-insensitive trace assertion; a three-repetition overload pilot then closed full, admission, and client-only contracts separately."
         }
       ],
       "status": "implementing",
@@ -1800,6 +1807,12 @@
           "sha256": "62f68e276b67c7a3149fcdf91d331ef317b4aeccd3bc60292fbf5c4e7d8455c5",
           "generated_at": "2026-08-17T08:58:07Z",
           "claim": "The third attempt retained the Windows shutdown trace-loss failure; pre-stop bounded export closure then completed 34/34 sampled chains across a three-repetition RCA pilot."
+        },
+        {
+          "path": "docs/status/evidence/s3-capacity-experiment-attempt-04.json",
+          "sha256": "77b3d23475b0bf75a4f3a109e527cb8cc3354a6b4b1e0193595f51c48cbdb845",
+          "generated_at": "2026-08-17T10:05:25Z",
+          "claim": "The fourth attempt retained 85 point repetitions and exposed an outcome-insensitive trace assertion; a three-repetition overload pilot then closed full, admission, and client-only contracts separately."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -1881,6 +1894,15 @@
           "summary": "The third full attempt stopped after two repetitions because Windows terminated the API before two sampled trace chains were exported; a post-stop poll could not recover dropped BatchSpanProcessor data. Trace closure now runs against the live API before process termination and final tail rehash. A three-repetition same-point pilot completed 34/34 chains each time with exact cleanup. Full acceptance remains pending.",
           "evidence_refs": [
             "docs/status/evidence/s3-capacity-experiment-attempt-03.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-17T10:05:25Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "The fourth full attempt reached 85 valid point repetitions before a topology overload mixed successful, admission-rejected, and transport-only outcomes. The prior assertion incorrectly required the full execution chain for all three. Outcome-aware contracts now require six spans for 200, route plus admission spans for server rejection, and client identity only for transport failure. A three-repetition same-point pilot closed every applicable contract while preserving error and saturation metrics. Full acceptance remains pending.",
+          "evidence_refs": [
+            "docs/status/evidence/s3-capacity-experiment-attempt-04.json"
           ]
         }
       ]

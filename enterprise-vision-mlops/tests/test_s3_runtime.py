@@ -401,6 +401,53 @@ def test_otlp_trace_summary_requires_full_cross_thread_chain(tmp_path: Path) -> 
     assert summary["missing_sampled_trace_count"] == 0
 
 
+def test_otlp_trace_summary_applies_outcome_specific_contracts(
+    tmp_path: Path,
+) -> None:
+    trace_path = tmp_path / "traces.json"
+    success_trace = "a" * 32
+    rejected_trace = "b" * 32
+    transport_trace = "c" * 32
+    spans = [
+        {"traceId": success_trace, "name": name}
+        for name in REQUIRED_TRACE_SPANS
+    ] + [
+        {"traceId": rejected_trace, "name": name}
+        for name in {
+            "POST /control-panel/v1/scenario-workloads/capacity-probes/predict",
+            "s3.capacity.admission",
+        }
+    ]
+    trace_path.write_text(
+        json.dumps(
+            {"resourceSpans": [{"scopeSpans": [{"spans": spans}]}]}
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = otlp_trace_summary(
+        trace_path,
+        offset=0,
+        expected_trace_contracts={
+            success_trace: "full",
+            rejected_trace: "admission",
+            transport_trace: "client_only",
+        },
+    )
+
+    assert summary["expected_sampled_trace_count"] == 3
+    assert summary["expected_server_sampled_trace_count"] == 2
+    assert summary["observed_sampled_trace_count"] == 2
+    assert summary["complete_sampled_trace_count"] == 3
+    assert summary["missing_sampled_trace_count"] == 0
+    assert summary["complete_trace_contract_counts"] == {
+        "admission": 1,
+        "client_only": 1,
+        "full": 1,
+    }
+
+
 def test_capacity_recalculation_is_conservative_without_auto_increase(
     tmp_path: Path,
 ) -> None:

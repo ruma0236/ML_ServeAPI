@@ -40,6 +40,10 @@ REQUIRED_TRACE_SPANS = {
     "s3.capacity.transform",
     "s3.capacity.prediction",
 }
+REQUIRED_ADMISSION_TRACE_SPANS = {
+    "POST /control-panel/v1/scenario-workloads/capacity-probes/predict",
+    "s3.capacity.admission",
+}
 TERMINAL_GAUGES = (
     "evm_s3_capacity_executor_queue_depth",
     "evm_s3_capacity_executor_queue_bytes",
@@ -875,7 +879,7 @@ async def run_load_phase(
     )
     timeout = httpx.Timeout(request_timeout_seconds + 2)
     observations: list[dict[str, Any]] = []
-    expected_sampled_traces: set[str] = set()
+    expected_sampled_trace_contracts: dict[str, str] = {}
     started_monotonic = time.perf_counter()
     started_utc = utc_now()
     request_index = 0
@@ -888,6 +892,22 @@ async def run_load_phase(
             value = request_index
             request_index += 1
             return value
+
+    def record_observation(observation: Mapping[str, Any]) -> None:
+        if not capture:
+            return
+        observations.append(dict(observation))
+        if not observation.get("trace_sampled"):
+            return
+        status_code = int(observation.get("status_code", 0))
+        contract = (
+            "full"
+            if status_code == 200
+            else "admission"
+            if status_code > 0
+            else "client_only"
+        )
+        expected_sampled_trace_contracts[str(observation["trace_id"])] = contract
 
     async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
         if point.mode == "closed":
@@ -909,10 +929,7 @@ async def run_load_phase(
                         scheduled_at=None,
                         load_generator_permit_wait_seconds=0,
                     )
-                    if capture:
-                        observations.append(observation)
-                        if observation["trace_sampled"]:
-                            expected_sampled_traces.add(observation["trace_id"])
+                    record_observation(observation)
 
             await asyncio.gather(
                 *(closed_worker(index) for index in range(concurrency))
@@ -929,10 +946,7 @@ async def run_load_phase(
             ) -> None:
                 for task in completed:
                     observation = task.result()
-                    if capture:
-                        observations.append(observation)
-                        if observation["trace_sampled"]:
-                            expected_sampled_traces.add(observation["trace_id"])
+                    record_observation(observation)
 
             for index in range(planned):
                 if stop.event.is_set():
@@ -992,7 +1006,10 @@ async def run_load_phase(
             else 0
         ),
         "observations": observations,
-        "expected_sampled_trace_ids": sorted(expected_sampled_traces),
+        "expected_sampled_trace_ids": sorted(expected_sampled_trace_contracts),
+        "expected_sampled_trace_contracts": dict(
+            sorted(expected_sampled_trace_contracts.items())
+        ),
         "stopped": stop.event.is_set(),
         "stop_reason": stop.reason,
     }
@@ -1487,9 +1504,15 @@ def otlp_trace_summary(
     path: Path,
     *,
     offset: int,
-    expected_trace_ids: Sequence[str],
+    expected_trace_ids: Sequence[str] = (),
+    expected_trace_contracts: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    expected = set(expected_trace_ids)
+    contracts = (
+        dict(expected_trace_contracts)
+        if expected_trace_contracts is not None
+        else {trace_id: "full" for trace_id in expected_trace_ids}
+    )
+    expected = set(contracts)
     by_trace: dict[str, set[str]] = defaultdict(set)
     raw = b""
     if path.is_file():
@@ -1508,19 +1531,43 @@ def otlp_trace_summary(
                     name = str(span.get("name") or "")
                     if trace_id in expected and name:
                         by_trace[trace_id].add(name)
+    required_by_contract = {
+        "full": REQUIRED_TRACE_SPANS,
+        "admission": REQUIRED_ADMISSION_TRACE_SPANS,
+        "client_only": set(),
+    }
+    invalid_contracts = sorted(set(contracts.values()) - set(required_by_contract))
+    if invalid_contracts:
+        raise S3RuntimeError(
+            f"s3_trace_contract_invalid:{','.join(invalid_contracts)}"
+        )
     complete = {
         trace_id
-        for trace_id in expected
-        if REQUIRED_TRACE_SPANS.issubset(by_trace.get(trace_id, set()))
+        for trace_id, contract in contracts.items()
+        if required_by_contract[contract].issubset(by_trace.get(trace_id, set()))
     }
+    server_expected = {
+        trace_id
+        for trace_id, contract in contracts.items()
+        if contract != "client_only"
+    }
+    contract_counts = Counter(contracts.values())
+    complete_contract_counts = Counter(contracts[trace_id] for trace_id in complete)
     return {
         "expected_sampled_trace_count": len(expected),
+        "expected_server_sampled_trace_count": len(server_expected),
+        "client_only_sampled_trace_count": contract_counts["client_only"],
         "observed_sampled_trace_count": sum(
-            trace_id in by_trace for trace_id in expected
+            trace_id in by_trace for trace_id in server_expected
         ),
         "complete_sampled_trace_count": len(complete),
         "missing_sampled_trace_count": len(expected - complete),
+        "expected_trace_contract_counts": dict(sorted(contract_counts.items())),
+        "complete_trace_contract_counts": dict(
+            sorted(complete_contract_counts.items())
+        ),
         "required_span_names": sorted(REQUIRED_TRACE_SPANS),
+        "admission_required_span_names": sorted(REQUIRED_ADMISSION_TRACE_SPANS),
         "observed_span_names": sorted(
             {name for names in by_trace.values() for name in names}
         ),
@@ -1533,9 +1580,10 @@ def wait_for_otlp_trace_summary(
     path: Path,
     *,
     offset: int,
-    expected_trace_ids: Sequence[str],
     timeout_seconds: float,
     poll_interval_seconds: float,
+    expected_trace_ids: Sequence[str] = (),
+    expected_trace_contracts: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     deadline = started + timeout_seconds
@@ -1546,6 +1594,7 @@ def wait_for_otlp_trace_summary(
             path,
             offset=offset,
             expected_trace_ids=expected_trace_ids,
+            expected_trace_contracts=expected_trace_contracts,
         )
         if int(summary["missing_sampled_trace_count"]) == 0:
             break
@@ -1684,6 +1733,9 @@ def run_capacity_point(
         time.sleep(cooldown_duration)
         guardrails = evaluate_point_guardrails(load, resources, config)
         expected_traces = list(phase["expected_sampled_trace_ids"])
+        expected_trace_contracts = dict(
+            phase["expected_sampled_trace_contracts"]
+        )
         private_payload.update(
             {
                 "catalog_preflight": catalog,
@@ -1700,6 +1752,7 @@ def run_capacity_point(
                 "prometheus_targets": targets,
                 "guardrails": guardrails,
                 "expected_sampled_trace_ids": expected_traces,
+                "expected_sampled_trace_contracts": expected_trace_contracts,
             }
         )
     except Exception as exc:
@@ -1713,6 +1766,9 @@ def run_capacity_point(
             offset=trace_offset,
             expected_trace_ids=private_payload.get(
                 "expected_sampled_trace_ids", []
+            ),
+            expected_trace_contracts=private_payload.get(
+                "expected_sampled_trace_contracts"
             ),
             timeout_seconds=config.trace_flush_seconds,
             poll_interval_seconds=config.trace_poll_interval_seconds,
@@ -1732,6 +1788,9 @@ def run_capacity_point(
             offset=trace_offset,
             expected_trace_ids=private_payload.get(
                 "expected_sampled_trace_ids", []
+            ),
+            expected_trace_contracts=private_payload.get(
+                "expected_sampled_trace_contracts"
             ),
         )
         trace.update(
