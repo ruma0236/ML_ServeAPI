@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T02:00:00.262659Z`
+- Generated: `2026-08-17T02:55:16.782956Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -275,6 +275,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-16T17:55:36.258827Z` `recovery` / `implementing`: After retained executor RSS was added, a transient Windows heartbeat replace lock terminated the D CPU-one worker. The suite stopped before E-J, cleanup passed, and bounded heartbeat replacement retry was added.
 - `2026-08-16T18:51:40.120338Z` `verification` / `verified`: At 31ee37c, the fresh A-J matrix passed 30 of 30 profile repetitions, S2-AC-01 through S2-AC-04, all 11 readiness gates, 42 focused real-PostgreSQL tests, 681 full Python tests, 59 Control Panel tests, and the production frontend build. Canonical public evidence and the two failed-attempt RCAs are hash-linked.
 - `2026-08-17T02:00:00.262659Z` `recovery` / `implementing`: Independent V3 review found that the previous public projection trusted assertion booleans and did not persist every durable/local/in-flight byte, ingress, wait, retry-delay, DLQ, and process-tree RSS signal. S2 was reopened; old 30-profile evidence is baseline-only. Strict numeric recomputation and mutation tests passed focused verification, while the mandatory fresh A-J x3 rerun remains pending.
+- `2026-08-17T02:55:16.782956Z` `recovery` / `implementing`: The first strict-evidence rerun was rejected before acceptance because the Python editable installation resolved s2_runtime.py from a different worktree, so it executed the historical v6/v5 contract rather than the checked-out v7/v6 revision. The generated public file was restored, the private failed-attempt RCA and cleanup proof were retained, and the entrypoint now pins and verifies the repository-local runtime module with hostile-PYTHONPATH and root-mismatch regressions. A fresh A-J x3 rerun is still required.
 
 ## S3: HIGGS Lightweight Capacity Envelope
 

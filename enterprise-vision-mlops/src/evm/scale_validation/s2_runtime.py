@@ -3664,7 +3664,15 @@ def private_evidence_index(suite_root: Path) -> dict[str, Any]:
 
 def run_external_s2_experiment(args: argparse.Namespace) -> dict[str, Any]:
     root = args.root.resolve()
+    runtime_module = Path(__file__).resolve()
+    expected_module = root / "src" / "evm" / "scale_validation" / "s2_runtime.py"
+    if runtime_module != expected_module:
+        raise RuntimeError(
+            "s2_runtime_source_mismatch:"
+            f"expected={expected_module}:observed={runtime_module}"
+        )
     revision, branch = source_revision(root)
+    branch = os.getenv("EVM_SCALE_VALIDATION_BRANCH", branch or "detached-head")
     matrix = S2MatrixConfig.from_path(args.matrix)
     queue_config = AdmissionQueueConfig.from_path(args.queue_config)
     cpu1_config = AdmissionQueueConfig.from_path(args.cpu1_config)
@@ -3765,7 +3773,12 @@ def run_external_s2_experiment(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "generated_at": utc_now(),
         "started_at": started_at,
-        "source_identity": {"implementation_revision": revision, "branch": branch},
+        "source_identity": {
+            "implementation_revision": revision,
+            "branch": branch,
+            "runtime_module": runtime_module.relative_to(root).as_posix(),
+            "runtime_module_sha256": sha256_file(runtime_module),
+        },
         "start_gate": start_gate,
         "matrix": {
             "version": matrix.version,

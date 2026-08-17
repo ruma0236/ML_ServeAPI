@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from copy import deepcopy
+
+import pytest
 
 from evm.control_panel.admission_queue import (
     canonical_payload_size,
@@ -30,6 +35,50 @@ from evm.scale_validation.s2_runtime import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_s2_entrypoint_pins_repository_local_runtime_module(tmp_path):
+    hostile = tmp_path / "hostile"
+    module = hostile / "evm" / "scale_validation" / "s2_runtime.py"
+    module.parent.mkdir(parents=True)
+    (hostile / "evm" / "__init__.py").write_text("", encoding="utf-8")
+    (hostile / "evm" / "scale_validation" / "__init__.py").write_text(
+        "", encoding="utf-8"
+    )
+    module.write_text(
+        "raise RuntimeError('hostile editable-install path was imported')\n",
+        encoding="utf-8",
+    )
+    entrypoint = ROOT / "scripts" / "validation" / "run_s2_bounded_queue_experiment.py"
+    probe = (
+        "import pathlib, runpy; "
+        f"namespace = runpy.run_path({str(entrypoint)!r}, run_name='s2_entrypoint_probe'); "
+        "module = __import__('evm.scale_validation.s2_runtime', fromlist=['main']); "
+        "print(pathlib.Path(module.__file__).resolve())"
+    )
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(hostile)
+
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+
+    assert Path(result.stdout.strip()).resolve() == (
+        ROOT / "src" / "evm" / "scale_validation" / "s2_runtime.py"
+    ).resolve()
+
+
+def test_s2_runtime_rejects_a_root_that_does_not_own_loaded_module(tmp_path):
+    with pytest.raises(RuntimeError, match="s2_runtime_source_mismatch"):
+        s2_runtime.run_external_s2_experiment(
+            type("Args", (), {"root": tmp_path})()
+        )
 
 
 def test_s2_matrix_is_frozen_with_exact_a_to_j_profiles():
