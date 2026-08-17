@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T06:12:10.817351Z`
+- Generated: `2026-08-17T06:29:50.025689Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -286,7 +286,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S3: HIGGS Lightweight Capacity Envelope
 
-- Status: `planned`
+- Status: `implementing`
 - Engineering question: Where are sustainable capacity, tail-latency limits, and the first CPU bottleneck?
 - Why now: Lightweight probes separate infrastructure overhead from model compute.
 - Observed gap: No repeated CPU-model capacity envelope or saturation knee exists.
@@ -295,11 +295,11 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: A measured CPU/API capacity envelope supplies operational and queue limits.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Begin after S0, S1, and provisional S2 safety gates are in place.
+- Next action: Audit the existing workload/API/metrics boundaries, add a backward-compatible tabular CPU capacity contract, and keep all acceptance criteria pending until fresh external sweeps and hash closure pass.
 
 ### Affected Existing Components
 
-- Existing scenario intake and execution: `src/evm/control_panel/scenario_workloads.py`, `src/evm/model_runtime/workload_runner.py`
+- Existing scenario intake and execution: `src/evm/control_panel/scenario_workloads.py`, `src/evm/model_runtime/workload_runner.py`, `apps/api/control_panel_workloads.py`
 - Existing online API and metrics: `apps/api/main.py`, `src/evm/operations/metrics.py`
 
 ### Architecture Delta
@@ -318,8 +318,9 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Implementation Delta
 
-- No existing-system code change has started.
-- Compatibility: The existing workload registry and metric projection remain the control-plane entry point.
+- Existing Workloads API and S3 tabular capacity runtime: `src/evm/control_panel/scenario_workloads.py`, `src/evm/model_runtime/capacity_probe.py`, `apps/api/control_panel_workloads.py`
+- Compatibility: The existing VLM/LLM workload types, routes, lifecycle semantics, and response schemas are unchanged.
+- Compatibility: S3 uses static capacity-probe subroutes under the existing scenario-workloads router and does not create a parallel service.
 - Migration: Register governed tabular profiles without changing existing image or generative workload contracts.
 
 ### Experiment Contract
@@ -336,7 +337,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `S3-AC-01` [pending]: Every probe has p95, p99, throughput, error, and resource curves.
 - `S3-AC-02` [pending]: The first bottleneck is explained by trace and resource telemetry.
 - `S3-AC-03` [pending]: The sustainable operating point is explicitly lower than peak throughput when required.
-- `S3-AC-04` [pending]: Three independent repetitions and their variance are retained.
+- `S3-AC-04` [pending]: S2 queue capacity is recalculated from the measured service rate, with the prior and selected values, units, formula, safety factor, and rollback value retained.
 
 ### Current Evidence
 
@@ -345,6 +346,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
+- `2026-08-17T06:22:20.608833Z` `implementation` / `implementing`: The strict S0-S2 Git-blob evidence gate passed at synchronized revision f7beb6e. S3 entered in-place implementation with verdict not_run, all four acceptance criteria pending, three independent repetitions retained as a global procedure, and S3-AC-04 restored to measured-service-rate S2 queue-capacity recalculation.
 
 ## S4: HIGGS Tiny MLP GPU Batching
 

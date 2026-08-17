@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import time
 from contextlib import contextmanager
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import Field
+from pydantic import ConfigDict, Field, field_validator
 
 from evm.control_panel.schemas import AuditEvent, ContractModel
 from evm.control_panel.scenarios import EnterpriseScenario, ScenarioCatalogError, get_scenario
@@ -49,6 +50,13 @@ WorkloadRuntime = Literal[
 ]
 AdaptationMethod = Literal["lora", "qlora", "inference_only"]
 QuantizationMode = Literal["none", "int8", "int4_nf4"]
+CapacityProbeFamily = Literal[
+    "logistic",
+    "probabilistic",
+    "online-linear",
+    "branch-heavy",
+    "incremental",
+]
 
 
 STAGE_SPECS: tuple[tuple[str, str, WorkloadRuntime], ...] = (
@@ -94,6 +102,74 @@ MUTABLE_RESULT_FIELDS = {
     "peak_gpu_reserved_mib",
     "quantization_observed",
 }
+
+
+class CapacityProbeRequest(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["evm.s3_capacity_probe_request.v1"] = (
+        "evm.s3_capacity_probe_request.v1"
+    )
+    probe_family: CapacityProbeFamily
+    dataset_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    features: list[float] = Field(min_length=28, max_length=28)
+
+    @field_validator("features")
+    @classmethod
+    def validate_finite_features(cls, values: list[float]) -> list[float]:
+        if any(not math.isfinite(value) for value in values):
+            raise ValueError("capacity probe features must be finite")
+        return values
+
+
+class CapacityProbeStageTimings(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    validation_ms: float = Field(ge=0)
+    transform_ms: float = Field(ge=0)
+    prediction_ms: float = Field(ge=0)
+    total_ms: float = Field(ge=0)
+
+
+class CapacityProbeResponse(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["evm.s3_capacity_probe_response.v1"] = (
+        "evm.s3_capacity_probe_response.v1"
+    )
+    probe_family: CapacityProbeFamily
+    dataset_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    prediction: Literal[0, 1]
+    positive_probability: float = Field(ge=0, le=1)
+    timings: CapacityProbeStageTimings
+
+
+class CapacityProbeDescriptor(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    probe_family: CapacityProbeFamily
+    algorithm: str = Field(min_length=3)
+    model_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    artifact_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    feature_count: Literal[28] = 28
+
+
+class CapacityProbeCatalog(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["evm.s3_capacity_probe_catalog.v1"] = (
+        "evm.s3_capacity_probe_catalog.v1"
+    )
+    dataset_id: Literal["uci-higgs"] = "uci-higgs"
+    dataset_version: str = Field(min_length=1)
+    dataset_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    split_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_uri: str = Field(min_length=8)
+    source_doi: Literal["10.24432/C5V312"] = "10.24432/C5V312"
+    license: Literal["CC BY 4.0"] = "CC BY 4.0"
+    feature_count: Literal[28] = 28
+    probes: list[CapacityProbeDescriptor] = Field(min_length=5, max_length=5)
 
 
 class ScenarioWorkloadError(RuntimeError):

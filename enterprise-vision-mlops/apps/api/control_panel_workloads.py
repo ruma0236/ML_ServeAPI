@@ -9,6 +9,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from evm.control_panel.scenario_workloads import (
+    CapacityProbeCatalog,
+    CapacityProbeRequest,
+    CapacityProbeResponse,
     GpuLease,
     ScenarioWorkloadError,
     ScenarioWorkloadRun,
@@ -16,6 +19,11 @@ from evm.control_panel.scenario_workloads import (
     get_workload_run,
     list_workload_runs,
     read_active_gpu_lease,
+)
+from evm.model_runtime.capacity_probe import (
+    CapacityProbeError,
+    load_capacity_probe_catalog,
+    run_capacity_probe,
 )
 from evm.control_panel.scenario_workload_control import (
     ScenarioWorkloadApprovalRequest,
@@ -200,6 +208,24 @@ def scenario_gpu_lease() -> GpuLease | None:
     return read_active_gpu_lease()
 
 
+@router.get(
+    "/scenario-workloads/capacity-probes",
+    response_model=CapacityProbeCatalog,
+)
+def scenario_capacity_probe_catalog() -> CapacityProbeCatalog:
+    return capacity_probe_operation(load_capacity_probe_catalog)
+
+
+@router.post(
+    "/scenario-workloads/capacity-probes/predict",
+    response_model=CapacityProbeResponse,
+)
+def predict_scenario_capacity_probe(
+    request: CapacityProbeRequest,
+) -> CapacityProbeResponse:
+    return capacity_probe_operation(lambda: run_capacity_probe(request))
+
+
 @router.get("/scenario-workloads/{run_id}", response_model=ScenarioWorkloadRunView)
 def scenario_workload_run(run_id: str) -> ScenarioWorkloadRunView:
     try:
@@ -215,6 +241,16 @@ def workload_operation(operation):
     try:
         return operation()
     except ScenarioWorkloadError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": str(exc)},
+        ) from exc
+
+
+def capacity_probe_operation(operation):
+    try:
+        return operation()
+    except CapacityProbeError as exc:
         raise HTTPException(
             status_code=exc.status_code,
             detail={"error": exc.code, "message": str(exc)},

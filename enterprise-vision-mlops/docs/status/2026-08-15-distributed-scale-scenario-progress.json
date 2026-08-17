@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T06:12:10.817351Z",
+  "generated_at": "2026-08-17T06:29:50.025689Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1529,9 +1529,21 @@
         "Compare API replicas and CPU worker counts while tracing validation and prediction stages.",
         "Measure co-located load-generator consumption separately from the system under test."
       ],
-      "changed_components": [],
+      "changed_components": [
+        {
+          "component": "Existing Workloads API and S3 tabular capacity runtime",
+          "files": [
+            "src/evm/control_panel/scenario_workloads.py",
+            "src/evm/model_runtime/capacity_probe.py",
+            "apps/api/control_panel_workloads.py"
+          ]
+        }
+      ],
       "implementation_summary": [
-        "Implementation has not started."
+        "The strict S0-S2 start gate passed at synchronized revision f7beb6e.",
+        "The existing Workloads API now has a versioned, backward-compatible tabular capacity catalog and prediction contract for the five frozen probe families.",
+        "Registry, dataset, split, model artifact, and request identities fail closed; bounded Prometheus labels and validation, transform, and prediction spans are emitted.",
+        "Focused API and compatibility tests passed, but no S3 capacity sweep or acceptance result exists yet."
       ],
       "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
       "test_or_experiment_steps": [
@@ -1560,22 +1572,22 @@
         },
         {
           "criterion_id": "S3-AC-04",
-          "description": "Three independent repetitions and their variance are retained.",
+          "description": "S2 queue capacity is recalculated from the measured service rate, with the prior and selected values, units, formula, safety factor, and rollback value retained.",
           "status": "pending",
           "evidence_refs": []
         }
       ],
       "observed_result": null,
       "evidence_artifacts": [],
-      "status": "planned",
+      "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
       "unresolved_items": [
         "Every probe has p95, p99, throughput, error, and resource curves.",
         "The first bottleneck is explained by trace and resource telemetry.",
         "The sustainable operating point is explicitly lower than peak throughput when required.",
-        "Three independent repetitions and their variance are retained."
+        "S2 queue capacity is recalculated from the measured service rate, with the prior and selected values, units, formula, safety factor, and rollback value retained."
       ],
-      "next_action": "Begin after S0, S1, and provisional S2 safety gates are in place.",
+      "next_action": "Audit the existing workload/API/metrics boundaries, add a backward-compatible tabular CPU capacity contract, and keep all acceptance criteria pending until fresh external sweeps and hash closure pass.",
       "architecture_before": "API behavior is functional but not characterized with low-compute probes.",
       "architecture_after": "A measured CPU/API capacity envelope supplies operational and queue limits.",
       "existing_system_baseline": "The existing API can execute model inference and expose metrics, but it has no governed high-volume tabular corpus or repeated CPU/API saturation envelope.",
@@ -1584,7 +1596,8 @@
           "component": "Existing scenario intake and execution",
           "files": [
             "src/evm/control_panel/scenario_workloads.py",
-            "src/evm/model_runtime/workload_runner.py"
+            "src/evm/model_runtime/workload_runner.py",
+            "apps/api/control_panel_workloads.py"
           ]
         },
         {
@@ -1607,9 +1620,19 @@
         ]
       },
       "implementation_delta": {
-        "modified_existing_components": [],
+        "modified_existing_components": [
+          {
+            "component": "Existing Workloads API and S3 tabular capacity runtime",
+            "files": [
+              "src/evm/control_panel/scenario_workloads.py",
+              "src/evm/model_runtime/capacity_probe.py",
+              "apps/api/control_panel_workloads.py"
+            ]
+          }
+        ],
         "compatibility": [
-          "The existing workload registry and metric projection remain the control-plane entry point."
+          "The existing VLM/LLM workload types, routes, lifecycle semantics, and response schemas are unchanged.",
+          "S3 uses static capacity-probe subroutes under the existing scenario-workloads router and does not create a parallel service."
         ],
         "migration": [
           "Register governed tabular profiles without changing existing image or generative workload contracts."
@@ -1635,7 +1658,7 @@
           "Every probe has p95, p99, throughput, error, and resource curves.",
           "The first bottleneck is explained by trace and resource telemetry.",
           "The sustainable operating point is explicitly lower than peak throughput when required.",
-          "Three independent repetitions and their variance are retained."
+          "S2 queue capacity is recalculated from the measured service rate, with the prior and selected values, units, formula, safety factor, and rollback value retained."
         ],
         "stop_conditions": [
           "Error or latency guardrail is crossed, queue no longer drains, or resource saturation risks the host."
@@ -1658,6 +1681,13 @@
           "phase": "design",
           "status": "planned",
           "summary": "The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-17T06:22:20.608833Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "The strict S0-S2 Git-blob evidence gate passed at synchronized revision f7beb6e. S3 entered in-place implementation with verdict not_run, all four acceptance criteria pending, three independent repetitions retained as a global procedure, and S3-AC-04 restored to measured-service-rate S2 queue-capacity recalculation.",
           "evidence_refs": []
         }
       ]
