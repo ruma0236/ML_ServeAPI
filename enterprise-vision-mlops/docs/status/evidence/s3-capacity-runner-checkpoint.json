@@ -1,0 +1,84 @@
+{
+  "schema_version": "evm.s3_capacity_runner_checkpoint.v1",
+  "generated_at": "2026-08-17T07:35:13Z",
+  "source_identity": {
+    "implementation_revision": "6f43d877524fb9656d5f9911b5f79b7372a4de4a",
+    "branch": "codex/distributed-scale-validation-plan",
+    "runtime_config_git_blob_sha256": "4dbc959a1a5dbedfec628c63e88270356c84a4d4b1df5ed6c73cd46f2b9e5a59",
+    "runtime_module_git_blob_sha256": "7599101c589cfc2696689c22055fceae08e4445e3b0255447906d94397f5279b",
+    "runner_git_blob_sha256": "dd285e68534314e560612052c17de6751958c5bb3c3881262d734586243f8fdb"
+  },
+  "existing_system_boundary": {
+    "transport": "external TCP/HTTP",
+    "api": "existing FastAPI Workloads API",
+    "execution": "bounded process-local executor in the existing API runtime",
+    "metrics": "isolated Prometheus scraping the actual API process",
+    "traces": "W3C context exported through the running OTLP collector",
+    "load_generator": "co-located and resource-measured separately"
+  },
+  "implementation": {
+    "runtime_contract": "configs/s3_capacity_runtime.toml",
+    "runtime_orchestrator": "src/evm/scale_validation/s3_runtime.py",
+    "command": "scripts/dev/run_s3_capacity_experiment.py",
+    "tests": "tests/test_s3_runtime.py",
+    "fixed_probe_families": [
+      "logistic",
+      "probabilistic",
+      "online-linear",
+      "branch-heavy",
+      "incremental"
+    ],
+    "matrix_point_count": 56,
+    "required_repetitions": 3
+  },
+  "clean_revision_pilot": {
+    "purpose": "orchestration validation only; not S3 acceptance evidence",
+    "mode": "closed concurrency",
+    "probe_family": "logistic",
+    "concurrency": 1,
+    "warmup_seconds": 5,
+    "measurement_seconds": 15,
+    "request_count": 3371,
+    "service_rate_per_second": 224.66666666666666,
+    "latency_p95_ms": 7.445199997164309,
+    "latency_p99_ms": 12.497599993366748,
+    "error_rate": 0.0,
+    "sampled_trace_chains": {
+      "expected": 34,
+      "complete": 34,
+      "required_span_count": 6
+    },
+    "terminal_gauges_zero": true,
+    "prometheus_target_up": true,
+    "api_process_tree_rss_nonzero": true,
+    "api_process_cpu_nonzero": true,
+    "load_generator_resource_measurement_nonzero": true,
+    "cleanup_complete": true,
+    "private_point_evidence_sha256": "74b9707749aa35349e766c0acee11a9f2c45966442984e24ccc880b20868c37f"
+  },
+  "failed_attempts_and_rca": [
+    {
+      "failure": "The first orchestration pilot recorded zero API process CPU despite successful requests.",
+      "root_cause": "A fresh psutil Process instance was used for each instantaneous cpu_percent call, so no prior sample existed.",
+      "correction": "Process-tree CPU is now calculated from cumulative user-plus-system CPU time deltas over the fixed sampling interval.",
+      "revalidation": "The clean-revision pilot recorded nonzero API and load-generator CPU while retaining complete trace and cleanup evidence."
+    }
+  ],
+  "verification": {
+    "focused_test_count": 30,
+    "focused_tests_passed": true,
+    "ruff_passed": true,
+    "git_blob_and_worktree_runtime_config_hash_match": true,
+    "git_blob_and_worktree_runtime_module_hash_match": true
+  },
+  "acceptance": {
+    "S3-AC-01": "pending",
+    "S3-AC-02": "pending",
+    "S3-AC-03": "pending",
+    "S3-AC-04": "pending"
+  },
+  "status": "implementing",
+  "verdict": "not_run",
+  "next_action": "Run the full frozen closed/open and topology matrix with three independent repetitions, retain failures and cleanup evidence, then recompute all four acceptance criteria.",
+  "claim_boundary": "Implementation and one low-load orchestration pilot on one local physical node. This is not a capacity result, production SLA, customer-traffic, multi-node, multi-zone, HA, DR, multi-GPU, business A/B, or full-terabyte claim."
+}

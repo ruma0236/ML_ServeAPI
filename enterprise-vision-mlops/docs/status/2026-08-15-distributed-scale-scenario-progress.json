@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T07:05:29.142118Z",
+  "generated_at": "2026-08-17T07:35:13Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1547,6 +1547,15 @@
             "scripts/dev/prepare_s3_higgs_capacity.py",
             "configs/s3_higgs_capacity.toml"
           ]
+        },
+        {
+          "component": "External capacity runner and frozen runtime experiment contract",
+          "files": [
+            "configs/s3_capacity_runtime.toml",
+            "src/evm/scale_validation/s3_runtime.py",
+            "scripts/dev/run_s3_capacity_experiment.py",
+            "tests/test_s3_runtime.py"
+          ]
         }
       ],
       "implementation_summary": [
@@ -1558,9 +1567,10 @@
         "An external Uvicorn socket returned 200 for the five probe predictions and the existing VLM/LLM preset contract, exposed all four bounded S3 metric families, and shut down cleanly.",
         "The actual capacity subroute now uses process-local count and canonical-byte admission, a fixed CPU worker pool, bounded wait/timeout, 413 item rejection, 429 Retry-After overload rejection, queue and in-flight telemetry, cross-thread trace propagation, and lifespan cleanup.",
         "At clean revision 69876df, an external 100-request pressure smoke returned 32 successful and 68 bounded overload responses, propagated 100 trace IDs, and drained all six queue and byte gauges to zero.",
-        "Preparation and API smoke are implementation evidence only; no S3 capacity sweep or acceptance result exists yet."
+        "Preparation and API smoke are implementation evidence only; no S3 capacity sweep or acceptance result exists yet.",
+        "At clean revision 6f43d87, the external S3 runner started the existing FastAPI Workloads API, an isolated Prometheus target, the running OTLP collector, a bounded CPU executor, and a co-located measured load generator. A 15-second closed-concurrency pilot completed 3,371 requests at 224.67 requests/second with zero errors, p99 12.50 ms, 34/34 complete sampled six-span traces, nonzero API/load-generator resource telemetry, terminal drain, and exact cleanup."
       ],
-      "experiment_environment": "Implementation smoke used the actual local FastAPI application and governed HIGGS artifacts on one physical node. The capacity experiment has not run.",
+      "experiment_environment": "Implementation smoke and one non-acceptance orchestration pilot used the actual local FastAPI application, governed HIGGS artifacts, isolated Prometheus, and the running OTLP collector on one physical node. The full three-repetition capacity matrix has not run.",
       "test_or_experiment_steps": [
         "Warm each probe and run three repetitions at every safe load step.",
         "Calculate p95, p99, throughput, errors, resources, and the first telemetry slope change.",
@@ -1605,6 +1615,12 @@
           "sha256": "7067b26fa4c4b62c48fb0b04c6f01a5f53797f31f1d66dc44715e3dc04e46ff6",
           "generated_at": "2026-08-17T07:05:29.142118Z",
           "claim": "Bounded count/byte admission, CPU worker execution, overload response, trace propagation, and terminal drain passed through the actual external API; capacity acceptance remains pending."
+        },
+        {
+          "path": "docs/status/evidence/s3-capacity-runner-checkpoint.json",
+          "sha256": "af7a4b0b9991a6648f4456b45b337f645ce1a7705724663e2f79378ae27d3884",
+          "generated_at": "2026-08-17T07:35:13Z",
+          "claim": "The actual external S3 orchestration path, bounded executor telemetry, sampled cross-thread trace chain, resource sampling, and cleanup passed one low-load implementation pilot; all S3 capacity acceptance criteria remain pending."
         }
       ],
       "status": "implementing",
@@ -1615,7 +1631,7 @@
         "The sustainable operating point is explicitly lower than peak throughput when required.",
         "S2 queue capacity is recalculated from the measured service rate, with the prior and selected values, units, formula, safety factor, and rollback value retained."
       ],
-      "next_action": "Implement the external closed/open load runner with independent API-replica and CPU-worker controls, process-tree resource sampling, fixed windows, three repetitions, cleanup, and capacity recalculation.",
+      "next_action": "Run the full frozen closed/open and topology matrix with three independent repetitions, retain guardrail failures and cleanup evidence, identify the first bottleneck and sustainable point, and recalculate the S2 queue depth before any acceptance closure.",
       "architecture_before": "API behavior is functional but not characterized with low-compute probes.",
       "architecture_after": "A measured CPU/API capacity envelope supplies operational and queue limits.",
       "existing_system_baseline": "The existing API can execute model inference and expose metrics, but it has no governed high-volume tabular corpus or repeated CPU/API saturation envelope.",
@@ -1635,6 +1651,15 @@
           "files": [
             "apps/api/main.py",
             "src/evm/operations/metrics.py"
+          ]
+        },
+        {
+          "component": "External capacity runner and frozen runtime experiment contract",
+          "files": [
+            "configs/s3_capacity_runtime.toml",
+            "src/evm/scale_validation/s3_runtime.py",
+            "scripts/dev/run_s3_capacity_experiment.py",
+            "tests/test_s3_runtime.py"
           ]
         }
       ],
@@ -1667,6 +1692,15 @@
               "src/evm/scale_validation/s3_higgs.py",
               "scripts/dev/prepare_s3_higgs_capacity.py",
               "configs/s3_higgs_capacity.toml"
+            ]
+          },
+          {
+            "component": "External capacity runner and frozen runtime experiment contract",
+            "files": [
+              "configs/s3_capacity_runtime.toml",
+              "src/evm/scale_validation/s3_runtime.py",
+              "scripts/dev/run_s3_capacity_experiment.py",
+              "tests/test_s3_runtime.py"
             ]
           }
         ],
@@ -1721,6 +1755,12 @@
           "sha256": "7067b26fa4c4b62c48fb0b04c6f01a5f53797f31f1d66dc44715e3dc04e46ff6",
           "generated_at": "2026-08-17T07:05:29.142118Z",
           "claim": "Bounded count/byte admission, CPU worker execution, overload response, trace propagation, and terminal drain passed through the actual external API; capacity acceptance remains pending."
+        },
+        {
+          "path": "docs/status/evidence/s3-capacity-runner-checkpoint.json",
+          "sha256": "af7a4b0b9991a6648f4456b45b337f645ce1a7705724663e2f79378ae27d3884",
+          "generated_at": "2026-08-17T07:35:13Z",
+          "claim": "The actual external S3 orchestration path, bounded executor telemetry, sampled cross-thread trace chain, resource sampling, and cleanup passed one low-load implementation pilot; all S3 capacity acceptance criteria remain pending."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -1766,6 +1806,15 @@
           "summary": "At clean revision 69876df, the actual external API enforced process-local count and byte admission with a fixed CPU worker pool: 100 concurrent requests produced 32 successes and 68 bounded 429 responses with valid Retry-After, all 100 trace IDs propagated, and queue, bytes, in-flight, and outstanding gauges drained to zero. This is implementation smoke only; all S3 ACs remain pending.",
           "evidence_refs": [
             "docs/status/evidence/s3-bounded-executor-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-17T07:35:13Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "At 6f43d87, the external capacity runner and frozen runtime contract passed 30 focused tests. A clean-revision low-load pilot completed 3,371 requests with zero errors, p99 12.50 ms, 34/34 complete sampled trace chains, nonzero API and load-generator resource telemetry, terminal drain, and exact cleanup. The initial zero-CPU telemetry defect was retained as RCA and corrected with cumulative CPU-time deltas. This is not capacity acceptance.",
+          "evidence_refs": [
+            "docs/status/evidence/s3-capacity-runner-checkpoint.json"
           ]
         }
       ]
