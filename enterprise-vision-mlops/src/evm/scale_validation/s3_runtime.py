@@ -1708,6 +1708,15 @@ def run_capacity_point(
             "message": str(exc),
         }
     finally:
+        trace_wait = wait_for_otlp_trace_summary(
+            trace_path,
+            offset=trace_offset,
+            expected_trace_ids=private_payload.get(
+                "expected_sampled_trace_ids", []
+            ),
+            timeout_seconds=config.trace_flush_seconds,
+            poll_interval_seconds=config.trace_poll_interval_seconds,
+        )
         if prometheus is not None:
             prometheus.stop()
         stopped_pids: list[int] = []
@@ -1718,14 +1727,20 @@ def run_capacity_point(
                 cleanup.setdefault("errors", []).append(
                     f"{replica.replica_id}:{type(exc).__name__}"
                 )
-        trace = wait_for_otlp_trace_summary(
+        trace = otlp_trace_summary(
             trace_path,
             offset=trace_offset,
             expected_trace_ids=private_payload.get(
                 "expected_sampled_trace_ids", []
             ),
-            timeout_seconds=config.trace_flush_seconds,
-            poll_interval_seconds=config.trace_poll_interval_seconds,
+        )
+        trace.update(
+            {
+                "flush_wait_seconds": trace_wait["flush_wait_seconds"],
+                "flush_poll_count": trace_wait["flush_poll_count"],
+                "flush_completed": trace_wait["flush_completed"],
+                "flush_boundary": "before_api_process_stop",
+            }
         )
         lingering_pids = [pid for pid in stopped_pids if psutil.pid_exists(pid)]
         marker_pids = marker_processes(marker)
