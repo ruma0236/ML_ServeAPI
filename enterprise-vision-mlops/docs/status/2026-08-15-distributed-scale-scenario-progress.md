@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T06:29:50.025689Z`
+- Generated: `2026-08-17T06:44:10.199901Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -319,6 +319,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 ### Implementation Delta
 
 - Existing Workloads API and S3 tabular capacity runtime: `src/evm/control_panel/scenario_workloads.py`, `src/evm/model_runtime/capacity_probe.py`, `apps/api/control_panel_workloads.py`
+- Governed HIGGS preparation and frozen S3 experiment configuration: `src/evm/scale_validation/s3_higgs.py`, `scripts/dev/prepare_s3_higgs_capacity.py`, `configs/s3_higgs_capacity.toml`
 - Compatibility: The existing VLM/LLM workload types, routes, lifecycle semantics, and response schemas are unchanged.
 - Compatibility: S3 uses static capacity-probe subroutes under the existing scenario-workloads router and does not create a parallel service.
 - Migration: Register governed tabular profiles without changing existing image or generative workload contracts.
@@ -347,6 +348,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
 - `2026-08-17T06:22:20.608833Z` `implementation` / `implementing`: The strict S0-S2 Git-blob evidence gate passed at synchronized revision f7beb6e. S3 entered in-place implementation with verdict not_run, all four acceptance criteria pending, three independent repetitions retained as a global procedure, and S3-AC-04 restored to measured-service-rate S2 queue-capacity recalculation.
+- `2026-08-17T06:44:10.199901Z` `implementation` / `implementing`: The governed HIGGS preparation path and frozen experiment TOML were implemented and covered by synthetic streaming/runtime tests. The official source was downloaded outside Git and observed at 2,816,407,858 bytes with SHA-256 ea302c18164d4e3d916a1e2e83a9a8d07069fa6ebc7771e4c0540d54e593b698; full preparation has not run yet.
 
 ## S4: HIGGS Tiny MLP GPU Batching
 

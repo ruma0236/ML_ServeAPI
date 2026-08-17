@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T06:29:50.025689Z",
+  "generated_at": "2026-08-17T06:44:10.199901Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1537,12 +1537,21 @@
             "src/evm/model_runtime/capacity_probe.py",
             "apps/api/control_panel_workloads.py"
           ]
+        },
+        {
+          "component": "Governed HIGGS preparation and frozen S3 experiment configuration",
+          "files": [
+            "src/evm/scale_validation/s3_higgs.py",
+            "scripts/dev/prepare_s3_higgs_capacity.py",
+            "configs/s3_higgs_capacity.toml"
+          ]
         }
       ],
       "implementation_summary": [
         "The strict S0-S2 start gate passed at synchronized revision f7beb6e.",
         "The existing Workloads API now has a versioned, backward-compatible tabular capacity catalog and prediction contract for the five frozen probe families.",
         "Registry, dataset, split, model artifact, and request identities fail closed; bounded Prometheus labels and validation, transform, and prediction spans are emitted.",
+        "A streaming HIGGS preparation path now verifies all 11 million source rows, preserves the official final-500,000-row test boundary, materializes deterministic bounded samples, and exports five immutable numeric model artifacts from a versioned TOML contract.",
         "Focused API and compatibility tests passed, but no S3 capacity sweep or acceptance result exists yet."
       ],
       "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
@@ -1628,6 +1637,14 @@
               "src/evm/model_runtime/capacity_probe.py",
               "apps/api/control_panel_workloads.py"
             ]
+          },
+          {
+            "component": "Governed HIGGS preparation and frozen S3 experiment configuration",
+            "files": [
+              "src/evm/scale_validation/s3_higgs.py",
+              "scripts/dev/prepare_s3_higgs_capacity.py",
+              "configs/s3_higgs_capacity.toml"
+            ]
           }
         ],
         "compatibility": [
@@ -1688,6 +1705,13 @@
           "phase": "implementation",
           "status": "implementing",
           "summary": "The strict S0-S2 Git-blob evidence gate passed at synchronized revision f7beb6e. S3 entered in-place implementation with verdict not_run, all four acceptance criteria pending, three independent repetitions retained as a global procedure, and S3-AC-04 restored to measured-service-rate S2 queue-capacity recalculation.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-17T06:44:10.199901Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "The governed HIGGS preparation path and frozen experiment TOML were implemented and covered by synthetic streaming/runtime tests. The official source was downloaded outside Git and observed at 2,816,407,858 bytes with SHA-256 ea302c18164d4e3d916a1e2e83a9a8d07069fa6ebc7771e4c0540d54e593b698; full preparation has not run yet.",
           "evidence_refs": []
         }
       ]

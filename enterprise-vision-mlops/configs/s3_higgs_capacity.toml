@@ -1,0 +1,59 @@
+schema_version = "evm.s3_capacity_experiment.v1"
+
+[dataset]
+dataset_id = "uci-higgs"
+dataset_version = "uci-higgs-2014-s3-v1"
+source_uri = "https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"
+source_doi = "10.24432/C5V312"
+license = "CC BY 4.0"
+source_sha256 = "ea302c18164d4e3d916a1e2e83a9a8d07069fa6ebc7771e4c0540d54e593b698"
+source_relative_path = "datasets/s3-higgs/raw/HIGGS.csv.gz"
+total_rows = 11000000
+official_test_rows = 500000
+feature_count = 28
+
+[preparation]
+output_relative_root = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1"
+registry_relative_path = "artifacts/scale_validation/s3/capacity-registry.json"
+seed = 20260817
+train_sample_rows = 250000
+validation_sample_rows = 50000
+test_sample_rows = 50000
+replay_sample_rows = 200000
+
+[models]
+families = ["logistic", "probabilistic", "online-linear", "branch-heavy", "incremental"]
+logistic_max_iter = 100
+online_linear_max_iter = 20
+tree_max_depth = 12
+tree_min_samples_leaf = 64
+incremental_epochs = 3
+incremental_batch_rows = 8192
+
+[closed_concurrency]
+repetitions = 3
+warmup_seconds = 5
+measurement_seconds = 30
+cooldown_seconds = 5
+steps = [1, 2, 4, 8, 16, 32, 64]
+api_replicas = [1, 2]
+cpu_workers = [1, 2, 4]
+
+[open_arrival_rate]
+repetitions = 3
+warmup_seconds = 5
+measurement_seconds = 30
+cooldown_seconds = 5
+requests_per_second = [50, 100, 200, 400, 800, 1600]
+
+[guardrails]
+maximum_error_rate = 0.01
+maximum_p99_ms = 250.0
+maximum_host_cpu_percent = 90.0
+maximum_process_tree_rss_bytes = 8589934592
+queue_drain_timeout_seconds = 30
+
+[capacity_recalculation]
+maximum_queue_wait_seconds = 2.0
+safety_factor = 0.70
+rollback_depth = 64
