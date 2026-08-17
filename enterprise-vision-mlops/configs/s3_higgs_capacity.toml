@@ -30,14 +30,6 @@ tree_min_samples_leaf = 64
 incremental_epochs = 3
 incremental_batch_rows = 8192
 
-[execution]
-max_outstanding_per_replica = 128
-max_outstanding_bytes_per_replica = 1048576
-max_request_bytes = 8192
-admission_wait_seconds = 0.05
-request_timeout_seconds = 5.0
-retry_after_seconds = 1
-
 [closed_concurrency]
 repetitions = 3
 warmup_seconds = 5

@@ -150,3 +150,11 @@ def test_preparation_cli_bootstraps_repository_source_without_pythonpath(
 
     assert result.returncode == 0, result.stderr
     assert "Prepare governed HIGGS samples" in result.stdout
+
+
+def test_repository_preparation_config_digest_remains_immutable() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    assert file_sha256(root / "configs" / "s3_higgs_capacity.toml") == (
+        "3d9869aa69033cab06d64c0d83c118a524d2291b0c2c624ecac03da465c2f468"
+    )
