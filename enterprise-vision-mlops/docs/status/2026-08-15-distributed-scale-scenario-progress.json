@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T02:55:16.782956Z",
+  "generated_at": "2026-08-17T03:50:33.637758Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1146,7 +1146,8 @@
         "Terminal queue, effect, and task detail rows are compacted under frozen row and age limits into fixed-cardinality rollups; the JSON task collection is retained only as a bounded rollback mirror.",
         "The operational-safety checkpoint adds bounded pre-FastAPI ingress, approval-state bounds, idempotency tombstones, deadline and effect fencing, fair runtime polling, evidence-backed outcome_unknown handling, cutover and rollback parity, exact parent-bound executor cleanup, portable process-tree RSS, and globally bounded downstream GPU work.",
         "At implementation revision 31ee37c, the frozen A-J external matrix completed 30 of 30 profile repetitions with all four acceptance criteria and all 11 readiness gates passed. Forty-two focused real-PostgreSQL tests, 681 full Python tests, 59 Control Panel tests, and the production frontend build also passed.",
-        "The strict-evidence checkpoint reopens S2 before S3: API ingress peaks, durable/local/in-flight byte bounds, downstream outstanding work, admission/queue/load-generator waits, retry delay, DLQ, and API/worker/executor process-tree RSS are now projected numerically. A fail-closed validator recomputes every AC and readiness gate while ignoring stored passed booleans."
+        "The strict-evidence checkpoint reopens S2 before S3: API ingress peaks, durable/local/in-flight byte bounds, downstream outstanding work, admission/queue/load-generator waits, retry delay, DLQ, and API/worker/executor process-tree RSS are now projected numerically. A fail-closed validator recomputes every AC and readiness gate while ignoring stored passed booleans.",
+        "The first clean strict run exposed a real CPU downstream-cap bypass and a worker-restart queue-wait evidence gap. A rejected deterministic submission is now reset to reserved only after absence is proven; ambiguous effects move directly to outcome_unknown, and pre-restart queue-wait histograms are retained for final evidence."
       ],
       "experiment_environment": "The previous matrix remains historical baseline evidence. The strict-evidence rerun will use a fresh isolated PostgreSQL 16 schema per runtime, external Uvicorn TCP/HTTP, the real dedicated queue-worker process, a deterministic Airflow-compatible HTTP dependency, Prometheus file_sd, per-task W3C OTLP chains, and the trusted local CUDA producer. No customer traffic or production endpoint is used.",
       "test_or_experiment_steps": [
@@ -1209,7 +1210,7 @@
         "A fresh strict-evidence A-J x3 matrix must pass before S3 load execution starts.",
         "S3 and final S0-S8 cross-scenario validation have not started."
       ],
-      "next_action": "Commit the strict-evidence implementation, run fresh A-J x3 on that clean revision, close S2 only from raw-derived numeric evidence, then re-evaluate the S3 start gate.",
+      "next_action": "Commit the downstream-effect and restart-telemetry remediation, run an external E/G/H preflight and then fresh A-J x3 on that clean revision, close S2 only from raw-derived numeric evidence, then re-evaluate the S3 start gate.",
       "architecture_before": "Admission and retries do not share one end-to-end resource boundary.",
       "architecture_after": "Durable queue, local semaphore, rejection, retry, DLQ, and CPU scale are bounded.",
       "existing_system_baseline": "The existing task API wrote assignments to the operations ledger and required explicit dispatch, while the separate lifecycle worker exclusively processed LifecycleRun state. Task admission had no shared depth, byte, age, retry-budget, or poison-work boundary and no dedicated task consumer.",
@@ -1451,6 +1452,20 @@
           "phase": "recovery",
           "status": "implementing",
           "summary": "The first strict-evidence rerun was rejected before acceptance because the Python editable installation resolved s2_runtime.py from a different worktree, so it executed the historical v6/v5 contract rather than the checked-out v7/v6 revision. The generated public file was restored, the private failed-attempt RCA and cleanup proof were retained, and the entrypoint now pins and verifies the repository-local runtime module with hostile-PYTHONPATH and root-mismatch regressions. A fresh A-J x3 rerun is still required.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-17T03:39:06.132903Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "The clean d41ab21 strict A-J x3 run completed all 30 profile repetitions but failed closed: S2-AC-01 and S2-AC-04 were false. Profile G reached 20 CPU downstream outstanding against the frozen limit of 8, and profile E lost its pre-restart queue-wait histogram from the final projection. Identity closure, exactly-once effects, traces, GPU activity, worker recovery, and cleanup passed, but no S2 acceptance credit was awarded; private raw evidence and RCA were retained.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-17T03:50:33.637758Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "Known-rejected deterministic submissions now reset their fenced effect to reserved only after a follow-up GET proves absence; ambiguous submissions become outcome_unknown immediately and continue to consume the downstream bound. Profile E carries its pre-restart queue-wait histogram into final evidence. Sixty-five focused real-PostgreSQL tests, 688 full Python tests, 59 Control Panel tests, lint, and the production frontend build passed. A clean external preflight and full A-J x3 rerun remain required.",
           "evidence_refs": []
         }
       ]

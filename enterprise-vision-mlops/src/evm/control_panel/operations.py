@@ -582,11 +582,23 @@ def dispatch_queued_task_assignment(
                     lease,
                     effect_key=str(reservation["effect_key"]),
                 )
-                response = airflow_api_request(
-                    f"/dags/{quote(plan.dag_id, safe='')}/dagRuns",
-                    method="POST",
-                    payload=payload,
-                )
+                try:
+                    response = airflow_api_request(
+                        f"/dags/{quote(plan.dag_id, safe='')}/dagRuns",
+                        method="POST",
+                        payload=payload,
+                    )
+                except TaskDispatchError as submission_error:
+                    try:
+                        response = airflow_api_request(plan.run_path)
+                    except TaskDispatchError as reconciliation_error:
+                        if reconciliation_error.code == "airflow_dag_run_not_found":
+                            store.reset_task_dispatch_effect_for_retry(
+                                lease,
+                                effect_key=str(reservation["effect_key"]),
+                                failure_class=submission_error.code,
+                            )
+                        raise submission_error from reconciliation_error
             store.assert_task_queue_lease(lease)
             task = _task_from_runtime_response(plan.task, response, plan)
             runtime_state = str(task.runtime_state or "unknown")

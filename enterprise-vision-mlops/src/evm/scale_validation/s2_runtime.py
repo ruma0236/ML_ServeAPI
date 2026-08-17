@@ -1697,6 +1697,26 @@ def bounded_metric_summary(
     }
 
 
+def merge_histogram_summaries(
+    *summaries: Mapping[str, Any],
+) -> dict[str, float]:
+    count = sum(float(item.get("count", 0)) for item in summaries)
+    total = sum(float(item.get("sum", 0)) for item in summaries)
+    return {
+        "count": count,
+        "sum": total,
+        "average": total / count if count else 0.0,
+        "observed_upper_bound": max(
+            (float(item.get("observed_upper_bound", 0)) for item in summaries),
+            default=0.0,
+        ),
+        "max": max(
+            (float(item.get("max", 0)) for item in summaries),
+            default=0.0,
+        ),
+    }
+
+
 def assertion(assertion_id: str, passed: bool, observed: Any) -> dict[str, Any]:
     return {"assertion_id": assertion_id, "passed": bool(passed), "observed": observed}
 
@@ -1791,6 +1811,14 @@ def finalize_profile_scope(
     api_sample = api_metrics(scope)
     worker_sample = worker_metrics(scope)
     metric_summary = bounded_metric_summary(api_sample, worker_sample)
+    previous_queue_wait = dict(extra or {}).get(
+        "pre_restart_queue_wait_seconds"
+    )
+    if isinstance(previous_queue_wait, Mapping):
+        metric_summary["queue_wait_seconds"] = merge_histogram_summaries(
+            previous_queue_wait,
+            metric_summary.get("queue_wait_seconds", {}),
+        )
     targets = wait_prometheus_targets(scope.prometheus) if scope.prometheus else {}
     prometheus_rss = (
         prometheus_query(scope.prometheus, "evm_task_queue_process_rss_bytes")
@@ -2402,6 +2430,10 @@ def run_profile_e(
             break
         time.sleep(0.2)
     effects_before = fixture_evidence(scope)
+    pre_restart_queue_wait = bounded_metric_summary(
+        api_metrics(scope),
+        worker_metrics(scope),
+    )["queue_wait_seconds"]
     old_worker_pid = scope.worker.pid if scope.worker else 0
     scope.stop_worker()
     scope.start_worker()
@@ -2453,7 +2485,11 @@ def run_profile_e(
             ),
         ],
         "input_sequence_sha256": payload_digest(payloads),
-        "extra": {"compacted": compacted, "worker_replaced": old_worker_pid != new_worker_pid},
+        "extra": {
+            "compacted": compacted,
+            "worker_replaced": old_worker_pid != new_worker_pid,
+            "pre_restart_queue_wait_seconds": pre_restart_queue_wait,
+        },
     }
 
 

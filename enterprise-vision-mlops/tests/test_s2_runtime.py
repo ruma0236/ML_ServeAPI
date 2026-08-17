@@ -21,6 +21,7 @@ from evm.scale_validation.s2_runtime import (
     aggregate_acceptance,
     build_task_payload,
     executor_process_tree_rss_peak,
+    merge_histogram_summaries,
     merge_terminal_results,
     payload_digest,
     process_tree_rss_slope,
@@ -150,6 +151,31 @@ def test_process_tree_rss_slope_uses_declared_tail_window():
     assert measured["window_seconds"] == 30.0
     assert measured["api_bytes_per_minute"] == 600.0
     assert measured["worker_bytes_per_minute"] == -300.0
+
+
+def test_histogram_merge_preserves_measurements_across_worker_restart():
+    merged = merge_histogram_summaries(
+        {
+            "count": 4,
+            "sum": 2.0,
+            "observed_upper_bound": 1.0,
+            "max": 0.75,
+        },
+        {
+            "count": 2,
+            "sum": 0.5,
+            "observed_upper_bound": 0.5,
+            "max": 0.4,
+        },
+    )
+
+    assert merged == {
+        "count": 6.0,
+        "sum": 2.5,
+        "average": 2.5 / 6,
+        "observed_upper_bound": 1.0,
+        "max": 0.75,
+    }
 
 
 def test_worker_executor_rss_peak_reads_retained_heartbeat_value(tmp_path):

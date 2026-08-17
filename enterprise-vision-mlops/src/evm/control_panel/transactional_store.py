@@ -2234,6 +2234,62 @@ class TransactionalControlPlaneStore:
             )
         return {"effect_key": effect_key, "state": "submitting", "replayed": False}
 
+    def reset_task_dispatch_effect_for_retry(
+        self,
+        lease: TaskQueueLease,
+        *,
+        effect_key: str,
+        failure_class: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Return a rejected submission to reserved only after absence is proven."""
+        schema = _safe_identifier(self.configuration.schema)
+        observed_at = now or utc_now()
+        with self.transaction("task_dispatch_effect_retry_reset") as connection:
+            queue_row = connection.execute(
+                f"SELECT * FROM {schema}.task_admission_queue WHERE queue_id=%s FOR UPDATE",
+                (lease.queue_id,),
+            ).fetchone()
+            self._assert_queue_lease(queue_row, lease, observed_at)
+            effect_row = connection.execute(
+                f"""
+                SELECT * FROM {schema}.task_dispatch_effects
+                WHERE effect_key=%s FOR UPDATE
+                """,
+                (effect_key,),
+            ).fetchone()
+            if effect_row is None:
+                raise ControlPlaneLeaseConflict("task_dispatch_effect_missing")
+            if (
+                str(effect_row["queue_id"]) != lease.queue_id
+                or str(effect_row["lease_owner"]) != lease.lease_owner
+                or int(effect_row["lease_epoch"]) != lease.lease_epoch
+            ):
+                raise ControlPlaneLeaseConflict(
+                    "task_dispatch_effect_fence_mismatch"
+                )
+            state = str(effect_row["state"])
+            if state == "reserved":
+                return {
+                    "effect_key": effect_key,
+                    "state": state,
+                    "replayed": True,
+                }
+            if state != "submitting":
+                raise ControlPlaneLeaseConflict(
+                    f"task_dispatch_effect_not_retry_resettable:{state}"
+                )
+            connection.execute(
+                f"""
+                UPDATE {schema}.task_dispatch_effects
+                SET state='reserved', runtime_state=%s, runtime_payload=NULL,
+                    updated_at=clock_timestamp()
+                WHERE effect_key=%s
+                """,
+                (f"submission_rejected:{failure_class}", effect_key),
+            )
+        return {"effect_key": effect_key, "state": "reserved", "replayed": False}
+
     def commit_task_dispatch_effect(
         self,
         lease: TaskQueueLease,
@@ -2644,6 +2700,13 @@ class TransactionalControlPlaneStore:
             "submitted",
             "outcome_unknown",
         }
+        if effect_may_exist:
+            return self._mark_locked_outcome_unknown(
+                connection,
+                row,
+                reason=f"ambiguous_external_effect:{failure_class}",
+                observed_at=observed_at,
+            )
         if not transient:
             return self._finish_locked_queue_item(
                 connection,
@@ -2654,13 +2717,6 @@ class TransactionalControlPlaneStore:
                 observed_at=observed_at,
             )
         if int(row["attempt_count"]) >= config.max_attempts:
-            if effect_may_exist:
-                return self._mark_locked_outcome_unknown(
-                    connection,
-                    row,
-                    reason=f"attempts_exhausted:{failure_class}",
-                    observed_at=observed_at,
-                )
             return self._finish_locked_queue_item(
                 connection,
                 queue_id,
@@ -2690,13 +2746,6 @@ class TransactionalControlPlaneStore:
             consumed = int(budget["consumed"])
             window_started_at = budget["window_started_at"]
         if consumed >= config.global_retry_budget:
-            if effect_may_exist:
-                return self._mark_locked_outcome_unknown(
-                    connection,
-                    row,
-                    reason=f"retry_budget_exhausted:{failure_class}",
-                    observed_at=observed_at,
-                )
             return self._finish_locked_queue_item(
                 connection,
                 queue_id,

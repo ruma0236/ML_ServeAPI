@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T02:55:16.782956Z`
+- Generated: `2026-08-17T03:50:33.637758Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -207,7 +207,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Durable queue, local semaphore, rejection, retry, DLQ, and CPU scale are bounded.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Commit the strict-evidence implementation, run fresh A-J x3 on that clean revision, close S2 only from raw-derived numeric evidence, then re-evaluate the S3 start gate.
+- Next action: Commit the downstream-effect and restart-telemetry remediation, run an external E/G/H preflight and then fresh A-J x3 on that clean revision, close S2 only from raw-derived numeric evidence, then re-evaluate the S3 start gate.
 
 ### Affected Existing Components
 
@@ -276,6 +276,8 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-16T18:51:40.120338Z` `verification` / `verified`: At 31ee37c, the fresh A-J matrix passed 30 of 30 profile repetitions, S2-AC-01 through S2-AC-04, all 11 readiness gates, 42 focused real-PostgreSQL tests, 681 full Python tests, 59 Control Panel tests, and the production frontend build. Canonical public evidence and the two failed-attempt RCAs are hash-linked.
 - `2026-08-17T02:00:00.262659Z` `recovery` / `implementing`: Independent V3 review found that the previous public projection trusted assertion booleans and did not persist every durable/local/in-flight byte, ingress, wait, retry-delay, DLQ, and process-tree RSS signal. S2 was reopened; old 30-profile evidence is baseline-only. Strict numeric recomputation and mutation tests passed focused verification, while the mandatory fresh A-J x3 rerun remains pending.
 - `2026-08-17T02:55:16.782956Z` `recovery` / `implementing`: The first strict-evidence rerun was rejected before acceptance because the Python editable installation resolved s2_runtime.py from a different worktree, so it executed the historical v6/v5 contract rather than the checked-out v7/v6 revision. The generated public file was restored, the private failed-attempt RCA and cleanup proof were retained, and the entrypoint now pins and verifies the repository-local runtime module with hostile-PYTHONPATH and root-mismatch regressions. A fresh A-J x3 rerun is still required.
+- `2026-08-17T03:39:06.132903Z` `experiment` / `implementing`: The clean d41ab21 strict A-J x3 run completed all 30 profile repetitions but failed closed: S2-AC-01 and S2-AC-04 were false. Profile G reached 20 CPU downstream outstanding against the frozen limit of 8, and profile E lost its pre-restart queue-wait histogram from the final projection. Identity closure, exactly-once effects, traces, GPU activity, worker recovery, and cleanup passed, but no S2 acceptance credit was awarded; private raw evidence and RCA were retained.
+- `2026-08-17T03:50:33.637758Z` `recovery` / `implementing`: Known-rejected deterministic submissions now reset their fenced effect to reserved only after a follow-up GET proves absence; ambiguous submissions become outcome_unknown immediately and continue to consume the downstream bound. Profile E carries its pre-restart queue-wait histogram into final evidence. Sixty-five focused real-PostgreSQL tests, 688 full Python tests, 59 Control Panel tests, lint, and the production frontend build passed. A clean external preflight and full A-J x3 rerun remain required.
 
 ## S3: HIGGS Lightweight Capacity Envelope
 

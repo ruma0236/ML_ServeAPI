@@ -567,6 +567,114 @@ def test_real_postgres_effect_reservation_is_deterministic_and_fenced(store):
         )
 
 
+def test_real_postgres_definite_submission_rejection_resets_effect_for_retry(
+    store,
+    monkeypatch,
+):
+    active = config()
+    observed_at = datetime.now(UTC)
+    admit(store, "task-definite-rejection", active_config=active, now=observed_at)
+    lease = store.claim_task_queue_items(
+        owner="retry-worker",
+        max_items=1,
+        max_bytes=active.local_max_bytes,
+        lease_seconds=active.lease_seconds,
+        scan_limit=active.durable_max_depth,
+        now=observed_at,
+    )[0]
+    lease = store.begin_task_queue_attempt(
+        lease,
+        lease_seconds=active.lease_seconds,
+        now=observed_at,
+    )
+
+    def rejected_airflow(path, *, method="GET", payload=None):
+        del path, payload
+        if method == "POST":
+            raise operations.TaskDispatchError(
+                "airflow_api_rejected",
+                "deterministic rejection",
+                status_code=502,
+                retryable=True,
+            )
+        raise operations.TaskDispatchError(
+            "airflow_dag_run_not_found",
+            "effect is absent",
+            status_code=404,
+        )
+
+    monkeypatch.setattr(operations, "get_transactional_store", lambda: store)
+    monkeypatch.setattr(operations, "airflow_api_request", rejected_airflow)
+    with store.bind_task_queue_lease(lease):
+        with pytest.raises(operations.TaskDispatchError, match="deterministic rejection"):
+            operations.dispatch_queued_task_assignment(lease.task_id)
+
+    effect = store.get_task_dispatch_effect(task_id=lease.task_id)
+    assert effect["state"] == "reserved"
+    retry = store.reschedule_task_queue_item(
+        lease,
+        failure_class="airflow_api_rejected",
+        transient=True,
+        config=active,
+        now=observed_at,
+    )
+    assert retry["state"] == "retry_wait"
+
+
+def test_real_postgres_ambiguous_submitting_effect_is_not_retried(store):
+    active = config(cpu_downstream_max_outstanding=1)
+    observed_at = datetime.now(UTC)
+    for task_id in ("task-ambiguous", "task-behind-ambiguous"):
+        admit(store, task_id, active_config=active, now=observed_at)
+    lease = store.claim_task_queue_items(
+        owner="ambiguous-worker",
+        max_items=1,
+        max_bytes=active.local_max_bytes,
+        lease_seconds=active.lease_seconds,
+        scan_limit=active.durable_max_depth,
+        resource_class="cpu",
+        max_outstanding=1,
+        now=observed_at,
+    )[0]
+    lease = store.begin_task_queue_attempt(
+        lease,
+        lease_seconds=active.lease_seconds,
+        now=observed_at,
+    )
+    effect = store.reserve_task_dispatch_effect(
+        lease,
+        dag_id="deterministic",
+        dag_run_id="cp__task-ambiguous",
+        now=observed_at,
+    )
+    store.mark_task_dispatch_effect_submitting(
+        lease,
+        effect_key=effect["effect_key"],
+        now=observed_at,
+    )
+
+    result = store.reschedule_task_queue_item(
+        lease,
+        failure_class="airflow_api_unavailable",
+        transient=True,
+        config=active,
+        now=observed_at,
+    )
+    blocked = store.claim_task_queue_items(
+        owner="replacement-worker",
+        max_items=1,
+        max_bytes=active.local_max_bytes,
+        lease_seconds=active.lease_seconds,
+        scan_limit=active.durable_max_depth,
+        resource_class="cpu",
+        max_outstanding=1,
+        now=observed_at,
+    )
+
+    assert result["state"] == "outcome_unknown"
+    assert blocked == []
+
+
 def test_durable_mode_direct_dispatch_is_queue_owned_ack_without_effect(store, monkeypatch):
     active = config()
     admit(store, "task-direct-bypass", active_config=active)
