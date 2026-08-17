@@ -1,0 +1,85 @@
+{
+  "schema_version": "evm.scale_validation.s3_bounded_executor_checkpoint.v1",
+  "generated_at": "2026-08-17T07:05:29.142118Z",
+  "scenario_id": "S3",
+  "status": "implementing",
+  "source_revision": "69876df0658f8418e744072b96c158fd3a048108",
+  "checkpoint": "bounded_capacity_executor_external_http_smoke",
+  "existing_system_path": "POST /control-panel/v1/scenario-workloads/capacity-probes/predict -> process-local bounded admission -> fixed CPU worker pool -> existing capacity model runtime",
+  "implementation": {
+    "backward_compatible": true,
+    "existing_vlm_llm_contract_changed": false,
+    "new_parallel_service": false,
+    "independently_configurable_dimensions": [
+      "api_replica_count",
+      "cpu_worker_count"
+    ],
+    "bounded_dimensions": [
+      "outstanding_request_count",
+      "canonical_request_bytes",
+      "outstanding_canonical_bytes",
+      "admission_wait",
+      "request_timeout"
+    ],
+    "measured_server_stages": [
+      "admission_wait",
+      "queue_wait",
+      "validation",
+      "transform",
+      "prediction"
+    ],
+    "overload_response": "HTTP 429 with integer Retry-After",
+    "oversized_item_response": "HTTP 413",
+    "shutdown": "The application lifespan waits for the bounded executor and then flushes tracing."
+  },
+  "external_http_smoke": {
+    "transport": "external_tcp_http",
+    "request_count": 100,
+    "cpu_workers": 1,
+    "max_outstanding": 1,
+    "http_200": 32,
+    "http_429": 68,
+    "retry_after_valid": 68,
+    "trace_id_count": 100,
+    "legacy_vlm_llm_preset_status": 200,
+    "terminal_state": {
+      "queue_depth": 0,
+      "queue_bytes": 0,
+      "in_flight": 0,
+      "in_flight_bytes": 0,
+      "outstanding": 0,
+      "outstanding_bytes": 0
+    },
+    "exact_runtime_process_cleanup": "passed"
+  },
+  "private_evidence": {
+    "scope": "s3_implementation_checkpoint_69876df",
+    "sha256": "ca18743652bb3d8cb07774a3cffa5f3af7e59a9d32c36d46519a719b66037a07",
+    "contains_request_level_results": true,
+    "stored_outside_git": true
+  },
+  "validation": {
+    "focused_api_metrics_trace_and_compatibility_tests_passed": 38,
+    "focused_failures": 0,
+    "ruff": "passed",
+    "external_runtime_revision_clean": true,
+    "remote_revision_aligned_before_smoke": true
+  },
+  "acceptance": {
+    "S3-AC-01": "pending",
+    "S3-AC-02": "pending",
+    "S3-AC-03": "pending",
+    "S3-AC-04": "pending"
+  },
+  "not_yet_credited": [
+    "closed-concurrency capacity curves",
+    "open-arrival-rate capacity curves",
+    "three independent repetitions per accepted point",
+    "API replica and CPU worker comparison",
+    "first saturation bottleneck attribution",
+    "sustainable operating point",
+    "S2 queue-capacity recalculation",
+    "full regression and lifecycle closure"
+  ],
+  "claim_boundary": "This proves bounded admission and worker execution through the actual external API on one local physical node. It is an implementation smoke, not an S3 capacity result, production traffic, SLA, HA, or multi-node proof."
+}

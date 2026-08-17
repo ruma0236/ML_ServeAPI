@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-17T06:53:33.066608Z`
+- Generated: `2026-08-17T07:05:29.142118Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -295,11 +295,11 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: A measured CPU/API capacity envelope supplies operational and queue limits.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Add the bounded queue-wait and worker execution boundary plus the external closed/open load runner, then keep all acceptance criteria pending until fresh three-repeat sweeps and hash closure pass.
+- Next action: Implement the external closed/open load runner with independent API-replica and CPU-worker controls, process-tree resource sampling, fixed windows, three repetitions, cleanup, and capacity recalculation.
 
 ### Affected Existing Components
 
-- Existing scenario intake and execution: `src/evm/control_panel/scenario_workloads.py`, `src/evm/model_runtime/workload_runner.py`, `apps/api/control_panel_workloads.py`
+- Existing scenario intake and execution: `src/evm/control_panel/scenario_workloads.py`, `src/evm/model_runtime/capacity_probe.py`, `src/evm/model_runtime/capacity_executor.py`, `apps/api/control_panel_workloads.py`, `apps/api/main.py`
 - Existing online API and metrics: `apps/api/main.py`, `src/evm/operations/metrics.py`
 
 ### Architecture Delta
@@ -318,7 +318,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Implementation Delta
 
-- Existing Workloads API and S3 tabular capacity runtime: `src/evm/control_panel/scenario_workloads.py`, `src/evm/model_runtime/capacity_probe.py`, `apps/api/control_panel_workloads.py`
+- Existing Workloads API and S3 tabular capacity runtime: `src/evm/control_panel/scenario_workloads.py`, `src/evm/model_runtime/capacity_probe.py`, `src/evm/model_runtime/capacity_executor.py`, `apps/api/control_panel_workloads.py`, `apps/api/main.py`
 - Governed HIGGS preparation and frozen S3 experiment configuration: `src/evm/scale_validation/s3_higgs.py`, `scripts/dev/prepare_s3_higgs_capacity.py`, `configs/s3_higgs_capacity.toml`
 - Compatibility: The existing VLM/LLM workload types, routes, lifecycle semantics, and response schemas are unchanged.
 - Compatibility: S3 uses static capacity-probe subroutes under the existing scenario-workloads router and does not create a parallel service.
@@ -343,6 +343,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 ### Current Evidence
 
 - `docs/status/evidence/s3-higgs-preparation-checkpoint.json` (`f565ac51948b108c9dc1975536f9e795efa70bf7cfc2d85a4343040a19df2e87`): Governed full-source preparation, artifact integrity, and external API implementation smoke passed; all S3 capacity acceptance criteria remain pending.
+- `docs/status/evidence/s3-bounded-executor-checkpoint.json` (`7067b26fa4c4b62c48fb0b04c6f01a5f53797f31f1d66dc44715e3dc04e46ff6`): Bounded count/byte admission, CPU worker execution, overload response, trace propagation, and terminal drain passed through the actual external API; capacity acceptance remains pending.
 
 ### Chronological Updates
 
@@ -350,6 +351,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-17T06:22:20.608833Z` `implementation` / `implementing`: The strict S0-S2 Git-blob evidence gate passed at synchronized revision f7beb6e. S3 entered in-place implementation with verdict not_run, all four acceptance criteria pending, three independent repetitions retained as a global procedure, and S3-AC-04 restored to measured-service-rate S2 queue-capacity recalculation.
 - `2026-08-17T06:44:10.199901Z` `implementation` / `implementing`: The governed HIGGS preparation path and frozen experiment TOML were implemented and covered by synthetic streaming/runtime tests. The official source was downloaded outside Git and observed at 2,816,407,858 bytes with SHA-256 ea302c18164d4e3d916a1e2e83a9a8d07069fa6ebc7771e4c0540d54e593b698; full preparation has not run yet.
 - `2026-08-17T06:53:33.066608Z` `implementation` / `implementing`: The governed full-source preparation completed at bf76c44, all 12 split and five model hashes matched, five external TCP predictions and the existing VLM/LLM preset contract returned 200, four bounded S3 metric families were observed, and runtime cleanup passed. This remains an implementation checkpoint with all S3 acceptance criteria pending.
+- `2026-08-17T07:05:29.142118Z` `implementation` / `implementing`: At clean revision 69876df, the actual external API enforced process-local count and byte admission with a fixed CPU worker pool: 100 concurrent requests produced 32 successes and 68 bounded 429 responses with valid Retry-After, all 100 trace IDs propagated, and queue, bytes, in-flight, and outstanding gauges drained to zero. This is implementation smoke only; all S3 ACs remain pending.
 
 ## S4: HIGGS Tiny MLP GPU Batching
 
