@@ -70,12 +70,26 @@ def load_evidence(path: Path, git_revision: str | None) -> bytes:
 
 def main() -> int:
     args = parse_args()
+    git_root = Path(
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    ).resolve()
     raw = load_evidence(args.evidence, args.git_revision)
     if b"\r\n" in raw or not raw.endswith(b"\n"):
         raise S3EvidenceValidationError("s3_capacity_evidence_not_canonical_lf")
     payload = json.loads(raw)
     config = S3RuntimeConfig.from_path(args.config, data_root=args.data_root)
-    result = validate_s3_capacity_evidence(payload, config=config)
+    result = validate_s3_capacity_evidence(
+        payload,
+        config=config,
+        git_root=git_root,
+        validation_revision=args.git_revision or "HEAD",
+    )
     evidence_sha256 = hashlib.sha256(raw).hexdigest()
     result["evidence_sha256"] = evidence_sha256
     closure_raw = load_evidence(args.closure, args.git_revision)
@@ -86,6 +100,8 @@ def main() -> int:
         experiment=payload,
         experiment_sha256=evidence_sha256,
         config=config,
+        git_root=git_root,
+        validation_revision=args.git_revision or "HEAD",
     )
     result["closure"] = closure_result
     result["closure_sha256"] = hashlib.sha256(closure_raw).hexdigest()

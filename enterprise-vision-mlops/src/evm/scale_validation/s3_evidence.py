@@ -2,20 +2,30 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
+import subprocess
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from evm.scale_validation.s3_runtime import (
+    PUBLIC_PROJECTION_DECIMAL_PLACES,
     S3LoadPoint,
     S3RuntimeConfig,
     analyze_capacity_results,
+    evaluate_point_guardrails,
+    stable_public_projection,
 )
 
 
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+RUNTIME_MODULE_PATH = (
+    "enterprise-vision-mlops/src/evm/scale_validation/s3_runtime.py"
+)
+RUNTIME_CONFIG_PATH = "enterprise-vision-mlops/configs/s3_capacity_runtime.toml"
 
 
 class S3EvidenceValidationError(RuntimeError):
@@ -26,14 +36,57 @@ def validate_s3_capacity_evidence(
     payload: Mapping[str, Any],
     *,
     config: S3RuntimeConfig,
+    git_root: Path | None = None,
+    validation_revision: str = "HEAD",
 ) -> dict[str, Any]:
     errors: list[str] = []
+    _validate_finite_numbers(payload, path="evidence", errors=errors)
+    if errors:
+        raise S3EvidenceValidationError(
+            "s3_capacity_evidence_invalid:" + ",".join(sorted(set(errors)))
+        )
     if payload.get("schema_version") != "evm.s3_capacity_experiment.v1":
         errors.append("schema_version")
     source = dict(payload.get("source_identity", {}))
     runtime_revision = str(source.get("implementation_revision") or "")
     if not REVISION_PATTERN.fullmatch(runtime_revision):
         errors.append("runtime_revision")
+    projection = dict(payload.get("analysis_projection", {}))
+    analysis_revision = str(projection.get("revision") or "")
+    if not REVISION_PATTERN.fullmatch(analysis_revision):
+        errors.append("analysis_revision")
+    if projection.get("runtime_revision") != runtime_revision:
+        errors.append("analysis_runtime_revision")
+    if int(projection.get("precision_decimal_places", -1)) != (
+        PUBLIC_PROJECTION_DECIMAL_PLACES
+    ):
+        errors.append("analysis_precision_contract")
+    if projection.get("non_finite_policy") != "fail_closed":
+        errors.append("analysis_non_finite_policy")
+    strict_reclosure = dict(payload.get("strict_reclosure", {}))
+    if strict_reclosure.get("status") != "passed":
+        errors.append("strict_reclosure_pending")
+    if strict_reclosure.get("workload_rerun") is not False:
+        errors.append("strict_reclosure_workload_boundary")
+    if int(strict_reclosure.get("persisted_point_result_count", 0)) != 111:
+        errors.append("strict_reclosure_point_count")
+    if int(strict_reclosure.get("retained_failed_attempt_count", 0)) != 4:
+        errors.append("strict_reclosure_rca_count")
+    if strict_reclosure.get("python_projection_versions") != [
+        "3.11",
+        "3.12",
+        "3.13",
+    ]:
+        errors.append("strict_reclosure_python_versions")
+    git_identity: dict[str, Any] = {}
+    if git_root is not None:
+        git_identity = _validate_git_source_identity(
+            source=source,
+            projection=projection,
+            git_root=git_root,
+            validation_revision=validation_revision,
+            errors=errors,
+        )
     runtime_contract = dict(payload.get("runtime_contract", {}))
     if runtime_contract.get("sha256") != config.sha256:
         errors.append("runtime_config_sha256")
@@ -63,6 +116,7 @@ def validate_s3_capacity_evidence(
             index=index,
             runtime_revision=runtime_revision,
             runtime_config_sha256=config.sha256,
+            config=config,
             errors=errors,
         )
 
@@ -95,8 +149,15 @@ def validate_s3_capacity_evidence(
         config=config,
         closure_eligible=True,
     )
-    if _canonical(payload.get("analysis")) != _canonical(recomputed):
+    normalized_recorded = stable_public_projection(payload.get("analysis"))
+    if _canonical(payload.get("analysis")) != _canonical(normalized_recorded):
+        errors.append("analysis_not_at_frozen_precision")
+    if _canonical(normalized_recorded) != _canonical(recomputed):
         errors.append("analysis_projection")
+    if strict_reclosure.get("analysis_projection_sha256") != canonical_sha256(
+        recomputed
+    ):
+        errors.append("analysis_projection_sha256")
     if _canonical(payload.get("acceptance")) != _canonical(
         recomputed["acceptance"]
     ):
@@ -130,6 +191,7 @@ def validate_s3_capacity_evidence(
         "runtime_verdict": recomputed["runtime_verdict"],
         "private_artifact_count": int(private["artifact_count"]),
         "private_aggregate_sha256": private["aggregate_sha256"],
+        "source_identity": git_identity,
     }
 
 
@@ -139,11 +201,39 @@ def validate_s3_capacity_closure(
     experiment: Mapping[str, Any],
     experiment_sha256: str,
     config: S3RuntimeConfig,
+    git_root: Path | None = None,
+    validation_revision: str = "HEAD",
 ) -> dict[str, Any]:
     errors: list[str] = []
     if closure.get("schema_version") != "evm.s3_capacity_closure.v1":
         errors.append("closure_schema_version")
-    validated = validate_s3_capacity_evidence(experiment, config=config)
+    strict_reclosure = dict(closure.get("strict_reclosure", {}))
+    if strict_reclosure.get("status") != "passed":
+        errors.append("closure_strict_reclosure_pending")
+    validated = validate_s3_capacity_evidence(
+        experiment,
+        config=config,
+        git_root=git_root,
+        validation_revision=validation_revision,
+    )
+    closure_source = dict(closure.get("source_identity", {}))
+    experiment_source = dict(experiment.get("source_identity", {}))
+    experiment_projection = dict(experiment.get("analysis_projection", {}))
+    source_pairs = {
+        "runtime_revision": experiment_source.get("implementation_revision"),
+        "runtime_module_sha256": experiment_source.get("runtime_module_sha256"),
+        "runtime_module_blob_oid": experiment_source.get("runtime_module_blob_oid"),
+        "analysis_projection_revision": experiment_projection.get("revision"),
+        "analysis_module_sha256": experiment_projection.get(
+            "analysis_module_sha256"
+        ),
+        "analysis_module_blob_oid": experiment_projection.get(
+            "analysis_module_blob_oid"
+        ),
+    }
+    for key, expected in source_pairs.items():
+        if closure_source.get(key) != expected:
+            errors.append(f"closure_source_{key}")
     final = dict(closure.get("final_runtime_evidence", {}))
     expected_final = {
         "git_blob_sha256": experiment_sha256,
@@ -280,6 +370,7 @@ def _validate_point_result(
     index: int,
     runtime_revision: str,
     runtime_config_sha256: str,
+    config: S3RuntimeConfig,
     errors: list[str],
 ) -> None:
     prefix = f"result_{index}"
@@ -316,6 +407,10 @@ def _validate_point_result(
         errors.append(f"{prefix}_server_trace_identity")
     if int(load.get("transport_error_count", -1)) != status_counts[0]:
         errors.append(f"{prefix}_transport_accounting")
+    resources = dict(item.get("resources", {}))
+    recomputed_guardrails = evaluate_point_guardrails(load, resources, config)
+    if _canonical(item.get("guardrails")) != _canonical(recomputed_guardrails):
+        errors.append(f"{prefix}_guardrail_projection")
 
     trace = dict(item.get("trace", {}))
     expected_trace_count = int(trace.get("expected_sampled_trace_count", -1))
@@ -362,9 +457,21 @@ def _validate_point_result(
 
 
 def canonical_bytes(payload: Any) -> bytes:
-    return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode(
-        "utf-8"
-    )
+    errors: list[str] = []
+    _validate_finite_numbers(payload, path="canonical", errors=errors)
+    if errors:
+        raise S3EvidenceValidationError(
+            "s3_capacity_evidence_invalid:" + ",".join(sorted(set(errors)))
+        )
+    return (
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
 
 
 def canonical_sha256(payload: Any) -> str:
@@ -372,4 +479,195 @@ def canonical_sha256(payload: Any) -> str:
 
 
 def _canonical(payload: Any) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _validate_finite_numbers(
+    value: Any,
+    *,
+    path: str,
+    errors: list[str],
+) -> None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _validate_finite_numbers(
+                item,
+                path=f"{path}.{key}",
+                errors=errors,
+            )
+        return
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        for index, item in enumerate(value):
+            _validate_finite_numbers(
+                item,
+                path=f"{path}[{index}]",
+                errors=errors,
+            )
+        return
+    if isinstance(value, float) and not math.isfinite(value):
+        errors.append(f"non_finite:{path}")
+
+
+def _validate_git_source_identity(
+    *,
+    source: Mapping[str, Any],
+    projection: Mapping[str, Any],
+    git_root: Path,
+    validation_revision: str,
+    errors: list[str],
+) -> dict[str, Any]:
+    runtime_revision = str(source.get("implementation_revision") or "")
+    analysis_revision = str(projection.get("revision") or "")
+    validation_commit = _resolve_commit(
+        git_root,
+        validation_revision,
+        "validation_revision",
+        errors,
+    )
+    runtime_commit = _resolve_commit(
+        git_root,
+        runtime_revision,
+        "runtime_revision",
+        errors,
+    )
+    analysis_commit = _resolve_commit(
+        git_root,
+        analysis_revision,
+        "analysis_revision",
+        errors,
+    )
+    if runtime_commit and analysis_commit and not _is_ancestor(
+        git_root, runtime_commit, analysis_commit
+    ):
+        errors.append("runtime_not_ancestor_of_analysis")
+    if analysis_commit and validation_commit and not _is_ancestor(
+        git_root, analysis_commit, validation_commit
+    ):
+        errors.append("analysis_not_ancestor_of_validation")
+
+    runtime_blob = _validate_blob_identity(
+        git_root=git_root,
+        revision=runtime_commit,
+        expected_path=RUNTIME_MODULE_PATH,
+        recorded_path=source.get("runtime_module_path"),
+        recorded_oid=source.get("runtime_module_blob_oid"),
+        recorded_sha256=source.get("runtime_module_sha256"),
+        prefix="runtime_module",
+        errors=errors,
+    )
+    config_blob = _validate_blob_identity(
+        git_root=git_root,
+        revision=runtime_commit,
+        expected_path=RUNTIME_CONFIG_PATH,
+        recorded_path=source.get("runtime_config_path"),
+        recorded_oid=source.get("runtime_config_blob_oid"),
+        recorded_sha256=source.get("runtime_config_sha256"),
+        prefix="runtime_config",
+        errors=errors,
+    )
+    analysis_blob = _validate_blob_identity(
+        git_root=git_root,
+        revision=analysis_commit,
+        expected_path=RUNTIME_MODULE_PATH,
+        recorded_path=projection.get("analysis_module_path"),
+        recorded_oid=projection.get("analysis_module_blob_oid"),
+        recorded_sha256=projection.get("analysis_module_sha256"),
+        prefix="analysis_module",
+        errors=errors,
+    )
+    if source.get("hash_basis") != "canonical_git_blob_bytes":
+        errors.append("runtime_hash_basis")
+    if projection.get("hash_basis") != "canonical_git_blob_bytes":
+        errors.append("analysis_hash_basis")
+    return {
+        "validation_revision": validation_commit,
+        "runtime_revision": runtime_commit,
+        "analysis_revision": analysis_commit,
+        "runtime_module": runtime_blob,
+        "runtime_config": config_blob,
+        "analysis_module": analysis_blob,
+    }
+
+
+def _resolve_commit(
+    git_root: Path,
+    revision: str,
+    label: str,
+    errors: list[str],
+) -> str | None:
+    if not revision:
+        errors.append(label)
+        return None
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{revision}^{{commit}}"],
+        cwd=git_root,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if result.returncode != 0:
+        errors.append(f"{label}_missing")
+        return None
+    return result.stdout.strip()
+
+
+def _is_ancestor(git_root: Path, ancestor: str, descendant: str) -> bool:
+    return (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+            cwd=git_root,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+def _validate_blob_identity(
+    *,
+    git_root: Path,
+    revision: str | None,
+    expected_path: str,
+    recorded_path: Any,
+    recorded_oid: Any,
+    recorded_sha256: Any,
+    prefix: str,
+    errors: list[str],
+) -> dict[str, str]:
+    if recorded_path != expected_path:
+        errors.append(f"{prefix}_path")
+    if revision is None:
+        return {}
+    spec = f"{revision}:{expected_path}"
+    oid_result = subprocess.run(
+        ["git", "rev-parse", "--verify", spec],
+        cwd=git_root,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if oid_result.returncode != 0:
+        errors.append(f"{prefix}_missing")
+        return {}
+    oid = oid_result.stdout.strip()
+    raw = subprocess.run(
+        ["git", "cat-file", "blob", oid],
+        cwd=git_root,
+        capture_output=True,
+        timeout=15,
+        check=True,
+    ).stdout
+    digest = hashlib.sha256(raw).hexdigest()
+    if recorded_oid != oid:
+        errors.append(f"{prefix}_blob_oid")
+    if recorded_sha256 != digest:
+        errors.append(f"{prefix}_sha256")
+    return {"path": expected_path, "blob_oid": oid, "sha256": digest}

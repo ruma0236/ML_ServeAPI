@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-17T11:44:27Z",
+  "generated_at": "2026-08-22T23:34:14.631000Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -1556,6 +1556,17 @@
             "scripts/dev/run_s3_capacity_experiment.py",
             "tests/test_s3_runtime.py"
           ]
+        },
+        {
+          "component": "Strict S3 evidence projection and Git source identity",
+          "files": [
+            "src/evm/scale_validation/s3_runtime.py",
+            "src/evm/scale_validation/s3_evidence.py",
+            "scripts/dev/reproject_s3_capacity_evidence.py",
+            "scripts/dev/validate_s3_capacity_evidence.py",
+            "tests/test_s3_runtime.py",
+            "tests/test_s3_capacity_evidence.py"
+          ]
         }
       ],
       "implementation_summary": [
@@ -1575,7 +1586,8 @@
         "At runtime revision 20524b9, the frozen external TCP/HTTP matrix completed 111 valid point repetitions across five probes and 11 topology points. Every executed point ran three independent repetitions; 19 higher loads were skipped only after the preceding point crossed its frozen guardrail in all three repetitions.",
         "S3-AC-01 through S3-AC-04 passed from persisted point evidence. The minimum sustainable open-loop rate was 49.98 requests/second, the first saturation knee occurred at logistic closed concurrency 16, and the conservative S2 queue calculation was 69 requests while the selected and rollback depth remained 64 because automatic increase is disabled.",
         "Four failed full-matrix attempts are retained with RCA for transport-error accounting, bounded OTLP polling, Windows pre-stop trace flush, and outcome-aware trace contracts. None of those partial runs contributes acceptance credit.",
-        "At closure revision 1fda82b, 723 Python tests with real PostgreSQL, 50 lifecycle/host tests, 59 Control Panel tests, the production frontend build, Git-blob evidence validation, private inventory rehash, and a fresh external runtime smoke passed."
+        "At closure revision 1fda82b, 723 Python tests with real PostgreSQL, 50 lifecycle/host tests, 59 Control Panel tests, the production frontend build, Git-blob evidence validation, private inventory rehash, and a fresh external runtime smoke passed.",
+        "S3 strict closure was reopened after Git-object, line-ending-sensitive hash, cross-Python float, and AC-02/03 validation defects were independently reproduced. The 111 accepted repetitions and four prior RCA remain preserved; no workload result is being rerun or reinterpreted as verified at this checkpoint."
       ],
       "experiment_environment": "One local physical node ran the existing FastAPI Workloads API through external TCP/HTTP, the governed HIGGS replay and five lightweight CPU probe artifacts, isolated Prometheus, the live OTLP collector, measured colocated load generation, one or two API replicas, and one, two, or four bounded CPU workers. No customer or production traffic was used.",
       "test_or_experiment_steps": [
@@ -1587,41 +1599,29 @@
         {
           "criterion_id": "S3-AC-01",
           "description": "Every probe has p95, p99, throughput, error, and resource curves.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s3-capacity-experiment.json",
-            "docs/status/evidence/s3-capacity-closure.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         },
         {
           "criterion_id": "S3-AC-02",
           "description": "The first bottleneck is explained by trace and resource telemetry.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s3-capacity-experiment.json",
-            "docs/status/evidence/s3-capacity-closure.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         },
         {
           "criterion_id": "S3-AC-03",
           "description": "The sustainable operating point is explicitly lower than peak throughput when required.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s3-capacity-experiment.json",
-            "docs/status/evidence/s3-capacity-closure.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         },
         {
           "criterion_id": "S3-AC-04",
           "description": "S2 queue capacity is recalculated from the measured service rate, with the prior and selected values, units, formula, safety factor, and rollback value retained.",
-          "status": "passed",
-          "evidence_refs": [
-            "docs/status/evidence/s3-capacity-experiment.json",
-            "docs/status/evidence/s3-capacity-closure.json"
-          ]
+          "status": "pending",
+          "evidence_refs": []
         }
       ],
-      "observed_result": "The frozen matrix produced 111 valid repetitions with all four S3 acceptance criteria passed. Five probes sustained approximately 50 open-loop requests/second inside the frozen p99 and error guardrails. The first observed knee combined process-local queue delay with a larger colocated client/HTTP scheduling gap; model prediction itself remained sub-millisecond. Two API replicas balanced requests but did not yield monotonic single-host throughput gains.",
+      "observed_result": null,
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s3-higgs-preparation-checkpoint.json",
@@ -1676,12 +1676,22 @@
           "sha256": "604738579454bcfa5729c20b6e83991637baa504a2cd18b65e378298e6ac7cd0",
           "generated_at": "2026-08-17T11:43:23Z",
           "claim": "Closure links runtime and analysis revisions, measured capacity and topology results, four retained failed attempts and RCA, regressions, private inventory rehash, cleanup, and the allowed claim boundary."
+        },
+        {
+          "path": "docs/status/evidence/s3-strict-reclosure-remediation-checkpoint.json",
+          "sha256": "3f646c35a08ef63609007cbd258f0012f8e5a210ec720665fda06b2d142df967",
+          "generated_at": "2026-08-22T23:34:14.631000Z",
+          "claim": "S3 was truthfully reopened after reproducibility and source-identity defects were confirmed; 111 persisted points and four RCA are preserved, while strict acceptance remains pending."
         }
       ],
-      "status": "verified",
+      "status": "implementing",
       "claim_boundary": "Measured lightweight HIGGS CPU/API capacity, bounded process-local queue behavior, external TCP/HTTP handling, Prometheus telemetry, W3C trace attribution, and colocated replica/worker comparisons on one local physical node. No production or customer traffic, SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or terabyte claim.",
-      "unresolved_items": [],
-      "next_action": "Keep S3 as a strict regression boundary. S4 through S8 remain planned and were not started.",
+      "unresolved_items": [
+        "Reproject the persisted 111 point results deterministically on Python 3.11, 3.12, and 3.13.",
+        "Bind runtime, config, and analysis identities to resolvable Git commits, ancestry, blob OIDs, and blob SHA-256.",
+        "Pass raw-derived AC-02/03 validation, current-revision smoke, regressions, and public/private rehash."
+      ],
+      "next_action": "Commit the fail-closed remediation, then reproject the preserved point results from that immutable revision and run the strict reclosure gate.",
       "architecture_before": "API behavior is functional but not characterized with low-compute probes.",
       "architecture_after": "A measured CPU/API capacity envelope supplies operational and queue limits.",
       "existing_system_baseline": "The existing API can execute model inference and expose metrics, but it has no governed high-volume tabular corpus or repeated CPU/API saturation envelope.",
@@ -1710,6 +1720,17 @@
             "src/evm/scale_validation/s3_runtime.py",
             "scripts/dev/run_s3_capacity_experiment.py",
             "tests/test_s3_runtime.py"
+          ]
+        },
+        {
+          "component": "Strict S3 evidence projection and Git source identity",
+          "files": [
+            "src/evm/scale_validation/s3_runtime.py",
+            "src/evm/scale_validation/s3_evidence.py",
+            "scripts/dev/reproject_s3_capacity_evidence.py",
+            "scripts/dev/validate_s3_capacity_evidence.py",
+            "tests/test_s3_runtime.py",
+            "tests/test_s3_capacity_evidence.py"
           ]
         }
       ],
@@ -1751,6 +1772,17 @@
               "src/evm/scale_validation/s3_runtime.py",
               "scripts/dev/run_s3_capacity_experiment.py",
               "tests/test_s3_runtime.py"
+            ]
+          },
+          {
+            "component": "Strict S3 evidence projection and Git source identity",
+            "files": [
+              "src/evm/scale_validation/s3_runtime.py",
+              "src/evm/scale_validation/s3_evidence.py",
+              "scripts/dev/reproject_s3_capacity_evidence.py",
+              "scripts/dev/validate_s3_capacity_evidence.py",
+              "tests/test_s3_runtime.py",
+              "tests/test_s3_capacity_evidence.py"
             ]
           }
         ],
@@ -1847,10 +1879,16 @@
           "sha256": "604738579454bcfa5729c20b6e83991637baa504a2cd18b65e378298e6ac7cd0",
           "generated_at": "2026-08-17T11:43:23Z",
           "claim": "Closure links runtime and analysis revisions, measured capacity and topology results, four retained failed attempts and RCA, regressions, private inventory rehash, cleanup, and the allowed claim boundary."
+        },
+        {
+          "path": "docs/status/evidence/s3-strict-reclosure-remediation-checkpoint.json",
+          "sha256": "3f646c35a08ef63609007cbd258f0012f8e5a210ec720665fda06b2d142df967",
+          "generated_at": "2026-08-22T23:34:14.631000Z",
+          "claim": "S3 was truthfully reopened after reproducibility and source-identity defects were confirmed; 111 persisted points and four RCA are preserved, while strict acceptance remains pending."
         }
       ],
       "verdict_and_claim_boundary": {
-        "verdict": "passed",
+        "verdict": "not_run",
         "claim_boundary": "Measured lightweight HIGGS CPU/API capacity, bounded process-local queue behavior, external TCP/HTTP handling, Prometheus telemetry, W3C trace attribution, and colocated replica/worker comparisons on one local physical node. No production or customer traffic, SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or terabyte claim.",
         "final_system_validation_required": true
       },
@@ -1947,6 +1985,15 @@
           "evidence_refs": [
             "docs/status/evidence/s3-capacity-experiment.json",
             "docs/status/evidence/s3-capacity-closure.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-22T23:34:14.631000Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "S3 strict closure was reopened after Git-object, line-ending-sensitive hash, cross-Python float, and AC-02/03 validation defects were independently reproduced. The 111 accepted repetitions and four prior RCA remain preserved; no workload result is being rerun or reinterpreted as verified at this checkpoint.",
+          "evidence_refs": [
+            "docs/status/evidence/s3-strict-reclosure-remediation-checkpoint.json"
           ]
         }
       ]

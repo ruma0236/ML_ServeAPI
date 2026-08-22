@@ -12,6 +12,7 @@ import time
 import tomllib
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
@@ -57,6 +58,8 @@ CLAIM_BOUNDARY = (
     "No customer traffic, production SLA, physical multi-node or multi-zone HA, "
     "stateful HA/DR, multi-GPU, business A/B, or full-terabyte claim."
 )
+PUBLIC_PROJECTION_DECIMAL_PLACES = 12
+_PUBLIC_PROJECTION_QUANTUM = Decimal("1e-12")
 
 
 class S3RuntimeError(RuntimeError):
@@ -1283,7 +1286,10 @@ def resource_summary(samples: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def _statistics(values: Sequence[float]) -> dict[str, float | int]:
-    finite = sorted(float(value) for value in values if math.isfinite(float(value)))
+    observed = [float(value) for value in values]
+    if any(not math.isfinite(value) for value in observed):
+        raise S3RuntimeError("s3_non_finite_metric")
+    finite = sorted(observed)
     if not finite:
         return {"count": 0, "min": 0.0, "p50": 0.0, "p95": 0.0, "p99": 0.0, "max": 0.0, "mean": 0.0}
 
@@ -2282,7 +2288,12 @@ def analyze_capacity_results(
         "S3-AC-03": (
             closure_eligible
             and len(sustainable) == len(PROBE_FAMILIES) * 2
-            and all(item["selected"] for item in sustainable.values())
+            and all(
+                bool(item["selected"])
+                and bool(item["below_or_equal_peak"])
+                and bool(item["lower_than_peak_when_required"])
+                for item in sustainable.values()
+            )
         ),
         "S3-AC-04": (
             closure_eligible
@@ -2294,7 +2305,7 @@ def analyze_capacity_results(
     passed = all(acceptance.values()) and not any(
         not bool(result.get("evidence_valid")) for result in results
     )
-    return {
+    return stable_public_projection({
         "aggregated_points": aggregates,
         "curves": curves,
         "bottleneck": bottleneck,
@@ -2308,7 +2319,7 @@ def analyze_capacity_results(
         "scenario_status": (
             "exercised_pending_git_blob_closure" if passed else "implementing"
         ),
-    }
+    })
 
 
 def aggregate_point_repetitions(
@@ -2468,6 +2479,7 @@ def identify_first_bottleneck(
             "server latency, queue-wait, prediction, API/load-generator CPU, "
             "error, W3C span, and topology telemetry"
         ),
+        "signal_source": "recomputed_from_persisted_point_results",
         "attribution_boundary": (
             "The load generator and API share one physical host, so client "
             "HTTP scheduling and host contention cannot be isolated as a "
@@ -2507,6 +2519,19 @@ def select_sustainable_points(
             if points
             else None
         )
+        selected_rate = (
+            float(choice["load_summary"]["service_rate_per_second"]["mean"])
+            if choice
+            else 0.0
+        )
+        peak_rate = (
+            float(peak["load_summary"]["service_rate_per_second"]["mean"])
+            if peak
+            else 0.0
+        )
+        lower_than_peak_required = bool(
+            peak and not bool(peak.get("within_guardrails"))
+        )
         selected[curve_name] = {
             "selected": bool(choice),
             "load": choice["point"]["load"] if choice else None,
@@ -2524,18 +2549,18 @@ def select_sustainable_points(
                 choice["load_summary"]["error_rate"]["mean"] if choice else 1
             ),
             "peak_service_rate_per_second": (
-                peak["load_summary"]["service_rate_per_second"]["mean"]
-                if peak
-                else 0
+                peak_rate
             ),
             "below_or_equal_peak": bool(
+                choice and peak and selected_rate <= peak_rate
+            ),
+            "lower_than_peak_required": lower_than_peak_required,
+            "lower_than_peak_when_required": bool(
                 choice
                 and peak
-                and float(
-                    choice["load_summary"]["service_rate_per_second"]["mean"]
-                )
-                <= float(
-                    peak["load_summary"]["service_rate_per_second"]["mean"]
+                and (
+                    not lower_than_peak_required
+                    or selected_rate < peak_rate
                 )
             ),
             "selection_rule": (
@@ -2544,6 +2569,32 @@ def select_sustainable_points(
             ),
         }
     return selected
+
+
+def stable_public_projection(value: Any) -> Any:
+    """Normalize derived evidence numbers without changing raw observations."""
+    if isinstance(value, Mapping):
+        return {
+            str(key): stable_public_projection(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, tuple):
+        return [stable_public_projection(item) for item in value]
+    if isinstance(value, list):
+        return [stable_public_projection(item) for item in value]
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise S3RuntimeError("s3_non_finite_projection")
+        try:
+            quantized = Decimal(str(value)).quantize(
+                _PUBLIC_PROJECTION_QUANTUM,
+                rounding=ROUND_HALF_EVEN,
+            )
+        except InvalidOperation as exc:
+            raise S3RuntimeError("s3_projection_quantization_failed") from exc
+        normalized = float(quantized)
+        return 0.0 if normalized == 0 else normalized
+    return value
 
 
 def recalculate_s2_capacity(

@@ -23,6 +23,8 @@ from evm.scale_validation.s3_runtime import (
     otlp_trace_summary,
     recalculate_s2_capacity,
     run_load_phase,
+    select_sustainable_points,
+    stable_public_projection,
     summarize_load_phase,
     verify_runtime_identity,
     wait_for_otlp_trace_summary,
@@ -508,6 +510,47 @@ def test_bottleneck_attribution_preserves_colocated_client_boundary(
         "co_located_client_http_and_process_local_worker_queue"
     )
     assert "one physical host" in result["attribution_boundary"]
+
+
+def test_public_projection_freezes_precision_and_rejects_non_finite() -> None:
+    left = stable_public_projection({"value": 1.000000000000004})
+    right = stable_public_projection({"value": 1.000000000000003})
+
+    assert left == right == {"value": 1.0}
+    with pytest.raises(S3RuntimeError, match="s3_non_finite_projection"):
+        stable_public_projection({"value": float("inf")})
+
+
+def test_sustainable_point_requires_strictly_lower_rate_after_peak_guardrail(
+    tmp_path: Path,
+) -> None:
+    config, _ = _runtime_fixture(tmp_path)
+
+    def point(*, load: float, rate: float, within: bool) -> dict:
+        return {
+            "point": {"load": load},
+            "within_guardrails": within,
+            "evidence_valid": True,
+            "load_summary": {
+                "service_rate_per_second": {"mean": rate},
+                "latency_ms": {"p99": {"mean": 10.0}},
+                "error_rate": {"mean": 0.0},
+            },
+        }
+
+    selected = select_sustainable_points(
+        {
+            "logistic:open": [
+                point(load=50.0, rate=50.0, within=True),
+                point(load=200.0, rate=100.0, within=False),
+            ]
+        },
+        config,
+    )["logistic:open"]
+
+    assert selected["below_or_equal_peak"]
+    assert selected["lower_than_peak_required"]
+    assert selected["lower_than_peak_when_required"]
 
 
 def test_s3_runner_help_bootstraps_without_pythonpath() -> None:

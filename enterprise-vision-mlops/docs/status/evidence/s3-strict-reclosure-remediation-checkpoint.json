@@ -1,0 +1,45 @@
+{
+  "schema_version": "evm.s3_strict_reclosure_remediation.v1",
+  "generated_at": "2026-08-22T23:34:14.631Z",
+  "scenario_id": "S3",
+  "status": "implementing",
+  "workload_rerun": false,
+  "preserved_evidence": {
+    "accepted_point_repetitions": 111,
+    "retained_failed_attempts_and_rca": 4,
+    "private_artifact_count": 592
+  },
+  "findings": [
+    {
+      "id": "S3-RCA-05",
+      "severity": "P0",
+      "finding": "The analysis projection revision recorded in the public evidence does not resolve to a Git commit.",
+      "impact": "The published analysis cannot be tied to an immutable source object."
+    },
+    {
+      "id": "S3-RCA-06",
+      "severity": "P0",
+      "finding": "The recorded runtime and analysis hashes describe line-ending-sensitive worktree captures rather than canonical bytes from the declared Git revisions.",
+      "impact": "A public consumer cannot reproduce the source identity from Git blobs."
+    },
+    {
+      "id": "S3-RCA-07",
+      "severity": "P0",
+      "finding": "Exact derived-float JSON equality varies at approximately 1e-14 across supported Python runtimes.",
+      "impact": "Semantically identical persisted observations can receive different projection verdicts."
+    },
+    {
+      "id": "S3-RCA-08",
+      "severity": "P1",
+      "finding": "AC-02 and AC-03 trusted insufficiently strong derived predicates for bottleneck attribution and the selected-versus-peak relationship.",
+      "impact": "A mutated summary could overstate bottleneck or sustainable-point closure."
+    }
+  ],
+  "remediation": [
+    "Freeze public derived-number precision at 12 decimal places and reject NaN or infinity.",
+    "Resolve revisions, ancestry, blob OIDs, and blob SHA-256 directly through Git.",
+    "Recompute point guardrails, bottleneck attribution, and selected-versus-peak constraints from persisted observations.",
+    "Reproject on Python 3.11, 3.12, and 3.13 before restoring verified status."
+  ],
+  "claim_boundary": "This checkpoint reopens evidence closure only. It does not invalidate or rerun the retained 111 single-node external point repetitions, and it does not provide production, SLA, HA, DR, or multi-node evidence."
+}

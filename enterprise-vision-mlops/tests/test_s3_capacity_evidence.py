@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -32,7 +33,11 @@ def _payload_and_config() -> tuple[dict, S3RuntimeConfig]:
 def test_s3_public_capacity_evidence_recomputes_all_acceptance() -> None:
     payload, config = _payload_and_config()
 
-    result = validate_s3_capacity_evidence(payload, config=config)
+    result = validate_s3_capacity_evidence(
+        payload,
+        config=config,
+        git_root=ROOT.parent,
+    )
 
     assert result["status"] == "valid"
     assert result["point_result_count"] == 111
@@ -52,6 +57,8 @@ def test_s3_public_capacity_evidence_recomputes_all_acceptance() -> None:
         "terminal_identity",
         "trace_contract",
         "cleanup",
+        "guardrail",
+        "non_finite",
     ],
 )
 def test_s3_public_capacity_evidence_mutations_fail_closed(
@@ -70,9 +77,42 @@ def test_s3_public_capacity_evidence_mutations_fail_closed(
         point["trace"]["complete_trace_contract_counts"]["full"] -= 1
     elif mutation == "cleanup":
         point["cleanup"]["marker_process_count"] = 1
+    elif mutation == "guardrail":
+        point["guardrails"]["within_guardrails"] = not point["guardrails"][
+            "within_guardrails"
+        ]
+    elif mutation == "non_finite":
+        point["load"]["service_rate_per_second"] = math.nan
 
     with pytest.raises(S3EvidenceValidationError):
         validate_s3_capacity_evidence(mutated, config=config)
+
+
+@pytest.mark.parametrize(
+    ("section", "field"),
+    [
+        ("source_identity", "implementation_revision"),
+        ("source_identity", "runtime_module_blob_oid"),
+        ("source_identity", "runtime_module_sha256"),
+        ("analysis_projection", "revision"),
+        ("analysis_projection", "analysis_module_blob_oid"),
+        ("analysis_projection", "analysis_module_sha256"),
+    ],
+)
+def test_s3_git_source_identity_mutations_fail_closed(
+    section: str,
+    field: str,
+) -> None:
+    payload, config = _payload_and_config()
+    mutated = copy.deepcopy(payload)
+    mutated[section][field] = "0" * (40 if field == "revision" else 64)
+
+    with pytest.raises(S3EvidenceValidationError):
+        validate_s3_capacity_evidence(
+            mutated,
+            config=config,
+            git_root=ROOT.parent,
+        )
 
 
 def test_s3_validator_rehashes_actual_git_blob() -> None:
