@@ -156,7 +156,15 @@ def test_s3_closure_matches_persisted_experiment() -> None:
 
 @pytest.mark.parametrize(
     "mutation",
-    ["experiment_hash", "capacity", "bottleneck", "cleanup", "verdict"],
+    [
+        "experiment_hash",
+        "capacity",
+        "bottleneck",
+        "cleanup",
+        "verdict",
+        "smoke_trace",
+        "smoke_revision",
+    ],
 )
 def test_s3_closure_mutations_fail_closed(mutation: str) -> None:
     payload, config = _payload_and_config()
@@ -174,6 +182,16 @@ def test_s3_closure_mutations_fail_closed(mutation: str) -> None:
     elif mutation == "verdict":
         mutated["verdict"] = "passed"
         mutated["final_runtime_evidence"]["acceptance"]["S3-AC-04"] = False
+    elif mutation == "smoke_trace":
+        smoke = mutated["regression"]["current_revision_runtime_smoke"]
+        smoke["sampled_trace_expected"] = int(
+            smoke.get("sampled_trace_expected", 33)
+        )
+        smoke["sampled_trace_complete"] = smoke["sampled_trace_expected"] - 1
+    elif mutation == "smoke_revision":
+        mutated["regression"]["current_revision_runtime_smoke"]["revision"] = (
+            "0" * 40
+        )
 
     with pytest.raises(S3EvidenceValidationError):
         validate_s3_capacity_closure(

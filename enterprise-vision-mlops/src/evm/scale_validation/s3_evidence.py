@@ -315,12 +315,21 @@ def validate_s3_capacity_closure(
     if regression.get("control_panel_production_build") != "passed":
         errors.append("closure_frontend_build")
     smoke = dict(regression.get("current_revision_runtime_smoke", {}))
+    smoke_expected_traces = int(smoke.get("sampled_trace_expected", 0))
+    smoke_complete_traces = int(smoke.get("sampled_trace_complete", -1))
     if (
         not bool(smoke.get("external_tcp_http"))
-        or smoke.get("sampled_trace_chains") != "33/33"
+        or smoke.get("revision") != closure_source.get("validation_base_revision")
+        or int(smoke.get("repetitions", 0)) < 3
+        or int(smoke.get("request_count", 0)) <= 0
+        or smoke_expected_traces <= 0
+        or smoke_complete_traces != smoke_expected_traces
         or not bool(smoke.get("prometheus_targets_up"))
         or not bool(smoke.get("terminal_gauges_zero"))
         or not bool(smoke.get("cleanup_complete"))
+        or not SHA256_PATTERN.fullmatch(
+            str(smoke.get("private_aggregate_sha256") or "")
+        )
     ):
         errors.append("closure_runtime_smoke")
 
