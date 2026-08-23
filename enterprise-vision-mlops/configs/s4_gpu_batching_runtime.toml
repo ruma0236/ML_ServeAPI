@@ -48,7 +48,7 @@ trace_flush_timeout_seconds = 30.0
 trace_poll_interval_seconds = 0.25
 
 [open_loop]
-service_rate_fraction = 0.80
+service_rate_fraction = 0.70
 repetitions = 3
 
 [guardrails]

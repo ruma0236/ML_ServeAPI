@@ -236,8 +236,8 @@ class S4RuntimeConfig:
         )
         if min(positive) <= 0:
             raise S4RuntimeError("s4_positive_bound_invalid")
-        if not 0 < self.open_service_rate_fraction < 1:
-            raise S4RuntimeError("s4_open_rate_fraction_invalid")
+        if self.open_service_rate_fraction != 0.70:
+            raise S4RuntimeError("s4_open_rate_fraction_not_frozen")
         if not 0 < self.capacity_safety_factor <= 1:
             raise S4RuntimeError("s4_capacity_safety_factor_invalid")
         if not (
@@ -303,6 +303,14 @@ class S4RuntimeConfig:
                 "trace_flush_timeout_seconds": self.trace_flush_timeout_seconds,
                 "trace_poll_interval_seconds": self.trace_poll_interval_seconds,
             },
+            "open_loop": {
+                "service_rate_fraction": self.open_service_rate_fraction,
+                "repetitions": self.open_repetitions,
+                "selection_reason": (
+                    "Thirty-percent headroom from the measured saturation rate is "
+                    "reserved before applying the fixed operating latency SLO."
+                ),
+            },
             "preparation": {
                 "closed_concurrency": self.preparation_closed_concurrency,
                 "warmup_seconds": self.preparation_warmup_seconds,
@@ -318,6 +326,14 @@ class S4RuntimeConfig:
                 "maximum_temperature_celsius": self.maximum_temperature_celsius,
                 "maximum_power_watts": self.maximum_power_watts,
                 "require_zero_oom": self.require_zero_oom,
+            },
+            "capacity_recalculation": {
+                "maximum_queue_wait_seconds": self.maximum_queue_wait_seconds,
+                "safety_factor": self.capacity_safety_factor,
+                "prior_depth": self.prior_depth,
+                "rollback_depth": self.rollback_depth,
+                "maximum_depth": self.maximum_depth,
+                "allow_automatic_increase": self.allow_automatic_increase,
             },
         }
 

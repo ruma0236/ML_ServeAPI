@@ -1,0 +1,95 @@
+{
+  "acceptance": {
+    "S4-AC-01": true,
+    "S4-AC-02": false,
+    "S4-AC-03": true,
+    "S4-AC-04": true
+  },
+  "acceptance_credit": false,
+  "attempt_id": "S4-ATTEMPT-05",
+  "claim_boundary": "Local single-node failure evidence only; no production SLA, HA, multi-GPU, or customer-traffic claim.",
+  "cleanup": {
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "holder_ready": true,
+    "holder_uid_restored": true,
+    "lease_released": true,
+    "prometheus_container_absent": true,
+    "serving_cuda_ready": true
+  },
+  "corrective_action": [
+    "Retain the fixed 250 ms p99 and 100 ms queue-wait operating SLO; do not relax either threshold after observing the failure.",
+    "Freeze a conservative 70 percent open-loop service-rate fraction before the next clean run, preserving 30 percent headroom from the measured saturation rate.",
+    "Restart the complete 60 matrix, three instance-axis, and three open-loop repetitions from one clean revision so the revised operating contract receives fresh acceptance evidence."
+  ],
+  "generated_at": "2026-08-23T04:13:16Z",
+  "next_action": "Freeze the 70 percent open-loop headroom contract and rerun all 66 repetitions from a clean revision.",
+  "observed_result": {
+    "all_hard_stop_passed": true,
+    "all_oom_zero": true,
+    "all_sampled_traces_complete": true,
+    "instance_effect": {
+      "instance_1_service_rps_mean": 87.78888888888889,
+      "instance_2_service_rps_mean": 106.43333333333334,
+      "throughput_delta_percent": 21.23781799772181
+    },
+    "open_loop": [
+      {
+        "operating_guardrail_passed": true,
+        "p99_ms": 205.94767699163634,
+        "queue_wait_p99_ms": 99.6017798491448,
+        "repetition": 1,
+        "service_rps": 112.26666666666667
+      },
+      {
+        "operating_guardrail_passed": false,
+        "p99_ms": 246.89384501369082,
+        "queue_wait_p99_ms": 107.70315470832429,
+        "repetition": 2,
+        "service_rps": 112.33333333333333
+      },
+      {
+        "operating_guardrail_passed": false,
+        "p99_ms": 425.3189200104693,
+        "queue_wait_p99_ms": 150.5560286792761,
+        "repetition": 3,
+        "service_rps": 112.3
+      }
+    ],
+    "selected_saturation_candidate": {
+      "batch_size": 8,
+      "instance_count": 1,
+      "max_delay_ms": 10,
+      "mean_service_rps": 140.33333333333334,
+      "oom_count": 0,
+      "peak_vram_bytes": 8544256
+    },
+    "total_errors": 11,
+    "total_requests": 208058,
+    "trace_chains_complete": 449,
+    "trace_chains_expected": 449
+  },
+  "private_evidence": {
+    "aggregate_sha256": "1424ee43e21768d48fa7b521840a88607fb6a01ca82fb1d01e5f554a9dccadc3",
+    "artifact_count": 69,
+    "index_sha256": "944fd13ee6ee97a8f52604d12ef7b0d33abba7042f2d745b7ace09f7128f4f33",
+    "total_bytes": 39058825
+  },
+  "root_cause": "The selected batch-8/delay-10 candidate was replayed at 80 percent of its 140.33 requests-per-second saturation rate. Although all three repetitions were error-free, OOM-free, trace-complete, hard-safe, and cleanly drained, repetitions two and three exceeded the frozen 100 ms queue-wait SLO and repetition three also exceeded the 250 ms p99 SLO. One passing repetition is insufficient for a reproducible operating-point claim.",
+  "schema_version": "evm.s4_gpu_batching_failed_attempt.v1",
+  "scope": {
+    "closed_concurrency": 64,
+    "open_loop_repetitions": 3,
+    "planned_repetitions": 66,
+    "retained_instance_repetitions": 3,
+    "retained_matrix_repetitions": 60,
+    "retained_open_loop_repetitions": 3,
+    "service_rate_fraction": 0.8
+  },
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "e82d3a16c10535a9fb8ac94de11434a6eb5b093a",
+    "runtime_config_sha256": "cc8b98f9e3772b8d83444e7c8a305a436391a9eb1cab9e2e1cadbb01a29293a0"
+  },
+  "status": "stopped_fail_closed"
+}

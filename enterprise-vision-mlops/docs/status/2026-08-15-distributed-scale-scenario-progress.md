@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T03:00:57.048777Z`
+- Generated: `2026-08-23T04:17:48.241802Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -384,7 +384,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Restart all 66 repetitions from a clean revision with closed-loop capacity/Pareto selection and open-loop-only operating SLO validation; acceptance remains pending.
+- Next action: Freeze 30-percent headroom while retaining the 250 ms p99 and 100 ms queue-wait SLO, then rerun all 66 repetitions from one clean revision; acceptance remains pending.
 
 ### Affected Existing Components
 
@@ -444,6 +444,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s4-gpu-batching-attempt-03.json` (`fbb30240e918c917e179c2e49a1c8d4ffc53f38f0854598366babd0f7d1bf579`): The per-request trace fix closed every sampled chain across three pilot repetitions, but concurrency 128 produced one client p99 hard-stop breach; all results and cleanup were retained and no acceptance credit was granted.
 - `docs/status/evidence/s4-trace-flush-rca-checkpoint.json` (`bdcd7ba9fe4d8f5043650aaa49f6ff1ddb63429a26ce1ee9d6026e93f33cd888`): At frozen concurrency 64, the corrected batch-4/delay-2 pilot passed three independent repetitions with every sampled trace chain complete, bounded latency, Prometheus recovery, terminal drain, exact cleanup, and no S4 acceptance credit.
 - `docs/status/evidence/s4-gpu-batching-attempt-04.json` (`aa2422bcf31fd0698062d8704e443af0bd2a2a32c3d0f3cc001c7e3c7ca43a4d`): A fresh 60-point matrix plus three instance-axis repetitions completed 195,587 requests with zero errors/OOM/trace gaps and exact cleanup, then stopped before open-loop because the analyzer conflated saturation selection with the sustainable latency SLO; no acceptance credit was granted.
+- `docs/status/evidence/s4-gpu-batching-attempt-05.json` (`c4f3addf5059a0d83e7c8e0201ed2ad16d6def559292f74e6551cac1a09844df`): The first complete 66-repetition run retained 208,058 requests and complete trace/cleanup evidence, but the 80-percent selected-point replay exceeded the fixed operating queue SLO in two of three repetitions; no acceptance credit was granted.
 
 ### Chronological Updates
 
@@ -455,6 +456,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T01:41:33.075076Z` `recovery` / `implementing`: Per-request trace ownership closed every sampled chain across all three pilot repetitions, but concurrency 128 produced a 5.87-second client p99 hard-stop breach in repetition three despite zero errors/OOM, bounded server queue wait, Prometheus UP, and exact cleanup. Closed concurrency is now frozen at 64 before acceptance; no pilot result is credited.
 - `2026-08-23T01:46:21.293987Z` `implementation` / `implementing`: The frozen-concurrency-64 trace pilot passed three repetitions at 123.77, 125.93, and 127.73 RPS; p99 stayed between 657.30 and 703.84 ms, all 24 sampled chains completed, and Prometheus, drain, lease release, holder restoration, and cleanup passed. This is a non-acceptance RCA checkpoint.
 - `2026-08-23T03:00:40.688338Z` `recovery` / `implementing`: A fresh 60-point matrix plus three instance-axis repetitions completed 195,587 requests with zero errors, OOMs, hard-stop failures, or sampled-trace gaps and exact cleanup. The run stopped before open-loop because all saturated points were incorrectly required to satisfy the sustainable 250 ms/100 ms SLO. Candidate discovery is now separated from open-loop SLO validation, and none of the 63 repetitions is reused for acceptance.
+- `2026-08-23T04:13:16Z` `recovery` / `implementing`: The first complete 66-repetition run selected batch 8/delay 10 at 140.33 RPS and preserved 208,058 requests, 449/449 sampled traces, zero OOMs, hard safety, terminal drain, and exact restoration. Its 80-percent open-loop replay passed the fixed 250 ms p99/100 ms queue SLO only once; repetitions two and three exceeded queue wait and repetition three exceeded p99. Thresholds remain fixed, a 70-percent replay fraction is now frozen before a fresh full rerun, and no acceptance credit is granted.
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 

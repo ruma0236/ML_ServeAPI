@@ -64,6 +64,7 @@ def _result(batch: int, delay: int, instances: int, mode: str, repetition: int) 
 def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> None:
     config = _config(tmp_path)
     assert config.closed_concurrency == 64
+    assert config.open_service_rate_fraction == 0.70
     assert config.public_dict()["preparation"] == {
         "closed_concurrency": 1,
         "warmup_seconds": 2.0,
@@ -83,6 +84,14 @@ def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> N
     assert config.public_dict()["observability"] == {
         "trace_flush_timeout_seconds": 30.0,
         "trace_poll_interval_seconds": 0.25,
+    }
+    assert config.public_dict()["open_loop"] == {
+        "service_rate_fraction": 0.70,
+        "repetitions": 3,
+        "selection_reason": (
+            "Thirty-percent headroom from the measured saturation rate is reserved before "
+            "applying the fixed operating latency SLO."
+        ),
     }
     results = [
         _result(batch, delay, 1, "matrix", repetition)
