@@ -1,0 +1,96 @@
+{
+  "schema_version": "evm.s7_auxiliary_admission_closure.v1",
+  "status": "verified",
+  "verdict": "passed",
+  "source_identity": {
+    "experiment_commit": "c94c70d15b333b4047db55767ab291aadbae7edd",
+    "validator_revision": "c94c70d15b333b4047db55767ab291aadbae7edd",
+    "experiment": {
+      "path": "enterprise-vision-mlops/docs/status/evidence/s7-auxiliary-admission-experiment.json",
+      "blob_oid": "0a5767d54fcc110267922d9edfdc4858baad5bd8",
+      "sha256": "032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014"
+    },
+    "validators": {
+      "validator_cli": {
+        "path": "enterprise-vision-mlops/scripts/dev/validate_s7_auxiliary_admission_evidence.py",
+        "blob_oid": "f477bb9f55f82236ca6448875dc73c89cf5cc91f",
+        "sha256": "cceb36fb02d084127b158e32754c42da9cd24e61f0124001e1ba365d1d879742"
+      },
+      "validator_module": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s7_evidence.py",
+        "blob_oid": "80d067eeaf0c39927c0a9b2aaf0b10925b3b512c",
+        "sha256": "f9f4d4261d6cba3ad29efdb4e6b730a9e55aea4859e721a497eea06dcee6f5c5"
+      }
+    }
+  },
+  "final_runtime_evidence": {
+    "experiment_git_blob_sha256": "032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014",
+    "profile_repetitions": 36,
+    "completed_requests": 162,
+    "bounded_over_limit_rejections": 54,
+    "oom_count": 0,
+    "starvation_count": 0,
+    "acceptance": {
+      "S7-AC-01": true,
+      "S7-AC-02": true,
+      "S7-AC-03": true,
+      "S7-AC-04": true
+    },
+    "family_repetitions": {
+      "image": 12,
+      "vlm": 12,
+      "llm": 12
+    }
+  },
+  "regression": {
+    "focused_s7": {
+      "status": "passed",
+      "result": "54 passed"
+    },
+    "real_postgresql": {
+      "status": "passed",
+      "result": "38 passed with the local PostgreSQL 16 control-plane test database"
+    },
+    "lifecycle_host_e2e": {
+      "status": "passed",
+      "result": "147 passed"
+    },
+    "full_python": {
+      "status": "passed",
+      "result": "835 passed, 1 environment-specific CUDA test skipped in favor of the mandatory external CUDA run"
+    },
+    "control_panel": {
+      "status": "passed",
+      "result": "77 Python tests and 59 frontend tests passed"
+    },
+    "frontend_production_build": {
+      "status": "passed",
+      "result": "production build passed with 1803 modules transformed"
+    },
+    "s0_s6_regression": {
+      "status": "passed",
+      "result": "canonical progress validator rehashed 64 public and 4 embedded artifacts"
+    },
+    "current_revision_cuda_smoke": {
+      "status": "passed",
+      "result": "6 of 6 external-HTTP image requests completed on CUDA with exact cleanup"
+    }
+  },
+  "cleanup": {
+    "source_serving_ready": true,
+    "actual_cuda_inference": true,
+    "s7_processes_removed": true,
+    "gpu_lease_zero": true,
+    "queue_and_outcome_unknown_zero": true,
+    "prometheus_baseline_healthy": true,
+    "private_inventory_rehash_passed": true,
+    "git_blob_validation_passed": true
+  },
+  "failed_attempts_retained": [
+    "docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json",
+    "docs/status/evidence/s7-auxiliary-admission-failed-attempt-02.json",
+    "docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json"
+  ],
+  "claim_boundary": "Controlled family-specific admission evidence on one local physical node and one consumer GPU. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, broad benchmark-quality, or business A/B claim.",
+  "generated_at": "2026-08-23T19:42:28.849003Z"
+}

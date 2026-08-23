@@ -1,0 +1,48 @@
+{
+  "schema_version": "evm.s7_current_revision_cuda_smoke.v1",
+  "status": "verified",
+  "verdict": "passed",
+  "source_identity": {
+    "revision": "c94c70d15b333b4047db55767ab291aadbae7edd",
+    "branch": "codex/distributed-scale-validation-plan",
+    "config_sha256": "44f057932a402787becc9476c598a2dd00d05cbb8915df7f3fa6eac143f79d93"
+  },
+  "runtime_evidence": {
+    "existing_route": "/predict",
+    "transport": "external_http",
+    "family": "image",
+    "profile_id": "image-small",
+    "profile_repetitions": 1,
+    "submitted_requests": 6,
+    "completed_requests": 6,
+    "rejected_requests": 0,
+    "transport_failures": 0,
+    "actual_cuda": true,
+    "trace_identity_complete": true,
+    "oom_count": 0,
+    "starvation_count": 0,
+    "family_metric_schema_present": true
+  },
+  "cleanup": {
+    "source_serving_ready": true,
+    "source_cuda_inference": true,
+    "source_model_identity_exact": true,
+    "source_candidate_identity_exact": true,
+    "source_holder_identity_exact": true,
+    "service_process_stopped": true,
+    "gpu_lease_zero": true,
+    "family_queue_drained": true,
+    "s7_prometheus_target_zero": true,
+    "prometheus_baseline_target_count": 5,
+    "prometheus_baseline_up_count": 5
+  },
+  "private_evidence": {
+    "artifact_count": 12,
+    "total_bytes": 121196,
+    "aggregate_sha256": "7dbe50091b2c0aafe79cde77eb06cff6e60f14d8730bcd1c54eeafb246eb6496",
+    "index_sha256": "a8a6c32cbd1442c43c828e24b40da1cd258228aacd157a6490b4a3d02984e30c",
+    "location": "outside_git_private_evidence_root"
+  },
+  "claim_boundary": "Current-revision external-HTTP CUDA smoke on one local physical node and one consumer GPU. This is regression and cleanup evidence, not production, SLA, HA, multi-GPU, or broad model-quality evidence.",
+  "generated_at": "2026-08-23T19:41:16.478936Z"
+}

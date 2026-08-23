@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T19:26:44.534372Z`
+- Generated: `2026-08-23T19:46:04Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -629,16 +629,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S7: Image/VLM/LLM Auxiliary Admission
 
-- Status: `implementing`
+- Status: `verified`
 - Engineering question: Do image and generative workloads use model-family-specific cost admission and metrics?
 - Why now: Tabular capacity does not cover image decode, pixels, tokens, or long requests.
 - Observed gap: Image, token, and in-flight cost bounds are not uniformly enforced or measured.
 - Existing-system baseline: The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.
 - Architecture before: Multiple model families run without one cost-aware admission proof.
 - Architecture after: Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.
-- Verdict: `not_run`
+- Verdict: `passed`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Commit the accepted experiment, run current-revision smoke and all required regressions, then create and independently validate the canonical S7 closure.
+- Next action: Review V3 S8 dependency-soak and resource-efficiency readiness and blockers only; do not start S8 in this closure turn.
 
 ### Affected Existing Components
 
@@ -685,18 +685,20 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S7-AC-01` [pending]: Each model family has distinct p95, p99, and quality metric schemas.
-- `S7-AC-02` [pending]: Selected admission limits have zero OOM and zero starvation.
-- `S7-AC-03` [pending]: Long-request head-of-line behavior and fairness are measured.
-- `S7-AC-04` [pending]: Unsupported or unverified metrics remain absent.
+- `S7-AC-01` [passed]: Each model family has distinct p95, p99, and quality metric schemas.
+- `S7-AC-02` [passed]: Selected admission limits have zero OOM and zero starvation.
+- `S7-AC-03` [passed]: Long-request head-of-line behavior and fairness are measured.
+- `S7-AC-04` [passed]: Unsupported or unverified metrics remain absent.
 
 ### Current Evidence
 
-- `docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json` (`f039fc112072526387b2520f729190ef3da04dbf44d11370970ca095dc948eb9`): The first image diagnostic was rejected before profile execution; root cause, remediation, private hashes, and exact cleanup are retained with zero acceptance credit.
-- `docs/status/evidence/s7-auxiliary-admission-failed-attempt-02.json` (`5d9ee5c495287b800babba19fd771ee5fadc127bff553f3a58dcbcbfe5b8f78b`): Three real-CUDA family diagnostics completed but were rejected because cleanup captured a transient 0/0 Prometheus baseline; post-recovery hashes and exact 5/5 cleanup are retained with zero acceptance credit.
-- `docs/status/evidence/s7-family-diagnostic-gate.json` (`14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d`): Fresh image, VLM, and LLM external-HTTP CUDA diagnostics each completed six requests and restored the exact baseline; this is readiness evidence with zero S7 acceptance credit.
-- `docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json` (`a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550`): The first complete 36-repetition matrix was rejected with zero credit because strict projection comparison was list-order-sensitive; raw evidence, exact cleanup, RCA, and private hashes are retained.
-- `docs/status/evidence/s7-auxiliary-admission-experiment.json` (`032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014`): The clean 36-repetition matrix passed raw-derived family schemas, quality, bounded rejection, zero OOM/starvation, fairness/HOL, trace, Prometheus, and exact cleanup checks; scenario closure is pending.
+- `docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json` (`f039fc112072526387b2520f729190ef3da04dbf44d11370970ca095dc948eb9`): The first image warmup exposed host-to-container input remapping and received zero acceptance credit.
+- `docs/status/evidence/s7-auxiliary-admission-failed-attempt-02.json` (`5d9ee5c495287b800babba19fd771ee5fadc127bff553f3a58dcbcbfe5b8f78b`): Completed diagnostics exposed premature Prometheus cleanup observation and received zero acceptance credit.
+- `docs/status/evidence/s7-family-diagnostic-gate.json` (`14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d`): Fresh image, VLM, and LLM diagnostics completed 18 of 18 real-CUDA requests and closed only the readiness gate.
+- `docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json` (`a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550`): The first full matrix exposed position-dependent projection validation and received zero acceptance credit.
+- `docs/status/evidence/s7-auxiliary-admission-experiment.json` (`032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014`): The clean 36-repetition matrix passed independent raw-derived family admission validation.
+- `docs/status/evidence/s7-current-revision-cuda-smoke.json` (`0a52a985b5daf956e1d366e78633164eac2e6b08f1ce6fd5ecc035150ec12e87`): The current revision completed real external-HTTP CUDA inference and restored the exact baseline.
+- `docs/status/evidence/s7-auxiliary-admission-closure.json` (`ae93a79488e0c531f81055f95a6abf4d47ab508d3390c4de882ae5c43cc91a50`): Strict closure binds acceptance, regressions, private hashes, Git blobs, and cleanup without broad production claims.
 
 ### Chronological Updates
 
@@ -708,6 +710,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T19:08:22.335888Z` `verification` / `implementing`: Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision completed 18 of 18 real external-HTTP CUDA requests with family-specific metrics, zero OOM/starvation, and exact B0/lease/S7-target/Prometheus 5/5 cleanup. This closes only the diagnostic gate; the 12-profile by 3-repetition matrix and all S7 ACs remain pending.
 - `2026-08-23T19:18:38.297228Z` `experiment` / `implementing`: The first full 36-repetition matrix completed 162 requests and 54 explicit over-limit rejections with exact cleanup, but strict validation rejected the public projection because public config order and private lexical order were compared positionally. The suite receives zero credit; stable profile/repetition identity comparison and duplicate rejection are implemented before a clean full rerun.
 - `2026-08-23T19:26:44.534372Z` `experiment` / `implementing`: A clean second 36-repetition matrix passed the independent raw-derived experiment validator: each family completed 12 repetitions, with 162 completed requests, 54 explicit bounded rejections, zero OOM/starvation, complete trace and Prometheus evidence, family quality gates, fairness/HOL, and exact cleanup. Full regressions and canonical closure remain pending.
+- `2026-08-23T19:45:30Z` `verification` / `verified`: The accepted 36-repetition family matrix, current-revision CUDA smoke, all required regressions, private rehash, Git-blob closure, and exact cleanup passed S7-AC-01..04; three failed attempts remain retained with zero acceptance credit.
 
 ## S8: Dependency Soak & Resource-efficiency Closure
 
