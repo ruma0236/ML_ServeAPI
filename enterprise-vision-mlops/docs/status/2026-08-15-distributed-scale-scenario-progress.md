@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T08:44:21Z`
+- Generated: `2026-08-23T09:55:37.605649Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -384,7 +384,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; open-loop confirmation requires a quiet recovery gate and the final operating point remains unselected until the full matrix passes.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Commit and Git-blob validate the passing quiet-gate checkpoint, then restart all 66 acceptance repetitions from one clean revision.
+- Next action: Commit the full 66-repetition result, independently recompute every S4 AC and private/public hash, run regressions and runtime smoke, then create the closure artifact.
 
 ### Affected Existing Components
 
@@ -452,6 +452,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s4-open-loop-60rps-checkpoint.json` (`a977e02ac4ade893791ffe4d5f871c97b6305a24a4de5cffa3a526cc1d6a487f`): Three external no-catch-up 60 RPS calibration repetitions passed delivery fidelity, fixed p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this remains non-acceptance calibration evidence.
 - `docs/status/evidence/s4-gpu-batching-attempt-09.json` (`efbe117319651b4c1a1b812d46c81b56740c4aedc3cc5f4e0a2310447292eb99`): A clean run retained 60 matrix and three instance repetitions, then stopped before open-loop because the initial quiet gate misattributed desktop GPU spikes to the experiment; zero OOM and exact cleanup were preserved.
 - `docs/status/evidence/s4-open-loop-stabilization-checkpoint.json` (`f3e439af59887e7721fb4c03011c4337e9d47513caec1ad11baddad018208530`): The baseline-relative quiet gate and three external 60 RPS repetitions passed delivery, fixed latency, trace, zero-OOM, drain, lease, serving-restoration, and cleanup gates; this remains non-acceptance evidence.
+- `docs/status/evidence/s4-gpu-batching-experiment.json` (`8d2b3525eee115e38dab33f19b4426b9b8ce529ecd78cdd7b86d15eaf8530a22`): A fresh clean-revision run completed all 66 planned repetitions, runner-projected S4-AC-01 through S4-AC-04, zero OOM, complete traces, quiet recovery, and exact cleanup; independent evidence closure is still pending.
 
 ### Chronological Updates
 
@@ -471,6 +472,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T06:56:57.118483Z` `implementation` / `implementing`: A separate no-catch-up 60 RPS calibration passed all three repetitions at 98.33 to 99.00-percent delivery, p99 57.58 to 85.22 ms, queue p99 15.32 to 24.02 ms, complete traces, zero OOM, terminal drain, and exact cleanup. The next clean run freezes 60 RPS and a 60-second quiet GPU recovery gate; all S4 ACs remain pending.
 - `2026-08-23T08:15:10.264354Z` `recovery` / `implementing`: A clean run completed all 60 matrix and three instance repetitions with zero OOM, then the new quiet gate stopped before open-loop. The experiment container was absent, VRAM was below the pre-run baseline, and the exact lease matched, but whole-device Windows display utilization alternated between low samples and transient spikes; an absolute 15-percent maximum therefore produced a false blocker. The gate now retains spikes as evidence while using exact container ownership, stable VRAM/temperature, and a five-sample median relative to the measured baseline. Cleanup and serving restoration passed; no acceptance credit is granted.
 - `2026-08-23T08:44:21.746261Z` `implementation` / `implementing`: At clean revision 72ec3d2, the baseline-relative 60-second quiet gate passed with the experiment container absent and exact lease identity. Three external 60 RPS repetitions delivered 58.90 to 59.23 RPS, p99 59.17 to 72.45 ms, queue p99 15.83 to 21.07 ms, 12/12 sampled traces, zero OOM, terminal drain, exact serving restoration, and cleanup. This grants no acceptance credit before the fresh full run.
+- `2026-08-23T09:55:37.605649Z` `experiment` / `implementing`: At clean revision a760a49, the full run completed 60 matrix, three instance-axis, and three open-loop repetitions. The selected saturation candidate was batch 8/delay 10/instance 1 at 160.70 mean RPS; the three no-catch-up confirmations delivered 58.90 to 59.10 RPS with p99 63.87 to 73.79 ms, queue p99 17.98 to 20.36 ms, complete traces, zero OOM, and exact cleanup. The runner projected all four ACs as passed, but S4 remains implementing until independent evidence recomputation and closure pass.
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 
