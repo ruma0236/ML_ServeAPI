@@ -1,0 +1,394 @@
+{
+  "schema_version": "evm.s6_rolling_handoff_experiment.v1",
+  "generated_at": "2026-08-23T15:31:19.348339+00:00",
+  "started_at": "2026-08-23T15:25:54.139567+00:00",
+  "finished_at": "2026-08-23T15:31:19.348339+00:00",
+  "status": "verified",
+  "verdict": "passed",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "revision": "a357b3cbaa973bac25400eb76590b270f145ea62",
+    "config_sha256": "b7c553c067bf636d5d539cbf434ec77ce929a611a909441d7fb921dea2ae89b0",
+    "old_image_id": "sha256:110e16eb92b193e13efe453cf44d45f4fcd6829586a0bef61c2b3ab39f6b0e07",
+    "new_image_id": "sha256:5c678bfb012a0e1e6f3f13fbf53943add85e10e8b9dcc526f3bd9a370d98275a",
+    "git_blobs": {
+      "config": {
+        "path": "enterprise-vision-mlops/configs/s6_rolling_handoff.toml",
+        "blob_oid": "603e035b6cfed12c6bc179d942490207d1cd182b",
+        "sha256": "b7c553c067bf636d5d539cbf434ec77ce929a611a909441d7fb921dea2ae89b0"
+      },
+      "runtime": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s6_runtime.py",
+        "blob_oid": "700aef3745a75c067195fde7ad513385ee1de588",
+        "sha256": "eeec62ef361b14d1dedf8023c537731958cda4f849fa8c1c00f6eae4e3097ed2"
+      },
+      "evidence": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s6_evidence.py",
+        "blob_oid": "0619fb255857451ceafc629297e8edff68f69a41",
+        "sha256": "f442d87ccbd2ce1c3e2c0a634f5bb6816b0add367f1eaca3b45cc13e89eec4da"
+      },
+      "runner": {
+        "path": "enterprise-vision-mlops/scripts/dev/run_s6_rolling_handoff_experiment.py",
+        "blob_oid": "2b084c0e2afa347ade7bc3d69631e39939e95934",
+        "sha256": "3d6270dbce0969f247bb52e4d9452b3cfeb86d4f9a11d0f0917a6537bcade396"
+      },
+      "validator": {
+        "path": "enterprise-vision-mlops/scripts/dev/validate_s6_rolling_handoff_evidence.py",
+        "blob_oid": "5deb6707d9a6c815226e4959dd36b0065fce30a9",
+        "sha256": "d1f6c4679630522f5522714b5b8b8ffd1f73aef8979b7952730bc9ec0bf5ffb1"
+      },
+      "api_main": {
+        "path": "enterprise-vision-mlops/apps/api/main.py",
+        "blob_oid": "19719bcabfca13bc32a98e366a68332f504aa8ab",
+        "sha256": "46ebc6d1f5ca473fee10b9795b6e9728356d94912966f53e09ba68be421bcb7a"
+      },
+      "api_runtime": {
+        "path": "enterprise-vision-mlops/apps/api/control_panel_runtime.py",
+        "blob_oid": "5c9f36f3224cf8bff0973ae97c7c385e3ba05ee5",
+        "sha256": "76a4f5b788f602e86866ff47de005d53bb66c4ebc1c467c82f7494b046e3cc3f"
+      },
+      "api_drain": {
+        "path": "enterprise-vision-mlops/src/evm/control_panel/api_rollout.py",
+        "blob_oid": "26820d2f800a5f937b0db226038dc0ea696c9143",
+        "sha256": "c7d1bca9ff6e567b4fb08aa1f61a8b136bcf20ec84a4e15a07e79b12e0a23f63"
+      },
+      "kubernetes": {
+        "path": "enterprise-vision-mlops/infra/kubernetes/scale-validation/s6/api-rolling.yaml",
+        "blob_oid": "e12187f59b41015b9a2da7f1103dd88e4cb60ced",
+        "sha256": "1ff6f6b27f39f85340e1d98b1f74a14cdb8f61fe8aa15f8af0d024b525e95362"
+      },
+      "prometheus": {
+        "path": "enterprise-vision-mlops/monitoring/prometheus/prometheus.yml",
+        "blob_oid": "ed8923b557aa44d4e2d99503d1846f0556182404",
+        "sha256": "c71605e61ed6f77423f069a52b9706ec08d8f62908b4932440e9639f86b510b7"
+      }
+    }
+  },
+  "frozen_contract": {
+    "schema_version": "evm.s6_rolling_handoff_runtime.v1",
+    "seed": 20260823,
+    "config_sha256": "b7c553c067bf636d5d539cbf434ec77ce929a611a909441d7fb921dea2ae89b0",
+    "api": {
+      "namespace": "evm-platform",
+      "deployment": "evm-s6-api",
+      "service": "evm-s6-api",
+      "node_port": 31060,
+      "replicas": 2,
+      "repetitions": 3,
+      "target_requests_per_second": 25.0,
+      "warmup_seconds": 5.0,
+      "measurement_seconds": 20.0,
+      "cooldown_seconds": 5.0,
+      "processing_delay_ms": 100,
+      "request_timeout_seconds": 3.0,
+      "maximum_attempts_per_logical_request": 3,
+      "retry_backoff_seconds": 0.1,
+      "rollout_offset_seconds": 5.0,
+      "runtime_poll_interval_seconds": 0.25,
+      "trace_sample_every": 25,
+      "trace_flush_timeout_seconds": 30.0
+    },
+    "rolling": {
+      "max_unavailable": 0,
+      "max_surge": 1,
+      "minimum_ready_seconds": 5,
+      "drain_timeout_seconds": 20.0,
+      "termination_grace_period_seconds": 40,
+      "rollout_timeout_seconds": 300.0
+    },
+    "gpu_handoff": {
+      "repetitions": 3,
+      "source_namespace": "evm-production",
+      "source_deployment": "evm-b0-production",
+      "source_endpoint": "http://127.0.0.1:30800",
+      "target_namespace": "evm-staging",
+      "target_deployment": "evm-b0-staging",
+      "target_endpoint": "http://127.0.0.1:30813",
+      "readiness_timeout_seconds": 300.0,
+      "request_timeout_seconds": 10.0,
+      "cooldown_seconds": 5.0,
+      "maximum_interruption_seconds": 300.0,
+      "runtime_poll_interval_seconds": 0.25,
+      "calibration_inference_requests": 30,
+      "acceptance_inference_requests": 30,
+      "sample_image_uri": "/mnt/evm-data/data/raw/industrial/visa/candle/Data/Images/Anomaly/000.JPG"
+    },
+    "guardrails": {
+      "accepted_loss": 0,
+      "duplicate_effects": 0,
+      "maximum_error_rate": 0.01,
+      "maximum_api_p99_ms": 2000.0,
+      "maximum_gpu_p99_ms": 500.0,
+      "require_exact_rollback_identity": true,
+      "require_zero_gpu_owner_overlap": true
+    },
+    "claim_boundary": "Controlled API rolling continuity and single-GPU handoff measurements on 1 local physical node. This is not customer traffic, a production SLA, physical-node or multi-zone HA/DR, zero-downtime GPU HA, or multi-GPU evidence."
+  },
+  "preflight": {
+    "api_ready_replicas": 2,
+    "prometheus_up": true,
+    "production_ready": 1,
+    "staging_scaled_zero": true,
+    "gpu_allocatable": 1,
+    "gpu_identity_observed": true
+  },
+  "api_repetitions": [
+    {
+      "repetition": 1,
+      "logical_requests": 500,
+      "attempts": 500,
+      "client_success": 500,
+      "database_accepted": 500,
+      "database_terminal": 500,
+      "accepted_loss": 0,
+      "client_success_without_acceptance": 0,
+      "duplicate_effects": 0,
+      "error_rate": 0.0,
+      "retry_amplification": 1.0,
+      "measurement_seconds": 20.094000000011874,
+      "service_rps": 24.88304966655243,
+      "mean_ms": 130.56999999954132,
+      "p50_ms": 125.0,
+      "p95_ms": 155.99999998958083,
+      "p99_ms": 218.99999998306157,
+      "maximum_ms": 312.9999999946449,
+      "trace_identity_matches": 500,
+      "trace_expected": 20,
+      "trace_observed": 20,
+      "trace_complete": true,
+      "drain_event_count": 2,
+      "maximum_drain_seconds": 3e-06,
+      "rollout_seconds": 20.969000000011874,
+      "prometheus_up": true,
+      "prometheus_recovery_seconds": 4.8289999999979045,
+      "cleanup_passed": true
+    },
+    {
+      "repetition": 2,
+      "logical_requests": 500,
+      "attempts": 500,
+      "client_success": 500,
+      "database_accepted": 500,
+      "database_terminal": 500,
+      "accepted_loss": 0,
+      "client_success_without_acceptance": 0,
+      "duplicate_effects": 0,
+      "error_rate": 0.0,
+      "retry_amplification": 1.0,
+      "measurement_seconds": 20.110000000015134,
+      "service_rps": 24.863252113357717,
+      "mean_ms": 128.21799999993527,
+      "p50_ms": 125.0,
+      "p95_ms": 141.00000000325963,
+      "p99_ms": 171.99999999138527,
+      "maximum_ms": 187.9999999946449,
+      "trace_identity_matches": 500,
+      "trace_expected": 20,
+      "trace_observed": 20,
+      "trace_complete": true,
+      "drain_event_count": 2,
+      "maximum_drain_seconds": 2e-06,
+      "rollout_seconds": 16.312999999994645,
+      "prometheus_up": true,
+      "prometheus_recovery_seconds": 15.062999999994645,
+      "cleanup_passed": true
+    },
+    {
+      "repetition": 3,
+      "logical_requests": 500,
+      "attempts": 500,
+      "client_success": 500,
+      "database_accepted": 500,
+      "database_terminal": 500,
+      "accepted_loss": 0,
+      "client_success_without_acceptance": 0,
+      "duplicate_effects": 0,
+      "error_rate": 0.0,
+      "retry_amplification": 1.0,
+      "measurement_seconds": 20.094000000011874,
+      "service_rps": 24.88304966655243,
+      "mean_ms": 181.25400000071386,
+      "p50_ms": 125.0,
+      "p95_ms": 626.6000000003245,
+      "p99_ms": 1265.00999998505,
+      "maximum_ms": 1467.9999999934807,
+      "trace_identity_matches": 500,
+      "trace_expected": 20,
+      "trace_observed": 20,
+      "trace_complete": true,
+      "drain_event_count": 2,
+      "maximum_drain_seconds": 3e-06,
+      "rollout_seconds": 20.79700000002049,
+      "prometheus_up": true,
+      "prometheus_recovery_seconds": 0.0,
+      "cleanup_passed": true
+    }
+  ],
+  "gpu_calibration": {
+    "phase": "calibration",
+    "repetition": 0,
+    "status": "passed",
+    "candidate_gate_passed": true,
+    "approval_consumed_once": true,
+    "approval_reuse_rejected": true,
+    "zero_owner_overlap": true,
+    "target_identity_exact": true,
+    "rollback_exact": true,
+    "source_to_target_interruption_seconds": 10.5,
+    "target_to_source_interruption_seconds": 10.030999999988126,
+    "target_p50_ms": 31.000000017229468,
+    "target_p95_ms": 62.999999994644895,
+    "target_p99_ms": 229.13999999233076,
+    "target_inference_count": 30,
+    "target_cuda_inference": true,
+    "source_cuda_inference_restored": true,
+    "prometheus_restored": true
+  },
+  "gpu_repetitions": [
+    {
+      "phase": "acceptance",
+      "repetition": 1,
+      "status": "passed",
+      "candidate_gate_passed": true,
+      "approval_consumed_once": true,
+      "approval_reuse_rejected": true,
+      "zero_owner_overlap": true,
+      "target_identity_exact": true,
+      "rollback_exact": true,
+      "source_to_target_interruption_seconds": 10.28100000001723,
+      "target_to_source_interruption_seconds": 10.030999999988126,
+      "target_p50_ms": 31.000000017229468,
+      "target_p95_ms": 62.54999999946449,
+      "target_p99_ms": 251.1500000045637,
+      "target_inference_count": 30,
+      "target_cuda_inference": true,
+      "source_cuda_inference_restored": true,
+      "prometheus_restored": true
+    },
+    {
+      "phase": "acceptance",
+      "repetition": 2,
+      "status": "passed",
+      "candidate_gate_passed": true,
+      "approval_consumed_once": true,
+      "approval_reuse_rejected": true,
+      "zero_owner_overlap": true,
+      "target_identity_exact": true,
+      "rollback_exact": true,
+      "source_to_target_interruption_seconds": 9.125,
+      "target_to_source_interruption_seconds": 11.062999999994645,
+      "target_p50_ms": 31.000000002677552,
+      "target_p95_ms": 62.999999994644895,
+      "target_p99_ms": 229.13999999233076,
+      "target_inference_count": 30,
+      "target_cuda_inference": true,
+      "source_cuda_inference_restored": true,
+      "prometheus_restored": true
+    },
+    {
+      "phase": "acceptance",
+      "repetition": 3,
+      "status": "passed",
+      "candidate_gate_passed": true,
+      "approval_consumed_once": true,
+      "approval_reuse_rejected": true,
+      "zero_owner_overlap": true,
+      "target_identity_exact": true,
+      "rollback_exact": true,
+      "source_to_target_interruption_seconds": 10.21799999999348,
+      "target_to_source_interruption_seconds": 11.23399999999674,
+      "target_p50_ms": 30.999999988125637,
+      "target_p95_ms": 47.0000000204891,
+      "target_p99_ms": 213.13999999751124,
+      "target_inference_count": 30,
+      "target_cuda_inference": true,
+      "source_cuda_inference_restored": true,
+      "prometheus_restored": true
+    }
+  ],
+  "analysis": {
+    "status": "passed",
+    "acceptance": {
+      "S6-AC-01": {
+        "status": "passed",
+        "api_repetitions": 3
+      },
+      "S6-AC-02": {
+        "status": "passed",
+        "replacement_seconds": [
+          20.969000000011874,
+          16.312999999994645,
+          20.79700000002049
+        ],
+        "drain_seconds": [
+          3e-06,
+          2e-06,
+          3e-06
+        ]
+      },
+      "S6-AC-03": {
+        "status": "passed",
+        "gpu_repetitions": 3,
+        "calibration_passed": true
+      },
+      "S6-AC-04": {
+        "status": "passed",
+        "high_availability_claimed": false
+      }
+    },
+    "api": {
+      "repetition_count": 3,
+      "expected_logical_requests_per_repetition": 500,
+      "accepted_total": 1500,
+      "attempt_total": 1500,
+      "p99_ms": [
+        218.99999998306157,
+        171.99999999138527,
+        1265.00999998505
+      ],
+      "rollout_seconds": [
+        20.969000000011874,
+        16.312999999994645,
+        20.79700000002049
+      ]
+    },
+    "gpu_handoff": {
+      "calibration_target_p99_ms": 229.13999999233076,
+      "repetition_count": 3,
+      "source_to_target_interruption_seconds": [
+        10.28100000001723,
+        9.125,
+        10.21799999999348
+      ],
+      "target_to_source_interruption_seconds": [
+        10.030999999988126,
+        11.062999999994645,
+        11.23399999999674
+      ]
+    },
+    "claim_boundary": "Controlled API rolling continuity and single-GPU handoff measurements on 1 local physical node. This is not customer traffic, a production SLA, physical-node or multi-zone HA/DR, zero-downtime GPU HA, or multi-GPU evidence."
+  },
+  "cleanup": {
+    "passed": true,
+    "errors": [],
+    "source_ready": 1,
+    "target_desired": 0,
+    "api_ready": 2,
+    "api_release_ids": [
+      "old"
+    ],
+    "prometheus_s6": "up",
+    "prometheus_serving": "up",
+    "prometheus_s6_recovery_seconds": 0.0,
+    "prometheus_serving_recovery_seconds": 0.0
+  },
+  "failed_attempts": [],
+  "private_evidence": {
+    "logical_root": "private://scale_validation/s6/accepted",
+    "artifact_count": 23,
+    "total_bytes": 1913521,
+    "aggregate_sha256": "96a959ed39991ca1d8249cba4033d84cc24f5e4fc46f4f456636cc4c4faea447",
+    "index_sha256": "2b9cec172835049eb019faa973f44b2038528d6a46c5a4ba17822da39a7c53ac"
+  },
+  "claim_boundary": "Controlled API rolling continuity and single-GPU handoff measurements on 1 local physical node. This is not customer traffic, a production SLA, physical-node or multi-zone HA/DR, zero-downtime GPU HA, or multi-GPU evidence."
+}

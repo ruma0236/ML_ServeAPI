@@ -1,0 +1,60 @@
+{
+  "schema_version": "evm.s6_api_rolling_preflight_checkpoint.v1",
+  "generated_at": "2026-08-23T14:23:58.4028704Z",
+  "scenario_id": "S6",
+  "status": "implementing",
+  "verdict": "preflight_passed_acceptance_pending",
+  "source_identity": {
+    "api_implementation_revision": "c7125349b49ee61a504991c62b0f3f0c1e7ae8cb",
+    "observability_revision": "0e5b39c0cb23a0271e806597c4cef72e9c379f53",
+    "api_old_image_id": "sha256:189ac8f3c30fd31efb09365ece52e65a1e05a7735eeacf77922bd84f09c81950",
+    "api_new_image_id": "sha256:7407198ed7a0b407131e36bffe16ae897874e8a8b15e73c26b5830b32f90c09e"
+  },
+  "existing_system_baseline": {
+    "compose_api": "healthy and unchanged",
+    "durable_queue_worker": "healthy and unchanged",
+    "single_gpu_source_serving": "one desired replica and one ready replica",
+    "single_gpu_target_serving": "scaled to zero",
+    "prometheus_baseline_targets": "healthy",
+    "historical_terminal_pods": {
+      "count": 3,
+      "treatment": "read-only snapshot; excluded from the active baseline and not deleted"
+    }
+  },
+  "isolated_api_preflight": {
+    "scope": "isolated two-replica Kubernetes Deployment and NodePort",
+    "ready_replicas": 2,
+    "desired_replicas": 2,
+    "old_image_identity_consistent": true,
+    "health_passed": true,
+    "readiness_passed": true,
+    "postgresql_entity_commit_passed": true,
+    "idempotent_replay_returned_original_effect": true,
+    "w3c_response_trace_identity_matched": true,
+    "otlp_export_observed": true,
+    "prometheus_target_health": "up"
+  },
+  "target_scoped_drain_preflight": {
+    "accepted_request_processing_delay_ms": 2000,
+    "request_http_status": 200,
+    "request_completed_during_termination": true,
+    "termination_started_seconds": 0.426,
+    "terminated_pod_absent_seconds": 3.571,
+    "two_ready_replicas_restored_seconds": 8.32,
+    "replacement_ready_replicas": 2,
+    "unrelated_runtime_mutated": false
+  },
+  "private_evidence": {
+    "logical_path": "private://scale_validation/s6/preflight/s6-preflight-private.json",
+    "sha256": "f1c31f6ad674fecedc3213b4ab8b12d6bd4afe3522c5a487f83534acc68dab9a",
+    "bytes": 3399
+  },
+  "acceptance": {
+    "S6-AC-01": "pending",
+    "S6-AC-02": "pending",
+    "S6-AC-03": "pending",
+    "S6-AC-04": "pending"
+  },
+  "next_action": "Run three fresh API rolling continuity repetitions, then three separately approved single-GPU controlled handoff and exact rollback repetitions.",
+  "claim_boundary": "This checkpoint proves only isolated local preflight behavior on one physical node. It is not S6 acceptance, customer traffic, production SLA, zero-downtime GPU HA, physical-node failover, or multi-GPU evidence."
+}
