@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T14:03:48Z`
+- Generated: `2026-08-23T15:53:22Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -555,22 +555,23 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S6: API Rolling Continuity & GPU Controlled Handoff
 
-- Status: `implementing`
+- Status: `verified`
 - Engineering question: Can API replicas roll continuously while a single-GPU handoff remains measured and reversible?
 - Why now: API continuity and GPU availability are different failure domains and claims.
 - Observed gap: Rolling API drain and controlled single-GPU switch are not proven under load.
 - Existing-system baseline: The existing system deploys and rolls back model targets and has target-scoped recovery guards, but stateless API rolling continuity and single-GPU model handoff have not been measured as separate claims under load.
 - Architecture before: Deployment works but API continuity and single-GPU interruption are conflated.
 - Architecture after: Stateless API continuity and controlled GPU handoff have separate evidence and claims.
-- Verdict: `not_run`
+- Verdict: `passed`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Build immutable old/new API images from the implementation revision, run the isolated preflight smoke, and keep all S6 acceptance criteria pending until three API rolling and three GPU handoff repetitions close.
+- Next action: Review S7 model-family-specific admission readiness and blockers only; do not start S7 in this closure turn.
 
 ### Affected Existing Components
 
 - Existing API rollout admission and drain: `apps/api/main.py`, `apps/api/control_panel_runtime.py`, `src/evm/control_panel/api_rollout.py`, `src/evm/control_panel/transactional_store.py`
 - Existing Kubernetes API deployment: `infra/kubernetes/local/api.yaml`, `infra/kubernetes/scale-validation/s6/api-rolling.yaml`
-- Scenario S6 frozen runtime contract: `configs/s6_rolling_handoff.toml`
+- Scenario S6 frozen runtime and evidence contract: `configs/s6_rolling_handoff.toml`, `src/evm/scale_validation/s6_runtime.py`, `src/evm/scale_validation/s6_evidence.py`, `scripts/dev/run_s6_rolling_handoff_experiment.py`, `scripts/dev/validate_s6_rolling_handoff_evidence.py`
+- Existing Prometheus target discovery: `monitoring/prometheus/prometheus.yml`
 
 ### Architecture Delta
 
@@ -590,7 +591,8 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 - Existing API rollout admission and drain: `apps/api/main.py`, `apps/api/control_panel_runtime.py`, `src/evm/control_panel/api_rollout.py`, `src/evm/control_panel/transactional_store.py`
 - Existing Kubernetes API deployment: `infra/kubernetes/local/api.yaml`, `infra/kubernetes/scale-validation/s6/api-rolling.yaml`
-- Scenario S6 frozen runtime contract: `configs/s6_rolling_handoff.toml`
+- Scenario S6 frozen runtime and evidence contract: `configs/s6_rolling_handoff.toml`, `src/evm/scale_validation/s6_runtime.py`, `src/evm/scale_validation/s6_evidence.py`, `scripts/dev/run_s6_rolling_handoff_experiment.py`, `scripts/dev/validate_s6_rolling_handoff_evidence.py`
+- Existing Prometheus target discovery: `monitoring/prometheus/prometheus.yml`
 - Compatibility: Existing approval, identity, readiness, and known-good rollback gates remain mandatory.
 - Migration: Enable replicated API RollingUpdate independently; retain exact-target GPU handoff as a maintenance-window operation.
 
@@ -605,19 +607,25 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S6-AC-01` [pending]: API rolling update loses and duplicates zero accepted requests.
-- `S6-AC-02` [pending]: API drain and replacement recovery time are measured.
-- `S6-AC-03` [pending]: GPU handoff interruption and rollback identity are measured.
-- `S6-AC-04` [pending]: The result is not described as zero-downtime GPU high availability.
+- `S6-AC-01` [passed]: API rolling update loses and duplicates zero accepted requests.
+- `S6-AC-02` [passed]: API drain and replacement recovery time are measured.
+- `S6-AC-03` [passed]: GPU handoff interruption and rollback identity are measured.
+- `S6-AC-04` [passed]: The result is not described as zero-downtime GPU high availability.
 
 ### Current Evidence
 
-- No accepted execution evidence yet.
+- `docs/status/evidence/s6-api-rolling-preflight-checkpoint.json` (`2196776f456c08b186be1c03f4c8b33d0587d4d16a7da242f35a6b6e95e0e708`): The isolated two-replica API, drain, PostgreSQL identity, OTLP and Prometheus preflight passed without acceptance credit.
+- `docs/status/evidence/s6-api-rolling-failed-attempt-01.json` (`83bbabcebdec742bcf0b333e86eef38bf0dc2c3753eb86ef7805ac943aa6e11e`): The first rolling attempt was rejected because exact old-Pod drain evidence had not converged when rollout status returned.
+- `docs/status/evidence/s6-api-rolling-failed-attempt-02.json` (`fd27ec25a4b198d37b6600f9da6af12178c651cb0f675a2323cccdabf03ba1b1`): The second rolling attempt was rejected because the initial shared latency gate and instantaneous scrape check did not model rollout recovery correctly.
+- `docs/status/evidence/s6-rolling-handoff-experiment.json` (`0fa59c817c4ea4d2b8f829154f3fb6ad875abb6c9ecfdc38ed5dd367bd2d824a`): Three API rolling and three single-GPU handoff repetitions passed from independently recomputed private raw evidence.
+- `docs/status/evidence/s6-current-revision-runtime-smoke.json` (`549e3c46b75f7cba1449fada78cd9f086a8a51290786725c9e09c1c2a9c689a6`): The current revision preserved healthy API, PostgreSQL, queue-worker, CUDA serving and Prometheus behavior before isolated cleanup.
+- `docs/status/evidence/s6-rolling-handoff-closure.json` (`8d99ca8cfe8a24e6ba808949b6b537d95a0ce93f70c7c0959b80b9bf72f96440`): Strict closure binds the accepted experiment, regressions, failed-attempt RCA, Git blobs, private inventory and cleanup without claiming GPU HA.
 
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
 - `2026-08-23T14:03:04Z` `implementation` / `implementing`: Drain-aware API admission, transactional rollout-probe identity, and isolated zero-unavailable Kubernetes contracts were implemented; acceptance experiments remain pending.
+- `2026-08-23T15:52:06Z` `verification` / `verified`: Three API rolling and three controlled single-GPU handoff repetitions passed all four S6 criteria; strict evidence, current-revision regressions, exact rollback, baseline restoration, and isolated-resource cleanup also passed.
 
 ## S7: Image/VLM/LLM Auxiliary Admission
 

@@ -1,0 +1,26 @@
+{
+  "schema_version": "evm.s6_current_revision_runtime_smoke.v1",
+  "generated_at": "2026-08-23T15:46:29.7562917Z",
+  "status": "passed",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "revision": "e919fd0e9dcdfa15ca7b93baaadcbbbd3ea46a86",
+    "experiment_runtime_revision": "a357b3cbaa973bac25400eb76590b270f145ea62",
+    "runtime_affecting_diff_since_experiment": []
+  },
+  "checks": {
+    "compose_api_status": "ok",
+    "control_plane_postgresql": "healthy",
+    "durable_queue_worker": "healthy",
+    "queue_active": 0,
+    "queue_leased": 0,
+    "queue_outcome_unknown": 0,
+    "isolated_api_ready": "2/2",
+    "source_serving_ready": "1/1",
+    "target_serving_desired": 0,
+    "real_cuda_inference": true,
+    "prometheus_targets_up": "6/6"
+  },
+  "claim": "The current repository revision preserves the accepted S6 runtime path and its healthy local baseline; changes since the experiment runtime revision are evidence-validation only.",
+  "claim_boundary": "One local physical node and one physical GPU; no customer traffic, production SLA, physical-node or multi-zone HA/DR, zero-downtime GPU HA, or multi-GPU claim."
+}

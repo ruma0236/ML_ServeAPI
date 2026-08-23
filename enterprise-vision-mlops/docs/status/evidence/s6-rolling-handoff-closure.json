@@ -1,0 +1,184 @@
+{
+  "schema_version": "evm.s6_rolling_handoff_closure.v1",
+  "generated_at": "2026-08-23T15:49:03.0193744Z",
+  "status": "verified",
+  "verdict": "passed",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "runtime_revision": "a357b3cbaa973bac25400eb76590b270f145ea62",
+    "experiment_commit": "abab6bb360c770e77738a99a41bb036332715e9b",
+    "validator_revision": "48ce9d0780f1740ba768d6f7eb95061e3e151c56",
+    "experiment": {
+      "path": "enterprise-vision-mlops/docs/status/evidence/s6-rolling-handoff-experiment.json",
+      "blob_oid": "ed63f4d556b421bdc3936b5ba4db28b7bd74f3f3",
+      "sha256": "0fa59c817c4ea4d2b8f829154f3fb6ad875abb6c9ecfdc38ed5dd367bd2d824a"
+    },
+    "validators": {
+      "validator_cli": {
+        "path": "enterprise-vision-mlops/scripts/dev/validate_s6_rolling_handoff_evidence.py",
+        "blob_oid": "f92a845639f213278786e680f1dd6ebee7b17afd",
+        "sha256": "2c16d9a9d589a16868d1f839dbacb41ce400dfe2efe637d62ce499d9f496a672"
+      },
+      "validator_module": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s6_evidence.py",
+        "blob_oid": "ecde0a517497a96d3ce7e5320afbce9261cd5bc8",
+        "sha256": "52c19e8d1b3022e9dd8720db4e1ede6c536c84640047e19f7c38f792f54c3b81"
+      }
+    }
+  },
+  "final_runtime_evidence": {
+    "experiment_git_blob_sha256": "0fa59c817c4ea4d2b8f829154f3fb6ad875abb6c9ecfdc38ed5dd367bd2d824a",
+    "private_artifact_count": 23,
+    "private_total_bytes": 1913521,
+    "private_index_sha256": "2b9cec172835049eb019faa973f44b2038528d6a46c5a4ba17822da39a7c53ac",
+    "api_repetitions": 3,
+    "api_logical_requests": 1500,
+    "api_attempts": 1500,
+    "api_accepted_loss": 0,
+    "api_duplicate_effects": 0,
+    "api_p99_ms": [
+      218.99999998306157,
+      171.99999999138527,
+      1265.00999998505
+    ],
+    "api_rollout_seconds": [
+      20.969000000011874,
+      16.312999999994645,
+      20.79700000002049
+    ],
+    "gpu_repetitions": 3,
+    "gpu_source_to_target_interruption_seconds": [
+      10.28100000001723,
+      9.125,
+      10.21799999999348
+    ],
+    "gpu_target_to_source_interruption_seconds": [
+      10.030999999988126,
+      11.062999999994645,
+      11.23399999999674
+    ],
+    "gpu_owner_overlap": 0,
+    "gpu_cuda_inference": true,
+    "rollback_identity_exact": true,
+    "acceptance": {
+      "S6-AC-01": {
+        "status": "passed",
+        "api_repetitions": 3
+      },
+      "S6-AC-02": {
+        "status": "passed",
+        "replacement_seconds": [
+          20.969000000011874,
+          16.312999999994645,
+          20.79700000002049
+        ],
+        "drain_seconds": [
+          3e-06,
+          2e-06,
+          3e-06
+        ]
+      },
+      "S6-AC-03": {
+        "status": "passed",
+        "gpu_repetitions": 3,
+        "calibration_passed": true
+      },
+      "S6-AC-04": {
+        "status": "passed",
+        "high_availability_claimed": false
+      }
+    }
+  },
+  "failed_attempts_and_rca": [
+    {
+      "attempt_id": "S6-ATTEMPT-01",
+      "acceptance_credit": false,
+      "root_cause": "Kubernetes rollout status returned before the second exact old-Pod preStop drain record committed.",
+      "resolution": "The runner now binds the exact old Pod UID set and waits for all terminating old Pods to disappear before querying drain evidence.",
+      "evidence": "docs/status/evidence/s6-api-rolling-failed-attempt-01.json"
+    },
+    {
+      "attempt_id": "S6-ATTEMPT-02",
+      "acceptance_credit": false,
+      "root_cause": "A steady-state 500 ms latency limit was incorrectly shared with the single-node rollout startup wave, and an instantaneous Prometheus sample hit the scrape transition.",
+      "resolution": "API rollout and GPU inference latency limits are separate, and Prometheus recovery is now measured with a bounded wait.",
+      "evidence": "docs/status/evidence/s6-api-rolling-failed-attempt-02.json"
+    },
+    {
+      "attempt_id": "S6-REGRESSION-COMMAND-01",
+      "acceptance_credit": false,
+      "root_cause": "The first focused command named a test file that does not exist and therefore collected zero tests.",
+      "resolution": "The command was corrected to the repository's actual S6/API test modules before any result was credited."
+    },
+    {
+      "attempt_id": "S6-REGRESSION-COMMAND-02",
+      "acceptance_credit": false,
+      "root_cause": "Two regression invocations used the stale host port 5433, which currently maps to the MLflow database rather than control-plane PostgreSQL on 5434.",
+      "resolution": "The accepted commands resolve the published control-plane port from Docker and use an isolated temporary role that is removed after each run."
+    }
+  ],
+  "regression": {
+    "changed_file_lint": {
+      "status": "passed",
+      "files_checked": 3
+    },
+    "focused_s6": {
+      "status": "passed",
+      "tests_passed": 34
+    },
+    "real_postgresql_control_plane": {
+      "status": "passed",
+      "tests_passed": 72,
+      "isolation": "temporary role and test-owned schemas; all removed"
+    },
+    "full_python_real_postgresql": {
+      "status": "passed",
+      "tests_passed": 807,
+      "tests_skipped": 1,
+      "skip_boundary": "The retained environment-specific CUDA test is covered by the separate mandatory real-CUDA S6 handoff repetitions."
+    },
+    "lifecycle_host_e2e": {
+      "status": "passed",
+      "tests_passed": 159
+    },
+    "control_panel": {
+      "status": "passed",
+      "tests_passed": 59,
+      "test_files_passed": 17
+    },
+    "frontend_production_build": {
+      "status": "passed",
+      "modules_transformed": 1803
+    },
+    "s0_s5_regression": {
+      "status": "passed",
+      "progress_git_blob_validator": true,
+      "verified_public_artifacts": 53,
+      "verified_embedded_artifacts": 4,
+      "s3_evidence_and_closure_validator": true,
+      "s4_evidence_and_closure_validator": true,
+      "s5_evidence_and_closure_validator": true
+    },
+    "current_revision_runtime_smoke": {
+      "status": "passed",
+      "path": "docs/status/evidence/s6-current-revision-runtime-smoke.json",
+      "sha256": "549e3c46b75f7cba1449fada78cd9f086a8a51290786725c9e09c1c2a9c689a6",
+      "revision": "e919fd0e9dcdfa15ca7b93baaadcbbbd3ea46a86"
+    }
+  },
+  "cleanup": {
+    "runtime_cleanup_passed": true,
+    "private_inventory_rehash_passed": true,
+    "git_blob_validation_passed": true,
+    "source_serving_ready": true,
+    "target_scaled_zero": true,
+    "s6_isolated_resources_removed": true,
+    "s6_api_images_removed": 8,
+    "queues_and_leases_zero": true,
+    "prometheus_baseline_healthy": true,
+    "prometheus_targets_up": "5/5",
+    "source_cuda_inference_restored": true,
+    "historical_terminal_pods_unchanged": true
+  },
+  "claim_boundary": "Controlled API rolling continuity and single-GPU handoff measurements on 1 local physical node. This is not customer traffic, a production SLA, physical-node or multi-zone HA/DR, zero-downtime GPU HA, or multi-GPU evidence."
+}
