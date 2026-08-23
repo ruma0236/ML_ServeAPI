@@ -179,6 +179,7 @@ def main() -> int:
         "full": args.output,
     }[args.mode]
     inference_lease = None
+    open_loop_stabilization: dict[str, Any] | None = None
     try:
         scale_holder(holder, replicas=0, require_ready=False)
         assert_holder_pods(holder, expected=0, require_ready=False)
@@ -385,6 +386,11 @@ def main() -> int:
             selected = preliminary["selected_operating_point"]
             if selected is None:
                 raise S4RuntimeError("s4_no_safe_operating_point")
+            open_loop_stabilization = stabilize_open_loop_environment(
+                context=context,
+                config=config,
+                gpu_baseline=gpu_before,
+            )
             open_rate = min(
                 float(selected["service_rps_mean"]) * config.open_service_rate_fraction,
                 config.open_maximum_target_rps,
@@ -436,6 +442,7 @@ def main() -> int:
                 },
                 "point_results": results,
                 "analysis": analysis,
+                "open_loop_stabilization": open_loop_stabilization,
                 "acceptance": analysis["acceptance"],
                 "runtime_verdict": analysis["runtime_verdict"],
                 "failed_attempts_and_rca": failed_attempts,
@@ -889,6 +896,69 @@ async def sample_resources(
             await asyncio.wait_for(stop.wait(), timeout=interval)
         except TimeoutError:
             pass
+
+
+def stabilize_open_loop_environment(
+    *,
+    context: RuntimeContext,
+    config: S4RuntimeConfig,
+    gpu_baseline: dict[str, Any],
+) -> dict[str, Any]:
+    started = time.monotonic()
+    deadline = started + config.open_stabilization_seconds
+    samples: list[dict[str, Any]] = []
+    while True:
+        samples.append(capture_gpu_inventory())
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(5.0, remaining))
+    active = read_active_gpu_lease()
+    lease_matches = bool(
+        active is not None
+        and active.run_id == context.lease_run_id
+        and active.lease_id == context.lease_id
+        and active.fencing_token == context.fencing_token
+        and active.state == "active"
+    )
+    terminal = samples[-3:]
+    quiet = bool(
+        len(terminal) == 3
+        and lease_matches
+        and max(float(item["utilization_gpu_percent"]) for item in terminal) <= 15.0
+        and max(float(item["temperature_celsius"]) for item in terminal)
+        <= config.maximum_temperature_celsius
+        and max(float(item["memory_used_mib"]) for item in terminal)
+        <= float(gpu_baseline["memory_used_mib"]) + 512.0
+    )
+    private = {
+        "schema_version": "evm.s4_open_loop_stabilization_private.v1",
+        "configured_duration_seconds": config.open_stabilization_seconds,
+        "elapsed_seconds": time.monotonic() - started,
+        "lease_matches": lease_matches,
+        "gpu_baseline": gpu_baseline,
+        "samples": samples,
+        "quiet_gate_passed": quiet,
+    }
+    canonical_write(context.private_root / "open-loop-stabilization-private.json", private)
+    summary = {
+        "configured_duration_seconds": config.open_stabilization_seconds,
+        "sample_count": len(samples),
+        "lease_matches": lease_matches,
+        "terminal_utilization_percent_max": max(
+            float(item["utilization_gpu_percent"]) for item in terminal
+        ),
+        "terminal_temperature_celsius_max": max(
+            float(item["temperature_celsius"]) for item in terminal
+        ),
+        "terminal_memory_used_mib_max": max(
+            float(item["memory_used_mib"]) for item in terminal
+        ),
+        "quiet_gate_passed": quiet,
+    }
+    if not quiet:
+        raise S4RuntimeError(f"s4_open_loop_stabilization_failed:{summary}")
+    return summary
 
 
 def resource_sample() -> dict[str, Any]:

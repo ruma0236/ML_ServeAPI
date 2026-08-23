@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T05:43:47.220460Z",
+  "generated_at": "2026-08-23T07:05:47.049219Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2090,7 +2090,9 @@
         "A complete 60-point saturation matrix plus three instance-axis repetitions exposed that candidate discovery and sustainable open-loop SLO validation were incorrectly coupled; the contracts are now separated.",
         "The first complete 66-repetition run selected batch 8/delay 10 at 140.33 requests per second, but its 80-percent open-loop replay failed the fixed operating SLO in two of three repetitions. The thresholds remain unchanged and the next clean run reserves 30-percent headroom.",
         "The next run retained 64 repetitions and exposed an open-loop load-generator evidence defect: delayed schedule entries could be emitted as catch-up bursts and delivery fidelity was not measured. No-catch-up pacing and fail-closed delivery telemetry are now implemented before a non-acceptance pilot.",
-        "A 107.4 RPS pacing calibration failed delivery and operating SLO gates, while a separate three-repeat 80 RPS calibration passed delivery fidelity, p99, queue wait, trace, OOM, drain, and cleanup. The 80 RPS ceiling is now versioned and S2 capacity uses validated open-loop service rate."
+        "A 107.4 RPS pacing calibration failed delivery and operating SLO gates, while a separate three-repeat 80 RPS calibration passed delivery fidelity, p99, queue wait, trace, OOM, drain, and cleanup.",
+        "The integrated 80 RPS confirmation was not reproducible after the 63 saturation and instance repetitions: it delivered 97.875 percent and exceeded both operating tail SLOs, so the run stopped fail closed after 64 of 66 repetitions with cleanup intact.",
+        "A separate no-catch-up 60 RPS calibration then passed all three repetitions. The final clean-run contract freezes that ceiling, inserts a 60-second quiet GPU recovery gate before confirmation, and continues to calculate S2 capacity only from the validated open-loop service rate."
       ],
       "experiment_environment": "Actual local single-node runtime with one consumer GPU, the existing Workloads API, external TCP client, isolated Prometheus, OTLP collector, and exact Kubernetes serving-holder handoff. No customer traffic or production SLA.",
       "test_or_experiment_steps": [
@@ -2186,6 +2188,18 @@
           "sha256": "5ec641448cef87d65a3fe2591b46290ea6b3db91b57d60ece8aa5ef0fd3384b1",
           "generated_at": "2026-08-23T05:40:03.158111Z",
           "claim": "Three external 80 RPS pacing repetitions passed measured delivery fidelity, fixed operating p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this is calibration evidence only."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-08.json",
+          "sha256": "e71f662c94e168ecc7835cf4f6b9418cc9c0cfb8027314c5ea3c9f98fa7aed43",
+          "generated_at": "2026-08-23T06:51:58.597747Z",
+          "claim": "The clean integrated run retained 64 of 66 repetitions and stopped fail closed when the post-saturation 80 RPS confirmation missed delivery by 0.125 percentage points and exceeded both operating tail SLOs; zero OOM and exact cleanup were preserved."
+        },
+        {
+          "path": "docs/status/evidence/s4-open-loop-60rps-checkpoint.json",
+          "sha256": "a977e02ac4ade893791ffe4d5f871c97b6305a24a4de5cffa3a526cc1d6a487f",
+          "generated_at": "2026-08-23T06:56:57.118483Z",
+          "claim": "Three external no-catch-up 60 RPS calibration repetitions passed delivery fidelity, fixed p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this remains non-acceptance calibration evidence."
         }
       ],
       "status": "implementing",
@@ -2196,9 +2210,9 @@
         "Model instance count and batch size effects are measured separately.",
         "Queue limits are recalculated from the selected service rate."
       ],
-      "next_action": "Commit the calibrated 80 RPS ceiling and validated-service-rate queue formula, then restart all 66 acceptance repetitions from one clean revision.",
+      "next_action": "Commit the 60 RPS ceiling and 60-second quiet recovery gate, then restart all 66 acceptance repetitions from one clean revision.",
       "architecture_before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
-      "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.",
+      "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; open-loop confirmation requires a quiet recovery gate and the final operating point remains unselected until the full matrix passes.",
       "existing_system_baseline": "The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.",
       "affected_existing_components": [
         {
@@ -2242,7 +2256,7 @@
       "engineering_gap_and_reason": "No throughput-latency-VRAM Pareto curve exists for the accelerator path.",
       "architecture_delta": {
         "before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
-        "after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.",
+        "after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; open-loop confirmation requires a quiet recovery gate and the final operating point remains unselected until the full matrix passes.",
         "selection_reasons": [
           "A tiny MLP isolates GPU scheduler and batch-formation cost while reusing the real Workloads API and single-GPU lease boundary."
         ],
@@ -2391,6 +2405,18 @@
           "sha256": "5ec641448cef87d65a3fe2591b46290ea6b3db91b57d60ece8aa5ef0fd3384b1",
           "generated_at": "2026-08-23T05:40:03.158111Z",
           "claim": "Three external 80 RPS pacing repetitions passed measured delivery fidelity, fixed operating p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this is calibration evidence only."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-08.json",
+          "sha256": "e71f662c94e168ecc7835cf4f6b9418cc9c0cfb8027314c5ea3c9f98fa7aed43",
+          "generated_at": "2026-08-23T06:51:58.597747Z",
+          "claim": "The clean integrated run retained 64 of 66 repetitions and stopped fail closed when the post-saturation 80 RPS confirmation missed delivery by 0.125 percentage points and exceeded both operating tail SLOs; zero OOM and exact cleanup were preserved."
+        },
+        {
+          "path": "docs/status/evidence/s4-open-loop-60rps-checkpoint.json",
+          "sha256": "a977e02ac4ade893791ffe4d5f871c97b6305a24a4de5cffa3a526cc1d6a487f",
+          "generated_at": "2026-08-23T06:56:57.118483Z",
+          "claim": "Three external no-catch-up 60 RPS calibration repetitions passed delivery fidelity, fixed p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this remains non-acceptance calibration evidence."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2503,6 +2529,24 @@
           "summary": "A separate three-repeat 80 RPS calibration delivered 78.53 to 78.70 RPS with 98.17 to 98.38-percent fidelity, release-lag p99 about 10 ms, p99 72.97 to 119.40 ms, queue p99 23.34 to 40.92 ms, 15/15 sampled traces, zero OOM, and exact cleanup. This freezes an 80 RPS ceiling and grants no acceptance credit before the fresh full run.",
           "evidence_refs": [
             "docs/status/evidence/s4-open-loop-pacing-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T06:51:58.597747Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "The integrated 80 RPS run retained all 60 matrix and three instance repetitions, then stopped on its first open-loop confirmation: delivery was 97.875 percent, p99 was 511.80 ms, and queue p99 was 283.08 ms. Zero OOM, complete sampled traces, serving restoration, lease release, and cleanup passed. The standalone 80 RPS result is therefore calibration-only and no acceptance credit is granted.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-attempt-08.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T06:56:57.118483Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "A separate no-catch-up 60 RPS calibration passed all three repetitions at 98.33 to 99.00-percent delivery, p99 57.58 to 85.22 ms, queue p99 15.32 to 24.02 ms, complete traces, zero OOM, terminal drain, and exact cleanup. The next clean run freezes 60 RPS and a 60-second quiet GPU recovery gate; all S4 ACs remain pending.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-open-loop-60rps-checkpoint.json"
           ]
         }
       ]

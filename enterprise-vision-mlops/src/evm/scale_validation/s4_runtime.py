@@ -87,6 +87,7 @@ class S4RuntimeConfig:
     trace_poll_interval_seconds: float
     open_service_rate_fraction: float
     open_maximum_target_rps: float
+    open_stabilization_seconds: float
     open_repetitions: int
     maximum_error_rate: float
     maximum_p99_ms: float
@@ -169,6 +170,7 @@ class S4RuntimeConfig:
             trace_poll_interval_seconds=float(observability["trace_poll_interval_seconds"]),
             open_service_rate_fraction=float(opened["service_rate_fraction"]),
             open_maximum_target_rps=float(opened["maximum_target_requests_per_second"]),
+            open_stabilization_seconds=float(opened["stabilization_seconds"]),
             open_repetitions=int(opened["repetitions"]),
             maximum_error_rate=float(guardrails["maximum_error_rate"]),
             maximum_p99_ms=float(guardrails["maximum_p99_ms"]),
@@ -240,8 +242,10 @@ class S4RuntimeConfig:
             raise S4RuntimeError("s4_positive_bound_invalid")
         if self.open_service_rate_fraction != 0.70:
             raise S4RuntimeError("s4_open_rate_fraction_not_frozen")
-        if self.open_maximum_target_rps != 80.0:
+        if self.open_maximum_target_rps != 60.0:
             raise S4RuntimeError("s4_open_rate_ceiling_not_frozen")
+        if self.open_stabilization_seconds != 60.0:
+            raise S4RuntimeError("s4_open_stabilization_not_frozen")
         if not 0 < self.capacity_safety_factor <= 1:
             raise S4RuntimeError("s4_capacity_safety_factor_invalid")
         if not (
@@ -310,11 +314,12 @@ class S4RuntimeConfig:
             "open_loop": {
                 "service_rate_fraction": self.open_service_rate_fraction,
                 "maximum_target_requests_per_second": self.open_maximum_target_rps,
+                "stabilization_seconds": self.open_stabilization_seconds,
                 "repetitions": self.open_repetitions,
                 "selection_reason": (
                     "Use the lower of thirty-percent saturation headroom and the "
-                    "three-repeat calibrated 80 RPS ceiling before applying the fixed "
-                    "operating latency SLO."
+                    "three-repeat calibrated 60 RPS ceiling after a quiet recovery gate "
+                    "and before applying the fixed operating latency SLO."
                 ),
             },
             "preparation": {

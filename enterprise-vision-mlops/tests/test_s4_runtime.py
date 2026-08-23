@@ -4,13 +4,16 @@ import json
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
+from scripts.dev import run_s4_gpu_batching_experiment as s4_runner
 from scripts.dev.run_s4_gpu_batching_experiment import (
     RuntimeContext,
     advance_open_loop_schedule,
     build_gpu_api_command,
     private_evidence_index,
     summarize_point,
+    stabilize_open_loop_environment,
     trace_summary,
 )
 from evm.scale_validation.s4_runtime import S4RuntimeConfig, analyze_s4_results
@@ -68,7 +71,8 @@ def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> N
     config = _config(tmp_path)
     assert config.closed_concurrency == 64
     assert config.open_service_rate_fraction == 0.70
-    assert config.open_maximum_target_rps == 80.0
+    assert config.open_maximum_target_rps == 60.0
+    assert config.open_stabilization_seconds == 60.0
     assert config.public_dict()["preparation"] == {
         "closed_concurrency": 1,
         "warmup_seconds": 2.0,
@@ -91,11 +95,13 @@ def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> N
     }
     assert config.public_dict()["open_loop"] == {
         "service_rate_fraction": 0.70,
-        "maximum_target_requests_per_second": 80.0,
+        "maximum_target_requests_per_second": 60.0,
+        "stabilization_seconds": 60.0,
         "repetitions": 3,
         "selection_reason": (
             "Use the lower of thirty-percent saturation headroom and the three-repeat "
-            "calibrated 80 RPS ceiling before applying the fixed operating latency SLO."
+            "calibrated 60 RPS ceiling after a quiet recovery gate and before applying "
+            "the fixed operating latency SLO."
         ),
     }
     results = [
@@ -262,6 +268,56 @@ def test_s4_open_loop_summary_fails_closed_on_under_delivered_profile(tmp_path: 
     assert summary["offered_rate_delivery_ratio"] == 0.8
     assert summary["load_generator_valid"] is False
     assert summary["evidence_valid"] is False
+
+
+def test_s4_open_loop_stabilization_requires_quiet_gpu_and_exact_lease(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path)
+    clock = [0.0]
+    context = RuntimeContext(
+        image="s4-runtime:test",
+        network="test-network",
+        source_revision="a" * 40,
+        source_branch="codex/test",
+        registry_path=tmp_path / "registry.json",
+        data_root=tmp_path,
+        lease_run_id="run",
+        lease_id="lease",
+        fencing_token="fence",
+        private_root=tmp_path / "private",
+        trace_path=tmp_path / "traces.json",
+    )
+    monkeypatch.setattr(s4_runner.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(s4_runner.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    monkeypatch.setattr(
+        s4_runner,
+        "capture_gpu_inventory",
+        lambda: {
+            "utilization_gpu_percent": 5.0,
+            "temperature_celsius": 40.0,
+            "memory_used_mib": 1000.0,
+        },
+    )
+    monkeypatch.setattr(
+        s4_runner,
+        "read_active_gpu_lease",
+        lambda: SimpleNamespace(
+            run_id="run", lease_id="lease", fencing_token="fence", state="active"
+        ),
+    )
+
+    summary = stabilize_open_loop_environment(
+        context=context,
+        config=config,
+        gpu_baseline={"memory_used_mib": 1000.0},
+    )
+
+    assert summary["configured_duration_seconds"] == 60.0
+    assert summary["sample_count"] == 13
+    assert summary["lease_matches"] is True
+    assert summary["quiet_gate_passed"] is True
+    assert (context.private_root / "open-loop-stabilization-private.json").is_file()
 
 
 def test_s4_gpu_api_uses_supported_isolated_file_store(tmp_path: Path) -> None:

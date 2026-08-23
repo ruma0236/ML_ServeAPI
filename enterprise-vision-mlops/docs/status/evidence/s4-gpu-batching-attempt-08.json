@@ -1,0 +1,59 @@
+{
+  "acceptance_credit": false,
+  "attempt_id": "S4-ATTEMPT-08",
+  "claim_boundary": "Local single-node failure evidence only; no production SLA, HA, multi-GPU, or customer-traffic claim.",
+  "cleanup": {
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "holder_ready": true,
+    "holder_uid_restored": true,
+    "lease_released": true,
+    "prometheus_container_absent": true,
+    "serving_cuda_ready": true
+  },
+  "corrective_action": [
+    "Retain the 80 RPS standalone pilot as calibration-only evidence because it was not reproducible after the saturation matrix.",
+    "Freeze a 60 RPS ceiling from a separate three-repeat passing pilot without changing the 250 ms p99 or 100 ms queue-wait SLO.",
+    "Add a 60-second quiet recovery gate between saturation/instance probes and selected-point confirmation."
+  ],
+  "generated_at": "2026-08-23T06:51:58.597747Z",
+  "next_action": "Version the 60 RPS ceiling and quiet recovery gate, then restart the full acceptance run from a clean revision.",
+  "observed_result": {
+    "completed_repetitions": 64,
+    "open_loop_failure": {
+      "actual_offered_rps": 78.3,
+      "delivery_ratio": 0.97875,
+      "error_count": 0,
+      "load_generator_valid": false,
+      "operating_guardrail_passed": false,
+      "p99_ms": 511.8043479928744,
+      "queue_wait_p99_ms": 283.07669263886055,
+      "release_lag_p99_ms": 10.556105024879798,
+      "skipped_release_count": 51,
+      "target_offered_rps": 80.0,
+      "trace_chains_complete": 5,
+      "trace_chains_expected": 5
+    },
+    "zero_oom": true
+  },
+  "private_evidence": {
+    "aggregate_sha256": "cc4000c97cf68ac0ab2dc74f9ea199682af7920c14ea6046e0d5d0e8f7fd6f13",
+    "artifact_count": 67,
+    "index_sha256": "f929cf8375965bdda86f9d0c00943fc74e10da22d8d2451ddbf1ac8c9f56fb57",
+    "total_bytes": 41985108
+  },
+  "root_cause": "The 80 RPS profile passed three standalone repetitions but was not reproducible immediately after 63 saturation and instance repetitions. The first integrated confirmation missed delivery by 0.125 percentage points and exceeded both operating tail SLOs. The prior contract lacked an explicit saturation-to-operating recovery window and retained insufficient margin for local-host jitter.",
+  "schema_version": "evm.s4_gpu_batching_failed_attempt.v1",
+  "scope": {
+    "planned_repetitions": 66,
+    "retained_instance_repetitions": 3,
+    "retained_matrix_repetitions": 60,
+    "retained_open_loop_repetitions": 1
+  },
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "461dcdf3c1b3c6f0d539a4082492065941c70201",
+    "runtime_config_sha256": "6b8731c22a3b54ae7ed6b81f1a04959c702118089cf787024c7c8637b7ec85a2"
+  },
+  "status": "stopped_fail_closed"
+}
