@@ -15,7 +15,7 @@ import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 from uuid import uuid4
 
 import httpx
@@ -47,7 +47,9 @@ from evm.scale_validation.s7_runtime import (  # noqa: E402
     analyze_s7_profiles,
     canonical_sha256,
     file_sha256,
+    host_image_data_environment,
     profile_family,
+    restore_file_sd_target,
     source_identity,
 )
 
@@ -168,6 +170,8 @@ def main() -> int:
     gpu_before = gpu_snapshot()
     target_path = args.data_root / "artifacts/w7/prometheus-targets/s7-family.json"
     prior_target = target_path.read_bytes() if target_path.is_file() else None
+    if prior_target is not None and json.loads(prior_target) != []:
+        raise S7RuntimeError("s7_stale_prometheus_target_present")
     records = {family: read_jsonl(assets[family].manifest) for family in families}
     input_catalog = prepare_inputs(
         suite_root=suite_root,
@@ -193,7 +197,9 @@ def main() -> int:
     )
     profile_results: list[dict[str, Any]] = []
     failed: dict[str, Any] | None = None
+    failure_exc: Exception | None = None
     family_cleanup: list[dict[str, Any]] = []
+    final_target_cleanup: dict[str, Any] | None = None
     holder_scaled_down = False
     try:
         scale_holder(holder, replicas=0, require_ready=False)
@@ -224,8 +230,7 @@ def main() -> int:
                 ready = wait_ready(service.base_url, timeout=240)
                 assert_ready_identity(family, ready, assets[family], revision)
                 write_target(target_path, assets[family].port, family, suite_id)
-                reload_prometheus()
-                prometheus_recovery = wait_prometheus_up(family, timeout=45)
+                prometheus_recovery = refresh_prometheus_target(family, timeout=45)
                 warmup(
                     family,
                     service.base_url,
@@ -249,7 +254,7 @@ def main() -> int:
                             inputs=input_catalog[family][profile_id],
                             config=config,
                             suite_root=suite_root,
-                            prometheus_recovery_seconds=prometheus_recovery,
+                            prometheus_recovery=prometheus_recovery,
                         )
                         profile_results.append(result)
                         canonical_write(
@@ -260,8 +265,6 @@ def main() -> int:
             finally:
                 if service is not None:
                     stop_service(service)
-                clear_target(target_path)
-                reload_prometheus()
                 released = release_scale_validation_gpu_lease(
                     run_id=lease.run_id,
                     lease_id=lease.lease_id,
@@ -292,7 +295,7 @@ def main() -> int:
             "recorded_at": utc_now(),
         }
         canonical_write(suite_root / "failed-attempt.json", failed)
-        raise
+        failure_exc = exc
     finally:
         active = read_active_gpu_lease()
         if active is not None and active.state == "active" and active.run_id.startswith("s7-"):
@@ -302,10 +305,10 @@ def main() -> int:
                 fencing_token=active.fencing_token,
                 reason="S7 fail-closed final cleanup",
             )
-        restore_target(target_path, prior_target)
-        reload_prometheus()
         if holder_scaled_down:
             scale_holder(holder, replicas=holder.replicas, require_ready=True)
+        restore_file_sd_target(target_path, prior_target)
+        final_target_cleanup = refresh_prometheus_target_absent(timeout=45)
     source_after = source_serving_probe(holder, data_root=args.data_root)
     cleanup = {
         "schema_version": "evm.s7_cleanup.v1",
@@ -316,10 +319,23 @@ def main() -> int:
         "gpu_lease_zero": read_active_gpu_lease() is None,
         "family_cleanup": family_cleanup,
         "prometheus_baseline": prometheus_health(),
+        "s7_target_cleanup": final_target_cleanup,
         "gpu_after": gpu_snapshot(),
         "finished_at": utc_now(),
     }
     canonical_write(suite_root / "cleanup.json", cleanup)
+    if failure_exc is not None:
+        assert failed is not None
+        failed["action"] = "Fail-closed cleanup completed; no acceptance credit was assigned."
+        failed["cleanup"] = {
+            "source_model_sha256_exact": cleanup["source_model_sha256_exact"],
+            "source_candidate_exact": cleanup["source_candidate_exact"],
+            "source_cuda_inference": cleanup["source_cuda_inference"],
+            "gpu_lease_zero": cleanup["gpu_lease_zero"],
+            "prometheus_baseline": cleanup["prometheus_baseline"],
+        }
+        canonical_write(suite_root / "failed-attempt.json", failed)
+        raise failure_exc
     if args.diagnostic:
         print(json.dumps({"status": "diagnostic_passed", "suite_root": str(suite_root)}))
         return 0
@@ -627,7 +643,7 @@ def run_profile(
     inputs: list[RequestInput],
     config: S7RuntimeConfig,
     suite_root: Path,
-    prometheus_recovery_seconds: float,
+    prometheus_recovery: dict[str, Any],
 ) -> dict[str, Any]:
     assert_scale_validation_gpu_lease_owner(
         run_id=lease.run_id,
@@ -691,7 +707,8 @@ def run_profile(
         "resource_samples": samples,
         "final_admission": final_admission,
         "prometheus_up": prometheus_up,
-        "prometheus_recovery_seconds": prometheus_recovery_seconds,
+        "prometheus_recovery_seconds": float(prometheus_recovery["elapsed_seconds"]),
+        "prometheus_refresh_restart_used": bool(prometheus_recovery["restart_used"]),
         "lease_identity_exact": True,
         "lease": {
             "run_id": lease.run_id,
@@ -822,8 +839,7 @@ def start_service(
                 "EVM_MODEL_CANDIDATE_ID": str(asset.candidate_id),
                 "EVM_DATASET_VERSION": str(asset.dataset_version),
                 "EVM_REQUIRE_CUDA": "true",
-                "EVM_HOST_DATA_ROOT": str(args.data_root),
-                "EVM_DATA_MOUNT_ROOT": "/mnt/evm-data",
+                **host_image_data_environment(args.data_root),
             }
         )
         command = [
@@ -1150,38 +1166,28 @@ def write_target(path: Path, port: int, family: str, suite_id: str) -> None:
     )
 
 
-def clear_target(path: Path) -> None:
-    canonical_write(path, [])
-
-
-def restore_target(path: Path, prior: bytes | None) -> None:
-    if prior is None:
-        path.unlink(missing_ok=True)
-    else:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(prior)
-
-
 def reload_prometheus() -> None:
     response = requests.post(f"{PROMETHEUS_URL}/-/reload", timeout=10)
     if response.status_code not in {200, 204}:
         raise S7RuntimeError(f"s7_prometheus_reload_failed:{response.status_code}")
 
 
-def wait_prometheus_up(family: str, *, timeout: float) -> float:
+def refresh_prometheus_target(family: str, *, timeout: float) -> dict[str, Any]:
     started = time.monotonic()
-    deadline = started + timeout
-    while time.monotonic() < deadline:
-        if prometheus_target_up(family):
-            return time.monotonic() - started
-        time.sleep(1)
+    reload_prometheus()
+    if wait_until(lambda: prometheus_target_up(family), timeout=min(5.0, timeout)):
+        return {"elapsed_seconds": time.monotonic() - started, "restart_used": False}
+    restart_prometheus()
+    remaining = max(1.0, timeout - (time.monotonic() - started))
+    if wait_until(lambda: prometheus_target_up(family), timeout=remaining):
+        return {"elapsed_seconds": time.monotonic() - started, "restart_used": True}
     raise S7RuntimeError(f"s7_prometheus_target_timeout:{family}")
 
 
 def prometheus_target_up(family: str) -> bool:
     try:
         payload = requests.get(f"{PROMETHEUS_URL}/api/v1/targets", timeout=5).json()
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
         return False
     targets = payload.get("data", {}).get("activeTargets", [])
     matches = [
@@ -1191,6 +1197,40 @@ def prometheus_target_up(family: str) -> bool:
         and item.get("labels", {}).get("family") == family
     ]
     return len(matches) == 1 and matches[0].get("health") == "up"
+
+
+def refresh_prometheus_target_absent(*, timeout: float) -> dict[str, Any]:
+    started = time.monotonic()
+    reload_prometheus()
+    if wait_until(lambda: prometheus_target_count() == 0, timeout=min(5.0, timeout)):
+        return {"elapsed_seconds": time.monotonic() - started, "restart_used": False}
+    restart_prometheus()
+    remaining = max(1.0, timeout - (time.monotonic() - started))
+    if wait_until(lambda: prometheus_target_count() == 0, timeout=remaining):
+        return {"elapsed_seconds": time.monotonic() - started, "restart_used": True}
+    raise S7RuntimeError("s7_prometheus_target_cleanup_timeout")
+
+
+def prometheus_target_count() -> int:
+    try:
+        payload = requests.get(f"{PROMETHEUS_URL}/api/v1/targets", timeout=5).json()
+    except (requests.RequestException, ValueError):
+        return -1
+    targets = payload.get("data", {}).get("activeTargets", [])
+    return sum(item.get("labels", {}).get("job") == TARGET_JOB for item in targets)
+
+
+def restart_prometheus() -> None:
+    run_checked(["docker", "restart", "evm-prometheus"], timeout=60)
+
+
+def wait_until(predicate: Callable[[], bool], *, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(1)
+    return False
 
 
 def prometheus_health() -> dict[str, Any]:

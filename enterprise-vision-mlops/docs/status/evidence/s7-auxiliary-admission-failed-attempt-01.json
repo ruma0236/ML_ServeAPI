@@ -1,0 +1,39 @@
+{
+  "schema_version": "evm.s7_failed_attempt_public.v1",
+  "attempt_id": "S7-DIAGNOSTIC-01",
+  "status": "rejected",
+  "acceptance_credit": false,
+  "source_revision": "ecec7d0286f4fe3af474b98a2337285d5b82f92f",
+  "phase": "image_warmup",
+  "observed_result": {
+    "http_status": 422,
+    "completed_profile_repetitions": 0,
+    "gpu_model_load_succeeded": true,
+    "request_execution_succeeded": false
+  },
+  "root_cause": [
+    "The native-host image service received the container mount root, so the governed F-drive input was remapped to a path that does not exist in the host process.",
+    "Docker Desktop file-SD propagation retained the last S7 target after an empty target set was written; HTTP reload alone did not converge target removal."
+  ],
+  "remediation": [
+    "Bind both host and mount roots to the resolved host data root for native-host serving.",
+    "Persist an explicit empty file-SD target set, fail closed on a stale preflight target, and restart only the local Prometheus container when bind-mount notification does not converge.",
+    "Record exact B0, lease, CUDA inference, Prometheus, and S7 target cleanup even when a diagnostic fails."
+  ],
+  "cleanup": {
+    "family_process_stopped": true,
+    "gpu_lease_zero": true,
+    "source_serving_replicas": "1/1",
+    "source_cuda_inference": true,
+    "prometheus_baseline": "5/5_up",
+    "s7_target_count": 0
+  },
+  "private_evidence": {
+    "artifact_count": 12,
+    "aggregate_sha256": "2a34c6f449b34090c795d5ba572ae4cb72ab0814e5f679b7b49cd2fdbe566550",
+    "index_sha256": "51fc56fedf2cefb66e22ec217a2dd5f9a77c710fb6e43ec993dafc3cbbad0ffb",
+    "location": "outside_git_private_evidence_root"
+  },
+  "claim_boundary": "Rejected local single-node diagnostic with zero S7 acceptance credit; no production, SLA, HA/DR, multi-GPU, or broad model-quality claim.",
+  "generated_at": "2026-08-23T18:45:56.552378Z"
+}

@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T18:31:45Z",
+  "generated_at": "2026-08-23T18:45:56.552378Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3413,6 +3413,7 @@
         "Added bounded queue depth, request/image/pixel/token and in-flight reservations, deadline expiry, explicit 413/422/429 outcomes, integer Retry-After, and bounded short-request bypass.",
         "Added additive family-specific queue, stage, token, TTFT/TPOT-when-measurable, and peak-VRAM telemetry while keeping exact request identity out of metric labels.",
         "Added an external-HTTP, real-CUDA runner that uses the existing single-GPU lease, exact B0 handoff and restore boundary, Prometheus file discovery, process-tree resource sampling, and raw-derived evidence validation.",
+        "A rejected image warmup exposed native-host data-root remapping and Docker Desktop file-SD convergence defects; host-root identity, cleanup evidence, stale-target fencing, and a bounded Prometheus restart fallback now address them.",
         "This is an implementation checkpoint only; external CUDA acceptance evidence is not yet available."
       ],
       "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
@@ -3448,7 +3449,14 @@
         }
       ],
       "observed_result": null,
-      "evidence_artifacts": [],
+      "evidence_artifacts": [
+        {
+          "path": "docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json",
+          "sha256": "f039fc112072526387b2520f729190ef3da04dbf44d11370970ca095dc948eb9",
+          "generated_at": "2026-08-23T18:45:56.552378Z",
+          "claim": "The first image diagnostic was rejected before profile execution; root cause, remediation, private hashes, and exact cleanup are retained with zero acceptance credit."
+        }
+      ],
       "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
       "unresolved_items": [
@@ -3457,7 +3465,7 @@
         "Long-request head-of-line behavior and fairness are measured.",
         "Unsupported or unverified metrics remain absent."
       ],
-      "next_action": "Commit the runner and evidence checkpoint, then run fail-closed image, VLM, and LLM CUDA diagnostics before the full acceptance matrix.",
+      "next_action": "Commit the rejected-attempt RCA and cleanup remediation, then rerun fail-closed image, VLM, and LLM CUDA diagnostics before the full acceptance matrix.",
       "architecture_before": "Multiple model families run without one cost-aware admission proof.",
       "architecture_after": "Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.",
       "existing_system_baseline": "The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.",
@@ -3602,7 +3610,14 @@
         "existing_system_regression_required": true,
         "lifecycle_e2e_regression_required": true
       },
-      "evidence_index": [],
+      "evidence_index": [
+        {
+          "path": "docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json",
+          "sha256": "f039fc112072526387b2520f729190ef3da04dbf44d11370970ca095dc948eb9",
+          "generated_at": "2026-08-23T18:45:56.552378Z",
+          "claim": "The first image diagnostic was rejected before profile execution; root cause, remediation, private hashes, and exact cleanup are retained with zero acceptance credit."
+        }
+      ],
       "verdict_and_claim_boundary": {
         "verdict": "not_run",
         "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
@@ -3629,6 +3644,15 @@
           "status": "implementing",
           "summary": "The existing GPU lease and B0 handoff boundary now govern an external-HTTP CUDA runner with Prometheus discovery, process-tree resource samples, canonical private evidence indexing, and raw-derived S7 validation; no acceptance run has been credited.",
           "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-23T18:45:56.552378Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "The first image diagnostic failed closed at warmup with HTTP 422 because a native-host input was remapped to a container-only mount. The lease, process, B0 CUDA serving, Prometheus 5/5 baseline, and S7 target were cleaned up; remediation is implemented and the attempt receives zero acceptance credit.",
+          "evidence_refs": [
+            "docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json"
+          ]
         }
       ]
     },

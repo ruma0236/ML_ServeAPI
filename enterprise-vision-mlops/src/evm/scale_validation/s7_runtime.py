@@ -422,6 +422,22 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def host_image_data_environment(data_root: Path) -> dict[str, str]:
+    resolved = str(data_root.resolve())
+    return {
+        "EVM_HOST_DATA_ROOT": resolved,
+        "EVM_DATA_MOUNT_ROOT": resolved,
+    }
+
+
+def restore_file_sd_target(path: Path, prior: bytes | None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if prior is None:
+        path.write_text("[]\n", encoding="utf-8", newline="\n")
+    else:
+        path.write_bytes(prior)
+
+
 def canonical_sha256(payload: Any) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
