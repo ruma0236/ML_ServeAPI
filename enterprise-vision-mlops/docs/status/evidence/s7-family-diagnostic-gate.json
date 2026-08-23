@@ -1,0 +1,75 @@
+{
+  "schema_version": "evm.s7_family_diagnostic_gate.v1",
+  "status": "passed",
+  "acceptance_credit": false,
+  "source_revision": "5eac70b2b4c5235e742db4af5c8bc8461dff7ea2",
+  "purpose": "Non-acceptance gate proving each existing family route can execute real external-HTTP CUDA work and restore the exact runtime baseline before the full matrix.",
+  "families": [
+    {
+      "family": "image",
+      "profile": "small",
+      "requests": 6,
+      "completed": 6,
+      "p95_seconds": 0.156,
+      "p99_seconds": 0.156,
+      "quality": {
+        "binary_accuracy": 0.666667,
+        "mean_confidence": 0.740783
+      },
+      "oom_count": 0,
+      "starvation_count": 0,
+      "peak_gpu_used_memory_bytes": 2841640960,
+      "private_artifact_count": 12,
+      "private_aggregate_sha256": "07493a5a9fef8f528679ba3b1dbfa40c3dfc63fcc651635b232feac5e98f3e5e",
+      "private_index_sha256": "21a0ea2560911c7b78cdc1e1c23311d52280062c813dfd34a9d6f3b34e04d7f9"
+    },
+    {
+      "family": "vlm",
+      "profile": "small-short",
+      "requests": 6,
+      "completed": 6,
+      "p95_seconds": 2.70675,
+      "p99_seconds": 2.72855,
+      "quality": {
+        "accuracy": 0.833333,
+        "parse_rate": 1.0
+      },
+      "oom_count": 0,
+      "starvation_count": 0,
+      "peak_gpu_used_memory_bytes": 6905921536,
+      "private_artifact_count": 5,
+      "private_aggregate_sha256": "c2e1ac5feccce4e16ce54a3e25678232a3bb5a87cc33dc130de9ffcff9cb37aa",
+      "private_index_sha256": "ec7d03287b85788bf32c14424c59904d39f1d5cc8e4ed88ab93629aaf956a198"
+    },
+    {
+      "family": "llm",
+      "profile": "short",
+      "requests": 6,
+      "completed": 6,
+      "p95_seconds": 2.14825,
+      "p99_seconds": 2.15445,
+      "quality": {
+        "mean_token_f1": 0.105948,
+        "nonempty_rate": 1.0
+      },
+      "oom_count": 0,
+      "starvation_count": 0,
+      "peak_gpu_used_memory_bytes": 3557818368,
+      "private_artifact_count": 5,
+      "private_aggregate_sha256": "582dce7586cd8ac72b0ba075095e27578dd6ce92e1c75f9d571fd66903f33e55",
+      "private_index_sha256": "02d1748debc953972ef4c07b4278fade68dbd5dd01d93239861d13213a786f3a"
+    }
+  ],
+  "cleanup": {
+    "all_family_processes_stopped": true,
+    "source_serving_replicas": "1/1",
+    "source_cuda_inference": true,
+    "gpu_lease_zero": true,
+    "s7_target_count": 0,
+    "prometheus_baseline": "5/5_up",
+    "all_cleanup_contracts_passed": true
+  },
+  "next_gate": "Run the frozen 12-profile by 3-repetition matrix; independently recompute S7-AC-01 through S7-AC-04 before any verified status.",
+  "claim_boundary": "Diagnostic readiness only on one controlled local physical node and one GPU; not S7 acceptance, production SLA, HA/DR, multi-GPU, or broad model-quality evidence.",
+  "generated_at": "2026-08-23T19:08:22.335888Z"
+}

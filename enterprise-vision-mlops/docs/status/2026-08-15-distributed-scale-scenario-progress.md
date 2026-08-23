@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T18:59:18.922527Z`
+- Generated: `2026-08-23T19:08:22.335888Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -638,7 +638,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Commit the second rejected-attempt RCA and strict 5/5 cleanup remediation, then rerun fail-closed image, VLM, and LLM CUDA diagnostics before the full acceptance matrix.
+- Next action: Run the frozen 12-profile by 3-repetition matrix, then independently recompute all four S7 acceptance criteria and strict cleanup before closure.
 
 ### Affected Existing Components
 
@@ -694,6 +694,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 - `docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json` (`f039fc112072526387b2520f729190ef3da04dbf44d11370970ca095dc948eb9`): The first image diagnostic was rejected before profile execution; root cause, remediation, private hashes, and exact cleanup are retained with zero acceptance credit.
 - `docs/status/evidence/s7-auxiliary-admission-failed-attempt-02.json` (`5d9ee5c495287b800babba19fd771ee5fadc127bff553f3a58dcbcbfe5b8f78b`): Three real-CUDA family diagnostics completed but were rejected because cleanup captured a transient 0/0 Prometheus baseline; post-recovery hashes and exact 5/5 cleanup are retained with zero acceptance credit.
+- `docs/status/evidence/s7-family-diagnostic-gate.json` (`14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d`): Fresh image, VLM, and LLM external-HTTP CUDA diagnostics each completed six requests and restored the exact baseline; this is readiness evidence with zero S7 acceptance credit.
 
 ### Chronological Updates
 
@@ -702,6 +703,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T18:31:45Z` `implementation` / `implementing`: The existing GPU lease and B0 handoff boundary now govern an external-HTTP CUDA runner with Prometheus discovery, process-tree resource samples, canonical private evidence indexing, and raw-derived S7 validation; no acceptance run has been credited.
 - `2026-08-23T18:45:56.552378Z` `experiment` / `implementing`: The first image diagnostic failed closed at warmup with HTTP 422 because a native-host input was remapped to a container-only mount. The lease, process, B0 CUDA serving, Prometheus 5/5 baseline, and S7 target were cleaned up; remediation is implemented and the attempt receives zero acceptance credit.
 - `2026-08-23T18:59:18.922527Z` `recovery` / `implementing`: Image, VLM, and LLM diagnostics completed real external-HTTP CUDA requests, but all three were rejected because cleanup returned during the transient 0/0 Prometheus restart state. Exact 5/5 baseline restoration is now a fail-closed runner and evidence condition; post-recovery B0, lease, target, and private hashes are retained with zero acceptance credit.
+- `2026-08-23T19:08:22.335888Z` `verification` / `implementing`: Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision completed 18 of 18 real external-HTTP CUDA requests with family-specific metrics, zero OOM/starvation, and exact B0/lease/S7-target/Prometheus 5/5 cleanup. This closes only the diagnostic gate; the 12-profile by 3-repetition matrix and all S7 ACs remain pending.
 
 ## S8: Dependency Soak & Resource-efficiency Closure
 

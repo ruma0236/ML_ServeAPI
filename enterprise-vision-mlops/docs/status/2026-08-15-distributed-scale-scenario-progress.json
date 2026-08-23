@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T18:59:18.922527Z",
+  "generated_at": "2026-08-23T19:08:22.335888Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3415,9 +3415,10 @@
         "Added an external-HTTP, real-CUDA runner that uses the existing single-GPU lease, exact B0 handoff and restore boundary, Prometheus file discovery, process-tree resource sampling, and raw-derived evidence validation.",
         "A rejected image warmup exposed native-host data-root remapping and Docker Desktop file-SD convergence defects; host-root identity, cleanup evidence, stale-target fencing, and a bounded Prometheus restart fallback now address them.",
         "Three subsequent family diagnostics completed real external-HTTP CUDA requests and family metric projection, but were rejected with zero credit because cleanup observed Prometheus before the five frozen baseline targets had reloaded; cleanup now requires exact 5/5 restoration.",
+        "Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision each completed six real CUDA requests and restored B0, the lease, the S7 target, and Prometheus 5/5; this is a non-acceptance readiness gate only.",
         "This is an implementation checkpoint only; external CUDA acceptance evidence is not yet available."
       ],
-      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "experiment_environment": "Three non-acceptance diagnostics exercised the existing image, VLM, and LLM routes sequentially with external HTTP and real CUDA on one controlled local physical node and one GPU. The full acceptance matrix has not run.",
       "test_or_experiment_steps": [
         "Run image, VLM, and LLM small/short, large/long, fairness, and over-limit profiles for three independent repetitions while GPU ownership remains sequential.",
         "Increase admitted request cost only until the safe fairness and memory boundary is known.",
@@ -3462,6 +3463,12 @@
           "sha256": "5d9ee5c495287b800babba19fd771ee5fadc127bff553f3a58dcbcbfe5b8f78b",
           "generated_at": "2026-08-23T18:59:18.922527Z",
           "claim": "Three real-CUDA family diagnostics completed but were rejected because cleanup captured a transient 0/0 Prometheus baseline; post-recovery hashes and exact 5/5 cleanup are retained with zero acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s7-family-diagnostic-gate.json",
+          "sha256": "14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d",
+          "generated_at": "2026-08-23T19:08:22.335888Z",
+          "claim": "Fresh image, VLM, and LLM external-HTTP CUDA diagnostics each completed six requests and restored the exact baseline; this is readiness evidence with zero S7 acceptance credit."
         }
       ],
       "status": "implementing",
@@ -3472,7 +3479,7 @@
         "Long-request head-of-line behavior and fairness are measured.",
         "Unsupported or unverified metrics remain absent."
       ],
-      "next_action": "Commit the second rejected-attempt RCA and strict 5/5 cleanup remediation, then rerun fail-closed image, VLM, and LLM CUDA diagnostics before the full acceptance matrix.",
+      "next_action": "Run the frozen 12-profile by 3-repetition matrix, then independently recompute all four S7 acceptance criteria and strict cleanup before closure.",
       "architecture_before": "Multiple model families run without one cost-aware admission proof.",
       "architecture_after": "Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.",
       "existing_system_baseline": "The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.",
@@ -3629,6 +3636,12 @@
           "sha256": "5d9ee5c495287b800babba19fd771ee5fadc127bff553f3a58dcbcbfe5b8f78b",
           "generated_at": "2026-08-23T18:59:18.922527Z",
           "claim": "Three real-CUDA family diagnostics completed but were rejected because cleanup captured a transient 0/0 Prometheus baseline; post-recovery hashes and exact 5/5 cleanup are retained with zero acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s7-family-diagnostic-gate.json",
+          "sha256": "14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d",
+          "generated_at": "2026-08-23T19:08:22.335888Z",
+          "claim": "Fresh image, VLM, and LLM external-HTTP CUDA diagnostics each completed six requests and restored the exact baseline; this is readiness evidence with zero S7 acceptance credit."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -3674,6 +3687,15 @@
           "summary": "Image, VLM, and LLM diagnostics completed real external-HTTP CUDA requests, but all three were rejected because cleanup returned during the transient 0/0 Prometheus restart state. Exact 5/5 baseline restoration is now a fail-closed runner and evidence condition; post-recovery B0, lease, target, and private hashes are retained with zero acceptance credit.",
           "evidence_refs": [
             "docs/status/evidence/s7-auxiliary-admission-failed-attempt-02.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T19:08:22.335888Z",
+          "phase": "verification",
+          "status": "implementing",
+          "summary": "Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision completed 18 of 18 real external-HTTP CUDA requests with family-specific metrics, zero OOM/starvation, and exact B0/lease/S7-target/Prometheus 5/5 cleanup. This closes only the diagnostic gate; the 12-profile by 3-repetition matrix and all S7 ACs remain pending.",
+          "evidence_refs": [
+            "docs/status/evidence/s7-family-diagnostic-gate.json"
           ]
         }
       ]
