@@ -1,0 +1,2626 @@
+{
+  "schema_version": "evm.s7_auxiliary_admission_experiment.v1",
+  "status": "verified",
+  "verdict": "passed",
+  "suite_id": "20260823T192119Z-6704349a",
+  "source_identity": {
+    "revision": "6704349afa277cca8b1dac95154d34aff8d644ec",
+    "branch": "codex/distributed-scale-validation-plan",
+    "config_sha256": "44f057932a402787becc9476c598a2dd00d05cbb8915df7f3fa6eac143f79d93",
+    "git_blobs": {
+      "config": {
+        "path": "enterprise-vision-mlops/configs/s7_family_admission.toml",
+        "blob_oid": "e4d7162fa0fdbd3968832d5fc57465e12c1a1358",
+        "sha256": "44f057932a402787becc9476c598a2dd00d05cbb8915df7f3fa6eac143f79d93"
+      },
+      "runtime": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s7_runtime.py",
+        "blob_oid": "7d18105817939b6eccedc3cb9c35c0ebf946065b",
+        "sha256": "c54bac7e6f81ef73a610efc18c98a713a9480f539ea2b0efda5d108283401ab2"
+      },
+      "evidence": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s7_evidence.py",
+        "blob_oid": "80d067eeaf0c39927c0a9b2aaf0b10925b3b512c",
+        "sha256": "f9f4d4261d6cba3ad29efdb4e6b730a9e55aea4859e721a497eea06dcee6f5c5"
+      },
+      "runner": {
+        "path": "enterprise-vision-mlops/scripts/dev/run_s7_auxiliary_admission_experiment.py",
+        "blob_oid": "9573f4e044135082d2857212d670e48dfef68dce",
+        "sha256": "bf6d3e3d9ee9e7a877a697deeca72a07b370f23e39e945649904ae83e92e6b64"
+      },
+      "validator": {
+        "path": "enterprise-vision-mlops/scripts/dev/validate_s7_auxiliary_admission_evidence.py",
+        "blob_oid": "f477bb9f55f82236ca6448875dc73c89cf5cc91f",
+        "sha256": "cceb36fb02d084127b158e32754c42da9cd24e61f0124001e1ba365d1d879742"
+      },
+      "admission": {
+        "path": "enterprise-vision-mlops/src/evm/model_runtime/family_admission.py",
+        "blob_oid": "70a92a402b74645ea7883743f63a5cdd21e8aedc",
+        "sha256": "cb4d0b568b1acd80460261dd2f5e568d95896cc0b6dbb303f2410e979e810e0a"
+      },
+      "generative_serving": {
+        "path": "enterprise-vision-mlops/src/evm/model_runtime/serving.py",
+        "blob_oid": "bb8f655318e030a8e2e14b1fe7d24189a8fb19e2",
+        "sha256": "a8e27934486af47786f8b57d811ce142f03466817aa847afa32d29cfc043ce96"
+      },
+      "image_serving": {
+        "path": "enterprise-vision-mlops/apps/api/efficientnet_serving.py",
+        "blob_oid": "b2d0bc004388f0ccdb97a1ec9aadeaea5d796c36",
+        "sha256": "76a9a23a0f1cf18a5bf47c4fc8f7a5bed8a445a484a2d023e88e36e4f6960cbd"
+      },
+      "gpu_lease": {
+        "path": "enterprise-vision-mlops/src/evm/control_panel/scenario_workloads.py",
+        "blob_oid": "2d35c9f6ff20d9b17158f6bee5e4a4412470a4ea",
+        "sha256": "c5f9d0736cb02ef7a3e3ecce82a346b330ac570bcc71a1eda5bfa185dd92c332"
+      },
+      "prometheus": {
+        "path": "enterprise-vision-mlops/monitoring/prometheus/prometheus.yml",
+        "blob_oid": "82c9eeab16d910db4ed33c3591b4652bd9c1b7ab",
+        "sha256": "508535bc75ce289bcb42e93b9658b49a58594e73dc7eb348375d7deb427a14d7"
+      }
+    }
+  },
+  "runtime_contract": {
+    "schema_version": "evm.s7_family_admission.v1",
+    "config_sha256": "44f057932a402787becc9476c598a2dd00d05cbb8915df7f3fa6eac143f79d93",
+    "seed": 20260824,
+    "repetitions": 3,
+    "profile_ids": [
+      "image-small",
+      "image-large",
+      "image-fairness",
+      "image-over-limit",
+      "vlm-small-short",
+      "vlm-large-long",
+      "vlm-fairness",
+      "vlm-over-limit",
+      "llm-short",
+      "llm-long",
+      "llm-fairness",
+      "llm-over-limit"
+    ],
+    "requests_per_profile": 6,
+    "fairness_short_requests": 4,
+    "fairness_long_requests": 2,
+    "closed_concurrency": 4,
+    "warmup_requests": 1,
+    "cooldown_seconds": 2.0,
+    "request_timeout_seconds": 180.0,
+    "resource_sample_interval_seconds": 0.25,
+    "maximum_p99_seconds": 120.0,
+    "maximum_queue_wait_seconds": 120.0,
+    "max_short_bypass": 3,
+    "starvation_seconds": 30.0,
+    "long_request_cost_units": {
+      "image": 1000.0,
+      "vlm": 1550.0,
+      "llm": 768.0
+    },
+    "quality_thresholds": {
+      "image": {
+        "binary_accuracy": 0.5
+      },
+      "vlm": {
+        "accuracy": 0.5,
+        "parse_rate": 0.95
+      },
+      "llm": {
+        "mean_token_f1": 0.1,
+        "nonempty_rate": 1.0
+      }
+    },
+    "claim_boundary": "Controlled family-specific admission evidence on one local physical node and one consumer GPU. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, broad benchmark-quality, or business A/B claim."
+  },
+  "profiles": [
+    {
+      "profile_id": "image-small",
+      "family": "image",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 0.28100000001722947,
+      "throughput_requests_per_second": 21.352313165950573,
+      "p50_seconds": 0.12500000001455192,
+      "p95_seconds": 0.16799999999784632,
+      "p99_seconds": 0.1711999999926775,
+      "maximum_queue_wait_seconds": 0.109,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2821718016,
+      "gpu_utilization_percent_max": 18.0,
+      "gpu_temperature_celsius_max": 47.0,
+      "quality": {
+        "binary_accuracy": 0.6666666666666666,
+        "mean_confidence": 0.7407833333333333
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-small",
+      "family": "image",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 0.15599999998812564,
+      "throughput_requests_per_second": 38.46153846446607,
+      "p50_seconds": 0.05400000000372529,
+      "p95_seconds": 0.07399999998597195,
+      "p99_seconds": 0.07719999998080311,
+      "maximum_queue_wait_seconds": 0.031,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2821718016,
+      "gpu_utilization_percent_max": 15.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 0.6666666666666666,
+        "mean_confidence": 0.7407833333333333
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-small",
+      "family": "image",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 0.20300000000861473,
+      "throughput_requests_per_second": 29.55665024505112,
+      "p50_seconds": 0.069999999992433,
+      "p95_seconds": 0.07800000000861473,
+      "p99_seconds": 0.07800000000861473,
+      "maximum_queue_wait_seconds": 0.062,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2821718016,
+      "gpu_utilization_percent_max": 28.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 0.6666666666666666,
+        "mean_confidence": 0.7407833333333333
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-large",
+      "family": "image",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 0.21900000001187436,
+      "throughput_requests_per_second": 27.3972602724871,
+      "p50_seconds": 0.09400000001187436,
+      "p95_seconds": 0.10974999998870771,
+      "p99_seconds": 0.10994999998656567,
+      "maximum_queue_wait_seconds": 0.078,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 6,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.078,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2817523712,
+      "gpu_utilization_percent_max": 18.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 1.0,
+        "mean_confidence": 0.8446536666666667
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-large",
+      "family": "image",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 0.25,
+      "throughput_requests_per_second": 24.0,
+      "p50_seconds": 0.10899999999674037,
+      "p95_seconds": 0.12124999999650754,
+      "p99_seconds": 0.12424999999930152,
+      "maximum_queue_wait_seconds": 0.078,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 6,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.078,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2817523712,
+      "gpu_utilization_percent_max": 62.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 1.0,
+        "mean_confidence": 0.8446536666666667
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-large",
+      "family": "image",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 0.26600000000325963,
+      "throughput_requests_per_second": 22.556390977167197,
+      "p50_seconds": 0.10900000001129229,
+      "p95_seconds": 0.14900000000488944,
+      "p99_seconds": 0.1554000000061933,
+      "maximum_queue_wait_seconds": 0.109,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 6,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.109,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2821718016,
+      "gpu_utilization_percent_max": 48.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 1.0,
+        "mean_confidence": 0.8446536666666667
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-fairness",
+      "family": "image",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 0.23499999998603016,
+      "throughput_requests_per_second": 25.531914895134793,
+      "p50_seconds": 0.07800000000861473,
+      "p95_seconds": 0.10525000000052387,
+      "p99_seconds": 0.10824999999749707,
+      "maximum_queue_wait_seconds": 0.063,
+      "short_request_count": 4,
+      "long_request_count": 2,
+      "short_completed": 4,
+      "long_completed": 2,
+      "maximum_short_bypass": 3,
+      "long_request_max_wait_seconds": 0.047,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2821718016,
+      "gpu_utilization_percent_max": 54.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 0.8333333333333334,
+        "mean_confidence": 0.7026341666666666
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-fairness",
+      "family": "image",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 0.26500000001396984,
+      "throughput_requests_per_second": 22.641509432768686,
+      "p50_seconds": 0.08600000001024455,
+      "p95_seconds": 0.12099999999918509,
+      "p99_seconds": 0.12419999999983702,
+      "maximum_queue_wait_seconds": 0.062,
+      "short_request_count": 4,
+      "long_request_count": 2,
+      "short_completed": 4,
+      "long_completed": 2,
+      "maximum_short_bypass": 3,
+      "long_request_max_wait_seconds": 0.062,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2814377984,
+      "gpu_utilization_percent_max": 48.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 0.8333333333333334,
+        "mean_confidence": 0.7026341666666666
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-fairness",
+      "family": "image",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 0.235000000015134,
+      "throughput_requests_per_second": 25.531914891972768,
+      "p50_seconds": 0.08550000000104774,
+      "p95_seconds": 0.10525000000052387,
+      "p99_seconds": 0.10824999999749707,
+      "maximum_queue_wait_seconds": 0.047,
+      "short_request_count": 4,
+      "long_request_count": 2,
+      "short_completed": 4,
+      "long_completed": 2,
+      "maximum_short_bypass": 3,
+      "long_request_max_wait_seconds": 0.047,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2809135104,
+      "gpu_utilization_percent_max": 14.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 0.8333333333333334,
+        "mean_confidence": 0.7026341666666666
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-over-limit",
+      "family": "image",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 0,
+      "completed": 0,
+      "rejected": 6,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [
+        422
+      ],
+      "measurement_seconds": 0.09400000001187436,
+      "throughput_requests_per_second": 0.0,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.0,
+      "p99_seconds": 0.0,
+      "maximum_queue_wait_seconds": 0.0,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 6,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2809135104,
+      "gpu_utilization_percent_max": 24.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 0.0,
+        "mean_confidence": 0.0
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-over-limit",
+      "family": "image",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 0,
+      "completed": 0,
+      "rejected": 6,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [
+        422
+      ],
+      "measurement_seconds": 0.09400000001187436,
+      "throughput_requests_per_second": 0.0,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.0,
+      "p99_seconds": 0.0,
+      "maximum_queue_wait_seconds": 0.0,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 6,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2809135104,
+      "gpu_utilization_percent_max": 43.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 0.0,
+        "mean_confidence": 0.0
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "image-over-limit",
+      "family": "image",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 0,
+      "completed": 0,
+      "rejected": 6,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [
+        422
+      ],
+      "measurement_seconds": 0.09399999998277053,
+      "throughput_requests_per_second": 0.0,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.0,
+      "p99_seconds": 0.0,
+      "maximum_queue_wait_seconds": 0.0,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 6,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2809135104,
+      "gpu_utilization_percent_max": 57.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "binary_accuracy": 0.0,
+        "mean_confidence": 0.0
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "vlm-small-short",
+      "family": "vlm",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.889999999984866,
+      "throughput_requests_per_second": 1.54241645244816,
+      "p50_seconds": 2.257499999992433,
+      "p95_seconds": 2.625,
+      "p99_seconds": 2.625,
+      "maximum_queue_wait_seconds": 2.078,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6883901440,
+      "gpu_utilization_percent_max": 100.0,
+      "gpu_temperature_celsius_max": 59.0,
+      "quality": {
+        "accuracy": 0.8333333333333334,
+        "parse_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 20,
+        "tokens_per_second_mean": 9.067988999999999,
+        "ttft_p95_seconds": 0.26882025,
+        "tpot_p95_seconds": 0.064364,
+        "termination_reasons": {
+          "eos_or_model_stop": 6
+        }
+      }
+    },
+    {
+      "profile_id": "vlm-small-short",
+      "family": "vlm",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 4.01500000001397,
+      "throughput_requests_per_second": 1.4943960149387605,
+      "p50_seconds": 2.242000000012922,
+      "p95_seconds": 2.7342500000086147,
+      "p99_seconds": 2.7716500000155064,
+      "maximum_queue_wait_seconds": 2.0,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6884950016,
+      "gpu_utilization_percent_max": 100.0,
+      "gpu_temperature_celsius_max": 59.0,
+      "quality": {
+        "accuracy": 0.8333333333333334,
+        "parse_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 20,
+        "tokens_per_second_mean": 8.691938166666668,
+        "ttft_p95_seconds": 0.3910995,
+        "tpot_p95_seconds": 0.05526075,
+        "termination_reasons": {
+          "eos_or_model_stop": 6
+        }
+      }
+    },
+    {
+      "profile_id": "vlm-small-short",
+      "family": "vlm",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.890999999974156,
+      "throughput_requests_per_second": 1.5420200462708435,
+      "p50_seconds": 2.2344999999913853,
+      "p95_seconds": 2.62149999999383,
+      "p99_seconds": 2.674699999994482,
+      "maximum_queue_wait_seconds": 2.156,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6883901440,
+      "gpu_utilization_percent_max": 100.0,
+      "gpu_temperature_celsius_max": 59.0,
+      "quality": {
+        "accuracy": 0.8333333333333334,
+        "parse_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 20,
+        "tokens_per_second_mean": 8.846012499999999,
+        "ttft_p95_seconds": 0.3593145,
+        "tpot_p95_seconds": 0.0552585,
+        "termination_reasons": {
+          "eos_or_model_stop": 6
+        }
+      }
+    },
+    {
+      "profile_id": "vlm-large-long",
+      "family": "vlm",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.7809999999881256,
+      "throughput_requests_per_second": 1.5868817773125743,
+      "p50_seconds": 2.125,
+      "p95_seconds": 2.488500000014028,
+      "p99_seconds": 2.535300000019197,
+      "maximum_queue_wait_seconds": 2.016,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 6,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 2.016,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6884950016,
+      "gpu_utilization_percent_max": 100.0,
+      "gpu_temperature_celsius_max": 58.0,
+      "quality": {
+        "accuracy": 0.8333333333333334,
+        "parse_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 21,
+        "tokens_per_second_mean": 9.596021666666667,
+        "ttft_p95_seconds": 0.38111249999999997,
+        "tpot_p95_seconds": 0.06325475,
+        "termination_reasons": {
+          "eos_or_model_stop": 6
+        }
+      }
+    },
+    {
+      "profile_id": "vlm-large-long",
+      "family": "vlm",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.7190000000118744,
+      "throughput_requests_per_second": 1.6133369185213344,
+      "p50_seconds": 2.0860000000102445,
+      "p95_seconds": 2.457250000006752,
+      "p99_seconds": 2.504250000003958,
+      "maximum_queue_wait_seconds": 1.953,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 6,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 1.953,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6897532928,
+      "gpu_utilization_percent_max": 100.0,
+      "gpu_temperature_celsius_max": 56.0,
+      "quality": {
+        "accuracy": 0.8333333333333334,
+        "parse_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 21,
+        "tokens_per_second_mean": 10.009791166666666,
+        "ttft_p95_seconds": 0.35728425,
+        "tpot_p95_seconds": 0.0565395,
+        "termination_reasons": {
+          "eos_or_model_stop": 6
+        }
+      }
+    },
+    {
+      "profile_id": "vlm-large-long",
+      "family": "vlm",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.7660000000032596,
+      "throughput_requests_per_second": 1.5932023366953816,
+      "p50_seconds": 2.109500000005937,
+      "p95_seconds": 2.5117500000123982,
+      "p99_seconds": 2.539950000018871,
+      "maximum_queue_wait_seconds": 1.859,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 6,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 1.859,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6917455872,
+      "gpu_utilization_percent_max": 100.0,
+      "gpu_temperature_celsius_max": 60.0,
+      "quality": {
+        "accuracy": 0.8333333333333334,
+        "parse_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 21,
+        "tokens_per_second_mean": 9.581850000000001,
+        "ttft_p95_seconds": 0.35419775,
+        "tpot_p95_seconds": 0.054827,
+        "termination_reasons": {
+          "eos_or_model_stop": 6
+        }
+      }
+    },
+    {
+      "profile_id": "vlm-fairness",
+      "family": "vlm",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.9690000000118744,
+      "throughput_requests_per_second": 1.5117157974255604,
+      "p50_seconds": 2.2035000000032596,
+      "p95_seconds": 2.547499999993306,
+      "p99_seconds": 2.572699999996985,
+      "maximum_queue_wait_seconds": 2.031,
+      "short_request_count": 4,
+      "long_request_count": 2,
+      "short_completed": 4,
+      "long_completed": 2,
+      "maximum_short_bypass": 3,
+      "long_request_max_wait_seconds": 2.031,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6882852864,
+      "gpu_utilization_percent_max": 100.0,
+      "gpu_temperature_celsius_max": 58.0,
+      "quality": {
+        "accuracy": 0.8333333333333334,
+        "parse_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 20,
+        "tokens_per_second_mean": 8.832983833333333,
+        "ttft_p95_seconds": 0.35174225,
+        "tpot_p95_seconds": 0.056427,
+        "termination_reasons": {
+          "eos_or_model_stop": 6
+        }
+      }
+    },
+    {
+      "profile_id": "vlm-fairness",
+      "family": "vlm",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 4.01600000000326,
+      "throughput_requests_per_second": 1.4940239043812575,
+      "p50_seconds": 2.2109999999956926,
+      "p95_seconds": 2.550250000000233,
+      "p99_seconds": 2.5596500000043307,
+      "maximum_queue_wait_seconds": 2.032,
+      "short_request_count": 4,
+      "long_request_count": 2,
+      "short_completed": 4,
+      "long_completed": 2,
+      "maximum_short_bypass": 3,
+      "long_request_max_wait_seconds": 2.032,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6882852864,
+      "gpu_utilization_percent_max": 100.0,
+      "gpu_temperature_celsius_max": 58.0,
+      "quality": {
+        "accuracy": 0.8333333333333334,
+        "parse_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 20,
+        "tokens_per_second_mean": 8.777770833333333,
+        "ttft_p95_seconds": 0.342025,
+        "tpot_p95_seconds": 0.062438999999999995,
+        "termination_reasons": {
+          "eos_or_model_stop": 6
+        }
+      }
+    },
+    {
+      "profile_id": "vlm-fairness",
+      "family": "vlm",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.9060000000172295,
+      "throughput_requests_per_second": 1.536098310285083,
+      "p50_seconds": 2.1719999999913853,
+      "p95_seconds": 2.4689999999900465,
+      "p99_seconds": 2.4817999999868334,
+      "maximum_queue_wait_seconds": 1.969,
+      "short_request_count": 4,
+      "long_request_count": 2,
+      "short_completed": 4,
+      "long_completed": 2,
+      "maximum_short_bypass": 3,
+      "long_request_max_wait_seconds": 1.969,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6881804288,
+      "gpu_utilization_percent_max": 100.0,
+      "gpu_temperature_celsius_max": 58.0,
+      "quality": {
+        "accuracy": 0.8333333333333334,
+        "parse_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 20,
+        "tokens_per_second_mean": 9.054339666666666,
+        "ttft_p95_seconds": 0.33889625,
+        "tpot_p95_seconds": 0.053247249999999996,
+        "termination_reasons": {
+          "eos_or_model_stop": 6
+        }
+      }
+    },
+    {
+      "profile_id": "vlm-over-limit",
+      "family": "vlm",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 0,
+      "completed": 0,
+      "rejected": 6,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [
+        422
+      ],
+      "measurement_seconds": 0.11000000001513399,
+      "throughput_requests_per_second": 0.0,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.0,
+      "p99_seconds": 0.0,
+      "maximum_queue_wait_seconds": 0.0,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 6,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6881804288,
+      "gpu_utilization_percent_max": 15.0,
+      "gpu_temperature_celsius_max": 49.0,
+      "quality": {
+        "accuracy": 0.0,
+        "parse_rate": 0.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "vlm-over-limit",
+      "family": "vlm",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 0,
+      "completed": 0,
+      "rejected": 6,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [
+        422
+      ],
+      "measurement_seconds": 0.10899999999674037,
+      "throughput_requests_per_second": 0.0,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.0,
+      "p99_seconds": 0.0,
+      "maximum_queue_wait_seconds": 0.0,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 6,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6881804288,
+      "gpu_utilization_percent_max": 20.0,
+      "gpu_temperature_celsius_max": 47.0,
+      "quality": {
+        "accuracy": 0.0,
+        "parse_rate": 0.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "vlm-over-limit",
+      "family": "vlm",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 0,
+      "completed": 0,
+      "rejected": 6,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [
+        422
+      ],
+      "measurement_seconds": 0.10999999998603016,
+      "throughput_requests_per_second": 0.0,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.0,
+      "p99_seconds": 0.0,
+      "maximum_queue_wait_seconds": 0.0,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 6,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6881804288,
+      "gpu_utilization_percent_max": 28.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "accuracy": 0.0,
+        "parse_rate": 0.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "llm-short",
+      "family": "llm",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.2809999999881256,
+      "throughput_requests_per_second": 1.8287107589215832,
+      "p50_seconds": 1.8904999999940628,
+      "p95_seconds": 2.1907499999942956,
+      "p99_seconds": 2.2125499999936435,
+      "maximum_queue_wait_seconds": 1.657,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3534749696,
+      "gpu_utilization_percent_max": 35.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "mean_token_f1": 0.1059482808881641,
+        "nonempty_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 47,
+        "tokens_per_second_mean": 14.734541666666665,
+        "ttft_p95_seconds": 0.09379,
+        "tpot_p95_seconds": 0.07180275,
+        "termination_reasons": {
+          "max_new_tokens": 5,
+          "eos_or_model_stop": 1
+        }
+      }
+    },
+    {
+      "profile_id": "llm-short",
+      "family": "llm",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.14000000001397,
+      "throughput_requests_per_second": 1.9108280254692058,
+      "p50_seconds": 1.8130000000091968,
+      "p95_seconds": 2.105250000015076,
+      "p99_seconds": 2.1082500000236903,
+      "maximum_queue_wait_seconds": 1.579,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3534749696,
+      "gpu_utilization_percent_max": 45.0,
+      "gpu_temperature_celsius_max": 44.0,
+      "quality": {
+        "mean_token_f1": 0.1059482808881641,
+        "nonempty_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 47,
+        "tokens_per_second_mean": 15.367225666666668,
+        "ttft_p95_seconds": 0.099999,
+        "tpot_p95_seconds": 0.06388675,
+        "termination_reasons": {
+          "max_new_tokens": 5,
+          "eos_or_model_stop": 1
+        }
+      }
+    },
+    {
+      "profile_id": "llm-short",
+      "family": "llm",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.3910000000032596,
+      "throughput_requests_per_second": 1.7693895605998917,
+      "p50_seconds": 1.9455000000161817,
+      "p95_seconds": 2.3009999999922,
+      "p99_seconds": 2.3105999999941558,
+      "maximum_queue_wait_seconds": 1.703,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3534749696,
+      "gpu_utilization_percent_max": 95.0,
+      "gpu_temperature_celsius_max": 44.0,
+      "quality": {
+        "mean_token_f1": 0.1059482808881641,
+        "nonempty_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 47,
+        "tokens_per_second_mean": 14.184933333333333,
+        "ttft_p95_seconds": 0.10312275,
+        "tpot_p95_seconds": 0.06937525,
+        "termination_reasons": {
+          "max_new_tokens": 5,
+          "eos_or_model_stop": 1
+        }
+      }
+    },
+    {
+      "profile_id": "llm-long",
+      "family": "llm",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 16.546999999991385,
+      "throughput_requests_per_second": 0.36260349308050543,
+      "p50_seconds": 12.359499999991385,
+      "p95_seconds": 15.507749999989755,
+      "p99_seconds": 15.73914999999106,
+      "maximum_queue_wait_seconds": 14.39,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 6,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 14.39,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3555721216,
+      "gpu_utilization_percent_max": 99.0,
+      "gpu_temperature_celsius_max": 49.0,
+      "quality": {
+        "mean_token_f1": 0.20573923992217477,
+        "nonempty_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 251,
+        "tokens_per_second_mean": 14.4319155,
+        "ttft_p95_seconds": 0.13949224999999998,
+        "tpot_p95_seconds": 0.075628,
+        "termination_reasons": {
+          "eos_or_model_stop": 5,
+          "max_new_tokens": 1
+        }
+      }
+    },
+    {
+      "profile_id": "llm-long",
+      "family": "llm",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 16.375,
+      "throughput_requests_per_second": 0.366412213740458,
+      "p50_seconds": 11.65600000001723,
+      "p95_seconds": 15.378750000010768,
+      "p99_seconds": 15.600550000015938,
+      "maximum_queue_wait_seconds": 14.312,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 6,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 14.312,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3564109824,
+      "gpu_utilization_percent_max": 63.0,
+      "gpu_temperature_celsius_max": 47.0,
+      "quality": {
+        "mean_token_f1": 0.20573923992217477,
+        "nonempty_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 251,
+        "tokens_per_second_mean": 15.147812166666668,
+        "ttft_p95_seconds": 0.119306,
+        "tpot_p95_seconds": 0.0688725,
+        "termination_reasons": {
+          "eos_or_model_stop": 5,
+          "max_new_tokens": 1
+        }
+      }
+    },
+    {
+      "profile_id": "llm-long",
+      "family": "llm",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 16.469000000011874,
+      "throughput_requests_per_second": 0.36432084522409824,
+      "p50_seconds": 11.367000000012922,
+      "p95_seconds": 15.25800000000163,
+      "p99_seconds": 15.651600000000327,
+      "maximum_queue_wait_seconds": 13.766,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 6,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 13.766,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3556769792,
+      "gpu_utilization_percent_max": 99.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "mean_token_f1": 0.20573923992217477,
+        "nonempty_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 251,
+        "tokens_per_second_mean": 15.081540166666668,
+        "ttft_p95_seconds": 0.11641399999999999,
+        "tpot_p95_seconds": 0.06661975,
+        "termination_reasons": {
+          "eos_or_model_stop": 5,
+          "max_new_tokens": 1
+        }
+      }
+    },
+    {
+      "profile_id": "llm-fairness",
+      "family": "llm",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 7.469000000011874,
+      "throughput_requests_per_second": 0.8033203909479798,
+      "p50_seconds": 2.195499999987078,
+      "p95_seconds": 5.496000000006461,
+      "p99_seconds": 6.199200000001293,
+      "maximum_queue_wait_seconds": 2.328,
+      "short_request_count": 4,
+      "long_request_count": 2,
+      "short_completed": 4,
+      "long_completed": 2,
+      "maximum_short_bypass": 3,
+      "long_request_max_wait_seconds": 2.328,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3555721216,
+      "gpu_utilization_percent_max": 49.0,
+      "gpu_temperature_celsius_max": 46.0,
+      "quality": {
+        "mean_token_f1": 0.21420102105579789,
+        "nonempty_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 115,
+        "tokens_per_second_mean": 15.306305833333333,
+        "ttft_p95_seconds": 0.10705674999999999,
+        "tpot_p95_seconds": 0.06506575,
+        "termination_reasons": {
+          "max_new_tokens": 4,
+          "eos_or_model_stop": 2
+        }
+      }
+    },
+    {
+      "profile_id": "llm-fairness",
+      "family": "llm",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 7.64100000000326,
+      "throughput_requests_per_second": 0.7852375343538072,
+      "p50_seconds": 2.25,
+      "p95_seconds": 5.609250000001339,
+      "p99_seconds": 6.321850000000268,
+      "maximum_queue_wait_seconds": 2.375,
+      "short_request_count": 4,
+      "long_request_count": 2,
+      "short_completed": 4,
+      "long_completed": 2,
+      "maximum_short_bypass": 3,
+      "long_request_max_wait_seconds": 2.375,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3564109824,
+      "gpu_utilization_percent_max": 51.0,
+      "gpu_temperature_celsius_max": 48.0,
+      "quality": {
+        "mean_token_f1": 0.21420102105579789,
+        "nonempty_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 115,
+        "tokens_per_second_mean": 14.862517333333335,
+        "ttft_p95_seconds": 0.115433,
+        "tpot_p95_seconds": 0.0720355,
+        "termination_reasons": {
+          "max_new_tokens": 4,
+          "eos_or_model_stop": 2
+        }
+      }
+    },
+    {
+      "profile_id": "llm-fairness",
+      "family": "llm",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 7.687000000005355,
+      "throughput_requests_per_second": 0.7805385716138702,
+      "p50_seconds": 2.328499999974156,
+      "p95_seconds": 5.695749999991676,
+      "p99_seconds": 6.389549999994052,
+      "maximum_queue_wait_seconds": 2.547,
+      "short_request_count": 4,
+      "long_request_count": 2,
+      "short_completed": 4,
+      "long_completed": 2,
+      "maximum_short_bypass": 3,
+      "long_request_max_wait_seconds": 2.547,
+      "starvation_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3596615680,
+      "gpu_utilization_percent_max": 88.0,
+      "gpu_temperature_celsius_max": 45.0,
+      "quality": {
+        "mean_token_f1": 0.21420102105579789,
+        "nonempty_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 115,
+        "tokens_per_second_mean": 14.438962166666665,
+        "ttft_p95_seconds": 0.12327125,
+        "tpot_p95_seconds": 0.07522975,
+        "termination_reasons": {
+          "max_new_tokens": 4,
+          "eos_or_model_stop": 2
+        }
+      }
+    },
+    {
+      "profile_id": "llm-over-limit",
+      "family": "llm",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 0,
+      "completed": 0,
+      "rejected": 6,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [
+        422
+      ],
+      "measurement_seconds": 0.14000000001396984,
+      "throughput_requests_per_second": 0.0,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.0,
+      "p99_seconds": 0.0,
+      "maximum_queue_wait_seconds": 0.0,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 6,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3555721216,
+      "gpu_utilization_percent_max": 12.0,
+      "gpu_temperature_celsius_max": 42.0,
+      "quality": {
+        "mean_token_f1": 0.0,
+        "nonempty_rate": 0.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "llm-over-limit",
+      "family": "llm",
+      "repetition": 2,
+      "request_count": 6,
+      "accepted": 0,
+      "completed": 0,
+      "rejected": 6,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [
+        422
+      ],
+      "measurement_seconds": 0.125,
+      "throughput_requests_per_second": 0.0,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.0,
+      "p99_seconds": 0.0,
+      "maximum_queue_wait_seconds": 0.0,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 6,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3555721216,
+      "gpu_utilization_percent_max": 52.0,
+      "gpu_temperature_celsius_max": 42.0,
+      "quality": {
+        "mean_token_f1": 0.0,
+        "nonempty_rate": 0.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "llm-over-limit",
+      "family": "llm",
+      "repetition": 3,
+      "request_count": 6,
+      "accepted": 0,
+      "completed": 0,
+      "rejected": 6,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [
+        422
+      ],
+      "measurement_seconds": 0.15600000001722947,
+      "throughput_requests_per_second": 0.0,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.0,
+      "p99_seconds": 0.0,
+      "maximum_queue_wait_seconds": 0.0,
+      "short_request_count": 0,
+      "long_request_count": 6,
+      "short_completed": 0,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "starvation_count": 6,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3555721216,
+      "gpu_utilization_percent_max": 46.0,
+      "gpu_temperature_celsius_max": 41.0,
+      "quality": {
+        "mean_token_f1": 0.0,
+        "nonempty_rate": 0.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    }
+  ],
+  "analysis": {
+    "acceptance": {
+      "S7-AC-01": true,
+      "S7-AC-02": true,
+      "S7-AC-03": true,
+      "S7-AC-04": true
+    },
+    "runtime_verdict": "passed",
+    "matrix_complete": true,
+    "profile_repetition_count": 36,
+    "family_rollups": {
+      "image": {
+        "profile_repetitions": 12,
+        "completed": 54,
+        "rejected": 18,
+        "p95_seconds_max": 0.16799999999784632,
+        "p99_seconds_max": 0.1711999999926775,
+        "throughput_mean_requests_per_second": 26.336610260555364,
+        "quality_schema": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation_schema": []
+      },
+      "vlm": {
+        "profile_repetitions": 12,
+        "completed": 54,
+        "rejected": 18,
+        "p95_seconds_max": 2.7342500000086147,
+        "p99_seconds_max": 2.7716500000155064,
+        "throughput_mean_requests_per_second": 1.546010173142106,
+        "quality_schema": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation_schema": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ]
+      },
+      "llm": {
+        "profile_repetitions": 12,
+        "completed": 54,
+        "rejected": 18,
+        "p95_seconds_max": 15.507749999989755,
+        "p99_seconds_max": 15.73914999999106,
+        "throughput_mean_requests_per_second": 0.9968179326612666,
+        "quality_schema": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation_schema": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ]
+      }
+    },
+    "checks": {
+      "distinct_metric_schemas": true,
+      "quality_thresholds": true,
+      "zero_oom_and_starvation": true,
+      "trace_complete": true,
+      "prometheus_complete": true,
+      "bounded_over_limit_rejection": true,
+      "fairness_and_hol": true
+    }
+  },
+  "private_evidence": {
+    "artifact_count": 51,
+    "total_bytes": 640310,
+    "aggregate_sha256": "cf4862155602ba606ec5844f9fe40ae1a772a105e41e1e6e03c0551302d28355",
+    "index_sha256": "c0f4b5bb16ad8ba1984a3662d042b424cede067cbaa655ad07280b69a4b362d6",
+    "location": "outside_git_private_evidence_root"
+  },
+  "cleanup_summary": {
+    "source_serving_ready": true,
+    "gpu_lease_zero": true,
+    "family_count": 3,
+    "prometheus_up": true
+  },
+  "failed_attempts": [],
+  "claim_boundary": "Controlled family-specific admission evidence on one local physical node and one consumer GPU. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, broad benchmark-quality, or business A/B claim.",
+  "generated_at": "2026-08-23T19:26:44.534372Z"
+}

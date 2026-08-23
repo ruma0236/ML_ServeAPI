@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T19:18:38.297228Z",
+  "generated_at": "2026-08-23T19:26:44.534372Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3417,9 +3417,9 @@
         "Three subsequent family diagnostics completed real external-HTTP CUDA requests and family metric projection, but were rejected with zero credit because cleanup observed Prometheus before the five frozen baseline targets had reloaded; cleanup now requires exact 5/5 restoration.",
         "Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision each completed six real CUDA requests and restored B0, the lease, the S7 target, and Prometheus 5/5; this is a non-acceptance readiness gate only.",
         "The first complete 36-repetition matrix produced healthy runtime results but received zero credit because the strict validator compared semantically identical profile projections by list position; stable profile/repetition identity mapping now preserves order independence while rejecting duplicates.",
-        "This is an implementation checkpoint only; external CUDA acceptance evidence is not yet available."
+        "A clean second 36-repetition matrix passed the independent raw-derived experiment validator; full regressions, current-revision smoke, canonical Git-blob closure, and scenario status transition remain pending."
       ],
-      "experiment_environment": "Three non-acceptance diagnostics and one rejected 36-repetition matrix exercised the existing image, VLM, and LLM routes sequentially with external HTTP and real CUDA on one controlled local physical node and one GPU. No matrix currently has acceptance credit.",
+      "experiment_environment": "Three non-acceptance diagnostics, one rejected matrix, and one accepted 36-repetition matrix exercised the existing image, VLM, and LLM routes sequentially with external HTTP and real CUDA on one controlled local physical node and one GPU. Scenario closure remains pending.",
       "test_or_experiment_steps": [
         "Run image, VLM, and LLM small/short, large/long, fairness, and over-limit profiles for three independent repetitions while GPU ownership remains sequential.",
         "Increase admitted request cost only until the safe fairness and memory boundary is known.",
@@ -3476,6 +3476,12 @@
           "sha256": "a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550",
           "generated_at": "2026-08-23T19:18:38.297228Z",
           "claim": "The first complete 36-repetition matrix was rejected with zero credit because strict projection comparison was list-order-sensitive; raw evidence, exact cleanup, RCA, and private hashes are retained."
+        },
+        {
+          "path": "docs/status/evidence/s7-auxiliary-admission-experiment.json",
+          "sha256": "032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014",
+          "generated_at": "2026-08-23T19:26:44.534372Z",
+          "claim": "The clean 36-repetition matrix passed raw-derived family schemas, quality, bounded rejection, zero OOM/starvation, fairness/HOL, trace, Prometheus, and exact cleanup checks; scenario closure is pending."
         }
       ],
       "status": "implementing",
@@ -3486,7 +3492,7 @@
         "Long-request head-of-line behavior and fairness are measured.",
         "Unsupported or unverified metrics remain absent."
       ],
-      "next_action": "Commit the stable profile-identity validator and rejected-attempt RCA, then rerun the complete 12-profile by 3-repetition matrix at the clean remediation revision.",
+      "next_action": "Commit the accepted experiment, run current-revision smoke and all required regressions, then create and independently validate the canonical S7 closure.",
       "architecture_before": "Multiple model families run without one cost-aware admission proof.",
       "architecture_after": "Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.",
       "existing_system_baseline": "The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.",
@@ -3655,6 +3661,12 @@
           "sha256": "a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550",
           "generated_at": "2026-08-23T19:18:38.297228Z",
           "claim": "The first complete 36-repetition matrix was rejected with zero credit because strict projection comparison was list-order-sensitive; raw evidence, exact cleanup, RCA, and private hashes are retained."
+        },
+        {
+          "path": "docs/status/evidence/s7-auxiliary-admission-experiment.json",
+          "sha256": "032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014",
+          "generated_at": "2026-08-23T19:26:44.534372Z",
+          "claim": "The clean 36-repetition matrix passed raw-derived family schemas, quality, bounded rejection, zero OOM/starvation, fairness/HOL, trace, Prometheus, and exact cleanup checks; scenario closure is pending."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -3718,6 +3730,15 @@
           "summary": "The first full 36-repetition matrix completed 162 requests and 54 explicit over-limit rejections with exact cleanup, but strict validation rejected the public projection because public config order and private lexical order were compared positionally. The suite receives zero credit; stable profile/repetition identity comparison and duplicate rejection are implemented before a clean full rerun.",
           "evidence_refs": [
             "docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T19:26:44.534372Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "A clean second 36-repetition matrix passed the independent raw-derived experiment validator: each family completed 12 repetitions, with 162 completed requests, 54 explicit bounded rejections, zero OOM/starvation, complete trace and Prometheus evidence, family quality gates, fairness/HOL, and exact cleanup. Full regressions and canonical closure remain pending.",
+          "evidence_refs": [
+            "docs/status/evidence/s7-auxiliary-admission-experiment.json"
           ]
         }
       ]

@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T19:18:38.297228Z`
+- Generated: `2026-08-23T19:26:44.534372Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -638,7 +638,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Commit the stable profile-identity validator and rejected-attempt RCA, then rerun the complete 12-profile by 3-repetition matrix at the clean remediation revision.
+- Next action: Commit the accepted experiment, run current-revision smoke and all required regressions, then create and independently validate the canonical S7 closure.
 
 ### Affected Existing Components
 
@@ -696,6 +696,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s7-auxiliary-admission-failed-attempt-02.json` (`5d9ee5c495287b800babba19fd771ee5fadc127bff553f3a58dcbcbfe5b8f78b`): Three real-CUDA family diagnostics completed but were rejected because cleanup captured a transient 0/0 Prometheus baseline; post-recovery hashes and exact 5/5 cleanup are retained with zero acceptance credit.
 - `docs/status/evidence/s7-family-diagnostic-gate.json` (`14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d`): Fresh image, VLM, and LLM external-HTTP CUDA diagnostics each completed six requests and restored the exact baseline; this is readiness evidence with zero S7 acceptance credit.
 - `docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json` (`a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550`): The first complete 36-repetition matrix was rejected with zero credit because strict projection comparison was list-order-sensitive; raw evidence, exact cleanup, RCA, and private hashes are retained.
+- `docs/status/evidence/s7-auxiliary-admission-experiment.json` (`032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014`): The clean 36-repetition matrix passed raw-derived family schemas, quality, bounded rejection, zero OOM/starvation, fairness/HOL, trace, Prometheus, and exact cleanup checks; scenario closure is pending.
 
 ### Chronological Updates
 
@@ -706,6 +707,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T18:59:18.922527Z` `recovery` / `implementing`: Image, VLM, and LLM diagnostics completed real external-HTTP CUDA requests, but all three were rejected because cleanup returned during the transient 0/0 Prometheus restart state. Exact 5/5 baseline restoration is now a fail-closed runner and evidence condition; post-recovery B0, lease, target, and private hashes are retained with zero acceptance credit.
 - `2026-08-23T19:08:22.335888Z` `verification` / `implementing`: Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision completed 18 of 18 real external-HTTP CUDA requests with family-specific metrics, zero OOM/starvation, and exact B0/lease/S7-target/Prometheus 5/5 cleanup. This closes only the diagnostic gate; the 12-profile by 3-repetition matrix and all S7 ACs remain pending.
 - `2026-08-23T19:18:38.297228Z` `experiment` / `implementing`: The first full 36-repetition matrix completed 162 requests and 54 explicit over-limit rejections with exact cleanup, but strict validation rejected the public projection because public config order and private lexical order were compared positionally. The suite receives zero credit; stable profile/repetition identity comparison and duplicate rejection are implemented before a clean full rerun.
+- `2026-08-23T19:26:44.534372Z` `experiment` / `implementing`: A clean second 36-repetition matrix passed the independent raw-derived experiment validator: each family completed 12 repetitions, with 162 completed requests, 54 explicit bounded rejections, zero OOM/starvation, complete trace and Prometheus evidence, family quality gates, fairness/HOL, and exact cleanup. Full regressions and canonical closure remain pending.
 
 ## S8: Dependency Soak & Resource-efficiency Closure
 
