@@ -1,0 +1,132 @@
+{
+  "schema_version": "evm.s4_preparation_checkpoint.v1",
+  "generated_at": "2026-08-23T01:00:31.560710Z",
+  "status": "implementing",
+  "acceptance_credit": false,
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "536ba051684f9a1317fb0eff33e139deea54965e",
+    "runtime_config_sha256": "44f2c1fef959cf338c3a735e09334f62390f8b4780ad3339a440258df0255053"
+  },
+  "existing_system_path": "external client -> existing Workloads API route -> bounded dynamic GPU batcher -> governed Tiny MLP artifact -> Prometheus/OTLP",
+  "gpu_preflight": {
+    "device_count": 1,
+    "device_name": "NVIDIA GeForce RTX 4080 SUPER",
+    "driver": "610.88",
+    "total_memory_mib": 16376.0,
+    "holder_target_kind": "Deployment",
+    "holder_target_uid_bound": true
+  },
+  "model": {
+    "architecture": "28-64-32-1-relu-fp32",
+    "artifact_sha256": "3a0ce8538a0169d2f0d3bac233cce516195ad59b0736e3e7e5dcb1395b1916f4",
+    "model_identity_sha256": "219c508c65449f208b003443bd72553cbe7a7f8b30ec0010e870f1a396b7b2e5",
+    "dataset_identity_sha256": "eecb0f824e149c8e9062f216d834e8ccc519ea774c0f79392f23bb11f3f7550d",
+    "training": {
+      "batch_size": 8192,
+      "epochs": 5,
+      "final_loss": 0.6049528814131214,
+      "peak_vram_bytes": 24344064,
+      "seed": 20260823,
+      "train_rows": 250000,
+      "training_seconds": 0.6298345689992857,
+      "validation_accuracy": 0.67276,
+      "validation_rows": 50000
+    },
+    "framework": {
+      "cuda_runtime": "12.6",
+      "cudnn": "91002",
+      "torch": "2.13.0+cu126"
+    }
+  },
+  "batch_one_smoke": {
+    "point_id": "smoke-batch-1-delay-0-instances-1",
+    "mode": "smoke",
+    "repetition": 1,
+    "batch_size": 1,
+    "max_delay_ms": 0,
+    "instance_count": 1,
+    "request_count": 389,
+    "configured_concurrency": 1,
+    "success_count": 389,
+    "service_rps": 77.8,
+    "p50_ms": 10.990000009769574,
+    "p95_ms": 23.230779997538754,
+    "p99_ms": 32.3583119839896,
+    "error_rate": 0.0,
+    "queue_wait_p99_ms": 0.07243576044857049,
+    "h2d_ms_mean": 0.4358725747366491,
+    "inference_ms_mean": 0.40835496139710237,
+    "d2h_ms_mean": 0.06762981989389827,
+    "formed_batch_size_mean": 1.0,
+    "fill_ratio_mean": 1.0,
+    "formed_batch_distribution": {
+      "1": 389
+    },
+    "allocated_vram_bytes_max": 8539648,
+    "reserved_vram_bytes_max": 25165824,
+    "peak_vram_bytes": 8540160,
+    "gpu_utilization_percent_mean": 20.0,
+    "temperature_celsius_max": 37.0,
+    "power_watts_max": 33.87,
+    "oom_count": 0,
+    "prometheus_up": true,
+    "terminal_gauges": {
+      "evm_s4_gpu_batch_queue_depth": 0.0,
+      "evm_s4_gpu_batch_queue_bytes": 0.0,
+      "evm_s4_gpu_batch_in_flight": 0.0
+    },
+    "trace": {
+      "expected_count": 1,
+      "complete_count": 1,
+      "missing_count": 0,
+      "required_span_names": [
+        "POST /control-panel/v1/scenario-workloads/gpu-batch-probes/predict",
+        "s4.gpu_batch.worker"
+      ],
+      "observed_span_names": [
+        "POST /control-panel/v1/scenario-workloads/gpu-batch-probes/predict",
+        "s4.gpu_batch.worker"
+      ],
+      "raw_tail_sha256": "8c8bb74f0d628ef64bcaaa3f8336da979d369b0ae837031bffe3e1572f1e4f91",
+      "raw_tail_bytes": 9687
+    },
+    "evidence_valid": true,
+    "private_point_sha256": "2042627fed274d51ac059c1e98f09db244fcc4128ecdebe5f8aef1f1a6ccea69"
+  },
+  "acceptance": {
+    "S4-AC-01": "pending",
+    "S4-AC-02": "pending",
+    "S4-AC-03": "pending",
+    "S4-AC-04": "pending"
+  },
+  "next_action": "Run the frozen 60+3+3 controlled matrix at a clean revision.",
+  "claim_boundary": "Measured HIGGS Tiny MLP batching trade-offs on one local physical node and one consumer GPU. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or terabyte claim.",
+  "cleanup": {
+    "lease_released": true,
+    "holder_uid_restored": true,
+    "holder_ready": true,
+    "serving_cuda_ready": true,
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "prometheus_container_absent": true,
+    "gpu_after": {
+      "uuid": "GPU-4eea4bfc-f15e-bd25-c1b8-ed53ade9ad1d",
+      "name": "NVIDIA GeForce RTX 4080 SUPER",
+      "driver": "610.88",
+      "memory_total_mib": 16376.0,
+      "memory_used_mib": 2536.0,
+      "memory_free_mib": 13510.0,
+      "utilization_gpu_percent": 14.0,
+      "temperature_celsius": 38.0,
+      "power_watts": 50.87
+    }
+  },
+  "failed_attempts_and_rca": [],
+  "private_evidence": {
+    "artifact_count": 3,
+    "aggregate_sha256": "1e3eb75ab42d9d45fc6a05ff6c48cf1d4a93ffa79f837c8a2dcc656062cfc0be",
+    "total_bytes": 78140,
+    "index_sha256": "8717aeea9fd689675dc02346a38eeab49e1b68791ccec4aa8feed519ed78ed3f"
+  }
+}

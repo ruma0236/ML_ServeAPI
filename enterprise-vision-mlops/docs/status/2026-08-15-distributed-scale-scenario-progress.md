@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T00:12:31.382496Z`
+- Generated: `2026-08-23T01:02:12.770562Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -375,28 +375,31 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S4: HIGGS Tiny MLP GPU Batching
 
-- Status: `planned`
+- Status: `implementing`
 - Engineering question: Which small-model batch and queue-delay settings maximize throughput within p99 and VRAM?
 - Why now: A lightweight GPU probe reveals scheduler and batching cost without a large model.
 - Observed gap: No throughput-latency-VRAM Pareto curve exists for the accelerator path.
-- Existing-system baseline: The existing single-accelerator path supports training and serving with an exclusive lease, but dynamic batching, queue delay, and VRAM capacity have no measured operating envelope.
-- Architecture before: The accelerator path runs models but lacks a controlled batching envelope.
-- Architecture after: One measured batch, delay, instance, and VRAM operating point governs inference.
+- Existing-system baseline: The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.
+- Architecture before: The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.
+- Architecture after: The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Begin after the common baseline and bounded queue instrumentation are ready.
+- Next action: Run the frozen 60 matrix repetitions, three instance-axis repetitions, and three selected-point open-loop repetitions; retain failed attempts and close S4 only from fresh hash-linked evidence.
 
 ### Affected Existing Components
 
-- Existing serving runtime: `apps/api/efficientnet_serving.py`, `src/evm/control_panel/lifecycle_kubernetes.py`
-- Existing accelerator workload control: `src/evm/control_panel/scenario_workload_control.py`, `src/evm/model_runtime/workload_runner.py`
+- Existing Workloads API and application lifecycle: `apps/api/control_panel_workloads.py`, `apps/api/main.py`
+- Existing exclusive accelerator lease contract: `src/evm/control_panel/scenario_workloads.py`
+- In-place bounded CUDA batching runtime: `src/evm/model_runtime/gpu_batch_probe.py`, `src/evm/model_runtime/tiny_mlp.py`
+- Versioned S4 runtime, runner, and container contract: `src/evm/scale_validation/s4_runtime.py`, `scripts/dev/prepare_s4_tiny_mlp.py`, `scripts/dev/run_s4_gpu_batching_experiment.py`, `configs/s4_gpu_batching_runtime.toml`, `infra/docker/gpu-batching/Dockerfile`
+- Focused S4 regression coverage: `tests/test_s4_gpu_batch_probe.py`, `tests/test_s4_runtime.py`
 
 ### Architecture Delta
 
-- Before: The accelerator path runs models but lacks a controlled batching envelope.
-- After: One measured batch, delay, instance, and VRAM operating point governs inference.
-- Selection reason: A tiny MLP isolates scheduler and batch formation cost within the available single-GPU boundary.
-- Alternative/trade-off: Multiple concurrent training jobs were excluded because the hardware cannot provide trustworthy isolation without MIG.
+- Before: The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.
+- After: The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.
+- Selection reason: A tiny MLP isolates GPU scheduler and batch-formation cost while reusing the real Workloads API and single-GPU lease boundary.
+- Alternative/trade-off: Multiple concurrent training jobs and parallel model-serving claims remain excluded because the hardware cannot provide trustworthy MIG-style isolation.
 
 ### Proposed Design
 
@@ -407,14 +410,20 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Implementation Delta
 
-- No existing-system code change has started.
-- Compatibility: Existing exclusive training lease and serving identity gates remain authoritative.
-- Migration: Add batching as an opt-in serving profile and keep batch-one behavior as rollback.
+- Existing Workloads API and application lifecycle: `apps/api/control_panel_workloads.py`, `apps/api/main.py`
+- Existing exclusive accelerator lease contract: `src/evm/control_panel/scenario_workloads.py`
+- In-place bounded CUDA batching runtime: `src/evm/model_runtime/gpu_batch_probe.py`, `src/evm/model_runtime/tiny_mlp.py`
+- Versioned S4 runtime, runner, and container contract: `src/evm/scale_validation/s4_runtime.py`, `scripts/dev/prepare_s4_tiny_mlp.py`, `scripts/dev/run_s4_gpu_batching_experiment.py`, `configs/s4_gpu_batching_runtime.toml`, `infra/docker/gpu-batching/Dockerfile`
+- Focused S4 regression coverage: `tests/test_s4_gpu_batch_probe.py`, `tests/test_s4_runtime.py`
+- Compatibility: Existing VLM/LLM request and lifecycle schemas are unchanged; the tabular probe is an opt-in subroute and the legacy serving holder is restored after each controlled window.
+- Migration: No data-store migration is required. Batch-one is the frozen rollback profile, and all S4 state is source/config/model/lease identity bound.
 
 ### Experiment Contract
 
 - Workload/input: Fixed tabular samples served by one tiny GPU MLP under a batch and delay matrix.
-- Precondition: S0 telemetry and S2 bounds pass; no training or unrelated GPU workload is active.
+- Precondition: S0-S3 canonical evidence and regressions pass at the current branch history.
+- Precondition: The exact single-GPU serving holder is healthy, no unrelated accelerator lease exists, and cleanup can restore the same Deployment UID.
+- Precondition: The governed HIGGS split, Tiny MLP artifact, source revision, runtime config, and CUDA identity all match.
 - Controlled variable: Batch size, bounded queue delay, model instance count, arrival rate, seed, and warmup.
 - Signal: Throughput, p95/p99, formed batch size, queue delay, GPU utilization, allocated/reserved/peak VRAM, and OOM count.
 - Stop condition: Any OOM, lease conflict, thermal risk, unbounded queue, or p99 stop threshold occurs.
@@ -429,11 +438,12 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Current Evidence
 
-- No accepted execution evidence yet.
+- `docs/status/evidence/s4-preparation-checkpoint.json` (`e5718a9036c61095077e50c3d563bbac727bf9299e37e7a5f2ad1fd06e898c8b`): Current-revision external batch-one preparation smoke passed through the existing Workloads API with CUDA inference, Prometheus/OTLP identity, terminal drain, exact lease release, and serving-holder restoration; S4 acceptance remains pending.
 
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
+- `2026-08-23T01:00:31.560710Z` `implementation` / `implementing`: At revision 536ba05, the external batch-one preparation smoke completed 389/389 CUDA requests at concurrency 1 with zero errors/OOM/trace gaps, Prometheus UP, terminal drain, exact lease release, and serving-holder restoration. This grants no S4 acceptance credit.
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 
