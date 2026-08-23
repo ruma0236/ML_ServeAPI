@@ -1,0 +1,89 @@
+{
+  "schema_version": "evm.task_queue_historical_reconciliation.v1",
+  "generated_at": "2026-08-23T11:24:00Z",
+  "status": "verified",
+  "verdict": "passed",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "baseline_revision": "5e42d7ecfcd4ac45e7ebc441c9d8125a46dd609c",
+    "reconciliation_implementation_revision": "a252020",
+    "dry_run_rca_revision": "fbc8f8f",
+    "canonical_mirror_fix_revision": "9f45899"
+  },
+  "observed_gap": {
+    "stranded_airflow_task_count": 38,
+    "candidate_window": "historical tasks created before 2026-08-03T00:00:00Z",
+    "runtime_identity_present": 0,
+    "trace_identity_present": 0,
+    "durable_queue_rows": 0,
+    "dispatch_effect_rows": 0,
+    "outbox_effect_rows": 0,
+    "audit_shape": "creation event only",
+    "risk": "Starting durable ownership would either replay stale intent or operate with ambiguous ownership."
+  },
+  "remediation_contract": {
+    "action": "cancel effect-free pre-durable intent",
+    "preconditions": [
+      "exact private allowlist equals the current stranded candidate set",
+      "snapshot SHA-256 is unchanged",
+      "task is queued and older than the frozen cutoff",
+      "runtime, queue, dispatch effect, outbox effect and extra audit history are absent"
+    ],
+    "transaction": "All entity transitions and the PostgreSQL rollback collection update commit atomically.",
+    "idempotency": "A repeated apply bound to the same snapshot returns replayed without another mutation.",
+    "rollback": "Exact snapshot restoration is implemented and passed in an isolated real-PostgreSQL schema; live rollback was not needed or executed.",
+    "file_mirror": "The JSON rollback mirror preserves canonical PostgreSQL payloads without Pydantic default expansion."
+  },
+  "execution": {
+    "snapshot_candidates": 38,
+    "snapshot_eligible": 38,
+    "snapshot_blocked": 0,
+    "dry_run_reconciled": 0,
+    "applied_reconciled": 38,
+    "post_apply_stranded": 0,
+    "duplicate_external_effects": 0,
+    "active_queue_rows": 0,
+    "dispatch_effect_rows": 0,
+    "worker_state": "healthy",
+    "worker_restart_count_after_final_recreate": 0,
+    "prometheus_targets_up": 4,
+    "api_ready": true,
+    "kubernetes_serving_ready": "1/1",
+    "postgres_json_mirror_parity": true
+  },
+  "private_evidence": {
+    "root": "private://operator-reconciliation/20260823T110933Z",
+    "snapshot_sha256": "ba3f796a25635559d06922b8930330c315e8ac1e70f91d76f3cfd52e681afb57",
+    "snapshot_contract_sha256": "218429b8fadeb21a00ba9721367c5c3c994bdfa5d3d96b50184a24867b3ac781",
+    "dry_run_report_sha256": "e5fc91458164b623bbf2b76ac895c42af64886a0e09a4a503318d153c5180bae",
+    "apply_report_sha256": "7fd0b0b490c76c9cb319d514dabd099098a6be2746a52bb3372febdf023b054f",
+    "post_verify_report_sha256": "1e5a82f758aad66cac47f8c1fdd2402ab2ef36011ae806c048c08e6ad01a5645"
+  },
+  "verification": {
+    "real_postgresql_reconciliation_tests": 4,
+    "focused_queue_and_control_plane_tests": 39,
+    "changed_file_lint": "passed",
+    "dry_run": "passed",
+    "transaction_apply": "passed",
+    "post_apply_verification": "passed",
+    "worker_stability": "passed"
+  },
+  "failed_attempts_and_rca": [
+    {
+      "attempt": "pre-apply dry-run report",
+      "failure": "The CLI treated the expected pre-apply cutover block as an error.",
+      "fix": "Dry-run now records blocked_as_expected_before_apply without weakening the apply gate."
+    },
+    {
+      "attempt": "first worker restart",
+      "failure": "Pydantic normalization added optional defaults to legacy file-mirror rows and changed the digest.",
+      "fix": "Mirror synchronization now writes the canonical PostgreSQL payload directly; parity and stable restart passed."
+    },
+    {
+      "attempt": "first compacted-history verification",
+      "failure": "The verifier assumed terminal-state keys although the bounded rollup API exposes history-class totals.",
+      "fix": "Verification now combines the snapshot/apply hash chain with the bounded task-history total and current zero-stranded state."
+    }
+  ],
+  "claim_boundary": "This proves controlled reconciliation of effect-free historical local task intent and stable worker recovery. It does not prove production queue migration, customer traffic, SLA, HA/DR or multi-node recovery."
+}

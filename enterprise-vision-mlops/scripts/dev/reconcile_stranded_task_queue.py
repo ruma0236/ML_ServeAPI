@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -61,9 +62,10 @@ def main() -> int:
     )
     parser.add_argument(
         "action",
-        choices=("snapshot", "dry-run", "apply", "rollback"),
+        choices=("snapshot", "dry-run", "apply", "verify", "rollback"),
     )
     parser.add_argument("--snapshot", type=Path, required=True)
+    parser.add_argument("--apply-report", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--cutoff", default="2026-08-03T00:00:00Z")
     parser.add_argument("--actor", default="task-queue-reconciliation")
@@ -95,12 +97,43 @@ def main() -> int:
                     reason=args.reason,
                     dry_run=args.action == "dry-run",
                 )
-            else:
+            elif args.action == "rollback":
                 result = store.rollback_stranded_task_queue(
                     snapshot=snapshot,
                     actor=args.actor,
                     reason=args.reason,
                 )
+            else:
+                if not args.apply_report:
+                    raise ValueError("--apply-report is required for verification")
+                applied = json.loads(args.apply_report.read_text(encoding="utf-8"))
+                expected_count = len(snapshot["items"])
+                if (
+                    applied.get("status") != "applied"
+                    or applied.get("snapshot_sha256") != snapshot["snapshot_sha256"]
+                    or int(applied.get("reconciled_count", -1)) != expected_count
+                ):
+                    raise ValueError("apply report does not bind the exact snapshot")
+                retained = [
+                    store.get_entity("task_assignment", str(item["task_id"]))
+                    for item in snapshot["items"]
+                ]
+                retained_cancelled = sum(
+                    bool(item and item.get("status") == "cancelled") for item in retained
+                )
+                history = store.task_queue_history_snapshot()
+                compacted_tasks = int(history.compacted_rows.get("task", 0))
+                if retained_cancelled + compacted_tasks < expected_count:
+                    raise ValueError("reconciled tasks are missing from authority and history")
+                result = {
+                    "status": "verification_passed",
+                    "snapshot_sha256": snapshot["snapshot_sha256"],
+                    "candidate_count": expected_count,
+                    "reconciled_count": expected_count,
+                    "retained_cancelled_count": retained_cancelled,
+                    "compacted_task_count": compacted_tasks,
+                    "history": asdict(history),
+                }
             if args.action in {"apply", "rollback"} and not args.skip_file_mirror:
                 sync_task_json_mirror_from_store()
                 result["file_mirror_parity"] = verify_task_json_mirror_parity()
