@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 
+from evm.control_panel import operations
 from evm.control_panel.admission_queue import load_admission_queue_config
 from evm.control_panel.transactional_store import (
     ControlPlaneParityError,
@@ -191,3 +192,19 @@ def test_public_summary_never_exposes_private_task_items():
     assert summary["candidate_count"] == 38
     assert "items" not in summary
     assert "private-task-id" not in str(summary)
+
+
+def test_real_postgres_file_mirror_preserves_canonical_legacy_payload(
+    store: TransactionalControlPlaneStore,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    seed(store, legacy_task("task-legacy-mirror"))
+    monkeypatch.setattr(operations, "get_transactional_store", lambda: store)
+    monkeypatch.setenv("EVM_CONTROL_PANEL_LEDGER_ROOT", str(tmp_path))
+
+    operations.sync_task_json_mirror_from_store()
+
+    parity = operations.verify_task_json_mirror_parity()
+    assert parity["matches"] is True
+    assert parity["authority_count"] == parity["file_count"] == 1
