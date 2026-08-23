@@ -104,10 +104,16 @@ def main() -> int:
             if args.action in {"apply", "rollback"} and not args.skip_file_mirror:
                 sync_task_json_mirror_from_store()
                 result["file_mirror_parity"] = verify_task_json_mirror_parity()
-            result["cutover"] = store.verify_task_queue_cutover(
-                mode="durable",
-                config=load_admission_queue_config(),
-            )
+            if args.action == "dry-run":
+                result["cutover"] = {
+                    "status": "blocked_as_expected_before_apply",
+                    "stranded_depth": int(result["candidate_count"]),
+                }
+            else:
+                result["cutover"] = store.verify_task_queue_cutover(
+                    mode="durable",
+                    config=load_admission_queue_config(),
+                )
             result["completed_at"] = utc_now()
             if args.report:
                 write_json(args.report, result)
