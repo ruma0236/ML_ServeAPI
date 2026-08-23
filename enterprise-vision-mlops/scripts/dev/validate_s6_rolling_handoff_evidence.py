@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 
 from evm.scale_validation.s6_evidence import (  # noqa: E402
     S6EvidenceValidationError,
+    validate_s6_closure,
     validate_s6_experiment,
 )
 from evm.scale_validation.s6_runtime import S6RuntimeConfig  # noqa: E402
@@ -39,6 +40,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--private-root", type=Path, required=True)
     parser.add_argument("--git-revision")
+    parser.add_argument(
+        "--closure",
+        type=Path,
+        default=ROOT / "docs/status/evidence/s6-rolling-handoff-closure.json",
+    )
+    parser.add_argument("--require-closure", action="store_true")
     return parser.parse_args()
 
 
@@ -78,6 +85,20 @@ def main() -> int:
         validation_revision=args.git_revision or "HEAD",
     )
     result["evidence_sha256"] = hashlib.sha256(raw).hexdigest()
+    if args.require_closure:
+        closure_raw = load_bytes(args.closure, args.git_revision, git_root)
+        if b"\r\n" in closure_raw or not closure_raw.endswith(b"\n"):
+            raise S6EvidenceValidationError("s6_closure_not_canonical_lf")
+        result["closure"] = validate_s6_closure(
+            json.loads(closure_raw),
+            experiment=payload,
+            experiment_sha256=result["evidence_sha256"],
+            config=config,
+            private_root=args.private_root,
+            git_root=git_root,
+            validation_revision=args.git_revision or "HEAD",
+        )
+        result["closure_sha256"] = hashlib.sha256(closure_raw).hexdigest()
     result["hash_source"] = args.git_revision or "worktree"
     print(json.dumps(result, sort_keys=True))
     return 0

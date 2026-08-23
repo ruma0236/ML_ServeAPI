@@ -30,6 +30,19 @@ SOURCE_PATHS = {
     "kubernetes": "enterprise-vision-mlops/infra/kubernetes/scale-validation/s6/api-rolling.yaml",
     "prometheus": "enterprise-vision-mlops/monitoring/prometheus/prometheus.yml",
 }
+EXPERIMENT_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/"
+    "s6-rolling-handoff-experiment.json"
+)
+CLOSURE_VALIDATOR_PATHS = {
+    "validator_cli": (
+        "enterprise-vision-mlops/scripts/dev/"
+        "validate_s6_rolling_handoff_evidence.py"
+    ),
+    "validator_module": (
+        "enterprise-vision-mlops/src/evm/scale_validation/s6_evidence.py"
+    ),
+}
 API_PUBLIC_FIELDS = (
     "repetition",
     "logical_requests",
@@ -182,6 +195,126 @@ def validate_s6_experiment(
         "source_identity": git_identity,
         "analysis": analysis,
         "private_evidence": expected_private,
+    }
+
+
+def validate_s6_closure(
+    closure: Mapping[str, Any],
+    *,
+    experiment: Mapping[str, Any],
+    experiment_sha256: str,
+    config: S6RuntimeConfig,
+    private_root: Path,
+    git_root: Path | None = None,
+    validation_revision: str = "HEAD",
+) -> dict[str, Any]:
+    errors: list[str] = []
+    if closure.get("schema_version") != "evm.s6_rolling_handoff_closure.v1":
+        errors.append("closure_schema_version")
+    validated = validate_s6_experiment(
+        experiment,
+        config=config,
+        private_root=private_root,
+        git_root=git_root,
+        validation_revision=validation_revision,
+    )
+    final = dict(closure.get("final_runtime_evidence", {}))
+    if final.get("experiment_git_blob_sha256") != experiment_sha256:
+        errors.append("closure_experiment_sha256")
+    if canonical(final.get("acceptance")) != canonical(
+        validated["analysis"]["acceptance"]
+    ):
+        errors.append("closure_acceptance")
+    if int(final.get("api_repetitions", 0)) != 3:
+        errors.append("closure_api_repetitions")
+    if int(final.get("gpu_repetitions", 0)) != 3:
+        errors.append("closure_gpu_repetitions")
+    if closure.get("status") != "verified" or closure.get("verdict") != "passed":
+        errors.append("closure_verdict")
+    if closure.get("claim_boundary") != config.claim_boundary:
+        errors.append("closure_claim_boundary")
+
+    required_regression = (
+        "focused_s6",
+        "full_python_real_postgresql",
+        "lifecycle_host_e2e",
+        "control_panel",
+        "frontend_production_build",
+        "s0_s5_regression",
+        "current_revision_runtime_smoke",
+    )
+    regression = dict(closure.get("regression", {}))
+    if any(
+        dict(regression.get(name, {})).get("status") != "passed"
+        for name in required_regression
+    ):
+        errors.append("closure_regression")
+
+    cleanup = dict(closure.get("cleanup", {}))
+    cleanup_expectations = {
+        "runtime_cleanup_passed": True,
+        "private_inventory_rehash_passed": True,
+        "git_blob_validation_passed": True,
+        "source_serving_ready": True,
+        "target_scaled_zero": True,
+        "s6_isolated_resources_removed": True,
+        "queues_and_leases_zero": True,
+        "prometheus_baseline_healthy": True,
+    }
+    for key, expected in cleanup_expectations.items():
+        if cleanup.get(key) is not expected:
+            errors.append(f"closure_cleanup:{key}")
+
+    failed_attempts = list(closure.get("failed_attempts_and_rca", []))
+    if len(failed_attempts) < 2:
+        errors.append("closure_failed_attempts")
+    if any(item.get("acceptance_credit") is not False for item in failed_attempts):
+        errors.append("closure_failed_attempt_credit")
+
+    source = dict(closure.get("source_identity", {}))
+    experiment_commit = str(source.get("experiment_commit") or "")
+    validator_revision = str(source.get("validator_revision") or "")
+    if not REVISION_PATTERN.fullmatch(experiment_commit):
+        errors.append("closure_experiment_commit")
+    if not REVISION_PATTERN.fullmatch(validator_revision):
+        errors.append("closure_validator_revision")
+    if git_root is not None:
+        try:
+            for revision in (experiment_commit, validator_revision):
+                _git(git_root, "cat-file", "-e", f"{revision}^{{commit}}")
+                if (
+                    subprocess.run(
+                        ["git", "merge-base", "--is-ancestor", revision, validation_revision],
+                        cwd=git_root,
+                        check=False,
+                    ).returncode
+                    != 0
+                ):
+                    errors.append("closure_revision_not_ancestor")
+            expected_experiment = git_blob_identity(
+                git_root, experiment_commit, EXPERIMENT_PATH
+            )
+            if canonical(source.get("experiment")) != canonical(expected_experiment):
+                errors.append("closure_experiment_git_blob")
+            expected_validators = {
+                name: git_blob_identity(git_root, validator_revision, path)
+                for name, path in CLOSURE_VALIDATOR_PATHS.items()
+            }
+            if canonical(source.get("validators")) != canonical(expected_validators):
+                errors.append("closure_validator_git_blobs")
+        except (OSError, subprocess.CalledProcessError):
+            errors.append("closure_git_identity_unavailable")
+
+    if errors:
+        raise S6EvidenceValidationError(
+            "s6_closure_invalid:" + ",".join(sorted(set(errors)))
+        )
+    return {
+        "status": "valid",
+        "experiment_sha256": experiment_sha256,
+        "acceptance": validated["analysis"]["acceptance"],
+        "api_repetitions": 3,
+        "gpu_repetitions": 3,
     }
 
 

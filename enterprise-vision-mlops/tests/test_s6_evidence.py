@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from evm.scale_validation.s6_evidence import (
     S6EvidenceValidationError,
     project_api_result,
     project_gpu_result,
+    validate_s6_closure,
     validate_s6_experiment,
 )
 from evm.scale_validation.s6_runtime import S6RuntimeConfig, analyze_s6_results, file_sha256
@@ -236,6 +238,96 @@ def test_s6_evidence_validator_rejects_summary_only_pass_mutation(tmp_path: Path
     with pytest.raises(S6EvidenceValidationError, match="api_public_projection"):
         validate_s6_experiment(
             payload,
+            config=config,
+            private_root=private_root,
+        )
+
+
+def _closure(payload: dict[str, object], config: S6RuntimeConfig) -> dict[str, object]:
+    return {
+        "schema_version": "evm.s6_rolling_handoff_closure.v1",
+        "status": "verified",
+        "verdict": "passed",
+        "claim_boundary": config.claim_boundary,
+        "source_identity": {
+            "experiment_commit": "a" * 40,
+            "validator_revision": "a" * 40,
+        },
+        "final_runtime_evidence": {
+            "experiment_git_blob_sha256": hashlib.sha256(
+                (canonical_json(payload) + "\n").encode("utf-8")
+            ).hexdigest(),
+            "api_repetitions": 3,
+            "gpu_repetitions": 3,
+            "acceptance": payload["analysis"]["acceptance"],
+        },
+        "failed_attempts_and_rca": [
+            {"attempt_id": "S6-ATTEMPT-01", "acceptance_credit": False},
+            {"attempt_id": "S6-ATTEMPT-02", "acceptance_credit": False},
+        ],
+        "regression": {
+            name: {"status": "passed"}
+            for name in (
+                "focused_s6",
+                "full_python_real_postgresql",
+                "lifecycle_host_e2e",
+                "control_panel",
+                "frontend_production_build",
+                "s0_s5_regression",
+                "current_revision_runtime_smoke",
+            )
+        },
+        "cleanup": {
+            "runtime_cleanup_passed": True,
+            "private_inventory_rehash_passed": True,
+            "git_blob_validation_passed": True,
+            "source_serving_ready": True,
+            "target_scaled_zero": True,
+            "s6_isolated_resources_removed": True,
+            "queues_and_leases_zero": True,
+            "prometheus_baseline_healthy": True,
+        },
+    }
+
+
+def canonical_json(value: object) -> str:
+    import json
+
+    return json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def test_s6_closure_recomputes_acceptance_and_requires_cleanup(tmp_path: Path) -> None:
+    payload, config, private_root = _payload(tmp_path)
+    closure = _closure(payload, config)
+
+    validated = validate_s6_closure(
+        closure,
+        experiment=payload,
+        experiment_sha256=closure["final_runtime_evidence"][
+            "experiment_git_blob_sha256"
+        ],
+        config=config,
+        private_root=private_root,
+    )
+
+    assert validated["status"] == "valid"
+    assert validated["api_repetitions"] == 3
+    assert validated["gpu_repetitions"] == 3
+
+    closure["cleanup"]["source_serving_ready"] = False
+    with pytest.raises(S6EvidenceValidationError, match="closure_cleanup"):
+        validate_s6_closure(
+            closure,
+            experiment=payload,
+            experiment_sha256=closure["final_runtime_evidence"][
+                "experiment_git_blob_sha256"
+            ],
             config=config,
             private_root=private_root,
         )
