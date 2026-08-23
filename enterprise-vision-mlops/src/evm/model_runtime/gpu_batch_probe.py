@@ -411,7 +411,7 @@ class GpuBatchProbeExecutor:
         try:
             self._assert_lease()
             with trace_span(
-                "s4.gpu_batch.worker",
+                "s4.gpu_batch.compute",
                 parent=batch[0].parent_trace,
                 kind="consumer",
                 attributes={
@@ -448,31 +448,43 @@ class GpuBatchProbeExecutor:
             for index, pending in enumerate(batch):
                 probability = result.probabilities[index]
                 total_ms = (time.perf_counter() - pending.admitted_at) * 1000
-                response = GpuBatchProbeResponse(
-                    dataset_identity_sha256=pending.request.dataset_identity_sha256,
-                    model_identity_sha256=pending.request.model_identity_sha256,
-                    prediction=1 if probability >= 0.5 else 0,
-                    positive_probability=probability,
-                    timings=GpuBatchProbeTimings(
-                        admission_wait_ms=pending.admission_wait_seconds * 1000,
-                        queue_wait_ms=queue_waits[index] * 1000,
-                        batch_wait_ms=queue_waits[index] * 1000,
-                        h2d_ms=result.h2d_ms,
-                        inference_ms=result.inference_ms,
-                        d2h_ms=result.d2h_ms,
-                        total_ms=total_ms,
-                    ),
-                    runtime=GpuBatchProbeRuntime(
-                        instance_id=instance_id,
-                        instance_count=self.config.instance_count,
-                        configured_batch_size=self.config.batch_size,
-                        formed_batch_size=len(batch),
-                        max_delay_ms=self.config.max_delay_ms,
-                        allocated_vram_bytes=result.allocated_vram_bytes,
-                        reserved_vram_bytes=result.reserved_vram_bytes,
-                        peak_vram_bytes=result.peak_vram_bytes,
-                    ),
-                )
+                with trace_span(
+                    "s4.gpu_batch.worker",
+                    parent=pending.parent_trace,
+                    kind="consumer",
+                    attributes={
+                        "evm.stage": "gpu_batch_request_completion",
+                        "evm.batch_size": len(batch),
+                        "evm.configured_batch_size": self.config.batch_size,
+                        "evm.max_delay_ms": self.config.max_delay_ms,
+                        "evm.instance_id": instance_id,
+                    },
+                ):
+                    response = GpuBatchProbeResponse(
+                        dataset_identity_sha256=pending.request.dataset_identity_sha256,
+                        model_identity_sha256=pending.request.model_identity_sha256,
+                        prediction=1 if probability >= 0.5 else 0,
+                        positive_probability=probability,
+                        timings=GpuBatchProbeTimings(
+                            admission_wait_ms=pending.admission_wait_seconds * 1000,
+                            queue_wait_ms=queue_waits[index] * 1000,
+                            batch_wait_ms=queue_waits[index] * 1000,
+                            h2d_ms=result.h2d_ms,
+                            inference_ms=result.inference_ms,
+                            d2h_ms=result.d2h_ms,
+                            total_ms=total_ms,
+                        ),
+                        runtime=GpuBatchProbeRuntime(
+                            instance_id=instance_id,
+                            instance_count=self.config.instance_count,
+                            configured_batch_size=self.config.batch_size,
+                            formed_batch_size=len(batch),
+                            max_delay_ms=self.config.max_delay_ms,
+                            allocated_vram_bytes=result.allocated_vram_bytes,
+                            reserved_vram_bytes=result.reserved_vram_bytes,
+                            peak_vram_bytes=result.peak_vram_bytes,
+                        ),
+                    )
                 if not pending.future.done():
                     pending.future.set_result(response)
         except Exception as exc:

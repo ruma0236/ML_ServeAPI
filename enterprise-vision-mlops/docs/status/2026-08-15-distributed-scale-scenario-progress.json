@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T01:29:21.616682Z",
+  "generated_at": "2026-08-23T01:36:01.031163Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2083,7 +2083,8 @@
         "Reused the exact accelerator lease and serving-holder identity for mutually exclusive training and inference windows with batch-one rollback.",
         "Passed one current-revision external batch-one preparation smoke; the 66-repetition acceptance matrix has not started.",
         "The first full-matrix attempt retained 15 point repetitions, then stopped on an incomplete OTLP flush with all runtime safety and cleanup guards intact.",
-        "The remediation freezes a 30-second bounded trace poll, records flush timing, and persists failed point evidence before raising."
+        "The remediation freezes a 30-second bounded trace poll, records flush timing, and persists failed point evidence before raising.",
+        "A 30-second trace pilot confirmed the shared batch span was parented only to the first request; per-request completion spans and bounded final Prometheus recovery were added."
       ],
       "experiment_environment": "Actual local single-node runtime with one consumer GPU, the existing Workloads API, external TCP client, isolated Prometheus, OTLP collector, and exact Kubernetes serving-holder handoff. No customer traffic or production SLA.",
       "test_or_experiment_steps": [
@@ -2131,6 +2132,12 @@
           "sha256": "ec883b9142048f2bc3ff613344bf2245a09b8f11c93dc80ed07403afe1b4223d",
           "generated_at": "2026-08-23T01:28:26.405439Z",
           "claim": "The first full S4 matrix attempt retained 15 completed repetitions and stopped fail closed when 4 of 8 sampled trace chains missed the prior 10-second exporter window; cleanup passed and no acceptance credit was granted."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-02.json",
+          "sha256": "b7e73af30a7b64edf9cea2fcd292e1f1df7a02a43442d99cce8d9d9dae035255",
+          "generated_at": "2026-08-23T01:35:37.399439Z",
+          "claim": "The first corrected trace pilot proved the gap was request-to-batch trace ownership rather than exporter delay: 5 of 8 chains completed after 30 seconds, point-private evidence and cleanup were retained, and no acceptance credit was granted."
         }
       ],
       "status": "implementing",
@@ -2141,7 +2148,7 @@
         "Model instance count and batch size effects are measured separately.",
         "Queue limits are recalculated from the selected service rate."
       ],
-      "next_action": "Run the same batch-4/delay-2 point for three independent non-acceptance repetitions under the corrected trace-flush contract, then restart the full 60+3+3 matrix from a clean revision.",
+      "next_action": "Rerun the batch-4/delay-2 trace pilot for three independent repetitions with per-request trace ownership, then restart the full 60+3+3 matrix only if all chains, Prometheus recovery, and cleanup pass.",
       "architecture_before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
       "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.",
       "existing_system_baseline": "The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.",
@@ -2288,6 +2295,12 @@
           "sha256": "ec883b9142048f2bc3ff613344bf2245a09b8f11c93dc80ed07403afe1b4223d",
           "generated_at": "2026-08-23T01:28:26.405439Z",
           "claim": "The first full S4 matrix attempt retained 15 completed repetitions and stopped fail closed when 4 of 8 sampled trace chains missed the prior 10-second exporter window; cleanup passed and no acceptance credit was granted."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-02.json",
+          "sha256": "b7e73af30a7b64edf9cea2fcd292e1f1df7a02a43442d99cce8d9d9dae035255",
+          "generated_at": "2026-08-23T01:35:37.399439Z",
+          "claim": "The first corrected trace pilot proved the gap was request-to-batch trace ownership rather than exporter delay: 5 of 8 chains completed after 30 seconds, point-private evidence and cleanup were retained, and no acceptance credit was granted."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2328,6 +2341,15 @@
           "summary": "The first full S4 attempt retained 15 completed repetitions and stopped fail closed at batch 4/delay 2 when only 4 of 8 sampled trace chains arrived within the prior 10-second exporter window. CUDA requests, hard bounds, Prometheus, exact cleanup, and holder restoration passed. The runner now uses a frozen 30-second bounded poll and writes failed point evidence before raising; no acceptance credit is carried forward.",
           "evidence_refs": [
             "docs/status/evidence/s4-gpu-batching-attempt-01.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T01:35:37.399439Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "The 30-second trace pilot completed 3,790/3,790 CUDA requests but only 5 of 8 sampled chains because a shared batch span belonged to the first request parent. Point-private evidence and cleanup were retained. The runtime now separates one shared compute span from request-owned completion spans and bounds final Prometheus recovery; no acceptance credit was granted.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-attempt-02.json"
           ]
         }
       ]

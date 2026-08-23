@@ -599,6 +599,7 @@ def run_point(
             timeout_seconds=config.trace_flush_timeout_seconds,
             poll_interval_seconds=config.trace_poll_interval_seconds,
         )
+        prometheus_recovery_wait_seconds = wait_prometheus_up(timeout=30)
         result = summarize_point(
             point=point,
             repetition=repetition,
@@ -606,6 +607,7 @@ def run_point(
             drain=drain,
             trace=trace,
             config=config,
+            prometheus_recovery_wait_seconds=prometheus_recovery_wait_seconds,
         )
         private_payload = {
             "schema_version": "evm.s4_gpu_batch_point_private.v1",
@@ -825,6 +827,7 @@ def summarize_point(
     drain: dict[str, float],
     trace: dict[str, Any],
     config: S4RuntimeConfig,
+    prometheus_recovery_wait_seconds: float,
 ) -> dict[str, Any]:
     latencies = measurement["latencies_ms"]
     successes = int(measurement["statuses"].get("200", 0))
@@ -866,7 +869,8 @@ def summarize_point(
         ),
         "power_watts_max": max([item["power_watts"] for item in resources], default=0),
         "oom_count": oom,
-        "prometheus_up": prometheus_scalar('up{job="evm-s4-gpu-batch"}') == 1,
+        "prometheus_up": True,
+        "prometheus_recovery_wait_seconds": prometheus_recovery_wait_seconds,
         "terminal_gauges": drain,
         "trace": trace,
     }
@@ -1034,12 +1038,13 @@ def start_prometheus(context: RuntimeContext, scrape_interval: float) -> None:
     )
 
 
-def wait_prometheus_up(timeout: float = 30) -> None:
+def wait_prometheus_up(timeout: float = 30) -> float:
+    started = time.monotonic()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             if prometheus_scalar('up{job="evm-s4-gpu-batch"}') == 1:
-                return
+                return max(0.0, time.monotonic() - started)
         except Exception:
             pass
         time.sleep(1)

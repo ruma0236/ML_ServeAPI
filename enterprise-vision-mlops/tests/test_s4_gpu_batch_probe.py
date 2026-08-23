@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -126,6 +127,44 @@ def test_gpu_executor_forms_one_bounded_batch(tmp_path: Path, monkeypatch) -> No
     assert {item.runtime.formed_batch_size for item in responses} == {4}
     assert all(item.runtime.configured_batch_size == 4 for item in responses)
     assert all(item.prediction == 1 for item in responses)
+
+
+def test_gpu_executor_preserves_each_request_trace_inside_shared_batch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "evm.model_runtime.gpu_batch_probe.assert_scale_validation_gpu_lease_owner",
+        lambda **_kwargs: None,
+    )
+    parents = iter(["trace-1", "trace-2", "trace-3", "trace-4"])
+    observed: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(
+        "evm.model_runtime.gpu_batch_probe.current_trace_context",
+        lambda: next(parents),
+    )
+
+    @contextmanager
+    def capture_span(name, *, parent, **_kwargs):
+        observed.append((name, parent))
+        yield
+
+    monkeypatch.setattr("evm.model_runtime.gpu_batch_probe.trace_span", capture_span)
+    executor = GpuBatchProbeExecutor(config(tmp_path), backend=FakeBackend())
+
+    async def exercise() -> None:
+        await asyncio.gather(*(executor.execute(request()) for _ in range(4)))
+        await executor.shutdown()
+
+    asyncio.run(exercise())
+
+    assert observed.count(("s4.gpu_batch.compute", "trace-1")) == 1
+    assert {parent for name, parent in observed if name == "s4.gpu_batch.worker"} == {
+        "trace-1",
+        "trace-2",
+        "trace-3",
+        "trace-4",
+    }
 
 
 def test_gpu_executor_fails_closed_on_identity_mismatch(tmp_path: Path, monkeypatch) -> None:

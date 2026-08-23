@@ -1,0 +1,55 @@
+{
+  "acceptance_credit": false,
+  "attempt_id": "S4-ATTEMPT-02",
+  "claim_boundary": "Local single-node failure evidence only; no production SLA, HA, multi-GPU, or customer-traffic claim.",
+  "cleanup": {
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "holder_ready": true,
+    "holder_uid_restored": true,
+    "lease_released": true,
+    "prometheus_container_absent": true,
+    "serving_cuda_ready": true
+  },
+  "corrective_action": [
+    "Retain one shared s4.gpu_batch.compute span for the actual CUDA operation.",
+    "Create one sampled s4.gpu_batch.worker completion span under every request parent context.",
+    "Use a bounded final Prometheus recovery poll and record observed wait.",
+    "Rerun the same pilot three times from a clean revision."
+  ],
+  "generated_at": "2026-08-23T01:35:37.399439Z",
+  "next_action": "Run a fresh three-repetition trace pilot after per-request trace ownership and bounded Prometheus recovery are committed.",
+  "observed_failure": {
+    "error_rate": 0.0,
+    "flush_poll_count": 121,
+    "flush_wait_seconds": 30.0,
+    "hard_stop_guardrail_passed": true,
+    "oom_count": 0,
+    "p99_ms": 1512.277597975044,
+    "prometheus_up_at_final_query": false,
+    "request_count": 3790,
+    "sampled_trace_complete": 5,
+    "sampled_trace_expected": 8,
+    "sampled_trace_missing": 3,
+    "service_rps": 126.33333333333333,
+    "success_count": 3790
+  },
+  "private_evidence": {
+    "aggregate_sha256": "b1a3421c30861f3151d387248b992d0c4a1d1d135fb28d1ea2a3ea28e39300a4",
+    "artifact_count": 4,
+    "total_bytes": 711021
+  },
+  "root_cause": "The batch executor attached the shared worker span only to the first request parent. Sampled requests coalesced later in the same batch therefore had an API route span but no request-owned worker span; increasing exporter wait could not close them. A transient final Prometheus scrape was also judged by a single instant query.",
+  "schema_version": "evm.s4_gpu_batching_failed_attempt.v1",
+  "scope": {
+    "planned_pilot_repetitions": 3,
+    "point_id": "trace-pilot-batch-4-delay-2-instances-1",
+    "retained_repetitions": 1
+  },
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "76747781be7625576ce1f8afd8e0be93e89f7d0b",
+    "runtime_config_sha256": "8e5364da63317117823e53b0c7a90de880fb4e41970bd71fa667ef5ed4a3e8ac"
+  },
+  "status": "stopped_fail_closed"
+}
