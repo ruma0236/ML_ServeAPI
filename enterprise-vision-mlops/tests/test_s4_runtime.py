@@ -58,6 +58,12 @@ def _result(batch: int, delay: int, instances: int, mode: str, repetition: int) 
 
 def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> None:
     config = _config(tmp_path)
+    assert config.public_dict()["preparation"] == {
+        "closed_concurrency": 1,
+        "warmup_seconds": 2.0,
+        "measurement_seconds": 5.0,
+        "cooldown_seconds": 1.0,
+    }
     results = [
         _result(batch, delay, 1, "matrix", repetition)
         for batch in config.batch_sizes

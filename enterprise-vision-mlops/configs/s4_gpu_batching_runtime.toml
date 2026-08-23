@@ -64,3 +64,9 @@ prior_depth = 64
 rollback_depth = 64
 maximum_depth = 2048
 allow_automatic_increase = false
+
+[preparation]
+closed_concurrency = 1
+warmup_seconds = 2
+measurement_seconds = 5
+cooldown_seconds = 1

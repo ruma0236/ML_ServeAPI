@@ -99,6 +99,10 @@ class S4RuntimeConfig:
     rollback_depth: int
     maximum_depth: int
     allow_automatic_increase: bool
+    preparation_closed_concurrency: int
+    preparation_warmup_seconds: float
+    preparation_measurement_seconds: float
+    preparation_cooldown_seconds: float
 
     @classmethod
     def from_path(cls, path: Path, *, data_root: Path) -> "S4RuntimeConfig":
@@ -114,6 +118,7 @@ class S4RuntimeConfig:
         opened = _section(payload, "open_loop")
         guardrails = _section(payload, "guardrails")
         capacity = _section(payload, "capacity_recalculation")
+        preparation = _section(payload, "preparation")
         config = cls(
             path=resolved,
             sha256=file_sha256(resolved),
@@ -172,6 +177,10 @@ class S4RuntimeConfig:
             rollback_depth=int(capacity["rollback_depth"]),
             maximum_depth=int(capacity["maximum_depth"]),
             allow_automatic_increase=bool(capacity["allow_automatic_increase"]),
+            preparation_closed_concurrency=int(preparation["closed_concurrency"]),
+            preparation_warmup_seconds=float(preparation["warmup_seconds"]),
+            preparation_measurement_seconds=float(preparation["measurement_seconds"]),
+            preparation_cooldown_seconds=float(preparation["cooldown_seconds"]),
         )
         config.validate()
         return config
@@ -193,6 +202,13 @@ class S4RuntimeConfig:
             raise S4RuntimeError("s4_instance_axis_invalid")
         if self.repetitions != 3 or self.open_repetitions != 3:
             raise S4RuntimeError("s4_requires_three_independent_repetitions")
+        if (
+            self.preparation_closed_concurrency,
+            self.preparation_warmup_seconds,
+            self.preparation_measurement_seconds,
+            self.preparation_cooldown_seconds,
+        ) != (1, 2.0, 5.0, 1.0):
+            raise S4RuntimeError("s4_preparation_profile_invalid")
         positive = (
             self.training_epochs,
             self.training_batch_size,
@@ -260,6 +276,12 @@ class S4RuntimeConfig:
             "cooldown_seconds": self.cooldown_seconds,
             "resource_sample_interval_seconds": self.resource_sample_interval_seconds,
             "prometheus_scrape_interval_seconds": self.prometheus_scrape_interval_seconds,
+            "preparation": {
+                "closed_concurrency": self.preparation_closed_concurrency,
+                "warmup_seconds": self.preparation_warmup_seconds,
+                "measurement_seconds": self.preparation_measurement_seconds,
+                "cooldown_seconds": self.preparation_cooldown_seconds,
+            },
             "guardrails": {
                 "maximum_error_rate": self.maximum_error_rate,
                 "maximum_p99_ms": self.maximum_p99_ms,

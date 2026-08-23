@@ -214,9 +214,10 @@ def main() -> int:
                     config=config,
                     point=S4Point(1, 0, 1, "smoke"),
                     repetition=1,
-                    warmup_seconds=2,
-                    measurement_seconds=5,
-                    cooldown_seconds=1,
+                    warmup_seconds=config.preparation_warmup_seconds,
+                    measurement_seconds=config.preparation_measurement_seconds,
+                    cooldown_seconds=config.preparation_cooldown_seconds,
+                    closed_concurrency=config.preparation_closed_concurrency,
                     open_rate=None,
                 )
             ]
@@ -488,6 +489,7 @@ def run_point(
     warmup_seconds: float,
     measurement_seconds: float,
     cooldown_seconds: float,
+    closed_concurrency: int | None = None,
     open_rate: float | None,
 ) -> dict[str, Any]:
     config.assert_frozen()
@@ -511,7 +513,7 @@ def run_point(
                 identity=identity,
                 run_id=f"warmup-{point.point_id}-{repetition}",
                 duration_seconds=warmup_seconds,
-                concurrency=min(16, config.closed_concurrency),
+                concurrency=min(16, closed_concurrency or config.closed_concurrency),
                 open_rate=None,
                 record=False,
                 seed=config.seed + repetition,
@@ -524,7 +526,7 @@ def run_point(
                 identity=identity,
                 run_id=f"s4-{point.point_id}-{repetition}-{uuid4().hex[:8]}",
                 duration_seconds=measurement_seconds,
-                concurrency=config.closed_concurrency,
+                concurrency=closed_concurrency or config.closed_concurrency,
                 open_rate=open_rate,
                 seed=config.seed + repetition * 1000 + point.batch_size * 10 + point.max_delay_ms,
                 request_timeout_seconds=config.request_timeout_seconds,
@@ -699,6 +701,7 @@ async def execute_load_phase(
                 await asyncio.gather(*tasks)
     return {
         "duration_seconds": duration_seconds,
+        "configured_concurrency": concurrency,
         "offered_rate": open_rate,
         "request_count": len(latencies) if record else sum(statuses.values()),
         "statuses": statuses,
@@ -778,6 +781,7 @@ def summarize_point(
         "max_delay_ms": point.max_delay_ms,
         "instance_count": point.instance_count,
         "request_count": request_count,
+        "configured_concurrency": int(measurement["configured_concurrency"]),
         "success_count": successes,
         "service_rps": successes / float(measurement["duration_seconds"]),
         "p50_ms": percentile(latencies, 50),
