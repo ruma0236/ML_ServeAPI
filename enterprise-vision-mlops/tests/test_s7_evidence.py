@@ -6,6 +6,7 @@ import pytest
 
 from evm.scale_validation.s7_evidence import (
     S7EvidenceValidationError,
+    profile_projection_by_identity,
     project_profile,
     token_f1,
 )
@@ -119,3 +120,33 @@ def test_project_profile_rejects_nan() -> None:
 def test_token_f1_is_deterministic() -> None:
     assert token_f1("the third daughter is alice", "the third daughter is alice") == 1.0
     assert token_f1("", "expected") == 0.0
+
+
+def test_profile_projection_identity_is_order_independent() -> None:
+    left = [
+        {"profile_id": "image-small", "repetition": 1, "completed": 6},
+        {"profile_id": "llm-short", "repetition": 1, "completed": 6},
+    ]
+    errors: list[str] = []
+
+    left_projection = profile_projection_by_identity(left, errors=errors, label="left")
+    right_projection = profile_projection_by_identity(
+        list(reversed(left)),
+        errors=errors,
+        label="right",
+    )
+
+    assert errors == []
+    assert left_projection == right_projection
+
+
+def test_profile_projection_identity_rejects_duplicate_repetition() -> None:
+    duplicate = [
+        {"profile_id": "image-small", "repetition": 1},
+        {"profile_id": "image-small", "repetition": 1},
+    ]
+    errors: list[str] = []
+
+    profile_projection_by_identity(duplicate, errors=errors, label="public")
+
+    assert errors == ["public_profile_duplicate:image-small:r01"]

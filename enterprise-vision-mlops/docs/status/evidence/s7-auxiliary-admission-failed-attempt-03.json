@@ -1,0 +1,46 @@
+{
+  "schema_version": "evm.s7_failed_attempt_public.v1",
+  "attempt_id": "S7-ACCEPTANCE-01",
+  "status": "rejected",
+  "acceptance_credit": false,
+  "source_revision": "b646160e7904e38fb36a78637e4e2f13734d0f83",
+  "phase": "strict_evidence_validation",
+  "observed_result": {
+    "profile_repetitions_executed": 36,
+    "completed_requests": 162,
+    "bounded_rejections": 54,
+    "runner_runtime_verdict": "passed",
+    "strict_validator_verdict": "rejected",
+    "strict_validator_error": "public_projection",
+    "acceptance_credit": false
+  },
+  "root_cause": [
+    "The runner emitted public profile projections in frozen configuration execution order.",
+    "The strict validator rebuilt the same projections from private files in lexical path order and compared the two lists with order-sensitive canonical JSON equality.",
+    "Profile values and identities matched, but the validator had no stable profile-identity map and therefore rejected semantically identical evidence."
+  ],
+  "remediation": [
+    "Compare public and private projections by the stable tuple of profile_id and repetition rather than list position.",
+    "Fail closed on missing, malformed, or duplicate profile identities.",
+    "Add positive order-independence and negative duplicate-identity regressions.",
+    "Preserve this 36-repetition suite with zero credit and rerun the complete matrix at the remediated clean revision."
+  ],
+  "cleanup": {
+    "source_serving_replicas": "1/1",
+    "source_cuda_inference": true,
+    "gpu_lease_zero": true,
+    "s7_target_count": 0,
+    "prometheus_baseline": "5/5_up",
+    "cleanup_contract_passed": true
+  },
+  "private_evidence": {
+    "artifact_count": 52,
+    "total_bytes": 720686,
+    "aggregate_sha256": "47b29f9865282b75b7bf53d5f1a297eeb094872332572366ffdae4c5e6107388",
+    "index_sha256": "baa9c4b471a49c7782b2d801ed314b6a793eac3a4e9a4540448706406622c130",
+    "rejected_projection_sha256": "1c8c6b4328806db6a33d3e53382289ea2be27496e3d1898d87429727ee322289",
+    "location": "outside_git_private_evidence_root"
+  },
+  "claim_boundary": "Rejected controlled local single-node/single-GPU acceptance attempt with zero S7 credit; no production SLA, HA/DR, multi-GPU, or broad model-quality claim.",
+  "generated_at": "2026-08-23T19:18:38.297228Z"
+}

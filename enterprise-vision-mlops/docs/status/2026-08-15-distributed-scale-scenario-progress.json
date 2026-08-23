@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T19:08:22.335888Z",
+  "generated_at": "2026-08-23T19:18:38.297228Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3416,9 +3416,10 @@
         "A rejected image warmup exposed native-host data-root remapping and Docker Desktop file-SD convergence defects; host-root identity, cleanup evidence, stale-target fencing, and a bounded Prometheus restart fallback now address them.",
         "Three subsequent family diagnostics completed real external-HTTP CUDA requests and family metric projection, but were rejected with zero credit because cleanup observed Prometheus before the five frozen baseline targets had reloaded; cleanup now requires exact 5/5 restoration.",
         "Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision each completed six real CUDA requests and restored B0, the lease, the S7 target, and Prometheus 5/5; this is a non-acceptance readiness gate only.",
+        "The first complete 36-repetition matrix produced healthy runtime results but received zero credit because the strict validator compared semantically identical profile projections by list position; stable profile/repetition identity mapping now preserves order independence while rejecting duplicates.",
         "This is an implementation checkpoint only; external CUDA acceptance evidence is not yet available."
       ],
-      "experiment_environment": "Three non-acceptance diagnostics exercised the existing image, VLM, and LLM routes sequentially with external HTTP and real CUDA on one controlled local physical node and one GPU. The full acceptance matrix has not run.",
+      "experiment_environment": "Three non-acceptance diagnostics and one rejected 36-repetition matrix exercised the existing image, VLM, and LLM routes sequentially with external HTTP and real CUDA on one controlled local physical node and one GPU. No matrix currently has acceptance credit.",
       "test_or_experiment_steps": [
         "Run image, VLM, and LLM small/short, large/long, fairness, and over-limit profiles for three independent repetitions while GPU ownership remains sequential.",
         "Increase admitted request cost only until the safe fairness and memory boundary is known.",
@@ -3469,6 +3470,12 @@
           "sha256": "14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d",
           "generated_at": "2026-08-23T19:08:22.335888Z",
           "claim": "Fresh image, VLM, and LLM external-HTTP CUDA diagnostics each completed six requests and restored the exact baseline; this is readiness evidence with zero S7 acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json",
+          "sha256": "a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550",
+          "generated_at": "2026-08-23T19:18:38.297228Z",
+          "claim": "The first complete 36-repetition matrix was rejected with zero credit because strict projection comparison was list-order-sensitive; raw evidence, exact cleanup, RCA, and private hashes are retained."
         }
       ],
       "status": "implementing",
@@ -3479,7 +3486,7 @@
         "Long-request head-of-line behavior and fairness are measured.",
         "Unsupported or unverified metrics remain absent."
       ],
-      "next_action": "Run the frozen 12-profile by 3-repetition matrix, then independently recompute all four S7 acceptance criteria and strict cleanup before closure.",
+      "next_action": "Commit the stable profile-identity validator and rejected-attempt RCA, then rerun the complete 12-profile by 3-repetition matrix at the clean remediation revision.",
       "architecture_before": "Multiple model families run without one cost-aware admission proof.",
       "architecture_after": "Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.",
       "existing_system_baseline": "The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.",
@@ -3642,6 +3649,12 @@
           "sha256": "14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d",
           "generated_at": "2026-08-23T19:08:22.335888Z",
           "claim": "Fresh image, VLM, and LLM external-HTTP CUDA diagnostics each completed six requests and restored the exact baseline; this is readiness evidence with zero S7 acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json",
+          "sha256": "a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550",
+          "generated_at": "2026-08-23T19:18:38.297228Z",
+          "claim": "The first complete 36-repetition matrix was rejected with zero credit because strict projection comparison was list-order-sensitive; raw evidence, exact cleanup, RCA, and private hashes are retained."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -3696,6 +3709,15 @@
           "summary": "Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision completed 18 of 18 real external-HTTP CUDA requests with family-specific metrics, zero OOM/starvation, and exact B0/lease/S7-target/Prometheus 5/5 cleanup. This closes only the diagnostic gate; the 12-profile by 3-repetition matrix and all S7 ACs remain pending.",
           "evidence_refs": [
             "docs/status/evidence/s7-family-diagnostic-gate.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T19:18:38.297228Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "The first full 36-repetition matrix completed 162 requests and 54 explicit over-limit rejections with exact cleanup, but strict validation rejected the public projection because public config order and private lexical order were compared positionally. The suite receives zero credit; stable profile/repetition identity comparison and duplicate rejection are implemented before a clean full rerun.",
+          "evidence_refs": [
+            "docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json"
           ]
         }
       ]

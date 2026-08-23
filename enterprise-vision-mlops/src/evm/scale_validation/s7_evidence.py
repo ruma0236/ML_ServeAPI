@@ -280,7 +280,17 @@ def validate_s7_experiment(
     projected = [
         project_profile(item, config=config, errors=errors) for item in private.get("profiles", [])
     ]
-    if _canonical(payload.get("profiles")) != _canonical(projected):
+    public_profiles = profile_projection_by_identity(
+        list(payload.get("profiles", [])),
+        errors=errors,
+        label="public",
+    )
+    private_profiles = profile_projection_by_identity(
+        projected,
+        errors=errors,
+        label="private",
+    )
+    if _canonical(public_profiles) != _canonical(private_profiles):
         errors.append("public_projection")
     try:
         analysis = analyze_s7_profiles(projected, config)
@@ -449,6 +459,35 @@ def validate_private_evidence(root: Path, errors: list[str]) -> dict[str, Any]:
         "index_sha256": hashlib.sha256(raw).hexdigest(),
     }
     return {"profiles": profiles, "summary": summary}
+
+
+def profile_projection_by_identity(
+    profiles: list[Any],
+    *,
+    errors: list[str],
+    label: str,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for index, value in enumerate(profiles):
+        if not isinstance(value, Mapping):
+            errors.append(f"{label}_profile_invalid:{index}")
+            continue
+        profile = dict(value)
+        profile_id = str(profile.get("profile_id") or "")
+        try:
+            repetition = int(profile.get("repetition", 0))
+        except (TypeError, ValueError):
+            errors.append(f"{label}_profile_identity:{index}")
+            continue
+        if not profile_id or repetition < 1:
+            errors.append(f"{label}_profile_identity:{index}")
+            continue
+        identity = f"{profile_id}:r{repetition:02d}"
+        if identity in result:
+            errors.append(f"{label}_profile_duplicate:{identity}")
+            continue
+        result[identity] = profile
+    return result
 
 
 def source_git_identity(git_root: Path, revision: str) -> dict[str, Any]:
