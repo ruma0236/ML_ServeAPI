@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from scripts.dev.run_s4_gpu_batching_experiment import (
+    RuntimeContext,
+    build_gpu_api_command,
+)
 from evm.scale_validation.s4_runtime import S4RuntimeConfig, analyze_s4_results
+from evm.scale_validation.s4_runtime import S4Point
 
 
 def _config(root: Path) -> S4RuntimeConfig:
@@ -87,3 +92,32 @@ def test_s4_analysis_fails_without_open_loop_confirmation(tmp_path: Path) -> Non
 
     assert analysis["acceptance"]["S4-AC-02"] is False
     assert analysis["runtime_verdict"] == "failed"
+
+
+def test_s4_gpu_api_uses_supported_isolated_file_store(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    data_root = config.model_root.parents[3]
+    registry_path = config.model_root / "registry.json"
+    context = RuntimeContext(
+        image="s4-runtime:test",
+        network="test-network",
+        source_revision="a" * 40,
+        source_branch="codex/test",
+        registry_path=registry_path,
+        data_root=data_root,
+        lease_run_id="s4-inference-test",
+        lease_id="lease-test",
+        fencing_token="fence-test",
+        private_root=tmp_path / "private",
+        trace_path=tmp_path / "traces.json",
+    )
+
+    command = build_gpu_api_command(
+        context,
+        config,
+        S4Point(batch_size=1, max_delay_ms=0, instance_count=1, mode="smoke"),
+    )
+
+    assert "EVM_CONTROL_PLANE_STORE_MODE=file" in command
+    assert "EVM_CONTROL_PLANE_STORE_MODE=json" not in command
+    assert "--rm" not in command

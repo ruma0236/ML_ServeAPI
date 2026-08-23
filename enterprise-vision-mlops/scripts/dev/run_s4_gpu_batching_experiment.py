@@ -824,16 +824,16 @@ def summarize_point(
     return result
 
 
-def start_gpu_api(context: RuntimeContext, config: S4RuntimeConfig, point: S4Point) -> None:
-    stop_container(API_CONTAINER)
+def build_gpu_api_command(
+    context: RuntimeContext, config: S4RuntimeConfig, point: S4Point
+) -> list[str]:
     registry_inside = (
         "/mnt/evm-data/" + context.registry_path.relative_to(context.data_root).as_posix()
     )
-    command = [
+    return [
         "docker",
         "run",
         "-d",
-        "--rm",
         "--name",
         API_CONTAINER,
         "--gpus",
@@ -847,7 +847,7 @@ def start_gpu_api(context: RuntimeContext, config: S4RuntimeConfig, point: S4Poi
         "-e",
         "APP_NAME=enterprise-vision-mlops-s4-gpu-api",
         "-e",
-        "EVM_CONTROL_PLANE_STORE_MODE=json",
+        "EVM_CONTROL_PLANE_STORE_MODE=file",
         "-e",
         "EVM_TASK_ADMISSION_MODE=legacy",
         "-e",
@@ -910,6 +910,11 @@ def start_gpu_api(context: RuntimeContext, config: S4RuntimeConfig, point: S4Poi
         "OTEL_TRACES_SAMPLER_ARG=0.001",
         context.image,
     ]
+
+
+def start_gpu_api(context: RuntimeContext, config: S4RuntimeConfig, point: S4Point) -> None:
+    stop_container(API_CONTAINER)
+    command = build_gpu_api_command(context, config, point)
     run_checked(command, timeout=60)
     wait_http(f"{API_URL}/health", timeout=120)
 
