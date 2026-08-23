@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+import pytest
+
+from evm.control_panel.scenario_workloads import (
+    GpuBatchProbeDescriptor,
+    GpuBatchProbeRequest,
+    acquire_scale_validation_gpu_lease,
+    assert_scale_validation_gpu_lease_owner,
+    read_active_gpu_lease,
+    release_scale_validation_gpu_lease,
+)
+from evm.model_runtime.gpu_batch_probe import (
+    BatchInferenceResult,
+    GpuBatchExecutionConfig,
+    GpuBatchProbeError,
+    GpuBatchProbeExecutor,
+)
+
+
+class FakeBackend:
+    descriptor = GpuBatchProbeDescriptor(
+        dataset_version="uci-higgs-2014-s3-v1",
+        dataset_identity_sha256="a" * 64,
+        split_manifest_sha256="b" * 64,
+        model_identity_sha256="c" * 64,
+        artifact_sha256="d" * 64,
+        framework="test-torch",
+        cuda_runtime="test-cuda",
+        source_revision="e" * 40,
+    )
+
+    def __init__(self) -> None:
+        self.batch_sizes: list[int] = []
+
+    def infer(self, features: list[list[float]], instance_id: int) -> BatchInferenceResult:
+        self.batch_sizes.append(len(features))
+        return BatchInferenceResult(
+            probabilities=[0.75 for _ in features],
+            h2d_ms=0.1,
+            inference_ms=0.2,
+            d2h_ms=0.1,
+            allocated_vram_bytes=1024,
+            reserved_vram_bytes=2048,
+            peak_vram_bytes=4096,
+        )
+
+
+def config(
+    tmp_path: Path, *, batch_size: int = 4, max_delay_ms: int = 20
+) -> GpuBatchExecutionConfig:
+    registry = tmp_path / "registry.json"
+    registry.write_text("{}", encoding="utf-8")
+    return GpuBatchExecutionConfig(
+        enabled=True,
+        registry_path=registry,
+        batch_size=batch_size,
+        max_delay_ms=max_delay_ms,
+        instance_count=1,
+        max_outstanding=8,
+        max_outstanding_bytes=65536,
+        max_request_bytes=8192,
+        admission_wait_seconds=0.05,
+        request_timeout_seconds=2,
+        retry_after_seconds=1,
+        lease_run_id="s4-test",
+        lease_id="lease-test",
+        lease_fencing_token="fence-test",
+    )
+
+
+def request() -> GpuBatchProbeRequest:
+    return GpuBatchProbeRequest(
+        dataset_identity_sha256="a" * 64,
+        model_identity_sha256="c" * 64,
+        features=[0.0] * 28,
+    )
+
+
+def test_scale_validation_lease_uses_existing_gpu_lease_store(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("EVM_SCENARIO_GPU_LEASE_ROOT", str(tmp_path))
+    lease = acquire_scale_validation_gpu_lease(
+        "s4-training-test",
+        source_commit="a" * 40,
+        purpose="scale_validation_training",
+        owner_pid=42,
+    )
+
+    assert read_active_gpu_lease() == lease
+    assert_scale_validation_gpu_lease_owner(
+        run_id=lease.run_id,
+        lease_id=lease.lease_id,
+        fencing_token=lease.fencing_token,
+        purpose="scale_validation_training",
+    )
+
+    released = release_scale_validation_gpu_lease(
+        run_id=lease.run_id,
+        lease_id=lease.lease_id,
+        fencing_token=lease.fencing_token,
+        reason="test complete",
+    )
+    assert released.state == "released"
+    assert read_active_gpu_lease() is None
+
+
+def test_gpu_executor_forms_one_bounded_batch(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "evm.model_runtime.gpu_batch_probe.assert_scale_validation_gpu_lease_owner",
+        lambda **_kwargs: None,
+    )
+    backend = FakeBackend()
+    executor = GpuBatchProbeExecutor(config(tmp_path), backend=backend)
+
+    async def exercise() -> list:
+        results = await asyncio.gather(*(executor.execute(request()) for _ in range(4)))
+        await executor.shutdown()
+        return results
+
+    responses = asyncio.run(exercise())
+
+    assert backend.batch_sizes == [4]
+    assert {item.runtime.formed_batch_size for item in responses} == {4}
+    assert all(item.runtime.configured_batch_size == 4 for item in responses)
+    assert all(item.prediction == 1 for item in responses)
+
+
+def test_gpu_executor_fails_closed_on_identity_mismatch(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "evm.model_runtime.gpu_batch_probe.assert_scale_validation_gpu_lease_owner",
+        lambda **_kwargs: None,
+    )
+    executor = GpuBatchProbeExecutor(config(tmp_path), backend=FakeBackend())
+    invalid = request().model_copy(update={"model_identity_sha256": "f" * 64})
+
+    with pytest.raises(GpuBatchProbeError, match="Request identity"):
+        asyncio.run(executor.execute(invalid))
+
+
+def test_gpu_executor_requires_exact_inference_lease(tmp_path: Path, monkeypatch) -> None:
+    def reject(**_kwargs):
+        raise RuntimeError("stale lease")
+
+    monkeypatch.setattr(
+        "evm.model_runtime.gpu_batch_probe.assert_scale_validation_gpu_lease_owner",
+        reject,
+    )
+    executor = GpuBatchProbeExecutor(config(tmp_path), backend=FakeBackend())
+
+    with pytest.raises(RuntimeError, match="stale lease"):
+        asyncio.run(executor.execute(request()))

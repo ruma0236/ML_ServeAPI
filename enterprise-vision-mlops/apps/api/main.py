@@ -34,7 +34,11 @@ from evm.control_panel.operations import (
     sync_task_json_mirror_from_store,
     verify_task_json_mirror_parity,
 )
-from evm.core.image_feature_model import extract_image_features, predict_with_model, resolve_image_path
+from evm.core.image_feature_model import (
+    extract_image_features,
+    predict_with_model,
+    resolve_image_path,
+)
 from evm.observability.trace_context import (
     TraceContextError,
     W3CTraceContext,
@@ -55,6 +59,7 @@ from evm.control_panel.transactional_store import (
 )
 from evm.operations.metrics import OperationalMetrics, load_metric_projection
 from evm.model_runtime.capacity_executor import shutdown_capacity_probe_executor
+from evm.model_runtime.gpu_batch_probe import shutdown_gpu_batch_probe_executor
 
 
 APP_NAME = os.getenv("APP_NAME", "enterprise-vision-mlops-api")
@@ -68,7 +73,9 @@ MODEL_REGISTRY_PATH = Path(
         f"artifacts/registry/{MODEL_NAME}/latest.json",
     )
 )
-EVM_HOST_DATA_ROOT = os.getenv("EVM_HOST_DATA_ROOT", "F:/EnterpriseMLOps_Data/enterprise-vision-mlops")
+EVM_HOST_DATA_ROOT = os.getenv(
+    "EVM_HOST_DATA_ROOT", "F:/EnterpriseMLOps_Data/enterprise-vision-mlops"
+)
 EVM_DATA_MOUNT_ROOT = os.getenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
 VLM_OBSERVABILITY_PATH = Path(
     os.getenv(
@@ -287,6 +294,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        await shutdown_gpu_batch_probe_executor()
         shutdown_capacity_probe_executor()
         shutdown_tracing()
 
@@ -322,11 +330,7 @@ async def propagate_w3c_trace_context(request: Request, call_next):
     tracestate = request.headers.get("tracestate")
     regenerated = False
     try:
-        parent = (
-            W3CTraceContext.parse(incoming, tracestate=tracestate)
-            if incoming
-            else None
-        )
+        parent = W3CTraceContext.parse(incoming, tracestate=tracestate) if incoming else None
     except TraceContextError:
         parent = None
         regenerated = True
@@ -457,13 +461,14 @@ def _request_features(payload: PredictRequest) -> tuple[dict[str, Any], str]:
     return extract_image_features(image_path), "image_uri"
 
 
-def _predict(model: LoadedModel, payload: PredictRequest) -> tuple[str, float, dict[str, float], str]:
+def _predict(
+    model: LoadedModel, payload: PredictRequest
+) -> tuple[str, float, dict[str, float], str]:
     if model.model_type == "image_feature_centroid":
         features, feature_source = _request_features(payload)
         result = predict_with_model(model.source_model, features)
         scores = {
-            str(label): round(float(score), 6)
-            for label, score in result.get("scores", {}).items()
+            str(label): round(float(score), 6) for label, score in result.get("scores", {}).items()
         }
         return (
             str(result.get("prediction", "unknown")),
@@ -600,10 +605,7 @@ def ready(response: Response) -> dict[str, Any]:
     status = (
         "ok"
         if (
-            mlflow_ready
-            and model_loaded
-            and runtime_revision_matches
-            and control_plane_store_ready
+            mlflow_ready and model_loaded and runtime_revision_matches and control_plane_store_ready
         )
         else "degraded"
     )
@@ -701,9 +703,7 @@ def refresh_control_panel_metrics() -> None:
         runs = read_runs().runs
         run_counts = ValueCounter((run.state, run.execution_mode) for run in runs)
         stage_counts = ValueCounter(
-            (stage.stage_id, stage.state, stage.runtime)
-            for run in runs
-            for stage in run.stages
+            (stage.stage_id, stage.state, stage.runtime) for run in runs for stage in run.stages
         )
         handoffs = build_stage_handoff_catalog(limit=1000)
         handoff_counts = ValueCounter(item.bucket for item in handoffs.handoffs)
@@ -724,12 +724,16 @@ def refresh_control_panel_metrics() -> None:
         CONTROL_PANEL_RUNTIME_CHILD_PROCESS_COUNT.clear()
         CONTROL_PANEL_RUNTIME_CHILD_RESTART_COUNT.clear()
         for (state, execution_mode), value in run_counts.items():
-            CONTROL_PANEL_LIFECYCLE_RUNS.labels(state=state, execution_mode=execution_mode).set(value)
+            CONTROL_PANEL_LIFECYCLE_RUNS.labels(state=state, execution_mode=execution_mode).set(
+                value
+            )
         for (stage, state, runtime), value in stage_counts.items():
             CONTROL_PANEL_STAGES.labels(stage=stage, state=state, runtime=runtime).set(value)
         for run in runs[:25]:
             for stage in run.stages:
-                CONTROL_PANEL_STAGE_PROGRESS.labels(run_id=run.run_id, stage=stage.stage_id).set(stage.progress)
+                CONTROL_PANEL_STAGE_PROGRESS.labels(run_id=run.run_id, stage=stage.stage_id).set(
+                    stage.progress
+                )
         for bucket, value in handoff_counts.items():
             CONTROL_PANEL_HANDOFFS.labels(bucket=bucket).set(value)
         for (architecture, status, selectable), value in candidate_counts.items():

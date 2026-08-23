@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from evm.scale_validation.s4_runtime import S4RuntimeConfig, analyze_s4_results
+
+
+def _config(root: Path) -> S4RuntimeConfig:
+    source = Path("configs/s4_gpu_batching_runtime.toml")
+    data_root = root / "data"
+    paths = [
+        "artifacts/scale_validation/s3/capacity-registry.json",
+        "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/train/features.npy",
+        "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/train/labels.npy",
+        "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/validation/features.npy",
+        "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/validation/labels.npy",
+        "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/replay/features.npy",
+    ]
+    for relative in paths:
+        target = data_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"test")
+    copied = root / "s4.toml"
+    copied.write_bytes(source.read_bytes())
+    return S4RuntimeConfig.from_path(copied, data_root=data_root)
+
+
+def _result(batch: int, delay: int, instances: int, mode: str, repetition: int) -> dict:
+    throughput = 1000.0 + batch * 20 - delay * 2 + (instances - 1) * 50
+    return {
+        "point_id": f"{mode}-{batch}-{delay}-{instances}",
+        "mode": mode,
+        "repetition": repetition,
+        "batch_size": batch,
+        "max_delay_ms": delay,
+        "instance_count": instances,
+        "service_rps": throughput,
+        "p95_ms": 10.0 + delay,
+        "p99_ms": 15.0 + delay,
+        "error_rate": 0.0,
+        "queue_wait_p99_ms": float(delay),
+        "peak_vram_bytes": 10_000_000 + batch * 1000 * instances,
+        "gpu_utilization_percent_mean": 50.0,
+        "temperature_celsius_max": 60.0,
+        "power_watts_max": 150.0,
+        "formed_batch_size_mean": float(batch),
+        "fill_ratio_mean": 1.0,
+        "oom_count": 0,
+        "evidence_valid": True,
+    }
+
+
+def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    results = [
+        _result(batch, delay, 1, "matrix", repetition)
+        for batch in config.batch_sizes
+        for delay in config.max_delays_ms
+        for repetition in range(1, 4)
+    ]
+    results.extend(_result(1, 0, 2, "instance-axis", repetition) for repetition in range(1, 4))
+    results.extend(_result(32, 0, 1, "open-loop", repetition) for repetition in range(1, 4))
+
+    analysis = analyze_s4_results(results, config)
+
+    assert len(results) == 66
+    assert analysis["runtime_verdict"] == "passed"
+    assert all(analysis["acceptance"].values())
+    assert len(analysis["aggregated_points"]) == 20
+    assert analysis["instance_effect"]["instance_2_service_rps"] > 0
+    assert analysis["s2_capacity_recalculation"]["calculated_depth"] > 0
+    json.dumps(analysis, allow_nan=False)
+
+
+def test_s4_analysis_fails_without_open_loop_confirmation(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    results = [
+        _result(batch, delay, 1, "matrix", repetition)
+        for batch in config.batch_sizes
+        for delay in config.max_delays_ms
+        for repetition in range(1, 4)
+    ]
+    results.extend(_result(1, 0, 2, "instance-axis", repetition) for repetition in range(1, 4))
+
+    analysis = analyze_s4_results(results, config)
+
+    assert analysis["acceptance"]["S4-AC-02"] is False
+    assert analysis["runtime_verdict"] == "failed"

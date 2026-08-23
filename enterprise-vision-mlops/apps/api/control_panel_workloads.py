@@ -12,6 +12,9 @@ from evm.control_panel.scenario_workloads import (
     CapacityProbeCatalog,
     CapacityProbeRequest,
     CapacityProbeResponse,
+    GpuBatchProbeDescriptor,
+    GpuBatchProbeRequest,
+    GpuBatchProbeResponse,
     GpuLease,
     ScenarioWorkloadError,
     ScenarioWorkloadRun,
@@ -25,6 +28,11 @@ from evm.model_runtime.capacity_probe import (
     load_capacity_probe_catalog,
 )
 from evm.model_runtime.capacity_executor import execute_capacity_probe_async
+from evm.model_runtime.gpu_batch_probe import (
+    GpuBatchProbeError,
+    execute_gpu_batch_probe,
+    load_gpu_batch_probe_descriptor,
+)
 from evm.control_panel.scenario_workload_control import (
     ScenarioWorkloadApprovalRequest,
     ScenarioWorkloadLaunchRequest,
@@ -233,6 +241,38 @@ async def predict_scenario_capacity_probe(
         ) from exc
 
 
+@router.get(
+    "/scenario-workloads/gpu-batch-probes",
+    response_model=GpuBatchProbeDescriptor,
+)
+def scenario_gpu_batch_probe_descriptor() -> GpuBatchProbeDescriptor:
+    try:
+        return load_gpu_batch_probe_descriptor()
+    except GpuBatchProbeError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": str(exc)},
+            headers=exc.headers,
+        ) from exc
+
+
+@router.post(
+    "/scenario-workloads/gpu-batch-probes/predict",
+    response_model=GpuBatchProbeResponse,
+)
+async def predict_scenario_gpu_batch_probe(
+    request: GpuBatchProbeRequest,
+) -> GpuBatchProbeResponse:
+    try:
+        return await execute_gpu_batch_probe(request)
+    except GpuBatchProbeError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": str(exc)},
+            headers=exc.headers,
+        ) from exc
+
+
 @router.get("/scenario-workloads/{run_id}", response_model=ScenarioWorkloadRunView)
 def scenario_workload_run(run_id: str) -> ScenarioWorkloadRunView:
     try:
@@ -355,8 +395,10 @@ def _evaluation_summary(run: ScenarioWorkloadRun) -> WorkloadEvaluationSummary |
     gate_blockers = [str(value) for value in blockers] if isinstance(blockers, list) else []
     training_status = training.get("status")
     gate_status: Literal["pass", "blocked", "unavailable"] = (
-        "pass" if training_status == "pass" and not gate_blockers
-        else "blocked" if training_status in {"pass", "blocked", "failed"} or gate_blockers
+        "pass"
+        if training_status == "pass" and not gate_blockers
+        else "blocked"
+        if training_status in {"pass", "blocked", "failed"} or gate_blockers
         else "unavailable"
     )
     return WorkloadEvaluationSummary(
@@ -369,9 +411,13 @@ def _evaluation_summary(run: ScenarioWorkloadRun) -> WorkloadEvaluationSummary |
             blockers=gate_blockers,
             policy_source=str(training_path),
         ),
-        evaluated_at=str(evaluation.get("evaluated_at")) if evaluation.get("evaluated_at") else None,
+        evaluated_at=str(evaluation.get("evaluated_at"))
+        if evaluation.get("evaluated_at")
+        else None,
         evidence_uri=run.evaluation_uri,
-        claim_boundary=str(training.get("claim_boundary")) if training.get("claim_boundary") else None,
+        claim_boundary=str(training.get("claim_boundary"))
+        if training.get("claim_boundary")
+        else None,
     )
 
 
@@ -380,13 +426,17 @@ def _resolve_data_path(uri: str) -> Path:
     if direct.is_file():
         return direct
     normalized = uri.replace("\\", "/")
-    host_root = os.getenv(
-        "EVM_HOST_DATA_ROOT",
-        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
-    ).replace("\\", "/").rstrip("/")
+    host_root = (
+        os.getenv(
+            "EVM_HOST_DATA_ROOT",
+            "F:/EnterpriseMLOps_Data/enterprise-vision-mlops",
+        )
+        .replace("\\", "/")
+        .rstrip("/")
+    )
     mount_root = os.getenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data").replace("\\", "/").rstrip("/")
     if normalized.lower().startswith(host_root.lower()):
-        return Path(f"{mount_root}{normalized[len(host_root):]}")
+        return Path(f"{mount_root}{normalized[len(host_root) :]}")
     return Path(normalized)
 
 

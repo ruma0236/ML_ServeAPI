@@ -19,6 +19,7 @@ from evm.core.config import map_runtime_data_path
 
 
 WorkloadModelFamily = Literal["vlm", "llm"]
+GpuLeaseModelFamily = Literal["vlm", "llm", "tabular"]
 WorkloadRunState = Literal[
     "dry_run",
     "queued",
@@ -107,9 +108,7 @@ MUTABLE_RESULT_FIELDS = {
 class CapacityProbeRequest(ContractModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["evm.s3_capacity_probe_request.v1"] = (
-        "evm.s3_capacity_probe_request.v1"
-    )
+    schema_version: Literal["evm.s3_capacity_probe_request.v1"] = "evm.s3_capacity_probe_request.v1"
     probe_family: CapacityProbeFamily
     dataset_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     features: list[float] = Field(min_length=28, max_length=28)
@@ -158,6 +157,78 @@ class CapacityProbeResponse(ContractModel):
     runtime: CapacityProbeRuntime | None = None
 
 
+class GpuBatchProbeRequest(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["evm.s4_gpu_batch_request.v1"] = "evm.s4_gpu_batch_request.v1"
+    dataset_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    features: list[float] = Field(min_length=28, max_length=28)
+
+    @field_validator("features")
+    @classmethod
+    def validate_finite_features(cls, values: list[float]) -> list[float]:
+        if any(not math.isfinite(value) for value in values):
+            raise ValueError("GPU batch probe features must be finite")
+        return values
+
+
+class GpuBatchProbeTimings(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    admission_wait_ms: float = Field(ge=0)
+    queue_wait_ms: float = Field(ge=0)
+    batch_wait_ms: float = Field(ge=0)
+    h2d_ms: float = Field(ge=0)
+    inference_ms: float = Field(ge=0)
+    d2h_ms: float = Field(ge=0)
+    total_ms: float = Field(ge=0)
+
+
+class GpuBatchProbeRuntime(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    instance_id: int = Field(ge=0, le=7)
+    instance_count: int = Field(ge=1, le=8)
+    configured_batch_size: int = Field(ge=1, le=1024)
+    formed_batch_size: int = Field(ge=1, le=1024)
+    max_delay_ms: int = Field(ge=0, le=1000)
+    device: Literal["cuda"] = "cuda"
+    dtype: Literal["float32"] = "float32"
+    allocated_vram_bytes: int = Field(ge=0)
+    reserved_vram_bytes: int = Field(ge=0)
+    peak_vram_bytes: int = Field(ge=0)
+
+
+class GpuBatchProbeResponse(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["evm.s4_gpu_batch_response.v1"] = "evm.s4_gpu_batch_response.v1"
+    dataset_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    prediction: Literal[0, 1]
+    positive_probability: float = Field(ge=0, le=1)
+    timings: GpuBatchProbeTimings
+    runtime: GpuBatchProbeRuntime
+
+
+class GpuBatchProbeDescriptor(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["evm.s4_gpu_batch_descriptor.v1"] = "evm.s4_gpu_batch_descriptor.v1"
+    dataset_id: Literal["uci-higgs"] = "uci-higgs"
+    dataset_version: str = Field(min_length=1)
+    dataset_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    split_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    artifact_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    architecture: Literal["28-64-32-1-relu-fp32"] = "28-64-32-1-relu-fp32"
+    feature_count: Literal[28] = 28
+    framework: str = Field(min_length=1)
+    cuda_runtime: str = Field(min_length=1)
+    source_revision: str = Field(pattern=r"^[a-f0-9]{40}$")
+
+
 class CapacityProbeDescriptor(ContractModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -171,9 +242,7 @@ class CapacityProbeDescriptor(ContractModel):
 class CapacityProbeCatalog(ContractModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["evm.s3_capacity_probe_catalog.v1"] = (
-        "evm.s3_capacity_probe_catalog.v1"
-    )
+    schema_version: Literal["evm.s3_capacity_probe_catalog.v1"] = "evm.s3_capacity_probe_catalog.v1"
     dataset_id: Literal["uci-higgs"] = "uci-higgs"
     dataset_version: str = Field(min_length=1)
     dataset_identity_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -253,7 +322,12 @@ class GpuLease(ContractModel):
     fencing_token: str
     run_id: str
     scenario_id: str
-    model_family: WorkloadModelFamily
+    model_family: GpuLeaseModelFamily
+    lease_purpose: Literal[
+        "scenario_workload",
+        "scale_validation_training",
+        "scale_validation_inference",
+    ] = "scenario_workload"
     owner_pid: int = Field(ge=1)
     source_commit: str
     acquired_at: str
@@ -264,9 +338,7 @@ class GpuLease(ContractModel):
 
 
 class ScenarioWorkloadRun(ContractModel):
-    schema_version: Literal["evm.scenario_workload_run.v1"] = (
-        "evm.scenario_workload_run.v1"
-    )
+    schema_version: Literal["evm.scenario_workload_run.v1"] = "evm.scenario_workload_run.v1"
     run_id: str
     state: WorkloadRunState
     version: int = Field(ge=1)
@@ -353,7 +425,7 @@ def canonical_data_path(value: str | Path) -> Path:
     host_root = os.getenv("EVM_HOST_DATA_ROOT", "").replace("\\", "/").rstrip("/")
     mount_root = os.getenv("EVM_DATA_MOUNT_ROOT", "").replace("\\", "/").rstrip("/")
     if host_root and mount_root and normalized.lower().startswith(mount_root.lower()):
-        normalized = f"{host_root}{normalized[len(mount_root):]}"
+        normalized = f"{host_root}{normalized[len(mount_root) :]}"
     return Path(normalized)
 
 
@@ -392,9 +464,7 @@ def create_workload_run(request: ScenarioWorkloadRequest) -> ScenarioWorkloadRun
     try:
         scenario = get_scenario(request.scenario_id)
     except (OSError, ValueError, ScenarioCatalogError) as exc:
-        raise ScenarioWorkloadError(
-            "scenario_catalog_invalid", str(exc), status_code=422
-        ) from exc
+        raise ScenarioWorkloadError("scenario_catalog_invalid", str(exc), status_code=422) from exc
     if scenario is None:
         raise ScenarioWorkloadError("scenario_not_found", request.scenario_id, status_code=404)
     validate_family(scenario, request.model_family)
@@ -402,11 +472,15 @@ def create_workload_run(request: ScenarioWorkloadRequest) -> ScenarioWorkloadRun
     source_branch = request.source_branch or os.getenv("EVM_GIT_BRANCH", "").strip() or None
     if not request.dry_run and not source_commit:
         raise ScenarioWorkloadError(
-            "source_revision_missing", "Executable workload requires an exact source revision.", status_code=422
+            "source_revision_missing",
+            "Executable workload requires an exact source revision.",
+            status_code=422,
         )
     if not request.dry_run and request.dirty_worktree:
         raise ScenarioWorkloadError(
-            "dirty_worktree_blocked", "Executable workload requires a clean source tree.", status_code=422
+            "dirty_worktree_blocked",
+            "Executable workload requires a clean source tree.",
+            status_code=422,
         )
     identity = resolve_workload_identity(
         scenario,
@@ -489,7 +563,9 @@ def resolve_workload_identity(
     data_identity = str(split.get("identity_sha256") or "")
     if not is_sha256(data_identity):
         raise ScenarioWorkloadError(
-            "scenario_data_identity_missing", "Split manifest has no valid identity.", status_code=422
+            "scenario_data_identity_missing",
+            "Split manifest has no valid identity.",
+            status_code=422,
         )
     quality_status = str(quality.get("status") or "")
     disposition_uri: str | None = None
@@ -639,9 +715,7 @@ def validate_data_view(
     if payload.get("source_dataset_version") != dataset_version:
         blockers.append("data_view_dataset_version_mismatch")
     accepted_input_digests = (
-        {input_manifest_sha256}
-        if isinstance(input_manifest_sha256, str)
-        else input_manifest_sha256
+        {input_manifest_sha256} if isinstance(input_manifest_sha256, str) else input_manifest_sha256
     )
     if payload.get("input_manifest_sha256") not in accepted_input_digests:
         blockers.append("data_view_input_manifest_mismatch")
@@ -652,7 +726,9 @@ def validate_data_view(
         if not str(payload.get(key) or "").strip():
             blockers.append(f"{key}_missing")
     if blockers:
-        raise ScenarioWorkloadError("data_view_invalid", ",".join(sorted(blockers)), status_code=422)
+        raise ScenarioWorkloadError(
+            "data_view_invalid", ",".join(sorted(blockers)), status_code=422
+        )
     return payload
 
 
@@ -688,9 +764,7 @@ def transition_workload_stage(
                 if item.state not in {"completed", "skipped"}
             ]
             if incomplete:
-                raise ScenarioWorkloadError(
-                    "workload_dependency_incomplete", ",".join(incomplete)
-                )
+                raise ScenarioWorkloadError("workload_dependency_incomplete", ",".join(incomplete))
         now = utc_now()
         if state in {"queued", "running", "waiting_approval"} and not stage.started_at:
             stage.started_at = now
@@ -707,9 +781,7 @@ def transition_workload_stage(
         run.current_stage = stage_id
         if run.started_at is None and state in {"queued", "running"}:
             run.started_at = now
-        run.progress = round(
-            sum(item.progress for item in run.stages) / max(len(run.stages), 1), 6
-        )
+        run.progress = round(sum(item.progress for item in run.stages) / max(len(run.stages), 1), 6)
         run.blockers = sorted(
             {blocker for item in run.stages for blocker in item.blockers if blocker}
         )
@@ -756,7 +828,9 @@ def update_workload_results(
             setattr(run, key, value)
         run.version += 1
         run.updated_at = utc_now()
-        run.audit.append(audit(actor, "scenario_workload_results_updated", fields=",".join(sorted(updates))))
+        run.audit.append(
+            audit(actor, "scenario_workload_results_updated", fields=",".join(sorted(updates)))
+        )
         validated = ScenarioWorkloadRun.model_validate(run.model_dump(mode="json"))
         write_run(validated)
         return validated
@@ -794,6 +868,7 @@ def acquire_gpu_lease(
             run_id=run_id,
             scenario_id=run.identity.scenario_id,
             model_family=run.identity.model_family,
+            lease_purpose="scenario_workload",
             owner_pid=owner_pid or os.getpid(),
             source_commit=run.identity.source_commit,
             acquired_at=acquired_at,
@@ -817,6 +892,101 @@ def acquire_gpu_lease(
         )
         write_run(run)
     return lease
+
+
+def acquire_scale_validation_gpu_lease(
+    run_id: str,
+    *,
+    source_commit: str,
+    purpose: Literal["scale_validation_training", "scale_validation_inference"],
+    owner_pid: int | None = None,
+    ttl_seconds: int = 7200,
+) -> GpuLease:
+    if not run_id.startswith("s4-") or len(source_commit) != 40:
+        raise ScenarioWorkloadError(
+            "scale_validation_gpu_lease_identity_invalid", run_id, status_code=422
+        )
+    if ttl_seconds < 60:
+        raise ScenarioWorkloadError("gpu_lease_ttl_invalid", str(ttl_seconds), status_code=422)
+    root = gpu_lease_root()
+    with file_lock(root / ".gpu-lease.lock", "gpu_lease"):
+        current = read_active_gpu_lease()
+        now = datetime.now(UTC).replace(microsecond=0)
+        if current is not None and current.state == "active":
+            if parse_utc(current.expires_at) > now:
+                if current.run_id == run_id and current.lease_purpose == purpose:
+                    return current
+                raise ScenarioWorkloadError(
+                    "gpu_lease_conflict", f"GPU is leased by {current.run_id}."
+                )
+            archive_lease(current.model_copy(update={"state": "expired"}))
+        acquired_at = now.isoformat().replace("+00:00", "Z")
+        lease = GpuLease(
+            lease_id=f"gpu-lease-{uuid4().hex}",
+            fencing_token=uuid4().hex,
+            run_id=run_id,
+            scenario_id="S4",
+            model_family="tabular",
+            lease_purpose=purpose,
+            owner_pid=owner_pid or os.getpid(),
+            source_commit=source_commit,
+            acquired_at=acquired_at,
+            expires_at=(now + timedelta(seconds=ttl_seconds)).isoformat().replace("+00:00", "Z"),
+        )
+        atomic_write_json(root / "active.json", lease.model_dump(mode="json"))
+        return lease
+
+
+def assert_scale_validation_gpu_lease_owner(
+    *,
+    run_id: str,
+    lease_id: str,
+    fencing_token: str,
+    purpose: Literal["scale_validation_training", "scale_validation_inference"],
+) -> GpuLease:
+    lease = read_active_gpu_lease()
+    if (
+        lease is None
+        or lease.state != "active"
+        or lease.run_id != run_id
+        or lease.lease_id != lease_id
+        or lease.fencing_token != fencing_token
+        or lease.lease_purpose != purpose
+        or lease.model_family != "tabular"
+        or parse_utc(lease.expires_at) <= datetime.now(UTC)
+    ):
+        raise ScenarioWorkloadError("gpu_lease_identity_mismatch", run_id)
+    return lease
+
+
+def release_scale_validation_gpu_lease(
+    *,
+    run_id: str,
+    lease_id: str,
+    fencing_token: str,
+    reason: str,
+) -> GpuLease:
+    root = gpu_lease_root()
+    with file_lock(root / ".gpu-lease.lock", "gpu_lease"):
+        lease = read_active_gpu_lease()
+        if (
+            lease is None
+            or lease.run_id != run_id
+            or lease.lease_id != lease_id
+            or lease.fencing_token != fencing_token
+            or lease.lease_purpose == "scenario_workload"
+        ):
+            raise ScenarioWorkloadError("gpu_lease_release_identity_mismatch", run_id)
+        released = lease.model_copy(
+            update={
+                "state": "released",
+                "released_at": utc_now(),
+                "release_reason": reason,
+            }
+        )
+        archive_lease(released)
+        (root / "active.json").unlink(missing_ok=True)
+        return released
 
 
 def assert_gpu_lease_owner(run_id: str) -> GpuLease:
@@ -895,9 +1065,7 @@ def seal_workload_run(run_id: str, *, actor: str) -> ScenarioWorkloadRun:
         entries: list[dict[str, Any]] = []
         for stage in run.stages:
             if not stage.evidence_uri:
-                raise ScenarioWorkloadError(
-                    "workload_stage_evidence_missing", stage.stage_id
-                )
+                raise ScenarioWorkloadError("workload_stage_evidence_missing", stage.stage_id)
             path = resolve_existing_data_path(stage.evidence_uri)
             digest = require_file_sha256(path, f"stage_{stage.stage_id}_evidence")
             entries.append(
@@ -911,9 +1079,7 @@ def seal_workload_run(run_id: str, *, actor: str) -> ScenarioWorkloadRun:
         artifact_path = resolve_existing_data_path(str(run.model_artifact_uri))
         artifact_digest = require_file_sha256(artifact_path, "model_artifact")
         if artifact_digest != run.model_artifact_sha256:
-            raise ScenarioWorkloadError(
-                "workload_model_artifact_digest_mismatch", artifact_digest
-            )
+            raise ScenarioWorkloadError("workload_model_artifact_digest_mismatch", artifact_digest)
         index_path = workload_artifact_path(run.artifact_root) / "evidence-index.json"
         payload = {
             "schema_version": "evm.scenario_workload_evidence_index.v1",
@@ -981,9 +1147,7 @@ def get_workload_run(run_id: str) -> ScenarioWorkloadRun:
     try:
         return ScenarioWorkloadRun.model_validate(json.loads(path.read_text(encoding="utf-8")))
     except (OSError, ValueError) as exc:
-        raise ScenarioWorkloadError(
-            "scenario_workload_invalid", run_id, status_code=500
-        ) from exc
+        raise ScenarioWorkloadError("scenario_workload_invalid", run_id, status_code=500) from exc
 
 
 def list_workload_runs(limit: int = 100) -> ScenarioWorkloadRunList:
@@ -1057,9 +1221,9 @@ def file_sha256(path: Path) -> str:
 
 
 def payload_sha256(payload: object) -> str:
-    material = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode("utf-8")
+    material = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(
+        "utf-8"
+    )
     return hashlib.sha256(material).hexdigest()
 
 
@@ -1075,9 +1239,7 @@ def write_run(run: ScenarioWorkloadRun) -> None:
 def atomic_write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     try:
         for attempt in range(8):
             try:

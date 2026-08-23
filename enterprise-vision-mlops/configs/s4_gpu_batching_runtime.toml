@@ -1,0 +1,66 @@
+schema_version = "evm.s4_gpu_batching_runtime.v1"
+dataset_version = "uci-higgs-2014-s3-v1"
+seed = 20260823
+
+[paths]
+s3_registry_relative_path = "artifacts/scale_validation/s3/capacity-registry.json"
+train_features_relative_path = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/train/features.npy"
+train_labels_relative_path = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/train/labels.npy"
+validation_features_relative_path = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/validation/features.npy"
+validation_labels_relative_path = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/validation/labels.npy"
+replay_features_relative_path = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/replay/features.npy"
+model_root_relative_path = "artifacts/scale_validation/s4/tiny-mlp-v1"
+
+[model]
+architecture = "28-64-32-1-relu-fp32"
+dtype = "float32"
+feature_count = 28
+
+[training]
+epochs = 5
+batch_size = 8192
+learning_rate = 0.001
+weight_decay = 0.00001
+max_train_rows = 250000
+max_validation_rows = 50000
+
+[inference]
+batch_sizes = [1, 4, 8, 16, 32]
+max_delays_ms = [0, 2, 5, 10]
+baseline_instance_count = 1
+instance_axis_counts = [1, 2]
+closed_concurrency = 128
+repetitions = 3
+warmup_seconds = 10
+measurement_seconds = 30
+cooldown_seconds = 5
+resource_sample_interval_seconds = 0.25
+prometheus_scrape_interval_seconds = 1.0
+max_outstanding = 512
+max_outstanding_bytes = 8388608
+max_request_bytes = 8192
+admission_wait_seconds = 0.05
+request_timeout_seconds = 5.0
+retry_after_seconds = 1
+
+[open_loop]
+service_rate_fraction = 0.80
+repetitions = 3
+
+[guardrails]
+maximum_error_rate = 0.01
+maximum_p99_ms = 250.0
+maximum_queue_wait_ms = 100.0
+maximum_temperature_celsius = 84.0
+maximum_power_watts = 340.0
+maximum_api_process_tree_rss_bytes = 8589934592
+queue_drain_timeout_seconds = 30.0
+require_zero_oom = true
+
+[capacity_recalculation]
+maximum_queue_wait_seconds = 0.10
+safety_factor = 0.70
+prior_depth = 64
+rollback_depth = 64
+maximum_depth = 2048
+allow_automatic_increase = false
