@@ -122,7 +122,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT / "docs/status/evidence/s4-preparation-checkpoint.json",
     )
-    parser.add_argument("--mode", choices=("smoke", "full"), default="smoke")
+    parser.add_argument(
+        "--pilot-output",
+        type=Path,
+        default=ROOT / "docs/status/evidence/s4-trace-flush-rca-checkpoint.json",
+    )
+    parser.add_argument("--mode", choices=("smoke", "trace-pilot", "full"), default="smoke")
     parser.add_argument("--maintenance-approved", action="store_true")
     parser.add_argument("--reuse-image", action="store_true")
     return parser.parse_args()
@@ -156,7 +161,11 @@ def main() -> int:
     failed_attempts: list[dict[str, Any]] = []
     cleanup: dict[str, Any] = {}
     public: dict[str, Any] | None = None
-    output_path = args.smoke_output if args.mode == "smoke" else args.output
+    output_path = {
+        "smoke": args.smoke_output,
+        "trace-pilot": args.pilot_output,
+        "full": args.output,
+    }[args.mode]
     inference_lease = None
     try:
         scale_holder(holder, replicas=0, require_ready=False)
@@ -232,6 +241,47 @@ def main() -> int:
                 training=training,
                 result=results[0],
             )
+        elif args.mode == "trace-pilot":
+            results = [
+                run_point(
+                    context=context,
+                    config=config,
+                    point=S4Point(4, 2, 1, "trace-pilot"),
+                    repetition=repetition,
+                    warmup_seconds=config.warmup_seconds,
+                    measurement_seconds=config.measurement_seconds,
+                    cooldown_seconds=config.cooldown_seconds,
+                    open_rate=None,
+                )
+                for repetition in range(1, 4)
+            ]
+            public = {
+                "schema_version": "evm.s4_trace_flush_rca_checkpoint.v1",
+                "generated_at": utc_now(),
+                "status": "implementing",
+                "acceptance_credit": False,
+                "source_identity": {
+                    "branch": branch,
+                    "implementation_revision": revision,
+                    "runtime_config_sha256": config.sha256,
+                },
+                "failed_attempt_reference": (
+                    "The first full matrix attempt stopped after 15 retained point "
+                    "repetitions when only 4 of 8 sampled chains arrived within the "
+                    "prior 10-second poll window."
+                ),
+                "corrective_contract": {
+                    "trace_flush_timeout_seconds": config.trace_flush_timeout_seconds,
+                    "trace_poll_interval_seconds": config.trace_poll_interval_seconds,
+                    "result_written_before_fail_closed": True,
+                },
+                "results": results,
+                "all_trace_chains_complete": all(
+                    item["trace"]["missing_count"] == 0 for item in results
+                ),
+                "next_action": "Restart the full 60+3+3 matrix from a clean revision.",
+                "claim_boundary": CLAIM_BOUNDARY,
+            }
         else:
             results = []
             for point in config.matrix_points():
@@ -546,6 +596,8 @@ def run_point(
             context.trace_path,
             offset=trace_offset,
             expected=set(measurement["expected_sampled_trace_ids"]),
+            timeout_seconds=config.trace_flush_timeout_seconds,
+            poll_interval_seconds=config.trace_poll_interval_seconds,
         )
         result = summarize_point(
             point=point,
@@ -569,6 +621,8 @@ def run_point(
         }
         canonical_write(point_root / "point-private.json", private_payload)
         result["private_point_sha256"] = file_sha256(point_root / "point-private.json")
+        if not result["evidence_valid"]:
+            raise S4RuntimeError(f"s4_point_guardrail_failed:{result}")
         return result
     finally:
         stop_container(API_CONTAINER)
@@ -836,8 +890,6 @@ def summarize_point(
         and all(value == 0 for value in drain.values())
         and trace["missing_count"] == 0
     )
-    if not result["evidence_valid"]:
-        raise S4RuntimeError(f"s4_point_guardrail_failed:{result}")
     return result
 
 
@@ -1017,11 +1069,21 @@ def prometheus_scalar(query: str) -> float:
     return 0.0 if not result else float(result[0]["value"][1])
 
 
-def trace_summary(path: Path, *, offset: int, expected: set[str]) -> dict[str, Any]:
-    deadline = time.monotonic() + 10
+def trace_summary(
+    path: Path,
+    *,
+    offset: int,
+    expected: set[str],
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    deadline = started + timeout_seconds
+    poll_count = 0
     by_trace: dict[str, set[str]] = {trace_id: set() for trace_id in expected}
     raw = b""
     while True:
+        poll_count += 1
         if path.is_file():
             with path.open("rb") as handle:
                 handle.seek(offset)
@@ -1042,7 +1104,7 @@ def trace_summary(path: Path, *, offset: int, expected: set[str]) -> dict[str, A
         }
         if len(complete) == len(expected) or time.monotonic() >= deadline:
             break
-        time.sleep(0.5)
+        time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
     return {
         "expected_count": len(expected),
         "complete_count": len(complete),
@@ -1051,6 +1113,9 @@ def trace_summary(path: Path, *, offset: int, expected: set[str]) -> dict[str, A
         "observed_span_names": sorted({name for names in by_trace.values() for name in names}),
         "raw_tail_sha256": hashlib.sha256(raw).hexdigest(),
         "raw_tail_bytes": len(raw),
+        "flush_wait_seconds": max(0.0, time.monotonic() - started),
+        "flush_poll_count": poll_count,
+        "flush_completed": len(complete) == len(expected),
     }
 
 

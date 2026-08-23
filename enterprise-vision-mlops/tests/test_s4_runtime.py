@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 
 from scripts.dev.run_s4_gpu_batching_experiment import (
     RuntimeContext,
     build_gpu_api_command,
     private_evidence_index,
+    trace_summary,
 )
 from evm.scale_validation.s4_runtime import S4RuntimeConfig, analyze_s4_results
 from evm.scale_validation.s4_runtime import S4Point
@@ -74,6 +77,10 @@ def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> N
         "maximum_temperature_celsius": 84.0,
         "maximum_power_watts": 340.0,
         "require_zero_oom": True,
+    }
+    assert config.public_dict()["observability"] == {
+        "trace_flush_timeout_seconds": 30.0,
+        "trace_poll_interval_seconds": 0.25,
     }
     results = [
         _result(batch, delay, 1, "matrix", repetition)
@@ -165,11 +172,52 @@ def test_s4_gpu_api_uses_supported_isolated_file_store(tmp_path: Path) -> None:
 
 def test_s4_private_index_excludes_its_own_generated_file(tmp_path: Path) -> None:
     (tmp_path / "point.json").write_text("{}\n", encoding="utf-8", newline="\n")
-    (tmp_path / "private-evidence-index.json").write_text(
-        "stale\n", encoding="utf-8", newline="\n"
-    )
+    (tmp_path / "private-evidence-index.json").write_text("stale\n", encoding="utf-8", newline="\n")
 
     index = private_evidence_index(tmp_path)
 
     assert index["artifact_count"] == 1
     assert [entry["path"] for entry in index["entries"]] == ["point.json"]
+
+
+def test_s4_trace_summary_waits_for_complete_exported_chain(tmp_path: Path) -> None:
+    trace_id = "a" * 32
+    trace_path = tmp_path / "traces.json"
+    trace_path.write_bytes(b"")
+
+    def write_trace() -> None:
+        time.sleep(0.05)
+        payload = {
+            "resourceSpans": [
+                {
+                    "scopeSpans": [
+                        {
+                            "spans": [
+                                {
+                                    "traceId": trace_id,
+                                    "name": "POST /control-panel/v1/scenario-workloads/gpu-batch-probes/predict",
+                                },
+                                {"traceId": trace_id, "name": "s4.gpu_batch.worker"},
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        trace_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    writer = threading.Thread(target=write_trace)
+    writer.start()
+    summary = trace_summary(
+        trace_path,
+        offset=0,
+        expected={trace_id},
+        timeout_seconds=0.5,
+        poll_interval_seconds=0.01,
+    )
+    writer.join()
+
+    assert summary["complete_count"] == 1
+    assert summary["missing_count"] == 0
+    assert summary["flush_completed"] is True
+    assert summary["flush_poll_count"] > 1

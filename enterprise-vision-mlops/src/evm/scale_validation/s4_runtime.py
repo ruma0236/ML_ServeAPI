@@ -83,6 +83,8 @@ class S4RuntimeConfig:
     admission_wait_seconds: float
     request_timeout_seconds: float
     retry_after_seconds: int
+    trace_flush_timeout_seconds: float
+    trace_poll_interval_seconds: float
     open_service_rate_fraction: float
     open_repetitions: int
     maximum_error_rate: float
@@ -121,6 +123,7 @@ class S4RuntimeConfig:
         guardrails = _section(payload, "guardrails")
         capacity = _section(payload, "capacity_recalculation")
         preparation = _section(payload, "preparation")
+        observability = _section(payload, "observability")
         config = cls(
             path=resolved,
             sha256=file_sha256(resolved),
@@ -161,6 +164,8 @@ class S4RuntimeConfig:
             admission_wait_seconds=float(inference["admission_wait_seconds"]),
             request_timeout_seconds=float(inference["request_timeout_seconds"]),
             retry_after_seconds=int(inference["retry_after_seconds"]),
+            trace_flush_timeout_seconds=float(observability["trace_flush_timeout_seconds"]),
+            trace_poll_interval_seconds=float(observability["trace_poll_interval_seconds"]),
             open_service_rate_fraction=float(opened["service_rate_fraction"]),
             open_repetitions=int(opened["repetitions"]),
             maximum_error_rate=float(guardrails["maximum_error_rate"]),
@@ -233,6 +238,11 @@ class S4RuntimeConfig:
             raise S4RuntimeError("s4_open_rate_fraction_invalid")
         if not 0 < self.capacity_safety_factor <= 1:
             raise S4RuntimeError("s4_capacity_safety_factor_invalid")
+        if not (
+            self.trace_flush_timeout_seconds > 0
+            and 0 < self.trace_poll_interval_seconds <= self.trace_flush_timeout_seconds
+        ):
+            raise S4RuntimeError("s4_trace_flush_contract_invalid")
         if self.max_outstanding < max(self.batch_sizes) * max(self.instance_axis_counts):
             raise S4RuntimeError("s4_outstanding_capacity_invalid")
         if self.max_outstanding_bytes < self.max_request_bytes:
@@ -287,6 +297,10 @@ class S4RuntimeConfig:
             "cooldown_seconds": self.cooldown_seconds,
             "resource_sample_interval_seconds": self.resource_sample_interval_seconds,
             "prometheus_scrape_interval_seconds": self.prometheus_scrape_interval_seconds,
+            "observability": {
+                "trace_flush_timeout_seconds": self.trace_flush_timeout_seconds,
+                "trace_poll_interval_seconds": self.trace_poll_interval_seconds,
+            },
             "preparation": {
                 "closed_concurrency": self.preparation_closed_concurrency,
                 "warmup_seconds": self.preparation_warmup_seconds,

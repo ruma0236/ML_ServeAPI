@@ -1,0 +1,57 @@
+{
+  "acceptance_credit": false,
+  "attempt_id": "S4-ATTEMPT-01",
+  "claim_boundary": "Local single-node failure evidence only; no production SLA, HA, multi-GPU, or customer-traffic claim.",
+  "cleanup": {
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "holder_ready": true,
+    "holder_uid_restored": true,
+    "lease_released": true,
+    "prometheus_container_absent": true,
+    "serving_cuda_ready": true
+  },
+  "corrective_action": [
+    "Freeze a 30-second trace flush timeout and 250-millisecond poll cadence in the versioned S4 config.",
+    "Record flush duration and poll count.",
+    "Write point-private evidence before fail-closed evaluation.",
+    "Require a fresh three-repetition same-point trace pilot before restarting the full matrix."
+  ],
+  "generated_at": "2026-08-23T01:28:26.405439Z",
+  "next_action": "Run the three-repetition trace-flush RCA pilot at a clean remediation revision; no prior point earns S4 acceptance credit.",
+  "observed_failure": {
+    "error_rate": 0.0,
+    "formed_batch_size_mean": 3.4965443912812333,
+    "hard_stop_guardrail_passed": true,
+    "oom_count": 0,
+    "p99_ms": 1548.8215430127457,
+    "prior_flush_timeout_seconds": 10.0,
+    "prometheus_up": true,
+    "queue_wait_p99_ms": 1091.2885479699162,
+    "request_count": 3762,
+    "sampled_trace_complete": 4,
+    "sampled_trace_expected": 8,
+    "sampled_trace_missing": 4,
+    "service_rps": 125.4,
+    "success_count": 3762
+  },
+  "private_evidence": {
+    "aggregate_sha256": "24b4aa2dd543232b9abb8da930773c74c86e61d25a63ffe65ec23769975ea95b",
+    "artifact_count": 18,
+    "total_bytes": 7508283
+  },
+  "root_cause": "The existing bounded OTLP polling window was too short for all sampled worker spans to reach the file exporter under this GPU batch load. The runner also raised before persisting the failed point-private payload.",
+  "schema_version": "evm.s4_gpu_batching_failed_attempt.v1",
+  "scope": {
+    "failure_point": "matrix-batch-4-delay-2-instances-1",
+    "failure_repetition": 1,
+    "planned_repetitions": 66,
+    "retained_completed_repetitions": 15
+  },
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "157c865af0b566fbb5b9979c7c775998051f04ee",
+    "runtime_config_sha256": "488577b274b4d02d50e3652e8ea16872963b1b24324d05df92bab157d7d168ba"
+  },
+  "status": "stopped_fail_closed"
+}

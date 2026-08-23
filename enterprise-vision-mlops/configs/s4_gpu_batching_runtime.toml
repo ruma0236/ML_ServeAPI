@@ -43,6 +43,10 @@ admission_wait_seconds = 0.05
 request_timeout_seconds = 5.0
 retry_after_seconds = 1
 
+[observability]
+trace_flush_timeout_seconds = 30.0
+trace_poll_interval_seconds = 0.25
+
 [open_loop]
 service_rate_fraction = 0.80
 repetitions = 3

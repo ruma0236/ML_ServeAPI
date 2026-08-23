@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T01:06:21.092900Z",
+  "generated_at": "2026-08-23T01:29:21.616682Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2081,7 +2081,9 @@
         "Added an opt-in tabular Tiny MLP probe to the existing Workloads API without widening the existing VLM/LLM lifecycle contract.",
         "Added bounded count/byte admission, dynamic batching, one-or-two instance control, CUDA timing, formed-batch, VRAM, Prometheus, and OTLP instrumentation.",
         "Reused the exact accelerator lease and serving-holder identity for mutually exclusive training and inference windows with batch-one rollback.",
-        "Passed one current-revision external batch-one preparation smoke; the 66-repetition acceptance matrix has not started."
+        "Passed one current-revision external batch-one preparation smoke; the 66-repetition acceptance matrix has not started.",
+        "The first full-matrix attempt retained 15 point repetitions, then stopped on an incomplete OTLP flush with all runtime safety and cleanup guards intact.",
+        "The remediation freezes a 30-second bounded trace poll, records flush timing, and persists failed point evidence before raising."
       ],
       "experiment_environment": "Actual local single-node runtime with one consumer GPU, the existing Workloads API, external TCP client, isolated Prometheus, OTLP collector, and exact Kubernetes serving-holder handoff. No customer traffic or production SLA.",
       "test_or_experiment_steps": [
@@ -2123,6 +2125,12 @@
           "sha256": "c52f4cd814d5bb0627f7adc2ab6684cd2f0bbeedc120f92a1602aec7a071961a",
           "generated_at": "2026-08-23T01:05:57.477193Z",
           "claim": "Final frozen-config external batch-one preparation smoke passed through the existing Workloads API with CUDA inference, distinct operating and hard-stop latency gates, Prometheus/OTLP identity, terminal drain, exact lease release, and serving-holder restoration; S4 acceptance remains pending."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-01.json",
+          "sha256": "ec883b9142048f2bc3ff613344bf2245a09b8f11c93dc80ed07403afe1b4223d",
+          "generated_at": "2026-08-23T01:28:26.405439Z",
+          "claim": "The first full S4 matrix attempt retained 15 completed repetitions and stopped fail closed when 4 of 8 sampled trace chains missed the prior 10-second exporter window; cleanup passed and no acceptance credit was granted."
         }
       ],
       "status": "implementing",
@@ -2133,7 +2141,7 @@
         "Model instance count and batch size effects are measured separately.",
         "Queue limits are recalculated from the selected service rate."
       ],
-      "next_action": "Run the frozen 60 matrix repetitions, three instance-axis repetitions, and three selected-point open-loop repetitions; retain failed attempts and close S4 only from fresh hash-linked evidence.",
+      "next_action": "Run the same batch-4/delay-2 point for three independent non-acceptance repetitions under the corrected trace-flush contract, then restart the full 60+3+3 matrix from a clean revision.",
       "architecture_before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
       "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.",
       "existing_system_baseline": "The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.",
@@ -2274,6 +2282,12 @@
           "sha256": "c52f4cd814d5bb0627f7adc2ab6684cd2f0bbeedc120f92a1602aec7a071961a",
           "generated_at": "2026-08-23T01:05:57.477193Z",
           "claim": "Final frozen-config external batch-one preparation smoke passed through the existing Workloads API with CUDA inference, distinct operating and hard-stop latency gates, Prometheus/OTLP identity, terminal drain, exact lease release, and serving-holder restoration; S4 acceptance remains pending."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-01.json",
+          "sha256": "ec883b9142048f2bc3ff613344bf2245a09b8f11c93dc80ed07403afe1b4223d",
+          "generated_at": "2026-08-23T01:28:26.405439Z",
+          "claim": "The first full S4 matrix attempt retained 15 completed repetitions and stopped fail closed when 4 of 8 sampled trace chains missed the prior 10-second exporter window; cleanup passed and no acceptance credit was granted."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2305,6 +2319,15 @@
           "summary": "At final frozen-config revision ca5dfb1, batch-one completed 388/388 requests at 77.6 RPS with p99 31.21 ms and queue p99 0.078 ms. Operating and hard-stop gates, Prometheus/OTLP, drain, lease release, and holder restoration passed; ACs remain pending.",
           "evidence_refs": [
             "docs/status/evidence/s4-preparation-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T01:28:26.405439Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "The first full S4 attempt retained 15 completed repetitions and stopped fail closed at batch 4/delay 2 when only 4 of 8 sampled trace chains arrived within the prior 10-second exporter window. CUDA requests, hard bounds, Prometheus, exact cleanup, and holder restoration passed. The runner now uses a frozen 30-second bounded poll and writes failed point evidence before raising; no acceptance credit is carried forward.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-attempt-01.json"
           ]
         }
       ]
