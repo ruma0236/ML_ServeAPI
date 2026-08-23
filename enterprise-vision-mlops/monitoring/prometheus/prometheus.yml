@@ -23,6 +23,13 @@ scrape_configs:
           - /etc/prometheus/targets/s6-api.json
         refresh_interval: 2s
 
+  - job_name: "evm-s7-family"
+    metrics_path: /metrics
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/s7-family.json
+        refresh_interval: 2s
+
   - job_name: "evm-b0-production"
     metrics_path: /metrics
     file_sd_configs:

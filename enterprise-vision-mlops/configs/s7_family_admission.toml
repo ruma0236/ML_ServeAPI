@@ -75,5 +75,47 @@ maximum_queue_wait_seconds = 120.0
 require_zero_oom = true
 require_zero_starvation = true
 
+[quality]
+image_accuracy_minimum = 0.50
+vlm_accuracy_minimum = 0.50
+vlm_parse_rate_minimum = 0.95
+llm_token_f1_minimum = 0.10
+llm_nonempty_rate_minimum = 1.0
+
+[assets.image]
+model_artifact = "artifacts/w7/efficientnet-expedited/w7-b0-expedited-production-matrix/effnet-b0-img224-expedited-adamw/model.pt"
+model_artifact_sha256 = "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f"
+candidate_id = "effnet-b0-img224-expedited-adamw"
+dataset_version = "visa-open-data-e35d93d5561f"
+manifest = "data/validated/visa/curation/curated_eval_manifest.jsonl"
+manifest_sha256 = "33d37c40901026b9bd5ddd5ee41546864c86a03add507a2da78b937b12d01ff1"
+port = 30922
+
+[assets.vlm]
+base_model = "models/base/smolvlm-500m-instruct/a7da5b986cb59b408707209984f360a5f4ad7e47"
+model_repository = "HuggingFaceTB/SmolVLM-500M-Instruct"
+model_revision = "a7da5b986cb59b408707209984f360a5f4ad7e47"
+adapter = "artifacts/scenario_workloads/scenario-workload-20260813T153412-31b46bbe/model/adapter"
+adapter_sha256 = "9135f9045b92f2bb5914818e47d168187c327307b2ff2826a4d319b78cb6534b"
+data_identity_sha256 = "8bce3a7ad9c60599100ba59d1e538ce29d08434f98b7e9521d2b212427bed7a1"
+model_source_commit = "d6444b542d183bbd51a7782c561cbc962ec0d6b3"
+manifest = "data/scenario_workloads/scienceqa-vlm-evaluation/scienceqa-local-adapt-v1-48/processed/normalized_manifest.jsonl"
+manifest_sha256 = "b4d5b881eda5c546d411facb073233d6a8ae62a9a26fd8ff1c26c2a859e224cf"
+quantization = "none"
+port = 30920
+
+[assets.llm]
+base_model = "models/base/qwen2.5-0.5b-instruct/7ae557604adf67be50417f59c2c2f167def9a775"
+model_repository = "Qwen/Qwen2.5-0.5B-Instruct"
+model_revision = "7ae557604adf67be50417f59c2c2f167def9a775"
+adapter = "artifacts/scenario_workloads/scenario-workload-20260805T121811-dcee8c89/model/adapter"
+adapter_sha256 = "326f95c3cba5cf29a02fb7798be0c282083da303359d350d27ddbd9861a85d58"
+data_identity_sha256 = "15b54c61c6ff2f1141c1c8f1b8edd27a6817afb3ae0f02008c53659b1b8a8557"
+model_source_commit = "d6444b542d183bbd51a7782c561cbc962ec0d6b3"
+manifest = "data/scenario_workloads/dolly-instruction-tuning/dolly-qlora-v1-320/processed/normalized_manifest.jsonl"
+manifest_sha256 = "98e339fbc09414d776c314c777ed6ee71153a8f65f7207cae2b01bf7a65790fa"
+quantization = "int4_nf4"
+port = 30921
+
 [claim_boundary]
 text = "Controlled family-specific admission evidence on one local physical node and one consumer GPU. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, broad benchmark-quality, or business A/B claim."

@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T17:57:57Z`
+- Generated: `2026-08-23T18:31:45Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -638,7 +638,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Run external image, VLM, and LLM CUDA profiles only after the implementation checkpoint and source-identity gate pass.
+- Next action: Commit the runner and evidence checkpoint, then run fail-closed image, VLM, and LLM CUDA diagnostics before the full acceptance matrix.
 
 ### Affected Existing Components
 
@@ -646,6 +646,8 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Existing model-family runner: `src/evm/model_runtime/workload_runner.py`, `configs/scenario_workloads/live-presets.json`
 - Existing image and generative serving: `apps/api/efficientnet_serving.py`, `src/evm/model_runtime/serving.py`
 - Family-aware admission contract: `src/evm/model_runtime/family_admission.py`, `configs/s7_family_admission.toml`
+- Existing GPU lease and operational telemetry: `src/evm/control_panel/scenario_workloads.py`, `monitoring/prometheus/prometheus.yml`
+- External CUDA experiment and evidence closure: `src/evm/scale_validation/s7_runtime.py`, `src/evm/scale_validation/s7_evidence.py`, `scripts/dev/run_s7_auxiliary_admission_experiment.py`, `scripts/dev/validate_s7_auxiliary_admission_evidence.py`
 
 ### Architecture Delta
 
@@ -666,6 +668,8 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Existing image and generative serving: `apps/api/efficientnet_serving.py`, `src/evm/model_runtime/serving.py`, `infra/docker/efficientnet-serving/Dockerfile`
 - Family-aware admission contract: `configs/s7_family_admission.toml`, `src/evm/model_runtime/family_admission.py`
 - Focused family admission verification: `tests/test_family_admission.py`, `tests/test_scenario_model_serving.py`, `tests/test_efficientnet_serving_contract.py`
+- Existing GPU lease and operational telemetry: `src/evm/control_panel/scenario_workloads.py`, `monitoring/prometheus/prometheus.yml`
+- External CUDA experiment and evidence closure: `src/evm/scale_validation/s7_runtime.py`, `src/evm/scale_validation/s7_evidence.py`, `scripts/dev/run_s7_auxiliary_admission_experiment.py`, `scripts/dev/validate_s7_auxiliary_admission_evidence.py`, `tests/test_s7_runtime.py`, `tests/test_s7_evidence.py`, `tests/test_s4_gpu_batch_probe.py`
 - Compatibility: Existing routes and required response fields remain unchanged; operational metrics and admission readiness are additive.
 - Compatibility: Existing family metric schemas remain distinct and unsupported metrics remain absent.
 - Migration: Reuse existing validated model, adapter, dataset, and artifact identities without retraining or source replacement.
@@ -694,6 +698,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
 - `2026-08-23T17:57:57Z` `implementation` / `implementing`: Family-specific admission limits, bounded scheduling, explicit overload semantics, and additive telemetry were wired into the existing image and generative serving paths; external CUDA experiments remain pending.
+- `2026-08-23T18:31:45Z` `implementation` / `implementing`: The existing GPU lease and B0 handoff boundary now govern an external-HTTP CUDA runner with Prometheus discovery, process-tree resource samples, canonical private evidence indexing, and raw-derived S7 validation; no acceptance run has been credited.
 
 ## S8: Dependency Soak & Resource-efficiency Closure
 

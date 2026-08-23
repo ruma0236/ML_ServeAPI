@@ -9,6 +9,7 @@ import pytest
 from evm.control_panel.scenario_workloads import (
     GpuBatchProbeDescriptor,
     GpuBatchProbeRequest,
+    ScenarioWorkloadError,
     acquire_scale_validation_gpu_lease,
     assert_scale_validation_gpu_lease_owner,
     read_active_gpu_lease,
@@ -106,6 +107,45 @@ def test_scale_validation_lease_uses_existing_gpu_lease_store(tmp_path: Path, mo
     )
     assert released.state == "released"
     assert read_active_gpu_lease() is None
+
+
+def test_s7_scale_validation_lease_preserves_family_identity(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("EVM_SCENARIO_GPU_LEASE_ROOT", str(tmp_path))
+    lease = acquire_scale_validation_gpu_lease(
+        "s7-vlm-profile-01",
+        source_commit="a" * 40,
+        purpose="scale_validation_inference",
+        scenario_id="S7",
+        model_family="vlm",
+    )
+
+    asserted = assert_scale_validation_gpu_lease_owner(
+        run_id=lease.run_id,
+        lease_id=lease.lease_id,
+        fencing_token=lease.fencing_token,
+        purpose="scale_validation_inference",
+        scenario_id="S7",
+        model_family="vlm",
+    )
+    assert asserted.scenario_id == "S7"
+    assert asserted.model_family == "vlm"
+
+    with pytest.raises(ScenarioWorkloadError):
+        assert_scale_validation_gpu_lease_owner(
+            run_id=lease.run_id,
+            lease_id=lease.lease_id,
+            fencing_token=lease.fencing_token,
+            purpose="scale_validation_inference",
+            scenario_id="S7",
+            model_family="llm",
+        )
+
+    release_scale_validation_gpu_lease(
+        run_id=lease.run_id,
+        lease_id=lease.lease_id,
+        fencing_token=lease.fencing_token,
+        reason="s7_test_complete",
+    )
 
 
 def test_gpu_executor_forms_one_bounded_batch(tmp_path: Path, monkeypatch) -> None:

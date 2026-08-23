@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T17:57:57Z",
+  "generated_at": "2026-08-23T18:31:45Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3387,12 +3387,32 @@
             "tests/test_scenario_model_serving.py",
             "tests/test_efficientnet_serving_contract.py"
           ]
+        },
+        {
+          "component": "Existing GPU lease and operational telemetry",
+          "files": [
+            "src/evm/control_panel/scenario_workloads.py",
+            "monitoring/prometheus/prometheus.yml"
+          ]
+        },
+        {
+          "component": "External CUDA experiment and evidence closure",
+          "files": [
+            "src/evm/scale_validation/s7_runtime.py",
+            "src/evm/scale_validation/s7_evidence.py",
+            "scripts/dev/run_s7_auxiliary_admission_experiment.py",
+            "scripts/dev/validate_s7_auxiliary_admission_evidence.py",
+            "tests/test_s7_runtime.py",
+            "tests/test_s7_evidence.py",
+            "tests/test_s4_gpu_batch_probe.py"
+          ]
         }
       ],
       "implementation_summary": [
         "Wired one versioned cost contract into the existing EfficientNet /predict and VLM/LLM /infer paths.",
         "Added bounded queue depth, request/image/pixel/token and in-flight reservations, deadline expiry, explicit 413/422/429 outcomes, integer Retry-After, and bounded short-request bypass.",
         "Added additive family-specific queue, stage, token, TTFT/TPOT-when-measurable, and peak-VRAM telemetry while keeping exact request identity out of metric labels.",
+        "Added an external-HTTP, real-CUDA runner that uses the existing single-GPU lease, exact B0 handoff and restore boundary, Prometheus file discovery, process-tree resource sampling, and raw-derived evidence validation.",
         "This is an implementation checkpoint only; external CUDA acceptance evidence is not yet available."
       ],
       "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
@@ -3437,7 +3457,7 @@
         "Long-request head-of-line behavior and fairness are measured.",
         "Unsupported or unverified metrics remain absent."
       ],
-      "next_action": "Run external image, VLM, and LLM CUDA profiles only after the implementation checkpoint and source-identity gate pass.",
+      "next_action": "Commit the runner and evidence checkpoint, then run fail-closed image, VLM, and LLM CUDA diagnostics before the full acceptance matrix.",
       "architecture_before": "Multiple model families run without one cost-aware admission proof.",
       "architecture_after": "Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.",
       "existing_system_baseline": "The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.",
@@ -3468,6 +3488,22 @@
           "files": [
             "src/evm/model_runtime/family_admission.py",
             "configs/s7_family_admission.toml"
+          ]
+        },
+        {
+          "component": "Existing GPU lease and operational telemetry",
+          "files": [
+            "src/evm/control_panel/scenario_workloads.py",
+            "monitoring/prometheus/prometheus.yml"
+          ]
+        },
+        {
+          "component": "External CUDA experiment and evidence closure",
+          "files": [
+            "src/evm/scale_validation/s7_runtime.py",
+            "src/evm/scale_validation/s7_evidence.py",
+            "scripts/dev/run_s7_auxiliary_admission_experiment.py",
+            "scripts/dev/validate_s7_auxiliary_admission_evidence.py"
           ]
         }
       ],
@@ -3505,6 +3541,25 @@
               "tests/test_family_admission.py",
               "tests/test_scenario_model_serving.py",
               "tests/test_efficientnet_serving_contract.py"
+            ]
+          },
+          {
+            "component": "Existing GPU lease and operational telemetry",
+            "files": [
+              "src/evm/control_panel/scenario_workloads.py",
+              "monitoring/prometheus/prometheus.yml"
+            ]
+          },
+          {
+            "component": "External CUDA experiment and evidence closure",
+            "files": [
+              "src/evm/scale_validation/s7_runtime.py",
+              "src/evm/scale_validation/s7_evidence.py",
+              "scripts/dev/run_s7_auxiliary_admission_experiment.py",
+              "scripts/dev/validate_s7_auxiliary_admission_evidence.py",
+              "tests/test_s7_runtime.py",
+              "tests/test_s7_evidence.py",
+              "tests/test_s4_gpu_batch_probe.py"
             ]
           }
         ],
@@ -3566,6 +3621,13 @@
           "phase": "implementation",
           "status": "implementing",
           "summary": "Family-specific admission limits, bounded scheduling, explicit overload semantics, and additive telemetry were wired into the existing image and generative serving paths; external CUDA experiments remain pending.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-23T18:31:45Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "The existing GPU lease and B0 handoff boundary now govern an external-HTTP CUDA runner with Prometheus discovery, process-tree resource samples, canonical private evidence indexing, and raw-derived S7 validation; no acceptance run has been credited.",
           "evidence_refs": []
         }
       ]

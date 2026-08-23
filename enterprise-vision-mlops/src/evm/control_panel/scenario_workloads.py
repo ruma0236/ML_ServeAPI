@@ -19,7 +19,7 @@ from evm.core.config import map_runtime_data_path
 
 
 WorkloadModelFamily = Literal["vlm", "llm"]
-GpuLeaseModelFamily = Literal["vlm", "llm", "tabular"]
+GpuLeaseModelFamily = Literal["image", "vlm", "llm", "tabular"]
 WorkloadRunState = Literal[
     "dry_run",
     "queued",
@@ -899,10 +899,21 @@ def acquire_scale_validation_gpu_lease(
     *,
     source_commit: str,
     purpose: Literal["scale_validation_training", "scale_validation_inference"],
+    scenario_id: Literal["S4", "S7"] = "S4",
+    model_family: GpuLeaseModelFamily = "tabular",
     owner_pid: int | None = None,
     ttl_seconds: int = 7200,
 ) -> GpuLease:
-    if not run_id.startswith("s4-") or len(source_commit) != 40:
+    valid_identity = (
+        scenario_id == "S4"
+        and model_family == "tabular"
+        and run_id.startswith("s4-")
+    ) or (
+        scenario_id == "S7"
+        and model_family in {"image", "vlm", "llm"}
+        and run_id.startswith("s7-")
+    )
+    if not valid_identity or len(source_commit) != 40:
         raise ScenarioWorkloadError(
             "scale_validation_gpu_lease_identity_invalid", run_id, status_code=422
         )
@@ -915,7 +926,14 @@ def acquire_scale_validation_gpu_lease(
         if current is not None and current.state == "active":
             if parse_utc(current.expires_at) > now:
                 if current.run_id == run_id and current.lease_purpose == purpose:
-                    return current
+                    if (
+                        current.scenario_id == scenario_id
+                        and current.model_family == model_family
+                    ):
+                        return current
+                    raise ScenarioWorkloadError(
+                        "gpu_lease_identity_mismatch", run_id, status_code=409
+                    )
                 raise ScenarioWorkloadError(
                     "gpu_lease_conflict", f"GPU is leased by {current.run_id}."
                 )
@@ -925,8 +943,8 @@ def acquire_scale_validation_gpu_lease(
             lease_id=f"gpu-lease-{uuid4().hex}",
             fencing_token=uuid4().hex,
             run_id=run_id,
-            scenario_id="S4",
-            model_family="tabular",
+            scenario_id=scenario_id,
+            model_family=model_family,
             lease_purpose=purpose,
             owner_pid=owner_pid or os.getpid(),
             source_commit=source_commit,
@@ -943,6 +961,8 @@ def assert_scale_validation_gpu_lease_owner(
     lease_id: str,
     fencing_token: str,
     purpose: Literal["scale_validation_training", "scale_validation_inference"],
+    scenario_id: Literal["S4", "S7"] = "S4",
+    model_family: GpuLeaseModelFamily = "tabular",
 ) -> GpuLease:
     lease = read_active_gpu_lease()
     if (
@@ -952,7 +972,8 @@ def assert_scale_validation_gpu_lease_owner(
         or lease.lease_id != lease_id
         or lease.fencing_token != fencing_token
         or lease.lease_purpose != purpose
-        or lease.model_family != "tabular"
+        or lease.scenario_id != scenario_id
+        or lease.model_family != model_family
         or parse_utc(lease.expires_at) <= datetime.now(UTC)
     ):
         raise ScenarioWorkloadError("gpu_lease_identity_mismatch", run_id)
