@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T12:22:30Z`
+- Generated: `2026-08-23T12:41:26.869521Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -490,7 +490,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Spark executors process governed partitions with bounded memory and deterministic commits.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Commit the implementation checkpoint, then run the clean-revision staged columnar/local/Kubernetes 1/2/4 matrix and three executor-loss/idempotent replay repetitions.
+- Next action: Commit the retry replay identity remediation, then restart the complete clean-revision matrix; no retained point from attempt 01 earns acceptance credit.
 
 ### Affected Existing Components
 
@@ -539,11 +539,13 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 ### Current Evidence
 
 - `docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json` (`853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e`): Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure.
+- `docs/status/evidence/s5-spark-data-scale-attempt-01.json` (`051402f28cf7f30cab1ab784f0df5424984e21e67a47fc02a75a61b1ec493ee6`): The first clean-revision matrix stopped fail-closed at retry replay because its immutable generated-I/O identity differed; 27 retained measurements grant no acceptance credit.
 
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
 - `2026-08-23T12:22:30Z` `implementation` / `implementing`: Governed 3,061,802-row source stages and a 766,864-row cross-engine preparation smoke passed with equal digest and exact cleanup; full S5 acceptance remains pending.
+- `2026-08-23T12:41:26.869521Z` `experiment` / `implementing`: Attempt 01 stopped fail-closed after the executor-loss commit because replay derived repeat_factor=1 instead of the immutable generated-I/O repeat_factor=4; the failed evidence and cleanup were preserved and no acceptance credit was granted.
 
 ## S6: API Rolling Continuity & GPU Controlled Handoff
 

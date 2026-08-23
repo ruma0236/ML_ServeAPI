@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T12:22:30Z",
+  "generated_at": "2026-08-23T12:41:26.869521Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2779,6 +2779,12 @@
           "sha256": "853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e",
           "generated_at": "2026-08-23T12:22:30Z",
           "claim": "Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure."
+        },
+        {
+          "path": "docs/status/evidence/s5-spark-data-scale-attempt-01.json",
+          "sha256": "051402f28cf7f30cab1ab784f0df5424984e21e67a47fc02a75a61b1ec493ee6",
+          "generated_at": "2026-08-23T12:41:26.869521Z",
+          "claim": "The first clean-revision matrix stopped fail-closed at retry replay because its immutable generated-I/O identity differed; 27 retained measurements grant no acceptance credit."
         }
       ],
       "status": "implementing",
@@ -2789,7 +2795,7 @@
         "Retry preserves row count and output digest.",
         "Generated load volume is not represented as new semantic diversity."
       ],
-      "next_action": "Commit the implementation checkpoint, then run the clean-revision staged columnar/local/Kubernetes 1/2/4 matrix and three executor-loss/idempotent replay repetitions.",
+      "next_action": "Commit the retry replay identity remediation, then restart the complete clean-revision matrix; no retained point from attempt 01 earns acceptance credit.",
       "architecture_before": "Data processing is reproducible at local scale but remains mostly process-local.",
       "architecture_after": "Spark executors process governed partitions with bounded memory and deterministic commits.",
       "existing_system_baseline": "The existing Airflow data path uses deterministic Python and columnar processing, but distributed executor, shuffle, spill, skew, and retry behavior are not implemented or evidenced.",
@@ -2897,6 +2903,12 @@
           "sha256": "853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e",
           "generated_at": "2026-08-23T12:22:30Z",
           "claim": "Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure."
+        },
+        {
+          "path": "docs/status/evidence/s5-spark-data-scale-attempt-01.json",
+          "sha256": "051402f28cf7f30cab1ab784f0df5424984e21e67a47fc02a75a61b1ec493ee6",
+          "generated_at": "2026-08-23T12:41:26.869521Z",
+          "claim": "The first clean-revision matrix stopped fail-closed at retry replay because its immutable generated-I/O identity differed; 27 retained measurements grant no acceptance credit."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2919,6 +2931,15 @@
           "summary": "Governed 3,061,802-row source stages and a 766,864-row cross-engine preparation smoke passed with equal digest and exact cleanup; full S5 acceptance remains pending.",
           "evidence_refs": [
             "docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T12:41:26.869521Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "Attempt 01 stopped fail-closed after the executor-loss commit because replay derived repeat_factor=1 instead of the immutable generated-I/O repeat_factor=4; the failed evidence and cleanup were preserved and no acceptance credit was granted.",
+          "evidence_refs": [
+            "docs/status/evidence/s5-spark-data-scale-attempt-01.json"
           ]
         }
       ]

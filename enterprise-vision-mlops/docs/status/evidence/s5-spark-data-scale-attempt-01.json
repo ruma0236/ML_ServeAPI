@@ -1,0 +1,46 @@
+{
+  "acceptance_credit": false,
+  "attempt_id": "S5-ATTEMPT-01",
+  "claim_boundary": "Local single-node Spark failure evidence only; no production SLA, physical multi-node, full-terabyte, or customer-traffic claim.",
+  "cleanup": {
+    "s5_driver_jobs_remaining": 0,
+    "s5_executor_pods_remaining": 0,
+    "source_dataset_unchanged": true
+  },
+  "corrective_action": [
+    "Bind replay execution to the original retry profile and generated-I/O repeat factor.",
+    "Add a focused regression proving executor-loss and replay calls share the same output identity while replay performs no partition hold.",
+    "Restart the complete 30-point acceptance matrix at a clean remediation revision; no retained point earns acceptance credit."
+  ],
+  "generated_at": "2026-08-23T12:41:26.869521Z",
+  "next_action": "Commit the identity correction, rebuild the Spark image from that revision, and restart the complete matrix.",
+  "observed_failure": {
+    "duplicate_records": 0,
+    "effective_row_count": 12247208,
+    "executor_identity_count": 5,
+    "executor_kill_observed": true,
+    "missing_records": 0,
+    "original_commit_state": "committed",
+    "replay_error": "s5_output_commit_identity_mismatch",
+    "retained_completed_measurement_points": 27
+  },
+  "private_evidence": {
+    "aggregate_sha256": "7f88a0763ba0a411a81f09b88e19140f392d3078a72aeff9a94e9646f881b267",
+    "artifact_count": 48,
+    "total_bytes": 73465
+  },
+  "root_cause": "The executor-loss run committed generated I/O with repeat_factor=4, but the replay call derived the normal Kubernetes profile with repeat_factor=1. The output identity validator correctly failed closed because the same logical output was presented with a different immutable identity.",
+  "schema_version": "evm.s5_spark_data_scale_failed_attempt.v1",
+  "scope": {
+    "failure_point": "executor-loss retry repetition 1 replay",
+    "planned_result_records": 30,
+    "planned_repetitions": 3,
+    "retained_completed_measurement_points": 27
+  },
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "046a8901f5a07bf887b7854bba707eea8a102673",
+    "runtime_config_sha256": "3ac9ccebb9ca3d55e8f90f7bd1d176924fcd95d3c86237431aa70948285c87af"
+  },
+  "status": "stopped_fail_closed"
+}
