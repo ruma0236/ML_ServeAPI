@@ -1,0 +1,56 @@
+{
+  "acceptance_credit": false,
+  "claim_boundary": "Current-revision local smoke only; no production SLA, physical multi-node, full-terabyte, or customer-traffic claim.",
+  "cleanup": {
+    "kubernetes_executor_pods_remaining": 0,
+    "kubernetes_jobs_remaining": 0,
+    "pvc_phase": "Bound",
+    "source_dataset_unchanged": true
+  },
+  "cross_engine_output_digest_equal": true,
+  "engines": [
+    {
+      "duplicate_records": 0,
+      "effective_row_count": 766864,
+      "engine": "single_process_columnar",
+      "missing_records": 0,
+      "peak_executor_memory_bytes": 364060672,
+      "records_per_second": 1348376.641
+    },
+    {
+      "duplicate_records": 0,
+      "effective_row_count": 766864,
+      "engine": "spark_local",
+      "missing_records": 0,
+      "peak_executor_memory_bytes": 29360080,
+      "records_per_second": 94017.185
+    },
+    {
+      "duplicate_records": 0,
+      "effective_row_count": 766864,
+      "engine": "spark_kubernetes_1",
+      "missing_records": 0,
+      "peak_executor_memory_bytes": 33554432,
+      "records_per_second": 53293.21
+    }
+  ],
+  "generated_at": "2026-08-23T13:20:33.466588Z",
+  "private_evidence": {
+    "artifact_count": 6,
+    "index_sha256": "8b1fc01b8d0e4ad9e1da9d4827d735b3777157bf475db199bafd6ead46bd7926",
+    "total_bytes": 13161
+  },
+  "runtime_health": {
+    "api_status": "ok",
+    "existing_serving_available_replicas": 1,
+    "existing_serving_desired_replicas": 1,
+    "prometheus_targets_total": 4,
+    "prometheus_targets_up": 4
+  },
+  "schema_version": "evm.s5_current_revision_runtime_smoke.v1",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "revision": "c0ab34f95c09eef04a98640772660a51aab98107"
+  },
+  "status": "passed"
+}

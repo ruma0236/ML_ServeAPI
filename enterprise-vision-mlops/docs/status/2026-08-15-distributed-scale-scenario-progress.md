@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T13:03:56.294024Z`
+- Generated: `2026-08-23T13:25:23.777125Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -481,16 +481,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 
-- Status: `implementing`
+- Status: `verified`
 - Engineering question: Can larger partitioned data remain memory-bounded, deterministic, and restartable?
 - Why now: Single-process data preparation does not demonstrate executor or shuffle behavior.
 - Observed gap: Partition sizing, spill, skew, retry, and idempotent distributed commits are unproven.
 - Existing-system baseline: The existing Airflow data path uses deterministic Python and columnar processing, but distributed executor, shuffle, spill, skew, and retry behavior are not implemented or evidenced.
 - Architecture before: Data processing is reproducible at local scale but remains mostly process-local.
 - Architecture after: Spark executors process governed partitions with bounded memory and deterministic commits.
-- Verdict: `not_run`
+- Verdict: `passed`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Restart the complete matrix at the strict-validator revision and require public/private result projection equality; neither retained attempt earns acceptance credit.
+- Next action: Review S6 readiness and dependencies only; do not start S6 in this closure turn.
 
 ### Affected Existing Components
 
@@ -531,16 +531,19 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S5-AC-01` [pending]: Records per second, storage rate, peak executor memory, GC, shuffle, spill, and skew are reported.
-- `S5-AC-02` [pending]: Output contains zero missing and zero duplicate records.
-- `S5-AC-03` [pending]: Retry preserves row count and output digest.
-- `S5-AC-04` [pending]: Generated load volume is not represented as new semantic diversity.
+- `S5-AC-01` [passed]: Records per second, storage rate, peak executor memory, GC, shuffle, spill, and skew are reported.
+- `S5-AC-02` [passed]: Output contains zero missing and zero duplicate records.
+- `S5-AC-03` [passed]: Retry preserves row count and output digest.
+- `S5-AC-04` [passed]: Generated load volume is not represented as new semantic diversity.
 
 ### Current Evidence
 
 - `docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json` (`853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e`): Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure.
 - `docs/status/evidence/s5-spark-data-scale-attempt-01.json` (`051402f28cf7f30cab1ab784f0df5424984e21e67a47fc02a75a61b1ec493ee6`): The first clean-revision matrix stopped fail-closed at retry replay because its immutable generated-I/O identity differed; 27 retained measurements grant no acceptance credit.
 - `docs/status/evidence/s5-spark-data-scale-attempt-02.json` (`2c3c7c909b526148d81f08a7637f8993039e7ad17bc6decad0d2ad3f15357601`): A 30-point runtime pass was rejected for closure because its original public projection omitted the executor-loss and replay fields needed for independent S5-AC-03 recomputation.
+- `docs/status/evidence/s5-spark-data-scale-experiment.json` (`61937a003ec75f0c6e2edb868e5f849d8fe3bfcbd4e48dd89d68d789f9f9f0bf`): The accepted 30-point clean-revision matrix covers all required engines, three executor-loss replays, bounded telemetry, exact row/digest integrity, and generated-I/O semantic separation.
+- `docs/status/evidence/s5-current-revision-runtime-smoke.json` (`803784d8de841ca50026e42220dbd4d269b2df85a920fe68c43bd6e5fdcd303b`): Current-revision smoke reproduced the same 766,864-row digest with zero missing or duplicate records across columnar, local Spark, and Kubernetes Spark paths and exact cleanup.
+- `docs/status/evidence/s5-spark-data-scale-closure.json` (`b5d7f67278c2307b980ea4e43f918f40f0b977d2049e6a510d11cfa09b8bd1f5`): Strict closure independently recomputes S5-AC-01 through S5-AC-04, binds canonical Git bytes and private inventory hashes, records all RCA, regressions, runtime health, and cleanup.
 
 ### Chronological Updates
 
@@ -548,6 +551,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T12:22:30Z` `implementation` / `implementing`: Governed 3,061,802-row source stages and a 766,864-row cross-engine preparation smoke passed with equal digest and exact cleanup; full S5 acceptance remains pending.
 - `2026-08-23T12:41:26.869521Z` `experiment` / `implementing`: Attempt 01 stopped fail-closed after the executor-loss commit because replay derived repeat_factor=1 instead of the immutable generated-I/O repeat_factor=4; the failed evidence and cleanup were preserved and no acceptance credit was granted.
 - `2026-08-23T13:03:56.294024Z` `experiment` / `implementing`: Attempt 02 completed all 30 runtime points but was rejected for closure because its original public projection could not independently recompute executor-loss replay acceptance; strict public/private validation was added before a fresh run.
+- `2026-08-23T13:25:23.777125Z` `verification` / `verified`: A fresh strict-validator matrix completed 30 accepted points including three exact executor-loss replays; all four S5 acceptance criteria, current-revision smoke, regressions, canonical Git-byte hashes, private inventory rehash, and cleanup passed.
 
 ## S6: API Rolling Continuity & GPU Controlled Handoff
 

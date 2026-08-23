@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -9,6 +10,7 @@ import pytest
 
 from evm.scale_validation.s5_evidence import (
     S5EvidenceValidationError,
+    validate_s5_spark_data_scale_closure,
     validate_s5_spark_data_scale_evidence,
 )
 from evm.scale_validation.s5_runtime import S5RuntimeConfig
@@ -17,6 +19,7 @@ from evm.scale_validation.s5_runtime import S5RuntimeConfig
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs/s5_spark_data_scale.toml"
 EVIDENCE = ROOT / "docs/status/evidence/s5-spark-data-scale-experiment.json"
+CLOSURE = ROOT / "docs/status/evidence/s5-spark-data-scale-closure.json"
 DATA_ROOT = Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops")
 
 
@@ -50,6 +53,38 @@ def test_s5_public_and_private_evidence_recompute() -> None:
     assert result["point_result_count"] == 30
     assert all(item["status"] == "passed" for item in result["acceptance"].values())
     assert result["private_evidence"]["result_projection_count"] == 30
+
+
+def test_s5_closure_binds_experiment_and_regressions() -> None:
+    payload = _payload()
+    config = S5RuntimeConfig.from_path(CONFIG, data_root=DATA_ROOT)
+    closure = json.loads(CLOSURE.read_text(encoding="utf-8"))
+    result = validate_s5_spark_data_scale_closure(
+        closure,
+        experiment=payload,
+        experiment_sha256=hashlib.sha256(EVIDENCE.read_bytes()).hexdigest(),
+        config=config,
+        private_root=config.private_root / payload["suite_id"],
+    )
+
+    assert result["status"] == "valid"
+    assert result["point_result_count"] == 30
+
+
+def test_s5_closure_rejects_missing_regression() -> None:
+    payload = _payload()
+    config = S5RuntimeConfig.from_path(CONFIG, data_root=DATA_ROOT)
+    closure = json.loads(CLOSURE.read_text(encoding="utf-8"))
+    closure["regression"]["full_python_real_postgresql"]["status"] = "failed"
+
+    with pytest.raises(S5EvidenceValidationError, match="closure_regression"):
+        validate_s5_spark_data_scale_closure(
+            closure,
+            experiment=payload,
+            experiment_sha256=hashlib.sha256(EVIDENCE.read_bytes()).hexdigest(),
+            config=config,
+            private_root=config.private_root / payload["suite_id"],
+        )
 
 
 @pytest.mark.parametrize(
