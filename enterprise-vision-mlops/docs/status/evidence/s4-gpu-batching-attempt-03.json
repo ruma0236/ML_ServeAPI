@@ -1,0 +1,84 @@
+{
+  "acceptance_credit": false,
+  "attempt_id": "S4-ATTEMPT-03",
+  "claim_boundary": "Local single-node failure evidence only; no production SLA, HA, multi-GPU, or customer-traffic claim.",
+  "cleanup": {
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "holder_ready": true,
+    "holder_uid_restored": true,
+    "lease_released": true,
+    "prometheus_container_absent": true,
+    "serving_cuda_ready": true
+  },
+  "corrective_action": [
+    "Reduce and freeze closed concurrency from 128 to 64 before any acceptance run.",
+    "Retain enough concurrency to form batch 32 while reducing co-located client/API scheduling pressure.",
+    "Rerun the same three-repetition pilot at the new clean config revision before restarting the matrix."
+  ],
+  "generated_at": "2026-08-23T01:41:33.075076Z",
+  "next_action": "Run the same three-repetition pilot at frozen concurrency 64; no result in this attempt contributes acceptance credit.",
+  "observed_result": {
+    "error_count": 0,
+    "hard_stop_passed": [
+      true,
+      true,
+      false
+    ],
+    "oom_count": 0,
+    "p99_ms": [
+      1489.0768709903934,
+      1713.1015350067132,
+      5869.232473011643
+    ],
+    "prometheus_up": [
+      true,
+      true,
+      true
+    ],
+    "queue_wait_p99_ms": [
+      1149.2414805404042,
+      1165.8038656497408,
+      1084.4842166296257
+    ],
+    "request_counts": [
+      3892,
+      3716,
+      3360
+    ],
+    "sampled_trace_complete": [
+      8,
+      8,
+      7
+    ],
+    "sampled_trace_expected": [
+      8,
+      8,
+      7
+    ],
+    "service_rps": [
+      129.73333333333332,
+      123.86666666666666,
+      112.0
+    ]
+  },
+  "private_evidence": {
+    "aggregate_sha256": "5babd5f96a15ee18bcae0d571c454b945bf269ecf8b34fffdbe2e37440fb4855",
+    "artifact_count": 6,
+    "total_bytes": 2053658
+  },
+  "root_cause": "Per-request trace ownership was fixed and every sampled chain completed, but closed concurrency 128 produced an unstable client-side latency tail: repetition three p99 exceeded the frozen hard stop while server queue p99, error count, OOM count, Prometheus, and cleanup remained bounded.",
+  "schema_version": "evm.s4_gpu_batching_failed_attempt.v1",
+  "scope": {
+    "closed_concurrency": 128,
+    "planned_pilot_repetitions": 3,
+    "point_id": "trace-pilot-batch-4-delay-2-instances-1",
+    "retained_repetitions": 3
+  },
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "a56b8544b516b3bb3dcad7ad157dfacebd80ec4f",
+    "runtime_config_sha256": "8e5364da63317117823e53b0c7a90de880fb4e41970bd71fa667ef5ed4a3e8ac"
+  },
+  "status": "stopped_fail_closed"
+}

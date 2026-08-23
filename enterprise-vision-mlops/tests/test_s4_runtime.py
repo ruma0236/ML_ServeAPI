@@ -62,6 +62,7 @@ def _result(batch: int, delay: int, instances: int, mode: str, repetition: int) 
 
 def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> None:
     config = _config(tmp_path)
+    assert config.closed_concurrency == 64
     assert config.public_dict()["preparation"] == {
         "closed_concurrency": 1,
         "warmup_seconds": 2.0,

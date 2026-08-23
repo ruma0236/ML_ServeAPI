@@ -211,6 +211,8 @@ class S4RuntimeConfig:
             raise S4RuntimeError("s4_instance_axis_invalid")
         if self.repetitions != 3 or self.open_repetitions != 3:
             raise S4RuntimeError("s4_requires_three_independent_repetitions")
+        if self.closed_concurrency != 64:
+            raise S4RuntimeError("s4_closed_concurrency_not_frozen")
         if (
             self.preparation_closed_concurrency,
             self.preparation_warmup_seconds,
