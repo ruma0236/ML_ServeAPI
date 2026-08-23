@@ -249,6 +249,30 @@ def validate_s6_closure(
         for name in required_regression
     ):
         errors.append("closure_regression")
+    smoke = dict(regression.get("current_revision_runtime_smoke", {}))
+    if git_root is not None and smoke:
+        smoke_path = str(smoke.get("path") or "")
+        full_smoke_path = (
+            smoke_path
+            if smoke_path.startswith("enterprise-vision-mlops/")
+            else f"enterprise-vision-mlops/{smoke_path}"
+        )
+        try:
+            smoke_raw = subprocess.run(
+                ["git", "show", f"{validation_revision}:{full_smoke_path}"],
+                cwd=git_root,
+                check=True,
+                capture_output=True,
+            ).stdout
+            if b"\r\n" in smoke_raw or not smoke_raw.endswith(b"\n"):
+                errors.append("closure_smoke_not_canonical_lf")
+            if hashlib.sha256(smoke_raw).hexdigest() != smoke.get("sha256"):
+                errors.append("closure_smoke_sha256")
+            smoke_payload = json.loads(smoke_raw)
+            if smoke_payload.get("status") != "passed":
+                errors.append("closure_smoke_status")
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+            errors.append("closure_smoke_unavailable")
 
     cleanup = dict(closure.get("cleanup", {}))
     cleanup_expectations = {
