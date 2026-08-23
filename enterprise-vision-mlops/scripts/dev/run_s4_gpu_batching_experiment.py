@@ -919,7 +919,7 @@ def start_prometheus(context: RuntimeContext, scrape_interval: float) -> None:
         "\n".join(
             [
                 "global:",
-                f"  scrape_interval: {scrape_interval}s",
+                f"  scrape_interval: {scrape_interval:g}s",
                 "scrape_configs:",
                 '  - job_name: "evm-s4-gpu-batch"',
                 "    metrics_path: /metrics",
@@ -951,7 +951,11 @@ def start_prometheus(context: RuntimeContext, scrape_interval: float) -> None:
         ],
         timeout=60,
     )
-    wait_http(f"{PROMETHEUS_URL}/-/ready", timeout=60)
+    wait_http(
+        f"{PROMETHEUS_URL}/-/ready",
+        timeout=60,
+        logs_container=PROMETHEUS_CONTAINER,
+    )
 
 
 def wait_prometheus_up(timeout: float = 30) -> None:
@@ -1339,7 +1343,7 @@ def stop_container(name: str) -> None:
         )
 
 
-def wait_http(url: str, *, timeout: float) -> None:
+def wait_http(url: str, *, timeout: float, logs_container: str = API_CONTAINER) -> None:
     deadline = time.monotonic() + timeout
     last = ""
     while time.monotonic() < deadline:
@@ -1352,7 +1356,7 @@ def wait_http(url: str, *, timeout: float) -> None:
             last = str(exc)
         time.sleep(1)
     logs = subprocess.run(
-        ["docker", "logs", "--tail", "100", API_CONTAINER],
+        ["docker", "logs", "--tail", "100", logs_container],
         capture_output=True,
         text=True,
         timeout=15,
