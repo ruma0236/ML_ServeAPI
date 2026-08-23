@@ -31,3 +31,13 @@ def test_isolated_s6_manifest_preserves_existing_api_and_serving_names() -> None
     assert "value: evm_s6_api" in payload
     assert "app.kubernetes.io/name: evm-api\n" not in payload
     assert "evm-b0-production" not in payload
+
+
+def test_prometheus_declares_ephemeral_s6_file_sd_target() -> None:
+    payload = (ROOT / "monitoring/prometheus/prometheus.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'job_name: "evm-s6-api"' in payload
+    assert "/etc/prometheus/targets/s6-api.json" in payload
+    assert "refresh_interval: 2s" in payload

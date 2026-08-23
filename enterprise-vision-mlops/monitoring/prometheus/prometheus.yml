@@ -16,6 +16,13 @@ scrape_configs:
     static_configs:
       - targets: ["task-queue-worker:9465"]
 
+  - job_name: "evm-s6-api"
+    metrics_path: /metrics
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/s6-api.json
+        refresh_interval: 2s
+
   - job_name: "evm-b0-production"
     metrics_path: /metrics
     file_sd_configs:
