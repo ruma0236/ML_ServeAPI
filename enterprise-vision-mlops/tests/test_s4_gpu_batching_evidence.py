@@ -9,6 +9,7 @@ import pytest
 
 from evm.scale_validation.s4_evidence import (
     S4EvidenceValidationError,
+    validate_s4_gpu_batching_closure,
     validate_s4_gpu_batching_evidence,
 )
 from evm.scale_validation.s4_runtime import S4RuntimeConfig
@@ -16,6 +17,7 @@ from evm.scale_validation.s4_runtime import S4RuntimeConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE = ROOT / "docs/status/evidence/s4-gpu-batching-experiment.json"
+CLOSURE = ROOT / "docs/status/evidence/s4-gpu-batching-closure.json"
 CONFIG = ROOT / "configs/s4_gpu_batching_runtime.toml"
 DATA_ROOT = Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops")
 
@@ -95,4 +97,54 @@ def test_s4_git_source_identity_fails_closed_on_unknown_revision() -> None:
             payload,
             config=config,
             git_root=ROOT.parent,
+        )
+
+
+def test_s4_closure_recomputes_from_runtime_evidence() -> None:
+    payload, config = _payload_and_config()
+    closure = json.loads(CLOSURE.read_text(encoding="utf-8"))
+
+    result = validate_s4_gpu_batching_closure(
+        closure,
+        experiment=payload,
+        experiment_sha256="8d2b3525eee115e38dab33f19b4426b9b8ce529ecd78cdd7b86d15eaf8530a22",
+        config=config,
+        git_root=ROOT.parent,
+    )
+
+    assert result["status"] == "valid"
+    assert result["point_result_count"] == 66
+    assert all(result["acceptance"].values())
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "experiment_sha256",
+        "selected_point",
+        "capacity",
+        "regression",
+        "cleanup",
+    ],
+)
+def test_s4_closure_mutations_fail_closed(field: str) -> None:
+    payload, config = _payload_and_config()
+    closure = json.loads(CLOSURE.read_text(encoding="utf-8"))
+    if field == "experiment_sha256":
+        closure["final_runtime_evidence"]["git_blob_sha256"] = "0" * 64
+    elif field == "selected_point":
+        closure["selected_operating_point"]["batch_size"] = 32
+    elif field == "capacity":
+        closure["s2_capacity_recalculation"]["applied_depth"] = 64
+    elif field == "regression":
+        closure["regression"]["current_revision_runtime_smoke"]["status"] = "failed"
+    elif field == "cleanup":
+        closure["cleanup"]["runtime_cleanup_passed"] = False
+
+    with pytest.raises(S4EvidenceValidationError):
+        validate_s4_gpu_batching_closure(
+            closure,
+            experiment=payload,
+            experiment_sha256="8d2b3525eee115e38dab33f19b4426b9b8ce529ecd78cdd7b86d15eaf8530a22",
+            config=config,
         )

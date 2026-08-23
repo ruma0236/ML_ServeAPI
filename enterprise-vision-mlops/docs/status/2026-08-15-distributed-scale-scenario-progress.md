@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T10:03:14.085331Z`
+- Generated: `2026-08-23T10:20:55.921057Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -375,16 +375,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S4: HIGGS Tiny MLP GPU Batching
 
-- Status: `implementing`
+- Status: `verified`
 - Engineering question: Which small-model batch and queue-delay settings maximize throughput within p99 and VRAM?
 - Why now: A lightweight GPU probe reveals scheduler and batching cost without a large model.
 - Observed gap: No throughput-latency-VRAM Pareto curve exists for the accelerator path.
 - Existing-system baseline: The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.
 - Architecture before: The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.
-- Architecture after: The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; open-loop confirmation requires a quiet recovery gate and the final operating point remains unselected until the full matrix passes.
-- Verdict: `not_run`
+- Architecture after: The existing Workloads API now provides a bounded CUDA Tiny MLP batcher with versioned batch, delay, instance, lease, trace, and VRAM identities, a baseline-relative quiet recovery gate, an independently validated zero-OOM candidate, and a measured open-loop service rate used to recommend rather than silently apply an S2 queue bound.
+- Verdict: `passed`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Commit the independent validator, run full regressions and current-revision runtime smoke, then create and Git-blob validate the closure artifact.
+- Next action: Keep S5 planned and not started; separately reconcile the historical task-queue cutover mismatch before claiming the entire shared runtime is healthy.
 
 ### Affected Existing Components
 
@@ -397,7 +397,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 ### Architecture Delta
 
 - Before: The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.
-- After: The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; open-loop confirmation requires a quiet recovery gate and the final operating point remains unselected until the full matrix passes.
+- After: The existing Workloads API now provides a bounded CUDA Tiny MLP batcher with versioned batch, delay, instance, lease, trace, and VRAM identities, a baseline-relative quiet recovery gate, an independently validated zero-OOM candidate, and a measured open-loop service rate used to recommend rather than silently apply an S2 queue bound.
 - Selection reason: A tiny MLP isolates GPU scheduler and batch-formation cost while reusing the real Workloads API and single-GPU lease boundary.
 - Alternative/trade-off: Multiple concurrent training jobs and parallel model-serving claims remain excluded because the hardware cannot provide trustworthy MIG-style isolation.
 
@@ -415,6 +415,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - In-place bounded CUDA batching runtime: `src/evm/model_runtime/gpu_batch_probe.py`, `src/evm/model_runtime/tiny_mlp.py`
 - Versioned S4 runtime, runner, and container contract: `src/evm/scale_validation/s4_runtime.py`, `scripts/dev/prepare_s4_tiny_mlp.py`, `scripts/dev/run_s4_gpu_batching_experiment.py`, `configs/s4_gpu_batching_runtime.toml`, `infra/docker/gpu-batching/Dockerfile`
 - Focused S4 regression coverage: `tests/test_s4_gpu_batch_probe.py`, `tests/test_s4_runtime.py`
+- Independent S4 evidence and closure validation: `src/evm/scale_validation/s4_evidence.py`, `scripts/dev/validate_s4_gpu_batching_evidence.py`, `tests/test_s4_gpu_batching_evidence.py`
 - Compatibility: Existing VLM/LLM request and lifecycle schemas are unchanged; the tabular probe is an opt-in subroute and the legacy serving holder is restored after each controlled window.
 - Migration: No data-store migration is required. Batch-one is the frozen rollback profile, and all S4 state is source/config/model/lease identity bound.
 
@@ -431,10 +432,10 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S4-AC-01` [pending]: Throughput-p99 and throughput-peak-VRAM Pareto curves exist.
-- `S4-AC-02` [pending]: The selected operating point has zero accelerator out-of-memory failures.
-- `S4-AC-03` [pending]: Model instance count and batch size effects are measured separately.
-- `S4-AC-04` [pending]: Queue limits are recalculated from the selected service rate.
+- `S4-AC-01` [passed]: Throughput-p99 and throughput-peak-VRAM Pareto curves exist.
+- `S4-AC-02` [passed]: The selected operating point has zero accelerator out-of-memory failures.
+- `S4-AC-03` [passed]: Model instance count and batch size effects are measured separately.
+- `S4-AC-04` [passed]: Queue limits are recalculated from the selected service rate.
 
 ### Current Evidence
 
@@ -452,7 +453,9 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s4-open-loop-60rps-checkpoint.json` (`a977e02ac4ade893791ffe4d5f871c97b6305a24a4de5cffa3a526cc1d6a487f`): Three external no-catch-up 60 RPS calibration repetitions passed delivery fidelity, fixed p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this remains non-acceptance calibration evidence.
 - `docs/status/evidence/s4-gpu-batching-attempt-09.json` (`efbe117319651b4c1a1b812d46c81b56740c4aedc3cc5f4e0a2310447292eb99`): A clean run retained 60 matrix and three instance repetitions, then stopped before open-loop because the initial quiet gate misattributed desktop GPU spikes to the experiment; zero OOM and exact cleanup were preserved.
 - `docs/status/evidence/s4-open-loop-stabilization-checkpoint.json` (`f3e439af59887e7721fb4c03011c4337e9d47513caec1ad11baddad018208530`): The baseline-relative quiet gate and three external 60 RPS repetitions passed delivery, fixed latency, trace, zero-OOM, drain, lease, serving-restoration, and cleanup gates; this remains non-acceptance evidence.
-- `docs/status/evidence/s4-gpu-batching-experiment.json` (`8d2b3525eee115e38dab33f19b4426b9b8ce529ecd78cdd7b86d15eaf8530a22`): A fresh clean-revision run completed all 66 planned repetitions, runner-projected S4-AC-01 through S4-AC-04, zero OOM, complete traces, quiet recovery, and exact cleanup; independent evidence closure is still pending.
+- `docs/status/evidence/s4-gpu-batching-experiment.json` (`8d2b3525eee115e38dab33f19b4426b9b8ce529ecd78cdd7b86d15eaf8530a22`): A fresh clean-revision run completed all 66 planned repetitions with all four S4 ACs, zero OOM, complete traces, quiet recovery, and exact cleanup; the independent closure recomputes and validates these claims.
+- `docs/status/evidence/s4-current-revision-runtime-smoke.json` (`f5d5f3e2ef8b711a70808dcd5dec4fcbba8f37ec119a62a88141e72af6f4e27b`): At verification revision 5fcfcd7, an external batch-one CUDA smoke completed 456/456 requests at 91.2 requests per second with 24.61 ms p99, one complete sampled trace chain, zero OOM, and exact cleanup; it grants regression evidence, not additional matrix acceptance credit.
+- `docs/status/evidence/s4-gpu-batching-closure.json` (`903eef3b356ae5f4dea7e0bc31d8cf5db06c50968d02ef285a61ca3f462bd1a6`): Independent closure recomputes S4-AC-01 through S4-AC-04 from the canonical experiment blob, validates all regressions and 69 private artifacts, and records the single-node claim boundary plus the separate shared-runtime queue-worker residual.
 
 ### Chronological Updates
 
@@ -474,6 +477,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T08:44:21.746261Z` `implementation` / `implementing`: At clean revision 72ec3d2, the baseline-relative 60-second quiet gate passed with the experiment container absent and exact lease identity. Three external 60 RPS repetitions delivered 58.90 to 59.23 RPS, p99 59.17 to 72.45 ms, queue p99 15.83 to 21.07 ms, 12/12 sampled traces, zero OOM, terminal drain, exact serving restoration, and cleanup. This grants no acceptance credit before the fresh full run.
 - `2026-08-23T09:55:37.605649Z` `experiment` / `implementing`: At clean revision a760a49, the full run completed 60 matrix, three instance-axis, and three open-loop repetitions. The selected saturation candidate was batch 8/delay 10/instance 1 at 160.70 mean RPS; the three no-catch-up confirmations delivered 58.90 to 59.10 RPS with p99 63.87 to 73.79 ms, queue p99 17.98 to 20.36 ms, complete traces, zero OOM, and exact cleanup. The runner projected all four ACs as passed, but S4 remains implementing until independent evidence recomputation and closure pass.
 - `2026-08-23T10:03:14.085331Z` `verification` / `implementing`: The independent S4 validator recomputed all 66 point identities and four ACs, rehashed the canonical Git experiment blob and 69 private artifacts, and verified source/config ancestry, trace/drain/OOM, quiet recovery, instance effects, S2 capacity, and cleanup. Twenty-seven focused tests and nine negative evidence mutations passed. Full regressions, current-revision smoke, and closure remain pending.
+- `2026-08-23T10:20:55.921057Z` `verification` / `verified`: Independent closure passed all four S4 criteria from 66 fresh CUDA repetitions, 69 rehashed private artifacts, 33 focused tests including closure mutations, 768 Python tests with real PostgreSQL, 144 lifecycle/host tests, 59 Control Panel tests, a production frontend build, S0-S3 validators, and current-revision batch-one smoke. The shared queue worker was stopped fail closed after its separate cutover gate identified 38 historical queued entities without durable queue rows.
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T10:03:14.085331Z",
+  "generated_at": "2026-08-23T10:20:55.921057Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2075,6 +2075,14 @@
             "tests/test_s4_gpu_batch_probe.py",
             "tests/test_s4_runtime.py"
           ]
+        },
+        {
+          "component": "Independent S4 evidence and closure validation",
+          "files": [
+            "src/evm/scale_validation/s4_evidence.py",
+            "scripts/dev/validate_s4_gpu_batching_evidence.py",
+            "tests/test_s4_gpu_batching_evidence.py"
+          ]
         }
       ],
       "implementation_summary": [
@@ -2096,7 +2104,8 @@
         "The first quiet gate stopped a clean run after 63 repetitions because it compared noisy whole-device Windows display utilization against an absolute 15-percent ceiling even though the experiment container was absent and VRAM had recovered. The corrected gate retains every spike but requires exact lease ownership, experiment-container absence, stable VRAM/temperature, and a five-sample utilization median within 15 percentage points of the measured pre-run baseline.",
         "At clean revision 72ec3d2, the corrected quiet gate and external 60 RPS pilot passed three repetitions with complete traces, fixed p99/queue SLOs, zero OOM, terminal drain, exact holder restoration, and cleanup. This is a non-acceptance checkpoint before one fresh 66-repetition run.",
         "At clean revision a760a49, the fresh full run completed all 60 batch-delay repetitions, three instance-axis repetitions, the quiet recovery gate, and three 60 RPS open-loop confirmations. The runner projected all four ACs as passed; independent evidence recomputation and closure remain required before S4 is marked verified.",
-        "A separate fail-closed validator now recomputes point coverage, all four ACs, trace/drain/OOM and operating gates, instance effects, the S2 capacity formula, source/config Git identity, cleanup, and all 69 private artifacts. Twenty-seven focused tests, including nine public-evidence mutations, pass; full regressions and closure remain pending."
+        "A separate fail-closed validator now recomputes point coverage, all four ACs, trace/drain/OOM and operating gates, instance effects, the S2 capacity formula, source/config Git identity, cleanup, and all 69 private artifacts. Twenty-seven focused tests, including nine public-evidence mutations, pass; full regressions and closure remain pending.",
+        "Independent closure at revision 5fcfcd7 recomputed all four ACs from 66 fresh point results, rehashed 69 private artifacts, passed current-revision CUDA smoke and regression suites, and retained the shared-runtime queue-worker cutover mismatch as a separate operational residual."
       ],
       "experiment_environment": "Actual local single-node runtime with one consumer GPU, the existing Workloads API, external TCP client, isolated Prometheus, OTLP collector, and exact Kubernetes serving-holder handoff. No customer traffic or production SLA.",
       "test_or_experiment_steps": [
@@ -2109,29 +2118,41 @@
         {
           "criterion_id": "S4-AC-01",
           "description": "Throughput-p99 and throughput-peak-VRAM Pareto curves exist.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-experiment.json",
+            "docs/status/evidence/s4-gpu-batching-closure.json"
+          ]
         },
         {
           "criterion_id": "S4-AC-02",
           "description": "The selected operating point has zero accelerator out-of-memory failures.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-experiment.json",
+            "docs/status/evidence/s4-gpu-batching-closure.json"
+          ]
         },
         {
           "criterion_id": "S4-AC-03",
           "description": "Model instance count and batch size effects are measured separately.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-experiment.json",
+            "docs/status/evidence/s4-gpu-batching-closure.json"
+          ]
         },
         {
           "criterion_id": "S4-AC-04",
           "description": "Queue limits are recalculated from the selected service rate.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-experiment.json",
+            "docs/status/evidence/s4-gpu-batching-closure.json"
+          ]
         }
       ],
-      "observed_result": null,
+      "observed_result": "A fresh 66-repetition CUDA run completed the 60-point batch-delay matrix, three instance-axis repetitions, and three no-catch-up open-loop confirmations. The selected batch 8 / 10 ms / one-instance saturation candidate measured 160.70 mean requests per second with zero OOM. Independent 60 RPS confirmation delivered 58.90-59.10 requests per second at 63.87-73.79 ms p99 and 17.98-20.36 ms queue-wait p99 with 12/12 sampled trace chains, terminal drain, exact lease release, serving restoration, and 69 private artifacts rehashed. The evidence-derived S2 queue recommendation is four requests; it was not automatically applied to the shared runtime.",
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s4-preparation-checkpoint.json",
@@ -2221,20 +2242,31 @@
           "path": "docs/status/evidence/s4-gpu-batching-experiment.json",
           "sha256": "8d2b3525eee115e38dab33f19b4426b9b8ce529ecd78cdd7b86d15eaf8530a22",
           "generated_at": "2026-08-23T09:55:37.605649Z",
-          "claim": "A fresh clean-revision run completed all 66 planned repetitions, runner-projected S4-AC-01 through S4-AC-04, zero OOM, complete traces, quiet recovery, and exact cleanup; independent evidence closure is still pending."
+          "claim": "A fresh clean-revision run completed all 66 planned repetitions with all four S4 ACs, zero OOM, complete traces, quiet recovery, and exact cleanup; the independent closure recomputes and validates these claims."
+        },
+        {
+          "path": "docs/status/evidence/s4-current-revision-runtime-smoke.json",
+          "sha256": "f5d5f3e2ef8b711a70808dcd5dec4fcbba8f37ec119a62a88141e72af6f4e27b",
+          "generated_at": "2026-08-23T10:07:27.440749Z",
+          "claim": "At verification revision 5fcfcd7, an external batch-one CUDA smoke completed 456/456 requests at 91.2 requests per second with 24.61 ms p99, one complete sampled trace chain, zero OOM, and exact cleanup; it grants regression evidence, not additional matrix acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-closure.json",
+          "sha256": "903eef3b356ae5f4dea7e0bc31d8cf5db06c50968d02ef285a61ca3f462bd1a6",
+          "generated_at": "2026-08-23T10:20:55.921057Z",
+          "claim": "Independent closure recomputes S4-AC-01 through S4-AC-04 from the canonical experiment blob, validates all regressions and 69 private artifacts, and records the single-node claim boundary plus the separate shared-runtime queue-worker residual."
         }
       ],
-      "status": "implementing",
+      "status": "verified",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
       "unresolved_items": [
-        "Throughput-p99 and throughput-peak-VRAM Pareto curves exist.",
-        "The selected operating point has zero accelerator out-of-memory failures.",
-        "Model instance count and batch size effects are measured separately.",
-        "Queue limits are recalculated from the selected service rate."
+        "The evidence-derived depth of four is a recommendation and has not replaced the shared runtime's rollback depth of 64.",
+        "The shared task-queue worker remains stopped fail closed until 38 historical queued Airflow task entities are reconciled through an operator-reviewed migration; this pre-existing runtime mismatch is outside S4 acceptance.",
+        "Repository-wide lint retains eight unrelated pre-existing findings that were not modified during S4."
       ],
-      "next_action": "Commit the independent validator, run full regressions and current-revision runtime smoke, then create and Git-blob validate the closure artifact.",
+      "next_action": "Keep S5 planned and not started; separately reconcile the historical task-queue cutover mismatch before claiming the entire shared runtime is healthy.",
       "architecture_before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
-      "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; open-loop confirmation requires a quiet recovery gate and the final operating point remains unselected until the full matrix passes.",
+      "architecture_after": "The existing Workloads API now provides a bounded CUDA Tiny MLP batcher with versioned batch, delay, instance, lease, trace, and VRAM identities, a baseline-relative quiet recovery gate, an independently validated zero-OOM candidate, and a measured open-loop service rate used to recommend rather than silently apply an S2 queue bound.",
       "existing_system_baseline": "The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.",
       "affected_existing_components": [
         {
@@ -2278,7 +2310,7 @@
       "engineering_gap_and_reason": "No throughput-latency-VRAM Pareto curve exists for the accelerator path.",
       "architecture_delta": {
         "before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
-        "after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; open-loop confirmation requires a quiet recovery gate and the final operating point remains unselected until the full matrix passes.",
+        "after": "The existing Workloads API now provides a bounded CUDA Tiny MLP batcher with versioned batch, delay, instance, lease, trace, and VRAM identities, a baseline-relative quiet recovery gate, an independently validated zero-OOM candidate, and a measured open-loop service rate used to recommend rather than silently apply an S2 queue bound.",
         "selection_reasons": [
           "A tiny MLP isolates GPU scheduler and batch-formation cost while reusing the real Workloads API and single-GPU lease boundary."
         ],
@@ -2323,6 +2355,14 @@
             "files": [
               "tests/test_s4_gpu_batch_probe.py",
               "tests/test_s4_runtime.py"
+            ]
+          },
+          {
+            "component": "Independent S4 evidence and closure validation",
+            "files": [
+              "src/evm/scale_validation/s4_evidence.py",
+              "scripts/dev/validate_s4_gpu_batching_evidence.py",
+              "tests/test_s4_gpu_batching_evidence.py"
             ]
           }
         ],
@@ -2456,11 +2496,23 @@
           "path": "docs/status/evidence/s4-gpu-batching-experiment.json",
           "sha256": "8d2b3525eee115e38dab33f19b4426b9b8ce529ecd78cdd7b86d15eaf8530a22",
           "generated_at": "2026-08-23T09:55:37.605649Z",
-          "claim": "A fresh clean-revision run completed all 66 planned repetitions, runner-projected S4-AC-01 through S4-AC-04, zero OOM, complete traces, quiet recovery, and exact cleanup; independent evidence closure is still pending."
+          "claim": "A fresh clean-revision run completed all 66 planned repetitions with all four S4 ACs, zero OOM, complete traces, quiet recovery, and exact cleanup; the independent closure recomputes and validates these claims."
+        },
+        {
+          "path": "docs/status/evidence/s4-current-revision-runtime-smoke.json",
+          "sha256": "f5d5f3e2ef8b711a70808dcd5dec4fcbba8f37ec119a62a88141e72af6f4e27b",
+          "generated_at": "2026-08-23T10:07:27.440749Z",
+          "claim": "At verification revision 5fcfcd7, an external batch-one CUDA smoke completed 456/456 requests at 91.2 requests per second with 24.61 ms p99, one complete sampled trace chain, zero OOM, and exact cleanup; it grants regression evidence, not additional matrix acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-closure.json",
+          "sha256": "903eef3b356ae5f4dea7e0bc31d8cf5db06c50968d02ef285a61ca3f462bd1a6",
+          "generated_at": "2026-08-23T10:20:55.921057Z",
+          "claim": "Independent closure recomputes S4-AC-01 through S4-AC-04 from the canonical experiment blob, validates all regressions and 69 private artifacts, and records the single-node claim boundary plus the separate shared-runtime queue-worker residual."
         }
       ],
       "verdict_and_claim_boundary": {
-        "verdict": "not_run",
+        "verdict": "passed",
         "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
         "final_system_validation_required": true
       },
@@ -2623,6 +2675,17 @@
           "summary": "The independent S4 validator recomputed all 66 point identities and four ACs, rehashed the canonical Git experiment blob and 69 private artifacts, and verified source/config ancestry, trace/drain/OOM, quiet recovery, instance effects, S2 capacity, and cleanup. Twenty-seven focused tests and nine negative evidence mutations passed. Full regressions, current-revision smoke, and closure remain pending.",
           "evidence_refs": [
             "docs/status/evidence/s4-gpu-batching-experiment.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T10:20:55.921057Z",
+          "phase": "verification",
+          "status": "verified",
+          "summary": "Independent closure passed all four S4 criteria from 66 fresh CUDA repetitions, 69 rehashed private artifacts, 33 focused tests including closure mutations, 768 Python tests with real PostgreSQL, 144 lifecycle/host tests, 59 Control Panel tests, a production frontend build, S0-S3 validators, and current-revision batch-one smoke. The shared queue worker was stopped fail closed after its separate cutover gate identified 38 historical queued entities without durable queue rows.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-experiment.json",
+            "docs/status/evidence/s4-current-revision-runtime-smoke.json",
+            "docs/status/evidence/s4-gpu-batching-closure.json"
           ]
         }
       ]

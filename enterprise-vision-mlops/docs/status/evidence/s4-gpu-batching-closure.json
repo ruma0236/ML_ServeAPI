@@ -1,0 +1,162 @@
+{
+  "schema_version": "evm.s4_gpu_batching_closure.v1",
+  "generated_at": "2026-08-23T10:20:55.921057Z",
+  "status": "verified",
+  "verdict": "passed",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "experiment_revision": "a760a496bda94790641dfdf6ba077576b45d15d9",
+    "verification_revision": "5fcfcd7caefd9cb7d599ee988977bb34400f3cb7",
+    "runtime_config_sha256": "35cdacf7c7dad6245d734be73341d5738670feea17eb43abc901d24067bc291c"
+  },
+  "final_runtime_evidence": {
+    "path": "docs/status/evidence/s4-gpu-batching-experiment.json",
+    "git_blob_sha256": "8d2b3525eee115e38dab33f19b4426b9b8ce529ecd78cdd7b86d15eaf8530a22",
+    "point_result_count": 66,
+    "experiment_counts": {
+      "matrix": 60,
+      "instance_axis": 3,
+      "open_loop": 3
+    },
+    "acceptance": {
+      "S4-AC-01": true,
+      "S4-AC-02": true,
+      "S4-AC-03": true,
+      "S4-AC-04": true
+    },
+    "private_evidence": {
+      "artifact_count": 69,
+      "total_bytes": 42916412,
+      "aggregate_sha256": "69cc2e8cf2227f82c7eb40ea61c18ff30ee74ee42226b84eb570055e719710dd",
+      "index_sha256": "6c0ff98fefbb5fc6fae90a70d55ce06c891654e2fc539c2c138a0561e363558d"
+    }
+  },
+  "selected_operating_point": {
+    "batch_size": 8,
+    "max_delay_ms": 10,
+    "instance_count": 1,
+    "service_rps_mean": 160.70000000000002
+  },
+  "validated_open_loop": {
+    "target_offered_rps": 60.0,
+    "service_rps": [
+      58.9,
+      58.96666666666667,
+      59.1
+    ],
+    "delivery_ratio": [
+      0.9816666666666667,
+      0.9827777777777779,
+      0.985
+    ],
+    "p99_ms": [
+      70.53794199659022,
+      73.79061601008289,
+      63.86598799726914
+    ],
+    "queue_wait_p99_ms": [
+      17.977704860386382,
+      20.072538925451223,
+      20.35722743952647
+    ],
+    "oom_count": 0,
+    "sampled_trace_chains": "12/12",
+    "terminal_drain_passed": true
+  },
+  "instance_axis": {
+    "batch_size": 1,
+    "max_delay_ms": 0,
+    "instance_1_service_rps_mean": 103.27777777777779,
+    "instance_2_service_rps_mean": 110.67777777777778,
+    "throughput_change_percent": 7.165196130176679,
+    "p99_change_percent": -29.097151041344155
+  },
+  "s2_capacity_recalculation": {
+    "selected_saturation_rate_requests_per_second": 160.70000000000002,
+    "validated_open_loop_service_rate_requests_per_second": 58.98888888888889,
+    "maximum_queue_wait_seconds": 0.1,
+    "safety_factor": 0.7,
+    "formula": "floor(service_rate * maximum_queue_wait_seconds * safety_factor)",
+    "calculated_depth": 4,
+    "prior_depth": 64,
+    "applied_depth": 4,
+    "rollback_depth": 64,
+    "automatic_increase_allowed": false
+  },
+  "regression": {
+    "focused_s4": {
+      "status": "passed",
+      "tests_passed": 27,
+      "negative_evidence_mutations": 9
+    },
+    "full_python_real_postgresql": {
+      "status": "passed",
+      "tests_passed": 768,
+      "tests_skipped": 1,
+      "skip_boundary": "Host Python has no CUDA runtime; actual CUDA execution is validated by the trusted S4 GPU container evidence."
+    },
+    "lifecycle_host_e2e": {
+      "status": "passed",
+      "tests_passed": 144
+    },
+    "control_panel": {
+      "status": "passed",
+      "tests_passed": 59
+    },
+    "frontend_production_build": {
+      "status": "passed",
+      "modules_transformed": 1803
+    },
+    "s0_s3_regression": {
+      "status": "passed",
+      "progress_git_blob_validator": true,
+      "s3_evidence_and_closure_validator": true
+    },
+    "current_revision_runtime_smoke": {
+      "status": "passed",
+      "path": "docs/status/evidence/s4-current-revision-runtime-smoke.json",
+      "git_revision": "5fcfcd7caefd9cb7d599ee988977bb34400f3cb7",
+      "sha256": "f5d5f3e2ef8b711a70808dcd5dec4fcbba8f37ec119a62a88141e72af6f4e27b",
+      "request_count": 456,
+      "service_rps": 91.2,
+      "p99_ms": 24.607345006370416,
+      "queue_wait_p99_ms": 0.07373919943347561,
+      "sampled_trace_chains": "1/1",
+      "oom_count": 0,
+      "cleanup_passed": true
+    },
+    "changed_file_lint": {
+      "status": "passed"
+    },
+    "repository_wide_lint": {
+      "status": "failed_pre_existing",
+      "issue_count": 8,
+      "scope": "Unrelated pre-existing files were not modified as part of S4."
+    }
+  },
+  "cleanup": {
+    "runtime_cleanup_passed": true,
+    "private_inventory_rehash_passed": true,
+    "git_blob_validation_passed": true,
+    "exclusive_gpu_lease_released": true,
+    "serving_holder_restored": true,
+    "experiment_containers_remaining": 0
+  },
+  "global_runtime_observation": {
+    "acceptance_scope": "not_used_for_s4_acceptance",
+    "kubernetes_serving_deployment_ready": "1/1",
+    "main_api_ready": true,
+    "prometheus_targets_up": 3,
+    "prometheus_targets_total": 4,
+    "task_queue_worker": "stopped_fail_closed",
+    "task_queue_worker_blocker": "Thirty-eight historical queued Airflow task entities have no durable queue row. The worker was stopped after the cutover parity gate rejected ownership; no historical task state was rewritten automatically.",
+    "runtime_revision_drift": "The long-lived main API remains on an earlier verified revision; the current-revision S4 smoke used an isolated runtime and was cleaned up."
+  },
+  "residual_risks": [
+    "The validated queue depth of four is a measured S4 recommendation and is not automatically applied to the shared runtime configuration.",
+    "The display-attached Windows GPU contributes unrelated utilization spikes; the quiet gate uses exact lease/container identity plus baseline-relative terminal medians and retains instantaneous spikes as evidence.",
+    "The shared task-queue worker remains intentionally stopped until historical queued task entities are reconciled through an operator-reviewed migration.",
+    "Repository-wide lint still reports eight unrelated pre-existing findings."
+  ],
+  "claim_boundary": "Measured HIGGS Tiny MLP CUDA batching trade-offs, a zero-OOM operating candidate, external 60 RPS replay, trace and metric closure, exclusive accelerator handoff, and cleanup on one local physical node with one consumer GPU. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or terabyte-throughput claim."
+}
