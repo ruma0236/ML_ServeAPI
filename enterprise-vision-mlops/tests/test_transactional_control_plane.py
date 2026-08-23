@@ -20,6 +20,7 @@ from evm.control_panel.lifecycle_runs import (
 from evm.control_panel.pipeline_profiles import default_profile, save_profile
 from evm.control_panel.schemas import TaskAssignmentRequest, TaskTransitionRequest
 from evm.control_panel.transactional_store import (
+    ControlPlaneIdempotencyConflict,
     ControlPlaneLeaseConflict,
     ControlPlanePoolTimeout,
     ControlPlaneTransactionTimeout,
@@ -100,6 +101,53 @@ def test_entity_optimistic_version_and_idempotency(store: TransactionalControlPl
     assert store.lookup_idempotency(
         "lifecycle.cancel", "cancel-key-0001", request
     ) == updated
+
+
+def test_idempotent_terminal_entity_commits_one_effect_in_real_postgres(
+    store: TransactionalControlPlaneStore,
+) -> None:
+    request = {"logical_request_id": "s6-request-0001", "seed": 20260823}
+    response = {
+        "schema_version": "evm.api_rollout_probe.v1",
+        "logical_request_id": "s6-request-0001",
+        "effect_id": "a" * 64,
+        "state": "completed",
+    }
+
+    first, first_replayed = store.commit_idempotent_terminal_entity(
+        scope="s6.api-rollout-probe",
+        idempotency_key="s6-request-0001",
+        request_payload=request,
+        entity_kind="s6_rollout_probe",
+        entity_id="s6-request-0001",
+        response_payload=response,
+        state="completed",
+    )
+    replay, replayed = store.commit_idempotent_terminal_entity(
+        scope="s6.api-rollout-probe",
+        idempotency_key="s6-request-0001",
+        request_payload=request,
+        entity_kind="s6_rollout_probe",
+        entity_id="s6-request-0001",
+        response_payload={**response, "effect_id": "b" * 64},
+        state="completed",
+    )
+
+    assert first_replayed is False
+    assert replayed is True
+    assert first == replay == response
+    assert store.get_entity("s6_rollout_probe", "s6-request-0001") == response
+    assert len(store.list_entities("s6_rollout_probe")) == 1
+    with pytest.raises(ControlPlaneIdempotencyConflict):
+        store.commit_idempotent_terminal_entity(
+            scope="s6.api-rollout-probe",
+            idempotency_key="s6-request-0001",
+            request_payload={**request, "seed": 1},
+            entity_kind="s6_rollout_probe",
+            entity_id="s6-request-0001",
+            response_payload=response,
+            state="completed",
+        )
 
 
 def test_claim_fence_blocks_expired_owner(store: TransactionalControlPlaneStore):

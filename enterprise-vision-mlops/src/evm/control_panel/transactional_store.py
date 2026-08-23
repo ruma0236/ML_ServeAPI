@@ -821,6 +821,90 @@ class TransactionalControlPlaneStore:
                         f"idempotency key {key!r} conflicts with an existing request"
                     )
 
+    def commit_idempotent_terminal_entity(
+        self,
+        *,
+        scope: str,
+        idempotency_key: str,
+        request_payload: Mapping[str, Any],
+        entity_kind: str,
+        entity_id: str,
+        response_payload: Mapping[str, Any],
+        state: str,
+    ) -> tuple[dict[str, Any], bool]:
+        """Atomically commit one terminal effect and its replay response.
+
+        This is the narrow repository boundary used by stateless API replicas
+        during rolling-continuity validation. The unique idempotency row and the
+        durable entity are committed in the same PostgreSQL transaction.
+        """
+        if not self.enabled:
+            raise ControlPlaneStoreUnavailable(
+                "idempotent terminal effects require the PostgreSQL control-plane store"
+            )
+        if not idempotency_key:
+            raise ControlPlaneIdempotencyConflict("idempotency key is required")
+        schema = _safe_identifier(self.configuration.schema)
+        request_sha256 = canonical_digest(request_payload)
+        with self.serialized(
+            f"idempotent-terminal:{scope}:{idempotency_key}"
+        ) as connection:
+            existing = connection.execute(
+                f"""
+                SELECT request_sha256, response_payload
+                FROM {schema}.idempotency_keys
+                WHERE scope=%s AND idempotency_key=%s
+                FOR UPDATE
+                """,
+                (scope, idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                if existing["request_sha256"] != request_sha256:
+                    raise ControlPlaneIdempotencyConflict(
+                        f"idempotency key {idempotency_key!r} was reused with a different request"
+                    )
+                return dict(existing["response_payload"]), True
+
+            orphan = connection.execute(
+                f"""
+                SELECT payload FROM {schema}.entities
+                WHERE entity_kind=%s AND entity_id=%s
+                FOR UPDATE
+                """,
+                (entity_kind, entity_id),
+            ).fetchone()
+            if orphan is not None:
+                raise ControlPlaneParityError(
+                    f"terminal entity {entity_kind}/{entity_id} exists without idempotency identity"
+                )
+
+            stored = dict(response_payload)
+            connection.execute(
+                f"""
+                INSERT INTO {schema}.entities
+                    (entity_kind, entity_id, version, state, payload)
+                VALUES (%s, %s, 1, %s, %s)
+                """,
+                (entity_kind, entity_id, state, self._json(stored)),
+            )
+            connection.execute(
+                f"""
+                INSERT INTO {schema}.idempotency_keys
+                    (scope, idempotency_key, request_sha256, entity_kind, entity_id,
+                     response_payload)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    scope,
+                    idempotency_key,
+                    request_sha256,
+                    entity_kind,
+                    entity_id,
+                    self._json(stored),
+                ),
+            )
+            return stored, False
+
     def admit_task_assignment(
         self,
         *,

@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T13:25:23.777125Z`
+- Generated: `2026-08-23T14:03:48Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -555,7 +555,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S6: API Rolling Continuity & GPU Controlled Handoff
 
-- Status: `planned`
+- Status: `implementing`
 - Engineering question: Can API replicas roll continuously while a single-GPU handoff remains measured and reversible?
 - Why now: API continuity and GPU availability are different failure domains and claims.
 - Observed gap: Rolling API drain and controlled single-GPU switch are not proven under load.
@@ -564,12 +564,13 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Stateless API continuity and controlled GPU handoff have separate evidence and claims.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Begin after S3 capacity, S4 GPU bounds, and S2 queue recalibration pass.
+- Next action: Build immutable old/new API images from the implementation revision, run the isolated preflight smoke, and keep all S6 acceptance criteria pending until three API rolling and three GPU handoff repetitions close.
 
 ### Affected Existing Components
 
-- Existing API deployment: `infra/kubernetes/local/api.yaml`, `apps/api/main.py`
-- Existing release and rollback control: `src/evm/control_panel/deployment_executor.py`, `src/evm/control_panel/lifecycle_kubernetes.py`
+- Existing API rollout admission and drain: `apps/api/main.py`, `apps/api/control_panel_runtime.py`, `src/evm/control_panel/api_rollout.py`, `src/evm/control_panel/transactional_store.py`
+- Existing Kubernetes API deployment: `infra/kubernetes/local/api.yaml`, `infra/kubernetes/scale-validation/s6/api-rolling.yaml`
+- Scenario S6 frozen runtime contract: `configs/s6_rolling_handoff.toml`
 
 ### Architecture Delta
 
@@ -587,7 +588,9 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Implementation Delta
 
-- No existing-system code change has started.
+- Existing API rollout admission and drain: `apps/api/main.py`, `apps/api/control_panel_runtime.py`, `src/evm/control_panel/api_rollout.py`, `src/evm/control_panel/transactional_store.py`
+- Existing Kubernetes API deployment: `infra/kubernetes/local/api.yaml`, `infra/kubernetes/scale-validation/s6/api-rolling.yaml`
+- Scenario S6 frozen runtime contract: `configs/s6_rolling_handoff.toml`
 - Compatibility: Existing approval, identity, readiness, and known-good rollback gates remain mandatory.
 - Migration: Enable replicated API RollingUpdate independently; retain exact-target GPU handoff as a maintenance-window operation.
 
@@ -614,6 +617,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
+- `2026-08-23T14:03:04Z` `implementation` / `implementing`: Drain-aware API admission, transactional rollout-probe identity, and isolated zero-unavailable Kubernetes contracts were implemented; acceptance experiments remain pending.
 
 ## S7: Image/VLM/LLM Auxiliary Admission
 

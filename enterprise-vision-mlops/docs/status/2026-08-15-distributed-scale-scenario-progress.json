@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T13:25:23.777125Z",
+  "generated_at": "2026-08-23T14:03:48Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3032,9 +3032,35 @@
         "Gate GPU candidates by shadow quality, identity, and tail latency before queue drain and switch.",
         "Measure endpoint interruption and exact known-good rollback identity separately."
       ],
-      "changed_components": [],
+      "changed_components": [
+        {
+          "component": "Existing API rollout admission and drain",
+          "files": [
+            "apps/api/main.py",
+            "apps/api/control_panel_runtime.py",
+            "src/evm/control_panel/api_rollout.py",
+            "src/evm/control_panel/transactional_store.py"
+          ]
+        },
+        {
+          "component": "Existing Kubernetes API deployment",
+          "files": [
+            "infra/kubernetes/local/api.yaml",
+            "infra/kubernetes/scale-validation/s6/api-rolling.yaml"
+          ]
+        },
+        {
+          "component": "Scenario S6 frozen runtime contract",
+          "files": [
+            "configs/s6_rolling_handoff.toml"
+          ]
+        }
+      ],
       "implementation_summary": [
-        "Implementation has not started."
+        "The existing FastAPI now rejects new workload requests after drain begins while allowing accepted in-flight requests to finish.",
+        "A PostgreSQL-backed idempotent rollout probe commits one terminal effect across API replicas and retries.",
+        "The existing API Deployment now declares two replicas, zero-unavailable RollingUpdate, startup/readiness/liveness probes, preStop drain, and bounded termination grace.",
+        "An isolated S6 Deployment and Service preserve the Compose API and B0 serving baseline during controlled validation."
       ],
       "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
       "test_or_experiment_steps": [
@@ -3070,7 +3096,7 @@
       ],
       "observed_result": null,
       "evidence_artifacts": [],
-      "status": "planned",
+      "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
       "unresolved_items": [
         "API rolling update loses and duplicates zero accepted requests.",
@@ -3078,23 +3104,31 @@
         "GPU handoff interruption and rollback identity are measured.",
         "The result is not described as zero-downtime GPU high availability."
       ],
-      "next_action": "Begin after S3 capacity, S4 GPU bounds, and S2 queue recalibration pass.",
+      "next_action": "Build immutable old/new API images from the implementation revision, run the isolated preflight smoke, and keep all S6 acceptance criteria pending until three API rolling and three GPU handoff repetitions close.",
       "architecture_before": "Deployment works but API continuity and single-GPU interruption are conflated.",
       "architecture_after": "Stateless API continuity and controlled GPU handoff have separate evidence and claims.",
       "existing_system_baseline": "The existing system deploys and rolls back model targets and has target-scoped recovery guards, but stateless API rolling continuity and single-GPU model handoff have not been measured as separate claims under load.",
       "affected_existing_components": [
         {
-          "component": "Existing API deployment",
+          "component": "Existing API rollout admission and drain",
           "files": [
-            "infra/kubernetes/local/api.yaml",
-            "apps/api/main.py"
+            "apps/api/main.py",
+            "apps/api/control_panel_runtime.py",
+            "src/evm/control_panel/api_rollout.py",
+            "src/evm/control_panel/transactional_store.py"
           ]
         },
         {
-          "component": "Existing release and rollback control",
+          "component": "Existing Kubernetes API deployment",
           "files": [
-            "src/evm/control_panel/deployment_executor.py",
-            "src/evm/control_panel/lifecycle_kubernetes.py"
+            "infra/kubernetes/local/api.yaml",
+            "infra/kubernetes/scale-validation/s6/api-rolling.yaml"
+          ]
+        },
+        {
+          "component": "Scenario S6 frozen runtime contract",
+          "files": [
+            "configs/s6_rolling_handoff.toml"
           ]
         }
       ],
@@ -3110,7 +3144,30 @@
         ]
       },
       "implementation_delta": {
-        "modified_existing_components": [],
+        "modified_existing_components": [
+          {
+            "component": "Existing API rollout admission and drain",
+            "files": [
+              "apps/api/main.py",
+              "apps/api/control_panel_runtime.py",
+              "src/evm/control_panel/api_rollout.py",
+              "src/evm/control_panel/transactional_store.py"
+            ]
+          },
+          {
+            "component": "Existing Kubernetes API deployment",
+            "files": [
+              "infra/kubernetes/local/api.yaml",
+              "infra/kubernetes/scale-validation/s6/api-rolling.yaml"
+            ]
+          },
+          {
+            "component": "Scenario S6 frozen runtime contract",
+            "files": [
+              "configs/s6_rolling_handoff.toml"
+            ]
+          }
+        ],
         "compatibility": [
           "Existing approval, identity, readiness, and known-good rollback gates remain mandatory."
         ],
@@ -3161,6 +3218,13 @@
           "phase": "design",
           "status": "planned",
           "summary": "The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-23T14:03:04Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "Drain-aware API admission, transactional rollout-probe identity, and isolated zero-unavailable Kubernetes contracts were implemented; acceptance experiments remain pending.",
           "evidence_refs": []
         }
       ]

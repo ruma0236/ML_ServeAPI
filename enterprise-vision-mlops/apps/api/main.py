@@ -10,6 +10,7 @@ from typing import Any
 
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
@@ -28,6 +29,7 @@ from apps.api.control_panel_profiles import router as control_panel_profiles_rou
 from apps.api.control_panel_scenarios import router as control_panel_scenarios_router
 from apps.api.control_panel_tasks import router as control_panel_tasks_router
 from apps.api.control_panel_workloads import router as control_panel_workloads_router
+from apps.api.control_panel_runtime import router as control_panel_runtime_router
 from apps.api.control_panel import router as control_panel_router
 from apps.api.task_ingress import TaskIngressBodyLimitMiddleware
 from evm.control_panel.operations import (
@@ -60,6 +62,7 @@ from evm.control_panel.transactional_store import (
 from evm.operations.metrics import OperationalMetrics, load_metric_projection
 from evm.model_runtime.capacity_executor import shutdown_capacity_probe_executor
 from evm.model_runtime.gpu_batch_probe import shutdown_gpu_batch_probe_executor
+from evm.control_panel.api_rollout import API_DRAIN_CONTROLLER, ApiDrainingError
 
 
 APP_NAME = os.getenv("APP_NAME", "enterprise-vision-mlops-api")
@@ -114,9 +117,6 @@ HTTP_REQUESTS_PEAK_IN_FLIGHT = Gauge(
     "evm_http_server_peak_in_flight",
     "Highest HTTP in-flight request count observed by this API process.",
 )
-_HTTP_IN_FLIGHT_LOCK = threading.Lock()
-_HTTP_IN_FLIGHT = 0
-_HTTP_PEAK_IN_FLIGHT = 0
 MODEL_LOADED = Gauge(
     "evm_serving_model_loaded",
     "Whether a promoted registry model is loaded by the serving API.",
@@ -310,18 +310,23 @@ app.add_middleware(TaskIngressBodyLimitMiddleware)
 
 @app.middleware("http")
 async def measure_http_in_flight(request: Request, call_next):
-    global _HTTP_IN_FLIGHT, _HTTP_PEAK_IN_FLIGHT
-    with _HTTP_IN_FLIGHT_LOCK:
-        _HTTP_IN_FLIGHT += 1
-        _HTTP_PEAK_IN_FLIGHT = max(_HTTP_PEAK_IN_FLIGHT, _HTTP_IN_FLIGHT)
-        HTTP_REQUESTS_IN_FLIGHT.set(_HTTP_IN_FLIGHT)
-        HTTP_REQUESTS_PEAK_IN_FLIGHT.set(_HTTP_PEAK_IN_FLIGHT)
+    counted = False
+    try:
+        counted = API_DRAIN_CONTROLLER.enter(request.url.path)
+    except ApiDrainingError:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "api_replica_draining"},
+            headers={"Retry-After": "1", "Connection": "close"},
+        )
+    snapshot = API_DRAIN_CONTROLLER.snapshot()
+    HTTP_REQUESTS_IN_FLIGHT.set(snapshot.in_flight)
+    HTTP_REQUESTS_PEAK_IN_FLIGHT.set(snapshot.peak_in_flight)
     try:
         return await call_next(request)
     finally:
-        with _HTTP_IN_FLIGHT_LOCK:
-            _HTTP_IN_FLIGHT = max(0, _HTTP_IN_FLIGHT - 1)
-            HTTP_REQUESTS_IN_FLIGHT.set(_HTTP_IN_FLIGHT)
+        API_DRAIN_CONTROLLER.exit(counted)
+        HTTP_REQUESTS_IN_FLIGHT.set(API_DRAIN_CONTROLLER.snapshot().in_flight)
 
 
 @app.middleware("http")
@@ -392,6 +397,7 @@ app.include_router(control_panel_orchestrators_router)
 app.include_router(control_panel_profiles_router)
 app.include_router(control_panel_scenarios_router)
 app.include_router(control_panel_workloads_router)
+app.include_router(control_panel_runtime_router)
 MODEL_STATE: LoadedModel | None = None
 MODEL_LOAD_ERROR = ""
 
@@ -575,6 +581,17 @@ def ready(response: Response) -> dict[str, Any]:
         get_transactional_store,
     )
 
+    drain = API_DRAIN_CONTROLLER.snapshot()
+    if drain.draining:
+        response.status_code = 503
+        REQUEST_COUNT.labels(endpoint="/ready", status="draining").inc()
+        return {
+            "status": "draining",
+            "runtime_revision_matches": True,
+            "model_loaded": MODEL_STATE is not None,
+            "runtime": drain.public_dict(),
+        }
+
     try:
         mlflow_response = requests.get(f"{MLFLOW_TRACKING_URI}/health", timeout=2)
         mlflow_ready = mlflow_response.ok
@@ -625,6 +642,7 @@ def ready(response: Response) -> dict[str, Any]:
         "control_plane_store_required": control_plane_store_required,
         "control_plane_store_ready": control_plane_store_ready,
         "control_plane_store_error": control_plane_store_error,
+        "runtime": drain.public_dict(),
     }
     if model:
         payload.update(model.ready_payload())

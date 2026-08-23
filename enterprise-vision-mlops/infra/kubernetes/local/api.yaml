@@ -7,7 +7,14 @@ metadata:
     app.kubernetes.io/name: evm-api
     app.kubernetes.io/part-of: enterprise-vision-mlops
 spec:
-  replicas: 1
+  replicas: 2
+  minReadySeconds: 5
+  progressDeadlineSeconds: 300
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: evm-api
@@ -17,6 +24,7 @@ spec:
         app.kubernetes.io/name: evm-api
         app.kubernetes.io/part-of: enterprise-vision-mlops
     spec:
+      terminationGracePeriodSeconds: 40
       containers:
         - name: api
           image: enterprise-vision-mlops-api:local
@@ -27,6 +35,12 @@ spec:
           env:
             - name: APP_NAME
               value: enterprise-vision-mlops-api
+            - name: EVM_API_RELEASE_ID
+              value: local
+            - name: EVM_POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
           envFrom:
             - configMapRef:
                 name: evm-runtime-config
@@ -42,14 +56,29 @@ spec:
             httpGet:
               path: /ready
               port: http
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 2
+            failureThreshold: 2
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 20
-            periodSeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - python
+                  - -m
+                  - evm.control_panel.api_rollout
+                  - --timeout-seconds
+                  - "20"
       volumes:
         - name: large-data
           persistentVolumeClaim:

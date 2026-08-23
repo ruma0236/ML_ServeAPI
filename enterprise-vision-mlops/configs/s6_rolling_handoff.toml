@@ -1,0 +1,55 @@
+schema_version = "evm.s6_rolling_handoff_runtime.v1"
+seed = 20260823
+
+[api]
+namespace = "evm-platform"
+deployment = "evm-s6-api"
+service = "evm-s6-api"
+node_port = 31060
+replicas = 2
+repetitions = 3
+target_requests_per_second = 25.0
+warmup_seconds = 5.0
+measurement_seconds = 20.0
+cooldown_seconds = 5.0
+processing_delay_ms = 100
+request_timeout_seconds = 3.0
+maximum_attempts_per_logical_request = 3
+retry_backoff_seconds = 0.1
+
+[rolling]
+max_unavailable = 0
+max_surge = 1
+minimum_ready_seconds = 5
+drain_timeout_seconds = 20.0
+termination_grace_period_seconds = 40
+rollout_timeout_seconds = 300.0
+
+[gpu_handoff]
+repetitions = 3
+source_namespace = "evm-production"
+source_deployment = "evm-b0-production"
+source_endpoint = "http://127.0.0.1:30800"
+target_namespace = "evm-staging"
+target_deployment = "evm-b0-staging"
+target_endpoint = "http://127.0.0.1:30813"
+readiness_timeout_seconds = 300.0
+request_timeout_seconds = 10.0
+cooldown_seconds = 5.0
+maximum_interruption_seconds = 300.0
+
+[guardrails]
+accepted_loss = 0
+duplicate_effects = 0
+maximum_error_rate = 0.01
+maximum_p99_ms = 500.0
+require_exact_rollback_identity = true
+require_zero_gpu_owner_overlap = true
+
+[claim_boundary]
+physical_nodes = 1
+gpu_count = 1
+customer_traffic = false
+production_sla = false
+high_availability = false
+multi_gpu = false
