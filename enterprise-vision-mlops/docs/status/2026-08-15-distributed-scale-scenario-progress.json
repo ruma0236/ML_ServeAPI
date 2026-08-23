@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T01:41:48.348985Z",
+  "generated_at": "2026-08-23T01:47:30.275140Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2085,7 +2085,8 @@
         "The first full-matrix attempt retained 15 point repetitions, then stopped on an incomplete OTLP flush with all runtime safety and cleanup guards intact.",
         "The remediation freezes a 30-second bounded trace poll, records flush timing, and persists failed point evidence before raising.",
         "A 30-second trace pilot confirmed the shared batch span was parented only to the first request; per-request completion spans and bounded final Prometheus recovery were added.",
-        "Three corrected trace repetitions closed every sampled chain; one client-tail hard-stop breach at concurrency 128 led to freezing concurrency 64 before acceptance."
+        "Three corrected trace repetitions closed every sampled chain; one client-tail hard-stop breach at concurrency 128 led to freezing concurrency 64 before acceptance.",
+        "At frozen concurrency 64, the corrective trace pilot passed three independent repetitions with complete per-request trace chains and exact cleanup."
       ],
       "experiment_environment": "Actual local single-node runtime with one consumer GPU, the existing Workloads API, external TCP client, isolated Prometheus, OTLP collector, and exact Kubernetes serving-holder handoff. No customer traffic or production SLA.",
       "test_or_experiment_steps": [
@@ -2145,6 +2146,12 @@
           "sha256": "fbb30240e918c917e179c2e49a1c8d4ffc53f38f0854598366babd0f7d1bf579",
           "generated_at": "2026-08-23T01:41:33.075076Z",
           "claim": "The per-request trace fix closed every sampled chain across three pilot repetitions, but concurrency 128 produced one client p99 hard-stop breach; all results and cleanup were retained and no acceptance credit was granted."
+        },
+        {
+          "path": "docs/status/evidence/s4-trace-flush-rca-checkpoint.json",
+          "sha256": "bdcd7ba9fe4d8f5043650aaa49f6ff1ddb63429a26ce1ee9d6026e93f33cd888",
+          "generated_at": "2026-08-23T01:46:21.293987Z",
+          "claim": "At frozen concurrency 64, the corrected batch-4/delay-2 pilot passed three independent repetitions with every sampled trace chain complete, bounded latency, Prometheus recovery, terminal drain, exact cleanup, and no S4 acceptance credit."
         }
       ],
       "status": "implementing",
@@ -2155,7 +2162,7 @@
         "Model instance count and batch size effects are measured separately.",
         "Queue limits are recalculated from the selected service rate."
       ],
-      "next_action": "Run the same three-repetition pilot at frozen concurrency 64; restart the full 60+3+3 matrix only after all trace, hard-stop, Prometheus, and cleanup gates pass.",
+      "next_action": "Restart the full frozen 60 matrix, three instance-axis, and three selected-point open-loop repetitions from a clean revision; preserve every failed attempt and grant acceptance only after closure validation.",
       "architecture_before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
       "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.",
       "existing_system_baseline": "The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.",
@@ -2314,6 +2321,12 @@
           "sha256": "fbb30240e918c917e179c2e49a1c8d4ffc53f38f0854598366babd0f7d1bf579",
           "generated_at": "2026-08-23T01:41:33.075076Z",
           "claim": "The per-request trace fix closed every sampled chain across three pilot repetitions, but concurrency 128 produced one client p99 hard-stop breach; all results and cleanup were retained and no acceptance credit was granted."
+        },
+        {
+          "path": "docs/status/evidence/s4-trace-flush-rca-checkpoint.json",
+          "sha256": "bdcd7ba9fe4d8f5043650aaa49f6ff1ddb63429a26ce1ee9d6026e93f33cd888",
+          "generated_at": "2026-08-23T01:46:21.293987Z",
+          "claim": "At frozen concurrency 64, the corrected batch-4/delay-2 pilot passed three independent repetitions with every sampled trace chain complete, bounded latency, Prometheus recovery, terminal drain, exact cleanup, and no S4 acceptance credit."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2372,6 +2385,15 @@
           "summary": "Per-request trace ownership closed every sampled chain across all three pilot repetitions, but concurrency 128 produced a 5.87-second client p99 hard-stop breach in repetition three despite zero errors/OOM, bounded server queue wait, Prometheus UP, and exact cleanup. Closed concurrency is now frozen at 64 before acceptance; no pilot result is credited.",
           "evidence_refs": [
             "docs/status/evidence/s4-gpu-batching-attempt-03.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T01:46:21.293987Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "The frozen-concurrency-64 trace pilot passed three repetitions at 123.77, 125.93, and 127.73 RPS; p99 stayed between 657.30 and 703.84 ms, all 24 sampled chains completed, and Prometheus, drain, lease release, holder restoration, and cleanup passed. This is a non-acceptance RCA checkpoint.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-trace-flush-rca-checkpoint.json"
           ]
         }
       ]

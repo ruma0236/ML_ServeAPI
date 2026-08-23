@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T01:41:48.348985Z`
+- Generated: `2026-08-23T01:47:30.275140Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -384,7 +384,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Run the same three-repetition pilot at frozen concurrency 64; restart the full 60+3+3 matrix only after all trace, hard-stop, Prometheus, and cleanup gates pass.
+- Next action: Restart the full frozen 60 matrix, three instance-axis, and three selected-point open-loop repetitions from a clean revision; preserve every failed attempt and grant acceptance only after closure validation.
 
 ### Affected Existing Components
 
@@ -442,6 +442,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s4-gpu-batching-attempt-01.json` (`ec883b9142048f2bc3ff613344bf2245a09b8f11c93dc80ed07403afe1b4223d`): The first full S4 matrix attempt retained 15 completed repetitions and stopped fail closed when 4 of 8 sampled trace chains missed the prior 10-second exporter window; cleanup passed and no acceptance credit was granted.
 - `docs/status/evidence/s4-gpu-batching-attempt-02.json` (`b7e73af30a7b64edf9cea2fcd292e1f1df7a02a43442d99cce8d9d9dae035255`): The first corrected trace pilot proved the gap was request-to-batch trace ownership rather than exporter delay: 5 of 8 chains completed after 30 seconds, point-private evidence and cleanup were retained, and no acceptance credit was granted.
 - `docs/status/evidence/s4-gpu-batching-attempt-03.json` (`fbb30240e918c917e179c2e49a1c8d4ffc53f38f0854598366babd0f7d1bf579`): The per-request trace fix closed every sampled chain across three pilot repetitions, but concurrency 128 produced one client p99 hard-stop breach; all results and cleanup were retained and no acceptance credit was granted.
+- `docs/status/evidence/s4-trace-flush-rca-checkpoint.json` (`bdcd7ba9fe4d8f5043650aaa49f6ff1ddb63429a26ce1ee9d6026e93f33cd888`): At frozen concurrency 64, the corrected batch-4/delay-2 pilot passed three independent repetitions with every sampled trace chain complete, bounded latency, Prometheus recovery, terminal drain, exact cleanup, and no S4 acceptance credit.
 
 ### Chronological Updates
 
@@ -451,6 +452,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T01:28:26.405439Z` `recovery` / `implementing`: The first full S4 attempt retained 15 completed repetitions and stopped fail closed at batch 4/delay 2 when only 4 of 8 sampled trace chains arrived within the prior 10-second exporter window. CUDA requests, hard bounds, Prometheus, exact cleanup, and holder restoration passed. The runner now uses a frozen 30-second bounded poll and writes failed point evidence before raising; no acceptance credit is carried forward.
 - `2026-08-23T01:35:37.399439Z` `recovery` / `implementing`: The 30-second trace pilot completed 3,790/3,790 CUDA requests but only 5 of 8 sampled chains because a shared batch span belonged to the first request parent. Point-private evidence and cleanup were retained. The runtime now separates one shared compute span from request-owned completion spans and bounds final Prometheus recovery; no acceptance credit was granted.
 - `2026-08-23T01:41:33.075076Z` `recovery` / `implementing`: Per-request trace ownership closed every sampled chain across all three pilot repetitions, but concurrency 128 produced a 5.87-second client p99 hard-stop breach in repetition three despite zero errors/OOM, bounded server queue wait, Prometheus UP, and exact cleanup. Closed concurrency is now frozen at 64 before acceptance; no pilot result is credited.
+- `2026-08-23T01:46:21.293987Z` `implementation` / `implementing`: The frozen-concurrency-64 trace pilot passed three repetitions at 123.77, 125.93, and 127.73 RPS; p99 stayed between 657.30 and 703.84 ms, all 24 sampled chains completed, and Prometheus, drain, lease release, holder restoration, and cleanup passed. This is a non-acceptance RCA checkpoint.
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 

@@ -1,0 +1,241 @@
+{
+  "schema_version": "evm.s4_trace_flush_rca_checkpoint.v1",
+  "generated_at": "2026-08-23T01:46:21.293987Z",
+  "status": "implementing",
+  "acceptance_credit": false,
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "4f37484637cecb9718f6ac0ec192e3d007eccaf1",
+    "runtime_config_sha256": "cc8b98f9e3772b8d83444e7c8a305a436391a9eb1cab9e2e1cadbb01a29293a0"
+  },
+  "failed_attempt_reference": "The first full matrix attempt stopped after 15 retained point repetitions when only 4 of 8 sampled chains arrived within the prior 10-second poll window.",
+  "corrective_contract": {
+    "trace_flush_timeout_seconds": 30.0,
+    "trace_poll_interval_seconds": 0.25,
+    "result_written_before_fail_closed": true
+  },
+  "results": [
+    {
+      "point_id": "trace-pilot-batch-4-delay-2-instances-1",
+      "mode": "trace-pilot",
+      "repetition": 1,
+      "batch_size": 4,
+      "max_delay_ms": 2,
+      "instance_count": 1,
+      "request_count": 3713,
+      "configured_concurrency": 64,
+      "success_count": 3713,
+      "service_rps": 123.76666666666667,
+      "p50_ms": 517.2230000025593,
+      "p95_ms": 618.888000008883,
+      "p99_ms": 703.8398719823456,
+      "error_rate": 0.0,
+      "queue_wait_p99_ms": 575.8594738797548,
+      "h2d_ms_mean": 2.507631084691345,
+      "inference_ms_mean": 1.0520339638612806,
+      "d2h_ms_mean": 0.09358551255794763,
+      "formed_batch_size_mean": 3.4363048747643417,
+      "fill_ratio_mean": 0.8590762186910854,
+      "formed_batch_distribution": {
+        "2": 964,
+        "3": 165,
+        "4": 2584
+      },
+      "allocated_vram_bytes_max": 8539648,
+      "reserved_vram_bytes_max": 25165824,
+      "peak_vram_bytes": 8541184,
+      "gpu_utilization_percent_mean": 26.75,
+      "temperature_celsius_max": 39.0,
+      "power_watts_max": 52.87,
+      "oom_count": 0,
+      "prometheus_up": true,
+      "prometheus_recovery_wait_seconds": 0.0,
+      "terminal_gauges": {
+        "evm_s4_gpu_batch_queue_depth": 0.0,
+        "evm_s4_gpu_batch_queue_bytes": 0.0,
+        "evm_s4_gpu_batch_in_flight": 0.0
+      },
+      "trace": {
+        "expected_count": 8,
+        "complete_count": 8,
+        "missing_count": 0,
+        "required_span_names": [
+          "POST /control-panel/v1/scenario-workloads/gpu-batch-probes/predict",
+          "s4.gpu_batch.worker"
+        ],
+        "observed_span_names": [
+          "POST /control-panel/v1/scenario-workloads/gpu-batch-probes/predict",
+          "s4.gpu_batch.compute",
+          "s4.gpu_batch.worker"
+        ],
+        "raw_tail_sha256": "d085f2d73853fd514f0980cc6c8768a7070001439abadef78058338b5742975e",
+        "raw_tail_bytes": 33881,
+        "flush_wait_seconds": 0.0,
+        "flush_poll_count": 1,
+        "flush_completed": true
+      },
+      "operating_guardrail_passed": false,
+      "hard_stop_guardrail_passed": true,
+      "evidence_valid": true,
+      "private_point_sha256": "63cddc1a00e31e71acf4f960196febf870832dbfab6dfd18b4c1183db8e16ac9"
+    },
+    {
+      "point_id": "trace-pilot-batch-4-delay-2-instances-1",
+      "mode": "trace-pilot",
+      "repetition": 2,
+      "batch_size": 4,
+      "max_delay_ms": 2,
+      "instance_count": 1,
+      "request_count": 3778,
+      "configured_concurrency": 64,
+      "success_count": 3778,
+      "service_rps": 125.93333333333334,
+      "p50_ms": 506.5587499993853,
+      "p95_ms": 609.2769000155386,
+      "p99_ms": 689.1018270098721,
+      "error_rate": 0.0,
+      "queue_wait_p99_ms": 553.4431404009956,
+      "h2d_ms_mean": 2.5066068769645096,
+      "inference_ms_mean": 1.1240379088156442,
+      "d2h_ms_mean": 0.09504634415550388,
+      "formed_batch_size_mean": 3.428798305982001,
+      "fill_ratio_mean": 0.8571995764955003,
+      "formed_batch_distribution": {
+        "2": 1004,
+        "3": 150,
+        "4": 2624
+      },
+      "allocated_vram_bytes_max": 8539648,
+      "reserved_vram_bytes_max": 25165824,
+      "peak_vram_bytes": 8541184,
+      "gpu_utilization_percent_mean": 32.0,
+      "temperature_celsius_max": 39.0,
+      "power_watts_max": 51.93,
+      "oom_count": 0,
+      "prometheus_up": true,
+      "prometheus_recovery_wait_seconds": 0.0,
+      "terminal_gauges": {
+        "evm_s4_gpu_batch_queue_depth": 0.0,
+        "evm_s4_gpu_batch_queue_bytes": 0.0,
+        "evm_s4_gpu_batch_in_flight": 0.0
+      },
+      "trace": {
+        "expected_count": 8,
+        "complete_count": 8,
+        "missing_count": 0,
+        "required_span_names": [
+          "POST /control-panel/v1/scenario-workloads/gpu-batch-probes/predict",
+          "s4.gpu_batch.worker"
+        ],
+        "observed_span_names": [
+          "POST /control-panel/v1/scenario-workloads/gpu-batch-probes/predict",
+          "s4.gpu_batch.compute",
+          "s4.gpu_batch.worker"
+        ],
+        "raw_tail_sha256": "462a30f9b620b4e45fb38ae6f0f89cf0ccc997f2ff818470b31a73bb412838f2",
+        "raw_tail_bytes": 35827,
+        "flush_wait_seconds": 0.0,
+        "flush_poll_count": 1,
+        "flush_completed": true
+      },
+      "operating_guardrail_passed": false,
+      "hard_stop_guardrail_passed": true,
+      "evidence_valid": true,
+      "private_point_sha256": "d23a7c1a35172404be92f5850ce2bcb5a01129c3f99a2052d9d510189dd0fa54"
+    },
+    {
+      "point_id": "trace-pilot-batch-4-delay-2-instances-1",
+      "mode": "trace-pilot",
+      "repetition": 3,
+      "batch_size": 4,
+      "max_delay_ms": 2,
+      "instance_count": 1,
+      "request_count": 3832,
+      "configured_concurrency": 64,
+      "success_count": 3832,
+      "service_rps": 127.73333333333333,
+      "p50_ms": 498.782000009669,
+      "p95_ms": 602.227389991458,
+      "p99_ms": 657.2986070130719,
+      "error_rate": 0.0,
+      "queue_wait_p99_ms": 557.2264711092976,
+      "h2d_ms_mean": 2.50181571593302,
+      "inference_ms_mean": 1.2105920856744674,
+      "d2h_ms_mean": 0.09171546545241316,
+      "formed_batch_size_mean": 3.450417536534447,
+      "fill_ratio_mean": 0.8626043841336117,
+      "formed_batch_distribution": {
+        "2": 966,
+        "3": 174,
+        "4": 2692
+      },
+      "allocated_vram_bytes_max": 8539648,
+      "reserved_vram_bytes_max": 25165824,
+      "peak_vram_bytes": 8541184,
+      "gpu_utilization_percent_mean": 25.6875,
+      "temperature_celsius_max": 38.0,
+      "power_watts_max": 41.9,
+      "oom_count": 0,
+      "prometheus_up": true,
+      "prometheus_recovery_wait_seconds": 0.01600000000325963,
+      "terminal_gauges": {
+        "evm_s4_gpu_batch_queue_depth": 0.0,
+        "evm_s4_gpu_batch_queue_bytes": 0.0,
+        "evm_s4_gpu_batch_in_flight": 0.0
+      },
+      "trace": {
+        "expected_count": 8,
+        "complete_count": 8,
+        "missing_count": 0,
+        "required_span_names": [
+          "POST /control-panel/v1/scenario-workloads/gpu-batch-probes/predict",
+          "s4.gpu_batch.worker"
+        ],
+        "observed_span_names": [
+          "POST /control-panel/v1/scenario-workloads/gpu-batch-probes/predict",
+          "s4.gpu_batch.compute",
+          "s4.gpu_batch.worker"
+        ],
+        "raw_tail_sha256": "a580441d599f1b387198f44ddd17fa2eb521a6a4b4033a89128d5411969e08a9",
+        "raw_tail_bytes": 34690,
+        "flush_wait_seconds": 0.0,
+        "flush_poll_count": 1,
+        "flush_completed": true
+      },
+      "operating_guardrail_passed": false,
+      "hard_stop_guardrail_passed": true,
+      "evidence_valid": true,
+      "private_point_sha256": "6498cadfb21d330a3cd91ee9bbc8f8a2706a982a422a4c70ae7a53a96560505d"
+    }
+  ],
+  "all_trace_chains_complete": true,
+  "next_action": "Restart the full 60+3+3 matrix from a clean revision.",
+  "claim_boundary": "Measured HIGGS Tiny MLP batching trade-offs on one local physical node and one consumer GPU. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or terabyte claim.",
+  "cleanup": {
+    "lease_released": true,
+    "holder_uid_restored": true,
+    "holder_ready": true,
+    "serving_cuda_ready": true,
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "prometheus_container_absent": true,
+    "gpu_after": {
+      "uuid": "GPU-4eea4bfc-f15e-bd25-c1b8-ed53ade9ad1d",
+      "name": "NVIDIA GeForce RTX 4080 SUPER",
+      "driver": "610.88",
+      "memory_total_mib": 16376.0,
+      "memory_used_mib": 2505.0,
+      "memory_free_mib": 13541.0,
+      "utilization_gpu_percent": 12.0,
+      "temperature_celsius": 39.0,
+      "power_watts": 51.04
+    }
+  },
+  "failed_attempts_and_rca": [],
+  "private_evidence": {
+    "artifact_count": 5,
+    "aggregate_sha256": "7b46be30132b4068d0a0da805985f14b70247ed4f64b427e46ddb8c2a92843e9",
+    "total_bytes": 2116190,
+    "index_sha256": "2f8f8b42b4b615555c2bfbe95203838e98f9c4e5d616e271be35394b49f39472"
+  }
+}
