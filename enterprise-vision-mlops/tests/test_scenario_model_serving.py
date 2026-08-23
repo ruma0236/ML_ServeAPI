@@ -28,6 +28,7 @@ def test_scenario_inference_request_separates_vlm_and_llm_inputs() -> None:
     )
     assert vlm.choices == ["one", "two"]
     assert llm.max_new_tokens == 32
+    assert vlm.deadline_seconds is None
 
 
 def test_scenario_serving_metrics_keep_exact_identity_out_of_labels(monkeypatch) -> None:
@@ -57,6 +58,7 @@ def test_scenario_serving_metrics_keep_exact_identity_out_of_labels(monkeypatch)
     assert 'environment="local-staging"' in metrics
     assert "run-high-cardinality-identity" not in metrics
     assert "b" * 64 not in metrics
+    assert 'model_family="vlm"' in metrics
 
 
 def test_scenario_serving_returns_w3c_trace_header(monkeypatch) -> None:
@@ -115,3 +117,5 @@ def test_scenario_serving_separates_model_and_runtime_source_identity(monkeypatc
     assert payload["source_commit"] == "d" * 40
     assert payload["model_source_commit"] == "d" * 40
     assert payload["runtime_source_commit"] == "e" * 40
+    assert payload["admission"]["policy"]["family"] == "vlm"
+    assert payload["admission"]["active_requests"] == 0

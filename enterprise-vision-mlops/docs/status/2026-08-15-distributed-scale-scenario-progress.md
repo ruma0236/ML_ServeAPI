@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T15:53:22Z`
+- Generated: `2026-08-23T17:57:57Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -629,7 +629,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S7: Image/VLM/LLM Auxiliary Admission
 
-- Status: `planned`
+- Status: `implementing`
 - Engineering question: Do image and generative workloads use model-family-specific cost admission and metrics?
 - Why now: Tabular capacity does not cover image decode, pixels, tokens, or long requests.
 - Observed gap: Image, token, and in-flight cost bounds are not uniformly enforced or measured.
@@ -638,12 +638,14 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Begin after S2 bounds and S4 accelerator operating point are verified.
+- Next action: Run external image, VLM, and LLM CUDA profiles only after the implementation checkpoint and source-identity gate pass.
 
 ### Affected Existing Components
 
 - Existing workload catalog and control: `src/evm/control_panel/scenario_workloads.py`, `src/evm/control_panel/scenario_workload_control.py`
 - Existing model-family runner: `src/evm/model_runtime/workload_runner.py`, `configs/scenario_workloads/live-presets.json`
+- Existing image and generative serving: `apps/api/efficientnet_serving.py`, `src/evm/model_runtime/serving.py`
+- Family-aware admission contract: `src/evm/model_runtime/family_admission.py`, `configs/s7_family_admission.toml`
 
 ### Architecture Delta
 
@@ -661,9 +663,12 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Implementation Delta
 
-- No existing-system code change has started.
+- Existing image and generative serving: `apps/api/efficientnet_serving.py`, `src/evm/model_runtime/serving.py`, `infra/docker/efficientnet-serving/Dockerfile`
+- Family-aware admission contract: `configs/s7_family_admission.toml`, `src/evm/model_runtime/family_admission.py`
+- Focused family admission verification: `tests/test_family_admission.py`, `tests/test_scenario_model_serving.py`, `tests/test_efficientnet_serving_contract.py`
+- Compatibility: Existing routes and required response fields remain unchanged; operational metrics and admission readiness are additive.
 - Compatibility: Existing family metric schemas remain distinct and unsupported metrics remain absent.
-- Migration: Add explicit cost budgets to existing profiles without changing validated model artifacts.
+- Migration: Reuse existing validated model, adapter, dataset, and artifact identities without retraining or source replacement.
 
 ### Experiment Contract
 
@@ -688,6 +693,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
+- `2026-08-23T17:57:57Z` `implementation` / `implementing`: Family-specific admission limits, bounded scheduling, explicit overload semantics, and additive telemetry were wired into the existing image and generative serving paths; external CUDA experiments remain pending.
 
 ## S8: Dependency Soak & Resource-efficiency Closure
 

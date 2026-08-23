@@ -233,7 +233,10 @@ SCENARIO_DEFINITIONS: dict[str, dict[str, Any]] = {
         ],
         "before": "Multiple model families run without one cost-aware admission proof.",
         "after": "Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.",
-        "next_action": "Begin after S2 bounds and S4 accelerator operating point are verified.",
+        "next_action": (
+            "Run external image, VLM, and LLM CUDA profiles after the implementation "
+            "checkpoint and source-identity gate pass."
+        ),
     },
     "S8": {
         "engineering_question": (
@@ -476,11 +479,16 @@ SCENARIO_IN_PLACE_CONTRACTS: dict[str, dict[str, Any]] = {
         "affected_components": [
             {"component": "Existing workload catalog and control", "files": ["src/evm/control_panel/scenario_workloads.py", "src/evm/control_panel/scenario_workload_control.py"]},
             {"component": "Existing model-family runner", "files": ["src/evm/model_runtime/workload_runner.py", "configs/scenario_workloads/live-presets.json"]},
+            {"component": "Existing image and generative serving", "files": ["apps/api/efficientnet_serving.py", "src/evm/model_runtime/serving.py"]},
+            {"component": "Family-aware admission contract", "files": ["src/evm/model_runtime/family_admission.py", "configs/s7_family_admission.toml"]},
         ],
         "selection_reasons": ["Retain real family-specific paths as auxiliary probes after common queue and GPU limits are known."],
         "alternatives": ["Replacing the main scale workload with VLM/LLM would reduce achievable request volume and confound admission with model size."],
-        "compatibility": ["Existing family metric schemas remain distinct and unsupported metrics remain absent."],
-        "migration": ["Add explicit cost budgets to existing profiles without changing validated model artifacts."],
+        "compatibility": [
+            "Existing routes and required response fields remain unchanged; operational metrics and admission readiness are additive.",
+            "Existing family metric schemas remain distinct and unsupported metrics remain absent.",
+        ],
+        "migration": ["Reuse existing validated model, adapter, dataset, and artifact identities without retraining or source replacement."],
         "preconditions": ["S2 bounded admission and S4 accelerator operating point pass; model families run sequentially."],
         "workload_input": "Fixed small/large image and short/long text request mixes for existing image, VLM, and LLM workloads.",
         "controlled_variables": ["Image bytes/pixels, decode work, input/output tokens, in-flight tokens, concurrency, and quantization identity."],

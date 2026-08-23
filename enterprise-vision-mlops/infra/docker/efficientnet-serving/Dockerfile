@@ -38,6 +38,7 @@ RUN useradd --create-home --uid 10001 evm
 COPY pyproject.toml docker-compose.yml /app/
 COPY src /app/src
 COPY apps /app/apps
+COPY configs/s7_family_admission.toml /app/configs/s7_family_admission.toml
 
 USER 10001:10001
 

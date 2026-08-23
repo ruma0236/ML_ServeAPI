@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T15:53:22Z",
+  "generated_at": "2026-08-23T17:57:57Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3364,13 +3364,40 @@
         "Measure first-token, per-token, queue, fairness, and peak-memory behavior.",
         "Run model families sequentially on one GPU and use quantization only with runtime proof."
       ],
-      "changed_components": [],
+      "changed_components": [
+        {
+          "component": "Existing image and generative serving",
+          "files": [
+            "apps/api/efficientnet_serving.py",
+            "src/evm/model_runtime/serving.py",
+            "infra/docker/efficientnet-serving/Dockerfile"
+          ]
+        },
+        {
+          "component": "Family-aware admission contract",
+          "files": [
+            "configs/s7_family_admission.toml",
+            "src/evm/model_runtime/family_admission.py"
+          ]
+        },
+        {
+          "component": "Focused family admission verification",
+          "files": [
+            "tests/test_family_admission.py",
+            "tests/test_scenario_model_serving.py",
+            "tests/test_efficientnet_serving_contract.py"
+          ]
+        }
+      ],
       "implementation_summary": [
-        "Implementation has not started."
+        "Wired one versioned cost contract into the existing EfficientNet /predict and VLM/LLM /infer paths.",
+        "Added bounded queue depth, request/image/pixel/token and in-flight reservations, deadline expiry, explicit 413/422/429 outcomes, integer Retry-After, and bounded short-request bypass.",
+        "Added additive family-specific queue, stage, token, TTFT/TPOT-when-measurable, and peak-VRAM telemetry while keeping exact request identity out of metric labels.",
+        "This is an implementation checkpoint only; external CUDA acceptance evidence is not yet available."
       ],
       "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
       "test_or_experiment_steps": [
-        "Replay fixed short/long and small/large request mixes for each family.",
+        "Run image, VLM, and LLM small/short, large/long, fairness, and over-limit profiles for three independent repetitions while GPU ownership remains sequential.",
         "Increase admitted request cost only until the safe fairness and memory boundary is known.",
         "Confirm unsupported metrics remain absent from evidence and release gates."
       ],
@@ -3402,7 +3429,7 @@
       ],
       "observed_result": null,
       "evidence_artifacts": [],
-      "status": "planned",
+      "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
       "unresolved_items": [
         "Each model family has distinct p95, p99, and quality metric schemas.",
@@ -3410,7 +3437,7 @@
         "Long-request head-of-line behavior and fairness are measured.",
         "Unsupported or unverified metrics remain absent."
       ],
-      "next_action": "Begin after S2 bounds and S4 accelerator operating point are verified.",
+      "next_action": "Run external image, VLM, and LLM CUDA profiles only after the implementation checkpoint and source-identity gate pass.",
       "architecture_before": "Multiple model families run without one cost-aware admission proof.",
       "architecture_after": "Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.",
       "existing_system_baseline": "The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.",
@@ -3428,6 +3455,20 @@
             "src/evm/model_runtime/workload_runner.py",
             "configs/scenario_workloads/live-presets.json"
           ]
+        },
+        {
+          "component": "Existing image and generative serving",
+          "files": [
+            "apps/api/efficientnet_serving.py",
+            "src/evm/model_runtime/serving.py"
+          ]
+        },
+        {
+          "component": "Family-aware admission contract",
+          "files": [
+            "src/evm/model_runtime/family_admission.py",
+            "configs/s7_family_admission.toml"
+          ]
         }
       ],
       "engineering_gap_and_reason": "Image, token, and in-flight cost bounds are not uniformly enforced or measured.",
@@ -3442,12 +3483,37 @@
         ]
       },
       "implementation_delta": {
-        "modified_existing_components": [],
+        "modified_existing_components": [
+          {
+            "component": "Existing image and generative serving",
+            "files": [
+              "apps/api/efficientnet_serving.py",
+              "src/evm/model_runtime/serving.py",
+              "infra/docker/efficientnet-serving/Dockerfile"
+            ]
+          },
+          {
+            "component": "Family-aware admission contract",
+            "files": [
+              "configs/s7_family_admission.toml",
+              "src/evm/model_runtime/family_admission.py"
+            ]
+          },
+          {
+            "component": "Focused family admission verification",
+            "files": [
+              "tests/test_family_admission.py",
+              "tests/test_scenario_model_serving.py",
+              "tests/test_efficientnet_serving_contract.py"
+            ]
+          }
+        ],
         "compatibility": [
+          "Existing routes and required response fields remain unchanged; operational metrics and admission readiness are additive.",
           "Existing family metric schemas remain distinct and unsupported metrics remain absent."
         ],
         "migration": [
-          "Add explicit cost budgets to existing profiles without changing validated model artifacts."
+          "Reuse existing validated model, adapter, dataset, and artifact identities without retraining or source replacement."
         ]
       },
       "experiment_contract": {
@@ -3456,7 +3522,7 @@
         ],
         "workload_input": "Fixed small/large image and short/long text request mixes for existing image, VLM, and LLM workloads.",
         "procedure": [
-          "Replay fixed short/long and small/large request mixes for each family.",
+          "Run image, VLM, and LLM small/short, large/long, fairness, and over-limit profiles for three independent repetitions while GPU ownership remains sequential.",
           "Increase admitted request cost only until the safe fairness and memory boundary is known.",
           "Confirm unsupported metrics remain absent from evidence and release gates."
         ],
@@ -3493,6 +3559,13 @@
           "phase": "design",
           "status": "planned",
           "summary": "The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.",
+          "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-23T17:57:57Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "Family-specific admission limits, bounded scheduling, explicit overload semantics, and additive telemetry were wired into the existing image and generative serving paths; external CUDA experiments remain pending.",
           "evidence_refs": []
         }
       ]

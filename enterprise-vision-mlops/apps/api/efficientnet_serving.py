@@ -24,6 +24,13 @@ from prometheus_client import (
 from pydantic import BaseModel, Field
 
 from evm.core.image_feature_model import resolve_image_path
+from evm.model_runtime.family_admission import (
+    AdmissionCost,
+    FamilyAdmissionController,
+    FamilyAdmissionError,
+    FamilyAdmissionLimits,
+    request_json_bytes,
+)
 from evm.observability.otel import (
     configure_tracing,
     runtime_service_version,
@@ -81,11 +88,16 @@ class ModelRuntime:
             "decision_threshold": self.decision_threshold,
             "device": str(self.device),
             "cuda_available": self.device.type == "cuda",
+            "admission": IMAGE_ADMISSION.snapshot(),
         }
 
 
 class InferenceRequest(BaseModel):
-    image_uri: str = Field(description="Image path or file URI under the mounted data root.")
+    image_uri: str = Field(
+        max_length=4096,
+        description="Image path or file URI under the mounted data root.",
+    )
+    deadline_seconds: float | None = Field(default=None, gt=0, le=180)
 
 
 class InferenceResponse(BaseModel):
@@ -99,6 +111,7 @@ class InferenceResponse(BaseModel):
     latency_ms: float
     device: str
     decision_threshold: float
+    operational_metrics: dict[str, float] = Field(default_factory=dict)
 
 
 MODEL_RUNTIME: ModelRuntime | None = None
@@ -125,6 +138,10 @@ INFERENCE_LATENCY = Histogram(
     "evm_serving_inference_latency_seconds",
     "EfficientNet model forward-pass latency in seconds.",
     buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+    registry=SERVING_REGISTRY,
+)
+IMAGE_ADMISSION = FamilyAdmissionController(
+    FamilyAdmissionLimits.from_path("image"),
     registry=SERVING_REGISTRY,
 )
 
@@ -364,14 +381,61 @@ def predict(payload: InferenceRequest) -> InferenceResponse:
             detail={"error": "image is not readable", "resolved_path": str(image_path or "")},
         )
 
-    with Image.open(image_path) as image:
-        tensor = runtime.transform(image.convert("RGB")).unsqueeze(0).to(runtime.device)
-    started = time.perf_counter()
-    with torch.inference_mode():
-        probabilities = torch.softmax(runtime.model(tensor), dim=1)[0]
-        if runtime.device.type == "cuda":
-            torch.cuda.synchronize()
-    latency_ms = (time.perf_counter() - started) * 1000
+    with Image.open(image_path) as image_header:
+        width, height = image_header.size
+    cost = AdmissionCost(
+        request_bytes=request_json_bytes(payload),
+        image_bytes=image_path.stat().st_size,
+        image_pixels=width * height,
+    )
+    try:
+        with IMAGE_ADMISSION.acquire(
+            cost,
+            deadline_seconds=payload.deadline_seconds,
+        ) as lease:
+            decode_started = time.perf_counter()
+            with Image.open(image_path) as image:
+                rgb_image = image.convert("RGB")
+            decode_seconds = time.perf_counter() - decode_started
+            preprocess_started = time.perf_counter()
+            tensor = runtime.transform(rgb_image).unsqueeze(0).to(runtime.device)
+            preprocess_seconds = time.perf_counter() - preprocess_started
+            if runtime.device.type == "cuda":
+                torch.cuda.reset_peak_memory_stats(runtime.device)
+            started = time.perf_counter()
+            with torch.inference_mode():
+                probabilities = torch.softmax(runtime.model(tensor), dim=1)[0]
+                if runtime.device.type == "cuda":
+                    torch.cuda.synchronize()
+            inference_seconds = time.perf_counter() - started
+            peak_vram_bytes = (
+                int(torch.cuda.max_memory_allocated(runtime.device))
+                if runtime.device.type == "cuda"
+                else 0
+            )
+            operational_metrics = {
+                "request_bytes": float(cost.request_bytes),
+                "image_bytes": float(cost.image_bytes),
+                "image_pixels": float(cost.image_pixels),
+                "queue_wait_seconds": lease.queue_wait_seconds,
+                "decode_seconds": decode_seconds,
+                "preprocess_seconds": preprocess_seconds,
+                "inference_seconds": inference_seconds,
+                "peak_vram_bytes": float(peak_vram_bytes),
+            }
+            IMAGE_ADMISSION.record_runtime_metrics(operational_metrics)
+    except FamilyAdmissionError as exc:
+        headers = (
+            {"Retry-After": str(exc.retry_after_seconds)}
+            if exc.retry_after_seconds is not None
+            else None
+        )
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.code,
+            headers=headers,
+        ) from exc
+    latency_ms = inference_seconds * 1000
     scores = {
         label: round(float(probabilities[index].detach().cpu().item()), 6)
         for index, label in enumerate(runtime.class_names)
@@ -390,4 +454,7 @@ def predict(payload: InferenceRequest) -> InferenceResponse:
         latency_ms=round(latency_ms, 3),
         device=str(runtime.device),
         decision_threshold=runtime.decision_threshold,
+        operational_metrics={
+            key: round(float(value), 6) for key, value in operational_metrics.items()
+        },
     )

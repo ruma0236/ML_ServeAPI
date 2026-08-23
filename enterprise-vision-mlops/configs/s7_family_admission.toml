@@ -1,0 +1,79 @@
+schema_version = "evm.s7_family_admission.v1"
+seed = 20260824
+repetitions = 3
+
+[scheduler]
+max_active_requests = 1
+max_queue_depth = 8
+max_short_bypass = 3
+starvation_seconds = 30.0
+default_deadline_seconds = 120.0
+maximum_deadline_seconds = 180.0
+retry_after_seconds = 2
+
+[image]
+max_request_bytes = 16384
+max_image_bytes = 2097152
+max_image_pixels = 2097152
+max_input_tokens = 0
+max_output_tokens = 0
+max_in_flight_request_bytes = 147456
+max_in_flight_image_bytes = 18874368
+max_in_flight_pixels = 18874368
+max_in_flight_tokens = 0
+long_request_cost_units = 1000.0
+
+[vlm]
+max_request_bytes = 131072
+max_image_bytes = 1048576
+max_image_pixels = 1048576
+max_input_tokens = 1536
+max_output_tokens = 32
+max_in_flight_request_bytes = 1179648
+max_in_flight_image_bytes = 9437184
+max_in_flight_pixels = 9437184
+max_in_flight_tokens = 14112
+long_request_cost_units = 1550.0
+
+[llm]
+max_request_bytes = 262144
+max_image_bytes = 0
+max_image_pixels = 0
+max_input_tokens = 2048
+max_output_tokens = 128
+max_in_flight_request_bytes = 2359296
+max_in_flight_image_bytes = 0
+max_in_flight_pixels = 0
+max_in_flight_tokens = 19584
+long_request_cost_units = 768.0
+
+[experiment]
+profile_ids = [
+  "image-small",
+  "image-large",
+  "image-fairness",
+  "image-over-limit",
+  "vlm-small-short",
+  "vlm-large-long",
+  "vlm-fairness",
+  "vlm-over-limit",
+  "llm-short",
+  "llm-long",
+  "llm-fairness",
+  "llm-over-limit",
+]
+requests_per_profile = 6
+fairness_short_requests = 4
+fairness_long_requests = 2
+closed_concurrency = 4
+warmup_requests = 1
+cooldown_seconds = 2.0
+request_timeout_seconds = 180.0
+resource_sample_interval_seconds = 0.25
+maximum_p99_seconds = 120.0
+maximum_queue_wait_seconds = 120.0
+require_zero_oom = true
+require_zero_starvation = true
+
+[claim_boundary]
+text = "Controlled family-specific admission evidence on one local physical node and one consumer GPU. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, broad benchmark-quality, or business A/B claim."
