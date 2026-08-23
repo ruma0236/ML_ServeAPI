@@ -60,9 +60,18 @@ def _api_raw(repetition: int) -> dict[str, object]:
         "effect_ids": [f"effect-{repetition}-{index}" for index in range(2)],
         "duplicate_effects": 0,
         "drain_events": [
-            {"drain_completed": True, "drain_elapsed_seconds": 0.1},
-            {"drain_completed": True, "drain_elapsed_seconds": 0.2},
+            {
+                "instance_id": "pod-a",
+                "drain_completed": True,
+                "drain_elapsed_seconds": 0.1,
+            },
+            {
+                "instance_id": "pod-b",
+                "drain_completed": True,
+                "drain_elapsed_seconds": 0.2,
+            },
         ],
+        "expected_drain_instance_ids": ["pod-a", "pod-b"],
     }
     return {
         "schema_version": "evm.s6_api_rolling_repetition.v1",

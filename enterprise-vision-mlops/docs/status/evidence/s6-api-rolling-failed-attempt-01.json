@@ -1,0 +1,53 @@
+{
+  "schema_version": "evm.s6_failed_attempt_public.v1",
+  "generated_at": "2026-08-23T15:19:13.151357Z",
+  "scenario_id": "S6",
+  "attempt_id": "api-rolling-attempt-01",
+  "status": "failed",
+  "acceptance_credit": false,
+  "source_revision": "4ec93b091faa02540fe19bfe8f6147a3aa41b8d8",
+  "phase": "api_rolling_continuity",
+  "observed_result": {
+    "logical_requests": 500,
+    "client_success": 500,
+    "database_terminal": 500,
+    "accepted_loss": 0,
+    "duplicate_effects": 0,
+    "trace_expected": 20,
+    "trace_observed": 20,
+    "p99_milliseconds": 157.15000000636778,
+    "expected_drain_events": 2,
+    "observed_drain_events_at_initial_query": 1,
+    "cleanup_passed": true
+  },
+  "root_cause": "Kubernetes reported rollout completion immediately before the second terminating old Pod persisted its preStop drain event. The original time-window query therefore observed one of two exact Pod drain events even though the second event committed milliseconds later.",
+  "remediation": [
+    "Bind expected drain evidence to the exact pre-rollout Pod UID set instead of an inferred timestamp window.",
+    "Require the rollout to have the exact new release replicas and zero terminating Pods before querying drain evidence.",
+    "Require the observed drain identity set to equal the exact expected Pod UID set."
+  ],
+  "private_evidence": {
+    "logical_root": "private://scale_validation/s6/failed-attempt-01",
+    "artifacts": [
+      {
+        "logical_path": "failed-attempt.json",
+        "bytes": 541,
+        "sha256": "c7e06b375d58021f0c205163c8228aa802787ef82b2c08a17aa89598d609b7b4"
+      },
+      {
+        "logical_path": "api/repetition-01.json",
+        "bytes": 551177,
+        "sha256": "1357cca95c3d798507d8b8de83c1a56ac486250e7c7248bb54373d0fe5e844c4"
+      }
+    ]
+  },
+  "postconditions": {
+    "api_replicas_restored": 2,
+    "api_release_restored": "known_good",
+    "gpu_source_ready": 1,
+    "gpu_target_desired": 0,
+    "prometheus_api": "up",
+    "prometheus_serving": "up"
+  },
+  "claim_boundary": "This failed local controlled attempt is retained as RCA evidence and provides no S6 acceptance credit."
+}

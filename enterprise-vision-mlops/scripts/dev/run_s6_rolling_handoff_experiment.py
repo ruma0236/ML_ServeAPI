@@ -250,7 +250,7 @@ def runtime_preflight(
         release_id="old",
         source_revision=source_revision,
     )
-    wait_deployment_ready(config.api.namespace, config.api.deployment, config.api.replicas)
+    wait_api_release_settled(config=config, release_id="old")
     ready = request_json(f"http://127.0.0.1:{config.api.node_port}/ready")
     if ready.get("status") != "ready" and ready.get("status") != "ok":
         raise S6RuntimeError("s6_api_readiness_preflight_failed")
@@ -305,7 +305,7 @@ def run_api_suite(
             release_id="old",
             source_revision=source_revision,
         )
-        wait_deployment_ready(config.api.namespace, config.api.deployment, config.api.replicas)
+        wait_api_release_settled(config=config, release_id="old")
         result = run_api_repetition(
             config=config,
             database_url=database_url,
@@ -325,7 +325,7 @@ def run_api_suite(
             release_id="old",
             source_revision=source_revision,
         )
-        wait_deployment_ready(config.api.namespace, config.api.deployment, config.api.replicas)
+        wait_api_release_settled(config=config, release_id="old")
         time.sleep(config.api.cooldown_seconds)
     return results
 
@@ -367,12 +367,7 @@ def run_api_repetition(
                 release_id="new",
                 source_revision=source_revision,
             )
-            wait_deployment_ready(
-                config.api.namespace,
-                config.api.deployment,
-                config.api.replicas,
-                timeout=config.rolling.rollout_timeout_seconds,
-            )
+            wait_api_release_settled(config=config, release_id="new")
             rollout_result.update(
                 {
                     "started_at": started_at,
@@ -420,8 +415,7 @@ def run_api_repetition(
         database_url=database_url,
         schema=database_schema,
         request_prefix=f"{run_id}-request",
-        rollout_started_at=str(rollout_result["started_at"]),
-        rollout_finished_at=str(rollout_result["finished_at"]),
+        drain_instance_ids={str(item["uid"]) for item in before["active_pods"]},
     )
     successful = [item for item in observations if item.get("success") is True]
     latencies = [float(item["logical_latency_ms"]) for item in successful]
@@ -610,8 +604,7 @@ def query_api_database(
     database_url: str,
     schema: str,
     request_prefix: str,
-    rollout_started_at: str,
-    rollout_finished_at: str,
+    drain_instance_ids: set[str],
 ) -> dict[str, Any]:
     validate_sql_identifier(schema)
     with psycopg.connect(database_url) as connection:
@@ -628,9 +621,9 @@ def query_api_database(
             cursor.execute(
                 f"SELECT payload FROM {schema}.entities "
                 "WHERE entity_kind='s6_api_drain' "
-                "AND updated_at >= %s::timestamptz AND updated_at <= %s::timestamptz "
+                "AND entity_id = ANY(%s) "
                 "ORDER BY updated_at",
-                (rollout_started_at, rollout_finished_at),
+                (sorted(drain_instance_ids),),
             )
             drains = [row[0] for row in cursor.fetchall()]
     effect_ids = [str(item["payload"].get("effect_id") or "") for item in entities]
@@ -644,6 +637,7 @@ def query_api_database(
         "effect_ids": effect_ids,
         "duplicate_effects": len(effect_ids) - len(set(effect_ids)),
         "drain_events": drains,
+        "expected_drain_instance_ids": sorted(drain_instance_ids),
     }
 
 
@@ -657,7 +651,7 @@ def api_repetition_passed(result: Mapping[str, Any], config: S6RuntimeConfig) ->
         and int(result["accepted_loss"]) == config.guardrails.accepted_loss
         and int(result["duplicate_effects"]) == config.guardrails.duplicate_effects
         and float(result["error_rate"]) <= config.guardrails.maximum_error_rate
-        and int(result["drain_event_count"]) >= config.api.replicas
+        and int(result["drain_event_count"]) == config.api.replicas
         and float(result["p99_ms"]) <= config.guardrails.maximum_p99_ms
         and result["trace_summary"]["complete"] is True
         and result["prometheus_up"] is True
@@ -1035,7 +1029,7 @@ def cleanup_runtime(
             release_id="old",
             source_revision=source_revision,
         )
-        wait_deployment_ready(config.api.namespace, config.api.deployment, config.api.replicas)
+        wait_api_release_settled(config=config, release_id="old")
     except Exception as exc:
         errors.append(f"api:{type(exc).__name__}:{exc}")
     source = deployment_snapshot(
@@ -1130,6 +1124,39 @@ def wait_deployment_ready(
     return snapshot
 
 
+def wait_api_release_settled(
+    *, config: S6RuntimeConfig, release_id: str
+) -> dict[str, Any]:
+    run_checked(
+        [
+            "kubectl",
+            "-n",
+            config.api.namespace,
+            "rollout",
+            "status",
+            f"deployment/{config.api.deployment}",
+            f"--timeout={int(config.rolling.rollout_timeout_seconds)}s",
+        ],
+        timeout=config.rolling.rollout_timeout_seconds + 10,
+    )
+    deadline = time.monotonic() + config.rolling.rollout_timeout_seconds
+    while time.monotonic() < deadline:
+        snapshot = deployment_snapshot(config.api.namespace, config.api.deployment)
+        if (
+            snapshot["desired_replicas"] == config.api.replicas
+            and snapshot["ready_replicas"] == config.api.replicas
+            and len(snapshot["active_pods"]) == config.api.replicas
+            and not snapshot["terminating_pods"]
+            and snapshot["release_ids"] == [release_id]
+        ):
+            return snapshot
+        time.sleep(config.api.runtime_poll_interval_seconds)
+    raise S6RuntimeError(
+        f"s6_api_release_not_settled:{config.api.namespace}/{config.api.deployment}:"
+        f"release={release_id}"
+    )
+
+
 def wait_deployment_scaled_zero(
     namespace: str, deployment: str, *, timeout: float
 ) -> dict[str, Any]:
@@ -1154,24 +1181,25 @@ def deployment_snapshot(namespace: str, deployment: str) -> dict[str, Any]:
     container = payload["spec"]["template"]["spec"]["containers"][0]
     env = {item["name"]: item.get("value") for item in container.get("env", [])}
     active = []
+    terminating = []
     for pod in pods.get("items", []):
-        if pod.get("metadata", {}).get("deletionTimestamp"):
-            continue
         if pod.get("status", {}).get("phase") in {"Failed", "Succeeded"}:
             continue
         statuses = pod.get("status", {}).get("containerStatuses") or []
-        active.append(
-            {
-                "name": pod["metadata"]["name"],
-                "uid": pod["metadata"]["uid"],
-                "phase": pod.get("status", {}).get("phase"),
-                "ready": bool(statuses and statuses[0].get("ready")),
-                "image_id": statuses[0].get("imageID") if statuses else None,
-                "release_id": pod.get("metadata", {})
-                .get("labels", {})
-                .get("evm.openai.local/release"),
-            }
-        )
+        item = {
+            "name": pod["metadata"]["name"],
+            "uid": pod["metadata"]["uid"],
+            "phase": pod.get("status", {}).get("phase"),
+            "ready": bool(statuses and statuses[0].get("ready")),
+            "image_id": statuses[0].get("imageID") if statuses else None,
+            "release_id": pod.get("metadata", {})
+            .get("labels", {})
+            .get("evm.openai.local/release"),
+        }
+        if pod.get("metadata", {}).get("deletionTimestamp"):
+            terminating.append(item)
+        else:
+            active.append(item)
     return {
         "namespace": namespace,
         "name": deployment,
@@ -1185,6 +1213,7 @@ def deployment_snapshot(namespace: str, deployment: str) -> dict[str, Any]:
         "dataset_version": env.get("EVM_DATASET_VERSION"),
         "component_source_revision": env.get("EVM_EXPECTED_COMPONENT_SOURCE_REVISION"),
         "active_pods": active,
+        "terminating_pods": terminating,
         "release_ids": sorted(
             {str(item["release_id"]) for item in active if item.get("release_id")}
         ),

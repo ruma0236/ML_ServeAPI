@@ -252,7 +252,7 @@ def analyze_s6_results(
         for item in api_repetitions
     )
     api_drain_measured = api_count_ok and all(
-        int(item.get("drain_event_count", 0)) >= config.api.replicas
+        int(item.get("drain_event_count", 0)) == config.api.replicas
         and 0 < float(item.get("rollout_seconds", 0))
         <= config.rolling.rollout_timeout_seconds
         and 0 <= float(item.get("maximum_drain_seconds", -1))

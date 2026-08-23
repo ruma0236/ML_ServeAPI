@@ -238,6 +238,12 @@ def project_api_result(
     if trace.get("complete") is not True:
         errors.append(f"{prefix}:trace_complete")
     drains = list(database.get("drain_events", []))
+    expected_drain_ids = set(database.get("expected_drain_instance_ids", []))
+    observed_drain_ids = {
+        str(item.get("instance_id") or "") for item in drains
+    }
+    if expected_drain_ids != observed_drain_ids or any(not value for value in observed_drain_ids):
+        errors.append(f"{prefix}:drain_identity_closure")
     if any(item.get("drain_completed") is not True for item in drains):
         errors.append(f"{prefix}:drain_terminal")
     if int(payload.get("drain_event_count", -1)) != len(drains):
