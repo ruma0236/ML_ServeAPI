@@ -60,7 +60,6 @@ def test_s7_prometheus_refresh_restarts_when_file_watch_does_not_converge(
     monkeypatch.setattr(s7_runner, "reload_prometheus", lambda: calls.append("reload"))
     monkeypatch.setattr(s7_runner, "restart_prometheus", lambda: calls.append("restart"))
     monkeypatch.setattr(s7_runner, "wait_until", lambda predicate, timeout: next(waits))
-
     result = s7_runner.refresh_prometheus_target("image", timeout=45)
 
     assert result["restart_used"] is True
@@ -73,11 +72,75 @@ def test_s7_prometheus_cleanup_restarts_when_stale_target_remains(monkeypatch) -
     monkeypatch.setattr(s7_runner, "reload_prometheus", lambda: calls.append("reload"))
     monkeypatch.setattr(s7_runner, "restart_prometheus", lambda: calls.append("restart"))
     monkeypatch.setattr(s7_runner, "wait_until", lambda predicate, timeout: next(waits))
+    monkeypatch.setattr(
+        s7_runner,
+        "prometheus_health",
+        lambda: {"target_count": 5, "up_count": 5, "all_up": True},
+    )
 
-    result = s7_runner.refresh_prometheus_target_absent(timeout=45)
+    result = s7_runner.refresh_prometheus_target_absent(
+        timeout=45,
+        expected_baseline_target_count=5,
+    )
 
     assert result["restart_used"] is True
     assert calls == ["reload", "restart"]
+
+
+def test_s7_prometheus_cleanup_rejects_transient_zero_target_state(monkeypatch) -> None:
+    monkeypatch.setattr(s7_runner, "prometheus_target_count", lambda: 0)
+    monkeypatch.setattr(
+        s7_runner,
+        "prometheus_health",
+        lambda: {"target_count": 0, "up_count": 0, "all_up": False},
+    )
+
+    assert s7_runner.prometheus_cleanup_restored(5) is False
+
+
+def test_s7_prometheus_cleanup_requires_exact_restored_baseline(monkeypatch) -> None:
+    monkeypatch.setattr(s7_runner, "prometheus_target_count", lambda: 0)
+    monkeypatch.setattr(
+        s7_runner,
+        "prometheus_health",
+        lambda: {"target_count": 5, "up_count": 5, "all_up": True},
+    )
+
+    assert s7_runner.prometheus_cleanup_restored(5) is True
+
+
+def test_s7_cleanup_contract_fails_when_baseline_is_not_loaded() -> None:
+    cleanup = {
+        "holder_uid_exact": True,
+        "source_model_sha256_exact": True,
+        "source_candidate_exact": True,
+        "source_cuda_inference": True,
+        "gpu_lease_zero": True,
+        "s7_target_cleanup": {"restored": True},
+        "prometheus_baseline": {"target_count": 0, "up_count": 0, "all_up": False},
+    }
+
+    assert (
+        s7_runner.cleanup_contract_passed(cleanup, expected_baseline_target_count=5)
+        is False
+    )
+
+
+def test_s7_cleanup_contract_accepts_exact_source_lease_and_prometheus_restore() -> None:
+    cleanup = {
+        "holder_uid_exact": True,
+        "source_model_sha256_exact": True,
+        "source_candidate_exact": True,
+        "source_cuda_inference": True,
+        "gpu_lease_zero": True,
+        "s7_target_cleanup": {"restored": True},
+        "prometheus_baseline": {"target_count": 5, "up_count": 5, "all_up": True},
+    }
+
+    assert s7_runner.cleanup_contract_passed(
+        cleanup,
+        expected_baseline_target_count=5,
+    )
 
 
 def test_s7_analysis_rejects_missing_matrix() -> None:

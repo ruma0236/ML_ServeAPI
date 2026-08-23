@@ -1,0 +1,60 @@
+{
+  "schema_version": "evm.s7_failed_attempt_public.v1",
+  "attempt_id": "S7-DIAGNOSTIC-02",
+  "status": "rejected",
+  "acceptance_credit": false,
+  "source_revision": "db20db4f028fe21206a137f7e13e08f942cf6b57",
+  "phase": "family_diagnostics_cleanup",
+  "observed_result": {
+    "families_exercised": [
+      "image",
+      "vlm",
+      "llm"
+    ],
+    "completed_profile_repetitions": 3,
+    "external_http_cuda_requests_completed": 18,
+    "family_metric_projections_passed": true,
+    "cleanup_evidence_at_capture_passed": false,
+    "acceptance_credit": false
+  },
+  "root_cause": [
+    "The file-discovery cleanup predicate treated an absent S7 target as sufficient, even while a Prometheus restart had not yet reloaded the five frozen baseline targets.",
+    "Each diagnostic therefore recorded a transient zero-target and zero-UP baseline immediately after restart, so its cleanup evidence was incomplete despite later runtime recovery."
+  ],
+  "remediation": [
+    "Freeze and verify the five-target Prometheus baseline before any S7 mutation.",
+    "Require both an absent S7 target and exactly five of five baseline targets UP before cleanup can converge.",
+    "Make diagnostic and acceptance paths fail closed when source serving, lease, or Prometheus cleanup evidence is incomplete.",
+    "Add positive and negative regressions for the transient zero-target state and exact cleanup contract."
+  ],
+  "post_recovery_verification": {
+    "source_serving_replicas": "1/1",
+    "source_cuda_inference": true,
+    "gpu_lease_zero": true,
+    "prometheus_baseline": "5/5_up",
+    "s7_target_count": 0,
+    "all_three_suites_rehashed": true
+  },
+  "private_evidence": [
+    {
+      "family": "image",
+      "artifact_count": 13,
+      "aggregate_sha256": "733da79af635155ef018a399716e3dce78e817a2652adc9ccb6cde70403f4852",
+      "index_sha256": "d9069a50004adc0bd702d4dc75e76886c6d7c64df38bd41d7c5dd6912565d61f"
+    },
+    {
+      "family": "vlm",
+      "artifact_count": 6,
+      "aggregate_sha256": "1303b9948d6610a529b7f8001959c8c5f5e1b5e88f6f96f0603d360957b68635",
+      "index_sha256": "987db11b0dc11ff1743e685d3022b6a5f3fd648ca10142813a1bf76b5a7f1e0c"
+    },
+    {
+      "family": "llm",
+      "artifact_count": 6,
+      "aggregate_sha256": "e22aeb6c5a0f6e6239bedd3f48999f36a7c8a88313c2d20dca68214a7135ad6f",
+      "index_sha256": "8fdcff9422d7d461f2031d5e34bcc88f8cb3d1258bf38163af2fdbacc07305e3"
+    }
+  ],
+  "claim_boundary": "Rejected controlled local single-node diagnostics with zero S7 acceptance credit; no production, SLA, HA/DR, multi-GPU, or broad model-quality claim.",
+  "generated_at": "2026-08-23T18:59:18.922527Z"
+}

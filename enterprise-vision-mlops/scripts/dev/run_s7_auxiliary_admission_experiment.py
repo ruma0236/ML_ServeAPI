@@ -56,6 +56,7 @@ from evm.scale_validation.s7_runtime import (  # noqa: E402
 
 PROMETHEUS_URL = "http://127.0.0.1:9090"
 TARGET_JOB = "evm-s7-family"
+EXPECTED_BASELINE_TARGET_COUNT = 5
 
 
 @dataclass(frozen=True)
@@ -172,6 +173,12 @@ def main() -> int:
     prior_target = target_path.read_bytes() if target_path.is_file() else None
     if prior_target is not None and json.loads(prior_target) != []:
         raise S7RuntimeError("s7_stale_prometheus_target_present")
+    prometheus_before = prometheus_health()
+    if not prometheus_baseline_matches(
+        prometheus_before,
+        expected_target_count=EXPECTED_BASELINE_TARGET_COUNT,
+    ):
+        raise S7RuntimeError("s7_prometheus_baseline_not_ready")
     records = {family: read_jsonl(assets[family].manifest) for family in families}
     input_catalog = prepare_inputs(
         suite_root=suite_root,
@@ -190,6 +197,8 @@ def main() -> int:
             "holder": holder.__dict__,
             "source_serving": source_before,
             "gpu": gpu_before,
+            "prometheus_baseline": prometheus_before,
+            "expected_prometheus_baseline_target_count": EXPECTED_BASELINE_TARGET_COUNT,
             "assets": public_asset_identity(assets),
             "input_catalog_sha256": canonical_sha256(public_input_catalog(input_catalog)),
             "started_at": utc_now(),
@@ -308,7 +317,29 @@ def main() -> int:
         if holder_scaled_down:
             scale_holder(holder, replicas=holder.replicas, require_ready=True)
         restore_file_sd_target(target_path, prior_target)
-        final_target_cleanup = refresh_prometheus_target_absent(timeout=45)
+        try:
+            final_target_cleanup = refresh_prometheus_target_absent(
+                timeout=45,
+                expected_baseline_target_count=EXPECTED_BASELINE_TARGET_COUNT,
+            )
+        except Exception as exc:
+            final_target_cleanup = {
+                "restored": False,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+            if failure_exc is None:
+                failure_exc = exc
+                failed = {
+                    "schema_version": "evm.s7_failed_attempt.v1",
+                    "suite_id": suite_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "completed_profile_repetitions": len(profile_results),
+                    "acceptance_credit": False,
+                    "action": "Prometheus cleanup did not restore the frozen baseline.",
+                    "recorded_at": utc_now(),
+                }
     source_after = source_serving_probe(holder, data_root=args.data_root)
     cleanup = {
         "schema_version": "evm.s7_cleanup.v1",
@@ -323,7 +354,23 @@ def main() -> int:
         "gpu_after": gpu_snapshot(),
         "finished_at": utc_now(),
     }
+    cleanup["cleanup_passed"] = cleanup_contract_passed(
+        cleanup,
+        expected_baseline_target_count=EXPECTED_BASELINE_TARGET_COUNT,
+    )
     canonical_write(suite_root / "cleanup.json", cleanup)
+    if failure_exc is None and cleanup["cleanup_passed"] is not True:
+        failure_exc = S7RuntimeError("s7_cleanup_contract_failed")
+        failed = {
+            "schema_version": "evm.s7_failed_attempt.v1",
+            "suite_id": suite_id,
+            "error_type": type(failure_exc).__name__,
+            "error": str(failure_exc),
+            "completed_profile_repetitions": len(profile_results),
+            "acceptance_credit": False,
+            "action": "Cleanup evidence failed the frozen source/lease/Prometheus contract.",
+            "recorded_at": utc_now(),
+        }
     if failure_exc is not None:
         assert failed is not None
         failed["action"] = "Fail-closed cleanup completed; no acceptance credit was assigned."
@@ -1199,16 +1246,78 @@ def prometheus_target_up(family: str) -> bool:
     return len(matches) == 1 and matches[0].get("health") == "up"
 
 
-def refresh_prometheus_target_absent(*, timeout: float) -> dict[str, Any]:
+def refresh_prometheus_target_absent(
+    *,
+    timeout: float,
+    expected_baseline_target_count: int,
+) -> dict[str, Any]:
     started = time.monotonic()
     reload_prometheus()
-    if wait_until(lambda: prometheus_target_count() == 0, timeout=min(5.0, timeout)):
-        return {"elapsed_seconds": time.monotonic() - started, "restart_used": False}
+    if wait_until(
+        lambda: prometheus_cleanup_restored(expected_baseline_target_count),
+        timeout=min(5.0, timeout),
+    ):
+        return {
+            "restored": True,
+            "elapsed_seconds": time.monotonic() - started,
+            "restart_used": False,
+            "prometheus_baseline": prometheus_health(),
+        }
     restart_prometheus()
     remaining = max(1.0, timeout - (time.monotonic() - started))
-    if wait_until(lambda: prometheus_target_count() == 0, timeout=remaining):
-        return {"elapsed_seconds": time.monotonic() - started, "restart_used": True}
+    if wait_until(
+        lambda: prometheus_cleanup_restored(expected_baseline_target_count),
+        timeout=remaining,
+    ):
+        return {
+            "restored": True,
+            "elapsed_seconds": time.monotonic() - started,
+            "restart_used": True,
+            "prometheus_baseline": prometheus_health(),
+        }
     raise S7RuntimeError("s7_prometheus_target_cleanup_timeout")
+
+
+def prometheus_cleanup_restored(expected_baseline_target_count: int) -> bool:
+    try:
+        return prometheus_target_count() == 0 and prometheus_baseline_matches(
+            prometheus_health(),
+            expected_target_count=expected_baseline_target_count,
+        )
+    except (requests.RequestException, ValueError):
+        return False
+
+
+def prometheus_baseline_matches(
+    health: dict[str, Any],
+    *,
+    expected_target_count: int,
+) -> bool:
+    return (
+        int(health.get("target_count", -1)) == expected_target_count
+        and int(health.get("up_count", -1)) == expected_target_count
+        and health.get("all_up") is True
+    )
+
+
+def cleanup_contract_passed(
+    cleanup: dict[str, Any],
+    *,
+    expected_baseline_target_count: int,
+) -> bool:
+    target_cleanup = cleanup.get("s7_target_cleanup") or {}
+    return (
+        cleanup.get("holder_uid_exact") is True
+        and cleanup.get("source_model_sha256_exact") is True
+        and cleanup.get("source_candidate_exact") is True
+        and cleanup.get("source_cuda_inference") is True
+        and cleanup.get("gpu_lease_zero") is True
+        and target_cleanup.get("restored") is True
+        and prometheus_baseline_matches(
+            cleanup.get("prometheus_baseline") or {},
+            expected_target_count=expected_baseline_target_count,
+        )
+    )
 
 
 def prometheus_target_count() -> int:
@@ -1234,7 +1343,12 @@ def wait_until(predicate: Callable[[], bool], *, timeout: float) -> bool:
 
 
 def prometheus_health() -> dict[str, Any]:
-    payload = requests.get(f"{PROMETHEUS_URL}/api/v1/targets", timeout=10).json()
+    try:
+        response = requests.get(f"{PROMETHEUS_URL}/api/v1/targets", timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+    except (requests.RequestException, ValueError):
+        return {"target_count": 0, "up_count": 0, "all_up": False}
     targets = payload.get("data", {}).get("activeTargets", [])
     baseline = [item for item in targets if item.get("labels", {}).get("job") != TARGET_JOB]
     return {
