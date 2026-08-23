@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T09:55:37.605649Z",
+  "generated_at": "2026-08-23T10:03:14.085331Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2095,7 +2095,8 @@
         "A separate no-catch-up 60 RPS calibration then passed all three repetitions. The final clean-run contract freezes that ceiling, inserts a 60-second quiet GPU recovery gate before confirmation, and continues to calculate S2 capacity only from the validated open-loop service rate.",
         "The first quiet gate stopped a clean run after 63 repetitions because it compared noisy whole-device Windows display utilization against an absolute 15-percent ceiling even though the experiment container was absent and VRAM had recovered. The corrected gate retains every spike but requires exact lease ownership, experiment-container absence, stable VRAM/temperature, and a five-sample utilization median within 15 percentage points of the measured pre-run baseline.",
         "At clean revision 72ec3d2, the corrected quiet gate and external 60 RPS pilot passed three repetitions with complete traces, fixed p99/queue SLOs, zero OOM, terminal drain, exact holder restoration, and cleanup. This is a non-acceptance checkpoint before one fresh 66-repetition run.",
-        "At clean revision a760a49, the fresh full run completed all 60 batch-delay repetitions, three instance-axis repetitions, the quiet recovery gate, and three 60 RPS open-loop confirmations. The runner projected all four ACs as passed; independent evidence recomputation and closure remain required before S4 is marked verified."
+        "At clean revision a760a49, the fresh full run completed all 60 batch-delay repetitions, three instance-axis repetitions, the quiet recovery gate, and three 60 RPS open-loop confirmations. The runner projected all four ACs as passed; independent evidence recomputation and closure remain required before S4 is marked verified.",
+        "A separate fail-closed validator now recomputes point coverage, all four ACs, trace/drain/OOM and operating gates, instance effects, the S2 capacity formula, source/config Git identity, cleanup, and all 69 private artifacts. Twenty-seven focused tests, including nine public-evidence mutations, pass; full regressions and closure remain pending."
       ],
       "experiment_environment": "Actual local single-node runtime with one consumer GPU, the existing Workloads API, external TCP client, isolated Prometheus, OTLP collector, and exact Kubernetes serving-holder handoff. No customer traffic or production SLA.",
       "test_or_experiment_steps": [
@@ -2231,7 +2232,7 @@
         "Model instance count and batch size effects are measured separately.",
         "Queue limits are recalculated from the selected service rate."
       ],
-      "next_action": "Commit the full 66-repetition result, independently recompute every S4 AC and private/public hash, run regressions and runtime smoke, then create the closure artifact.",
+      "next_action": "Commit the independent validator, run full regressions and current-revision runtime smoke, then create and Git-blob validate the closure artifact.",
       "architecture_before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
       "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; open-loop confirmation requires a quiet recovery gate and the final operating point remains unselected until the full matrix passes.",
       "existing_system_baseline": "The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.",
@@ -2611,6 +2612,15 @@
           "phase": "experiment",
           "status": "implementing",
           "summary": "At clean revision a760a49, the full run completed 60 matrix, three instance-axis, and three open-loop repetitions. The selected saturation candidate was batch 8/delay 10/instance 1 at 160.70 mean RPS; the three no-catch-up confirmations delivered 58.90 to 59.10 RPS with p99 63.87 to 73.79 ms, queue p99 17.98 to 20.36 ms, complete traces, zero OOM, and exact cleanup. The runner projected all four ACs as passed, but S4 remains implementing until independent evidence recomputation and closure pass.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-experiment.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T10:03:14.085331Z",
+          "phase": "verification",
+          "status": "implementing",
+          "summary": "The independent S4 validator recomputed all 66 point identities and four ACs, rehashed the canonical Git experiment blob and 69 private artifacts, and verified source/config ancestry, trace/drain/OOM, quiet recovery, instance effects, S2 capacity, and cleanup. Twenty-seven focused tests and nine negative evidence mutations passed. Full regressions, current-revision smoke, and closure remain pending.",
           "evidence_refs": [
             "docs/status/evidence/s4-gpu-batching-experiment.json"
           ]

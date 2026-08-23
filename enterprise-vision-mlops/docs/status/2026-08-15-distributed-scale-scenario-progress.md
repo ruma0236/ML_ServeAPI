@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T09:55:37.605649Z`
+- Generated: `2026-08-23T10:03:14.085331Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -384,7 +384,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; open-loop confirmation requires a quiet recovery gate and the final operating point remains unselected until the full matrix passes.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Commit the full 66-repetition result, independently recompute every S4 AC and private/public hash, run regressions and runtime smoke, then create the closure artifact.
+- Next action: Commit the independent validator, run full regressions and current-revision runtime smoke, then create and Git-blob validate the closure artifact.
 
 ### Affected Existing Components
 
@@ -473,6 +473,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T08:15:10.264354Z` `recovery` / `implementing`: A clean run completed all 60 matrix and three instance repetitions with zero OOM, then the new quiet gate stopped before open-loop. The experiment container was absent, VRAM was below the pre-run baseline, and the exact lease matched, but whole-device Windows display utilization alternated between low samples and transient spikes; an absolute 15-percent maximum therefore produced a false blocker. The gate now retains spikes as evidence while using exact container ownership, stable VRAM/temperature, and a five-sample median relative to the measured baseline. Cleanup and serving restoration passed; no acceptance credit is granted.
 - `2026-08-23T08:44:21.746261Z` `implementation` / `implementing`: At clean revision 72ec3d2, the baseline-relative 60-second quiet gate passed with the experiment container absent and exact lease identity. Three external 60 RPS repetitions delivered 58.90 to 59.23 RPS, p99 59.17 to 72.45 ms, queue p99 15.83 to 21.07 ms, 12/12 sampled traces, zero OOM, terminal drain, exact serving restoration, and cleanup. This grants no acceptance credit before the fresh full run.
 - `2026-08-23T09:55:37.605649Z` `experiment` / `implementing`: At clean revision a760a49, the full run completed 60 matrix, three instance-axis, and three open-loop repetitions. The selected saturation candidate was batch 8/delay 10/instance 1 at 160.70 mean RPS; the three no-catch-up confirmations delivered 58.90 to 59.10 RPS with p99 63.87 to 73.79 ms, queue p99 17.98 to 20.36 ms, complete traces, zero OOM, and exact cleanup. The runner projected all four ACs as passed, but S4 remains implementing until independent evidence recomputation and closure pass.
+- `2026-08-23T10:03:14.085331Z` `verification` / `implementing`: The independent S4 validator recomputed all 66 point identities and four ACs, rehashed the canonical Git experiment blob and 69 private artifacts, and verified source/config ancestry, trace/drain/OOM, quiet recovery, instance effects, S2 capacity, and cleanup. Twenty-seven focused tests and nine negative evidence mutations passed. Full regressions, current-revision smoke, and closure remain pending.
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 
