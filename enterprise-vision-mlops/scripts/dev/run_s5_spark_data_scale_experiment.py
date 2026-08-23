@@ -17,6 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from evm.scale_validation.evidence import write_public_json  # noqa: E402
+from evm.scale_validation.s5_evidence import (  # noqa: E402
+    project_s5_result,
+    source_git_identity,
+)
 from evm.scale_validation.s5_runtime import (  # noqa: E402
     S5RuntimeConfig,
     S5RuntimeError,
@@ -716,40 +720,9 @@ def _public_summary(
     public_results = []
     for index, result in enumerate(results, start=1):
         public_results.append(
-            {
-                "point_id": f"s5-point-{index:03d}",
-                **{
-                    key: result[key]
-                    for key in (
-                        "engine",
-                        "stage",
-                        "repetition",
-                        "profile",
-                        "executor_count",
-                        "semantic_row_count",
-                        "effective_row_count",
-                        "repeat_factor",
-                        "generated_io_only",
-                        "duration_seconds",
-                        "records_per_second",
-                        "mib_per_second",
-                        "peak_executor_memory_bytes",
-                        "gc_time_ms",
-                        "gc_ratio",
-                        "shuffle_read_bytes",
-                        "shuffle_write_bytes",
-                        "memory_spill_bytes",
-                        "disk_spill_bytes",
-                        "skew_ratio",
-                        "missing_records",
-                        "duplicate_records",
-                        "output_digest",
-                        "commit_state",
-                    )
-                    if key in result
-                },
-            }
+            project_s5_result(result, point_id=f"s5-point-{index:03d}")
         )
+    git_root = Path(_git("rev-parse", "--show-toplevel"))
     return {
         "schema_version": "evm.s5_spark_data_scale_experiment.v1",
         "generated_at": utc_now(),
@@ -760,6 +733,7 @@ def _public_summary(
             "revision": source_revision,
             "branch": source_branch,
             "config_sha256": config.sha256,
+            "git_blobs": source_git_identity(git_root, source_revision),
         },
         "dataset": {
             "dataset_id": config.dataset_id,
