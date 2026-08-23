@@ -6,6 +6,7 @@ from pathlib import Path
 from scripts.dev.run_s4_gpu_batching_experiment import (
     RuntimeContext,
     build_gpu_api_command,
+    private_evidence_index,
 )
 from evm.scale_validation.s4_runtime import S4RuntimeConfig, analyze_s4_results
 from evm.scale_validation.s4_runtime import S4Point
@@ -127,3 +128,15 @@ def test_s4_gpu_api_uses_supported_isolated_file_store(tmp_path: Path) -> None:
     assert "EVM_CONTROL_PLANE_STORE_MODE=file" in command
     assert "EVM_CONTROL_PLANE_STORE_MODE=json" not in command
     assert "--rm" not in command
+
+
+def test_s4_private_index_excludes_its_own_generated_file(tmp_path: Path) -> None:
+    (tmp_path / "point.json").write_text("{}\n", encoding="utf-8", newline="\n")
+    (tmp_path / "private-evidence-index.json").write_text(
+        "stale\n", encoding="utf-8", newline="\n"
+    )
+
+    index = private_evidence_index(tmp_path)
+
+    assert index["artifact_count"] == 1
+    assert [entry["path"] for entry in index["entries"]] == ["point.json"]

@@ -155,6 +155,8 @@ def main() -> int:
         build_runtime_image(image, revision)
     failed_attempts: list[dict[str, Any]] = []
     cleanup: dict[str, Any] = {}
+    public: dict[str, Any] | None = None
+    output_path = args.smoke_output if args.mode == "smoke" else args.output
     inference_lease = None
     try:
         scale_holder(holder, replicas=0, require_ready=False)
@@ -229,9 +231,7 @@ def main() -> int:
                 gpu=gpu_before,
                 training=training,
                 result=results[0],
-                private_root=suite_root,
             )
-            write_public_json(args.smoke_output, public)
         else:
             results = []
             for point in config.matrix_points():
@@ -300,8 +300,6 @@ def main() -> int:
                     )
                 )
             analysis = analyze_s4_results(results, config)
-            private_index = private_evidence_index(suite_root)
-            canonical_write(suite_root / "private-evidence-index.json", private_index)
             public = {
                 "schema_version": "evm.s4_gpu_batching_experiment.v1",
                 "generated_at": utc_now(),
@@ -332,14 +330,8 @@ def main() -> int:
                 "acceptance": analysis["acceptance"],
                 "runtime_verdict": analysis["runtime_verdict"],
                 "failed_attempts_and_rca": failed_attempts,
-                "private_evidence": {
-                    "artifact_count": private_index["artifact_count"],
-                    "aggregate_sha256": private_index["aggregate_sha256"],
-                    "total_bytes": private_index["total_bytes"],
-                },
                 "claim_boundary": CLAIM_BOUNDARY,
             }
-            write_public_json(args.output, public)
             if not all(analysis["acceptance"].values()):
                 raise S4RuntimeError(f"s4_acceptance_failed:{analysis['acceptance']}")
     except Exception as exc:
@@ -397,13 +389,27 @@ def main() -> int:
             )
         ):
             raise S4RuntimeError(f"s4_cleanup_incomplete:{cleanup}")
+    if public is None:
+        raise S4RuntimeError("s4_public_evidence_missing_after_success")
+    private_index = private_evidence_index(suite_root)
+    canonical_write(suite_root / "private-evidence-index.json", private_index)
+    public["generated_at"] = utc_now()
+    public["cleanup"] = cleanup
+    public["failed_attempts_and_rca"] = failed_attempts
+    public["private_evidence"] = {
+        "artifact_count": private_index["artifact_count"],
+        "aggregate_sha256": private_index["aggregate_sha256"],
+        "total_bytes": private_index["total_bytes"],
+        "index_sha256": file_sha256(suite_root / "private-evidence-index.json"),
+    }
+    write_public_json(output_path, public)
     print(
         json.dumps(
             {
                 "mode": args.mode,
                 "source_revision": revision,
                 "suite_root": str(suite_root),
-                "output": str(args.smoke_output if args.mode == "smoke" else args.output),
+                "output": str(output_path),
                 "cleanup": cleanup,
             },
             sort_keys=True,
@@ -1057,9 +1063,7 @@ def preparation_checkpoint(
     gpu: dict[str, Any],
     training: dict[str, Any],
     result: dict[str, Any],
-    private_root: Path,
 ) -> dict[str, Any]:
-    private_index = private_evidence_index(private_root)
     return {
         "schema_version": "evm.s4_preparation_checkpoint.v1",
         "generated_at": utc_now(),
@@ -1091,11 +1095,6 @@ def preparation_checkpoint(
             "framework": training["framework"],
         },
         "batch_one_smoke": result,
-        "private_evidence": {
-            "artifact_count": private_index["artifact_count"],
-            "aggregate_sha256": private_index["aggregate_sha256"],
-            "total_bytes": private_index["total_bytes"],
-        },
         "acceptance": {f"S4-AC-0{index}": "pending" for index in range(1, 5)},
         "next_action": "Run the frozen 60+3+3 controlled matrix at a clean revision.",
         "claim_boundary": CLAIM_BOUNDARY,
@@ -1254,6 +1253,8 @@ def private_evidence_index(root: Path) -> dict[str, Any]:
     total = 0
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
         relative = path.relative_to(root).as_posix()
+        if relative == "private-evidence-index.json":
+            continue
         size = path.stat().st_size
         digest = file_sha256(path)
         entries.append({"path": relative, "size_bytes": size, "sha256": digest})
