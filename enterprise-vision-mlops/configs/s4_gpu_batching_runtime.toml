@@ -49,6 +49,7 @@ trace_poll_interval_seconds = 0.25
 
 [open_loop]
 service_rate_fraction = 0.70
+maximum_target_requests_per_second = 80.0
 repetitions = 3
 
 [guardrails]

@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T05:33:39.958263Z",
+  "generated_at": "2026-08-23T05:43:47.220460Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2089,7 +2089,8 @@
         "At frozen concurrency 64, the corrective trace pilot passed three independent repetitions with complete per-request trace chains and exact cleanup.",
         "A complete 60-point saturation matrix plus three instance-axis repetitions exposed that candidate discovery and sustainable open-loop SLO validation were incorrectly coupled; the contracts are now separated.",
         "The first complete 66-repetition run selected batch 8/delay 10 at 140.33 requests per second, but its 80-percent open-loop replay failed the fixed operating SLO in two of three repetitions. The thresholds remain unchanged and the next clean run reserves 30-percent headroom.",
-        "The next run retained 64 repetitions and exposed an open-loop load-generator evidence defect: delayed schedule entries could be emitted as catch-up bursts and delivery fidelity was not measured. No-catch-up pacing and fail-closed delivery telemetry are now implemented before a non-acceptance pilot."
+        "The next run retained 64 repetitions and exposed an open-loop load-generator evidence defect: delayed schedule entries could be emitted as catch-up bursts and delivery fidelity was not measured. No-catch-up pacing and fail-closed delivery telemetry are now implemented before a non-acceptance pilot.",
+        "A 107.4 RPS pacing calibration failed delivery and operating SLO gates, while a separate three-repeat 80 RPS calibration passed delivery fidelity, p99, queue wait, trace, OOM, drain, and cleanup. The 80 RPS ceiling is now versioned and S2 capacity uses validated open-loop service rate."
       ],
       "experiment_environment": "Actual local single-node runtime with one consumer GPU, the existing Workloads API, external TCP client, isolated Prometheus, OTLP collector, and exact Kubernetes serving-holder handoff. No customer traffic or production SLA.",
       "test_or_experiment_steps": [
@@ -2173,6 +2174,18 @@
           "sha256": "5b34c1f19d50c65f8a9e9547ccc7e96538750162a216e780cd1194c2dcf71c52",
           "generated_at": "2026-08-23T05:27:14Z",
           "claim": "A 70-percent rerun retained 64 repetitions and stopped on an invalid open-loop hard-tail result; audit found catch-up burst semantics and missing delivery-fidelity telemetry, so the result receives no acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-07.json",
+          "sha256": "959237e8330ceac6474bf24eb8891c5250ac77c4a8a1d3e1e652c6230f1f7af6",
+          "generated_at": "2026-08-23T05:36:10.550153Z",
+          "claim": "The no-catch-up 107.4 RPS calibration delivered 96.99 percent and exceeded the operating tail SLO; it established a real local capacity boundary and received no acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s4-open-loop-pacing-checkpoint.json",
+          "sha256": "5ec641448cef87d65a3fe2591b46290ea6b3db91b57d60ece8aa5ef0fd3384b1",
+          "generated_at": "2026-08-23T05:40:03.158111Z",
+          "claim": "Three external 80 RPS pacing repetitions passed measured delivery fidelity, fixed operating p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this is calibration evidence only."
         }
       ],
       "status": "implementing",
@@ -2183,7 +2196,7 @@
         "Model instance count and batch size effects are measured separately.",
         "Queue limits are recalculated from the selected service rate."
       ],
-      "next_action": "Pass a three-repetition external no-catch-up pacing pilot with measured delivery fidelity, then restart all 66 acceptance repetitions from one clean revision.",
+      "next_action": "Commit the calibrated 80 RPS ceiling and validated-service-rate queue formula, then restart all 66 acceptance repetitions from one clean revision.",
       "architecture_before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
       "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.",
       "existing_system_baseline": "The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.",
@@ -2366,6 +2379,18 @@
           "sha256": "5b34c1f19d50c65f8a9e9547ccc7e96538750162a216e780cd1194c2dcf71c52",
           "generated_at": "2026-08-23T05:27:14Z",
           "claim": "A 70-percent rerun retained 64 repetitions and stopped on an invalid open-loop hard-tail result; audit found catch-up burst semantics and missing delivery-fidelity telemetry, so the result receives no acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-07.json",
+          "sha256": "959237e8330ceac6474bf24eb8891c5250ac77c4a8a1d3e1e652c6230f1f7af6",
+          "generated_at": "2026-08-23T05:36:10.550153Z",
+          "claim": "The no-catch-up 107.4 RPS calibration delivered 96.99 percent and exceeded the operating tail SLO; it established a real local capacity boundary and received no acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s4-open-loop-pacing-checkpoint.json",
+          "sha256": "5ec641448cef87d65a3fe2591b46290ea6b3db91b57d60ece8aa5ef0fd3384b1",
+          "generated_at": "2026-08-23T05:40:03.158111Z",
+          "claim": "Three external 80 RPS pacing repetitions passed measured delivery fidelity, fixed operating p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this is calibration evidence only."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2460,6 +2485,24 @@
           "summary": "The 70-percent rerun retained 60 matrix, three instance-axis, and one open-loop repetition with 220,648 requests, 477/477 sampled traces, zero OOMs, and exact cleanup. The open-loop point hard-failed, but its load generator delivered only 83.23 of the configured 107.40 RPS and did not expose release fidelity. Audit found catch-up burst semantics; no-catch-up pacing, release lag, skipped-release, and delivery-ratio gates are now implemented, with acceptance still pending.",
           "evidence_refs": [
             "docs/status/evidence/s4-gpu-batching-attempt-06.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T05:36:10.550153Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "The no-catch-up 107.4 RPS calibration delivered 104.17 RPS with 96.99-percent fidelity, p99 751.35 ms, queue p99 464.64 ms, complete traces, zero OOM, and exact cleanup. It failed closed and established that this rate is not a reproducible operating point.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-attempt-07.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T05:40:03.158111Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "A separate three-repeat 80 RPS calibration delivered 78.53 to 78.70 RPS with 98.17 to 98.38-percent fidelity, release-lag p99 about 10 ms, p99 72.97 to 119.40 ms, queue p99 23.34 to 40.92 ms, 15/15 sampled traces, zero OOM, and exact cleanup. This freezes an 80 RPS ceiling and grants no acceptance credit before the fresh full run.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-open-loop-pacing-checkpoint.json"
           ]
         }
       ]

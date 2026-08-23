@@ -59,6 +59,7 @@ def _result(batch: int, delay: int, instances: int, mode: str, repetition: int) 
         "fill_ratio_mean": 1.0,
         "oom_count": 0,
         "evidence_valid": True,
+        "load_generator_valid": True,
         "operating_guardrail_passed": True,
     }
 
@@ -67,6 +68,7 @@ def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> N
     config = _config(tmp_path)
     assert config.closed_concurrency == 64
     assert config.open_service_rate_fraction == 0.70
+    assert config.open_maximum_target_rps == 80.0
     assert config.public_dict()["preparation"] == {
         "closed_concurrency": 1,
         "warmup_seconds": 2.0,
@@ -89,10 +91,11 @@ def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> N
     }
     assert config.public_dict()["open_loop"] == {
         "service_rate_fraction": 0.70,
+        "maximum_target_requests_per_second": 80.0,
         "repetitions": 3,
         "selection_reason": (
-            "Thirty-percent headroom from the measured saturation rate is reserved before "
-            "applying the fixed operating latency SLO."
+            "Use the lower of thirty-percent saturation headroom and the three-repeat "
+            "calibrated 80 RPS ceiling before applying the fixed operating latency SLO."
         ),
     }
     results = [
@@ -112,6 +115,12 @@ def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> N
     assert len(analysis["aggregated_points"]) == 20
     assert analysis["instance_effect"]["instance_2_service_rps"] > 0
     assert analysis["s2_capacity_recalculation"]["calculated_depth"] > 0
+    assert (
+        analysis["s2_capacity_recalculation"][
+            "validated_open_loop_service_rate_requests_per_second"
+        ]
+        > 0
+    )
     json.dumps(analysis, allow_nan=False)
 
 
@@ -128,7 +137,26 @@ def test_s4_analysis_fails_without_open_loop_confirmation(tmp_path: Path) -> Non
     analysis = analyze_s4_results(results, config)
 
     assert analysis["acceptance"]["S4-AC-02"] is False
+    assert analysis["acceptance"]["S4-AC-04"] is False
     assert analysis["runtime_verdict"] == "failed"
+
+
+def test_s4_open_loop_identity_must_match_selected_saturation_point(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    results = [
+        _result(batch, delay, 1, "matrix", repetition)
+        for batch in config.batch_sizes
+        for delay in config.max_delays_ms
+        for repetition in range(1, 4)
+    ]
+    results.extend(_result(1, 0, 2, "instance-axis", repetition) for repetition in range(1, 4))
+    results.extend(_result(4, 0, 1, "open-loop", repetition) for repetition in range(1, 4))
+
+    analysis = analyze_s4_results(results, config)
+
+    assert analysis["selection_contract"]["open_loop_matches_selected"] is False
+    assert analysis["acceptance"]["S4-AC-02"] is False
+    assert analysis["acceptance"]["S4-AC-04"] is False
 
 
 def test_s4_analysis_selects_saturation_candidate_then_defers_slo_to_open_loop(
@@ -168,13 +196,14 @@ def test_s4_open_loop_must_pass_operating_latency_guardrail(tmp_path: Path) -> N
         for repetition in range(1, 4)
     ]
     results.extend(_result(1, 0, 2, "instance-axis", repetition) for repetition in range(1, 4))
-    open_results = [_result(8, 10, 1, "open-loop", repetition) for repetition in range(1, 4)]
+    open_results = [_result(32, 0, 1, "open-loop", repetition) for repetition in range(1, 4)]
     open_results[2]["operating_guardrail_passed"] = False
     results.extend(open_results)
 
     analysis = analyze_s4_results(results, config)
 
     assert analysis["acceptance"]["S4-AC-02"] is False
+    assert analysis["acceptance"]["S4-AC-04"] is False
     assert analysis["runtime_verdict"] == "failed"
 
 

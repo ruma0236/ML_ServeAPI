@@ -385,7 +385,10 @@ def main() -> int:
             selected = preliminary["selected_operating_point"]
             if selected is None:
                 raise S4RuntimeError("s4_no_safe_operating_point")
-            open_rate = float(selected["service_rps_mean"]) * config.open_service_rate_fraction
+            open_rate = min(
+                float(selected["service_rps_mean"]) * config.open_service_rate_fraction,
+                config.open_maximum_target_rps,
+            )
             selected_point = S4Point(
                 int(selected["batch_size"]),
                 int(selected["max_delay_ms"]),

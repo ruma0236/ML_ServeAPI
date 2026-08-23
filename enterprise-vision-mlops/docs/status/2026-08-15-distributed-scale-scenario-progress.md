@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T05:33:39.958263Z`
+- Generated: `2026-08-23T05:43:47.220460Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -384,7 +384,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Pass a three-repetition external no-catch-up pacing pilot with measured delivery fidelity, then restart all 66 acceptance repetitions from one clean revision.
+- Next action: Commit the calibrated 80 RPS ceiling and validated-service-rate queue formula, then restart all 66 acceptance repetitions from one clean revision.
 
 ### Affected Existing Components
 
@@ -446,6 +446,8 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s4-gpu-batching-attempt-04.json` (`aa2422bcf31fd0698062d8704e443af0bd2a2a32c3d0f3cc001c7e3c7ca43a4d`): A fresh 60-point matrix plus three instance-axis repetitions completed 195,587 requests with zero errors/OOM/trace gaps and exact cleanup, then stopped before open-loop because the analyzer conflated saturation selection with the sustainable latency SLO; no acceptance credit was granted.
 - `docs/status/evidence/s4-gpu-batching-attempt-05.json` (`c4f3addf5059a0d83e7c8e0201ed2ad16d6def559292f74e6551cac1a09844df`): The first complete 66-repetition run retained 208,058 requests and complete trace/cleanup evidence, but the 80-percent selected-point replay exceeded the fixed operating queue SLO in two of three repetitions; no acceptance credit was granted.
 - `docs/status/evidence/s4-gpu-batching-attempt-06.json` (`5b34c1f19d50c65f8a9e9547ccc7e96538750162a216e780cd1194c2dcf71c52`): A 70-percent rerun retained 64 repetitions and stopped on an invalid open-loop hard-tail result; audit found catch-up burst semantics and missing delivery-fidelity telemetry, so the result receives no acceptance credit.
+- `docs/status/evidence/s4-gpu-batching-attempt-07.json` (`959237e8330ceac6474bf24eb8891c5250ac77c4a8a1d3e1e652c6230f1f7af6`): The no-catch-up 107.4 RPS calibration delivered 96.99 percent and exceeded the operating tail SLO; it established a real local capacity boundary and received no acceptance credit.
+- `docs/status/evidence/s4-open-loop-pacing-checkpoint.json` (`5ec641448cef87d65a3fe2591b46290ea6b3db91b57d60ece8aa5ef0fd3384b1`): Three external 80 RPS pacing repetitions passed measured delivery fidelity, fixed operating p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this is calibration evidence only.
 
 ### Chronological Updates
 
@@ -459,6 +461,8 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T03:00:40.688338Z` `recovery` / `implementing`: A fresh 60-point matrix plus three instance-axis repetitions completed 195,587 requests with zero errors, OOMs, hard-stop failures, or sampled-trace gaps and exact cleanup. The run stopped before open-loop because all saturated points were incorrectly required to satisfy the sustainable 250 ms/100 ms SLO. Candidate discovery is now separated from open-loop SLO validation, and none of the 63 repetitions is reused for acceptance.
 - `2026-08-23T04:13:16Z` `recovery` / `implementing`: The first complete 66-repetition run selected batch 8/delay 10 at 140.33 RPS and preserved 208,058 requests, 449/449 sampled traces, zero OOMs, hard safety, terminal drain, and exact restoration. Its 80-percent open-loop replay passed the fixed 250 ms p99/100 ms queue SLO only once; repetitions two and three exceeded queue wait and repetition three exceeded p99. Thresholds remain fixed, a 70-percent replay fraction is now frozen before a fresh full rerun, and no acceptance credit is granted.
 - `2026-08-23T05:27:14Z` `recovery` / `implementing`: The 70-percent rerun retained 60 matrix, three instance-axis, and one open-loop repetition with 220,648 requests, 477/477 sampled traces, zero OOMs, and exact cleanup. The open-loop point hard-failed, but its load generator delivered only 83.23 of the configured 107.40 RPS and did not expose release fidelity. Audit found catch-up burst semantics; no-catch-up pacing, release lag, skipped-release, and delivery-ratio gates are now implemented, with acceptance still pending.
+- `2026-08-23T05:36:10.550153Z` `recovery` / `implementing`: The no-catch-up 107.4 RPS calibration delivered 104.17 RPS with 96.99-percent fidelity, p99 751.35 ms, queue p99 464.64 ms, complete traces, zero OOM, and exact cleanup. It failed closed and established that this rate is not a reproducible operating point.
+- `2026-08-23T05:40:03.158111Z` `implementation` / `implementing`: A separate three-repeat 80 RPS calibration delivered 78.53 to 78.70 RPS with 98.17 to 98.38-percent fidelity, release-lag p99 about 10 ms, p99 72.97 to 119.40 ms, queue p99 23.34 to 40.92 ms, 15/15 sampled traces, zero OOM, and exact cleanup. This freezes an 80 RPS ceiling and grants no acceptance credit before the fresh full run.
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 

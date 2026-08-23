@@ -1,0 +1,50 @@
+{
+  "acceptance_credit": false,
+  "attempt_id": "S4-ATTEMPT-07",
+  "claim_boundary": "Local single-node pacing calibration only; no production SLA, HA, multi-GPU, or customer-traffic claim.",
+  "cleanup": {
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "holder_ready": true,
+    "holder_uid_restored": true,
+    "lease_released": true,
+    "prometheus_container_absent": true,
+    "serving_cuda_ready": true
+  },
+  "corrective_action": [
+    "Preserve the fixed 250 ms p99 and 100 ms queue-wait operating SLO.",
+    "Calibrate a public-safe absolute operating-rate ceiling with three independent non-acceptance repetitions.",
+    "Bind S2 queue recalculation to the validated open-loop service rate rather than the closed-loop saturation rate."
+  ],
+  "generated_at": "2026-08-23T05:36:10.550153Z",
+  "next_action": "Freeze the three-repeat 80 RPS pilot result as an operating ceiling and rerun the complete acceptance matrix.",
+  "observed_result": {
+    "actual_offered_rps": 104.16666666666667,
+    "delivery_ratio": 0.9698944754810677,
+    "error_count": 0,
+    "load_generator_valid": false,
+    "oom_count": 0,
+    "operating_guardrail_passed": false,
+    "p99_ms": 751.3482439995277,
+    "queue_wait_p99_ms": 464.6352677579838,
+    "release_lag_p99_ms": 7.94253244181163,
+    "skipped_release_count": 97,
+    "target_offered_rps": 107.4,
+    "trace_chains_complete": 7,
+    "trace_chains_expected": 7
+  },
+  "private_evidence": {
+    "aggregate_sha256": "8731b8765bb30aca4047d425c963fded6f395a730b8ba5418ce785a75bf20a5d",
+    "artifact_count": 4,
+    "index_sha256": "bc0fdce96cb51046a137633c58d3c1d97098fa7ff8c6b16bfcce4a0ac878bcac",
+    "total_bytes": 641206
+  },
+  "root_cause": "After catch-up bursts were removed, a 107.4 RPS calibration still delivered only 96.99 percent of the frozen rate and exceeded both operating tail-latency limits. The result therefore identifies a real local sustainable-capacity boundary rather than an accepted operating point.",
+  "schema_version": "evm.s4_gpu_batching_failed_attempt.v1",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "d05c2bd44f150048e9c73bcbcb06fb94f887510d",
+    "runtime_config_sha256": "5d097ae9672b9932b584776ebf457f2e1e530e69fcb6d01b4aa6fe2470f68dbb"
+  },
+  "status": "stopped_fail_closed"
+}

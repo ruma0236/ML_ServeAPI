@@ -86,6 +86,7 @@ class S4RuntimeConfig:
     trace_flush_timeout_seconds: float
     trace_poll_interval_seconds: float
     open_service_rate_fraction: float
+    open_maximum_target_rps: float
     open_repetitions: int
     maximum_error_rate: float
     maximum_p99_ms: float
@@ -167,6 +168,7 @@ class S4RuntimeConfig:
             trace_flush_timeout_seconds=float(observability["trace_flush_timeout_seconds"]),
             trace_poll_interval_seconds=float(observability["trace_poll_interval_seconds"]),
             open_service_rate_fraction=float(opened["service_rate_fraction"]),
+            open_maximum_target_rps=float(opened["maximum_target_requests_per_second"]),
             open_repetitions=int(opened["repetitions"]),
             maximum_error_rate=float(guardrails["maximum_error_rate"]),
             maximum_p99_ms=float(guardrails["maximum_p99_ms"]),
@@ -238,6 +240,8 @@ class S4RuntimeConfig:
             raise S4RuntimeError("s4_positive_bound_invalid")
         if self.open_service_rate_fraction != 0.70:
             raise S4RuntimeError("s4_open_rate_fraction_not_frozen")
+        if self.open_maximum_target_rps != 80.0:
+            raise S4RuntimeError("s4_open_rate_ceiling_not_frozen")
         if not 0 < self.capacity_safety_factor <= 1:
             raise S4RuntimeError("s4_capacity_safety_factor_invalid")
         if not (
@@ -305,10 +309,12 @@ class S4RuntimeConfig:
             },
             "open_loop": {
                 "service_rate_fraction": self.open_service_rate_fraction,
+                "maximum_target_requests_per_second": self.open_maximum_target_rps,
                 "repetitions": self.open_repetitions,
                 "selection_reason": (
-                    "Thirty-percent headroom from the measured saturation rate is "
-                    "reserved before applying the fixed operating latency SLO."
+                    "Use the lower of thirty-percent saturation headroom and the "
+                    "three-repeat calibrated 80 RPS ceiling before applying the fixed "
+                    "operating latency SLO."
                 ),
             },
             "preparation": {
@@ -576,19 +582,35 @@ def analyze_s4_results(results: list[dict[str, Any]], config: S4RuntimeConfig) -
                 instance_two_point["p99_ms_mean"], baseline_instance["p99_ms_mean"]
             ),
         }
+    open_loop_matches_selected = bool(
+        selected
+        and all(
+            int(item.get("batch_size", -1)) == int(selected["batch_size"])
+            and int(item.get("max_delay_ms", -1)) == int(selected["max_delay_ms"])
+            and int(item.get("instance_count", -1)) == int(selected["instance_count"])
+            for item in open_loop
+        )
+    )
     open_loop_valid = (
         len(open_loop) == config.open_repetitions
+        and open_loop_matches_selected
         and all(item.get("evidence_valid") is True for item in open_loop)
+        and all(item.get("load_generator_valid") is True for item in open_loop)
         and all(item.get("operating_guardrail_passed") is True for item in open_loop)
     )
     selected_safe = selected is not None and selected["oom_count"] == 0
-    selected_rate = float(selected["service_rps_mean"]) if selected else 0.0
+    saturation_rate = float(selected["service_rps_mean"]) if selected else 0.0
+    validated_service_rate = (
+        _mean(open_loop, "service_rps") if open_loop_valid else 0.0
+    )
     calculated_depth = min(
         config.maximum_depth,
         max(
             1,
             math.floor(
-                selected_rate * config.maximum_queue_wait_seconds * config.capacity_safety_factor
+                validated_service_rate
+                * config.maximum_queue_wait_seconds
+                * config.capacity_safety_factor
             ),
         ),
     )
@@ -598,7 +620,8 @@ def analyze_s4_results(results: list[dict[str, Any]], config: S4RuntimeConfig) -
         else config.prior_depth
     )
     capacity = {
-        "selected_service_rate_requests_per_second": selected_rate,
+        "selected_saturation_rate_requests_per_second": saturation_rate,
+        "validated_open_loop_service_rate_requests_per_second": validated_service_rate,
         "maximum_queue_wait_seconds": config.maximum_queue_wait_seconds,
         "safety_factor": config.capacity_safety_factor,
         "formula": "floor(service_rate * maximum_queue_wait_seconds * safety_factor)",
@@ -616,7 +639,7 @@ def analyze_s4_results(results: list[dict[str, Any]], config: S4RuntimeConfig) -
             and len(instance_axis) == config.repetitions
             and all(item.get("evidence_valid") is True for item in instance_axis)
         ),
-        "S4-AC-04": bool(selected_rate > 0 and calculated_depth > 0),
+        "S4-AC-04": bool(open_loop_valid and validated_service_rate > 0 and calculated_depth > 0),
     }
     return {
         "acceptance": acceptance,
@@ -633,6 +656,8 @@ def analyze_s4_results(results: list[dict[str, Any]], config: S4RuntimeConfig) -
             "closed_loop_role": "capacity_and_pareto_candidate_discovery",
             "open_loop_role": "sustainable_operating_guardrail_validation",
             "open_loop_service_rate_fraction": config.open_service_rate_fraction,
+            "open_loop_maximum_target_requests_per_second": config.open_maximum_target_rps,
+            "open_loop_matches_selected": open_loop_matches_selected,
         },
         "aggregated_points": aggregates,
         "throughput_p99_pareto": throughput_p99_pareto,
