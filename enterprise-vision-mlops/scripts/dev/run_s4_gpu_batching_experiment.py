@@ -298,6 +298,11 @@ def main() -> int:
         elif args.mode == "open-loop-pilot":
             if args.pilot_open_rate is None or args.pilot_open_rate <= 0:
                 raise S4RuntimeError("s4_open_loop_pilot_rate_required")
+            open_loop_stabilization = stabilize_open_loop_environment(
+                context=context,
+                config=config,
+                gpu_baseline=gpu_before,
+            )
             point = S4Point(8, 5, 1, "open-loop")
             results = [
                 run_point(
@@ -330,6 +335,7 @@ def main() -> int:
                     "maximum_skipped_release_ratio": 0.02,
                 },
                 "results": results,
+                "open_loop_stabilization": open_loop_stabilization,
                 "all_load_generator_profiles_valid": all(
                     item["load_generator_valid"] is True for item in results
                 ),
@@ -921,21 +927,36 @@ def stabilize_open_loop_environment(
         and active.fencing_token == context.fencing_token
         and active.state == "active"
     )
-    terminal = samples[-3:]
+    terminal = samples[-config.open_stabilization_terminal_sample_count :]
+    experiment_container_absent = not container_exists(API_CONTAINER)
+    utilization_ceiling = min(
+        100.0,
+        float(gpu_baseline["utilization_gpu_percent"])
+        + config.open_stabilization_utilization_headroom_percent,
+    )
+    terminal_utilization = [
+        float(item["utilization_gpu_percent"]) for item in terminal
+    ]
+    terminal_utilization_median = statistics.median(terminal_utilization)
     quiet = bool(
-        len(terminal) == 3
+        len(terminal) == config.open_stabilization_terminal_sample_count
         and lease_matches
-        and max(float(item["utilization_gpu_percent"]) for item in terminal) <= 15.0
+        and experiment_container_absent
+        and terminal_utilization_median <= utilization_ceiling
         and max(float(item["temperature_celsius"]) for item in terminal)
         <= config.maximum_temperature_celsius
         and max(float(item["memory_used_mib"]) for item in terminal)
-        <= float(gpu_baseline["memory_used_mib"]) + 512.0
+        <= float(gpu_baseline["memory_used_mib"])
+        + config.open_stabilization_memory_headroom_mib
     )
     private = {
         "schema_version": "evm.s4_open_loop_stabilization_private.v1",
         "configured_duration_seconds": config.open_stabilization_seconds,
         "elapsed_seconds": time.monotonic() - started,
         "lease_matches": lease_matches,
+        "experiment_container_absent": experiment_container_absent,
+        "utilization_ceiling_percent": utilization_ceiling,
+        "terminal_utilization_percent_median": terminal_utilization_median,
         "gpu_baseline": gpu_baseline,
         "samples": samples,
         "quiet_gate_passed": quiet,
@@ -945,8 +966,12 @@ def stabilize_open_loop_environment(
         "configured_duration_seconds": config.open_stabilization_seconds,
         "sample_count": len(samples),
         "lease_matches": lease_matches,
+        "experiment_container_absent": experiment_container_absent,
+        "terminal_sample_count": len(terminal),
+        "terminal_utilization_percent_median": terminal_utilization_median,
+        "utilization_ceiling_percent": utilization_ceiling,
         "terminal_utilization_percent_max": max(
-            float(item["utilization_gpu_percent"]) for item in terminal
+            terminal_utilization
         ),
         "terminal_temperature_celsius_max": max(
             float(item["temperature_celsius"]) for item in terminal

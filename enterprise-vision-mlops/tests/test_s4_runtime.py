@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from scripts.dev import run_s4_gpu_batching_experiment as s4_runner
 from scripts.dev.run_s4_gpu_batching_experiment import (
     RuntimeContext,
@@ -16,8 +18,12 @@ from scripts.dev.run_s4_gpu_batching_experiment import (
     stabilize_open_loop_environment,
     trace_summary,
 )
-from evm.scale_validation.s4_runtime import S4RuntimeConfig, analyze_s4_results
-from evm.scale_validation.s4_runtime import S4Point
+from evm.scale_validation.s4_runtime import (
+    S4Point,
+    S4RuntimeConfig,
+    S4RuntimeError,
+    analyze_s4_results,
+)
 
 
 def _config(root: Path) -> S4RuntimeConfig:
@@ -73,6 +79,9 @@ def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> N
     assert config.open_service_rate_fraction == 0.70
     assert config.open_maximum_target_rps == 60.0
     assert config.open_stabilization_seconds == 60.0
+    assert config.open_stabilization_terminal_sample_count == 5
+    assert config.open_stabilization_utilization_headroom_percent == 15.0
+    assert config.open_stabilization_memory_headroom_mib == 512.0
     assert config.public_dict()["preparation"] == {
         "closed_concurrency": 1,
         "warmup_seconds": 2.0,
@@ -97,6 +106,9 @@ def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> N
         "service_rate_fraction": 0.70,
         "maximum_target_requests_per_second": 60.0,
         "stabilization_seconds": 60.0,
+        "stabilization_terminal_sample_count": 5,
+        "stabilization_utilization_headroom_percent": 15.0,
+        "stabilization_memory_headroom_mib": 512.0,
         "repetitions": 3,
         "selection_reason": (
             "Use the lower of thirty-percent saturation headroom and the three-repeat "
@@ -290,11 +302,12 @@ def test_s4_open_loop_stabilization_requires_quiet_gpu_and_exact_lease(
     )
     monkeypatch.setattr(s4_runner.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(s4_runner.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    utilization = iter([57.0, 17.0, 54.0, 16.0, 51.0, 20.0, 51.0, 16.0, 52.0, 13.0, 51.0, 7.0, 24.0])
     monkeypatch.setattr(
         s4_runner,
         "capture_gpu_inventory",
         lambda: {
-            "utilization_gpu_percent": 5.0,
+            "utilization_gpu_percent": next(utilization),
             "temperature_celsius": 40.0,
             "memory_used_mib": 1000.0,
         },
@@ -306,18 +319,47 @@ def test_s4_open_loop_stabilization_requires_quiet_gpu_and_exact_lease(
             run_id="run", lease_id="lease", fencing_token="fence", state="active"
         ),
     )
+    monkeypatch.setattr(s4_runner, "container_exists", lambda name: False)
 
     summary = stabilize_open_loop_environment(
         context=context,
         config=config,
-        gpu_baseline={"memory_used_mib": 1000.0},
+        gpu_baseline={"memory_used_mib": 1000.0, "utilization_gpu_percent": 22.0},
     )
 
     assert summary["configured_duration_seconds"] == 60.0
     assert summary["sample_count"] == 13
     assert summary["lease_matches"] is True
+    assert summary["experiment_container_absent"] is True
+    assert summary["terminal_sample_count"] == 5
+    assert summary["terminal_utilization_percent_median"] == 24.0
+    assert summary["terminal_utilization_percent_max"] == 52.0
+    assert summary["utilization_ceiling_percent"] == 37.0
     assert summary["quiet_gate_passed"] is True
     assert (context.private_root / "open-loop-stabilization-private.json").is_file()
+
+    clock[0] = 0.0
+    monkeypatch.setattr(
+        s4_runner,
+        "capture_gpu_inventory",
+        lambda: {
+            "utilization_gpu_percent": 5.0,
+            "temperature_celsius": 40.0,
+            "memory_used_mib": 1000.0,
+        },
+    )
+    monkeypatch.setattr(s4_runner, "container_exists", lambda name: True)
+    with pytest.raises(S4RuntimeError, match="s4_open_loop_stabilization_failed"):
+        stabilize_open_loop_environment(
+            context=RuntimeContext(
+                **{
+                    **context.__dict__,
+                    "private_root": tmp_path / "container-present",
+                }
+            ),
+            config=config,
+            gpu_baseline={"memory_used_mib": 1000.0, "utilization_gpu_percent": 5.0},
+        )
 
 
 def test_s4_gpu_api_uses_supported_isolated_file_store(tmp_path: Path) -> None:

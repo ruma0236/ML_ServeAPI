@@ -1,0 +1,56 @@
+{
+  "acceptance_credit": false,
+  "attempt_id": "S4-ATTEMPT-09",
+  "claim_boundary": "Local single-node failure evidence only; no production SLA, HA, multi-GPU, or customer-traffic claim.",
+  "cleanup": {
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "holder_ready": true,
+    "holder_uid_restored": true,
+    "lease_released": true,
+    "prometheus_container_absent": true,
+    "serving_cuda_ready": true
+  },
+  "corrective_action": [
+    "Keep the 60-second recovery window and require the experiment API container to be absent before selected-point replay.",
+    "Gate terminal GPU utilization by a five-sample median relative to the measured pre-run baseline while retaining every instantaneous sample and maximum in private evidence.",
+    "Continue to fail closed on lease mismatch, elevated VRAM, thermal risk, or cleanup failure without weakening the fixed operating latency SLO."
+  ],
+  "generated_at": "2026-08-23T08:15:10.264354Z",
+  "next_action": "Validate the baseline-relative quiet gate in a clean external 60 RPS pilot, then restart all 66 acceptance repetitions from one clean revision.",
+  "observed_result": {
+    "completed_repetitions": 63,
+    "open_loop_repetitions_started": 0,
+    "stabilization_failure": {
+      "configured_duration_seconds": 60.0,
+      "gpu_baseline_utilization_percent": 22.0,
+      "lease_matches": true,
+      "sample_count": 13,
+      "terminal_memory_used_mib_max": 2181.0,
+      "terminal_temperature_celsius_max": 47.0,
+      "terminal_utilization_percent_max": 51.0,
+      "terminal_utilization_percent_median": 24.0
+    },
+    "zero_oom": true
+  },
+  "private_evidence": {
+    "aggregate_sha256": "39c1fe32b61011d6ff4b5c8c1cdb65db036f5f60212314d19df5f5280814f24f",
+    "artifact_count": 67,
+    "index_sha256": "15d605fd5a95c918478848a08d5c7d2f9f8b06eae822ded7f527847cd5a4616c",
+    "total_bytes": 41160144
+  },
+  "root_cause": "The first quiet-gate implementation treated the maximum whole-device utilization sample as experiment-owned activity and required it to be at most 15 percent. The desktop-attached Windows GPU baseline was already 22 percent and the 60-second samples alternated between display-related spikes and low values even though the S4 container was absent after cleanup, memory remained below baseline, and the exact lease matched. The absolute-maximum rule therefore produced a false blocker.",
+  "schema_version": "evm.s4_gpu_batching_failed_attempt.v1",
+  "scope": {
+    "planned_repetitions": 66,
+    "retained_instance_repetitions": 3,
+    "retained_matrix_repetitions": 60,
+    "retained_open_loop_repetitions": 0
+  },
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "4c272ba5702fb4a65d7c732db10e9b0e3777ef45",
+    "runtime_config_sha256": "888ba48c61f224791ef97f2b036cb068ced70f1181aad0884a27c8455a9dd20c"
+  },
+  "status": "stopped_fail_closed"
+}

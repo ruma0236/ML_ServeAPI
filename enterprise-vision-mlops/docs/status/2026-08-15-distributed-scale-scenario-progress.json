@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T07:05:47.049219Z",
+  "generated_at": "2026-08-23T08:38:31.323019Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2092,7 +2092,8 @@
         "The next run retained 64 repetitions and exposed an open-loop load-generator evidence defect: delayed schedule entries could be emitted as catch-up bursts and delivery fidelity was not measured. No-catch-up pacing and fail-closed delivery telemetry are now implemented before a non-acceptance pilot.",
         "A 107.4 RPS pacing calibration failed delivery and operating SLO gates, while a separate three-repeat 80 RPS calibration passed delivery fidelity, p99, queue wait, trace, OOM, drain, and cleanup.",
         "The integrated 80 RPS confirmation was not reproducible after the 63 saturation and instance repetitions: it delivered 97.875 percent and exceeded both operating tail SLOs, so the run stopped fail closed after 64 of 66 repetitions with cleanup intact.",
-        "A separate no-catch-up 60 RPS calibration then passed all three repetitions. The final clean-run contract freezes that ceiling, inserts a 60-second quiet GPU recovery gate before confirmation, and continues to calculate S2 capacity only from the validated open-loop service rate."
+        "A separate no-catch-up 60 RPS calibration then passed all three repetitions. The final clean-run contract freezes that ceiling, inserts a 60-second quiet GPU recovery gate before confirmation, and continues to calculate S2 capacity only from the validated open-loop service rate.",
+        "The first quiet gate stopped a clean run after 63 repetitions because it compared noisy whole-device Windows display utilization against an absolute 15-percent ceiling even though the experiment container was absent and VRAM had recovered. The corrected gate retains every spike but requires exact lease ownership, experiment-container absence, stable VRAM/temperature, and a five-sample utilization median within 15 percentage points of the measured pre-run baseline."
       ],
       "experiment_environment": "Actual local single-node runtime with one consumer GPU, the existing Workloads API, external TCP client, isolated Prometheus, OTLP collector, and exact Kubernetes serving-holder handoff. No customer traffic or production SLA.",
       "test_or_experiment_steps": [
@@ -2200,6 +2201,12 @@
           "sha256": "a977e02ac4ade893791ffe4d5f871c97b6305a24a4de5cffa3a526cc1d6a487f",
           "generated_at": "2026-08-23T06:56:57.118483Z",
           "claim": "Three external no-catch-up 60 RPS calibration repetitions passed delivery fidelity, fixed p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this remains non-acceptance calibration evidence."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-09.json",
+          "sha256": "efbe117319651b4c1a1b812d46c81b56740c4aedc3cc5f4e0a2310447292eb99",
+          "generated_at": "2026-08-23T08:15:10.264354Z",
+          "claim": "A clean run retained 60 matrix and three instance repetitions, then stopped before open-loop because the initial quiet gate misattributed desktop GPU spikes to the experiment; zero OOM and exact cleanup were preserved."
         }
       ],
       "status": "implementing",
@@ -2210,7 +2217,7 @@
         "Model instance count and batch size effects are measured separately.",
         "Queue limits are recalculated from the selected service rate."
       ],
-      "next_action": "Commit the 60 RPS ceiling and 60-second quiet recovery gate, then restart all 66 acceptance repetitions from one clean revision.",
+      "next_action": "Commit and externally validate the baseline-relative quiet gate at 60 RPS, then restart all 66 acceptance repetitions from one clean revision.",
       "architecture_before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
       "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; open-loop confirmation requires a quiet recovery gate and the final operating point remains unselected until the full matrix passes.",
       "existing_system_baseline": "The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.",
@@ -2417,6 +2424,12 @@
           "sha256": "a977e02ac4ade893791ffe4d5f871c97b6305a24a4de5cffa3a526cc1d6a487f",
           "generated_at": "2026-08-23T06:56:57.118483Z",
           "claim": "Three external no-catch-up 60 RPS calibration repetitions passed delivery fidelity, fixed p99 and queue-wait SLOs, complete traces, zero OOM, terminal drain, and exact cleanup; this remains non-acceptance calibration evidence."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-09.json",
+          "sha256": "efbe117319651b4c1a1b812d46c81b56740c4aedc3cc5f4e0a2310447292eb99",
+          "generated_at": "2026-08-23T08:15:10.264354Z",
+          "claim": "A clean run retained 60 matrix and three instance repetitions, then stopped before open-loop because the initial quiet gate misattributed desktop GPU spikes to the experiment; zero OOM and exact cleanup were preserved."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2547,6 +2560,15 @@
           "summary": "A separate no-catch-up 60 RPS calibration passed all three repetitions at 98.33 to 99.00-percent delivery, p99 57.58 to 85.22 ms, queue p99 15.32 to 24.02 ms, complete traces, zero OOM, terminal drain, and exact cleanup. The next clean run freezes 60 RPS and a 60-second quiet GPU recovery gate; all S4 ACs remain pending.",
           "evidence_refs": [
             "docs/status/evidence/s4-open-loop-60rps-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T08:15:10.264354Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "A clean run completed all 60 matrix and three instance repetitions with zero OOM, then the new quiet gate stopped before open-loop. The experiment container was absent, VRAM was below the pre-run baseline, and the exact lease matched, but whole-device Windows display utilization alternated between low samples and transient spikes; an absolute 15-percent maximum therefore produced a false blocker. The gate now retains spikes as evidence while using exact container ownership, stable VRAM/temperature, and a five-sample median relative to the measured baseline. Cleanup and serving restoration passed; no acceptance credit is granted.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-attempt-09.json"
           ]
         }
       ]

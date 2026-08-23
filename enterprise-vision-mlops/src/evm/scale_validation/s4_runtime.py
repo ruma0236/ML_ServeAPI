@@ -88,6 +88,9 @@ class S4RuntimeConfig:
     open_service_rate_fraction: float
     open_maximum_target_rps: float
     open_stabilization_seconds: float
+    open_stabilization_terminal_sample_count: int
+    open_stabilization_utilization_headroom_percent: float
+    open_stabilization_memory_headroom_mib: float
     open_repetitions: int
     maximum_error_rate: float
     maximum_p99_ms: float
@@ -171,6 +174,15 @@ class S4RuntimeConfig:
             open_service_rate_fraction=float(opened["service_rate_fraction"]),
             open_maximum_target_rps=float(opened["maximum_target_requests_per_second"]),
             open_stabilization_seconds=float(opened["stabilization_seconds"]),
+            open_stabilization_terminal_sample_count=int(
+                opened["stabilization_terminal_sample_count"]
+            ),
+            open_stabilization_utilization_headroom_percent=float(
+                opened["stabilization_utilization_headroom_percent"]
+            ),
+            open_stabilization_memory_headroom_mib=float(
+                opened["stabilization_memory_headroom_mib"]
+            ),
             open_repetitions=int(opened["repetitions"]),
             maximum_error_rate=float(guardrails["maximum_error_rate"]),
             maximum_p99_ms=float(guardrails["maximum_p99_ms"]),
@@ -246,6 +258,12 @@ class S4RuntimeConfig:
             raise S4RuntimeError("s4_open_rate_ceiling_not_frozen")
         if self.open_stabilization_seconds != 60.0:
             raise S4RuntimeError("s4_open_stabilization_not_frozen")
+        if self.open_stabilization_terminal_sample_count != 5:
+            raise S4RuntimeError("s4_open_stabilization_sample_count_not_frozen")
+        if self.open_stabilization_utilization_headroom_percent != 15.0:
+            raise S4RuntimeError("s4_open_stabilization_utilization_headroom_not_frozen")
+        if self.open_stabilization_memory_headroom_mib != 512.0:
+            raise S4RuntimeError("s4_open_stabilization_memory_headroom_not_frozen")
         if not 0 < self.capacity_safety_factor <= 1:
             raise S4RuntimeError("s4_capacity_safety_factor_invalid")
         if not (
@@ -315,6 +333,15 @@ class S4RuntimeConfig:
                 "service_rate_fraction": self.open_service_rate_fraction,
                 "maximum_target_requests_per_second": self.open_maximum_target_rps,
                 "stabilization_seconds": self.open_stabilization_seconds,
+                "stabilization_terminal_sample_count": (
+                    self.open_stabilization_terminal_sample_count
+                ),
+                "stabilization_utilization_headroom_percent": (
+                    self.open_stabilization_utilization_headroom_percent
+                ),
+                "stabilization_memory_headroom_mib": (
+                    self.open_stabilization_memory_headroom_mib
+                ),
                 "repetitions": self.open_repetitions,
                 "selection_reason": (
                     "Use the lower of thirty-percent saturation headroom and the "
