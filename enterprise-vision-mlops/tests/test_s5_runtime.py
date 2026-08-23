@@ -6,6 +6,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from scripts.dev import run_s5_spark_data_scale_experiment as s5_runner
 from evm.scale_validation.s5_runtime import (
     S5RuntimeConfig,
     analyze_s5_results,
@@ -15,6 +16,20 @@ from evm.scale_validation.s5_runtime import (
     parse_spark_event_log,
     source_contract_sha256,
 )
+
+
+def test_s5_retry_replay_keeps_generated_io_identity() -> None:
+    config = S5RuntimeConfig.from_path(CONFIG_PATH, data_root=Path("unused"))
+
+    injected = s5_runner._kubernetes_run_identity(
+        config, inject_executor_loss=True, replay_only=False
+    )
+    replay = s5_runner._kubernetes_run_identity(
+        config, inject_executor_loss=False, replay_only=True
+    )
+
+    assert injected == (True, config.retry_generated_io_factor, config.retry_partition_hold_ms)
+    assert replay == (True, config.retry_generated_io_factor, 0)
 
 
 CONFIG_PATH = Path("configs/s5_spark_data_scale.toml")

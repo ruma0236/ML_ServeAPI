@@ -395,8 +395,11 @@ def _run_kubernetes_spark(
     event_root_host = config.event_log_root / suite_id / run_token
     event_root_host.mkdir(parents=True, exist_ok=True)
     logical_id = logical_output_id or f"{suite_id}-{run_token}"
-    repeat_factor = config.retry_generated_io_factor if inject_executor_loss else 1
-    hold_ms = config.retry_partition_hold_ms if inject_executor_loss else 0
+    retry_profile, repeat_factor, hold_ms = _kubernetes_run_identity(
+        config,
+        inject_executor_loss=inject_executor_loss,
+        replay_only=replay_only,
+    )
     job_args = _job_args(
         config=config,
         manifest=manifest,
@@ -409,7 +412,7 @@ def _run_kubernetes_spark(
         logical_output_id=logical_id,
         repeat_factor=repeat_factor,
         partition_hold_ms=hold_ms,
-        profile="executor_loss_retry" if inject_executor_loss else "kubernetes_scale",
+        profile="executor_loss_retry" if retry_profile else "kubernetes_scale",
     )
     job_name = _kubernetes_name(f"evm-s5-{run_token}")
     run_label = _kubernetes_name(run_token)
@@ -600,7 +603,7 @@ def _run_kubernetes_spark(
     else:
         event_log = _find_event_log(event_root_host, str(result["application_id"]))
         result.update(parse_spark_event_log(event_log))
-    result["profile"] = "executor_loss_retry" if inject_executor_loss else "kubernetes_scale"
+    result["profile"] = "executor_loss_retry" if retry_profile else "kubernetes_scale"
     result["executor_kill_observed"] = killed is not None
     result["executor_identity_count"] = len({uid for uid in observed_uids if uid})
     if inject_executor_loss and (
@@ -623,6 +626,20 @@ def _run_kubernetes_spark(
     _delete_executor_pods(config, run_label)
     _wait_no_executor_pods(config, run_label)
     return result
+
+
+def _kubernetes_run_identity(
+    config: S5RuntimeConfig,
+    *,
+    inject_executor_loss: bool,
+    replay_only: bool,
+) -> tuple[bool, int, int]:
+    retry_profile = inject_executor_loss or replay_only
+    return (
+        retry_profile,
+        config.retry_generated_io_factor if retry_profile else 1,
+        config.retry_partition_hold_ms if inject_executor_loss else 0,
+    )
 
 
 def _job_args(
