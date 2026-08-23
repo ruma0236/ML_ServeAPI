@@ -1,12 +1,12 @@
 {
   "schema_version": "evm.s4_preparation_checkpoint.v1",
-  "generated_at": "2026-08-23T01:00:31.560710Z",
+  "generated_at": "2026-08-23T01:05:57.477193Z",
   "status": "implementing",
   "acceptance_credit": false,
   "source_identity": {
     "branch": "codex/distributed-scale-validation-plan",
-    "implementation_revision": "536ba051684f9a1317fb0eff33e139deea54965e",
-    "runtime_config_sha256": "44f2c1fef959cf338c3a735e09334f62390f8b4780ad3339a440258df0255053"
+    "implementation_revision": "ca5dfb193bddcc0f057955195e7a9819f8d31450",
+    "runtime_config_sha256": "488577b274b4d02d50e3652e8ea16872963b1b24324d05df92bab157d7d168ba"
   },
   "existing_system_path": "external client -> existing Workloads API route -> bounded dynamic GPU batcher -> governed Tiny MLP artifact -> Prometheus/OTLP",
   "gpu_preflight": {
@@ -19,8 +19,8 @@
   },
   "model": {
     "architecture": "28-64-32-1-relu-fp32",
-    "artifact_sha256": "3a0ce8538a0169d2f0d3bac233cce516195ad59b0736e3e7e5dcb1395b1916f4",
-    "model_identity_sha256": "219c508c65449f208b003443bd72553cbe7a7f8b30ec0010e870f1a396b7b2e5",
+    "artifact_sha256": "d4a71ae733f5914cb5e0a1f951b84901d93792068e6cf30aa45732737d19d29f",
+    "model_identity_sha256": "637b742595ca5c8889a2398265714a929efa33b0d1631485dc3b127e3b4d3655",
     "dataset_identity_sha256": "eecb0f824e149c8e9062f216d834e8ccc519ea774c0f79392f23bb11f3f7550d",
     "training": {
       "batch_size": 8192,
@@ -29,7 +29,7 @@
       "peak_vram_bytes": 24344064,
       "seed": 20260823,
       "train_rows": 250000,
-      "training_seconds": 0.6298345689992857,
+      "training_seconds": 0.5983539970002312,
       "validation_accuracy": 0.67276,
       "validation_rows": 50000
     },
@@ -46,29 +46,29 @@
     "batch_size": 1,
     "max_delay_ms": 0,
     "instance_count": 1,
-    "request_count": 389,
+    "request_count": 388,
     "configured_concurrency": 1,
-    "success_count": 389,
-    "service_rps": 77.8,
-    "p50_ms": 10.990000009769574,
-    "p95_ms": 23.230779997538754,
-    "p99_ms": 32.3583119839896,
+    "success_count": 388,
+    "service_rps": 77.6,
+    "p50_ms": 11.164150011609308,
+    "p95_ms": 23.041099989495706,
+    "p99_ms": 31.207512989058152,
     "error_rate": 0.0,
-    "queue_wait_p99_ms": 0.07243576044857049,
-    "h2d_ms_mean": 0.4358725747366491,
-    "inference_ms_mean": 0.40835496139710237,
-    "d2h_ms_mean": 0.06762981989389827,
+    "queue_wait_p99_ms": 0.0780661402768601,
+    "h2d_ms_mean": 0.4630406593865494,
+    "inference_ms_mean": 0.3970283708755964,
+    "d2h_ms_mean": 0.07047719586179736,
     "formed_batch_size_mean": 1.0,
     "fill_ratio_mean": 1.0,
     "formed_batch_distribution": {
-      "1": 389
+      "1": 388
     },
     "allocated_vram_bytes_max": 8539648,
     "reserved_vram_bytes_max": 25165824,
     "peak_vram_bytes": 8540160,
-    "gpu_utilization_percent_mean": 20.0,
-    "temperature_celsius_max": 37.0,
-    "power_watts_max": 33.87,
+    "gpu_utilization_percent_mean": 39.333333333333336,
+    "temperature_celsius_max": 38.0,
+    "power_watts_max": 45.18,
     "oom_count": 0,
     "prometheus_up": true,
     "terminal_gauges": {
@@ -88,11 +88,13 @@
         "POST /control-panel/v1/scenario-workloads/gpu-batch-probes/predict",
         "s4.gpu_batch.worker"
       ],
-      "raw_tail_sha256": "8c8bb74f0d628ef64bcaaa3f8336da979d369b0ae837031bffe3e1572f1e4f91",
-      "raw_tail_bytes": 9687
+      "raw_tail_sha256": "4b704e849f687174e0407e72207cb576212345c8848333af905b95ad9b67436c",
+      "raw_tail_bytes": 8643
     },
+    "operating_guardrail_passed": true,
+    "hard_stop_guardrail_passed": true,
     "evidence_valid": true,
-    "private_point_sha256": "2042627fed274d51ac059c1e98f09db244fcc4128ecdebe5f8aef1f1a6ccea69"
+    "private_point_sha256": "61d5a439c6cef9d6afd5102ff18c6b475307ac8f0dae684cc4e834270c8811fe"
   },
   "acceptance": {
     "S4-AC-01": "pending",
@@ -119,14 +121,14 @@
       "memory_free_mib": 13510.0,
       "utilization_gpu_percent": 14.0,
       "temperature_celsius": 38.0,
-      "power_watts": 50.87
+      "power_watts": 51.56
     }
   },
   "failed_attempts_and_rca": [],
   "private_evidence": {
     "artifact_count": 3,
-    "aggregate_sha256": "1e3eb75ab42d9d45fc6a05ff6c48cf1d4a93ffa79f837c8a2dcc656062cfc0be",
-    "total_bytes": 78140,
-    "index_sha256": "8717aeea9fd689675dc02346a38eeab49e1b68791ccec4aa8feed519ed78ed3f"
+    "aggregate_sha256": "e35edc7637ceb727219dacd59b8c7e097fca59bb9aa52bf19396b89c6c03de8d",
+    "total_bytes": 78101,
+    "index_sha256": "654ccc1d9576861d989c4aa3ae746317d4c94624eb639ac2b0f5415dca93376d"
   }
 }

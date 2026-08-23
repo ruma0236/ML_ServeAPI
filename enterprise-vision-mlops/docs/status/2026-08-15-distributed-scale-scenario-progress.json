@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T01:02:12.770562Z",
+  "generated_at": "2026-08-23T01:06:21.092900Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2120,9 +2120,9 @@
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s4-preparation-checkpoint.json",
-          "sha256": "e5718a9036c61095077e50c3d563bbac727bf9299e37e7a5f2ad1fd06e898c8b",
-          "generated_at": "2026-08-23T01:00:31.560710Z",
-          "claim": "Current-revision external batch-one preparation smoke passed through the existing Workloads API with CUDA inference, Prometheus/OTLP identity, terminal drain, exact lease release, and serving-holder restoration; S4 acceptance remains pending."
+          "sha256": "c52f4cd814d5bb0627f7adc2ab6684cd2f0bbeedc120f92a1602aec7a071961a",
+          "generated_at": "2026-08-23T01:05:57.477193Z",
+          "claim": "Final frozen-config external batch-one preparation smoke passed through the existing Workloads API with CUDA inference, distinct operating and hard-stop latency gates, Prometheus/OTLP identity, terminal drain, exact lease release, and serving-holder restoration; S4 acceptance remains pending."
         }
       ],
       "status": "implementing",
@@ -2271,9 +2271,9 @@
       "evidence_index": [
         {
           "path": "docs/status/evidence/s4-preparation-checkpoint.json",
-          "sha256": "e5718a9036c61095077e50c3d563bbac727bf9299e37e7a5f2ad1fd06e898c8b",
-          "generated_at": "2026-08-23T01:00:31.560710Z",
-          "claim": "Current-revision external batch-one preparation smoke passed through the existing Workloads API with CUDA inference, Prometheus/OTLP identity, terminal drain, exact lease release, and serving-holder restoration; S4 acceptance remains pending."
+          "sha256": "c52f4cd814d5bb0627f7adc2ab6684cd2f0bbeedc120f92a1602aec7a071961a",
+          "generated_at": "2026-08-23T01:05:57.477193Z",
+          "claim": "Final frozen-config external batch-one preparation smoke passed through the existing Workloads API with CUDA inference, distinct operating and hard-stop latency gates, Prometheus/OTLP identity, terminal drain, exact lease release, and serving-holder restoration; S4 acceptance remains pending."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2294,6 +2294,15 @@
           "phase": "implementation",
           "status": "implementing",
           "summary": "At revision 536ba05, the external batch-one preparation smoke completed 389/389 CUDA requests at concurrency 1 with zero errors/OOM/trace gaps, Prometheus UP, terminal drain, exact lease release, and serving-holder restoration. This grants no S4 acceptance credit.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-preparation-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T01:05:57.477193Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "At final frozen-config revision ca5dfb1, batch-one completed 388/388 requests at 77.6 RPS with p99 31.21 ms and queue p99 0.078 ms. Operating and hard-stop gates, Prometheus/OTLP, drain, lease release, and holder restoration passed; ACs remain pending.",
           "evidence_refs": [
             "docs/status/evidence/s4-preparation-checkpoint.json"
           ]
