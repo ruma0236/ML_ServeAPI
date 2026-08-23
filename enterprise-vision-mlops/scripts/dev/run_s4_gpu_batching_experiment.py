@@ -176,6 +176,8 @@ def main() -> int:
                 source_revision=revision,
                 lease=training_lease,
             )
+            training["registry_path"] = str(config.model_root / "registry.json")
+            training["artifact_path"] = str(config.model_root / "tiny-mlp.pt")
         finally:
             release_scale_validation_gpu_lease(
                 run_id=training_lease.run_id,
