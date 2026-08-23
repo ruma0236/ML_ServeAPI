@@ -1282,6 +1282,345 @@ class TransactionalControlPlaneStore:
             "pending_bytes": pending_bytes,
         }
 
+    def inspect_stranded_task_queue(
+        self,
+        *,
+        cutoff: datetime,
+        lock: bool = False,
+        connection: Any | None = None,
+    ) -> dict[str, Any]:
+        """Snapshot pre-durable Airflow tasks without changing their state.
+
+        The full item list is private evidence. Public callers should publish only
+        aggregate counts and the snapshot digest because task identifiers and
+        payloads may contain internal runtime details.
+        """
+        cutoff = _parse_datetime(cutoff)
+        schema = _safe_identifier(self.configuration.schema)
+
+        def inspect(active: Any) -> dict[str, Any]:
+            lock_clause = " FOR UPDATE OF entity" if lock else ""
+            rows = active.execute(
+                f"""
+                SELECT entity.entity_id, entity.version, entity.state,
+                       entity.payload, entity.created_at, entity.updated_at,
+                       (SELECT count(*) FROM {schema}.task_admission_queue queue
+                        WHERE queue.task_id=entity.entity_id) AS queue_rows,
+                       (SELECT count(*) FROM {schema}.task_dispatch_effects effect
+                        WHERE effect.task_id=entity.entity_id) AS effect_rows,
+                       (SELECT count(*) FROM {schema}.side_effect_outbox outbox
+                        WHERE outbox.payload->>'task_id'=entity.entity_id) AS outbox_rows
+                FROM {schema}.entities entity
+                WHERE entity.entity_kind='task_assignment'
+                  AND entity.state IN ('queued', 'running')
+                  AND entity.payload->>'task_type'='airflow_dag_run'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM {schema}.task_admission_queue queue
+                    WHERE queue.task_id=entity.entity_id
+                      AND queue.state = ANY(%s)
+                  )
+                ORDER BY entity.created_at, entity.entity_id
+                {lock_clause}
+                """,
+                (list(ACTIVE_QUEUE_STATES),),
+            ).fetchall()
+            collection = active.execute(
+                f"""
+                SELECT version, payload
+                FROM {schema}.collections
+                WHERE collection_name='task_assignments'
+                """
+            ).fetchone()
+            items: list[dict[str, Any]] = []
+            for row in rows:
+                payload = dict(row["payload"])
+                audit_events = [
+                    str(event.get("event", ""))
+                    for event in payload.get("audit", [])
+                    if isinstance(event, Mapping)
+                ]
+                reasons: list[str] = []
+                if str(row["state"]) != "queued":
+                    reasons.append("state_not_queued")
+                if row["created_at"] > cutoff:
+                    reasons.append("created_after_cutoff")
+                if payload.get("runtime_id") or payload.get("dispatched_at"):
+                    reasons.append("runtime_identity_present")
+                if payload.get("runtime_state") or payload.get("runtime_url"):
+                    reasons.append("runtime_state_present")
+                if int(row["queue_rows"]):
+                    reasons.append("queue_row_present")
+                if int(row["effect_rows"]):
+                    reasons.append("dispatch_effect_present")
+                if int(row["outbox_rows"]):
+                    reasons.append("outbox_effect_present")
+                if audit_events != ["task_assignment_created"]:
+                    reasons.append("unexpected_audit_history")
+                items.append(
+                    {
+                        "task_id": str(row["entity_id"]),
+                        "version": int(row["version"]),
+                        "state": str(row["state"]),
+                        "payload": payload,
+                        "created_at": row["created_at"].isoformat(),
+                        "updated_at": row["updated_at"].isoformat(),
+                        "queue_rows": int(row["queue_rows"]),
+                        "effect_rows": int(row["effect_rows"]),
+                        "outbox_rows": int(row["outbox_rows"]),
+                        "eligible": not reasons,
+                        "blocked_reasons": reasons,
+                    }
+                )
+            body = {
+                "schema_version": "evm.task_queue_stranded_snapshot.v1",
+                "schema": schema,
+                "cutoff": cutoff.isoformat(),
+                "collection_version": int(collection["version"]) if collection else 0,
+                "collection_sha256": (
+                    canonical_digest(collection["payload"]) if collection else None
+                ),
+                "items": items,
+            }
+            return {
+                **body,
+                "snapshot_sha256": canonical_digest(body),
+                "candidate_count": len(items),
+                "eligible_count": sum(bool(item["eligible"]) for item in items),
+                "blocked_count": sum(not bool(item["eligible"]) for item in items),
+            }
+
+        if connection is not None:
+            return inspect(connection)
+        with self.transaction("task-queue-stranded-inspect") as active:
+            return inspect(active)
+
+    def reconcile_stranded_task_queue(
+        self,
+        *,
+        task_ids: Sequence[str],
+        cutoff: datetime,
+        expected_snapshot_sha256: str,
+        actor: str,
+        reason: str,
+        dry_run: bool,
+        observed_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Cancel an exact, effect-free legacy allowlist in one transaction."""
+        if not task_ids or len(set(task_ids)) != len(task_ids):
+            raise ControlPlaneParityError("a non-empty unique task allowlist is required")
+        if not actor.strip() or not reason.strip():
+            raise ControlPlaneParityError("actor and reason are required")
+        observed_at = _parse_datetime(observed_at or utc_now())
+        allowlist = sorted(str(task_id) for task_id in task_ids)
+        schema = _safe_identifier(self.configuration.schema)
+        with self.serialized("task-queue-cutover") as connection:
+            snapshot = self.inspect_stranded_task_queue(
+                cutoff=cutoff,
+                lock=True,
+                connection=connection,
+            )
+            current_ids = sorted(str(item["task_id"]) for item in snapshot["items"])
+            if not current_ids:
+                rows = connection.execute(
+                    f"""
+                    SELECT entity_id, state, payload
+                    FROM {schema}.entities
+                    WHERE entity_kind='task_assignment' AND entity_id = ANY(%s)
+                    FOR UPDATE
+                    """,
+                    (allowlist,),
+                ).fetchall()
+                replayed = len(rows) == len(allowlist) and all(
+                    str(row["state"]) == "cancelled"
+                    and any(
+                        isinstance(event, Mapping)
+                        and event.get("event") == "historical_task_cancelled"
+                        and event.get("details", {}).get("snapshot_sha256")
+                        == expected_snapshot_sha256
+                        for event in row["payload"].get("audit", [])
+                    )
+                    for row in rows
+                )
+                if replayed:
+                    return {
+                        "status": "replayed",
+                        "dry_run": dry_run,
+                        "snapshot_sha256": expected_snapshot_sha256,
+                        "candidate_count": 0,
+                        "reconciled_count": len(rows),
+                    }
+            if current_ids != allowlist:
+                raise ControlPlaneParityError(
+                    "stranded task allowlist no longer matches the current candidate set"
+                )
+            if snapshot["blocked_count"]:
+                raise ControlPlaneParityError(
+                    "one or more stranded tasks failed the effect-free cancellation preconditions"
+                )
+            if snapshot["snapshot_sha256"] != expected_snapshot_sha256:
+                raise ControlPlaneParityError("stranded task snapshot digest changed")
+            if dry_run:
+                return {
+                    "status": "dry_run_passed",
+                    "dry_run": True,
+                    "snapshot_sha256": snapshot["snapshot_sha256"],
+                    "candidate_count": snapshot["candidate_count"],
+                    "reconciled_count": 0,
+                }
+            timestamp = observed_at.isoformat().replace("+00:00", "Z")
+            for item in snapshot["items"]:
+                payload = dict(item["payload"])
+                current_version = int(item["version"])
+                payload["version"] = current_version + 1
+                payload["status"] = "cancelled"
+                payload["runtime_state"] = "cancelled"
+                payload["finished_at"] = timestamp
+                payload["failure_reason"] = reason
+                audit_log = list(payload.get("audit") or [])
+                audit_log.append(
+                    {
+                        "timestamp": timestamp,
+                        "actor": actor,
+                        "event": "historical_task_cancelled",
+                        "details": {
+                            "reason": reason,
+                            "previous_status": item["state"],
+                            "snapshot_sha256": expected_snapshot_sha256,
+                            "queue_rows": item["queue_rows"],
+                            "effect_rows": item["effect_rows"],
+                            "outbox_rows": item["outbox_rows"],
+                        },
+                    }
+                )
+                payload["audit"] = audit_log
+                changed = connection.execute(
+                    f"""
+                    UPDATE {schema}.entities
+                    SET version=%s, state='cancelled', payload=%s,
+                        updated_at=clock_timestamp()
+                    WHERE entity_kind='task_assignment' AND entity_id=%s
+                      AND version=%s AND state='queued'
+                    """,
+                    (
+                        current_version + 1,
+                        self._json(payload),
+                        item["task_id"],
+                        current_version,
+                    ),
+                )
+                if changed.rowcount != 1:
+                    raise ControlPlaneVersionConflict(
+                        f"concurrent reconciliation conflict for {item['task_id']}"
+                    )
+            mirror_version = self._refresh_task_collection_locked(connection)
+            return {
+                "status": "applied",
+                "dry_run": False,
+                "snapshot_sha256": snapshot["snapshot_sha256"],
+                "candidate_count": snapshot["candidate_count"],
+                "reconciled_count": snapshot["candidate_count"],
+                "mirror_version": mirror_version,
+            }
+
+    def rollback_stranded_task_queue(
+        self,
+        *,
+        snapshot: Mapping[str, Any],
+        actor: str,
+        reason: str,
+        observed_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Restore a reconciliation snapshot under strict no-effect preconditions."""
+        body = {
+            key: snapshot[key]
+            for key in (
+                "schema_version",
+                "schema",
+                "cutoff",
+                "collection_version",
+                "collection_sha256",
+                "items",
+            )
+        }
+        snapshot_sha256 = canonical_digest(body)
+        if snapshot_sha256 != snapshot.get("snapshot_sha256"):
+            raise ControlPlaneParityError("rollback snapshot digest mismatch")
+        if str(snapshot.get("schema")) != self.configuration.schema:
+            raise ControlPlaneParityError("rollback snapshot schema mismatch")
+        observed_at = _parse_datetime(observed_at or utc_now())
+        timestamp = observed_at.isoformat().replace("+00:00", "Z")
+        schema = _safe_identifier(self.configuration.schema)
+        items = list(snapshot.get("items") or [])
+        if not items:
+            raise ControlPlaneParityError("rollback snapshot contains no tasks")
+        with self.serialized("task-queue-cutover") as connection:
+            for item in items:
+                task_id = str(item["task_id"])
+                row = connection.execute(
+                    f"""
+                    SELECT version, state, payload,
+                           (SELECT count(*) FROM {schema}.task_admission_queue queue
+                            WHERE queue.task_id=entity.entity_id) AS queue_rows,
+                           (SELECT count(*) FROM {schema}.task_dispatch_effects effect
+                            WHERE effect.task_id=entity.entity_id) AS effect_rows,
+                           (SELECT count(*) FROM {schema}.side_effect_outbox outbox
+                            WHERE outbox.payload->>'task_id'=entity.entity_id) AS outbox_rows
+                    FROM {schema}.entities entity
+                    WHERE entity_kind='task_assignment' AND entity_id=%s
+                    FOR UPDATE OF entity
+                    """,
+                    (task_id,),
+                ).fetchone()
+                if row is None or str(row["state"]) != "cancelled":
+                    raise ControlPlaneParityError("rollback target is not cancelled")
+                if any(int(row[key]) for key in ("queue_rows", "effect_rows", "outbox_rows")):
+                    raise ControlPlaneParityError("rollback target gained a durable side effect")
+                if not any(
+                    isinstance(event, Mapping)
+                    and event.get("event") == "historical_task_cancelled"
+                    and event.get("details", {}).get("snapshot_sha256") == snapshot_sha256
+                    for event in row["payload"].get("audit", [])
+                ):
+                    raise ControlPlaneParityError("rollback target audit binding is missing")
+                restored = dict(item["payload"])
+                restored["version"] = int(row["version"]) + 1
+                audit_log = list(restored.get("audit") or [])
+                audit_log.append(
+                    {
+                        "timestamp": timestamp,
+                        "actor": actor,
+                        "event": "historical_task_reconciliation_rolled_back",
+                        "details": {
+                            "reason": reason,
+                            "snapshot_sha256": snapshot_sha256,
+                        },
+                    }
+                )
+                restored["audit"] = audit_log
+                connection.execute(
+                    f"""
+                    UPDATE {schema}.entities
+                    SET version=%s, state=%s, payload=%s,
+                        updated_at=clock_timestamp()
+                    WHERE entity_kind='task_assignment' AND entity_id=%s
+                      AND version=%s AND state='cancelled'
+                    """,
+                    (
+                        restored["version"],
+                        item["state"],
+                        self._json(restored),
+                        task_id,
+                        int(row["version"]),
+                    ),
+                )
+            mirror_version = self._refresh_task_collection_locked(connection)
+        return {
+            "status": "rolled_back",
+            "snapshot_sha256": snapshot_sha256,
+            "restored_count": len(items),
+            "mirror_version": mirror_version,
+        }
+
     def task_mirror_parity(self) -> dict[str, Any]:
         """Compare PostgreSQL task authority with its bounded rollback mirror."""
         schema = _safe_identifier(self.configuration.schema)
