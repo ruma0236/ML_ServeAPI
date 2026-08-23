@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-22T23:34:14.631000Z`
+- Generated: `2026-08-23T00:12:31.382496Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -286,16 +286,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S3: HIGGS Lightweight Capacity Envelope
 
-- Status: `implementing`
+- Status: `verified`
 - Engineering question: Where are sustainable capacity, tail-latency limits, and the first CPU bottleneck?
 - Why now: Lightweight probes separate infrastructure overhead from model compute.
 - Observed gap: No repeated CPU-model capacity envelope or saturation knee exists.
 - Existing-system baseline: The existing API can execute model inference and expose metrics, but it has no governed high-volume tabular corpus or repeated CPU/API saturation envelope.
 - Architecture before: API behavior is functional but not characterized with low-compute probes.
 - Architecture after: A measured CPU/API capacity envelope supplies operational and queue limits.
-- Verdict: `not_run`
+- Verdict: `passed`
 - Claim boundary: Measured lightweight HIGGS CPU/API capacity, bounded process-local queue behavior, external TCP/HTTP handling, Prometheus telemetry, W3C trace attribution, and colocated replica/worker comparisons on one local physical node. No production or customer traffic, SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or terabyte claim.
-- Next action: Commit the fail-closed remediation, then reproject the preserved point results from that immutable revision and run the strict reclosure gate.
+- Next action: Commit and Git-blob validate this strict reclosure, then begin S4 preparation without carrying S3 runtime evidence forward as S4 acceptance credit.
 
 ### Affected Existing Components
 
@@ -339,10 +339,10 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S3-AC-01` [pending]: Every probe has p95, p99, throughput, error, and resource curves.
-- `S3-AC-02` [pending]: The first bottleneck is explained by trace and resource telemetry.
-- `S3-AC-03` [pending]: The sustainable operating point is explicitly lower than peak throughput when required.
-- `S3-AC-04` [pending]: S2 queue capacity is recalculated from the measured service rate, with the prior and selected values, units, formula, safety factor, and rollback value retained.
+- `S3-AC-01` [passed]: Every probe has p95, p99, throughput, error, and resource curves.
+- `S3-AC-02` [passed]: The first bottleneck is explained by trace and resource telemetry.
+- `S3-AC-03` [passed]: The sustainable operating point is explicitly lower than peak throughput when required.
+- `S3-AC-04` [passed]: S2 queue capacity is recalculated from the measured service rate, with the prior and selected values, units, formula, safety factor, and rollback value retained.
 
 ### Current Evidence
 
@@ -353,9 +353,9 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s3-capacity-experiment-attempt-02.json` (`2fd4396c464888c009688edf4407289780aaa0724627173deb310387e0ce406d`): The second full matrix attempt retained 21 point repetitions and stopped on an incomplete OTLP exporter tail; bounded polling closed 52/52 sampled traces in a three-repetition RCA pilot without granting acceptance credit.
 - `docs/status/evidence/s3-capacity-experiment-attempt-03.json` (`62f68e276b67c7a3149fcdf91d331ef317b4aeccd3bc60292fbf5c4e7d8455c5`): The third attempt retained the Windows shutdown trace-loss failure; pre-stop bounded export closure then completed 34/34 sampled chains across a three-repetition RCA pilot.
 - `docs/status/evidence/s3-capacity-experiment-attempt-04.json` (`77b3d23475b0bf75a4f3a109e527cb8cc3354a6b4b1e0193595f51c48cbdb845`): The fourth attempt retained 85 point repetitions and exposed an outcome-insensitive trace assertion; a three-repetition overload pilot then closed full, admission, and client-only contracts separately.
-- `docs/status/evidence/s3-capacity-experiment.json` (`55c3f857c66e2da31418f250d62cbff50b5643fd909d6f7245c607d3794657f2`): The strict external matrix records 111 valid point repetitions, five complete capacity curves, 11 topology points, all four runtime ACs, conservative S2 capacity recalculation, exact cleanup, and the single-node claim boundary.
-- `docs/status/evidence/s3-capacity-closure.json` (`604738579454bcfa5729c20b6e83991637baa504a2cd18b65e378298e6ac7cd0`): Closure links runtime and analysis revisions, measured capacity and topology results, four retained failed attempts and RCA, regressions, private inventory rehash, cleanup, and the allowed claim boundary.
-- `docs/status/evidence/s3-strict-reclosure-remediation-checkpoint.json` (`3f646c35a08ef63609007cbd258f0012f8e5a210ec720665fda06b2d142df967`): S3 was truthfully reopened after reproducibility and source-identity defects were confirmed; 111 persisted points and four RCA are preserved, while strict acceptance remains pending.
+- `docs/status/evidence/s3-capacity-experiment.json` (`f2567c647e9eee409c467f2bd548ff589a8a37eae3fb31d7162aa81646d3e343`): The preserved 111-point external matrix was deterministically reprojected at frozen precision; all four ACs passed from persisted raw-derived signals.
+- `docs/status/evidence/s3-capacity-closure.json` (`61866eb2f5bce8bf8d1c0a234c26d2ca03b170dd1ba1999b58bbde65af9d9b77`): Strict closure binds canonical Git source identities, cross-Python projection, current-revision runtime smoke, regressions, CUDA proof, private rehash, and cleanup.
+- `docs/status/evidence/s3-strict-reclosure-remediation-checkpoint.json` (`3f646c35a08ef63609007cbd258f0012f8e5a210ec720665fda06b2d142df967`): The source-revision, line-ending, float-portability, and weak AC validation defects were retained as an explicit remediation checkpoint before reclosure.
 
 ### Chronological Updates
 
@@ -371,6 +371,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-17T10:05:25Z` `experiment` / `implementing`: The fourth full attempt reached 85 valid point repetitions before a topology overload mixed successful, admission-rejected, and transport-only outcomes. The prior assertion incorrectly required the full execution chain for all three. Outcome-aware contracts now require six spans for 200, route plus admission spans for server rejection, and client identity only for transport failure. A three-repetition same-point pilot closed every applicable contract while preserving error and saturation metrics. Full acceptance remains pending.
 - `2026-08-17T11:44:27Z` `verification` / `verified`: At runtime revision 20524b9 and strict closure revision 1fda82b, 111 external point repetitions, S3-AC-01 through S3-AC-04, private inventory rehash, 723 real-PostgreSQL Python tests, 50 lifecycle/host tests, 59 Control Panel tests, the production frontend build, Git-blob validation, current-revision runtime smoke, and cleanup passed. Four failed attempts and RCA remain linked. S4 was not started.
 - `2026-08-22T23:34:14.631000Z` `recovery` / `implementing`: S3 strict closure was reopened after Git-object, line-ending-sensitive hash, cross-Python float, and AC-02/03 validation defects were independently reproduced. The 111 accepted repetitions and four prior RCA remain preserved; no workload result is being rerun or reinterpreted as verified at this checkpoint.
+- `2026-08-23T00:12:31.382496Z` `verification` / `verified`: S3 strict reclosure passed after deterministic cross-Python reprojection, canonical Git-object binding, raw-derived AC validation, current-revision external smoke, private rehash, trusted CUDA regression, and cleanup.
 
 ## S4: HIGGS Tiny MLP GPU Batching
 

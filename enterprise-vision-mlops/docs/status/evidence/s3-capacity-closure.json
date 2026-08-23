@@ -1,78 +1,197 @@
 {
-  "schema_version": "evm.s3_capacity_closure.v1",
-  "generated_at": "2026-08-17T11:43:23Z",
-  "source_identity": {
-    "branch": "codex/distributed-scale-validation-plan",
-    "runtime_revision": "20524b968e89e9dd4b2c3d8e04a4085a2eff3b54",
-    "runtime_module_sha256": "0baaede3b86a755fff52cd2dae20e0f0315b29a349036a361a1c904ff201ed1a",
-    "analysis_projection_revision": "f553d5195582d963e5870ffc1bf37856f15cc750",
-    "analysis_module_sha256": "6767e5ca5e7c3e213dbc4d09aa63ecb1ce777463aaee5b061c5aa67ce17f3d18",
-    "evidence_commit": "f8234487e8aea051aa6934bba6d799084e5511e0",
-    "preclosure_regression_revision": "1fda82b6840e2909d03cb333f1f8fdfde9551d70"
+  "claim_boundary": "Measured lightweight HIGGS CPU/API capacity, bounded process-local queue behavior, external TCP/HTTP request handling, Prometheus telemetry, W3C trace attribution, and colocated replica/worker comparisons on one local physical node. No production or customer traffic, SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or terabyte-throughput claim.",
+  "cleanup": {
+    "active_or_in_flight_gauges_after_each_point": 0,
+    "all_accepted_point_cleanup_assertions_passed": true,
+    "customer_traffic_used": false,
+    "isolated_prometheus_containers_remaining": 0,
+    "marker_processes_remaining": 0,
+    "private_inventory_rehash_passed": true,
+    "production_serving_mutated": false
   },
+  "failed_attempts_and_rca": [
+    {
+      "observed": "One transport failure among 2,984 attempts invalidated the entire point.",
+      "path": "docs/status/evidence/s3-capacity-experiment-attempt-01.json",
+      "remediation": "Retain transport failures in error-rate telemetry, require deterministic client identity for every attempt, and require W3C response identity for every server response.",
+      "root_cause": "The evidence assertion required zero transport errors even though S3 is designed to measure an error-rate curve.",
+      "sha256": "ea6a2ec373c88ae5412363f8fc65a125df0a7163c6c6982982f9937311c6a82c"
+    },
+    {
+      "observed": "Four of 52 sampled chains were absent from a one-shot exporter-tail read.",
+      "path": "docs/status/evidence/s3-capacity-experiment-attempt-02.json",
+      "remediation": "Poll the exporter within a frozen timeout and fail closed if expected chains remain incomplete.",
+      "root_cause": "A fixed sleep followed by one read was not a bounded trace-completion contract.",
+      "sha256": "2fd4396c464888c009688edf4407289780aaa0724627173deb310387e0ce406d"
+    },
+    {
+      "observed": "Two sampled chains remained missing after API termination and the bounded poll.",
+      "path": "docs/status/evidence/s3-capacity-experiment-attempt-03.json",
+      "remediation": "Complete bounded trace export while the API process is alive, then stop it and rehash the final tail.",
+      "root_cause": "Windows process termination could discard BatchSpanProcessor data before export.",
+      "sha256": "62f68e276b67c7a3149fcdf91d331ef317b4aeccd3bc60292fbf5c4e7d8455c5"
+    },
+    {
+      "observed": "A mixed 200, 429, and transport overload point failed the successful six-span requirement.",
+      "path": "docs/status/evidence/s3-capacity-experiment-attempt-04.json",
+      "remediation": "Require full spans for 200, route plus admission spans for server rejection, and client identity without fabricated server spans for transport failure.",
+      "root_cause": "The trace assertion did not distinguish successful execution, admission rejection, and client-only transport outcomes.",
+      "sha256": "77b3d23475b0bf75a4f3a109e527cb8cc3354a6b4b1e0193595f51c48cbdb845"
+    }
+  ],
   "final_runtime_evidence": {
-    "path": "docs/status/evidence/s3-capacity-experiment.json",
-    "git_blob_sha256": "55c3f857c66e2da31418f250d62cbff50b5643fd909d6f7245c607d3794657f2",
-    "point_result_count": 111,
-    "executed_point_count": 37,
-    "skipped_point_count": 19,
-    "repetitions_per_executed_point": 3,
     "acceptance": {
       "S3-AC-01": true,
       "S3-AC-02": true,
       "S3-AC-03": true,
       "S3-AC-04": true
     },
-    "runtime_verdict": "passed",
-    "private_artifact_count": 592,
+    "executed_point_count": 37,
+    "git_blob_sha256": "f2567c647e9eee409c467f2bd548ff589a8a37eae3fb31d7162aa81646d3e343",
+    "path": "docs/status/evidence/s3-capacity-experiment.json",
+    "point_result_count": 111,
     "private_aggregate_sha256": "5f8df3d9d48681b5e67354d5c00a755802d0e5d50bcca5ce1b67f849f7147357",
-    "private_inventory_rehash": "passed"
+    "private_artifact_count": 592,
+    "private_inventory_rehash": "passed",
+    "repetitions_per_executed_point": 3,
+    "runtime_verdict": "passed",
+    "skipped_point_count": 19
   },
+  "generated_at": "2026-08-23T00:12:31.382496Z",
   "measured_capacity": {
-    "sustainable_open_rate_requests_per_second": 49.97777777777778,
-    "safe_open_load_requests_per_second": 50.0,
     "closed_safe_service_rate_range_requests_per_second": {
-      "min": 199.4888888888889,
-      "max": 343.11111111111114
-    },
-    "safe_p99_range_ms": {
-      "open": {
-        "min": 31.19920000123481,
-        "max": 44.947666639927775
-      },
-      "closed": {
-        "min": 35.01783332709844,
-        "max": 55.33343334294235
-      }
+      "max": 343.111111111111,
+      "min": 199.488888888889
     },
     "first_saturation_knee": {
-      "curve": "logistic:closed",
-      "concurrency": 16,
-      "service_rate_requests_per_second": 215.91111111111113,
-      "client_p99_ms": 512.5597666871423,
-      "server_total_p99_ms": 66.18089997209609,
-      "queue_wait_p99_ms": 62.43503334311148,
-      "prediction_p99_ms": 0.16693334328010678,
-      "api_process_tree_cpu_percent": 139.8570485421266,
-      "load_generator_cpu_percent": 105.1777983734742,
+      "api_process_tree_cpu_percent": 139.857048542127,
+      "attribution_boundary": "The load generator and API share one physical host, so client HTTP scheduling and host contention cannot be isolated as a remote-generator network result.",
       "cause": "co_located_client_http_and_process_local_worker_queue",
-      "attribution_boundary": "The load generator and API share one physical host, so client HTTP scheduling and host contention cannot be isolated as a remote-generator network result."
+      "client_p99_ms": 512.559766687142,
+      "concurrency": 16,
+      "curve": "logistic:closed",
+      "load_generator_cpu_percent": 105.177798373474,
+      "prediction_p99_ms": 0.16693334328,
+      "queue_wait_p99_ms": 62.435033343111,
+      "server_total_p99_ms": 66.180899972096,
+      "service_rate_requests_per_second": 215.911111111111
+    },
+    "safe_open_load_requests_per_second": 50.0,
+    "safe_p99_range_ms": {
+      "closed": {
+        "max": 55.333433342942,
+        "min": 35.017833327098
+      },
+      "open": {
+        "max": 44.947666639928,
+        "min": 31.199200001235
+      }
+    },
+    "sustainable_open_rate_requests_per_second": 49.977777777778
+  },
+  "regression": {
+    "control_panel_production_build": "passed",
+    "control_panel_tests": 59,
+    "current_revision_runtime_smoke": {
+      "cleanup_complete": true,
+      "external_tcp_http": true,
+      "p99_ms": 9.901300014462,
+      "point_id": "baseline-closed-logistic-load-1-api-1-cpu-1",
+      "private_aggregate_sha256": "3395972c3ffc04c9446a033874d833a85cfb2e224e56993bfe3010c2706ec923",
+      "prometheus_targets_up": true,
+      "repetitions": 3,
+      "request_count": 12853,
+      "revision": "1c84bc589e541c1529411047f15b743365de69af",
+      "sampled_trace_chains": "130/130",
+      "sampled_trace_complete": 130,
+      "sampled_trace_expected": 130,
+      "service_rate_requests_per_second": 285.555555555556,
+      "terminal_gauges_zero": true
+    },
+    "focused_s3_tests": 39,
+    "full_python_tests_collected": 742,
+    "full_python_tests_skipped": 1,
+    "full_python_tests_with_real_postgresql": 741,
+    "lifecycle_host_tests": 50,
+    "private_inventory_rehash": {
+      "aggregate_sha256": "5f8df3d9d48681b5e67354d5c00a755802d0e5d50bcca5ce1b67f849f7147357",
+      "artifact_count": 592,
+      "bytes": 364787238,
+      "mismatch_count": 0,
+      "status": "passed"
+    },
+    "python_projection": {
+      "analysis_projection_sha256": "77aba7045d81cccbb2080aca928230c3f291012a09e240225716c20ff1793350",
+      "verdict": "passed",
+      "versions": [
+        "3.11",
+        "3.12",
+        "3.13"
+      ]
+    },
+    "regression_environment_rca": "The first host regression used a venv launcher PID rather than the actual direct interpreter parent and lacked Torch. Final process tests use an isolated direct Conda Python 3.11 interpreter; the CUDA contract is separately executed in the trusted GPU image and remains a mandatory closure signal.",
+    "s0_s1_s2_progress_git_blob_validator": "passed",
+    "s3_git_blob_validator": "passed",
+    "trusted_cuda_regression": {
+      "actual_cuda": true,
+      "backend": "cuda",
+      "cuda_runtime": "12.6",
+      "device_count": 1,
+      "nonzero_activity": true,
+      "peak_allocated_bytes": 8716288,
+      "result_sha256": "2fc226faa98980283217c95f9f87cae89f29bd90da46c71b12ef4e092e6a56d8",
+      "scope": "single_local_nvidia_gpu",
+      "status": "passed",
+      "torch_version": "2.13.0+cu126"
     }
   },
   "s2_capacity_recalculation": {
-    "formula": "floor(service_rate_rps * maximum_queue_wait_seconds * safety_factor)",
-    "measured_service_rate_per_second": 49.97777777777778,
-    "maximum_queue_wait_seconds": 2.0,
-    "safety_factor": 0.7,
-    "calculated_depth": 69,
-    "prior_depth": 64,
-    "selected_depth": 64,
-    "rollback_depth": 64,
     "automatic_increase_allowed": false,
-    "decision": "Retain the prior depth because the calculated value is only five requests higher and automatic increase is disabled."
+    "calculated_depth": 69,
+    "decision": "Retain the prior depth because the calculated value is only five requests higher and automatic increase is disabled.",
+    "formula": "floor(service_rate_rps * maximum_queue_wait_seconds * safety_factor)",
+    "maximum_queue_wait_seconds": 2.0,
+    "measured_service_rate_per_second": 49.977777777778,
+    "prior_depth": 64,
+    "rollback_depth": 64,
+    "safety_factor": 0.7,
+    "selected_depth": 64,
+    "service_rate_selection": "minimum sustainable open-loop rate across probes",
+    "units": {
+      "depth": "requests",
+      "queue_wait": "seconds",
+      "service_rate": "requests/second"
+    }
+  },
+  "schema_version": "evm.s3_capacity_closure.v1",
+  "source_identity": {
+    "analysis_module_blob_oid": "1a89212e63fd6f00c9ea8e4738524878fd5d98ef",
+    "analysis_module_sha256": "b257c12be088e8cc52d438351e7023b6468b54202fbb14b2900d03e51c5702c8",
+    "analysis_projection_revision": "1c84bc589e541c1529411047f15b743365de69af",
+    "branch": "codex/distributed-scale-validation-plan",
+    "historical_evidence_commit": null,
+    "runtime_module_blob_oid": "af32b89153e41a0d765011f7d94b6ee283da4f8e",
+    "runtime_module_sha256": "b3ddf1ac670f6ee704b886572bbe600569d75a23fa85d05644069624535c45c7",
+    "runtime_revision": "20524b968e89e9dd4b2c3d8e04a4085a2eff3b54",
+    "validation_base_revision": "1c84bc589e541c1529411047f15b743365de69af"
+  },
+  "strict_reclosure": {
+    "analysis_projection_sha256": "77aba7045d81cccbb2080aca928230c3f291012a09e240225716c20ff1793350",
+    "corrected_at": "2026-08-23T00:12:31.316200Z",
+    "persisted_point_result_count": 111,
+    "python_projection_versions": [
+      "3.11",
+      "3.12",
+      "3.13"
+    ],
+    "rca": "The former evidence recorded an invalid analysis revision and hashes of line-ending-sensitive worktree captures instead of the declared revisions' canonical Git blob bytes. Exact float JSON comparison also varied at approximately 1e-14 across Python versions.",
+    "retained_failed_attempt_count": 4,
+    "source_identity_bound_to_git_objects": true,
+    "status": "passed",
+    "workload_rerun": false
   },
   "topology_result": {
-    "topology_point_count": 11,
+    "all_high_load_topology_points_within_guardrails": false,
     "api_replica_counts_compared": [
       1,
       2
@@ -82,78 +201,18 @@
       2,
       4
     ],
-    "requests_balanced_across_two_replicas": true,
+    "interpretation": "Adding colocated API replicas or CPU workers did not produce linear scaling. Shared-host scheduling and queue contention dominated this overload point.",
     "monotonic_throughput_gain_observed": false,
-    "all_high_load_topology_points_within_guardrails": false,
-    "observed_open_400_service_rate_range_requests_per_second": {
-      "min": 50.2,
-      "max": 73.4
-    },
     "observed_open_400_p99_range_ms": {
-      "min": 35393.686,
-      "max": 37857.595
+      "max": 37857.595,
+      "min": 35393.686
     },
-    "interpretation": "Adding colocated API replicas or CPU workers did not produce linear scaling. Shared-host scheduling and queue contention dominated this overload point."
+    "observed_open_400_service_rate_range_requests_per_second": {
+      "max": 73.4,
+      "min": 50.2
+    },
+    "requests_balanced_across_two_replicas": true,
+    "topology_point_count": 11
   },
-  "regression": {
-    "focused_s3_tests": 26,
-    "full_python_tests_with_real_postgresql": 729,
-    "lifecycle_host_tests": 50,
-    "control_panel_tests": 59,
-    "control_panel_production_build": "passed",
-    "s3_git_blob_validator": "passed",
-    "s0_s1_s2_progress_git_blob_validator": "passed",
-    "current_revision_runtime_smoke": {
-      "revision": "1fda82b6840e2909d03cb333f1f8fdfde9551d70",
-      "external_tcp_http": true,
-      "service_rate_requests_per_second": 217.4,
-      "p99_ms": 13.40709999203682,
-      "sampled_trace_chains": "33/33",
-      "prometheus_targets_up": true,
-      "terminal_gauges_zero": true,
-      "cleanup_complete": true,
-      "private_aggregate_sha256": "21cf84a53cc74a2b876bacfed86ca901a45e0c81b5b6861ea2d7b8f7be8c9317"
-    }
-  },
-  "failed_attempts_and_rca": [
-    {
-      "path": "docs/status/evidence/s3-capacity-experiment-attempt-01.json",
-      "sha256": "ea6a2ec373c88ae5412363f8fc65a125df0a7163c6c6982982f9937311c6a82c",
-      "observed": "One transport failure among 2,984 attempts invalidated the entire point.",
-      "root_cause": "The evidence assertion required zero transport errors even though S3 is designed to measure an error-rate curve.",
-      "remediation": "Retain transport failures in error-rate telemetry, require deterministic client identity for every attempt, and require W3C response identity for every server response."
-    },
-    {
-      "path": "docs/status/evidence/s3-capacity-experiment-attempt-02.json",
-      "sha256": "2fd4396c464888c009688edf4407289780aaa0724627173deb310387e0ce406d",
-      "observed": "Four of 52 sampled chains were absent from a one-shot exporter-tail read.",
-      "root_cause": "A fixed sleep followed by one read was not a bounded trace-completion contract.",
-      "remediation": "Poll the exporter within a frozen timeout and fail closed if expected chains remain incomplete."
-    },
-    {
-      "path": "docs/status/evidence/s3-capacity-experiment-attempt-03.json",
-      "sha256": "62f68e276b67c7a3149fcdf91d331ef317b4aeccd3bc60292fbf5c4e7d8455c5",
-      "observed": "Two sampled chains remained missing after API termination and the bounded poll.",
-      "root_cause": "Windows process termination could discard BatchSpanProcessor data before export.",
-      "remediation": "Complete bounded trace export while the API process is alive, then stop it and rehash the final tail."
-    },
-    {
-      "path": "docs/status/evidence/s3-capacity-experiment-attempt-04.json",
-      "sha256": "77b3d23475b0bf75a4f3a109e527cb8cc3354a6b4b1e0193595f51c48cbdb845",
-      "observed": "A mixed 200, 429, and transport overload point failed the successful six-span requirement.",
-      "root_cause": "The trace assertion did not distinguish successful execution, admission rejection, and client-only transport outcomes.",
-      "remediation": "Require full spans for 200, route plus admission spans for server rejection, and client identity without fabricated server spans for transport failure."
-    }
-  ],
-  "cleanup": {
-    "all_accepted_point_cleanup_assertions_passed": true,
-    "active_or_in_flight_gauges_after_each_point": 0,
-    "marker_processes_remaining": 0,
-    "isolated_prometheus_containers_remaining": 0,
-    "private_inventory_rehash_passed": true,
-    "production_serving_mutated": false,
-    "customer_traffic_used": false
-  },
-  "verdict": "passed",
-  "claim_boundary": "Measured lightweight HIGGS CPU/API capacity, bounded process-local queue behavior, external TCP/HTTP request handling, Prometheus telemetry, W3C trace attribution, and colocated replica/worker comparisons on one local physical node. No production or customer traffic, SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or terabyte-throughput claim."
+  "verdict": "passed"
 }
