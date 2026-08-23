@@ -65,6 +65,16 @@ def test_s4_frozen_matrix_and_analysis_close_all_acceptance(tmp_path: Path) -> N
         "measurement_seconds": 5.0,
         "cooldown_seconds": 1.0,
     }
+    assert config.public_dict()["guardrails"] == {
+        "maximum_error_rate": 0.01,
+        "maximum_p99_ms": 250.0,
+        "maximum_queue_wait_ms": 100.0,
+        "hard_stop_p99_ms": 4500.0,
+        "hard_stop_queue_wait_ms": 4000.0,
+        "maximum_temperature_celsius": 84.0,
+        "maximum_power_watts": 340.0,
+        "require_zero_oom": True,
+    }
     results = [
         _result(batch, delay, 1, "matrix", repetition)
         for batch in config.batch_sizes
@@ -99,6 +109,29 @@ def test_s4_analysis_fails_without_open_loop_confirmation(tmp_path: Path) -> Non
 
     assert analysis["acceptance"]["S4-AC-02"] is False
     assert analysis["runtime_verdict"] == "failed"
+
+
+def test_s4_analysis_excludes_fast_point_outside_operating_guardrail(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    results = [
+        _result(batch, delay, 1, "matrix", repetition)
+        for batch in config.batch_sizes
+        for delay in config.max_delays_ms
+        for repetition in range(1, 4)
+    ]
+    for result in results:
+        if result["batch_size"] == 32 and result["max_delay_ms"] == 0:
+            result["service_rps"] = 100_000.0
+            result["p99_ms"] = 300.0
+            result["queue_wait_p99_ms"] = 150.0
+
+    analysis = analyze_s4_results(results, config)
+
+    selected = analysis["selected_operating_point"]
+    assert selected is not None
+    assert (selected["batch_size"], selected["max_delay_ms"]) != (32, 0)
 
 
 def test_s4_gpu_api_uses_supported_isolated_file_store(tmp_path: Path) -> None:

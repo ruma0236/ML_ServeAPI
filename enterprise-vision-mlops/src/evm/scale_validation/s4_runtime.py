@@ -88,6 +88,8 @@ class S4RuntimeConfig:
     maximum_error_rate: float
     maximum_p99_ms: float
     maximum_queue_wait_ms: float
+    hard_stop_p99_ms: float
+    hard_stop_queue_wait_ms: float
     maximum_temperature_celsius: float
     maximum_power_watts: float
     maximum_api_process_tree_rss_bytes: int
@@ -164,6 +166,8 @@ class S4RuntimeConfig:
             maximum_error_rate=float(guardrails["maximum_error_rate"]),
             maximum_p99_ms=float(guardrails["maximum_p99_ms"]),
             maximum_queue_wait_ms=float(guardrails["maximum_queue_wait_ms"]),
+            hard_stop_p99_ms=float(guardrails["hard_stop_p99_ms"]),
+            hard_stop_queue_wait_ms=float(guardrails["hard_stop_queue_wait_ms"]),
             maximum_temperature_celsius=float(guardrails["maximum_temperature_celsius"]),
             maximum_power_watts=float(guardrails["maximum_power_watts"]),
             maximum_api_process_tree_rss_bytes=int(
@@ -233,6 +237,13 @@ class S4RuntimeConfig:
             raise S4RuntimeError("s4_outstanding_capacity_invalid")
         if self.max_outstanding_bytes < self.max_request_bytes:
             raise S4RuntimeError("s4_outstanding_bytes_invalid")
+        if not (
+            self.hard_stop_p99_ms > self.maximum_p99_ms
+            and self.hard_stop_queue_wait_ms > self.maximum_queue_wait_ms
+            and self.hard_stop_p99_ms < self.request_timeout_seconds * 1000
+            and self.hard_stop_queue_wait_ms < self.request_timeout_seconds * 1000
+        ):
+            raise S4RuntimeError("s4_latency_guardrail_layers_invalid")
         for required in (
             self.s3_registry_path,
             self.train_features_path,
@@ -286,6 +297,8 @@ class S4RuntimeConfig:
                 "maximum_error_rate": self.maximum_error_rate,
                 "maximum_p99_ms": self.maximum_p99_ms,
                 "maximum_queue_wait_ms": self.maximum_queue_wait_ms,
+                "hard_stop_p99_ms": self.hard_stop_p99_ms,
+                "hard_stop_queue_wait_ms": self.hard_stop_queue_wait_ms,
                 "maximum_temperature_celsius": self.maximum_temperature_celsius,
                 "maximum_power_watts": self.maximum_power_watts,
                 "require_zero_oom": self.require_zero_oom,

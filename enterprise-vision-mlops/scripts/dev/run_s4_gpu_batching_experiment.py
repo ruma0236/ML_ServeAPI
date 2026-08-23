@@ -816,12 +816,19 @@ def summarize_point(
         "terminal_gauges": drain,
         "trace": trace,
     }
+    result["operating_guardrail_passed"] = bool(
+        result["p99_ms"] <= config.maximum_p99_ms
+        and result["queue_wait_p99_ms"] <= config.maximum_queue_wait_ms
+    )
+    result["hard_stop_guardrail_passed"] = bool(
+        result["p99_ms"] <= config.hard_stop_p99_ms
+        and result["queue_wait_p99_ms"] <= config.hard_stop_queue_wait_ms
+    )
     result["evidence_valid"] = bool(
         request_count > 0
         and successes > 0
         and result["error_rate"] <= config.maximum_error_rate
-        and result["p99_ms"] <= config.maximum_p99_ms
-        and result["queue_wait_p99_ms"] <= config.maximum_queue_wait_ms
+        and result["hard_stop_guardrail_passed"]
         and result["temperature_celsius_max"] <= config.maximum_temperature_celsius
         and result["power_watts_max"] <= config.maximum_power_watts
         and result["oom_count"] == 0
