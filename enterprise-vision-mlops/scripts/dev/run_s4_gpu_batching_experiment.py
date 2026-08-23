@@ -143,7 +143,11 @@ def main() -> int:
     if active_lease is not None and active_lease.state == "active":
         raise S4RuntimeError(f"s4_gpu_lease_already_active:{active_lease.run_id}")
     serving_before = serving_readiness()
-    if serving_before.get("device") != "cuda" or serving_before.get("ready") is not True:
+    if (
+        serving_before.get("device") != "cuda"
+        or serving_before.get("status") != "ok"
+        or serving_before.get("model_loaded") is not True
+    ):
         raise S4RuntimeError("s4_known_good_serving_preflight_failed")
     network = docker_network()
     image = f"enterprise-vision-mlops-gpu-batching:{revision[:12]}"
@@ -366,7 +370,9 @@ def main() -> int:
             cleanup["holder_ready"] = restored.available == holder.replicas
             ready = serving_readiness(timeout=30)
             cleanup["serving_cuda_ready"] = (
-                ready.get("ready") is True and ready.get("device") == "cuda"
+                ready.get("status") == "ok"
+                and ready.get("model_loaded") is True
+                and ready.get("device") == "cuda"
             )
         except Exception as exc:
             cleanup["holder_restore_error"] = f"{type(exc).__name__}:{exc}"
@@ -1181,7 +1187,22 @@ def assert_holder_pods(
 
 
 def serving_readiness(timeout: float = 10) -> dict[str, Any]:
-    response = requests.get("http://127.0.0.1:31020/ready", timeout=timeout)
+    service = kubectl_json(
+        [
+            "kubectl",
+            "-n",
+            "evm-production",
+            "get",
+            "service/evm-b0-production",
+            "-o",
+            "json",
+        ]
+    )
+    ports = service.get("spec", {}).get("ports", [])
+    node_ports = [int(item["nodePort"]) for item in ports if item.get("nodePort")]
+    if len(node_ports) != 1:
+        raise S4RuntimeError(f"s4_holder_node_port_ambiguous:{len(node_ports)}")
+    response = requests.get(f"http://127.0.0.1:{node_ports[0]}/ready", timeout=timeout)
     response.raise_for_status()
     return response.json()
 
