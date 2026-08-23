@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T12:41:26.869521Z",
+  "generated_at": "2026-08-23T13:03:56.294024Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2785,6 +2785,12 @@
           "sha256": "051402f28cf7f30cab1ab784f0df5424984e21e67a47fc02a75a61b1ec493ee6",
           "generated_at": "2026-08-23T12:41:26.869521Z",
           "claim": "The first clean-revision matrix stopped fail-closed at retry replay because its immutable generated-I/O identity differed; 27 retained measurements grant no acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s5-spark-data-scale-attempt-02.json",
+          "sha256": "2c3c7c909b526148d81f08a7637f8993039e7ad17bc6decad0d2ad3f15357601",
+          "generated_at": "2026-08-23T13:03:56.294024Z",
+          "claim": "A 30-point runtime pass was rejected for closure because its original public projection omitted the executor-loss and replay fields needed for independent S5-AC-03 recomputation."
         }
       ],
       "status": "implementing",
@@ -2795,7 +2801,7 @@
         "Retry preserves row count and output digest.",
         "Generated load volume is not represented as new semantic diversity."
       ],
-      "next_action": "Commit the retry replay identity remediation, then restart the complete clean-revision matrix; no retained point from attempt 01 earns acceptance credit.",
+      "next_action": "Restart the complete matrix at the strict-validator revision and require public/private result projection equality; neither retained attempt earns acceptance credit.",
       "architecture_before": "Data processing is reproducible at local scale but remains mostly process-local.",
       "architecture_after": "Spark executors process governed partitions with bounded memory and deterministic commits.",
       "existing_system_baseline": "The existing Airflow data path uses deterministic Python and columnar processing, but distributed executor, shuffle, spill, skew, and retry behavior are not implemented or evidenced.",
@@ -2909,6 +2915,12 @@
           "sha256": "051402f28cf7f30cab1ab784f0df5424984e21e67a47fc02a75a61b1ec493ee6",
           "generated_at": "2026-08-23T12:41:26.869521Z",
           "claim": "The first clean-revision matrix stopped fail-closed at retry replay because its immutable generated-I/O identity differed; 27 retained measurements grant no acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s5-spark-data-scale-attempt-02.json",
+          "sha256": "2c3c7c909b526148d81f08a7637f8993039e7ad17bc6decad0d2ad3f15357601",
+          "generated_at": "2026-08-23T13:03:56.294024Z",
+          "claim": "A 30-point runtime pass was rejected for closure because its original public projection omitted the executor-loss and replay fields needed for independent S5-AC-03 recomputation."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2940,6 +2952,15 @@
           "summary": "Attempt 01 stopped fail-closed after the executor-loss commit because replay derived repeat_factor=1 instead of the immutable generated-I/O repeat_factor=4; the failed evidence and cleanup were preserved and no acceptance credit was granted.",
           "evidence_refs": [
             "docs/status/evidence/s5-spark-data-scale-attempt-01.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T13:03:56.294024Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "Attempt 02 completed all 30 runtime points but was rejected for closure because its original public projection could not independently recompute executor-loss replay acceptance; strict public/private validation was added before a fresh run.",
+          "evidence_refs": [
+            "docs/status/evidence/s5-spark-data-scale-attempt-02.json"
           ]
         }
       ]

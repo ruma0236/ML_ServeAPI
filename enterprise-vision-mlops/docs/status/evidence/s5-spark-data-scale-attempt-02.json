@@ -1,0 +1,40 @@
+{
+  "acceptance_credit": false,
+  "attempt_id": "S5-ATTEMPT-02",
+  "claim_boundary": "Local single-node Spark evidence-contract RCA only; no production SLA, physical multi-node, full-terabyte, or customer-traffic claim.",
+  "cleanup": {
+    "pvc_phase": "Bound",
+    "s5_driver_jobs_remaining": 0,
+    "s5_executor_pods_remaining": 0,
+    "source_dataset_unchanged": true
+  },
+  "corrective_action": [
+    "Publish executor-loss, replacement, retry row/digest, and replay commit fields needed to recompute S5-AC-03.",
+    "Bind runtime config and source modules to the declared Git revision by blob OID and Git-byte SHA-256.",
+    "Add an independent validator that recomputes the exact 30-point matrix and all four acceptance criteria from public results, then rehashes the private inventory and result projection.",
+    "Restart the complete matrix at the validator implementation revision; this retained run grants no acceptance credit."
+  ],
+  "generated_at": "2026-08-23T13:03:56.294024Z",
+  "next_action": "Run the complete matrix at the strict-validator revision and require public/private projection equality before closure.",
+  "observed_run": {
+    "accepted_point_count": 30,
+    "executor_loss_repetitions": 3,
+    "missing_records": 0,
+    "duplicate_records": 0,
+    "runtime_analysis_status": "passed",
+    "strict_public_recomputation": "not_possible_from_original_projection"
+  },
+  "private_evidence": {
+    "indexed_artifact_count": 57,
+    "indexed_total_bytes": 88244,
+    "index_sha256": "a1d95f05399dd10d159fa0254b8e177ae771c6b3cf96b91bf31d82bdb953aa14"
+  },
+  "root_cause": "The successful runtime retained executor-loss and replay fields in private result records, but the public projection omitted them. Its copied analysis.passed value therefore could not be independently derived from public evidence and was rejected as a closure artifact.",
+  "schema_version": "evm.s5_spark_data_scale_failed_attempt.v1",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "runtime_revision": "7b9e568c2fd440c15838616bbaf19238d6c08270",
+    "validator_revision": "f1c02a783c015e7d7b7d5508d91d6c32a263df72"
+  },
+  "status": "stopped_fail_closed"
+}
