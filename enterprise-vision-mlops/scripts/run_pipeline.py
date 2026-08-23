@@ -19,6 +19,7 @@ PIPELINE_MODULES = {
     "curation-workflow": "evm.pipelines.curation_workflow.run",
     "lakehouse-probe": "evm.pipelines.lakehouse_probe.run",
     "spark-runtime-probe": "evm.pipelines.spark_runtime_probe.run",
+    "spark-data-scale": "evm.pipelines.spark_data_scale.run",
     "vlm-contract": "evm.pipelines.vlm_contract.run",
     "vlm-batch-eval": "evm.pipelines.vlm_batch_eval.run",
     "vlm-reliability": "evm.pipelines.vlm_reliability.run",

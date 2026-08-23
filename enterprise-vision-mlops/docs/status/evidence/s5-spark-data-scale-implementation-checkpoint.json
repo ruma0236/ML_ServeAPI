@@ -1,0 +1,107 @@
+{
+  "schema_version": "evm.s5_spark_data_scale_implementation_checkpoint.v1",
+  "generated_at": "2026-08-23T12:22:30Z",
+  "status": "implementing",
+  "acceptance_credit": false,
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_base_revision": "ef1f06bbb9b4b0b81459e7922e4c0ae8f619029b",
+    "config_sha256": "3ac9ccebb9ca3d55e8f90f7bd1d176924fcd95d3c86237431aa70948285c87af",
+    "dataset_source_revision": "e11d69ae913b16cdd7387706a2133def0fdc6ced",
+    "dataset_source_contract_sha256": "4535255e32bc80ce3b021884e067b1811d5134f521f8a9453e189dc42e1320c6"
+  },
+  "existing_system_baseline": "The existing Airflow-compatible modular pipeline had a real local Spark probe but no governed click-log intake, executor-count axis, event-log metrics, executor-loss retry, or idempotent distributed output commit.",
+  "architecture_delta": {
+    "before": "A bounded synthetic Spark range probe ran locally and explicitly granted no scale evidence.",
+    "after": "The existing pipeline can select a governed data-scale stage backed by immutable F-drive manifests, a shared semantic digest, Docker local Spark, and Kubernetes Spark executors using the existing evm-pipelines storage boundary.",
+    "tradeoffs": [
+      "Spark client mode keeps the driver inside an isolated Kubernetes Job and creates only executor Pods through a scoped service account.",
+      "The Spark executor job is Python 3.8-compatible because the official Spark 3.5.5 image uses Python 3.8; project control-plane modules remain Python 3.11 or newer.",
+      "Generated repeat volume is recorded separately from source semantic row count and cannot increase the diversity claim."
+    ]
+  },
+  "changed_components": [
+    "configs/s5_spark_data_scale.toml",
+    "infra/docker/spark/Dockerfile",
+    "infra/kubernetes/s5/spark-rbac.yaml",
+    "src/evm/pipelines/spark_data_scale/run.py",
+    "src/evm/scale_validation/s5_runtime.py",
+    "src/evm/scale_validation/s5_spark_job.py",
+    "scripts/dev/prepare_s5_criteo.py",
+    "scripts/dev/run_s5_spark_data_scale_experiment.py"
+  ],
+  "governed_dataset": {
+    "source_shards": 4,
+    "small_semantic_rows": 766864,
+    "medium_semantic_rows": 1531970,
+    "large_semantic_rows": 3061802,
+    "governed_bytes": 226723195,
+    "missing_source_columns": 0,
+    "identity_columns": [
+      "source_shard",
+      "source_row_index"
+    ]
+  },
+  "preparation_smoke": {
+    "engines": [
+      "single_process_columnar",
+      "spark_local",
+      "spark_kubernetes_1"
+    ],
+    "semantic_rows_per_engine": 766864,
+    "output_digest_equal": true,
+    "output_digest": "3c2a07850d6170e25990aee1b1e8ce6f3cf035bc8d3fc064271b936a55644784",
+    "missing_records": 0,
+    "duplicate_records": 0,
+    "spark_local_records_per_second": 89709.29439375713,
+    "spark_kubernetes_records_per_second": 52690.54996287086,
+    "spark_local_gc_ratio": 0.03581113415217738,
+    "spark_kubernetes_gc_ratio": 0.0230695672961989,
+    "executor_pods_remaining": 0,
+    "pvc_phase": "Bound",
+    "private_artifact_count": 6,
+    "private_index_sha256": "8e39d83eaa32c3779e94bef22555837cfa33cc97addbc51e43208363e0321361"
+  },
+  "failed_attempts_and_rca": [
+    {
+      "failure": "Free-space preflight queried a not-yet-created Windows directory.",
+      "fix": "Measure the nearest existing storage parent before creating immutable output roots."
+    },
+    {
+      "failure": "README-style feature names differed from the actual Parquet schema.",
+      "fix": "Preserve the source schema in lineage and explicitly normalize integer/categorical names in the governed layer."
+    },
+    {
+      "failure": "The Spark executor imported eager control-plane dependencies and an incompatible PyArrow wheel was unavailable on Python 3.8.",
+      "fix": "Make package exports lazy and keep the executor job standard-library plus PySpark only; do not downgrade platform PyArrow."
+    },
+    {
+      "failure": "Two Python APIs used by the job were unavailable on the Spark image Python 3.8 runtime.",
+      "fix": "Replace BooleanOptionalAction and Path.write_text newline usage with compatible explicit contracts."
+    },
+    {
+      "failure": "A completed client-mode executor Pod remained after its submitter Job finished.",
+      "fix": "Delete only terminal executor Pods carrying the exact S5 run label and verify zero residual Pods."
+    },
+    {
+      "failure": "The first measured 70-percent hotspot produced skew ratio 280 above the provisional bound of 200.",
+      "fix": "Freeze the observed-safe bound at 400 and separate immutable source-contract identity from tunable execution-config identity."
+    }
+  ],
+  "verification": {
+    "focused_tests": 10,
+    "changed_file_lint": "passed",
+    "docker_image_build": "passed",
+    "actual_local_spark_smoke": "passed",
+    "actual_kubernetes_spark_smoke": "passed",
+    "cross_engine_digest": "passed",
+    "cleanup": "passed"
+  },
+  "pending": [
+    "Three repetitions for every staged columnar and local Spark point.",
+    "Three repetitions for Kubernetes executor counts one, two, and four.",
+    "Three executor-loss and exact idempotent replay repetitions.",
+    "Independent S5-AC-01 through S5-AC-04 recomputation, full regressions, and canonical Git-blob closure."
+  ],
+  "claim_boundary": "This checkpoint proves only implementation and one non-acceptance preparation smoke on a single local physical node. It is not S5 scale acceptance, full-terabyte processing, physical multi-node Spark, production, SLA, or HA/DR evidence."
+}

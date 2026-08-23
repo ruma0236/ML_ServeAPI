@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T10:20:55.921057Z",
+  "generated_at": "2026-08-23T12:22:30Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2702,11 +2702,45 @@
         "Tune executor memory, partitions, shuffle, and adaptive execution under explicit bounds.",
         "Inject skew and one executor loss, then verify idempotent output commit and digest closure."
       ],
-      "changed_components": [],
-      "implementation_summary": [
-        "Implementation has not started."
+      "changed_components": [
+        {
+          "component": "Existing modular data-pipeline selection",
+          "files": [
+            "scripts/run_pipeline.py",
+            "scripts/run_profile_pipeline.py",
+            "src/evm/pipelines/spark_data_scale/run.py"
+          ]
+        },
+        {
+          "component": "Governed S5 data and execution contracts",
+          "files": [
+            "configs/s5_spark_data_scale.toml",
+            "src/evm/scale_validation/s5_runtime.py",
+            "src/evm/scale_validation/s5_spark_job.py"
+          ]
+        },
+        {
+          "component": "Existing local Kubernetes storage and executor boundary",
+          "files": [
+            "infra/docker/spark/Dockerfile",
+            "infra/kubernetes/s5/spark-rbac.yaml"
+          ]
+        },
+        {
+          "component": "Versioned preparation and experiment tooling",
+          "files": [
+            "scripts/dev/prepare_s5_criteo.py",
+            "scripts/dev/run_s5_spark_data_scale_experiment.py"
+          ]
+        }
       ],
-      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "implementation_summary": [
+        "Added governed Criteo intake with immutable source and stage manifests on the F-drive data boundary.",
+        "Added one shared semantic fingerprint and idempotent output-commit contract for single-process, Docker local Spark, and Kubernetes Spark execution.",
+        "Added scoped Spark RBAC, executor-count configuration, event-log telemetry, exact executor-loss injection, and run-scoped cleanup.",
+        "Registered spark-data-scale as an allow-listed existing pipeline stage without adding it to the daily heavy path."
+      ],
+      "experiment_environment": "Preparation smoke exercised one local physical node with Docker Desktop Kubernetes, official Spark 3.5.5, an F-drive PVC, one local Spark executor, and one Kubernetes executor. This checkpoint grants no S5 acceptance credit.",
       "test_or_experiment_steps": [
         "Verify semantic and schema correctness on the smallest governed subset.",
         "Advance through staged corpus sizes only after memory and integrity gates pass.",
@@ -2739,8 +2773,15 @@
         }
       ],
       "observed_result": null,
-      "evidence_artifacts": [],
-      "status": "planned",
+      "evidence_artifacts": [
+        {
+          "path": "docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json",
+          "sha256": "853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e",
+          "generated_at": "2026-08-23T12:22:30Z",
+          "claim": "Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure."
+        }
+      ],
+      "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
       "unresolved_items": [
         "Records per second, storage rate, peak executor memory, GC, shuffle, spill, and skew are reported.",
@@ -2748,7 +2789,7 @@
         "Retry preserves row count and output digest.",
         "Generated load volume is not represented as new semantic diversity."
       ],
-      "next_action": "Begin after S1 and S2 protect ownership, retry, and output idempotency.",
+      "next_action": "Commit the implementation checkpoint, then run the clean-revision staged columnar/local/Kubernetes 1/2/4 matrix and three executor-loss/idempotent replay repetitions.",
       "architecture_before": "Data processing is reproducible at local scale but remains mostly process-local.",
       "architecture_after": "Spark executors process governed partitions with bounded memory and deterministic commits.",
       "existing_system_baseline": "The existing Airflow data path uses deterministic Python and columnar processing, but distributed executor, shuffle, spill, skew, and retry behavior are not implemented or evidenced.",
@@ -2780,7 +2821,38 @@
         ]
       },
       "implementation_delta": {
-        "modified_existing_components": [],
+        "modified_existing_components": [
+          {
+            "component": "Existing modular data-pipeline selection",
+            "files": [
+              "scripts/run_pipeline.py",
+              "scripts/run_profile_pipeline.py",
+              "src/evm/pipelines/spark_data_scale/run.py"
+            ]
+          },
+          {
+            "component": "Governed S5 data and execution contracts",
+            "files": [
+              "configs/s5_spark_data_scale.toml",
+              "src/evm/scale_validation/s5_runtime.py",
+              "src/evm/scale_validation/s5_spark_job.py"
+            ]
+          },
+          {
+            "component": "Existing local Kubernetes storage and executor boundary",
+            "files": [
+              "infra/docker/spark/Dockerfile",
+              "infra/kubernetes/s5/spark-rbac.yaml"
+            ]
+          },
+          {
+            "component": "Versioned preparation and experiment tooling",
+            "files": [
+              "scripts/dev/prepare_s5_criteo.py",
+              "scripts/dev/run_s5_spark_data_scale_experiment.py"
+            ]
+          }
+        ],
         "compatibility": [
           "Existing manifests, lineage digests, and Airflow handoff remain authoritative inputs and outputs."
         ],
@@ -2819,7 +2891,14 @@
         "existing_system_regression_required": true,
         "lifecycle_e2e_regression_required": true
       },
-      "evidence_index": [],
+      "evidence_index": [
+        {
+          "path": "docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json",
+          "sha256": "853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e",
+          "generated_at": "2026-08-23T12:22:30Z",
+          "claim": "Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure."
+        }
+      ],
       "verdict_and_claim_boundary": {
         "verdict": "not_run",
         "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
@@ -2832,6 +2911,15 @@
           "status": "planned",
           "summary": "The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.",
           "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-23T12:22:30Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "Governed 3,061,802-row source stages and a 766,864-row cross-engine preparation smoke passed with equal digest and exact cleanup; full S5 acceptance remains pending.",
+          "evidence_refs": [
+            "docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json"
+          ]
         }
       ]
     },

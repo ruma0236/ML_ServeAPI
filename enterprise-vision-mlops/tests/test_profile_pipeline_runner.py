@@ -49,3 +49,4 @@ def test_lifecycle_airflow_scope_skips_model_stages_only(tmp_path: Path) -> None
     assert should_skip_pipeline(config, "vlm-batch-eval") is True
     assert should_skip_pipeline(config, "image-quality") is False
     assert should_skip_pipeline(config, "spark-runtime-probe") is False
+    assert should_skip_pipeline(config, "spark-data-scale") is False

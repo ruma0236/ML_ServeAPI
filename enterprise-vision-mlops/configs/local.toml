@@ -167,6 +167,11 @@ probe_report = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lakeho
 tradeoff_matrix = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lakehouse/engine_tradeoff_matrix.json"
 recommendation_doc = "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/lakehouse/lakehouse_recommendation.md"
 
+[pipelines.spark-data-scale]
+runtime_config = "configs/s5_spark_data_scale.toml"
+stage = "small"
+repetition = 1
+
 [pipelines.vlm_contract]
 domain_pack = "domain_packs/manufacturing_visual_inspection/domain_pack.toml"
 adapter_backend = "mock"

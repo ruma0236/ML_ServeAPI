@@ -1,0 +1,77 @@
+schema_version = "evm.s5_spark_data_scale.v1"
+dataset_version = "criteo-click-logs-s5-v1"
+seed = 20260823
+
+[source]
+dataset_id = "criteo/CriteoClickLogs"
+revision = "e11d69ae913b16cdd7387706a2133def0fdc6ced"
+license = "CC-BY-NC-SA-4.0"
+source_page = "https://ailab.criteo.com/download-criteo-1tb-click-logs-dataset/"
+repository = "https://huggingface.co/datasets/criteo/CriteoClickLogs"
+raw_relative_root = "datasets/criteo-click-logs/s5/raw"
+governed_relative_root = "datasets/criteo-click-logs/s5/governed"
+manifest_relative_path = "datasets/criteo-click-logs/s5/governed/dataset-manifest.json"
+batch_rows = 65536
+
+[[source.files]]
+path = "data/day=2015-02-15/part-00079-99c339d5-fbac-4110-9dcf-75453a61a5c1.c000.snappy.parquet"
+expected_bytes = 47872279
+
+[[source.files]]
+path = "data/day=2015-02-15/part-00104-99c339d5-fbac-4110-9dcf-75453a61a5c1.c000.snappy.parquet"
+expected_bytes = 47718593
+
+[[source.files]]
+path = "data/day=2015-02-15/part-00115-99c339d5-fbac-4110-9dcf-75453a61a5c1.c000.snappy.parquet"
+expected_bytes = 47695926
+
+[[source.files]]
+path = "data/day=2015-02-15/part-00119-99c339d5-fbac-4110-9dcf-75453a61a5c1.c000.snappy.parquet"
+expected_bytes = 47798713
+
+[stages.small]
+shard_count = 1
+
+[stages.medium]
+shard_count = 2
+
+[stages.large]
+shard_count = 4
+
+[execution]
+repetitions = 3
+single_process_batch_rows = 65536
+local_threads = 4
+executor_counts = [1, 2, 4]
+executor_cores = 1
+executor_memory = "768m"
+executor_memory_overhead = "384m"
+driver_memory = "1024m"
+shuffle_partitions = 64
+output_partitions = 32
+adaptive_enabled = true
+skew_fraction_percent = 70
+retry_generated_io_factor = 4
+retry_partition_hold_ms = 1500
+spark_image_repository = "enterprise-vision-mlops-spark"
+namespace = "evm-pipelines"
+service_account = "evm-spark"
+pvc_name = "evm-large-data"
+
+[guardrails]
+minimum_free_disk_bytes = 107374182400
+maximum_run_seconds = 900
+maximum_executor_peak_memory_bytes = 1342177280
+maximum_gc_ratio = 0.50
+maximum_skew_ratio = 400.0
+require_zero_missing = true
+require_zero_duplicates = true
+require_zero_uncommitted_outputs = true
+
+[paths]
+private_relative_root = "artifacts/scale_validation/private/s5"
+spark_event_log_relative_root = "artifacts/scale_validation/private/s5-event-logs"
+output_relative_root = "artifacts/scale_validation/private/s5-outputs"
+
+[claim]
+boundary = "Measured Criteo click-log columnar and Spark executor behavior on one local physical node. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, full-terabyte processing, or new semantic-diversity claim."

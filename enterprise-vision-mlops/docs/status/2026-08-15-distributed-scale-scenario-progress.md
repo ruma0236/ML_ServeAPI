@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T10:20:55.921057Z`
+- Generated: `2026-08-23T12:22:30Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -481,7 +481,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 
-- Status: `planned`
+- Status: `implementing`
 - Engineering question: Can larger partitioned data remain memory-bounded, deterministic, and restartable?
 - Why now: Single-process data preparation does not demonstrate executor or shuffle behavior.
 - Observed gap: Partition sizing, spill, skew, retry, and idempotent distributed commits are unproven.
@@ -490,7 +490,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Spark executors process governed partitions with bounded memory and deterministic commits.
 - Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Begin after S1 and S2 protect ownership, retry, and output idempotency.
+- Next action: Commit the implementation checkpoint, then run the clean-revision staged columnar/local/Kubernetes 1/2/4 matrix and three executor-loss/idempotent replay repetitions.
 
 ### Affected Existing Components
 
@@ -513,7 +513,10 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Implementation Delta
 
-- No existing-system code change has started.
+- Existing modular data-pipeline selection: `scripts/run_pipeline.py`, `scripts/run_profile_pipeline.py`, `src/evm/pipelines/spark_data_scale/run.py`
+- Governed S5 data and execution contracts: `configs/s5_spark_data_scale.toml`, `src/evm/scale_validation/s5_runtime.py`, `src/evm/scale_validation/s5_spark_job.py`
+- Existing local Kubernetes storage and executor boundary: `infra/docker/spark/Dockerfile`, `infra/kubernetes/s5/spark-rbac.yaml`
+- Versioned preparation and experiment tooling: `scripts/dev/prepare_s5_criteo.py`, `scripts/dev/run_s5_spark_data_scale_experiment.py`
 - Compatibility: Existing manifests, lineage digests, and Airflow handoff remain authoritative inputs and outputs.
 - Migration: Run single-process and Spark paths in parallel for digest comparison before making Spark selectable in profiles.
 
@@ -535,11 +538,12 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Current Evidence
 
-- No accepted execution evidence yet.
+- `docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json` (`853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e`): Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure.
 
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
+- `2026-08-23T12:22:30Z` `implementation` / `implementing`: Governed 3,061,802-row source stages and a 766,864-row cross-engine preparation smoke passed with equal digest and exact cleanup; full S5 acceptance remains pending.
 
 ## S6: API Rolling Continuity & GPU Controlled Handoff
 
