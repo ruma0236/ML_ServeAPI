@@ -7,4 +7,5 @@ contracts/distributed-scale/*.json text eol=lf
 configs/s2_*.toml text eol=lf
 configs/s3_*.toml text eol=lf
 configs/s5_*.toml text eol=lf
+configs/s6_*.toml text eol=lf
 infra/postgres/control-plane/*.sql text eol=lf

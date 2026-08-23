@@ -16,6 +16,10 @@ processing_delay_ms = 100
 request_timeout_seconds = 3.0
 maximum_attempts_per_logical_request = 3
 retry_backoff_seconds = 0.1
+rollout_offset_seconds = 5.0
+runtime_poll_interval_seconds = 0.25
+trace_sample_every = 25
+trace_flush_timeout_seconds = 30.0
 
 [rolling]
 max_unavailable = 0
@@ -37,6 +41,14 @@ readiness_timeout_seconds = 300.0
 request_timeout_seconds = 10.0
 cooldown_seconds = 5.0
 maximum_interruption_seconds = 300.0
+runtime_poll_interval_seconds = 0.25
+calibration_inference_requests = 30
+acceptance_inference_requests = 30
+sample_image_uri = "/mnt/evm-data/data/raw/industrial/visa/candle/Data/Images/Anomaly/000.JPG"
+candidate_readiness_relative_path = "artifacts/w7/lifecycle_runs/lifecycle-20260805T104249-7d184e13/readiness.json"
+candidate_summary_relative_path = "artifacts/w7/lifecycle_runs/lifecycle-20260805T104249-7d184e13/model/lifecycle-20260805T104249-7d184e13/efficientnet-b0-profile-standard-b0-manual-tuning-v11/candidate_summary.json"
+candidate_release_submission_relative_path = "artifacts/w7/lifecycle_runs/lifecycle-20260805T104249-7d184e13/validation/release-submission.json"
+candidate_model_relative_path = "artifacts/w7/lifecycle_runs/lifecycle-20260805T104249-7d184e13/model/lifecycle-20260805T104249-7d184e13/efficientnet-b0-profile-standard-b0-manual-tuning-v11/model.pt"
 
 [guardrails]
 accepted_loss = 0

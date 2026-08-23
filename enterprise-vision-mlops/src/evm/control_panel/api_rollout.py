@@ -7,7 +7,8 @@ import threading
 import time
 import urllib.request
 from dataclasses import asdict, dataclass
-from typing import Final
+from datetime import UTC, datetime
+from typing import Any, Awaitable, Callable, Final
 
 from prometheus_client import Counter, Gauge, Histogram
 
@@ -24,6 +25,14 @@ API_DRAIN_SECONDS = Histogram(
     "evm_api_runtime_drain_seconds",
     "Seconds required for an API replica to drain accepted in-flight requests.",
     buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30),
+)
+API_REQUESTS_IN_FLIGHT = Gauge(
+    "evm_http_server_in_flight",
+    "HTTP response bodies not yet fully sent by this API process.",
+)
+API_REQUESTS_PEAK_IN_FLIGHT = Gauge(
+    "evm_http_server_peak_in_flight",
+    "Highest HTTP in-flight response count observed by this API process.",
 )
 
 _EXEMPT_PATHS: Final[frozenset[str]] = frozenset(
@@ -48,6 +57,7 @@ class ApiDrainSnapshot:
     in_flight: int
     peak_in_flight: int
     reason: str | None
+    started_at: str | None
     started_at_monotonic: float | None
     release_id: str
     instance_id: str
@@ -68,6 +78,7 @@ class ApiDrainController:
         self._in_flight = 0
         self._peak_in_flight = 0
         self._reason: str | None = None
+        self._started_at: str | None = None
         self._started_at_monotonic: float | None = None
 
     def enter(self, path: str) -> bool:
@@ -94,6 +105,7 @@ class ApiDrainController:
             if not self._draining:
                 self._draining = True
                 self._reason = normalized
+                self._started_at = datetime.now(UTC).isoformat()
                 self._started_at_monotonic = time.monotonic()
                 API_DRAINING.set(1)
             return self.snapshot_locked()
@@ -129,6 +141,7 @@ class ApiDrainController:
             in_flight=self._in_flight,
             peak_in_flight=self._peak_in_flight,
             reason=self._reason,
+            started_at=self._started_at,
             started_at_monotonic=self._started_at_monotonic,
             release_id=os.getenv("EVM_API_RELEASE_ID", "unknown"),
             instance_id=(
@@ -150,11 +163,78 @@ class ApiDrainController:
             self._in_flight = 0
             self._peak_in_flight = 0
             self._reason = None
+            self._started_at = None
             self._started_at_monotonic = None
             API_DRAINING.set(0)
 
 
 API_DRAIN_CONTROLLER = ApiDrainController()
+
+
+class ApiDrainMiddleware:
+    """Track accepted requests until the final response body reaches ASGI send."""
+
+    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: dict[str, Any],
+        receive: Callable[[], Awaitable[dict[str, Any]]],
+        send: Callable[[dict[str, Any]], Awaitable[None]],
+    ) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        path = str(scope.get("path") or "")
+        try:
+            counted = API_DRAIN_CONTROLLER.enter(path)
+        except ApiDrainingError:
+            API_REQUESTS_IN_FLIGHT.set(API_DRAIN_CONTROLLER.snapshot().in_flight)
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 503,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"retry-after", b"1"),
+                        (b"connection", b"close"),
+                    ],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b'{"detail":"api_replica_draining"}',
+                    "more_body": False,
+                }
+            )
+            return
+        snapshot = API_DRAIN_CONTROLLER.snapshot()
+        API_REQUESTS_IN_FLIGHT.set(snapshot.in_flight)
+        API_REQUESTS_PEAK_IN_FLIGHT.set(snapshot.peak_in_flight)
+        released = False
+
+        def release() -> None:
+            nonlocal released
+            if released:
+                return
+            released = True
+            API_DRAIN_CONTROLLER.exit(counted)
+            API_REQUESTS_IN_FLIGHT.set(API_DRAIN_CONTROLLER.snapshot().in_flight)
+
+        async def send_tracked(message: dict[str, Any]) -> None:
+            await send(message)
+            if (
+                message.get("type") == "http.response.body"
+                and not message.get("more_body", False)
+            ):
+                release()
+
+        try:
+            await self.app(scope, receive, send_tracked)
+        finally:
+            release()
 
 
 def request_local_drain(url: str, timeout_seconds: float) -> int:

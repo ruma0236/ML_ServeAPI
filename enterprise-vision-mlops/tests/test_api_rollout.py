@@ -5,10 +5,15 @@ import threading
 import time
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from apps.api import control_panel_runtime
-from evm.control_panel.api_rollout import ApiDrainController, ApiDrainingError
+from evm.control_panel.api_rollout import (
+    API_DRAIN_CONTROLLER,
+    ApiDrainController,
+    ApiDrainMiddleware,
+    ApiDrainingError,
+)
 
 
 class FakeStore:
@@ -51,7 +56,87 @@ def test_drain_controller_rejects_new_work_and_waits_for_accepted_work() -> None
 
     assert snapshot.state == "drained"
     assert snapshot.in_flight == 0
+    assert snapshot.started_at is not None
     assert elapsed >= 0.01
+
+
+def test_drain_event_is_persisted_with_exact_runtime_identity(monkeypatch) -> None:
+    store = FakeStore()
+    monkeypatch.setattr(control_panel_runtime, "get_transactional_store", lambda: store)
+    monkeypatch.setattr(control_panel_runtime, "API_DRAIN_CONTROLLER", ApiDrainController())
+    monkeypatch.setenv("EVM_API_RELEASE_ID", "release-a")
+    monkeypatch.setenv("EVM_POD_UID", "pod-a")
+    monkeypatch.setenv("EVM_IMAGE_SOURCE_REVISION", "a" * 40)
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/control-panel/v1/runtime/drain",
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+            "server": ("127.0.0.1", 8000),
+            "scheme": "http",
+            "query_string": b"",
+        }
+    )
+
+    result = asyncio.run(
+        control_panel_runtime.drain_runtime(
+            control_panel_runtime.ApiDrainRequest(
+                reason="unit-test-drain",
+                timeout_seconds=1.0,
+            ),
+            request,
+        )
+    )
+
+    assert result["schema_version"] == "evm.api_drain_event.v1"
+    assert result["instance_id"] == "pod-a"
+    assert result["release_id"] == "release-a"
+    assert result["drain_completed"] is True
+    assert store.payloads["pod-a:release-a"]["state"] == "drained"
+
+
+def test_asgi_drain_middleware_holds_in_flight_until_final_body_send() -> None:
+    API_DRAIN_CONTROLLER.reset_for_test()
+    body_started = asyncio.Event()
+    body_release = asyncio.Event()
+    sent: list[dict[str, object]] = []
+
+    async def app(_scope, _receive, send) -> None:
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"first", "more_body": True})
+        body_started.set()
+        await body_release.wait()
+        await send({"type": "http.response.body", "body": b"last", "more_body": False})
+
+    async def exercise() -> None:
+        middleware = ApiDrainMiddleware(app)
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        task = asyncio.create_task(
+            middleware(
+                {"type": "http", "path": "/work"},
+                receive,
+                send,
+            )
+        )
+        await body_started.wait()
+        assert API_DRAIN_CONTROLLER.snapshot().in_flight == 1
+        API_DRAIN_CONTROLLER.begin_drain("unit-stream")
+        body_release.set()
+        await task
+
+    asyncio.run(exercise())
+
+    assert API_DRAIN_CONTROLLER.snapshot().in_flight == 0
+    assert sent[-1]["more_body"] is False
+    API_DRAIN_CONTROLLER.reset_for_test()
 
 
 def test_rollout_probe_is_idempotent_across_runtime_replay(monkeypatch) -> None:

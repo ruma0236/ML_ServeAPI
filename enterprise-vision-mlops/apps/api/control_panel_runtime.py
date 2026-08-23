@@ -74,10 +74,37 @@ async def drain_runtime(
         API_DRAIN_CONTROLLER.wait_until_drained,
         payload.timeout_seconds,
     )
-    return snapshot.public_dict() | {
+    if snapshot.instance_id == "unknown" or snapshot.source_revision == "unknown":
+        raise HTTPException(status_code=503, detail="drain_runtime_identity_unavailable")
+    completed_at = datetime.now(UTC).isoformat()
+    request_payload = {
+        "instance_id": snapshot.instance_id,
+        "release_id": snapshot.release_id,
+        "source_revision": snapshot.source_revision,
+        "reason": snapshot.reason,
+        "timeout_seconds": payload.timeout_seconds,
+    }
+    response_payload = snapshot.public_dict() | {
+        "schema_version": "evm.api_drain_event.v1",
         "drain_elapsed_seconds": round(elapsed, 6),
         "drain_completed": snapshot.in_flight == 0,
+        "completed_at": completed_at,
     }
+    try:
+        stored, replayed = get_transactional_store().commit_idempotent_terminal_entity(
+            scope="s6.api-drain",
+            idempotency_key=f"{snapshot.instance_id}:{snapshot.release_id}",
+            request_payload=request_payload,
+            entity_kind="s6_api_drain",
+            entity_id=snapshot.instance_id,
+            response_payload=response_payload,
+            state="completed" if snapshot.in_flight == 0 else "timed_out",
+        )
+    except ControlPlaneIdempotencyConflict as exc:
+        raise HTTPException(status_code=409, detail="drain_event_identity_conflict") from exc
+    except ControlPlaneStoreError as exc:
+        raise HTTPException(status_code=503, detail="drain_event_store_unavailable") from exc
+    return stored | {"replayed": replayed}
 
 
 @router.post("/rollout-probes", response_model=RolloutProbeResponse)

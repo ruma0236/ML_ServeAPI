@@ -10,7 +10,6 @@ from typing import Any
 
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
@@ -62,7 +61,7 @@ from evm.control_panel.transactional_store import (
 from evm.operations.metrics import OperationalMetrics, load_metric_projection
 from evm.model_runtime.capacity_executor import shutdown_capacity_probe_executor
 from evm.model_runtime.gpu_batch_probe import shutdown_gpu_batch_probe_executor
-from evm.control_panel.api_rollout import API_DRAIN_CONTROLLER, ApiDrainingError
+from evm.control_panel.api_rollout import API_DRAIN_CONTROLLER, ApiDrainMiddleware
 
 
 APP_NAME = os.getenv("APP_NAME", "enterprise-vision-mlops-api")
@@ -108,14 +107,6 @@ HTTP_REQUEST_LATENCY = Histogram(
     "HTTP server duration grouped by bounded route and method.",
     ["method", "route"],
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
-)
-HTTP_REQUESTS_IN_FLIGHT = Gauge(
-    "evm_http_server_in_flight",
-    "HTTP requests currently accepted by this API process.",
-)
-HTTP_REQUESTS_PEAK_IN_FLIGHT = Gauge(
-    "evm_http_server_peak_in_flight",
-    "Highest HTTP in-flight request count observed by this API process.",
 )
 MODEL_LOADED = Gauge(
     "evm_serving_model_loaded",
@@ -306,27 +297,7 @@ app = FastAPI(
     separate_input_output_schemas=False,
 )
 app.add_middleware(TaskIngressBodyLimitMiddleware)
-
-
-@app.middleware("http")
-async def measure_http_in_flight(request: Request, call_next):
-    counted = False
-    try:
-        counted = API_DRAIN_CONTROLLER.enter(request.url.path)
-    except ApiDrainingError:
-        return JSONResponse(
-            status_code=503,
-            content={"detail": "api_replica_draining"},
-            headers={"Retry-After": "1", "Connection": "close"},
-        )
-    snapshot = API_DRAIN_CONTROLLER.snapshot()
-    HTTP_REQUESTS_IN_FLIGHT.set(snapshot.in_flight)
-    HTTP_REQUESTS_PEAK_IN_FLIGHT.set(snapshot.peak_in_flight)
-    try:
-        return await call_next(request)
-    finally:
-        API_DRAIN_CONTROLLER.exit(counted)
-        HTTP_REQUESTS_IN_FLIGHT.set(API_DRAIN_CONTROLLER.snapshot().in_flight)
+app.add_middleware(ApiDrainMiddleware)
 
 
 @app.middleware("http")
