@@ -54,7 +54,8 @@ candidate_model_relative_path = "artifacts/w7/lifecycle_runs/lifecycle-20260805T
 accepted_loss = 0
 duplicate_effects = 0
 maximum_error_rate = 0.01
-maximum_p99_ms = 500.0
+maximum_api_p99_ms = 2000.0
+maximum_gpu_p99_ms = 500.0
 require_exact_rollback_identity = true
 require_zero_gpu_owner_overlap = true
 

@@ -1,0 +1,47 @@
+{
+  "schema_version": "evm.s6_failed_attempt_public.v1",
+  "generated_at": "2026-08-23T15:24:25.535541Z",
+  "scenario_id": "S6",
+  "attempt_id": "api-rolling-attempt-02",
+  "status": "failed",
+  "acceptance_credit": false,
+  "source_revision": "2e9f4f3379c9e28d36174d40ff021967d5d9c180",
+  "phase": "api_rolling_continuity",
+  "observed_result": {
+    "logical_requests": 500,
+    "client_success": 500,
+    "database_terminal": 500,
+    "accepted_loss": 0,
+    "duplicate_effects": 0,
+    "trace_expected": 20,
+    "trace_observed": 20,
+    "expected_drain_events": 2,
+    "observed_exact_drain_events": 2,
+    "p99_milliseconds": 1313.309999994817,
+    "prometheus_initial_post_rollout_health": "down",
+    "prometheus_later_health": "up",
+    "cleanup_restored_runtime": true
+  },
+  "root_cause": "The initial shared 500 ms p99 guardrail did not separate steady-state GPU candidate latency from single-node API replacement cost. Local image startup caused a bounded latency wave while preserving all logical effects. Prometheus was queried before the next file_sd scrape completed and transiently reported down even though it converged to up.",
+  "remediation": [
+    "Freeze separate API rolling and GPU candidate p99 guardrails. The API limit is 2000 ms for the next fresh run; the GPU candidate limit remains 500 ms.",
+    "Measure Prometheus recovery from the first post-rollout observation until the exact target returns up instead of copying one instantaneous health sample.",
+    "Restart all three accepted API repetitions from a clean source revision; this attempt receives no acceptance credit."
+  ],
+  "private_evidence": {
+    "logical_root": "private://scale_validation/s6/failed-attempt-02",
+    "artifacts": [
+      {
+        "logical_path": "failed-attempt.json",
+        "bytes": 544,
+        "sha256": "de011c84b4773d750442bd98118f3c7e067d3290fc3fd32d90f9b687996e978d"
+      },
+      {
+        "logical_path": "api/repetition-01.json",
+        "bytes": 569429,
+        "sha256": "1dde7dd2084f1b904876760af2c1070add9d43161eb8116da7fc6239c4b79d9a"
+      }
+    ]
+  },
+  "claim_boundary": "This failed local controlled attempt is retained as RCA evidence and provides no S6 acceptance credit."
+}

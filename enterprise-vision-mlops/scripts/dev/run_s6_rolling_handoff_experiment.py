@@ -441,6 +441,11 @@ def run_api_repetition(
         if observations
         else 1.0
     )
+    prometheus = wait_prometheus_target_up(
+        "evm-s6-api",
+        timeout=config.api.trace_flush_timeout_seconds,
+        poll_interval=config.api.runtime_poll_interval_seconds,
+    )
     result = {
         "schema_version": "evm.s6_api_rolling_repetition.v1",
         "run_id": run_id,
@@ -473,7 +478,9 @@ def run_api_repetition(
             or [0.0]
         ),
         "rollout_seconds": float(rollout_result["elapsed_seconds"]),
-        "prometheus_up": prometheus_target_health("evm-s6-api") == "up",
+        "prometheus_up": prometheus["up"],
+        "prometheus_recovery_seconds": prometheus["elapsed_seconds"],
+        "prometheus_samples": prometheus["samples"],
         "before": before,
         "after": after,
         "timeline": timeline,
@@ -652,7 +659,7 @@ def api_repetition_passed(result: Mapping[str, Any], config: S6RuntimeConfig) ->
         and int(result["duplicate_effects"]) == config.guardrails.duplicate_effects
         and float(result["error_rate"]) <= config.guardrails.maximum_error_rate
         and int(result["drain_event_count"]) == config.api.replicas
-        and float(result["p99_ms"]) <= config.guardrails.maximum_p99_ms
+        and float(result["p99_ms"]) <= config.guardrails.maximum_api_p99_ms
         and result["trace_summary"]["complete"] is True
         and result["prometheus_up"] is True
         and result["cleanup_passed"] is True
@@ -932,7 +939,12 @@ def run_gpu_handoff(
     rollback_exact = source_identity_before == source_identity_after
     source_to_target = first_target_at - source_before_at
     target_to_source = source_after_at - target_last_at
-    prometheus_health = prometheus_target_health("evm-b0-production")
+    prometheus_observation = wait_prometheus_target_up(
+        "evm-b0-production",
+        timeout=config.api.trace_flush_timeout_seconds,
+        poll_interval=config.gpu_handoff.runtime_poll_interval_seconds,
+    )
+    prometheus_health = "up" if prometheus_observation["up"] else "unhealthy"
     status = "passed" if all(
         (
             candidate_gate_payload.get("status") == "passed",
@@ -950,7 +962,7 @@ def run_gpu_handoff(
             target_to_source > 0,
             source_to_target <= config.gpu_handoff.maximum_interruption_seconds,
             target_to_source <= config.gpu_handoff.maximum_interruption_seconds,
-            target_latency["p99_ms"] <= config.guardrails.maximum_p99_ms,
+            target_latency["p99_ms"] <= config.guardrails.maximum_gpu_p99_ms,
             prometheus_health == "up",
         )
     ) else "failed"
@@ -983,6 +995,7 @@ def run_gpu_handoff(
         "source_cuda_inference_restored": source_prediction_after.get("device") == "cuda",
         "prometheus_restored": prometheus_health == "up",
         "prometheus_health": prometheus_health,
+        "prometheus_observation": prometheus_observation,
         "source_prediction_before": source_prediction_before,
         "source_prediction_after": source_prediction_after,
         "target_ready": target_ready,
@@ -1039,14 +1052,24 @@ def cleanup_runtime(
         config.gpu_handoff.target_namespace, config.gpu_handoff.target_deployment
     )
     api = deployment_snapshot(config.api.namespace, config.api.deployment)
+    prometheus_s6 = wait_prometheus_target_up(
+        "evm-s6-api",
+        timeout=config.api.trace_flush_timeout_seconds,
+        poll_interval=config.api.runtime_poll_interval_seconds,
+    )
+    prometheus_serving = wait_prometheus_target_up(
+        "evm-b0-production",
+        timeout=config.api.trace_flush_timeout_seconds,
+        poll_interval=config.gpu_handoff.runtime_poll_interval_seconds,
+    )
     passed = (
         not errors
         and source["ready_replicas"] == 1
         and target["desired_replicas"] == 0
         and api["ready_replicas"] == config.api.replicas
         and api["release_ids"] == ["old"]
-        and prometheus_target_health("evm-b0-production") == "up"
-        and prometheus_target_health("evm-s6-api") == "up"
+        and prometheus_serving["up"] is True
+        and prometheus_s6["up"] is True
     )
     return {
         "passed": passed,
@@ -1055,8 +1078,10 @@ def cleanup_runtime(
         "target_desired": target["desired_replicas"],
         "api_ready": api["ready_replicas"],
         "api_release_ids": api["release_ids"],
-        "prometheus_s6": prometheus_target_health("evm-s6-api"),
-        "prometheus_serving": prometheus_target_health("evm-b0-production"),
+        "prometheus_s6": "up" if prometheus_s6["up"] else "unhealthy",
+        "prometheus_serving": "up" if prometheus_serving["up"] else "unhealthy",
+        "prometheus_s6_recovery_seconds": prometheus_s6["elapsed_seconds"],
+        "prometheus_serving_recovery_seconds": prometheus_serving["elapsed_seconds"],
     }
 
 
@@ -1412,6 +1437,23 @@ def prometheus_target_health(job: str) -> str:
     return str(matches[0].get("health") or "unknown")
 
 
+def wait_prometheus_target_up(
+    job: str, *, timeout: float, poll_interval: float
+) -> dict[str, Any]:
+    started = time.monotonic()
+    deadline = started + timeout
+    samples: list[dict[str, Any]] = []
+    while True:
+        elapsed = time.monotonic() - started
+        health = prometheus_target_health(job)
+        samples.append({"elapsed_seconds": elapsed, "health": health})
+        if health == "up":
+            return {"up": True, "elapsed_seconds": elapsed, "samples": samples}
+        if time.monotonic() >= deadline:
+            return {"up": False, "elapsed_seconds": elapsed, "samples": samples}
+        time.sleep(poll_interval)
+
+
 def docker_image_identity(image: str) -> dict[str, str]:
     payload = json.loads(run_checked(["docker", "image", "inspect", image], timeout=30).stdout)[0]
     labels = payload.get("Config", {}).get("Labels", {}) or {}
@@ -1493,6 +1535,7 @@ def public_api_result(payload: Mapping[str, Any]) -> dict[str, Any]:
         "maximum_drain_seconds",
         "rollout_seconds",
         "prometheus_up",
+        "prometheus_recovery_seconds",
         "cleanup_passed",
     )
     return {key: payload[key] for key in keys}

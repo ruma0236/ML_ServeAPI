@@ -102,6 +102,7 @@ def _api_raw(repetition: int) -> dict[str, object]:
         "maximum_drain_seconds": 0.2,
         "rollout_seconds": 8.0,
         "prometheus_up": True,
+        "prometheus_recovery_seconds": 0.0,
         "before": {"release_ids": ["old"]},
         "after": {"release_ids": ["new"]},
         "cleanup_passed": True,

@@ -57,6 +57,7 @@ API_PUBLIC_FIELDS = (
     "maximum_drain_seconds",
     "rollout_seconds",
     "prometheus_up",
+    "prometheus_recovery_seconds",
     "cleanup_passed",
 )
 GPU_PUBLIC_FIELDS = (

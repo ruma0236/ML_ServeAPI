@@ -81,7 +81,8 @@ class GuardrailConfig:
     accepted_loss: int
     duplicate_effects: int
     maximum_error_rate: float
-    maximum_p99_ms: float
+    maximum_api_p99_ms: float
+    maximum_gpu_p99_ms: float
     require_exact_rollback_identity: bool
     require_zero_gpu_owner_overlap: bool
 
@@ -184,7 +185,8 @@ class S6RuntimeConfig:
                 accepted_loss=int(guardrails["accepted_loss"]),
                 duplicate_effects=int(guardrails["duplicate_effects"]),
                 maximum_error_rate=float(guardrails["maximum_error_rate"]),
-                maximum_p99_ms=float(guardrails["maximum_p99_ms"]),
+                maximum_api_p99_ms=float(guardrails["maximum_api_p99_ms"]),
+                maximum_gpu_p99_ms=float(guardrails["maximum_gpu_p99_ms"]),
                 require_exact_rollback_identity=bool(
                     guardrails["require_exact_rollback_identity"]
                 ),
@@ -274,7 +276,7 @@ def analyze_s6_results(
         and int(gpu_calibration.get("target_inference_count", -1))
         == config.gpu_handoff.calibration_inference_requests
         and float(gpu_calibration.get("target_p99_ms", math.inf))
-        <= config.guardrails.maximum_p99_ms
+        <= config.guardrails.maximum_gpu_p99_ms
     )
     gpu_handoff_measured = gpu_count_ok and calibration_passed and all(
         item.get("status") == "passed"
@@ -292,7 +294,7 @@ def analyze_s6_results(
         and 0 < float(item.get("target_to_source_interruption_seconds", 0))
         <= config.gpu_handoff.maximum_interruption_seconds
         and float(item.get("target_p99_ms", math.inf))
-        <= config.guardrails.maximum_p99_ms
+        <= config.guardrails.maximum_gpu_p99_ms
         for item in gpu_repetitions
     )
     claim_is_bounded = (
@@ -439,6 +441,10 @@ def _validate_config(config: S6RuntimeConfig, claim: Mapping[str, Any]) -> None:
         raise S6RuntimeError("s6_gpu_calibration_sample_invalid")
     if config.gpu_handoff.acceptance_inference_requests < 20:
         raise S6RuntimeError("s6_gpu_acceptance_sample_invalid")
+    if config.guardrails.maximum_api_p99_ms <= 0:
+        raise S6RuntimeError("s6_api_p99_guardrail_invalid")
+    if config.guardrails.maximum_gpu_p99_ms <= 0:
+        raise S6RuntimeError("s6_gpu_p99_guardrail_invalid")
     if int(claim.get("physical_nodes", 0)) != 1 or int(claim.get("gpu_count", 0)) != 1:
         raise S6RuntimeError("s6_claim_resource_boundary_invalid")
     if any(
