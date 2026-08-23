@@ -71,7 +71,9 @@ def test_cuda_probe_runs_on_the_current_trusted_cuda_device():
             sys.executable,
             "-c",
             (
-                "import json,torch\n"
+                "import json\n"
+                "try:\n import torch\n"
+                "except ModuleNotFoundError:\n raise SystemExit(77)\n"
                 "from evm.scale_validation.s2_airflow_fixture import _execute_cuda_probe\n"
                 "if not torch.cuda.is_available(): raise SystemExit(77)\n"
                 "print(json.dumps(_execute_cuda_probe('task-cuda-contract',20260816)))\n"

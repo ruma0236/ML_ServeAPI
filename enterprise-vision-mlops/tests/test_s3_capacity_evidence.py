@@ -164,6 +164,7 @@ def test_s3_closure_matches_persisted_experiment() -> None:
         "verdict",
         "smoke_trace",
         "smoke_revision",
+        "trusted_cuda",
     ],
 )
 def test_s3_closure_mutations_fail_closed(mutation: str) -> None:
@@ -192,6 +193,17 @@ def test_s3_closure_mutations_fail_closed(mutation: str) -> None:
         mutated["regression"]["current_revision_runtime_smoke"]["revision"] = (
             "0" * 40
         )
+    elif mutation == "trusted_cuda":
+        cuda = mutated["regression"].setdefault(
+            "trusted_cuda_regression",
+            {
+                "status": "passed",
+                "actual_cuda": True,
+                "nonzero_activity": True,
+                "result_sha256": "a" * 64,
+            },
+        )
+        cuda["actual_cuda"] = False
 
     with pytest.raises(S3EvidenceValidationError):
         validate_s3_capacity_closure(

@@ -314,6 +314,14 @@ def validate_s3_capacity_closure(
             errors.append(f"closure_regression_{key}")
     if regression.get("control_panel_production_build") != "passed":
         errors.append("closure_frontend_build")
+    cuda = dict(regression.get("trusted_cuda_regression", {}))
+    if (
+        cuda.get("status") != "passed"
+        or not bool(cuda.get("actual_cuda"))
+        or not bool(cuda.get("nonzero_activity"))
+        or not SHA256_PATTERN.fullmatch(str(cuda.get("result_sha256") or ""))
+    ):
+        errors.append("closure_trusted_cuda_regression")
     smoke = dict(regression.get("current_revision_runtime_smoke", {}))
     smoke_expected_traces = int(smoke.get("sampled_trace_expected", 0))
     smoke_complete_traces = int(smoke.get("sampled_trace_complete", -1))
