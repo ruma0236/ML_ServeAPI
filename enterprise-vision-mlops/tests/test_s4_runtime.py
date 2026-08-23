@@ -7,8 +7,10 @@ from pathlib import Path
 
 from scripts.dev.run_s4_gpu_batching_experiment import (
     RuntimeContext,
+    advance_open_loop_schedule,
     build_gpu_api_command,
     private_evidence_index,
+    summarize_point,
     trace_summary,
 )
 from evm.scale_validation.s4_runtime import S4RuntimeConfig, analyze_s4_results
@@ -174,6 +176,63 @@ def test_s4_open_loop_must_pass_operating_latency_guardrail(tmp_path: Path) -> N
 
     assert analysis["acceptance"]["S4-AC-02"] is False
     assert analysis["runtime_verdict"] == "failed"
+
+
+def test_s4_open_loop_schedule_skips_missed_releases_without_catch_up() -> None:
+    scheduled, following, skipped = advance_open_loop_schedule(
+        now=1.055,
+        next_release=1.0,
+        interval=0.01,
+    )
+
+    assert skipped == 5
+    assert 0 <= 1.055 - scheduled < 0.01
+    assert following > 1.055
+
+
+def test_s4_open_loop_summary_fails_closed_on_under_delivered_profile(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    measurement = {
+        "duration_seconds": 30.0,
+        "configured_concurrency": 64,
+        "statuses": {"200": 2400},
+        "latencies_ms": [20.0] * 2400,
+        "queue_waits_ms": [2.0] * 2400,
+        "formed_batch_sizes": [4] * 2400,
+        "h2d_ms": [0.1] * 2400,
+        "inference_ms": [0.2] * 2400,
+        "d2h_ms": [0.1] * 2400,
+        "allocated_vram_bytes": [1] * 2400,
+        "reserved_vram_bytes": [1] * 2400,
+        "peak_vram_bytes": [1] * 2400,
+        "resource_samples": [],
+        "load_generator": {
+            "target_requests_per_second": 100.0,
+            "target_release_count": 3000,
+            "released_count": 2400,
+            "actual_offered_requests_per_second": 80.0,
+            "skipped_release_count": 600,
+            "release_lags_ms": [1.0] * 2400,
+        },
+    }
+
+    summary = summarize_point(
+        point=S4Point(8, 5, 1, "open-loop"),
+        repetition=1,
+        measurement=measurement,
+        drain={
+            "evm_s4_gpu_batch_queue_depth": 0.0,
+            "evm_s4_gpu_batch_queue_bytes": 0.0,
+            "evm_s4_gpu_batch_in_flight": 0.0,
+        },
+        trace={"missing_count": 0},
+        config=config,
+        prometheus_recovery_wait_seconds=0.0,
+    )
+
+    assert summary["offered_rate_delivery_ratio"] == 0.8
+    assert summary["load_generator_valid"] is False
+    assert summary["evidence_valid"] is False
 
 
 def test_s4_gpu_api_uses_supported_isolated_file_store(tmp_path: Path) -> None:

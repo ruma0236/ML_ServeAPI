@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T04:17:48.241802Z",
+  "generated_at": "2026-08-23T05:33:39.958263Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2088,7 +2088,8 @@
         "Three corrected trace repetitions closed every sampled chain; one client-tail hard-stop breach at concurrency 128 led to freezing concurrency 64 before acceptance.",
         "At frozen concurrency 64, the corrective trace pilot passed three independent repetitions with complete per-request trace chains and exact cleanup.",
         "A complete 60-point saturation matrix plus three instance-axis repetitions exposed that candidate discovery and sustainable open-loop SLO validation were incorrectly coupled; the contracts are now separated.",
-        "The first complete 66-repetition run selected batch 8/delay 10 at 140.33 requests per second, but its 80-percent open-loop replay failed the fixed operating SLO in two of three repetitions. The thresholds remain unchanged and the next clean run reserves 30-percent headroom."
+        "The first complete 66-repetition run selected batch 8/delay 10 at 140.33 requests per second, but its 80-percent open-loop replay failed the fixed operating SLO in two of three repetitions. The thresholds remain unchanged and the next clean run reserves 30-percent headroom.",
+        "The next run retained 64 repetitions and exposed an open-loop load-generator evidence defect: delayed schedule entries could be emitted as catch-up bursts and delivery fidelity was not measured. No-catch-up pacing and fail-closed delivery telemetry are now implemented before a non-acceptance pilot."
       ],
       "experiment_environment": "Actual local single-node runtime with one consumer GPU, the existing Workloads API, external TCP client, isolated Prometheus, OTLP collector, and exact Kubernetes serving-holder handoff. No customer traffic or production SLA.",
       "test_or_experiment_steps": [
@@ -2166,6 +2167,12 @@
           "sha256": "c4f3addf5059a0d83e7c8e0201ed2ad16d6def559292f74e6551cac1a09844df",
           "generated_at": "2026-08-23T04:13:16Z",
           "claim": "The first complete 66-repetition run retained 208,058 requests and complete trace/cleanup evidence, but the 80-percent selected-point replay exceeded the fixed operating queue SLO in two of three repetitions; no acceptance credit was granted."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-06.json",
+          "sha256": "5b34c1f19d50c65f8a9e9547ccc7e96538750162a216e780cd1194c2dcf71c52",
+          "generated_at": "2026-08-23T05:27:14Z",
+          "claim": "A 70-percent rerun retained 64 repetitions and stopped on an invalid open-loop hard-tail result; audit found catch-up burst semantics and missing delivery-fidelity telemetry, so the result receives no acceptance credit."
         }
       ],
       "status": "implementing",
@@ -2176,7 +2183,7 @@
         "Model instance count and batch size effects are measured separately.",
         "Queue limits are recalculated from the selected service rate."
       ],
-      "next_action": "Freeze 30-percent headroom while retaining the 250 ms p99 and 100 ms queue-wait SLO, then rerun all 66 repetitions from one clean revision; acceptance remains pending.",
+      "next_action": "Pass a three-repetition external no-catch-up pacing pilot with measured delivery fidelity, then restart all 66 acceptance repetitions from one clean revision.",
       "architecture_before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
       "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.",
       "existing_system_baseline": "The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.",
@@ -2353,6 +2360,12 @@
           "sha256": "c4f3addf5059a0d83e7c8e0201ed2ad16d6def559292f74e6551cac1a09844df",
           "generated_at": "2026-08-23T04:13:16Z",
           "claim": "The first complete 66-repetition run retained 208,058 requests and complete trace/cleanup evidence, but the 80-percent selected-point replay exceeded the fixed operating queue SLO in two of three repetitions; no acceptance credit was granted."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-06.json",
+          "sha256": "5b34c1f19d50c65f8a9e9547ccc7e96538750162a216e780cd1194c2dcf71c52",
+          "generated_at": "2026-08-23T05:27:14Z",
+          "claim": "A 70-percent rerun retained 64 repetitions and stopped on an invalid open-loop hard-tail result; audit found catch-up burst semantics and missing delivery-fidelity telemetry, so the result receives no acceptance credit."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2438,6 +2451,15 @@
           "summary": "The first complete 66-repetition run selected batch 8/delay 10 at 140.33 RPS and preserved 208,058 requests, 449/449 sampled traces, zero OOMs, hard safety, terminal drain, and exact restoration. Its 80-percent open-loop replay passed the fixed 250 ms p99/100 ms queue SLO only once; repetitions two and three exceeded queue wait and repetition three exceeded p99. Thresholds remain fixed, a 70-percent replay fraction is now frozen before a fresh full rerun, and no acceptance credit is granted.",
           "evidence_refs": [
             "docs/status/evidence/s4-gpu-batching-attempt-05.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T05:27:14Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "The 70-percent rerun retained 60 matrix, three instance-axis, and one open-loop repetition with 220,648 requests, 477/477 sampled traces, zero OOMs, and exact cleanup. The open-loop point hard-failed, but its load generator delivered only 83.23 of the configured 107.40 RPS and did not expose release fidelity. Audit found catch-up burst semantics; no-catch-up pacing, release lag, skipped-release, and delivery-ratio gates are now implemented, with acceptance still pending.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-attempt-06.json"
           ]
         }
       ]

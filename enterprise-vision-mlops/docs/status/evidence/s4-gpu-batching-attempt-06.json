@@ -1,0 +1,60 @@
+{
+  "acceptance_credit": false,
+  "attempt_id": "S4-ATTEMPT-06",
+  "claim_boundary": "Local single-node failure evidence only; no production SLA, HA, multi-GPU, or customer-traffic claim.",
+  "cleanup": {
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "holder_ready": true,
+    "holder_uid_restored": true,
+    "lease_released": true,
+    "prometheus_container_absent": true,
+    "serving_cuda_ready": true
+  },
+  "corrective_action": [
+    "Prevent the open-loop scheduler from replaying missed releases as a catch-up burst.",
+    "Record target and actual offered rate, release lag, skipped releases, and delivery ratio; fail closed when the load generator does not deliver the frozen profile.",
+    "Run a three-repetition non-acceptance pacing pilot before restarting the complete acceptance matrix."
+  ],
+  "generated_at": "2026-08-23T05:27:14Z",
+  "next_action": "Implement and test no-catch-up open-loop pacing, then pass a three-repetition external pacing pilot before any new acceptance run.",
+  "observed_result": {
+    "completed_repetitions": 64,
+    "open_loop_failure": {
+      "actual_service_rps": 83.23333333333333,
+      "configured_target_rps": 107.395555555556,
+      "error_count": 5,
+      "p99_ms": 7807.73071100469,
+      "queue_wait_p99_ms": 1691.7077482414606,
+      "request_count": 2502,
+      "selected_batch_size": 8,
+      "selected_delay_ms": 5,
+      "selected_saturation_rps": 153.42222222222222
+    },
+    "sampled_traces_complete": 477,
+    "sampled_traces_expected": 477,
+    "total_requests": 220648,
+    "zero_oom": true
+  },
+  "private_evidence": {
+    "aggregate_sha256": "fd6d92f56c18f223ffe6eb3f3ebcc8d3f568c81cdad8cd5bffc45c7f5db3cb15",
+    "artifact_count": 67,
+    "index_sha256": "094335592575466a0710513e02513ec9c160670cea22c34f7a66a8f738a98e9c",
+    "total_bytes": 41378955
+  },
+  "root_cause": "The selected point failed hard safety during its first 70-percent open-loop repetition. Code audit then found that the open-loop scheduler retained an elapsed next-release timestamp and emitted missed arrivals back-to-back after event-loop delay. Because the evidence did not record release lag, skipped releases, or actual offered-rate delivery, this attempt cannot distinguish a runtime saturation failure from catch-up burst amplification and is invalid for acceptance.",
+  "schema_version": "evm.s4_gpu_batching_failed_attempt.v1",
+  "scope": {
+    "planned_repetitions": 66,
+    "retained_instance_repetitions": 3,
+    "retained_matrix_repetitions": 60,
+    "retained_open_loop_repetitions": 1,
+    "service_rate_fraction": 0.7
+  },
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "bc5becbcb1361626bd0bb602832f95223a6393b4",
+    "runtime_config_sha256": "5d097ae9672b9932b584776ebf457f2e1e530e69fcb6d01b4aa6fe2470f68dbb"
+  },
+  "status": "stopped_fail_closed"
+}

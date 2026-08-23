@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import math
 import os
 import statistics
 import subprocess
@@ -127,7 +128,17 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT / "docs/status/evidence/s4-trace-flush-rca-checkpoint.json",
     )
-    parser.add_argument("--mode", choices=("smoke", "trace-pilot", "full"), default="smoke")
+    parser.add_argument(
+        "--pacing-pilot-output",
+        type=Path,
+        default=ROOT / "docs/status/evidence/s4-open-loop-pacing-checkpoint.json",
+    )
+    parser.add_argument("--pilot-open-rate", type=float)
+    parser.add_argument(
+        "--mode",
+        choices=("smoke", "trace-pilot", "open-loop-pilot", "full"),
+        default="smoke",
+    )
     parser.add_argument("--maintenance-approved", action="store_true")
     parser.add_argument("--reuse-image", action="store_true")
     return parser.parse_args()
@@ -164,6 +175,7 @@ def main() -> int:
     output_path = {
         "smoke": args.smoke_output,
         "trace-pilot": args.pilot_output,
+        "open-loop-pilot": args.pacing_pilot_output,
         "full": args.output,
     }[args.mode]
     inference_lease = None
@@ -280,6 +292,50 @@ def main() -> int:
                     item["trace"]["missing_count"] == 0 for item in results
                 ),
                 "next_action": "Restart the full 60+3+3 matrix from a clean revision.",
+                "claim_boundary": CLAIM_BOUNDARY,
+            }
+        elif args.mode == "open-loop-pilot":
+            if args.pilot_open_rate is None or args.pilot_open_rate <= 0:
+                raise S4RuntimeError("s4_open_loop_pilot_rate_required")
+            point = S4Point(8, 5, 1, "open-loop")
+            results = [
+                run_point(
+                    context=context,
+                    config=config,
+                    point=point,
+                    repetition=repetition,
+                    warmup_seconds=config.warmup_seconds,
+                    measurement_seconds=config.measurement_seconds,
+                    cooldown_seconds=config.cooldown_seconds,
+                    open_rate=float(args.pilot_open_rate),
+                )
+                for repetition in range(1, 4)
+            ]
+            public = {
+                "schema_version": "evm.s4_open_loop_pacing_checkpoint.v1",
+                "generated_at": utc_now(),
+                "status": "implementing",
+                "acceptance_credit": False,
+                "source_identity": {
+                    "branch": branch,
+                    "implementation_revision": revision,
+                    "runtime_config_sha256": config.sha256,
+                },
+                "pacing_contract": {
+                    "target_requests_per_second": float(args.pilot_open_rate),
+                    "no_catch_up_burst": True,
+                    "minimum_delivery_ratio": 0.98,
+                    "maximum_delivery_ratio": 1.02,
+                    "maximum_skipped_release_ratio": 0.02,
+                },
+                "results": results,
+                "all_load_generator_profiles_valid": all(
+                    item["load_generator_valid"] is True for item in results
+                ),
+                "all_operating_guardrails_passed": all(
+                    item["operating_guardrail_passed"] is True for item in results
+                ),
+                "next_action": "Restart the full matrix only after pacing and operating gates pass.",
                 "claim_boundary": CLAIM_BOUNDARY,
             }
         else:
@@ -676,6 +732,9 @@ async def execute_load_phase(
     expected_traces: list[str] = []
     trace_matches = 0
     request_index = 0
+    release_lags_ms: list[float] = []
+    skipped_release_count = 0
+    released_count = 0
     rng = np.random.default_rng(seed)
     order = rng.integers(0, len(features), size=max(100_000, concurrency * 100), endpoint=False)
     limits = httpx.Limits(max_connections=max(256, concurrency * 2), max_keepalive_connections=256)
@@ -747,20 +806,35 @@ async def execute_load_phase(
             tasks: set[asyncio.Task[None]] = set()
             interval = 1 / max(open_rate, 1e-9)
             next_release = time.perf_counter()
-            while time.perf_counter() < deadline:
+            while next_release < deadline:
                 now = time.perf_counter()
                 if now < next_release:
                     await asyncio.sleep(next_release - now)
+                released_at = time.perf_counter()
+                if released_at >= deadline:
+                    break
+                scheduled_at, next_release, skipped = advance_open_loop_schedule(
+                    now=released_at,
+                    next_release=next_release,
+                    interval=interval,
+                )
+                skipped_release_count += skipped
+                if scheduled_at >= deadline:
+                    break
+                release_lags_ms.append(max(0.0, released_at - scheduled_at) * 1000)
                 index = request_index
                 request_index += 1
+                released_count += 1
                 task = asyncio.create_task(one(index))
                 tasks.add(task)
                 task.add_done_callback(tasks.discard)
                 if len(tasks) >= concurrency * 4:
                     await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                next_release += interval
             if tasks:
                 await asyncio.gather(*tasks)
+    target_release_count = (
+        0 if open_rate is None else max(1, math.ceil(duration_seconds * open_rate))
+    )
     return {
         "duration_seconds": duration_seconds,
         "configured_concurrency": concurrency,
@@ -778,7 +852,28 @@ async def execute_load_phase(
         "peak_vram_bytes": peak,
         "expected_sampled_trace_ids": sorted(set(expected_traces)),
         "response_trace_identity_matches": trace_matches,
+        "load_generator": {
+            "target_requests_per_second": open_rate,
+            "target_release_count": target_release_count,
+            "released_count": released_count,
+            "actual_offered_requests_per_second": (
+                None if open_rate is None else released_count / duration_seconds
+            ),
+            "skipped_release_count": skipped_release_count,
+            "release_lags_ms": release_lags_ms,
+        },
     }
+
+
+def advance_open_loop_schedule(
+    *, now: float, next_release: float, interval: float
+) -> tuple[float, float, int]:
+    if interval <= 0:
+        raise ValueError("open_loop_interval_must_be_positive")
+    lag = max(0.0, now - next_release)
+    skipped = int(math.floor((lag + interval * 1e-9) / interval))
+    scheduled = next_release + skipped * interval
+    return scheduled, scheduled + interval, skipped
 
 
 async def sample_resources(
@@ -835,6 +930,29 @@ def summarize_point(
     errors = request_count - successes
     resources = measurement["resource_samples"]
     formed = measurement["formed_batch_sizes"]
+    load_generator = measurement["load_generator"]
+    target_rate = load_generator["target_requests_per_second"]
+    actual_offered_rate = load_generator["actual_offered_requests_per_second"]
+    delivery_ratio = (
+        None
+        if target_rate is None
+        else float(actual_offered_rate) / max(float(target_rate), 1e-9)
+    )
+    skipped_ratio = (
+        0.0
+        if not load_generator["target_release_count"]
+        else load_generator["skipped_release_count"]
+        / load_generator["target_release_count"]
+    )
+    release_lag_p99_ms = percentile(load_generator["release_lags_ms"], 99)
+    load_generator_valid = bool(
+        target_rate is None
+        or (
+            0.98 <= float(delivery_ratio) <= 1.02
+            and skipped_ratio <= 0.02
+            and release_lag_p99_ms <= max(50.0, 2000.0 / float(target_rate))
+        )
+    )
     oom = sum(count for status, count in measurement["statuses"].items() if status == "500-oom")
     result = {
         "point_id": point.point_id,
@@ -845,6 +963,13 @@ def summarize_point(
         "instance_count": point.instance_count,
         "request_count": request_count,
         "configured_concurrency": int(measurement["configured_concurrency"]),
+        "target_offered_rps": target_rate,
+        "actual_offered_rps": actual_offered_rate,
+        "offered_rate_delivery_ratio": delivery_ratio,
+        "skipped_release_count": load_generator["skipped_release_count"],
+        "skipped_release_ratio": skipped_ratio,
+        "release_lag_p99_ms": release_lag_p99_ms,
+        "load_generator_valid": load_generator_valid,
         "success_count": successes,
         "service_rps": successes / float(measurement["duration_seconds"]),
         "p50_ms": percentile(latencies, 50),
@@ -891,6 +1016,7 @@ def summarize_point(
         and result["power_watts_max"] <= config.maximum_power_watts
         and result["oom_count"] == 0
         and result["prometheus_up"]
+        and result["load_generator_valid"]
         and all(value == 0 for value in drain.values())
         and trace["missing_count"] == 0
     )
