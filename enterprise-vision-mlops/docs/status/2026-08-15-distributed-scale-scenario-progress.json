@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T01:47:30.275140Z",
+  "generated_at": "2026-08-23T03:00:57.048777Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2086,7 +2086,8 @@
         "The remediation freezes a 30-second bounded trace poll, records flush timing, and persists failed point evidence before raising.",
         "A 30-second trace pilot confirmed the shared batch span was parented only to the first request; per-request completion spans and bounded final Prometheus recovery were added.",
         "Three corrected trace repetitions closed every sampled chain; one client-tail hard-stop breach at concurrency 128 led to freezing concurrency 64 before acceptance.",
-        "At frozen concurrency 64, the corrective trace pilot passed three independent repetitions with complete per-request trace chains and exact cleanup."
+        "At frozen concurrency 64, the corrective trace pilot passed three independent repetitions with complete per-request trace chains and exact cleanup.",
+        "A complete 60-point saturation matrix plus three instance-axis repetitions exposed that candidate discovery and sustainable open-loop SLO validation were incorrectly coupled; the contracts are now separated."
       ],
       "experiment_environment": "Actual local single-node runtime with one consumer GPU, the existing Workloads API, external TCP client, isolated Prometheus, OTLP collector, and exact Kubernetes serving-holder handoff. No customer traffic or production SLA.",
       "test_or_experiment_steps": [
@@ -2152,6 +2153,12 @@
           "sha256": "bdcd7ba9fe4d8f5043650aaa49f6ff1ddb63429a26ce1ee9d6026e93f33cd888",
           "generated_at": "2026-08-23T01:46:21.293987Z",
           "claim": "At frozen concurrency 64, the corrected batch-4/delay-2 pilot passed three independent repetitions with every sampled trace chain complete, bounded latency, Prometheus recovery, terminal drain, exact cleanup, and no S4 acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-04.json",
+          "sha256": "aa2422bcf31fd0698062d8704e443af0bd2a2a32c3d0f3cc001c7e3c7ca43a4d",
+          "generated_at": "2026-08-23T03:00:40.688338Z",
+          "claim": "A fresh 60-point matrix plus three instance-axis repetitions completed 195,587 requests with zero errors/OOM/trace gaps and exact cleanup, then stopped before open-loop because the analyzer conflated saturation selection with the sustainable latency SLO; no acceptance credit was granted."
         }
       ],
       "status": "implementing",
@@ -2162,7 +2169,7 @@
         "Model instance count and batch size effects are measured separately.",
         "Queue limits are recalculated from the selected service rate."
       ],
-      "next_action": "Restart the full frozen 60 matrix, three instance-axis, and three selected-point open-loop repetitions from a clean revision; preserve every failed attempt and grant acceptance only after closure validation.",
+      "next_action": "Restart all 66 repetitions from a clean revision with closed-loop capacity/Pareto selection and open-loop-only operating SLO validation; acceptance remains pending.",
       "architecture_before": "The accelerator path ran one request-oriented model runtime without a measured dynamic batching envelope.",
       "architecture_after": "The existing Workloads API can opt into a bounded CUDA Tiny MLP batcher whose batch, delay, instance, lease, trace, and VRAM identities are versioned; the final operating point remains unselected until the full matrix passes.",
       "existing_system_baseline": "The existing single-accelerator path already provided governed training, serving, and an exclusive lease. It had no in-place tabular CUDA batching endpoint or measured batch-delay-instance-VRAM operating envelope.",
@@ -2327,6 +2334,12 @@
           "sha256": "bdcd7ba9fe4d8f5043650aaa49f6ff1ddb63429a26ce1ee9d6026e93f33cd888",
           "generated_at": "2026-08-23T01:46:21.293987Z",
           "claim": "At frozen concurrency 64, the corrected batch-4/delay-2 pilot passed three independent repetitions with every sampled trace chain complete, bounded latency, Prometheus recovery, terminal drain, exact cleanup, and no S4 acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s4-gpu-batching-attempt-04.json",
+          "sha256": "aa2422bcf31fd0698062d8704e443af0bd2a2a32c3d0f3cc001c7e3c7ca43a4d",
+          "generated_at": "2026-08-23T03:00:40.688338Z",
+          "claim": "A fresh 60-point matrix plus three instance-axis repetitions completed 195,587 requests with zero errors/OOM/trace gaps and exact cleanup, then stopped before open-loop because the analyzer conflated saturation selection with the sustainable latency SLO; no acceptance credit was granted."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -2394,6 +2407,15 @@
           "summary": "The frozen-concurrency-64 trace pilot passed three repetitions at 123.77, 125.93, and 127.73 RPS; p99 stayed between 657.30 and 703.84 ms, all 24 sampled chains completed, and Prometheus, drain, lease release, holder restoration, and cleanup passed. This is a non-acceptance RCA checkpoint.",
           "evidence_refs": [
             "docs/status/evidence/s4-trace-flush-rca-checkpoint.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-23T03:00:40.688338Z",
+          "phase": "recovery",
+          "status": "implementing",
+          "summary": "A fresh 60-point matrix plus three instance-axis repetitions completed 195,587 requests with zero errors, OOMs, hard-stop failures, or sampled-trace gaps and exact cleanup. The run stopped before open-loop because all saturated points were incorrectly required to satisfy the sustainable 250 ms/100 ms SLO. Candidate discovery is now separated from open-loop SLO validation, and none of the 63 repetitions is reused for acceptance.",
+          "evidence_refs": [
+            "docs/status/evidence/s4-gpu-batching-attempt-04.json"
           ]
         }
       ]

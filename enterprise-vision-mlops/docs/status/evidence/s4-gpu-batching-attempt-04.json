@@ -1,0 +1,119 @@
+{
+  "acceptance_credit": false,
+  "attempt_id": "S4-ATTEMPT-04",
+  "claim_boundary": "Local single-node failure evidence only; no production SLA, HA, multi-GPU, or customer-traffic claim.",
+  "cleanup": {
+    "active_lease_absent": true,
+    "api_container_absent": true,
+    "holder_ready": true,
+    "holder_uid_restored": true,
+    "lease_released": true,
+    "prometheus_container_absent": true,
+    "serving_cuda_ready": true
+  },
+  "corrective_action": [
+    "Use closed-loop saturation results for capacity/Pareto candidate discovery under hard safety, error, OOM, thermal, and evidence gates.",
+    "Apply the existing p99 250 ms and queue-wait 100 ms operating SLO only to three selected-point open-loop repetitions at 80% measured service rate.",
+    "Restart the full matrix from a clean analysis revision; do not reuse these 63 repetitions for acceptance."
+  ],
+  "generated_at": "2026-08-23T03:00:40.688338Z",
+  "next_action": "Commit the separated saturation-selection/open-loop-SLO contract and restart all 66 repetitions from a clean revision.",
+  "observed_result": {
+    "all_errors_zero": false,
+    "all_hard_stop_passed": true,
+    "all_oom_zero": true,
+    "all_sampled_traces_complete": true,
+    "instance_1_service_rps_mean": 88.3,
+    "instance_2_service_rps_mean": 93.08888888888889,
+    "matrix_operating_guardrail_pass_count": 0,
+    "top_saturation_candidates": [
+      {
+        "batch_size": 8,
+        "formed_batch_size_mean": 6.177728614378466,
+        "instance_count": 1,
+        "max_delay_ms": 10,
+        "oom_count": 0,
+        "p99_ms_max": 1863.0103260022581,
+        "peak_vram_bytes_max": 8544256,
+        "queue_wait_p99_ms_max": 503.83448710053926,
+        "service_rps_mean": 133.87777777777777
+      },
+      {
+        "batch_size": 8,
+        "formed_batch_size_mean": 5.999847380487972,
+        "instance_count": 1,
+        "max_delay_ms": 5,
+        "oom_count": 0,
+        "p99_ms_max": 1705.0892940032636,
+        "peak_vram_bytes_max": 8544256,
+        "queue_wait_p99_ms_max": 507.86304289995314,
+        "service_rps_mean": 131.6
+      },
+      {
+        "batch_size": 8,
+        "formed_batch_size_mean": 5.392133514895812,
+        "instance_count": 1,
+        "max_delay_ms": 2,
+        "oom_count": 0,
+        "p99_ms_max": 1754.6547849924555,
+        "peak_vram_bytes_max": 8544256,
+        "queue_wait_p99_ms_max": 547.4477867597301,
+        "service_rps_mean": 130.55555555555557
+      },
+      {
+        "batch_size": 4,
+        "formed_batch_size_mean": 3.786809621846397,
+        "instance_count": 1,
+        "max_delay_ms": 10,
+        "oom_count": 0,
+        "p99_ms_max": 742.3581969994121,
+        "peak_vram_bytes_max": 8541184,
+        "queue_wait_p99_ms_max": 576.7121850999685,
+        "service_rps_mean": 129.79999999999998
+      },
+      {
+        "batch_size": 4,
+        "formed_batch_size_mean": 3.4965865877903575,
+        "instance_count": 1,
+        "max_delay_ms": 5,
+        "oom_count": 0,
+        "p99_ms_max": 697.7089329992298,
+        "peak_vram_bytes_max": 8541184,
+        "queue_wait_p99_ms_max": 560.9455717606396,
+        "service_rps_mean": 126.7
+      },
+      {
+        "batch_size": 4,
+        "formed_batch_size_mean": 3.431605734234182,
+        "instance_count": 1,
+        "max_delay_ms": 2,
+        "oom_count": 0,
+        "p99_ms_max": 731.9865240110084,
+        "peak_vram_bytes_max": 8541184,
+        "queue_wait_p99_ms_max": 568.8651646389917,
+        "service_rps_mean": 126.04444444444444
+      }
+    ],
+    "total_requests": 195587
+  },
+  "private_evidence": {
+    "aggregate_sha256": "4bca488568bc390404554a77bca74835ac67d21d7730595e761b8a452b86fdc2",
+    "artifact_count": 66,
+    "total_bytes": 36716142
+  },
+  "root_cause": "The analyzer required saturated closed-loop points to satisfy the sustainable p99 and queue-wait SLO before selecting a candidate. Every capacity point was therefore filtered out even though all 63 completed repetitions were hard-safe, error-free, OOM-free, trace-complete, and clean.",
+  "schema_version": "evm.s4_gpu_batching_failed_attempt.v1",
+  "scope": {
+    "closed_concurrency": 64,
+    "open_loop_repetitions": 0,
+    "planned_repetitions": 66,
+    "retained_instance_repetitions": 3,
+    "retained_matrix_repetitions": 60
+  },
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "07f6a9e5580cf40c955d63fce8cdc04fae3f3363",
+    "runtime_config_sha256": "cc8b98f9e3772b8d83444e7c8a305a436391a9eb1cab9e2e1cadbb01a29293a0"
+  },
+  "status": "stopped_fail_closed"
+}

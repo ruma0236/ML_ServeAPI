@@ -57,6 +57,7 @@ def _result(batch: int, delay: int, instances: int, mode: str, repetition: int) 
         "fill_ratio_mean": 1.0,
         "oom_count": 0,
         "evidence_valid": True,
+        "operating_guardrail_passed": True,
     }
 
 
@@ -119,7 +120,7 @@ def test_s4_analysis_fails_without_open_loop_confirmation(tmp_path: Path) -> Non
     assert analysis["runtime_verdict"] == "failed"
 
 
-def test_s4_analysis_excludes_fast_point_outside_operating_guardrail(
+def test_s4_analysis_selects_saturation_candidate_then_defers_slo_to_open_loop(
     tmp_path: Path,
 ) -> None:
     config = _config(tmp_path)
@@ -134,12 +135,36 @@ def test_s4_analysis_excludes_fast_point_outside_operating_guardrail(
             result["service_rps"] = 100_000.0
             result["p99_ms"] = 300.0
             result["queue_wait_p99_ms"] = 150.0
+            result["operating_guardrail_passed"] = False
 
     analysis = analyze_s4_results(results, config)
 
     selected = analysis["selected_operating_point"]
     assert selected is not None
-    assert (selected["batch_size"], selected["max_delay_ms"]) != (32, 0)
+    assert (selected["batch_size"], selected["max_delay_ms"]) == (32, 0)
+    assert analysis["acceptance"]["S4-AC-02"] is False
+    assert analysis["selection_contract"]["closed_loop_role"] == (
+        "capacity_and_pareto_candidate_discovery"
+    )
+
+
+def test_s4_open_loop_must_pass_operating_latency_guardrail(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    results = [
+        _result(batch, delay, 1, "matrix", repetition)
+        for batch in config.batch_sizes
+        for delay in config.max_delays_ms
+        for repetition in range(1, 4)
+    ]
+    results.extend(_result(1, 0, 2, "instance-axis", repetition) for repetition in range(1, 4))
+    open_results = [_result(8, 10, 1, "open-loop", repetition) for repetition in range(1, 4)]
+    open_results[2]["operating_guardrail_passed"] = False
+    results.extend(open_results)
+
+    analysis = analyze_s4_results(results, config)
+
+    assert analysis["acceptance"]["S4-AC-02"] is False
+    assert analysis["runtime_verdict"] == "failed"
 
 
 def test_s4_gpu_api_uses_supported_isolated_file_store(tmp_path: Path) -> None:

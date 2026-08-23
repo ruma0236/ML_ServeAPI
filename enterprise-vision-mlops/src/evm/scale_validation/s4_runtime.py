@@ -513,18 +513,17 @@ def analyze_s4_results(results: list[dict[str, Any]], config: S4RuntimeConfig) -
         count == config.repetitions for count in repetition_counts.values()
     )
     aggregates = _aggregate_points(matrix)
-    safe = [
+    saturation_eligible = [
         item
         for item in aggregates
-        if item["error_rate_max"] <= config.maximum_error_rate
-        and item["p99_ms_max"] <= config.maximum_p99_ms
-        and item["queue_wait_p99_ms_max"] <= config.maximum_queue_wait_ms
+        if item["evidence_valid_all"]
+        and item["error_rate_max"] <= config.maximum_error_rate
         and item["oom_count"] == 0
         and item["temperature_celsius_max"] <= config.maximum_temperature_celsius
         and item["power_watts_max"] <= config.maximum_power_watts
     ]
     selected = max(
-        safe,
+        saturation_eligible,
         key=lambda item: (
             item["service_rps_mean"],
             -item["p99_ms_mean"],
@@ -561,8 +560,10 @@ def analyze_s4_results(results: list[dict[str, Any]], config: S4RuntimeConfig) -
                 instance_two_point["p99_ms_mean"], baseline_instance["p99_ms_mean"]
             ),
         }
-    open_loop_valid = len(open_loop) == config.open_repetitions and all(
-        item.get("evidence_valid") is True for item in open_loop
+    open_loop_valid = (
+        len(open_loop) == config.open_repetitions
+        and all(item.get("evidence_valid") is True for item in open_loop)
+        and all(item.get("operating_guardrail_passed") is True for item in open_loop)
     )
     selected_safe = selected is not None and selected["oom_count"] == 0
     selected_rate = float(selected["service_rps_mean"]) if selected else 0.0
@@ -608,6 +609,15 @@ def analyze_s4_results(results: list[dict[str, Any]], config: S4RuntimeConfig) -
         "matrix_repetition_count": len(matrix),
         "instance_repetition_count": len(instance_axis),
         "open_loop_repetition_count": len(open_loop),
+        "selection_contract": {
+            "saturation_candidate_count": len(saturation_eligible),
+            "matrix_operating_guardrail_pass_count": sum(
+                1 for item in aggregates if item["operating_guardrail_passed_all"]
+            ),
+            "closed_loop_role": "capacity_and_pareto_candidate_discovery",
+            "open_loop_role": "sustainable_operating_guardrail_validation",
+            "open_loop_service_rate_fraction": config.open_service_rate_fraction,
+        },
         "aggregated_points": aggregates,
         "throughput_p99_pareto": throughput_p99_pareto,
         "throughput_peak_vram_pareto": throughput_vram_pareto,
@@ -647,6 +657,10 @@ def _aggregate_points(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "formed_batch_size_mean": _mean(items, "formed_batch_size_mean"),
                 "fill_ratio_mean": _mean(items, "fill_ratio_mean"),
                 "oom_count": int(sum(int(item.get("oom_count", 0)) for item in items)),
+                "evidence_valid_all": all(item.get("evidence_valid") is True for item in items),
+                "operating_guardrail_passed_all": all(
+                    item.get("operating_guardrail_passed") is True for item in items
+                ),
             }
         )
     return aggregates
