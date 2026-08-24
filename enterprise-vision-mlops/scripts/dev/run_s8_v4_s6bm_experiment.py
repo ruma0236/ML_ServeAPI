@@ -333,6 +333,17 @@ def prometheus_baseline() -> dict[str, Any]:
     }
 
 
+def wait_prometheus_baseline(expected: Mapping[str, Any], timeout: float = 30) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    latest = prometheus_baseline()
+    while time.monotonic() < deadline:
+        latest = prometheus_baseline()
+        if latest == dict(expected):
+            return latest
+        time.sleep(0.5)
+    raise S6BMExperimentError(f"prometheus_baseline_restore_timeout:{latest}")
+
+
 def prometheus_query(query: str) -> float:
     response = requests.get(
         f"{PROMETHEUS_URL}/api/v1/query", params={"query": query}, timeout=10
@@ -1374,7 +1385,7 @@ def private_index(root: Path) -> dict[str, Any]:
 
 def prior_zero_credit_attempts(base: Path, current: Path) -> list[dict[str, Any]]:
     attempts = []
-    for path in sorted(base.glob("*/failed-attempt.json")):
+    for path in sorted(base.glob("*/failed-*.json")):
         if path.parent == current:
             continue
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -1382,7 +1393,11 @@ def prior_zero_credit_attempts(base: Path, current: Path) -> list[dict[str, Any]
         classification = (
             "pre_runtime_log_directory_missing"
             if "runtime\\triton.log" in error or "runtime/triton.log" in error
-            else "historical_zero_credit_failure"
+            else (
+                "post_runtime_cleanup_snapshot"
+                if path.name == "failed-cleanup.json"
+                else "historical_zero_credit_failure"
+            )
         )
         attempts.append(
             {
@@ -1391,7 +1406,12 @@ def prior_zero_credit_attempts(base: Path, current: Path) -> list[dict[str, Any]
                 "classification": classification,
                 "error_type": str(payload.get("error_type", "unknown")),
                 "evidence_sha256": sha256_file(path),
-                "acceptance_requests": 0,
+                "acceptance_credit_requests": int(
+                    payload.get("acceptance_credit_requests", 0)
+                ),
+                "executed_logical_requests": int(
+                    payload.get("executed_logical_requests", 0)
+                ),
             }
         )
     return attempts
@@ -1420,7 +1440,7 @@ def cleanup_snapshot(
     )
     queues = queue_counts()
     current_holder = capture_holder()
-    targets = prometheus_baseline()
+    targets = wait_prometheus_baseline(prometheus_before)
     return {
         "b0_uid_exact": current_holder.uid == holder.uid,
         "b0_image_exact": current_holder.image == holder.image,
@@ -1619,7 +1639,7 @@ def main() -> int:
 
     cleanup = cleanup_snapshot(config, holder, gpu_before, prometheus_before)
     canonical_write(suite_root / "final-cleanup.json", cleanup)
-    if not all(
+    cleanup_passed = all(
         value is True
         for key, value in cleanup.items()
         if key
@@ -1637,7 +1657,26 @@ def main() -> int:
             "queue_outcome_unknown_zero",
             "vram_restored",
         }
-    ):
+    )
+    if not cleanup_passed:
+        canonical_write(
+            suite_root / "failed-cleanup.json",
+            {
+                "schema_version": "evm.s8_v4.s6bm_failed_cleanup.v1",
+                "suite_id": suite_id,
+                "failed_at": utc_now(),
+                "source_revision": source["revision"],
+                "credit": "zero_credit",
+                "acceptance_credit_requests": 0,
+                "executed_logical_requests": sum(
+                    int(item.get("requests", {}).get("logical", 0))
+                    for item in attempts
+                    if item.get("profile") == "successful_transition"
+                ),
+                "cleanup": cleanup,
+                "rca": "Final cleanup did not satisfy every frozen postcondition.",
+            },
+        )
         raise S6BMExperimentError(f"final_cleanup_failed:{cleanup}")
 
     index = private_index(suite_root)

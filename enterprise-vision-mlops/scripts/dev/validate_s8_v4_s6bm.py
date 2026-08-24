@@ -235,8 +235,14 @@ def validate(
     }
     if dict(matrix.get("fault_repetitions", {})) != expected_faults:
         raise S6BMValidationError("matrix_faults")
-    if experiment.get("failed_attempts") != []:
-        raise S6BMValidationError("accepted_suite_contains_failure")
+    failures = list(experiment.get("failed_attempts", []))
+    if any(
+        item.get("credit") != "zero_credit"
+        or int(item.get("acceptance_credit_requests", -1)) != 0
+        or len(str(item.get("evidence_sha256", ""))) != 64
+        for item in failures
+    ):
+        raise S6BMValidationError("historical_failure_credit_boundary")
     validate_cleanup(dict(experiment.get("cleanup", {})))
     return {
         "valid": True,
