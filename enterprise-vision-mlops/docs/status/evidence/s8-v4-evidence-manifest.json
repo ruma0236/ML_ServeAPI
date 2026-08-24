@@ -1,8 +1,8 @@
 {
   "schema_version": "evm.s8_v4.evidence_manifest.v1",
-  "generated_at": "2026-08-24T15:37:02.065498Z",
+  "generated_at": "2026-08-24T15:37:23.447006Z",
   "status": "contract_frozen",
-  "runtime_execution_started": true,
+  "runtime_execution_started": false,
   "acceptance_credit": false,
   "v3_prerequisite": {
     "status": "verified",
@@ -55,7 +55,7 @@
     {
       "work_item": "E0",
       "tracking_id": "EVM-299",
-      "status": "remediation_required",
+      "status": "ready",
       "acceptance_criteria": [
         "E0-AC-01",
         "E0-AC-02",
