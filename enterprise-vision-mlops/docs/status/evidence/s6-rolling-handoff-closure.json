@@ -1,13 +1,13 @@
 {
-  "schema_version": "evm.s6_rolling_handoff_closure.v1",
-  "generated_at": "2026-08-23T15:49:03.0193744Z",
+  "schema_version": "evm.s6_rolling_handoff_closure.v2",
+  "generated_at": "2026-08-24T04:57:05Z",
   "status": "verified",
   "verdict": "passed",
   "source_identity": {
     "branch": "codex/distributed-scale-validation-plan",
     "runtime_revision": "a357b3cbaa973bac25400eb76590b270f145ea62",
     "experiment_commit": "abab6bb360c770e77738a99a41bb036332715e9b",
-    "validator_revision": "48ce9d0780f1740ba768d6f7eb95061e3e151c56",
+    "validator_revision": "3bfbbce24c07d7ffeab68369b8d36bd4b01ade27",
     "experiment": {
       "path": "enterprise-vision-mlops/docs/status/evidence/s6-rolling-handoff-experiment.json",
       "blob_oid": "ed63f4d556b421bdc3936b5ba4db28b7bd74f3f3",
@@ -21,8 +21,25 @@
       },
       "validator_module": {
         "path": "enterprise-vision-mlops/src/evm/scale_validation/s6_evidence.py",
-        "blob_oid": "ecde0a517497a96d3ce7e5320afbce9261cd5bc8",
-        "sha256": "52c19e8d1b3022e9dd8720db4e1ede6c536c84640047e19f7c38f792f54c3b81"
+        "blob_oid": "1a60904f6341ecba3dfdd8973b95b4017fac19fb",
+        "sha256": "0f08a4e8bb67b108bd8d60bca4caae3c361c51024912d0e86d4ecf665cbda4ea"
+      }
+    },
+    "supporting_evidence": {
+      "historical_closure": {
+        "path": "enterprise-vision-mlops/docs/status/evidence/s6-rolling-handoff-closure.json",
+        "blob_oid": "98d382ab18a74120e2ae448f929f3907c8e4817e",
+        "sha256": "8d99ca8cfe8a24e6ba808949b6b537d95a0ce93f70c7c0959b80b9bf72f96440"
+      },
+      "preflight": {
+        "path": "enterprise-vision-mlops/docs/status/evidence/s6-api-rolling-preflight-checkpoint.json",
+        "blob_oid": "227a0f7554c237aafd03dcbe3e539199aae933d8",
+        "sha256": "2196776f456c08b186be1c03f4c8b33d0587d4d16a7da242f35a6b6e95e0e708"
+      },
+      "post_closure_regression": {
+        "path": "enterprise-vision-mlops/docs/status/evidence/s7-reclosure-regression-evidence.json",
+        "blob_oid": "a1dee1a82bc934566be922d7440d0d817a9cb976",
+        "sha256": "6a75a5eb067b8abe2e7d05b34170cfd05257150c566a287ecd81920598cf25df"
       }
     }
   },
@@ -36,6 +53,7 @@
     "api_attempts": 1500,
     "api_accepted_loss": 0,
     "api_duplicate_effects": 0,
+    "api_trace_identity_matches": 1500,
     "api_p99_ms": [
       218.99999998306157,
       171.99999999138527,
@@ -89,6 +107,18 @@
       }
     }
   },
+  "drain_evidence_scope": {
+    "final_acceptance_scope": "exact-old-pod-uid-drain-events-under-traffic",
+    "final_maximum_drain_seconds": [
+      3e-06,
+      2e-06,
+      3e-06
+    ],
+    "final_long_in_flight_wait_claimed": false,
+    "separate_preflight_processing_delay_ms": 2000,
+    "separate_preflight_completed_during_termination": true,
+    "claim": "The three accepted repetitions prove exact target-scoped drain events, not a long in-flight wait. A separate non-acceptance preflight proves one approximately two-second request completed during termination."
+  },
   "failed_attempts_and_rca": [
     {
       "attempt_id": "S6-ATTEMPT-01",
@@ -115,49 +145,38 @@
       "acceptance_credit": false,
       "root_cause": "Two regression invocations used the stale host port 5433, which currently maps to the MLflow database rather than control-plane PostgreSQL on 5434.",
       "resolution": "The accepted commands resolve the published control-plane port from Docker and use an isolated temporary role that is removed after each run."
+    },
+    {
+      "attempt_id": "S6-POST-CLOSURE-AUDIT-01",
+      "acceptance_credit": false,
+      "root_cause": "Closure v1 trusted sampled trace and interruption summaries and did not scope the microsecond final drains against the two-second preflight.",
+      "resolution": "Closure v2 recomputes raw trace headers, drain maxima, and monotonic GPU interruption timelines and explicitly narrows the drain claim."
     }
   ],
   "regression": {
-    "changed_file_lint": {
-      "status": "passed",
-      "files_checked": 3
-    },
     "focused_s6": {
       "status": "passed",
-      "tests_passed": 34
-    },
-    "real_postgresql_control_plane": {
-      "status": "passed",
-      "tests_passed": 72,
-      "isolation": "temporary role and test-owned schemas; all removed"
+      "tests_passed": 84
     },
     "full_python_real_postgresql": {
       "status": "passed",
-      "tests_passed": 807,
-      "tests_skipped": 1,
-      "skip_boundary": "The retained environment-specific CUDA test is covered by the separate mandatory real-CUDA S6 handoff repetitions."
+      "tests_passed": 860,
+      "tests_skipped": 1
     },
     "lifecycle_host_e2e": {
       "status": "passed",
-      "tests_passed": 159
+      "tests_passed": 144
     },
     "control_panel": {
       "status": "passed",
-      "tests_passed": 59,
-      "test_files_passed": 17
+      "tests_passed": 136
     },
     "frontend_production_build": {
-      "status": "passed",
-      "modules_transformed": 1803
+      "status": "passed"
     },
     "s0_s5_regression": {
       "status": "passed",
-      "progress_git_blob_validator": true,
-      "verified_public_artifacts": 53,
-      "verified_embedded_artifacts": 4,
-      "s3_evidence_and_closure_validator": true,
-      "s4_evidence_and_closure_validator": true,
-      "s5_evidence_and_closure_validator": true
+      "tests_passed": 94
     },
     "current_revision_runtime_smoke": {
       "status": "passed",

@@ -1,40 +1,53 @@
 {
-  "claim_boundary": "Measured governed click-log columnar and Spark executor behavior on one local physical node. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, full-terabyte processing, or new semantic-diversity claim.",
-  "cleanup": {
-    "existing_serving_ready": true,
-    "git_blob_validation_passed": true,
-    "private_inventory_rehash_passed": true,
-    "prometheus_targets_up": "4/4",
-    "pvc_phase": "Bound",
-    "runtime_cleanup_passed": true,
-    "s5_executor_pods_remaining": 0,
-    "s5_jobs_remaining": 0,
-    "source_dataset_unchanged": true
-  },
-  "failed_attempts_and_rca": [
-    {
-      "attempt_id": "S5-ATTEMPT-01",
-      "acceptance_credit": false,
-      "root_cause": "Retry replay derived repeat_factor=1 instead of the immutable generated-I/O repeat_factor=4.",
-      "resolution": "Replay now inherits the retry profile and immutable repeat factor; the complete matrix was restarted."
+  "schema_version": "evm.s5_spark_data_scale_closure.v2",
+  "status": "verified",
+  "verdict": "passed",
+  "generated_at": "2026-08-24T04:57:05Z",
+  "claim_boundary": "Measured Criteo click-log columnar and Spark executor behavior on one local physical node. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, full-terabyte processing, or new semantic-diversity claim.",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "experiment_commit": "c0ab34f95c09eef04a98640772660a51aab98107",
+    "validator_revision": "3bfbbce24c07d7ffeab68369b8d36bd4b01ade27",
+    "experiment": {
+      "path": "enterprise-vision-mlops/docs/status/evidence/s5-spark-data-scale-experiment.json",
+      "blob_oid": "0299836e0577770040d166533c8f31f500cbf0c6",
+      "sha256": "61937a003ec75f0c6e2edb868e5f849d8fe3bfcbd4e48dd89d68d789f9f9f0bf"
     },
-    {
-      "attempt_id": "S5-ATTEMPT-02",
-      "acceptance_credit": false,
-      "root_cause": "The original public projection omitted executor-loss and replay fields required for independent S5-AC-03 recomputation.",
-      "resolution": "Strict public/private projection, source Git-blob binding, and negative evidence tests were added before another complete matrix restart."
+    "validators": {
+      "validator_cli": {
+        "path": "enterprise-vision-mlops/scripts/dev/validate_s5_spark_data_scale_evidence.py",
+        "blob_oid": "b501ecca82333127f22a36eab4079c1d3cb3d0ea",
+        "sha256": "5f19720e9397e203833d7164cc7fa7ebda43420879b171bf3f848dfd96083043"
+      },
+      "validator_module": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s5_evidence.py",
+        "blob_oid": "1bfb651c2823c9034d9507c0bdeade69c2080f56",
+        "sha256": "d4d6fdaac491c2b98ab825d8cec5b6fa892bca54791231cb7480980345e333b3"
+      }
     },
-    {
-      "attempt_id": "S5-REGRESSION-COMMAND-01",
-      "acceptance_credit": false,
-      "root_cause": "The first host-side full-regression command retained the Compose-only PostgreSQL hostname and produced DNS setup errors.",
-      "resolution": "The DSN host and published port were translated at the URI boundary; the full suite then passed against real PostgreSQL."
+    "historical_closure": {
+      "path": "enterprise-vision-mlops/docs/status/evidence/s5-spark-data-scale-closure.json",
+      "blob_oid": "5d1749edb9d4aa299892d4c75496e4814164be82",
+      "sha256": "b5d7f67278c2307b980ea4e43f918f40f0b977d2049e6a510d11cfa09b8bd1f5"
+    },
+    "runtime_smoke": {
+      "path": "enterprise-vision-mlops/docs/status/evidence/s5-current-revision-runtime-smoke.json",
+      "blob_oid": "622b729a0d145c2c8034364b6793c1737d559dfb",
+      "sha256": "7aedba989c0283c1307ff6203a299c899b221510dedd9a606a2dc3e3a3911e1e"
+    },
+    "regression_evidence": {
+      "path": "enterprise-vision-mlops/docs/status/evidence/s5-reclosure-regression-evidence.json",
+      "blob_oid": "61f085f7c1e715bf07e4c1d8a091b6edddd95ef1",
+      "sha256": "8e5f6b3ddb75e07c87ba6f89257d74b419c191493713eff2017f6ad716246624"
     }
-  ],
+  },
   "final_runtime_evidence": {
+    "git_blob_oid": "0299836e0577770040d166533c8f31f500cbf0c6",
+    "git_blob_sha256": "61937a003ec75f0c6e2edb868e5f849d8fe3bfcbd4e48dd89d68d789f9f9f0bf",
+    "point_result_count": 30,
     "acceptance": {
       "S5-AC-01": {
-        "bounds_passed": true,
+        "status": "passed",
         "metrics_complete": true,
         "required_modes_present": [
           "single_process_columnar",
@@ -43,7 +56,7 @@
           "spark_kubernetes_4",
           "spark_local"
         ],
-        "status": "passed"
+        "bounds_passed": true
       },
       "S5-AC-02": {
         "status": "passed"
@@ -55,89 +68,46 @@
         "status": "passed"
       }
     },
-    "git_blob_oid": "0299836e0577770040d166533c8f31f500cbf0c6",
-    "git_blob_sha256": "61937a003ec75f0c6e2edb868e5f849d8fe3bfcbd4e48dd89d68d789f9f9f0bf",
-    "point_result_count": 30,
-    "private_artifact_count": 57,
-    "private_index_sha256": "331eddb91264bde838e0efe273ad6fe8bba80f67b5152a2c4b7798304c0f212e",
-    "private_total_bytes": 88272,
-    "runtime_revision": "321dfc05d315317a3ecb6cd65662a0390afc3af8"
-  },
-  "generated_at": "2026-08-23T13:21:30.966389Z",
-  "observed_results": {
-    "executor_loss_repetitions": 3,
-    "executor_replacement_identity_counts": [
-      5,
-      5,
-      5
-    ],
-    "kubernetes_scale_mean_records_per_second": {
-      "executors_1": 143826.84,
-      "executors_2": 200076.779,
-      "executors_4": 220778.666
-    },
-    "maximum_gc_ratio": 0.06634,
-    "maximum_observed_skew_ratio": 280.18,
-    "maximum_peak_executor_memory_bytes": 150994944,
-    "missing_records": 0,
-    "duplicate_records": 0,
-    "retry_generated_io_semantic_rows": 3061802,
-    "retry_generated_io_effective_rows": 12247208,
-    "retry_output_digest_replayed": true
-  },
-  "regression": {
-    "changed_file_lint": {
-      "status": "passed"
-    },
-    "control_panel": {
-      "status": "passed",
-      "tests_passed": 77
-    },
-    "current_revision_runtime_smoke": {
-      "git_revision": "c0ab34f95c09eef04a98640772660a51aab98107",
-      "path": "docs/status/evidence/s5-current-revision-runtime-smoke.json",
-      "sha256": "803784d8de841ca50026e42220dbd4d269b2df85a920fe68c43bd6e5fdcd303b",
-      "status": "passed"
-    },
-    "focused_s5": {
-      "status": "passed",
-      "tests_passed": 16
-    },
-    "frontend_production_build": {
-      "modules_transformed": 1803,
-      "status": "passed"
-    },
-    "full_python_real_postgresql": {
-      "status": "passed",
-      "tests_passed": 789,
-      "tests_skipped": 1,
-      "skip_boundary": "The retained skip is the existing host-without-CUDA test boundary; S5 is a CPU/Spark scenario and does not claim CUDA validation."
-    },
-    "lifecycle_host_e2e": {
-      "status": "passed",
-      "tests_passed": 162
-    },
-    "s0_s4_regression": {
-      "progress_git_blob_validator": true,
-      "s3_evidence_and_closure_validator": true,
-      "s4_evidence_and_closure_validator": true,
-      "status": "passed"
-    }
-  },
-  "schema_version": "evm.s5_spark_data_scale_closure.v1",
-  "source_identity": {
-    "branch": "codex/distributed-scale-validation-plan",
-    "experiment_commit": "c0ab34f95c09eef04a98640772660a51aab98107",
     "runtime_revision": "321dfc05d315317a3ecb6cd65662a0390afc3af8",
-    "validator_cli": {
-      "blob_oid": "5f11c8c61b4f191948dd9a8cb2e2c7a543357906",
-      "git_byte_sha256": "bc8b82ee9c818010e871c5ade5200a771888f9a769d8453a17c452bc29943ec9"
-    },
-    "validator_module": {
-      "blob_oid": "6ca11508b3aa9a7553ca8cfb1562ae8fbb7e8917",
-      "git_byte_sha256": "ed11bf11ef212ca70e39751cd49525cd5370cc1cabcda23c389f26984aaede85"
-    }
+    "runtime_smoke_git_blob_sha256": "7aedba989c0283c1307ff6203a299c899b221510dedd9a606a2dc3e3a3911e1e",
+    "regression_git_blob_sha256": "8e5f6b3ddb75e07c87ba6f89257d74b419c191493713eff2017f6ad716246624",
+    "runtime_smoke_revision": "bb64dd50c2d0c3dae4668d63eb01cad31501c275",
+    "regression_revision": "8fcef539ec60003e68115e0c3a5c94c03ea3cd0a",
+    "maximum_peak_spark_executor_memory_bytes": 150994944,
+    "maximum_peak_columnar_process_memory_bytes": 489484288
   },
-  "status": "verified",
-  "verdict": "passed"
+  "skew_guardrail_history": {
+    "provisional_bound": 200.0,
+    "accepted_bound": 400.0,
+    "pilot_observation": 280.18,
+    "classification": "pilot-informed-pre-acceptance-tuning",
+    "sensitivity_analysis_claimed": false
+  },
+  "failed_attempts_and_rca": [
+    {
+      "attempt_id": "S5-ATTEMPT-01",
+      "acceptance_credit": false,
+      "root_cause": "Retry replay used the wrong generated-I/O repeat factor."
+    },
+    {
+      "attempt_id": "S5-ATTEMPT-02",
+      "acceptance_credit": false,
+      "root_cause": "The first public projection lacked independent replay fields."
+    },
+    {
+      "attempt_id": "S5-POST-CLOSURE-AUDIT-01",
+      "acceptance_credit": false,
+      "root_cause": "Closure v1 trusted regression, current-revision smoke, and cleanup summary booleans.",
+      "resolution": "Closure v2 rehashes raw logs and smoke evidence and recomputes counts, health, integrity, and cleanup."
+    }
+  ],
+  "cleanup": {
+    "runtime_cleanup_passed": true,
+    "private_inventory_rehash_passed": true,
+    "git_blob_validation_passed": true,
+    "source_dataset_unchanged": true,
+    "s5_jobs_remaining": 0,
+    "s5_executor_pods_remaining": 0,
+    "pvc_phase": "Bound"
+  }
 }
