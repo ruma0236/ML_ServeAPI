@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T08:18:35Z",
+  "generated_at": "2026-08-24T08:40:10Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -4086,6 +4086,12 @@
           "sha256": "85c953c0089a39a0ed972b5bb4434a6036187d8be8167f1dd24086ebe2371c8d",
           "generated_at": "2026-08-24T08:16:51Z",
           "claim": "Zero-credit v5 timeout preflight passed 6/6 terminal and trace closure, exact effect accounting, mirror parity, 51.484-second recovery, and cleanup; no S8 acceptance repetition is credited."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-attempt-04.json",
+          "sha256": "2144d670bda5f6d03db76d1f9ef4fdbecea6a77e79d3164eb4c5b0bb70c6803b",
+          "generated_at": "2026-08-24T08:36:11.585773Z",
+          "claim": "Rejected MTTR-projection attempt: all 21 fault scopes passed, but aggregate admission failed because worker-loss MTTR incorrectly included a sequential timeout/HOL phase and reached 63.234 seconds; cleanup passed, soak did not start, and no acceptance credit was awarded."
         }
       ],
       "status": "implementing",
@@ -4096,7 +4102,7 @@
         "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
         "One final evidence index re-hashes every accepted result."
       ],
-      "next_action": "Restart all 21 fault repetitions from the clean v5 revision; start the 30-minute x3 soak only when every fault repetition passes.",
+      "next_action": "Rerun the complete 21-repetition fault matrix from the v6 profile-specific MTTR revision; begin soak only after every fresh fault repetition passes.",
       "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
       "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.",
       "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
@@ -4237,6 +4243,12 @@
           "sha256": "85c953c0089a39a0ed972b5bb4434a6036187d8be8167f1dd24086ebe2371c8d",
           "generated_at": "2026-08-24T08:16:51Z",
           "claim": "Zero-credit v5 timeout preflight passed 6/6 terminal and trace closure, exact effect accounting, mirror parity, 51.484-second recovery, and cleanup; no S8 acceptance repetition is credited."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-attempt-04.json",
+          "sha256": "2144d670bda5f6d03db76d1f9ef4fdbecea6a77e79d3164eb4c5b0bb70c6803b",
+          "generated_at": "2026-08-24T08:36:11.585773Z",
+          "claim": "Rejected MTTR-projection attempt: all 21 fault scopes passed, but aggregate admission failed because worker-loss MTTR incorrectly included a sequential timeout/HOL phase and reached 63.234 seconds; cleanup passed, soak did not start, and no acceptance credit was awarded."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -4327,6 +4339,16 @@
           "summary": "The zero-credit v5 timeout preflight passed 6/6 terminal and trace closure, exact effect accounting, mirror parity, bounded 51.484-second recovery, and cleanup. Acceptance credit remains zero.",
           "evidence_refs": [
             "docs/status/evidence/s8-timeout-v5-preflight.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T08:40:10Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "Attempt 04 was rejected with zero acceptance credit. All 21 individual fault scopes passed, but worker-loss MTTR included a sequential timeout/HOL phase and exceeded 60 seconds; cleanup completed and soak did not start.",
+          "evidence_refs": [
+            "docs/status/evidence/s8-dependency-soak-attempt-04.json",
+            "docs/status/2026-08-24-s8-attempt-04-rca.md"
           ]
         }
       ]

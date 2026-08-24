@@ -117,6 +117,14 @@ behavior without a schema migration.
   parity matched, and fault-to-terminal recovery was `51.484 s` under the
   frozen `60 s` bound. This preflight carries no acceptance credit; all 21 fault
   repetitions still restart from the clean v5 revision.
+- Attempt 04 subsequently passed all `21/21` individual fault scopes, with
+  duplicate effects and pool timeouts both zero, but the aggregate gate rejected
+  the run before soak. Worker-loss recovery was projected as `61.608-63.234 s`
+  because the timer included the separate timeout/HOL phase executed after the
+  worker-owned slow task had recovered. V6 keeps that full profile elapsed for
+  audit and adds exact monotonic PID-failure-to-reclaimed-task terminal MTTR as
+  the worker-loss acceptance basis. The frozen `60 s` bound is unchanged, and
+  all 21 fault repetitions must restart before soak.
 5. Stop on retry budget escape, unbounded slope, error or p99 guardrail breach,
    trace gap, identity ambiguity, or cleanup uncertainty.
 6. Re-hash all accepted public and private artifacts before closure.

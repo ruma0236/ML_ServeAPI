@@ -148,8 +148,8 @@ def main() -> int:
 
 def record_failed_attempt(args: argparse.Namespace) -> int:
     now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    if args.attempt not in {1, 2, 3}:
-        raise SystemExit("only retained S8 failed attempts 1 through 3 are supported")
+    if args.attempt not in {1, 2, 3, 4}:
+        raise SystemExit("only retained S8 failed attempts 1 through 4 are supported")
     evidence_path = ROOT / f"docs/status/evidence/s8-dependency-soak-attempt-{args.attempt:02d}.json"
     evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
     digest = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
@@ -176,6 +176,12 @@ def record_failed_attempt(args: argparse.Namespace) -> int:
             "the worker and HTTP timeouts shared a 10-second boundary; cleanup "
             "passed, soak did not start, and no acceptance credit was awarded."
         ),
+        4: (
+            "Rejected MTTR-projection attempt: all 21 fault scopes passed, but "
+            "aggregate admission failed because worker-loss MTTR incorrectly "
+            "included a sequential timeout/HOL phase and reached 63.234 seconds; "
+            "cleanup passed, soak did not start, and no acceptance credit was awarded."
+        ),
     }
     claim = claims[args.attempt]
     artifact = {
@@ -195,8 +201,8 @@ def record_failed_attempt(args: argparse.Namespace) -> int:
     scenario["status"] = "implementing"
     scenario["verdict_and_claim_boundary"]["verdict"] = "not_run"
     scenario["next_action"] = (
-        "Rerun the complete 21-repetition fault matrix from the v4 fail-closed timeout "
-        "revision; begin soak only after every fresh fault repetition passes."
+        "Rerun the complete 21-repetition fault matrix from the v6 profile-specific "
+        "MTTR revision; begin soak only after every fresh fault repetition passes."
     )
     scenario["chronological_updates"].append(
         {
@@ -218,6 +224,11 @@ def record_failed_attempt(args: argparse.Namespace) -> int:
                     3: (
                         "Fifteen repetitions passed, then timeout repetition 1 retained "
                         "two outcome-unknown items at an equal worker/HTTP timeout boundary; "
+                        "cleanup completed and soak did not start."
+                    ),
+                    4: (
+                        "All 21 individual fault scopes passed, but worker-loss MTTR "
+                        "included a sequential timeout/HOL phase and exceeded 60 seconds; "
                         "cleanup completed and soak did not start."
                     ),
                 }[args.attempt]
