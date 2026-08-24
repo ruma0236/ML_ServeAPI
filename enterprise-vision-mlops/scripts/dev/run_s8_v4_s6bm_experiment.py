@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 from uuid import uuid4
 
 import psutil
@@ -401,9 +401,13 @@ def wait_prometheus_jobs(config: S6BMConfig, *, present: bool, timeout: float = 
         observed = {
             str(dict(item.get("labels", {})).get("job"))
             for item in prometheus_targets()
+        }
+        healthy = {
+            str(dict(item.get("labels", {})).get("job"))
+            for item in prometheus_targets()
             if item.get("health") == "up"
         }
-        if present and expected <= observed:
+        if present and expected <= healthy:
             return
         if not present and not (expected & observed):
             return
@@ -438,6 +442,7 @@ def start_triton(config: S6BMConfig, model_root: Path, log_path: Path) -> None:
     if container_exists(CONTAINER_NAME):
         raise S6BMExperimentError("triton_container_already_exists")
     immutable = f"{config.image.rsplit(':', 1)[0]}@{config.image_digest}"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     result = run(
         [
             "docker",
@@ -471,6 +476,7 @@ def start_triton(config: S6BMConfig, model_root: Path, log_path: Path) -> None:
 
 
 def stop_triton(log_path: Path) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     if not container_exists(CONTAINER_NAME):
         return
     logs = run(["docker", "logs", CONTAINER_NAME], check=False, timeout=30)
@@ -1337,6 +1343,31 @@ def private_index(root: Path) -> dict[str, Any]:
     }
 
 
+def prior_zero_credit_attempts(base: Path, current: Path) -> list[dict[str, Any]]:
+    attempts = []
+    for path in sorted(base.glob("*/failed-attempt.json")):
+        if path.parent == current:
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        error = str(payload.get("error", ""))
+        classification = (
+            "pre_runtime_log_directory_missing"
+            if "runtime\\triton.log" in error or "runtime/triton.log" in error
+            else "historical_zero_credit_failure"
+        )
+        attempts.append(
+            {
+                "suite_id": str(payload.get("suite_id", path.parent.name)),
+                "credit": "zero_credit",
+                "classification": classification,
+                "error_type": str(payload.get("error_type", "unknown")),
+                "evidence_sha256": sha256_file(path),
+                "acceptance_requests": 0,
+            }
+        )
+    return attempts
+
+
 def wait_vram_restore(before: Mapping[str, Any], timeout: float) -> tuple[dict[str, Any], float]:
     started = time.monotonic()
     tolerance = max(256.0, float(before["memory_total_mib"]) * 0.05)
@@ -1513,20 +1544,48 @@ def main() -> int:
         canonical_write(suite_root / "failed-attempt.json", failure)
         raise
     finally:
-        stop_api(api)
-        stop_triton(triton_log)
+        cleanup_errors: list[dict[str, str]] = []
+        cleanup_actions: list[tuple[str, Callable[[], None]]] = [
+            ("api", lambda: stop_api(api)),
+            ("triton", lambda: stop_triton(triton_log)),
+        ]
         if target_written:
-            remove_prometheus_targets()
-            wait_prometheus_jobs(config, present=False)
-        if lease is not None and read_active_gpu_lease() is not None:
-            release_scale_validation_gpu_lease(
-                run_id=lease.run_id,
-                lease_id=lease.lease_id,
-                fencing_token=lease.fencing_token,
-                reason=f"S6B-M suite {suite_id} cleanup",
+            cleanup_actions.append(
+                (
+                    "prometheus",
+                    lambda: (
+                        remove_prometheus_targets(),
+                        wait_prometheus_jobs(config, present=False),
+                    ),
+                )
+            )
+        if lease is not None:
+            cleanup_actions.append(
+                (
+                    "lease",
+                    lambda: release_scale_validation_gpu_lease(
+                        run_id=lease.run_id,
+                        lease_id=lease.lease_id,
+                        fencing_token=lease.fencing_token,
+                        reason=f"S6B-M suite {suite_id} cleanup",
+                    )
+                    if read_active_gpu_lease() is not None
+                    else None,
+                )
             )
         if holder_scaled:
-            scale_holder(holder, holder.replicas)
+            cleanup_actions.append(
+                ("b0_holder", lambda: scale_holder(holder, holder.replicas))
+            )
+        for name, action in cleanup_actions:
+            try:
+                action()
+            except Exception as cleanup_exc:  # noqa: BLE001 - preserve every cleanup failure
+                cleanup_errors.append(
+                    {"action": name, "error_type": type(cleanup_exc).__name__, "error": str(cleanup_exc)}
+                )
+        if cleanup_errors:
+            canonical_write(suite_root / "cleanup-errors.json", cleanup_errors)
 
     cleanup = cleanup_snapshot(config, holder, gpu_before, prometheus_before)
     canonical_write(suite_root / "final-cleanup.json", cleanup)
@@ -1601,7 +1660,7 @@ def main() -> int:
             "aggregate_sha256": index["aggregate_sha256"],
             "index_sha256": sha256_file(index_path),
         },
-        "failed_attempts": [] if failure is None else [failure],
+        "failed_attempts": prior_zero_credit_attempts(args.private_base, suite_root),
         "claim_boundary": CLAIM_BOUNDARY,
         "reviewer_sign_off": "pending",
         "next_action": "source-local independent review; do not start X1",
