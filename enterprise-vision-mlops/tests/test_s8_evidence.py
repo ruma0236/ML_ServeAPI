@@ -288,3 +288,40 @@ def test_s8_validator_rejects_summary_mutations(
             private_root=ROOT,
             project_root=ROOT,
         )
+
+
+def test_private_experiment_index_excludes_separate_closure_scope(
+    tmp_path: Path,
+) -> None:
+    accepted = tmp_path / "faults" / "accepted.json"
+    accepted.parent.mkdir(parents=True)
+    accepted.write_text("{}\n", encoding="utf-8")
+    closure = tmp_path / "closure" / "revision" / "regression.log"
+    closure.parent.mkdir(parents=True)
+    closure.write_text("passed\n", encoding="utf-8")
+    entries = [
+        {
+            "path": accepted.relative_to(tmp_path).as_posix(),
+            "bytes": accepted.stat().st_size,
+            "sha256": hashlib.sha256(accepted.read_bytes()).hexdigest(),
+        }
+    ]
+    index = {
+        "schema_version": "evm.s2_private_evidence_index.v1",
+        "artifact_count": 1,
+        "aggregate_sha256": evidence.canonical_digest(entries),
+        "artifacts": entries,
+    }
+    index_path = tmp_path / "private-evidence-index.json"
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+
+    projection, errors = evidence.validate_private_index(
+        tmp_path,
+        public_summary={
+            "artifact_count": 1,
+            "aggregate_sha256": index["aggregate_sha256"],
+        },
+    )
+
+    assert errors == []
+    assert projection["artifact_count"] == 1

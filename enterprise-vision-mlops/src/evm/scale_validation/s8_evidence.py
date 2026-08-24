@@ -365,6 +365,9 @@ def validate_private_index(
         if candidate.is_file()
         and candidate.name
         not in {"private-evidence-index.json", "suite-summary-private.json"}
+        # Closure regressions and current-revision smoke are a separate evidence
+        # scope created after the immutable accepted experiment inventory.
+        and "closure" not in candidate.relative_to(root).parts
     }
     if indexed_paths != actual_paths:
         errors.append("private_index_inventory")
