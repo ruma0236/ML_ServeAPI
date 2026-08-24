@@ -59,7 +59,38 @@ TRANSITIONS = {
 }
 
 
+REMEDIATION_RUNNING = {
+    "event_type": "e0_validator_remediation_started",
+    "summary": (
+        "E0 strict validator remediation started without changing or rerunning the three "
+        "historical accepted runtime attempts"
+    ),
+    "credit": "non_credit",
+    "acceptance": "E0-AC-01..04 under strict independent revalidation",
+    "next_gate": "Mutation regressions, raw-evidence reprojection, current-revision smoke, and closure review handoff",
+}
+
+
 def remediation_transition(evidence: dict[str, Any], *, amendment: bool) -> dict[str, str]:
+    if evidence.get("schema_version") == "evm.s8_v4.e0_independent_review_failure.v1":
+        return {
+            "event_type": "e0_independent_review_remediation_required",
+            "summary": (
+                "Independent review failed the E0 closure because the validator trusted "
+                "summary fields instead of enforcing model, inference, Prometheus, and "
+                "cleanup invariants"
+            ),
+            "credit": "zero_credit",
+            "acceptance": (
+                "Historical runtime attempts preserved; E0-AC-01..04 require strict "
+                "raw-evidence revalidation"
+            ),
+            "next_gate": (
+                "Implement the versioned fail-closed validator and prove the required "
+                "mutations are rejected"
+            ),
+            "rca": str(evidence.get("rca_summary") or "E0 validator was fail-open."),
+        }
     failure = str(evidence.get("failure") or "")
     if failure.startswith("E0RuntimeError:e0_cupti_probe_exit:1"):
         return {
@@ -308,8 +339,8 @@ def main() -> int:
     prior = str(e0["status"])
     expected_prior = {
         "ready": {"contract_frozen", "remediation_required"},
-        "running": "ready",
-        "remediation_required": {"running", "remediation_required"},
+        "running": {"ready", "remediation_required"},
+        "remediation_required": {"running", "remediation_required", "review_pending"},
         "review_pending": "running",
     }[args.to]
     if isinstance(expected_prior, set):
@@ -390,7 +421,11 @@ def main() -> int:
 
     events = read_events(LEDGER)
     next_number = max(int(str(event["event_id"]).rsplit("-", 1)[1]) for event in events) + 1
-    transition: dict[str, Any] = TRANSITIONS[args.to]
+    transition: dict[str, Any] = (
+        REMEDIATION_RUNNING
+        if args.to == "running" and prior == "remediation_required"
+        else TRANSITIONS[args.to]
+    )
     transition_evidence: dict[str, Any] | None = None
     if args.to == "remediation_required":
         transition_evidence = json.loads(args.evidence.read_bytes())

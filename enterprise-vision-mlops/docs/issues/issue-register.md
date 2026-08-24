@@ -579,7 +579,7 @@ credit or the V3 `35 RPS` load.
 | ID | Work item | Status | Dependency | Evidence / Exit Criteria |
 |---|---|---|---|---|
 | `EVM-EPIC-26` | S8-V4 Triton And Heterogeneous-model Operational Validation | Contract Frozen / Jira `SCRUM-209` In Progress | V3 S0-S8 verified | Coverage matrix, V3-V4 crosswalk, versioned V4 plan, append-only hash ledger, and evidence manifest committed before runtime work |
-| `EVM-299` | E0 Triton Environment And Profiler Baseline | Contract Frozen / Not Run / Jira `SCRUM-210` To Do | EVM-EPIC-26 | WSL2/Docker/CUDA/Triton image, GPU UUID, batch-one inference, Prometheus, Nsight/CUPTI and cleanup pass three independent repetitions |
+| `EVM-299` | E0 Triton Environment And Profiler Baseline | Remediation Required / Independent Review Failed / Jira `SCRUM-210` In Review | EVM-EPIC-26 | Three historical runtime repetitions are preserved; a fail-open validator must be hardened and independently re-reviewed before any verified credit or downstream work |
 | `EVM-300` | S6B-M Triton Model Blue/Green | Planned / Not Run / Jira `SCRUM-211` To Do | EVM-299 verified | One Triton GPU Pod; warmup, 10% canary, switch, drain, unload, exact rollback and wrong-digest fail-closed evidence |
 | `EVM-301` | X1 Heterogeneous-model Concurrency | Planned / Not Run / Jira `SCRUM-212` To Do | EVM-300 verified | Four governed lightweight models; solo/serial/concurrent/per-model batching; API replicas 1/2; CPU workers 1/2/4; profiler-qualified overlap only |
 | `EVM-302` | Integrated S8-V4 Fault, Recovery And Soak Closure | Planned / Not Run / Jira `SCRUM-213` To Do | EVM-301 verified | Six fault classes x3 plus three 30-minute soaks at X1-derived load; strict identity, fairness, retry/DLQ, resource slopes, cleanup and independent review |

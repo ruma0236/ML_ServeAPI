@@ -1,0 +1,57 @@
+{
+  "schema_version": "evm.s8_v4.e0_independent_review_failure.v1",
+  "audit_id": "e0-independent-audit-20260825",
+  "observed_at": "2026-08-25T00:00:00Z",
+  "source_revision": "7a7944ff56c1510f6f096b8ee961f5daba889041",
+  "status": "review_failed",
+  "verdict": "fail",
+  "credit": "zero_credit",
+  "acceptance_credit": false,
+  "failure": "IndependentReviewFailure:e0_validator_fail_open",
+  "historical_runtime_disposition": {
+    "accepted_attempts_preserved": true,
+    "accepted_attempt_ids": [
+      "e0-1-ce443b45ec9a",
+      "e0-2-ae3e8e8eadeb",
+      "e0-3-e2d8d328d0ee"
+    ],
+    "runtime_rerun_required": false,
+    "reason": "The immutable raw attempts contain the required model, inference, direct metric, profiler, and cleanup fields; only the closure validator was fail-open."
+  },
+  "defects": [
+    {
+      "id": "E0-AUDIT-01",
+      "severity": "P0",
+      "finding": "A different syntactically valid model artifact digest was accepted because the validator did not bind the evidence to the frozen manifest and model file bytes."
+    },
+    {
+      "id": "E0-AUDIT-02",
+      "severity": "P0",
+      "finding": "Request, success, and inference counts below the frozen value of 100 were accepted, and GPU execution relied on a summary boolean instead of raw runtime evidence."
+    },
+    {
+      "id": "E0-AUDIT-03",
+      "severity": "P0",
+      "finding": "Prometheus count zero, missing data, or mismatched attempt/model identity was not independently rejected."
+    },
+    {
+      "id": "E0-AUDIT-04",
+      "severity": "P0",
+      "finding": "Cleanup validation ignored orphan_count and did not require every residue dimension to be exactly zero."
+    },
+    {
+      "id": "E0-AUDIT-05",
+      "severity": "P1",
+      "finding": "Issue register, umbrella description, and progress claim text still described E0 as not run after runtime evidence reached review_pending."
+    }
+  ],
+  "rca_summary": "The v1 evidence projection validated hashes and summary shape but did not independently parse and enforce the immutable model manifest, Triton direct metrics, attempt-scoped Prometheus samples, GPU instance log, CUPTI fields, and complete cleanup residue set.",
+  "remediation_boundary": {
+    "runner_path_changes": false,
+    "accepted_runtime_repetitions_changed": false,
+    "historical_evidence_modified": false,
+    "downstream_work_started": false
+  },
+  "next_action": "Add a versioned fail-closed validator, mutation regressions, strict reprojection, one non-credit current-revision smoke, and a new review_pending handoff.",
+  "claim_boundary": "one Windows/WSL2 physical node, one RTX 4080, controlled traffic; no production SLA, HA/DR, multi-GPU/MIG/MPS, Triton-overlap, or customer-traffic claim"
+}
