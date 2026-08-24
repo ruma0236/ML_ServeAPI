@@ -368,9 +368,23 @@ def write_prometheus_targets(config: S6BMConfig, suite_id: str) -> None:
 
 
 def remove_prometheus_targets() -> None:
+    canonical_write(TRITON_TARGET, [])
+    canonical_write(API_TARGET, [])
+    restart_prometheus()
+    deadline = time.monotonic() + 30
+    temporary_jobs = {"evm-s8-v4-s6bm-triton", "evm-s8-v4-s6bm-api"}
+    while time.monotonic() < deadline:
+        jobs = {
+            str(dict(item.get("labels", {})).get("job")) for item in prometheus_targets()
+        }
+        if not (temporary_jobs & jobs):
+            break
+        time.sleep(0.5)
+    else:
+        raise S6BMExperimentError("prometheus_temporary_targets_not_cleared")
     TRITON_TARGET.unlink(missing_ok=True)
     API_TARGET.unlink(missing_ok=True)
-    reload_prometheus()
+    restart_prometheus()
 
 
 def reload_prometheus() -> None:
@@ -389,6 +403,19 @@ def reload_prometheus() -> None:
     if "SUCCESS" not in checked.stdout:
         raise S6BMExperimentError("prometheus_config_invalid")
     run(["docker", "kill", "--signal", "SIGHUP", "evm-prometheus"])
+
+
+def restart_prometheus() -> None:
+    run(["docker", "restart", "evm-prometheus"], timeout=60)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        try:
+            if requests.get(f"{PROMETHEUS_URL}/-/ready", timeout=1).status_code == 200:
+                return
+        except requests.RequestException:
+            pass
+        time.sleep(0.5)
+    raise S6BMExperimentError("prometheus_restart_timeout")
 
 
 def wait_prometheus_jobs(config: S6BMConfig, *, present: bool, timeout: float = 30) -> None:
@@ -671,7 +698,10 @@ def initialize_controller(
         },
     }
     response = requests.post(api_url(config, "initialize"), json=payload, timeout=15)
-    response.raise_for_status()
+    if response.status_code != 200:
+        raise S6BMExperimentError(
+            f"controller_initialize_failed:{response.status_code}:{response.text[:1000]}"
+        )
     return response.json()
 
 
@@ -1421,7 +1451,8 @@ def main() -> int:
     args = parse_args()
     config = S6BMConfig.from_path(args.config)
     source = source_identity()
-    suite_id = f"s6bm-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ").lower()
+    suite_id = f"s6bm-{timestamp}-{uuid4().hex[:8]}"
     suite_root = args.private_base / suite_id
     suite_root.mkdir(parents=True, exist_ok=False)
     model_root = suite_root / "model-repository"
