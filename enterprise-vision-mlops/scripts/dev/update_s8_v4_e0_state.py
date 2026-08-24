@@ -91,6 +91,23 @@ def remediation_transition(evidence: dict[str, Any], *, amendment: bool) -> dict
             ),
             "rca": str(evidence.get("rca_summary") or "E0 validator was fail-open."),
         }
+    if evidence.get("schema_version") == "evm.s8_v4.e0_remediation_smoke_failure.v1":
+        return {
+            "event_type": "e0_remediation_smoke_identity_rca",
+            "summary": (
+                "The first non-credit current-revision smoke stopped before lease acquisition "
+                "because the diagnostic wrapper reversed the source revision and branch fields"
+            ),
+            "credit": "zero_credit",
+            "acceptance": (
+                "Historical three-run evidence unchanged; diagnostic smoke received no credit"
+            ),
+            "next_gate": (
+                "Correct the wrapper identity tuple, append a fresh running event, and rerun "
+                "one non-credit smoke"
+            ),
+            "rca": str(evidence.get("rca_summary") or "Smoke source identity was reversed."),
+        }
     failure = str(evidence.get("failure") or "")
     if failure.startswith("E0RuntimeError:e0_cupti_probe_exit:1"):
         return {

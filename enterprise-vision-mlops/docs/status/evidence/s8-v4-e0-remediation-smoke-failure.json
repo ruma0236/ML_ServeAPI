@@ -1,0 +1,30 @@
+{
+  "schema_version": "evm.s8_v4.e0_remediation_smoke_failure.v1",
+  "attempt_id": "e0-remediation-smoke-8f741fc4184d",
+  "occurred_at": "2026-08-24T16:55:00Z",
+  "source_revision": "b85971405c3d9ab82bcf6838cee15d487c9e9bbc",
+  "credit": "zero_credit",
+  "acceptance_credit": false,
+  "failure": "ScenarioWorkloadError:invalid source_commit identity before GPU lease acquisition",
+  "rca_summary": "The diagnostic wrapper assigned source_identity() as branch, revision, tree although the existing helper returns revision, branch, tree. It therefore supplied the branch name where a 40-character commit was required.",
+  "runtime_impact": {
+    "gpu_lease_acquired": false,
+    "triton_started": false,
+    "accepted_runtime_attempt_changed": false,
+    "accepted_runtime_attempt_added": false
+  },
+  "cleanup": {
+    "container_absent": true,
+    "target_absent": true,
+    "lease_absent": true,
+    "queue_active": 0,
+    "queue_leased": 0,
+    "queue_outcome_unknown": 0,
+    "b0_cuda_restored": true
+  },
+  "private_evidence": {
+    "uri": "private://s8-v4/e0-remediation/current-revision-smoke-b859714/smoke-private.json",
+    "sha256": "958f39e3466a362aa79aac596c05359b975b2ba456ceb4e654d6cb8e8b321ed5"
+  },
+  "next_action": "Use the corrected source identity tuple and execute a fresh non-credit smoke attempt."
+}

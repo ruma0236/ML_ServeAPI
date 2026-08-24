@@ -79,7 +79,7 @@ def main() -> int:
         raise RuntimeError("e0_remediation_smoke_output_exists")
     args.output_root.mkdir(parents=True)
     config = E0RuntimeConfig.from_path(args.config)
-    branch, revision, tree = source_identity()
+    revision, branch, tree = source_identity()
     manifest_path = args.model_repository / "model-repository-manifest.json"
     manifest = json.loads(manifest_path.read_bytes())
     artifact = args.model_repository / config.model_name / config.model_version / "model.pt"
