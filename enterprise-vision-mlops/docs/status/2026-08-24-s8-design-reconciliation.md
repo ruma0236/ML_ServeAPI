@@ -125,6 +125,12 @@ behavior without a schema migration.
   audit and adds exact monotonic PID-failure-to-reclaimed-task terminal MTTR as
   the worker-loss acceptance basis. The frozen `60 s` bound is unchanged, and
   all 21 fault repetitions must restart before soak.
+- The zero-credit v6 worker-loss preflight confirmed the corrected basis on the
+  real process path. Full profile elapsed remained `62.234 s`, while exact PID
+  failure to reclaimed slow-task terminal was `11.954 s`; terminal and trace
+  closure were `3/3`, duplicate effects were `0`, and cleanup passed. This is a
+  calibration gate only. The full v6 matrix still restarts with zero acceptance
+  credit carried forward.
 5. Stop on retry budget escape, unbounded slope, error or p99 guardrail breach,
    trace gap, identity ambiguity, or cleanup uncertainty.
 6. Re-hash all accepted public and private artifacts before closure.

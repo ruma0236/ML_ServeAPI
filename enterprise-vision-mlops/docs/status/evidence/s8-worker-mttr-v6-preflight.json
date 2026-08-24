@@ -1,0 +1,47 @@
+{
+  "schema_version": "evm.s8_worker_mttr_preflight.v1",
+  "generated_at": "2026-08-24T08:48:43Z",
+  "source_revision": "ff031cb38e57460b046bedd20ef40abfe246124e",
+  "profile_version": "s8-dependency-soak-v6-20260824",
+  "acceptance_credit": false,
+  "passed": true,
+  "terminal": {
+    "accepted": 3,
+    "terminal": 3,
+    "completed": 2,
+    "failed": 1,
+    "missing": 0,
+    "elapsed_seconds": 40.359
+  },
+  "effects": {
+    "attempts": 3,
+    "unique": 2,
+    "duplicates": 0,
+    "multiple_logical": 0
+  },
+  "trace": {
+    "complete": 3,
+    "expected": 3,
+    "missing": 0
+  },
+  "mttr": {
+    "basis": "worker_pid_failure_to_reclaimed_task_terminal",
+    "seconds": 11.954,
+    "full_profile_elapsed_seconds": 62.234,
+    "maximum_seconds": 60.0,
+    "passed": true
+  },
+  "cleanup": {
+    "schema_dropped": true,
+    "marker_processes_remaining": 0,
+    "errors": 0
+  },
+  "private_evidence": {
+    "artifact_count": 18,
+    "aggregate_sha256": "69caa35a9ecbae5cbe90c631166253be17e4a27fdbfa2b35cef7ac9dacbdbd53",
+    "pilot_result_sha256": "0b01080064065de4bb95bf12b276f5acd9ebd96a26b3609c23ccf8fff983e393",
+    "location": "outside_git_private_evidence_root"
+  },
+  "next_gate": "Restart all 21 fault repetitions from this clean v6 revision; begin the 30-minute x3 soak only after the aggregate fault gate passes.",
+  "claim_boundary": "Passing zero-credit worker-recovery preflight on one local physical node; not S8 acceptance, production SLA, HA/DR, or physical-node failover evidence."
+}
