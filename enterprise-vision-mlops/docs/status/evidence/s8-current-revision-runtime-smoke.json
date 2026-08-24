@@ -1,11 +1,11 @@
 {
   "schema_version": "evm.s8_current_revision_runtime_smoke.v1",
-  "generated_at": "2026-08-24T12:57:13.238451Z",
+  "generated_at": "2026-08-24T13:05:40.898596Z",
   "status": "verified",
   "verdict": "passed",
   "acceptance_credit": false,
   "source_identity": {
-    "revision": "370146d04a163c030793a299e92feab8046c0b8d",
+    "revision": "d9ca0d0b0545261dd9fb8f0ff62f8eec5eabd30a",
     "branch": "codex/distributed-scale-validation-plan",
     "git_blobs": {
       "runner": {
@@ -56,7 +56,7 @@
   "private_evidence": {
     "path": "runtime/s8-current-revision-smoke-private.json",
     "bytes": 3100,
-    "sha256": "9178792bddc55b3bf5e1e3ba2667f98ef03a83aa3f3afdbcdb3cb9073c6d725b"
+    "sha256": "26662ec322b89bd75a5fb7c5990d7e726d4cf18f4d5b4ad50e95042dc7409883"
   },
   "claim_boundary": "Current-revision diagnostic on one local physical node and one CUDA device; no customer traffic, production SLA, HA/DR, or multi-GPU claim. Historical terminal Pods are disclosed but excluded from the active serving baseline."
 }
