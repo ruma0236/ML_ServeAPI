@@ -77,9 +77,13 @@ def raw_attempt(config: E0RuntimeConfig, repetition: int) -> dict[str, object]:
         "profiler": {
             "tool": "nsight-systems",
             "version": "fixture",
+            "scope": "same-container-cuda-profiler-qualification",
+            "triton_inference_traced": False,
             "parseable": True,
             "cuda_kernel_count": 1,
             "timeline_sha256": "4" * 64,
+            "source_sha256": "5" * 64,
+            "execution_log_sha256": "6" * 64,
         },
         "cleanup": {
             "elapsed_seconds": 3.0,
@@ -129,6 +133,9 @@ def test_e0_attempt_does_not_credit_profiler_or_cleanup_mutation() -> None:
     profiler = raw_attempt(config, 1)
     profiler["profiler"]["cuda_kernel_count"] = 0  # type: ignore[index]
     assert project_attempt(profiler, config)["passed"] is False
+    scope = raw_attempt(config, 1)
+    scope["profiler"]["triton_inference_traced"] = True  # type: ignore[index]
+    assert project_attempt(scope, config)["passed"] is False
     cleanup = raw_attempt(config, 1)
     cleanup["cleanup"]["vram_delta_mib"] = 4096.0  # type: ignore[index]
     assert project_attempt(cleanup, config)["passed"] is False

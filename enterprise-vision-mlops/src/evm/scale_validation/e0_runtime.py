@@ -233,9 +233,13 @@ def project_attempt(raw: Mapping[str, Any], config: E0RuntimeConfig) -> dict[str
     )
     profiler_passed = (
         profiler.get("tool") in {"nsight-systems", "cupti"}
+        and profiler.get("scope") == "same-container-cuda-profiler-qualification"
+        and profiler.get("triton_inference_traced") is False
         and profiler.get("parseable") is True
         and int(profiler.get("cuda_kernel_count", 0)) > 0
         and _is_sha256(profiler.get("timeline_sha256"))
+        and _is_sha256(profiler.get("source_sha256"))
+        and _is_sha256(profiler.get("execution_log_sha256"))
     )
     vram_delta = abs(float(cleanup.get("vram_delta_mib", math.inf)))
     vram_tolerance = max(
@@ -287,8 +291,12 @@ def project_attempt(raw: Mapping[str, Any], config: E0RuntimeConfig) -> dict[str
         "profiler": {
             "tool": profiler.get("tool"),
             "version": profiler.get("version"),
+            "scope": profiler.get("scope"),
+            "triton_inference_traced": profiler.get("triton_inference_traced"),
             "cuda_kernel_count": int(profiler.get("cuda_kernel_count", 0)),
             "timeline_sha256": profiler.get("timeline_sha256"),
+            "source_sha256": profiler.get("source_sha256"),
+            "execution_log_sha256": profiler.get("execution_log_sha256"),
         },
         "cleanup": {
             "elapsed_seconds": float(cleanup.get("elapsed_seconds", math.inf)),

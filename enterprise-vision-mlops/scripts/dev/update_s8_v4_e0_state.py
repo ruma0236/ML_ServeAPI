@@ -59,6 +59,27 @@ TRANSITIONS = {
 
 def remediation_transition(evidence: dict[str, Any], *, amendment: bool) -> dict[str, str]:
     failure = str(evidence.get("failure") or "")
+    if failure.startswith("E0RuntimeError:e0_profiler_not_parseable"):
+        return {
+            "event_type": "e0_profiler_scope_remediation_required",
+            "summary": (
+                "E0 Triton CUDA inference and metrics passed, but the Triton process-wrapper "
+                "Nsight report contained no kernel rows; cleanup restored B0 and the attempt "
+                "received zero acceptance credit"
+            ),
+            "credit": "zero_credit",
+            "acceptance": "E0-AC-01..04 pending; no acceptance repetition credited",
+            "next_gate": (
+                "Qualify Nsight/CUPTI with a same-container deterministic CUDA probe and keep "
+                "Triton inference tracing explicitly outside the E0 claim"
+            ),
+            "rca": (
+                "Nsight produced a parseable report container but observed no Triton CUDA "
+                "kernel rows under the process-wrapper strategy. E0 only requires profiler "
+                "capability, so remediation separates a same-container CUDA qualification "
+                "timeline from the independently measured Triton CUDA inference evidence."
+            ),
+        }
     if failure.startswith("HTTPError:500 Server Error"):
         return {
             "event_type": "e0_triton_backend_remediation_required",

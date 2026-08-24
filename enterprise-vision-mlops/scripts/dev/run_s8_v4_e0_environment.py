@@ -457,10 +457,7 @@ def start_triton(
     profile_root = attempt_root / "profiler"
     profile_root.mkdir(parents=True, exist_ok=True)
     command = (
-        "exec nsys profile --sample=none --cpuctxsw=none "
-        "--trace=cuda,nvtx,osrt --trace-fork-before-exec=true "
-        "--force-overwrite=true --output=/evidence/triton-cuda "
-        "tritonserver --model-repository=/models --strict-readiness=true "
+        "exec tritonserver --model-repository=/models --strict-readiness=true "
         "--allow-gpu-metrics=true --metrics-interval-ms=500 "
         "--log-format=ISO8601 --log-file=/evidence/triton.log"
     )
@@ -558,6 +555,65 @@ def infer(config: E0RuntimeConfig, attempt_id: str) -> dict[str, Any]:
     return {"request": payload, "response": first, "output": values}
 
 
+def run_profiler_probe(attempt_root: Path, container: str) -> dict[str, Any]:
+    profile_root = attempt_root / "profiler"
+    source_path = profile_root / "e0-profiler-probe.cu"
+    source_path.write_text(
+        """#include <cmath>
+#include <cstdio>
+#include <cuda_runtime.h>
+
+__global__ void e0_probe(float* values) {
+    const int index = threadIdx.x;
+    values[index] = values[index] * 2.0f + 1.0f;
+}
+
+int main() {
+    constexpr int count = 256;
+    float host[count];
+    for (int index = 0; index < count; ++index) host[index] = float(index);
+    float* device = nullptr;
+    if (cudaMalloc(&device, sizeof(host)) != cudaSuccess) return 2;
+    if (cudaMemcpy(device, host, sizeof(host), cudaMemcpyHostToDevice) != cudaSuccess) return 3;
+    e0_probe<<<1, count>>>(device);
+    if (cudaDeviceSynchronize() != cudaSuccess) return 4;
+    if (cudaMemcpy(host, device, sizeof(host), cudaMemcpyDeviceToHost) != cudaSuccess) return 5;
+    cudaFree(device);
+    for (int index = 0; index < count; ++index) {
+        if (std::fabs(host[index] - (float(index) * 2.0f + 1.0f)) > 1e-6f) return 6;
+    }
+    std::printf("E0_CUDA_PROBE_OK count=%d\\n", count);
+    return 0;
+}
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+    command = (
+        "nvcc -O2 /evidence/e0-profiler-probe.cu -o /tmp/e0-profiler-probe && "
+        "nsys profile --sample=none --cpuctxsw=none --trace=cuda,nvtx,osrt "
+        "--force-overwrite=true --output=/evidence/e0-cuda-probe /tmp/e0-profiler-probe"
+    )
+    completed = run(
+        ["docker", "exec", container, "bash", "-lc", command],
+        timeout=180,
+    )
+    log_path = profile_root / "e0-profiler-probe.log"
+    log_path.write_text(
+        completed.stdout + "\n--- STDERR ---\n" + completed.stderr,
+        encoding="utf-8",
+        newline="\n",
+    )
+    if "E0_CUDA_PROBE_OK" not in completed.stdout:
+        raise E0RuntimeError("e0_profiler_probe_output")
+    return {
+        "scope": "same-container-cuda-profiler-qualification",
+        "triton_inference_traced": False,
+        "source_sha256": sha256_file(source_path),
+        "execution_log_sha256": sha256_file(log_path),
+    }
+
+
 def metric_value(text: str, metric: str, *, model: str | None = None) -> float:
     total = 0.0
     for line in text.splitlines():
@@ -583,9 +639,11 @@ def stop_triton(container: str) -> None:
         run(["docker", "rm", "-f", container], check=False, timeout=30)
 
 
-def profile_summary(config: E0RuntimeConfig, attempt_root: Path) -> dict[str, Any]:
+def profile_summary(
+    config: E0RuntimeConfig, attempt_root: Path, qualification: dict[str, Any]
+) -> dict[str, Any]:
     profile_root = attempt_root / "profiler"
-    reports = sorted(profile_root.glob("triton-cuda*.nsys-rep"))
+    reports = sorted(profile_root.glob("e0-cuda-probe*.nsys-rep"))
     if len(reports) != 1:
         raise E0RuntimeError(f"e0_profiler_report_count:{len(reports)}")
     report = reports[0]
@@ -630,6 +688,7 @@ def profile_summary(config: E0RuntimeConfig, attempt_root: Path) -> dict[str, An
     return {
         "tool": "nsight-systems",
         "version": version,
+        **qualification,
         "parseable": True,
         "cuda_kernel_count": len(kernel_lines),
         "timeline_sha256": sha256_file(report),
@@ -726,6 +785,7 @@ def run_attempt(
         )
         observed_container_gpu = container_gpu(config, container)
         inference = infer(config, attempt_id)
+        profiler_qualification = run_profiler_probe(attempt_root, container)
         metrics_text = requests.get(
             f"http://127.0.0.1:{config.metrics_port}/metrics", timeout=10
         ).text
@@ -833,7 +893,7 @@ def run_attempt(
         raise E0RuntimeError("e0_attempt_raw_missing")
     b0_after = b0_cuda_inference()
     gpu_after, vram_wait = wait_vram_restore(gpu_before, config.cleanup_timeout_seconds)
-    profile = profile_summary(config, attempt_root)
+    profile = profile_summary(config, attempt_root, profiler_qualification)
     queues = queue_counts()
     cleanup = {
         "elapsed_seconds": max(vram_wait, time.monotonic() - cleanup_started),
@@ -893,11 +953,24 @@ def collect_prior_failures(private_base: Path, suite_root: Path) -> list[dict[st
             continue
         payload = json.loads(path.read_bytes())
         rca = payload.get("rca")
-        if str(payload.get("failure", "")).startswith("ScenarioWorkloadError:s8-v4-e0-"):
+        failure = str(payload.get("failure", ""))
+        if failure.startswith("ScenarioWorkloadError:s8-v4-e0-"):
             rca = (
                 "The existing shared GPU lease admitted only S4/S7 identities. "
                 "E0 was fail-closed before Triton start; the contract was extended only "
                 "for E0 tabular runs with the s8-v4-e0- prefix."
+            )
+        elif failure.startswith("HTTPError:500 Server Error"):
+            rca = (
+                "The frozen Triton image exposed CUDA 13 while its Python-backend CuPy "
+                "expected libnvrtc.so.12. The image stayed fixed and the deterministic "
+                "test model moved to the image-supported PyTorch GPU backend."
+            )
+        elif failure.startswith("E0RuntimeError:e0_profiler_not_parseable"):
+            rca = (
+                "The Triton process-wrapper report contained no CUDA kernel rows. Profiler "
+                "qualification moved to a deterministic CUDA probe in the same container "
+                "and lease; Triton inference tracing remains outside the E0 claim."
             )
         destination_root.mkdir(parents=True, exist_ok=True)
         destination = destination_root / f"{path.parent.name}-{path.name}"

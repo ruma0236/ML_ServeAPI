@@ -85,3 +85,13 @@ def test_e0_triton_backend_failure_records_zero_credit_rca() -> None:
     assert transition["event_type"] == "e0_triton_backend_remediation_required"
     assert transition["credit"] == "zero_credit"
     assert "libnvrtc.so.12" in transition["rca"]
+
+
+def test_e0_profiler_wrapper_failure_records_zero_credit_scope_rca() -> None:
+    transition = remediation_transition(
+        {"failure": "E0RuntimeError:e0_profiler_not_parseable:", "credit": "zero_credit"},
+        amendment=False,
+    )
+    assert transition["event_type"] == "e0_profiler_scope_remediation_required"
+    assert transition["credit"] == "zero_credit"
+    assert "same-container" in transition["rca"]
