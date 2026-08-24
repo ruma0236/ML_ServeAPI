@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.s8_v4.evidence_manifest.v1",
-  "generated_at": "2026-08-24T13:43:18Z",
+  "generated_at": "2026-08-24T15:14:53.692310Z",
   "status": "contract_frozen",
   "runtime_execution_started": false,
   "acceptance_credit": false,
@@ -55,8 +55,13 @@
     {
       "work_item": "E0",
       "tracking_id": "EVM-299",
-      "status": "contract_frozen",
-      "acceptance_criteria": ["E0-AC-01", "E0-AC-02", "E0-AC-03", "E0-AC-04"],
+      "status": "ready",
+      "acceptance_criteria": [
+        "E0-AC-01",
+        "E0-AC-02",
+        "E0-AC-03",
+        "E0-AC-04"
+      ],
       "attempts": [],
       "reviewer_sign_off": "pending"
     },
@@ -64,7 +69,12 @@
       "work_item": "S6B-M",
       "tracking_id": "EVM-300",
       "status": "planned",
-      "acceptance_criteria": ["S6B-M-AC-01", "S6B-M-AC-02", "S6B-M-AC-03", "S6B-M-AC-04"],
+      "acceptance_criteria": [
+        "S6B-M-AC-01",
+        "S6B-M-AC-02",
+        "S6B-M-AC-03",
+        "S6B-M-AC-04"
+      ],
       "attempts": [],
       "reviewer_sign_off": "pending"
     },
@@ -72,7 +82,14 @@
       "work_item": "X1",
       "tracking_id": "EVM-301",
       "status": "planned",
-      "acceptance_criteria": ["X1-AC-01", "X1-AC-02", "X1-AC-03", "X1-AC-04", "X1-AC-05", "X1-AC-06"],
+      "acceptance_criteria": [
+        "X1-AC-01",
+        "X1-AC-02",
+        "X1-AC-03",
+        "X1-AC-04",
+        "X1-AC-05",
+        "X1-AC-06"
+      ],
       "attempts": [],
       "reviewer_sign_off": "pending"
     },
@@ -80,13 +97,24 @@
       "work_item": "S8-V4-INTEGRATED",
       "tracking_id": "EVM-302",
       "status": "planned",
-      "acceptance_criteria": ["V4-AC-01", "V4-AC-02", "V4-AC-03", "V4-AC-04", "V4-AC-05", "V4-AC-06"],
+      "acceptance_criteria": [
+        "V4-AC-01",
+        "V4-AC-02",
+        "V4-AC-03",
+        "V4-AC-04",
+        "V4-AC-05",
+        "V4-AC-06"
+      ],
       "attempts": [],
       "reviewer_sign_off": "pending"
     }
   ],
   "credit_policy": {
-    "allowed": ["credit", "zero_credit", "non_credit"],
+    "allowed": [
+      "credit",
+      "zero_credit",
+      "non_credit"
+    ],
     "calibration": "non_credit",
     "failure_or_incomplete_evidence": "zero_credit",
     "verified_requires_reviewer_sign_off": true
