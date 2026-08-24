@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--json-path", type=Path, default=DEFAULT_JSON)
     parser.add_argument("--markdown-path", type=Path, default=DEFAULT_MARKDOWN)
+    parser.add_argument("--attempt", type=int, default=1)
     return parser.parse_args()
 
 
@@ -134,29 +135,39 @@ def main() -> int:
 
 def record_failed_attempt(args: argparse.Namespace) -> int:
     now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    evidence_path = ROOT / "docs/status/evidence/s8-dependency-soak-attempt-01.json"
+    if args.attempt not in {1, 2}:
+        raise SystemExit("only retained S8 failed attempts 1 and 2 are supported")
+    evidence_path = ROOT / f"docs/status/evidence/s8-dependency-soak-attempt-{args.attempt:02d}.json"
     evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
     digest = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
     payload = json.loads(args.json_path.read_text(encoding="utf-8"))
     scenario = next(item for item in payload["scenarios"] if item["scenario_id"] == "S8")
+    claim = (
+        "Rejected infrastructure attempt: control repetitions 1 and 2 passed, "
+        "repetition 3 hit a Docker host-port allocation race before admission; "
+        "cleanup passed and no acceptance credit was awarded."
+        if args.attempt == 1
+        else "Rejected contract/runtime attempt: nine fresh control, latency, and transient repetitions passed; retry-budget repetition 1 expired five intended DLQ items after runner/config drift, cleanup passed, soak did not start, and no acceptance credit was awarded."
+    )
     artifact = {
         "path": evidence_path.relative_to(ROOT).as_posix(),
         "sha256": digest,
         "generated_at": str(evidence["generated_at"]),
-        "claim": (
-            "Rejected infrastructure attempt: control repetitions 1 and 2 passed, "
-            "repetition 3 hit a Docker host-port allocation race before admission; "
-            "cleanup passed and no acceptance credit was awarded."
-        ),
+        "claim": claim,
     }
-    scenario["evidence_artifacts"] = [artifact]
-    scenario["evidence_index"] = [artifact]
+    existing = [
+        item
+        for item in scenario["evidence_artifacts"]
+        if item.get("path") != artifact["path"]
+    ]
+    scenario["evidence_artifacts"] = [*existing, artifact]
+    scenario["evidence_index"] = [*existing, artifact]
     scenario["observed_result"] = None
     scenario["status"] = "implementing"
     scenario["verdict_and_claim_boundary"]["verdict"] = "not_run"
     scenario["next_action"] = (
-        "Rerun the complete 21-repetition fault matrix from the bounded port-collision "
-        "remediation revision; begin soak only after every fresh fault repetition passes."
+        "Rerun the complete 21-repetition fault matrix from the v2 frozen retry-budget "
+        "revision; begin soak only after every fresh fault repetition passes."
     )
     scenario["chronological_updates"].append(
         {
@@ -164,13 +175,17 @@ def record_failed_attempt(args: argparse.Namespace) -> int:
             "phase": "experiment",
             "status": "implementing",
             "summary": (
-                "Attempt 01 was rejected with zero acceptance credit after an isolated "
-                "Prometheus port-bind race in control repetition 3. Two prior controls "
-                "passed, all temporary state cleaned up, and soak did not start."
+                f"Attempt {args.attempt:02d} was rejected with zero acceptance credit. "
+                + (
+                    "An isolated Prometheus port-bind race occurred before control "
+                    "repetition 3 admission; two controls passed and cleanup completed."
+                    if args.attempt == 1
+                    else "Nine control/latency/transient repetitions passed, then retry-budget runner/config drift allowed five expiry outcomes; cleanup completed and soak did not start."
+                )
             ),
             "evidence_refs": [
                 artifact["path"],
-                "docs/status/2026-08-24-s8-attempt-01-rca.md",
+                f"docs/status/2026-08-24-s8-attempt-{args.attempt:02d}-rca.md",
             ],
         }
     )

@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T07:07:59Z",
+  "generated_at": "2026-08-24T07:19:55Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -4056,6 +4056,12 @@
           "sha256": "080e73eb80debec13211cb5484c1fa2636824100547dc6f8ed8de904719843bc",
           "generated_at": "2026-08-24T07:03:35.281226Z",
           "claim": "Rejected infrastructure attempt: control repetitions 1 and 2 passed, repetition 3 hit a Docker host-port allocation race before admission; cleanup passed and no acceptance credit was awarded."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-attempt-02.json",
+          "sha256": "e2af667369c2daef619f8ff74a8cf63b3499591908de0150b83662eb4c51187d",
+          "generated_at": "2026-08-24T07:16:26.404911Z",
+          "claim": "Rejected contract/runtime attempt: nine fresh control, latency, and transient repetitions passed; retry-budget repetition 1 expired five intended DLQ items after runner/config drift, cleanup passed, soak did not start, and no acceptance credit was awarded."
         }
       ],
       "status": "implementing",
@@ -4066,7 +4072,7 @@
         "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
         "One final evidence index re-hashes every accepted result."
       ],
-      "next_action": "Rerun the complete 21-repetition fault matrix from the bounded port-collision remediation revision; begin soak only after every fresh fault repetition passes.",
+      "next_action": "Rerun the complete 21-repetition fault matrix from the v2 frozen retry-budget revision; begin soak only after every fresh fault repetition passes.",
       "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
       "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.",
       "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
@@ -4177,6 +4183,12 @@
           "sha256": "080e73eb80debec13211cb5484c1fa2636824100547dc6f8ed8de904719843bc",
           "generated_at": "2026-08-24T07:03:35.281226Z",
           "claim": "Rejected infrastructure attempt: control repetitions 1 and 2 passed, repetition 3 hit a Docker host-port allocation race before admission; cleanup passed and no acceptance credit was awarded."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-attempt-02.json",
+          "sha256": "e2af667369c2daef619f8ff74a8cf63b3499591908de0150b83662eb4c51187d",
+          "generated_at": "2026-08-24T07:16:26.404911Z",
+          "claim": "Rejected contract/runtime attempt: nine fresh control, latency, and transient repetitions passed; retry-budget repetition 1 expired five intended DLQ items after runner/config drift, cleanup passed, soak did not start, and no acceptance credit was awarded."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -4218,6 +4230,16 @@
           "evidence_refs": [
             "docs/status/evidence/s8-dependency-soak-attempt-01.json",
             "docs/status/2026-08-24-s8-attempt-01-rca.md"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T07:19:55Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "Attempt 02 was rejected with zero acceptance credit. Nine control/latency/transient repetitions passed, then retry-budget runner/config drift allowed five expiry outcomes; cleanup completed and soak did not start.",
+          "evidence_refs": [
+            "docs/status/evidence/s8-dependency-soak-attempt-02.json",
+            "docs/status/2026-08-24-s8-attempt-02-rca.md"
           ]
         }
       ]
