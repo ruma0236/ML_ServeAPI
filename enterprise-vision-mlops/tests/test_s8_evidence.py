@@ -186,6 +186,11 @@ def test_fault_private_projection_rejects_mttr_mutation(tmp_path: Path) -> None:
     )
     private_path.parent.mkdir(parents=True)
     assertions = [{"assertion_id": "worker_recovered", "passed": True}]
+    cleanup = {
+        "schema_dropped": True,
+        "marker_processes_remaining": [],
+        "errors": [],
+    }
     private = {
         "terminal": {
             "accepted_count": 1,
@@ -210,6 +215,7 @@ def test_fault_private_projection_rejects_mttr_mutation(tmp_path: Path) -> None:
             "mttr_basis": "worker_pid_failure_to_reclaimed_task_terminal",
         },
         "assertions": assertions,
+        "cleanup": cleanup,
         "passed": True,
     }
     private_path.write_text(json.dumps(private), encoding="utf-8")
@@ -238,7 +244,15 @@ def test_fault_private_projection_rejects_mttr_mutation(tmp_path: Path) -> None:
         },
         "metrics": {},
         "profile_observations": dict(private["extra"]),
-        "assertions": assertions,
+        "cleanup": cleanup,
+        "assertions": [
+            *assertions,
+            {
+                "assertion_id": "isolated_runtime_cleanup",
+                "passed": True,
+                "observed": cleanup,
+            },
+        ],
         "passed": True,
     }
 

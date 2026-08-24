@@ -413,6 +413,7 @@ def run_fault_scope(
     ]
     public["passed"] = bool(public.get("passed")) and cleanup_passed
     private["cleanup"] = cleanup
+    private["assertions"] = list(public["assertions"])
     private["passed"] = public["passed"]
     private_path = private_root / "profile-result-private.json"
     canonical_write(private_path, private)

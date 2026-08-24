@@ -264,7 +264,27 @@ def validate_fault_private_evidence(
             expected_observations
         ):
             errors.append(f"fault_observation_projection:{profile}:{repetition}")
-        if canonical(public.get("assertions")) != canonical(private.get("assertions")):
+        cleanup = dict(private.get("cleanup", {}))
+        cleanup_passed = (
+            bool(cleanup.get("schema_dropped"))
+            and not cleanup.get("marker_processes_remaining")
+            and not cleanup.get("errors")
+        )
+        expected_assertions = list(private.get("assertions", []))
+        if not any(
+            item.get("assertion_id") == "isolated_runtime_cleanup"
+            for item in expected_assertions
+        ):
+            expected_assertions.append(
+                {
+                    "assertion_id": "isolated_runtime_cleanup",
+                    "passed": cleanup_passed,
+                    "observed": cleanup,
+                }
+            )
+        if canonical(public.get("cleanup")) != canonical(cleanup):
+            errors.append(f"fault_cleanup_projection:{profile}:{repetition}")
+        if canonical(public.get("assertions")) != canonical(expected_assertions):
             errors.append(f"fault_assertion_projection:{profile}:{repetition}")
         if not bool(private.get("passed")) or not bool(public.get("passed")):
             errors.append(f"fault_not_passed:{profile}:{repetition}")

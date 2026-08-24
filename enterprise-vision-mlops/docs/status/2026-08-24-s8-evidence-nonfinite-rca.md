@@ -56,6 +56,12 @@ Git-blob rehash, regression evidence, and final closure all pass.
   three derived public paths were added to the exact allowlist. This attempt receives
   no closure credit; the resumed attempt must regenerate and validate the complete
   projection.
+- The first strict validation after successful reprojection exposed a second
+  pre-existing contract mismatch: runtime cleanup was appended to public assertions
+  but private evidence stored cleanup and final pass separately. No measured outcome
+  differed. The validator now reconstructs that cleanup assertion from private raw
+  data, while future runtime evidence writes the same final assertion list to both
+  projections.
 
 ## Claim Boundary
 
