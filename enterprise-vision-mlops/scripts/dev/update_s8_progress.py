@@ -500,9 +500,10 @@ def record_resource_sampler_remediation(args: argparse.Namespace) -> int:
             "summary": (
                 "Resource sampling now reads timestamped gauges from the existing "
                 "isolated Prometheus cache instead of competing direct API metrics "
-                "requests. It records transient or stale samples, uses only valid "
-                "gauges for queue and pool slopes, requires at least 90 percent "
-                "coverage, and stops fail closed after three consecutive failures."
+                "requests. The capacity-only API exports already-maintained metrics "
+                "without synchronously refreshing unrelated evidence ledgers; the "
+                "default control-plane scrape behavior is unchanged. Stale or missing "
+                "samples remain explicit and fail closed under the coverage contract."
             ),
             "evidence_refs": [
                 "docs/status/evidence/s8-dependency-soak-attempt-05.json",

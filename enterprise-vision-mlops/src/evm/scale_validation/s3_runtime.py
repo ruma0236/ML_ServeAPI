@@ -547,6 +547,7 @@ def start_api_replicas(
                 "EVM_S3_CAPACITY_RETRY_AFTER_SECONDS": str(
                     config.retry_after_seconds
                 ),
+                "EVM_METRICS_REFRESH_MODE": "export-only",
                 "EVM_S3_CAPACITY_REPLICA_ID": replica_id,
                 "EVM_GIT_COMMIT": source_revision,
                 "EVM_GIT_BRANCH": source_branch,

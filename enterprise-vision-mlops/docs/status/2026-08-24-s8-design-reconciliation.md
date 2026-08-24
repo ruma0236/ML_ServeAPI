@@ -157,6 +157,13 @@ Prometheus cache already scraping at one-second cadence. Every cached sample is
 checked for the complete metric set, finite values, and timestamp freshness;
 missing or stale series follow the bounded failure policy above.
 
+The isolated capacity API also uses an explicit `export-only` metrics mode. In
+that mode `/metrics` serializes gauges already maintained by the running
+capacity executor and does not synchronously refresh unrelated control-panel,
+incident, or VLM evidence ledgers. This avoids turning observability into an
+extra measured workload. The default API metrics behavior is unchanged; the
+mode is set only by the versioned S3/S8 isolated runtime launcher.
+
 ## Portfolio Boundary
 
 Allowed: a controlled single-local-node experiment showing bounded retries,

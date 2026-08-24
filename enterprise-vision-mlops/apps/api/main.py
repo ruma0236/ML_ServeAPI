@@ -660,6 +660,8 @@ def predict(payload: PredictRequest) -> PredictResponse:
 
 @app.get("/metrics")
 def metrics() -> Response:
+    if os.getenv("EVM_METRICS_REFRESH_MODE", "full").strip().lower() == "export-only":
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
     refresh_vlm_observability_state()
     try:
         refresh_control_panel_metrics()

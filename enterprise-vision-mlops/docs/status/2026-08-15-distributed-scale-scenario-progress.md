@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T09:59:02Z`
+- Generated: `2026-08-24T10:05:40Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -817,3 +817,4 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-24T09:49:18Z` `implementation` / `implementing`: Resource sampling now records transient metrics failures, uses only valid gauge samples for queue and pool slopes, requires at least 90 percent valid gauge coverage, and stops fail closed after three consecutive failures. The accepted load and guardrails are unchanged.
 - `2026-08-24T09:55:46Z` `experiment` / `implementing`: The first sampler preflight passed 4,200/4,200 requests at 35 RPS with zero errors, p99 40.95 ms, complete trace/cleanup, and no metrics-read exception. It was rejected because direct API metrics reads yielded only 55 samples in 120 seconds versus the 108 minimum.
 - `2026-08-24T09:59:02Z` `implementation` / `implementing`: Resource sampling now reads timestamped gauges from the existing isolated Prometheus cache instead of competing direct API metrics requests. It records transient or stale samples, uses only valid gauges for queue and pool slopes, requires at least 90 percent coverage, and stops fail closed after three consecutive failures.
+- `2026-08-24T10:05:40Z` `implementation` / `implementing`: Resource sampling now reads timestamped gauges from the existing isolated Prometheus cache instead of competing direct API metrics requests. The capacity-only API exports already-maintained metrics without synchronously refreshing unrelated evidence ledgers; the default control-plane scrape behavior is unchanged. Stale or missing samples remain explicit and fail closed under the coverage contract.

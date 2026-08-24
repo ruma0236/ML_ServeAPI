@@ -84,6 +84,22 @@ def test_metrics_remains_available_when_control_plane_refresh_fails(monkeypatch)
     assert "evm_control_panel_metric_refresh_success 0.0" in payload
 
 
+def test_metrics_export_only_mode_does_not_run_expensive_refreshers(monkeypatch):
+    monkeypatch.setenv("EVM_METRICS_REFRESH_MODE", "export-only")
+
+    def unexpected_refresh() -> None:
+        raise AssertionError("export-only scrape must not refresh evidence ledgers")
+
+    monkeypatch.setattr(api, "refresh_vlm_observability_state", unexpected_refresh)
+    monkeypatch.setattr(api, "refresh_control_panel_metrics", unexpected_refresh)
+    monkeypatch.setattr(api, "refresh_incident_plane_metrics", unexpected_refresh)
+
+    response = api.metrics()
+
+    assert response.status_code == 200
+    assert b"evm_s3_capacity_executor_queue_depth" in response.body
+
+
 def test_ready_exposes_control_plane_source_revision(monkeypatch):
     monkeypatch.setenv("EVM_IMAGE_SOURCE_REVISION", "a" * 40)
     monkeypatch.setenv("GIT_COMMIT", "a" * 40)

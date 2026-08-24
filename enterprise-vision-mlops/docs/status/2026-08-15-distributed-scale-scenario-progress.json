@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T09:59:02Z",
+  "generated_at": "2026-08-24T10:05:40Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -4451,6 +4451,16 @@
           "phase": "implementation",
           "status": "implementing",
           "summary": "Resource sampling now reads timestamped gauges from the existing isolated Prometheus cache instead of competing direct API metrics requests. It records transient or stale samples, uses only valid gauges for queue and pool slopes, requires at least 90 percent coverage, and stops fail closed after three consecutive failures.",
+          "evidence_refs": [
+            "docs/status/evidence/s8-dependency-soak-attempt-05.json",
+            "docs/status/2026-08-24-s8-attempt-05-rca.md"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T10:05:40Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "Resource sampling now reads timestamped gauges from the existing isolated Prometheus cache instead of competing direct API metrics requests. The capacity-only API exports already-maintained metrics without synchronously refreshing unrelated evidence ledgers; the default control-plane scrape behavior is unchanged. Stale or missing samples remain explicit and fail closed under the coverage contract.",
           "evidence_refs": [
             "docs/status/evidence/s8-dependency-soak-attempt-05.json",
             "docs/status/2026-08-24-s8-attempt-05-rca.md"
