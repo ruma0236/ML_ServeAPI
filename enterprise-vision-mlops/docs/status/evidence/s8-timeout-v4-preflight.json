@@ -1,0 +1,51 @@
+{
+  "schema_version": "evm.s8_timeout_preflight.v1",
+  "generated_at": "2026-08-24T07:58:05Z",
+  "source_revision": "8c1696e96a88cf2eb77d884375eb679e1eacd5b6",
+  "profile_version": "s8-dependency-soak-v4-20260824",
+  "acceptance_credit": false,
+  "passed": false,
+  "input": {
+    "accepted": 6,
+    "timeout_requests": 2,
+    "healthy_requests": 4,
+    "configured_delay_seconds": 12.0
+  },
+  "terminal": {
+    "terminal_count": 6,
+    "completed": 4,
+    "failed": 2,
+    "outcome_unknown": 0,
+    "elapsed_seconds": 62.453
+  },
+  "effects": {
+    "unique": 4,
+    "duplicates": 0,
+    "multiple_logical": 0
+  },
+  "trace": {
+    "complete": 2,
+    "expected": 6,
+    "passed": false
+  },
+  "recovery": {
+    "fault_to_terminal_seconds": 72.828,
+    "maximum_seconds": 60.0,
+    "passed": false
+  },
+  "observed_work_timeout_count": 6,
+  "cleanup": {
+    "schema_dropped": true,
+    "marker_processes_remaining": 0,
+    "errors": 0
+  },
+  "private_evidence": {
+    "artifact_count": 18,
+    "aggregate_sha256": "e64af35c6ee93da44ad3d2b9b71c03f59b6c091f009c3006c35a4081feda97df",
+    "profile_result_sha256": "fa79c70d3a6e3e88a005f5de99215629f91cc6ed2a01be1acefc2984fa857bbb",
+    "location": "outside_git_private_evidence_root"
+  },
+  "root_cause": "The runner applied the 12-second injected delay to timeout and healthy requests, producing six worker timeouts instead of two.",
+  "remediation": "V5 scopes the delay to timeout_once requests; healthy requests must retain full success traces while timeout requests fail closed with zero effect.",
+  "claim_boundary": "Zero-credit controlled preflight on one local physical node; not acceptance, production SLA, HA/DR, or multi-node evidence."
+}
