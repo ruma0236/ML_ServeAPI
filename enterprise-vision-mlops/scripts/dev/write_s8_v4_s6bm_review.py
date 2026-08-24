@@ -129,6 +129,7 @@ def pytest_counts(text: str, *, occurrence: int = -1) -> tuple[int, int]:
 def validate_regressions(root: Path, revision: str) -> list[dict[str, Any]]:
     expected = {
         "changed_file_lint",
+        "focused_s6bm",
         "focused_s8_closure",
         "real_postgresql",
         "lifecycle_host_e2e",

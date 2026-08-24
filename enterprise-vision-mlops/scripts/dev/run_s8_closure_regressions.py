@@ -115,9 +115,32 @@ def main() -> int:
                     "scripts/dev/validate_s8_dependency_soak_evidence.py",
                     "tests/test_s8_evidence.py",
                     "tests/test_s8_closure.py",
+                    "src/evm/model_runtime/triton_blue_green.py",
+                    "src/evm/scale_validation/s6bm_runtime.py",
+                    "scripts/dev/run_s8_v4_s6bm_experiment.py",
+                    "scripts/dev/validate_s8_v4_s6bm.py",
+                    "scripts/dev/write_s8_v4_s6bm_review.py",
+                    "tests/test_s6bm_experiment_runner.py",
+                    "tests/test_s6bm_runtime.py",
+                    "tests/test_triton_blue_green.py",
                 )
             ],
             "python -m ruff check <S8 closure changed files>",
+        ),
+        (
+            "focused_s6bm",
+            [
+                python_command(
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "tests/test_s6bm_experiment_runner.py",
+                    "tests/test_s6bm_runtime.py",
+                    "tests/test_triton_blue_green.py",
+                    "tests/test_v4_progress_ledger.py",
+                )
+            ],
+            "python -m pytest -q <focused S6B-M runtime/validator/ledger tests>",
         ),
         (
             "focused_s8_closure",
