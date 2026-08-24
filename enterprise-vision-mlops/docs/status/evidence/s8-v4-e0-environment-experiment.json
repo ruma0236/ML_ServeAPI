@@ -1,0 +1,360 @@
+{
+  "schema_version": "evm.s8_v4.e0_environment_experiment.v1",
+  "generated_at": "2026-08-24T15:46:47.203013Z",
+  "status": "review_pending",
+  "acceptance_credit": false,
+  "reviewer_sign_off": "pending",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "runtime_revision": "e975b35733c67f54fb972b3ef378bd16f89eb2be",
+    "tree_sha": "df59a4e601596b12527f34bbad3f8c89183129f0",
+    "git_blobs": {
+      "runtime": {
+        "path": "src/evm/scale_validation/e0_runtime.py",
+        "blob_oid": "ab12c3418e93b768738a774616ba780fa3022483",
+        "sha256": "2031f0e81f4c28ebb89dac98d6a06c05e2d39f838e91e7b391e9c7dc282046cf"
+      },
+      "validator": {
+        "path": "src/evm/scale_validation/e0_evidence.py",
+        "blob_oid": "e8297569f0190309bf9568afc8b4aa957a59b9a6",
+        "sha256": "688653fb28a9e5e5d7a1f66de6a9a994390832ae90a3111ba478e1a2aa2c2df4"
+      },
+      "runner": {
+        "path": "scripts/dev/run_s8_v4_e0_environment.py",
+        "blob_oid": "d997a638a3e62b7e44b50311f27687f4a8d2db89",
+        "sha256": "f8331074b34c1236577838dc6b575db856e00a0e7516ee6ccacff33402d2db66"
+      },
+      "validator_cli": {
+        "path": "scripts/dev/validate_s8_v4_e0_environment.py",
+        "blob_oid": "d8cccc2ac4604b308c6e0e33f22be6a9c9b0a0a6",
+        "sha256": "c5c61b6693f8f939003b478306aead8de66f2a9391b796eb02d06c74edf539b2"
+      },
+      "model_generator": {
+        "path": "scripts/dev/generate_e0_triton_model.py",
+        "blob_oid": "31e29170da9cd0e81f293a6b9001bf2bdc9b87ad",
+        "sha256": "bc0bbdf8c09f7cc406c80973c8bf328bbd00942b5fa7e291269c664cd6589d41"
+      },
+      "config": {
+        "path": "configs/s8_v4_e0_environment_v1.toml",
+        "blob_oid": "05b9ecc8846aeb76a8a553f4ac91471d8d8d9ac6",
+        "sha256": "d5b9111c373bc84b13b69c56835785b07903c00cea12100992a521f2cd34ee59"
+      },
+      "prometheus": {
+        "path": "monitoring/prometheus/prometheus.yml",
+        "blob_oid": "96fda5a4c2734ed6e5b6dcf2a4e981d9cccc1f8c",
+        "sha256": "67f358f73751b67304fa02594c1083b278c7bcfb94e9c0f1b14c95b8d96d4033"
+      }
+    }
+  },
+  "runtime_contract": {
+    "schema_version": "evm.s8_v4.e0_runtime_config.v1",
+    "config_sha256": "d5b9111c373bc84b13b69c56835785b07903c00cea12100992a521f2cd34ee59",
+    "triton_image": "nvcr.io/nvidia/tritonserver:25.08-py3",
+    "triton_image_digest": "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0687a4d2ac9f7a5",
+    "expected_gpu_name": "NVIDIA GeForce RTX 4080 SUPER",
+    "model_name": "e0_cuda_linear",
+    "model_version": "1",
+    "backend": "pytorch",
+    "repetitions": 3,
+    "readiness_timeout_seconds": 30.0,
+    "prometheus_timeout_seconds": 30.0,
+    "cleanup_timeout_seconds": 120.0,
+    "vram_tolerance_mib": 256.0,
+    "vram_tolerance_ratio": 0.05,
+    "ports": {
+      "http": 18000,
+      "grpc": 18001,
+      "metrics": 18002
+    },
+    "prometheus_job": "evm-s8-v4-e0",
+    "profiler_required_repetitions": 3,
+    "profiler_trace_method": "cupti-activity",
+    "prediction_input_sha256": "bf8e71848333bd481ff12295bd70c812352ff09a0db858e38d7f17b5dd819dbe",
+    "expected_output_sha256": "30b079977f0dfa3c7f8a31e1de3a2ed5253b462575cb5bca77f650554d1df905"
+  },
+  "attempts": [
+    {
+      "summary": {
+        "attempt_id": "e0-1-ce443b45ec9a",
+        "repetition": 1,
+        "started_at": "2026-08-24T15:45:36.587420Z",
+        "finished_at": "2026-08-24T15:46:01.348342Z",
+        "credit": "credit",
+        "triton_image_digest": "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0687a4d2ac9f7a5",
+        "gpu_uuid": "GPU-4eea4bfc-f15e-bd25-c1b8-ed53ade9ad1d",
+        "gpu_name": "NVIDIA GeForce RTX 4080 SUPER",
+        "model_repository_sha256": "372290c637aceeb29d6abfa61f8a46e22e30ef8ea24e341a587ee5a07f817ac9",
+        "model_artifact_sha256": "5fc4f7cf0974537cf2c16005ef46785f08d4414a973e4f06157f5a547deb7880",
+        "model_config_sha256": "30d9424e86d9d4810c98ecf485ce23fad84de05d4cf98b82159760e2e00cd7dc",
+        "ready_seconds": 0.7820000000065193,
+        "prometheus_up_seconds": 1.5,
+        "output_sha256": "30b079977f0dfa3c7f8a31e1de3a2ed5253b462575cb5bca77f650554d1df905",
+        "triton_success_count": 100.0,
+        "gpu_memory_used_bytes": 3111124992.0,
+        "profiler": {
+          "tool": "cupti",
+          "version": "130000",
+          "scope": "same-container-cuda-profiler-qualification",
+          "triton_inference_traced": false,
+          "trace_method": "cupti-activity",
+          "cuda_kernel_count": 1,
+          "timeline_sha256": "3973861e4dc00c32d220dae47e381430f7a9ef33d4e33d70e298e665a123944b",
+          "source_sha256": "05aa96a3544500ffe6bdd3d5d91ab0dc1a589de2f4eb706776d22aba1f39c8b9",
+          "execution_log_sha256": "3973861e4dc00c32d220dae47e381430f7a9ef33d4e33d70e298e665a123944b"
+        },
+        "cleanup": {
+          "elapsed_seconds": 18.375,
+          "vram_delta_mib": -1.0,
+          "orphan_count": 0
+        },
+        "checks": {
+          "identity_match": true,
+          "readiness_within_30s": true,
+          "cuda_batch_one": true,
+          "metrics_queryable_within_30s": true,
+          "profiler_timeline_parseable": true,
+          "cleanup_within_120s": true
+        },
+        "passed": true
+      },
+      "private_evidence": {
+        "path": "attempts/repetition-1/attempt-private.json",
+        "bytes": 11064,
+        "sha256": "3b71a2e791b2aa06be6cf9b98385c6878af87b67a77191132f42f0466d43287a"
+      }
+    },
+    {
+      "summary": {
+        "attempt_id": "e0-2-ae3e8e8eadeb",
+        "repetition": 2,
+        "started_at": "2026-08-24T15:46:01.350496Z",
+        "finished_at": "2026-08-24T15:46:22.819969Z",
+        "credit": "credit",
+        "triton_image_digest": "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0687a4d2ac9f7a5",
+        "gpu_uuid": "GPU-4eea4bfc-f15e-bd25-c1b8-ed53ade9ad1d",
+        "gpu_name": "NVIDIA GeForce RTX 4080 SUPER",
+        "model_repository_sha256": "372290c637aceeb29d6abfa61f8a46e22e30ef8ea24e341a587ee5a07f817ac9",
+        "model_artifact_sha256": "5fc4f7cf0974537cf2c16005ef46785f08d4414a973e4f06157f5a547deb7880",
+        "model_config_sha256": "30d9424e86d9d4810c98ecf485ce23fad84de05d4cf98b82159760e2e00cd7dc",
+        "ready_seconds": 0.7660000000032596,
+        "prometheus_up_seconds": 0.0,
+        "output_sha256": "30b079977f0dfa3c7f8a31e1de3a2ed5253b462575cb5bca77f650554d1df905",
+        "triton_success_count": 100.0,
+        "gpu_memory_used_bytes": 3100639232.0,
+        "profiler": {
+          "tool": "cupti",
+          "version": "130000",
+          "scope": "same-container-cuda-profiler-qualification",
+          "triton_inference_traced": false,
+          "trace_method": "cupti-activity",
+          "cuda_kernel_count": 1,
+          "timeline_sha256": "f873d2d513039b01142d5fe9219919c8fac15c343a7ffdfbd60c9eebdf5aab91",
+          "source_sha256": "05aa96a3544500ffe6bdd3d5d91ab0dc1a589de2f4eb706776d22aba1f39c8b9",
+          "execution_log_sha256": "f873d2d513039b01142d5fe9219919c8fac15c343a7ffdfbd60c9eebdf5aab91"
+        },
+        "cleanup": {
+          "elapsed_seconds": 16.59399999998277,
+          "vram_delta_mib": -40.0,
+          "orphan_count": 0
+        },
+        "checks": {
+          "identity_match": true,
+          "readiness_within_30s": true,
+          "cuda_batch_one": true,
+          "metrics_queryable_within_30s": true,
+          "profiler_timeline_parseable": true,
+          "cleanup_within_120s": true
+        },
+        "passed": true
+      },
+      "private_evidence": {
+        "path": "attempts/repetition-2/attempt-private.json",
+        "bytes": 11076,
+        "sha256": "ab5d1a0fcb7e9f3e4eb59d59e250fe9661e0780f366079c0245f3ca088e235f2"
+      }
+    },
+    {
+      "summary": {
+        "attempt_id": "e0-3-e2d8d328d0ee",
+        "repetition": 3,
+        "started_at": "2026-08-24T15:46:22.821632Z",
+        "finished_at": "2026-08-24T15:46:45.880952Z",
+        "credit": "credit",
+        "triton_image_digest": "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0687a4d2ac9f7a5",
+        "gpu_uuid": "GPU-4eea4bfc-f15e-bd25-c1b8-ed53ade9ad1d",
+        "gpu_name": "NVIDIA GeForce RTX 4080 SUPER",
+        "model_repository_sha256": "372290c637aceeb29d6abfa61f8a46e22e30ef8ea24e341a587ee5a07f817ac9",
+        "model_artifact_sha256": "5fc4f7cf0974537cf2c16005ef46785f08d4414a973e4f06157f5a547deb7880",
+        "model_config_sha256": "30d9424e86d9d4810c98ecf485ce23fad84de05d4cf98b82159760e2e00cd7dc",
+        "ready_seconds": 0.7810000000172295,
+        "prometheus_up_seconds": 0.0,
+        "output_sha256": "30b079977f0dfa3c7f8a31e1de3a2ed5253b462575cb5bca77f650554d1df905",
+        "triton_success_count": 100.0,
+        "gpu_memory_used_bytes": 3449815040.0,
+        "profiler": {
+          "tool": "cupti",
+          "version": "130000",
+          "scope": "same-container-cuda-profiler-qualification",
+          "triton_inference_traced": false,
+          "trace_method": "cupti-activity",
+          "cuda_kernel_count": 1,
+          "timeline_sha256": "6b9f026ca3a7357b66768e2f495f7059f778e6a4ca408bd14e3a56f0ddbfd8db",
+          "source_sha256": "05aa96a3544500ffe6bdd3d5d91ab0dc1a589de2f4eb706776d22aba1f39c8b9",
+          "execution_log_sha256": "6b9f026ca3a7357b66768e2f495f7059f778e6a4ca408bd14e3a56f0ddbfd8db"
+        },
+        "cleanup": {
+          "elapsed_seconds": 18.14000000001397,
+          "vram_delta_mib": 4.0,
+          "orphan_count": 0
+        },
+        "checks": {
+          "identity_match": true,
+          "readiness_within_30s": true,
+          "cuda_batch_one": true,
+          "metrics_queryable_within_30s": true,
+          "profiler_timeline_parseable": true,
+          "cleanup_within_120s": true
+        },
+        "passed": true
+      },
+      "private_evidence": {
+        "path": "attempts/repetition-3/attempt-private.json",
+        "bytes": 11074,
+        "sha256": "d9f311fda8387ff7b1331d6a22c4378f9e625383abf48e26d37301f117139384"
+      }
+    }
+  ],
+  "analysis": {
+    "repetitions_expected": 3,
+    "repetitions_observed": 3,
+    "identity_passes": 3,
+    "inference_passes": 3,
+    "telemetry_passes": 3,
+    "cleanup_passes": 3,
+    "matrix_complete": true,
+    "acceptance": {
+      "E0-AC-01": true,
+      "E0-AC-02": true,
+      "E0-AC-03": true,
+      "E0-AC-04": true
+    },
+    "evidence_ready": true
+  },
+  "acceptance": {
+    "E0-AC-01": true,
+    "E0-AC-02": true,
+    "E0-AC-03": true,
+    "E0-AC-04": true
+  },
+  "failed_attempts_and_rca": [
+    {
+      "attempt_id": "e0-preflight-20260824T151519Z",
+      "occurred_at": "2026-08-24T15:15:55.268Z",
+      "credit": "non_credit",
+      "failure": "CalledProcessError: profiler capability probe used an obsolete fixed CUPTI path",
+      "rca": "Triton 25.08 stores CUPTI under /usr/local/cuda/targets/x86_64-linux/lib, not the older extras/CUPTI path. No B0 scale, lease acquisition, Triton server start, or acceptance repetition occurred.",
+      "private_evidence": {
+        "path": "historical-failures/e0-20260824T151519Z-25e22e45-failed-preflight.json",
+        "bytes": 575,
+        "sha256": "38bed3162c8428dc8981527c3c08e84c970c0dfbb1935b14a33b357db6201977"
+      }
+    },
+    {
+      "attempt_id": "e0-failed-7681b06fb513",
+      "occurred_at": "2026-08-24T15:18:49.584319Z",
+      "credit": "zero_credit",
+      "failure": "ScenarioWorkloadError:s8-v4-e0-1-90fa86299639",
+      "rca": "The existing shared GPU lease admitted only S4/S7 identities. E0 was fail-closed before Triton start; the contract was extended only for E0 tabular runs with the s8-v4-e0- prefix.",
+      "private_evidence": {
+        "path": "historical-failures/e0-20260824T151830Z-62439a22-failed-attempt.json",
+        "bytes": 268,
+        "sha256": "7ceb36e92fb57463bbfe55a4f60dad7087350c3f1ef0bcbf181e0b9fcc48230e"
+      }
+    },
+    {
+      "attempt_id": "e0-failed-382cd7ecef7f",
+      "occurred_at": "2026-08-24T15:26:05.489571Z",
+      "credit": "zero_credit",
+      "failure": "HTTPError:500 Server Error: Internal Server Error for url: http://127.0.0.1:18000/v2/models/e0_cuda_linear/infer",
+      "rca": "The frozen Triton image exposed CUDA 13 while its Python-backend CuPy expected libnvrtc.so.12. The image stayed fixed and the deterministic test model moved to the image-supported PyTorch GPU backend.",
+      "private_evidence": {
+        "path": "historical-failures/e0-20260824T152500Z-aee648d9-failed-attempt.json",
+        "bytes": 335,
+        "sha256": "8e8709c49c568d3acebc275de6ae352aa0c3411ea719778c7884b7dabc65418c"
+      }
+    },
+    {
+      "attempt_id": "e0-failed-e2affb49385f",
+      "occurred_at": "2026-08-24T15:30:50.429094Z",
+      "credit": "zero_credit",
+      "failure": "E0RuntimeError:e0_profiler_not_parseable:",
+      "rca": "The default Nsight cuda trace recorded API launches but no GPU workload rows in WSL2. The profiler contract now uses the vendor-documented cuda-sw method; Triton inference tracing remains outside the E0 claim.",
+      "private_evidence": {
+        "path": "historical-failures/e0-20260824T153004Z-ecd7e7f7-failed-attempt.json",
+        "bytes": 264,
+        "sha256": "db60b089ddcbc110a623604b05114582b1faaa2309c5465145f1831a67a1486b"
+      }
+    },
+    {
+      "attempt_id": "e0-failed-7dff285c5faf",
+      "occurred_at": "2026-08-24T15:35:27.174114Z",
+      "credit": "zero_credit",
+      "failure": "E0RuntimeError:e0_profiler_not_parseable:",
+      "rca": "The default Nsight cuda trace recorded API launches but no GPU workload rows in WSL2. The profiler contract now uses the vendor-documented cuda-sw method; Triton inference tracing remains outside the E0 claim.",
+      "private_evidence": {
+        "path": "historical-failures/e0-20260824T153459Z-a9a237c8-failed-attempt.json",
+        "bytes": 264,
+        "sha256": "45f3ed21b12ba1318de8abedc36c4ee22c0915aae1bc3d0f90fb79675492a493"
+      }
+    },
+    {
+      "attempt_id": "e0-failed-f03f4314d32e",
+      "occurred_at": "2026-08-24T15:38:28.987286Z",
+      "credit": "zero_credit",
+      "failure": "CalledProcessError:Command '['docker', 'exec', 'evm-s8-v4-e0-r1', 'bash', '-lc', 'nvcc -O2 /evidence/e0-profiler-probe.cu -o /tmp/e0-profiler-probe && nsys profile --sample=none --cpuctxsw=none --trace=cuda-sw,nvtx,osrt --force-overwrite=true --output=/evidence/e0-cuda-probe /tmp/e0-profiler-probe']' returned non-zero exit status 1.",
+      "rca": "The pinned Nsight 2025.4.1 CLI does not implement cuda-sw. The frozen image was retained and profiler qualification moved to its supported direct CUPTI Activity API path.",
+      "private_evidence": {
+        "path": "historical-failures/e0-20260824T153805Z-3d284a19-failed-attempt.json",
+        "bytes": 557,
+        "sha256": "d96a588cf6d81ba27e234f320a59179c03ea312893afdea8bb55277ab4c02c4e"
+      }
+    },
+    {
+      "attempt_id": "e0-failed-499c7f9cb812",
+      "occurred_at": "2026-08-24T15:43:41.245490Z",
+      "credit": "zero_credit",
+      "failure": "E0RuntimeError:e0_cupti_probe_exit:1",
+      "rca": "NVCC rejected the GCC-style -Wl rpath option before the CUPTI probe ran. The redundant rpath option was removed because runtime resolution is already bound by LD_LIBRARY_PATH.",
+      "private_evidence": {
+        "path": "historical-failures/e0-20260824T154316Z-90196e8b-failed-attempt.json",
+        "bytes": 259,
+        "sha256": "a04e7f821d3da985ed092531d404e1978e7f8d1b1f193ec54eca98c58e98cfb4"
+      }
+    }
+  ],
+  "alignment": {
+    "definition_alignment": true,
+    "experiment_purpose_alignment": true,
+    "validation_purpose_alignment": true,
+    "test_purpose_alignment": true,
+    "reviewer_sign_off": "pending"
+  },
+  "cleanup": {
+    "holder_uid_match": true,
+    "holder_image_match": true,
+    "b0_cuda_inference": true,
+    "queues_zero": true,
+    "prometheus_baseline_restored": true,
+    "target_absent": true,
+    "ports_absent": true,
+    "temporary_kubernetes_resources_absent": true
+  },
+  "private_evidence": {
+    "artifact_count": 30,
+    "total_bytes": 97348,
+    "aggregate_sha256": "247d5b1baf144d5e0977fead67a8cc2d25f34202ee0dc4e1c1e7fd9530a75dca",
+    "index_sha256": "7c03367bb1ceae8776b824ccaf1d954299b296a565057930cbd0c476776860b6"
+  },
+  "claim_boundary": "Controlled qualification on one Windows/WSL2 physical node and one RTX 4080; no production SLA, HA/DR, multi-node, multi-GPU, MIG, MPS, or CUDA-overlap claim.",
+  "next_action": "Independent source-local review; do not start S6B-M before a verified amendment."
+}
