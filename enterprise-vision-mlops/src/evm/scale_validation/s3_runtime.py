@@ -59,6 +59,13 @@ CLAIM_BOUNDARY = (
     "No customer traffic, production SLA, physical multi-node or multi-zone HA, "
     "stateful HA/DR, multi-GPU, business A/B, or full-terabyte claim."
 )
+CAPACITY_RUNTIME_GAUGES = (
+    *TERMINAL_GAUGES,
+    "evm_control_plane_db_pool_size",
+    "evm_control_plane_db_pool_available",
+    "evm_control_plane_db_pool_in_use",
+    "evm_control_plane_db_pool_waiting",
+)
 PUBLIC_PROJECTION_DECIMAL_PLACES = 12
 _PUBLIC_PROJECTION_QUANTUM = Decimal("1e-12")
 
@@ -695,19 +702,7 @@ def capacity_runtime_gauges(
     *,
     timeout_seconds: float = 1.0,
 ) -> dict[str, float]:
-    names = {
-        "evm_s3_capacity_executor_queue_depth",
-        "evm_s3_capacity_executor_queue_bytes",
-        "evm_s3_capacity_executor_in_flight",
-        "evm_s3_capacity_executor_in_flight_bytes",
-        "evm_s3_capacity_executor_outstanding",
-        "evm_s3_capacity_executor_outstanding_bytes",
-        "evm_control_plane_db_pool_size",
-        "evm_control_plane_db_pool_available",
-        "evm_control_plane_db_pool_in_use",
-        "evm_control_plane_db_pool_waiting",
-    }
-    observed = {name: 0.0 for name in names}
+    observed = {name: 0.0 for name in CAPACITY_RUNTIME_GAUGES}
     for replica in replicas:
         response = requests.get(
             f"{replica.base_url}/metrics",
@@ -719,6 +714,56 @@ def capacity_runtime_gauges(
                 if sample.name in observed:
                     observed[sample.name] += float(sample.value)
     return observed
+
+
+def prometheus_capacity_runtime_gauges(
+    runtime: PrometheusRuntime,
+    *,
+    timeout_seconds: float,
+    maximum_sample_age_seconds: float,
+) -> tuple[dict[str, float], float]:
+    names = "|".join(CAPACITY_RUNTIME_GAUGES)
+    response = requests.get(
+        f"{runtime.base_url}/api/v1/query",
+        params={"query": f'{{__name__=~"{names}"}}'},
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("status") != "success":
+        raise S3RuntimeError("s3_runtime_gauge_query_failed")
+    results = list(payload.get("data", {}).get("result", []))
+    observed = {name: 0.0 for name in CAPACITY_RUNTIME_GAUGES}
+    seen: set[str] = set()
+    ages: list[float] = []
+    sampled_at = time.time()
+    for item in results:
+        metric = dict(item.get("metric", {}))
+        name = str(metric.get("__name__", ""))
+        if name not in observed:
+            continue
+        value = list(item.get("value", []))
+        if len(value) != 2:
+            raise S3RuntimeError("s3_runtime_gauge_value_invalid")
+        timestamp = float(value[0])
+        scalar = float(value[1])
+        age = max(0.0, sampled_at - timestamp)
+        if not math.isfinite(timestamp) or not math.isfinite(scalar):
+            raise S3RuntimeError("s3_runtime_gauge_non_finite")
+        observed[name] += scalar
+        seen.add(name)
+        ages.append(age)
+    missing = set(CAPACITY_RUNTIME_GAUGES) - seen
+    if missing:
+        raise S3RuntimeError(
+            "s3_runtime_gauge_series_missing:" + ",".join(sorted(missing))
+        )
+    maximum_age = max(ages, default=math.inf)
+    if maximum_age > maximum_sample_age_seconds:
+        raise S3RuntimeError(
+            f"s3_runtime_gauge_sample_stale:{maximum_age:.6f}"
+        )
+    return observed, maximum_age
 
 
 def start_isolated_prometheus(
@@ -804,11 +849,16 @@ def start_isolated_prometheus(
     raise S3RuntimeError("s3_prometheus_ready_timeout")
 
 
-def prometheus_query(runtime: PrometheusRuntime, query: str) -> list[dict[str, Any]]:
+def prometheus_query(
+    runtime: PrometheusRuntime,
+    query: str,
+    *,
+    timeout_seconds: float = 10,
+) -> list[dict[str, Any]]:
     response = requests.get(
         f"{runtime.base_url}/api/v1/query",
         params={"query": query},
-        timeout=10,
+        timeout=timeout_seconds,
     )
     response.raise_for_status()
     payload = response.json()
@@ -1163,6 +1213,8 @@ async def collect_resource_samples(
     stop: StopController,
     finished: asyncio.Event,
     artifact_root: Path,
+    prometheus: PrometheusRuntime | None = None,
+    prometheus_scrape_interval_seconds: float = 1.0,
     runtime_metrics_timeout_seconds: float = 1.0,
     runtime_metrics_max_consecutive_failures: int = 3,
 ) -> list[dict[str, Any]]:
@@ -1207,14 +1259,29 @@ async def collect_resource_samples(
         host_cpu = float(psutil.cpu_percent(None))
         runtime_gauges: dict[str, float] = {}
         runtime_gauge_error: str | None = None
+        runtime_gauge_source = "prometheus" if prometheus is not None else "api"
+        runtime_gauge_sample_age_seconds: float | None = None
         try:
-            runtime_gauges = await asyncio.to_thread(
-                capacity_runtime_gauges,
-                replicas,
-                timeout_seconds=runtime_metrics_timeout_seconds,
-            )
+            if prometheus is not None:
+                runtime_gauges, runtime_gauge_sample_age_seconds = (
+                    await asyncio.to_thread(
+                        prometheus_capacity_runtime_gauges,
+                        prometheus,
+                        timeout_seconds=runtime_metrics_timeout_seconds,
+                        maximum_sample_age_seconds=max(
+                            runtime_metrics_timeout_seconds,
+                            prometheus_scrape_interval_seconds * 3,
+                        ),
+                    )
+                )
+            else:
+                runtime_gauges = await asyncio.to_thread(
+                    capacity_runtime_gauges,
+                    replicas,
+                    timeout_seconds=runtime_metrics_timeout_seconds,
+                )
             consecutive_runtime_metric_failures = 0
-        except requests.RequestException as exc:
+        except (requests.RequestException, S3RuntimeError, ValueError) as exc:
             consecutive_runtime_metric_failures += 1
             runtime_gauge_error = type(exc).__name__
         artifact_bytes = await asyncio.to_thread(directory_bytes, artifact_root)
@@ -1240,6 +1307,10 @@ async def collect_resource_samples(
             ),
             "artifact_bytes": artifact_bytes,
             "runtime_gauge_sample_ok": runtime_gauge_error is None,
+            "runtime_gauge_source": runtime_gauge_source,
+            "runtime_gauge_sample_age_seconds": (
+                runtime_gauge_sample_age_seconds
+            ),
             "runtime_gauge_error": runtime_gauge_error,
             "runtime_gauge_consecutive_failures": (
                 consecutive_runtime_metric_failures
@@ -1834,6 +1905,7 @@ def run_capacity_point(
                 config=config,
                 stop=stop,
                 artifact_root=private_root,
+                prometheus=prometheus,
             )
         )
         load = summarize_load_phase(phase)
@@ -1962,6 +2034,7 @@ async def _run_measured_phase(
     config: S3RuntimeConfig,
     stop: StopController,
     artifact_root: Path,
+    prometheus: PrometheusRuntime,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     finished = asyncio.Event()
     sampler = asyncio.create_task(
@@ -1973,6 +2046,10 @@ async def _run_measured_phase(
             stop=stop,
             finished=finished,
             artifact_root=artifact_root,
+            prometheus=prometheus,
+            prometheus_scrape_interval_seconds=(
+                config.prometheus_scrape_interval_seconds
+            ),
             runtime_metrics_timeout_seconds=(
                 config.resource_metrics_timeout_seconds
             ),

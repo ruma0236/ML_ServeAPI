@@ -150,6 +150,13 @@ queue and pool slopes only from valid runtime-gauge samples, requires at least
 The `35 RPS`, 30-minute measurement, three-repetition requirement, and all S8
 guardrail thresholds remain unchanged.
 
+The first 120-second non-credit validation then showed that direct API metrics
+reads produced only `55/108` required samples despite `4,200/4,200` workload
+requests succeeding. Runtime gauges therefore now come from the same isolated
+Prometheus cache already scraping at one-second cadence. Every cached sample is
+checked for the complete metric set, finite values, and timestamp freshness;
+missing or stale series follow the bounded failure policy above.
+
 ## Portfolio Boundary
 
 Allowed: a controlled single-local-node experiment showing bounded retries,

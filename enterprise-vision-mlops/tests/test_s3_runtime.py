@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +17,8 @@ from evm.scale_validation.s3_higgs import file_sha256
 from evm.scale_validation.s3_runtime import (
     PROBE_FAMILIES,
     REQUIRED_TRACE_SPANS,
+    CAPACITY_RUNTIME_GAUGES,
+    PrometheusRuntime,
     ReplayPayloadFactory,
     S3LoadPoint,
     S3RuntimeConfig,
@@ -25,6 +28,7 @@ from evm.scale_validation.s3_runtime import (
     evaluate_point_assertions,
     identify_first_bottleneck,
     otlp_trace_summary,
+    prometheus_capacity_runtime_gauges,
     recalculate_s2_capacity,
     resource_summary,
     run_load_phase,
@@ -38,6 +42,83 @@ from evm.scale_validation.s3_runtime import (
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_CONFIG = ROOT / "configs" / "s3_capacity_runtime.toml"
+
+
+class _PrometheusQueryResponse:
+    def __init__(self, results: list[dict[str, object]]) -> None:
+        self._results = results
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, object]:
+        return {
+            "status": "success",
+            "data": {"result": self._results},
+        }
+
+
+def _prometheus_runtime(tmp_path: Path) -> PrometheusRuntime:
+    return PrometheusRuntime(
+        container_name="test-prometheus",
+        base_url="http://127.0.0.1:19090",
+        config_path=tmp_path / "prometheus.yml",
+        targets_path=tmp_path / "targets.json",
+    )
+
+
+def _prometheus_gauge_results(*, sampled_at: float) -> list[dict[str, object]]:
+    return [
+        {
+            "metric": {"__name__": name},
+            "value": [sampled_at, "1"],
+        }
+        for name in CAPACITY_RUNTIME_GAUGES
+    ]
+
+
+def test_prometheus_runtime_gauges_require_fresh_complete_series(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    results = _prometheus_gauge_results(sampled_at=time.time())
+    monkeypatch.setattr(
+        "evm.scale_validation.s3_runtime.requests.get",
+        lambda *_args, **_kwargs: _PrometheusQueryResponse(results),
+    )
+
+    gauges, maximum_age = prometheus_capacity_runtime_gauges(
+        _prometheus_runtime(tmp_path),
+        timeout_seconds=0.25,
+        maximum_sample_age_seconds=3.0,
+    )
+
+    assert set(gauges) == set(CAPACITY_RUNTIME_GAUGES)
+    assert all(value == 1.0 for value in gauges.values())
+    assert 0 <= maximum_age <= 3.0
+
+
+@pytest.mark.parametrize("mutation", ["missing", "stale"])
+def test_prometheus_runtime_gauges_fail_closed_on_invalid_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    sampled_at = time.time() - (10 if mutation == "stale" else 0)
+    results = _prometheus_gauge_results(sampled_at=sampled_at)
+    if mutation == "missing":
+        results.pop()
+    monkeypatch.setattr(
+        "evm.scale_validation.s3_runtime.requests.get",
+        lambda *_args, **_kwargs: _PrometheusQueryResponse(results),
+    )
+
+    with pytest.raises(S3RuntimeError):
+        prometheus_capacity_runtime_gauges(
+            _prometheus_runtime(tmp_path),
+            timeout_seconds=0.25,
+            maximum_sample_age_seconds=3.0,
+        )
 
 
 def _resource_gauges() -> dict[str, float]:

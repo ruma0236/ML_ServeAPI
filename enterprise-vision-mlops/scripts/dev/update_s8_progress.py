@@ -498,10 +498,11 @@ def record_resource_sampler_remediation(args: argparse.Namespace) -> int:
             "phase": "implementation",
             "status": "implementing",
             "summary": (
-                "Resource sampling now records transient metrics failures, uses "
-                "only valid gauge samples for queue and pool slopes, requires at "
-                "least 90 percent valid gauge coverage, and stops fail closed after "
-                "three consecutive failures. The accepted load and guardrails are unchanged."
+                "Resource sampling now reads timestamped gauges from the existing "
+                "isolated Prometheus cache instead of competing direct API metrics "
+                "requests. It records transient or stale samples, uses only valid "
+                "gauges for queue and pool slopes, requires at least 90 percent "
+                "coverage, and stops fail closed after three consecutive failures."
             ),
             "evidence_refs": [
                 "docs/status/evidence/s8-dependency-soak-attempt-05.json",
