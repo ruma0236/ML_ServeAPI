@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import UTC, datetime
@@ -25,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Synchronize Scenario S8 progress")
     parser.add_argument(
         "--phase",
-        choices=("implementation", "verification"),
+        choices=("implementation", "failure", "verification"),
         default="implementation",
     )
     parser.add_argument("--json-path", type=Path, default=DEFAULT_JSON)
@@ -71,6 +72,8 @@ def implementation_components() -> list[dict[str, object]]:
 
 def main() -> int:
     args = parse_args()
+    if args.phase == "failure":
+        return record_failed_attempt(args)
     if args.phase != "implementation":
         raise SystemExit("verification updates are produced by the S8 closure script")
     now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -120,6 +123,57 @@ def main() -> int:
         "evidence_refs": ["docs/status/2026-08-24-s8-design-reconciliation.md"],
     }
     scenario["chronological_updates"].append(update)
+    payload["generated_at"] = now
+    ledger = ScenarioProgressLedger.model_validate(payload)
+    args.json_path.write_bytes((ledger.model_dump_json(indent=2) + "\n").encode("utf-8"))
+    args.markdown_path.write_text(
+        render_progress_markdown(ledger), encoding="utf-8", newline="\n"
+    )
+    return 0
+
+
+def record_failed_attempt(args: argparse.Namespace) -> int:
+    now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    evidence_path = ROOT / "docs/status/evidence/s8-dependency-soak-attempt-01.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    digest = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+    payload = json.loads(args.json_path.read_text(encoding="utf-8"))
+    scenario = next(item for item in payload["scenarios"] if item["scenario_id"] == "S8")
+    artifact = {
+        "path": evidence_path.relative_to(ROOT).as_posix(),
+        "sha256": digest,
+        "generated_at": str(evidence["generated_at"]),
+        "claim": (
+            "Rejected infrastructure attempt: control repetitions 1 and 2 passed, "
+            "repetition 3 hit a Docker host-port allocation race before admission; "
+            "cleanup passed and no acceptance credit was awarded."
+        ),
+    }
+    scenario["evidence_artifacts"] = [artifact]
+    scenario["evidence_index"] = [artifact]
+    scenario["observed_result"] = None
+    scenario["status"] = "implementing"
+    scenario["verdict_and_claim_boundary"]["verdict"] = "not_run"
+    scenario["next_action"] = (
+        "Rerun the complete 21-repetition fault matrix from the bounded port-collision "
+        "remediation revision; begin soak only after every fresh fault repetition passes."
+    )
+    scenario["chronological_updates"].append(
+        {
+            "occurred_at": now,
+            "phase": "experiment",
+            "status": "implementing",
+            "summary": (
+                "Attempt 01 was rejected with zero acceptance credit after an isolated "
+                "Prometheus port-bind race in control repetition 3. Two prior controls "
+                "passed, all temporary state cleaned up, and soak did not start."
+            ),
+            "evidence_refs": [
+                artifact["path"],
+                "docs/status/2026-08-24-s8-attempt-01-rca.md",
+            ],
+        }
+    )
     payload["generated_at"] = now
     ledger = ScenarioProgressLedger.model_validate(payload)
     args.json_path.write_bytes((ledger.model_dump_json(indent=2) + "\n").encode("utf-8"))

@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T06:59:22Z",
+  "generated_at": "2026-08-24T07:07:59Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -4050,7 +4050,14 @@
         }
       ],
       "observed_result": null,
-      "evidence_artifacts": [],
+      "evidence_artifacts": [
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-attempt-01.json",
+          "sha256": "080e73eb80debec13211cb5484c1fa2636824100547dc6f8ed8de904719843bc",
+          "generated_at": "2026-08-24T07:03:35.281226Z",
+          "claim": "Rejected infrastructure attempt: control repetitions 1 and 2 passed, repetition 3 hit a Docker host-port allocation race before admission; cleanup passed and no acceptance credit was awarded."
+        }
+      ],
       "status": "implementing",
       "claim_boundary": "Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.",
       "unresolved_items": [
@@ -4059,7 +4066,7 @@
         "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
         "One final evidence index re-hashes every accepted result."
       ],
-      "next_action": "Run the isolated dependency-fault repetitions, then the 35 RPS 30-minute soak repetitions, recompute S8-AC-01..04 from raw evidence, and close only after regression and Git-blob validation.",
+      "next_action": "Rerun the complete 21-repetition fault matrix from the bounded port-collision remediation revision; begin soak only after every fresh fault repetition passes.",
       "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
       "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.",
       "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
@@ -4164,7 +4171,14 @@
         "existing_system_regression_required": true,
         "lifecycle_e2e_regression_required": true
       },
-      "evidence_index": [],
+      "evidence_index": [
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-attempt-01.json",
+          "sha256": "080e73eb80debec13211cb5484c1fa2636824100547dc6f8ed8de904719843bc",
+          "generated_at": "2026-08-24T07:03:35.281226Z",
+          "claim": "Rejected infrastructure attempt: control repetitions 1 and 2 passed, repetition 3 hit a Docker host-port allocation race before admission; cleanup passed and no acceptance credit was awarded."
+        }
+      ],
       "verdict_and_claim_boundary": {
         "verdict": "not_run",
         "claim_boundary": "Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.",
@@ -4194,6 +4208,16 @@
           "summary": "S8 implementation started at the S0-S7 verified gate with an opt-in dependency circuit, frozen 35 RPS soak contract, expanded resource sampling, external runner, independent mutation validator, and no acceptance credit yet.",
           "evidence_refs": [
             "docs/status/2026-08-24-s8-design-reconciliation.md"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T07:07:59Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "Attempt 01 was rejected with zero acceptance credit after an isolated Prometheus port-bind race in control repetition 3. Two prior controls passed, all temporary state cleaned up, and soak did not start.",
+          "evidence_refs": [
+            "docs/status/evidence/s8-dependency-soak-attempt-01.json",
+            "docs/status/2026-08-24-s8-attempt-01-rca.md"
           ]
         }
       ]

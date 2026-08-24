@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T06:59:22Z`
+- Generated: `2026-08-24T07:07:59Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -739,7 +739,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.
 - Verdict: `not_run`
 - Claim boundary: Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.
-- Next action: Run the isolated dependency-fault repetitions, then the 35 RPS 30-minute soak repetitions, recompute S8-AC-01..04 from raw evidence, and close only after regression and Git-blob validation.
+- Next action: Rerun the complete 21-repetition fault matrix from the bounded port-collision remediation revision; begin soak only after every fresh fault repetition passes.
 
 ### Affected Existing Components
 
@@ -787,10 +787,11 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Current Evidence
 
-- No accepted execution evidence yet.
+- `docs/status/evidence/s8-dependency-soak-attempt-01.json` (`080e73eb80debec13211cb5484c1fa2636824100547dc6f8ed8de904719843bc`): Rejected infrastructure attempt: control repetitions 1 and 2 passed, repetition 3 hit a Docker host-port allocation race before admission; cleanup passed and no acceptance credit was awarded.
 
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
 - `2026-08-24T06:36:59Z` `implementation` / `implementing`: S8 implementation started at the S0-S7 verified gate with an opt-in dependency circuit, frozen 35 RPS soak contract, expanded resource sampling, and no acceptance credit yet.
 - `2026-08-24T06:59:22Z` `implementation` / `implementing`: S8 implementation started at the S0-S7 verified gate with an opt-in dependency circuit, frozen 35 RPS soak contract, expanded resource sampling, external runner, independent mutation validator, and no acceptance credit yet.
+- `2026-08-24T07:07:59Z` `experiment` / `implementing`: Attempt 01 was rejected with zero acceptance credit after an isolated Prometheus port-bind race in control repetition 3. Two prior controls passed, all temporary state cleaned up, and soak did not start.

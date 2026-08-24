@@ -1,0 +1,892 @@
+{
+  "schema_version": "evm.s8_dependency_soak_experiment.v1",
+  "generated_at": "2026-08-24T07:03:35.281226Z",
+  "started_at": "2026-08-24T07:02:38.456730Z",
+  "source_identity": {
+    "implementation_revision": "012e649a4070b92ef2cfd81c0116b1041dd88b1a",
+    "branch": "codex/distributed-scale-validation-plan",
+    "runtime_module": "src/evm/scale_validation/s8_runtime.py",
+    "runtime_module_sha256": "93ebb2c19832079ba4e9605a334b95dc3bf1b61b7ba5abae448791f182ba04e5",
+    "git_blobs": {
+      "runtime": {
+        "path": "src/evm/scale_validation/s8_runtime.py",
+        "blob_oid": "728ebf2a51eec7d199c8e4c06e81b98e20ef3931",
+        "sha256": "93ebb2c19832079ba4e9605a334b95dc3bf1b61b7ba5abae448791f182ba04e5"
+      },
+      "runner": {
+        "path": "scripts/dev/run_s8_dependency_soak_experiment.py",
+        "blob_oid": "cf07de3ac62e18f359a017e0762fa9c5da1f67e5",
+        "sha256": "881787cbe5c4885cb1abdb3cadb950ac528c8961469df692148f1a01d2db9f29"
+      },
+      "s2_runtime": {
+        "path": "src/evm/scale_validation/s2_runtime.py",
+        "blob_oid": "cab97c814a8b58480fbeeea193f8257f05956a7d",
+        "sha256": "2986ed0450e6116acbb6c77cdd2a27faf4ba69d449604c4a507bdbde499be048"
+      },
+      "s3_runtime": {
+        "path": "src/evm/scale_validation/s3_runtime.py",
+        "blob_oid": "f807d3145285ed6f5bb4496d05763772573034fd",
+        "sha256": "7eab76b81037d11aefb2e1c181e21941e4786397ac3fe725370dfe1c651ecf55"
+      },
+      "admission": {
+        "path": "src/evm/control_panel/admission_queue.py",
+        "blob_oid": "851c74427e596c48d524cc8cfb4dca74fa8266ea",
+        "sha256": "a52666d05b13bf81dd78b3ddef0157e67398ca10c8fe4c684b208fff0b30d6eb"
+      },
+      "worker": {
+        "path": "src/evm/control_panel/task_queue_worker.py",
+        "blob_oid": "ee1231274d0e5246b1dac4852ffb109cf06d4f99",
+        "sha256": "667cd44424c6b40fdf83d550d3ac6d454487f1391a375c6a57a2e537774378d4"
+      },
+      "store": {
+        "path": "src/evm/control_panel/transactional_store.py",
+        "blob_oid": "a9d801b8274039e2cdcca5b62bcc314f4e8b85f6",
+        "sha256": "5059aed10f8c418de15d1f45d53ddd210764dda2b5967837641769a489f416ea"
+      },
+      "scenario_config": {
+        "path": "configs/s8_dependency_soak_v1.toml",
+        "blob_oid": "77a931c5e569fb043776707d8bb1dd7afc40e844",
+        "sha256": "674c28cf26f4a1d1a6acc5916bee51ee17e25af63b22d37c18d9d59c7563e368"
+      },
+      "soak_config": {
+        "path": "configs/s8_soak_capacity_runtime.toml",
+        "blob_oid": "1e0e0d8ebb073c2e0c81eb1a966c33ef22c12476",
+        "sha256": "7787207c46ced75f23bff1ec6882d2b15cad8f7af8d014a8d54a8c1aa2a5d68e"
+      }
+    }
+  },
+  "start_gate": {
+    "s0_s7_verified": true,
+    "s8_implementing": true,
+    "tracked_worktree_clean": true
+  },
+  "config": {
+    "version": "s8-dependency-soak-v1-20260824",
+    "scenario_sha256": "674c28cf26f4a1d1a6acc5916bee51ee17e25af63b22d37c18d9d59c7563e368",
+    "queue_sha256": "dd60c0c768d7dcff917994b6b26c23975c495d00007e6b9ec1346f070639ece3",
+    "seed": 20260824,
+    "repetitions": 3,
+    "soak_rps": 35.0,
+    "soak_measurement_seconds": 1800.0
+  },
+  "fault_results": [
+    {
+      "profile_id": "control",
+      "name": "no-fault-control",
+      "repetition": 1,
+      "config_version": "s8-dependency-soak-v1-20260824",
+      "config_sha256": "dd60c0c768d7dcff917994b6b26c23975c495d00007e6b9ec1346f070639ece3",
+      "input_sequence_sha256": "65da2dc950a6c15e2763b0a0daa96e72b94a3ede530e4d6e37f21aebdc2a8833",
+      "submission": {
+        "submitted": 8,
+        "status_counts": {
+          "202": 8
+        },
+        "peak_client_in_flight": 8,
+        "retry_after_values": [],
+        "p95_seconds": 0.125,
+        "load_generator_permit_wait_seconds": {
+          "count": 8,
+          "sum": 1.850002445280552e-05,
+          "max": 3.200024366378784e-06,
+          "p95": 2.800021320581436e-06
+        },
+        "transport_failures": 0
+      },
+      "terminal": {
+        "accepted_count": 8,
+        "terminal_count": 8,
+        "missing_count": 0,
+        "elapsed_seconds": 3.39000000001397,
+        "final_state_counts": {
+          "completed": 8
+        }
+      },
+      "peaks": {
+        "active_depth": 8,
+        "active_bytes": 9576,
+        "local_depth": 3,
+        "local_bytes": 3591,
+        "worker_in_flight": 3,
+        "worker_in_flight_bytes": 3591,
+        "cpu_downstream_outstanding": 3,
+        "gpu_downstream_outstanding": 0,
+        "cpu_downstream_outstanding_bytes": 3591,
+        "gpu_downstream_outstanding_bytes": 0,
+        "api_process_tree_rss_bytes": 160903168,
+        "worker_process_tree_rss_bytes": 265768960,
+        "executor_children_rss_bytes": 205684736,
+        "ingress_active_requests": 8,
+        "ingress_in_flight_bytes": 4032
+      },
+      "metrics": {
+        "admission": {
+          "accepted:within_bounds": 8.0
+        },
+        "terminal": {
+          "completed:runtime_terminal": 8.0
+        },
+        "retry": {},
+        "dlq": {},
+        "cpu_scale": {
+          "up": 2.0,
+          "down": 2.0
+        },
+        "ingress_peak_requests": 8.0,
+        "ingress_peak_bytes": 4032.0,
+        "admission_wait_seconds": {
+          "count": 8.0,
+          "sum": 0.39100000000325963,
+          "average": 0.048875000000407454,
+          "observed_upper_bound": 0.1,
+          "max": 0.0779999999795109
+        },
+        "queue_wait_seconds": {
+          "count": 8.0,
+          "sum": 7.934321000000001,
+          "average": 0.9917901250000001,
+          "observed_upper_bound": 2.5,
+          "max": 2.145128
+        },
+        "retry_delay_seconds": {},
+        "dependency_circuit": {
+          "state": {
+            "closed": 1.0,
+            "open": 0.0,
+            "half_open": 0.0
+          },
+          "opens": 0.0,
+          "blocked_claim_cycles": 0.0,
+          "hold_seconds": {
+            "count": 0.0,
+            "sum": 0.0,
+            "average": 0.0,
+            "observed_upper_bound": 0.0
+          }
+        },
+        "control_plane_pool": {
+          "api": {
+            "size": 7.0,
+            "available": 7.0,
+            "in_use": 0.0,
+            "waiting": 0.0,
+            "timeouts": 0.0,
+            "acquire_wait": {
+              "count": 63.0,
+              "sum": 0.07900000002700835,
+              "average": 0.001253968254396958,
+              "observed_upper_bound": 0.025
+            }
+          },
+          "worker": {
+            "size": 2.0,
+            "available": 2.0,
+            "in_use": 0.0,
+            "waiting": 0.0,
+            "timeouts": 0.0,
+            "acquire_wait": {
+              "count": 977.0,
+              "sum": 0.01600000000325963,
+              "average": 1.6376663258198188e-05,
+              "observed_upper_bound": 0.025
+            }
+          }
+        },
+        "worker_in_flight_bytes": {
+          "cpu": 0.0,
+          "gpu": 0.0
+        },
+        "downstream_outstanding": {
+          "cpu": 0.0,
+          "gpu": 0.0
+        },
+        "downstream_outstanding_bytes": {
+          "cpu": 0.0,
+          "gpu": 0.0
+        },
+        "retained_peaks": {
+          "local_depth": 3.0,
+          "local_bytes": 3591.0,
+          "worker_in_flight": 3.0,
+          "worker_in_flight_bytes": 3591.0,
+          "executor_children_rss_bytes": 205684736.0,
+          "cpu_downstream_outstanding": 3.0,
+          "gpu_downstream_outstanding": 0.0,
+          "cpu_downstream_outstanding_bytes": 3591.0,
+          "gpu_downstream_outstanding_bytes": 0.0
+        },
+        "rss_bytes": 76521472.0,
+        "rss_slope_bytes_per_minute": 0.0,
+        "cpu_capacity": 1.0,
+        "gpu_capacity": 1.0
+      },
+      "prometheus": {
+        "targets": {
+          "worker": 1,
+          "api": 1
+        },
+        "rss_query_series": 2
+      },
+      "trace": {
+        "task_count": 8,
+        "complete_count": 8,
+        "missing": 0,
+        "raw_tail_sha256": "4eb38b3e23babea1a3fd425f27641e8d760e8a88f6b1212900c886107a6102b6",
+        "raw_tail_bytes": 145353
+      },
+      "external_effects": {
+        "attempts": 8,
+        "unique": 8,
+        "duplicates": 0,
+        "multiple_logical": 0,
+        "max_runtime_concurrency": {
+          "cpu": 2
+        },
+        "max_external_in_flight": {
+          "cpu": 1
+        },
+        "cuda_probe_count": 0,
+        "cuda_failure_count": 0,
+        "cuda_nonzero_activity_count": 0,
+        "cuda_peak_allocated_bytes": 0
+      },
+      "history": {
+        "rollups": [],
+        "idempotency": {
+          "rows": 8,
+          "tombstones": 0,
+          "bytes": 12224
+        },
+        "mirror": {
+          "rows": 0,
+          "bytes": 5
+        }
+      },
+      "profile_observations": {},
+      "strict_evidence": {
+        "identity_closure": {
+          "accepted_count": 8,
+          "terminal_count": 8,
+          "accepted_identity_set_sha256": "fa63dab40f63b675bd5df4459ab2357076b7ae048bfc478124ae1e0ea2c3211a",
+          "terminal_identity_set_sha256": "fa63dab40f63b675bd5df4459ab2357076b7ae048bfc478124ae1e0ea2c3211a",
+          "active_final_depth": 0,
+          "outcome_unknown_final": 0
+        },
+        "effect_accounting": {
+          "eligible_count": 8,
+          "eligible_identity_set_sha256": "fa63dab40f63b675bd5df4459ab2357076b7ae048bfc478124ae1e0ea2c3211a",
+          "actual_effect_count": 8,
+          "actual_effect_identity_set_sha256": "fa63dab40f63b675bd5df4459ab2357076b7ae048bfc478124ae1e0ea2c3211a",
+          "eligible_exactly_once_count": 8,
+          "no_effect_expected_count": 0,
+          "no_effect_observed_count": 0,
+          "duplicate_effect_count": 0,
+          "multiple_logical_effect_count": 0
+        },
+        "waits": {
+          "admission": {
+            "count": 8.0,
+            "sum": 0.39100000000325963,
+            "average": 0.048875000000407454,
+            "observed_upper_bound": 0.1,
+            "max": 0.0779999999795109
+          },
+          "queue": {
+            "count": 8.0,
+            "sum": 7.934321000000001,
+            "average": 0.9917901250000001,
+            "observed_upper_bound": 2.5,
+            "max": 2.145128
+          },
+          "load_generator_permit": {
+            "count": 8,
+            "sum": 1.850002445280552e-05,
+            "max": 3.200024366378784e-06,
+            "p95": 2.800021320581436e-06
+          },
+          "retry_delay": {}
+        },
+        "assertion_observations": {
+          "control_all_accepted_terminal": {
+            "accepted": 8,
+            "expected_states": {
+              "completed": 8
+            }
+          }
+        }
+      },
+      "assertions": [
+        {
+          "assertion_id": "control_all_accepted_terminal",
+          "passed": true,
+          "observed": {
+            "accepted": 8,
+            "expected_states": {
+              "completed": 8
+            }
+          }
+        },
+        {
+          "assertion_id": "accepted_equals_terminal",
+          "passed": true,
+          "observed": {
+            "accepted": 8,
+            "terminal": 8,
+            "missing": 0
+          }
+        },
+        {
+          "assertion_id": "active_queue_drained",
+          "passed": true,
+          "observed": {
+            "completed": 8
+          }
+        },
+        {
+          "assertion_id": "outcome_unknown_zero",
+          "passed": true,
+          "observed": 0
+        },
+        {
+          "assertion_id": "logical_effect_exactly_once",
+          "passed": true,
+          "observed": {
+            "expected_nonzero": 8,
+            "observed_unique": 8,
+            "duplicates": 0,
+            "multiple_logical": 0
+          }
+        },
+        {
+          "assertion_id": "trace_chain_complete",
+          "passed": true,
+          "observed": {
+            "task_count": 8,
+            "complete_count": 8,
+            "missing": 0,
+            "raw_tail_sha256": "4eb38b3e23babea1a3fd425f27641e8d760e8a88f6b1212900c886107a6102b6",
+            "raw_tail_bytes": 145353
+          }
+        },
+        {
+          "assertion_id": "postgres_json_mirror_parity",
+          "passed": true,
+          "observed": {
+            "authority_count": 8,
+            "mirror_count": 8,
+            "file_count": 8,
+            "authority_sha256": "2f0b5d71860b59754e787f83694a27bfd6df4445750fd58927953d40b419d40e",
+            "mirror_sha256": "2f0b5d71860b59754e787f83694a27bfd6df4445750fd58927953d40b419d40e",
+            "file_sha256": "2f0b5d71860b59754e787f83694a27bfd6df4445750fd58927953d40b419d40e",
+            "matches": true
+          }
+        },
+        {
+          "assertion_id": "prometheus_targets_up",
+          "passed": true,
+          "observed": {
+            "worker": 1,
+            "api": 1
+          }
+        },
+        {
+          "assertion_id": "process_tree_rss_nonzero",
+          "passed": true,
+          "observed": {
+            "active_depth": 8,
+            "active_bytes": 9576,
+            "local_depth": 3,
+            "local_bytes": 3591,
+            "worker_in_flight": 3,
+            "worker_in_flight_bytes": 3591,
+            "cpu_downstream_outstanding": 3,
+            "gpu_downstream_outstanding": 0,
+            "cpu_downstream_outstanding_bytes": 3591,
+            "gpu_downstream_outstanding_bytes": 0,
+            "api_process_tree_rss_bytes": 160903168,
+            "worker_process_tree_rss_bytes": 265768960,
+            "executor_children_rss_bytes": 205684736,
+            "ingress_active_requests": 8,
+            "ingress_in_flight_bytes": 4032
+          }
+        },
+        {
+          "assertion_id": "isolated_runtime_cleanup",
+          "passed": true,
+          "observed": {
+            "schema_dropped": true,
+            "marker_processes_remaining": [],
+            "stopped_process_count": 1,
+            "errors": []
+          }
+        }
+      ],
+      "private_evidence_sha256": "e321d4f66f7601226d2442c98448692eb37c9f9e68bf53d1fd14df1ea4dbb037",
+      "passed": true,
+      "cleanup": {
+        "schema_dropped": true,
+        "marker_processes_remaining": [],
+        "stopped_process_count": 1,
+        "errors": []
+      }
+    },
+    {
+      "profile_id": "control",
+      "name": "no-fault-control",
+      "repetition": 2,
+      "config_version": "s8-dependency-soak-v1-20260824",
+      "config_sha256": "dd60c0c768d7dcff917994b6b26c23975c495d00007e6b9ec1346f070639ece3",
+      "input_sequence_sha256": "65da2dc950a6c15e2763b0a0daa96e72b94a3ede530e4d6e37f21aebdc2a8833",
+      "submission": {
+        "submitted": 8,
+        "status_counts": {
+          "202": 8
+        },
+        "peak_client_in_flight": 8,
+        "retry_after_values": [],
+        "p95_seconds": 0.10899999999674037,
+        "load_generator_permit_wait_seconds": {
+          "count": 8,
+          "sum": 1.669995253905654e-05,
+          "max": 3.4999684430658817e-06,
+          "p95": 2.700020559132099e-06
+        },
+        "transport_failures": 0
+      },
+      "terminal": {
+        "accepted_count": 8,
+        "terminal_count": 8,
+        "missing_count": 0,
+        "elapsed_seconds": 2.875,
+        "final_state_counts": {
+          "completed": 8
+        }
+      },
+      "peaks": {
+        "active_depth": 8,
+        "active_bytes": 9576,
+        "local_depth": 3,
+        "local_bytes": 3591,
+        "worker_in_flight": 3,
+        "worker_in_flight_bytes": 3591,
+        "cpu_downstream_outstanding": 4,
+        "gpu_downstream_outstanding": 0,
+        "cpu_downstream_outstanding_bytes": 4788,
+        "gpu_downstream_outstanding_bytes": 0,
+        "api_process_tree_rss_bytes": 161447936,
+        "worker_process_tree_rss_bytes": 255541248,
+        "executor_children_rss_bytes": 196255744,
+        "ingress_active_requests": 8,
+        "ingress_in_flight_bytes": 4032
+      },
+      "metrics": {
+        "admission": {
+          "accepted:within_bounds": 8.0
+        },
+        "terminal": {
+          "completed:runtime_terminal": 8.0
+        },
+        "retry": {},
+        "dlq": {},
+        "cpu_scale": {
+          "up": 2.0,
+          "down": 2.0
+        },
+        "ingress_peak_requests": 8.0,
+        "ingress_peak_bytes": 4032.0,
+        "admission_wait_seconds": {
+          "count": 8.0,
+          "sum": 0.3910000000614673,
+          "average": 0.04887500000768341,
+          "observed_upper_bound": 0.1,
+          "max": 0.0779999999795109
+        },
+        "queue_wait_seconds": {
+          "count": 8.0,
+          "sum": 7.484519000000001,
+          "average": 0.9355648750000001,
+          "observed_upper_bound": 2.5,
+          "max": 1.975137
+        },
+        "retry_delay_seconds": {},
+        "dependency_circuit": {
+          "state": {
+            "closed": 1.0,
+            "open": 0.0,
+            "half_open": 0.0
+          },
+          "opens": 0.0,
+          "blocked_claim_cycles": 0.0,
+          "hold_seconds": {
+            "count": 0.0,
+            "sum": 0.0,
+            "average": 0.0,
+            "observed_upper_bound": 0.0
+          }
+        },
+        "control_plane_pool": {
+          "api": {
+            "size": 6.0,
+            "available": 6.0,
+            "in_use": 0.0,
+            "waiting": 0.0,
+            "timeouts": 0.0,
+            "acquire_wait": {
+              "count": 63.0,
+              "sum": 0.12500000005820766,
+              "average": 0.001984126985050915,
+              "observed_upper_bound": 0.025
+            }
+          },
+          "worker": {
+            "size": 2.0,
+            "available": 2.0,
+            "in_use": 0.0,
+            "waiting": 0.0,
+            "timeouts": 0.0,
+            "acquire_wait": {
+              "count": 990.0,
+              "sum": 0.031000000017229468,
+              "average": 3.1313131330534816e-05,
+              "observed_upper_bound": 0.025
+            }
+          }
+        },
+        "worker_in_flight_bytes": {
+          "cpu": 0.0,
+          "gpu": 0.0
+        },
+        "downstream_outstanding": {
+          "cpu": 0.0,
+          "gpu": 0.0
+        },
+        "downstream_outstanding_bytes": {
+          "cpu": 0.0,
+          "gpu": 0.0
+        },
+        "retained_peaks": {
+          "local_depth": 3.0,
+          "local_bytes": 3591.0,
+          "worker_in_flight": 3.0,
+          "worker_in_flight_bytes": 3591.0,
+          "executor_children_rss_bytes": 196255744.0,
+          "cpu_downstream_outstanding": 3.0,
+          "gpu_downstream_outstanding": 0.0,
+          "cpu_downstream_outstanding_bytes": 3591.0,
+          "gpu_downstream_outstanding_bytes": 0.0
+        },
+        "rss_bytes": 76320768.0,
+        "rss_slope_bytes_per_minute": 0.0,
+        "cpu_capacity": 1.0,
+        "gpu_capacity": 1.0
+      },
+      "prometheus": {
+        "targets": {
+          "api": 1,
+          "worker": 1
+        },
+        "rss_query_series": 2
+      },
+      "trace": {
+        "task_count": 8,
+        "complete_count": 8,
+        "missing": 0,
+        "raw_tail_sha256": "39a4814783203c6909ab56d63926f3bfb6e903c8e89066da15249dae595b37b3",
+        "raw_tail_bytes": 146228
+      },
+      "external_effects": {
+        "attempts": 8,
+        "unique": 8,
+        "duplicates": 0,
+        "multiple_logical": 0,
+        "max_runtime_concurrency": {
+          "cpu": 2
+        },
+        "max_external_in_flight": {
+          "cpu": 1
+        },
+        "cuda_probe_count": 0,
+        "cuda_failure_count": 0,
+        "cuda_nonzero_activity_count": 0,
+        "cuda_peak_allocated_bytes": 0
+      },
+      "history": {
+        "rollups": [],
+        "idempotency": {
+          "rows": 8,
+          "tombstones": 0,
+          "bytes": 12224
+        },
+        "mirror": {
+          "rows": 0,
+          "bytes": 5
+        }
+      },
+      "profile_observations": {},
+      "strict_evidence": {
+        "identity_closure": {
+          "accepted_count": 8,
+          "terminal_count": 8,
+          "accepted_identity_set_sha256": "c4a66bc583cae47de0ee4cb02202d74c83f9b56267a6f34a0c68b9acd8e5ffa0",
+          "terminal_identity_set_sha256": "c4a66bc583cae47de0ee4cb02202d74c83f9b56267a6f34a0c68b9acd8e5ffa0",
+          "active_final_depth": 0,
+          "outcome_unknown_final": 0
+        },
+        "effect_accounting": {
+          "eligible_count": 8,
+          "eligible_identity_set_sha256": "c4a66bc583cae47de0ee4cb02202d74c83f9b56267a6f34a0c68b9acd8e5ffa0",
+          "actual_effect_count": 8,
+          "actual_effect_identity_set_sha256": "c4a66bc583cae47de0ee4cb02202d74c83f9b56267a6f34a0c68b9acd8e5ffa0",
+          "eligible_exactly_once_count": 8,
+          "no_effect_expected_count": 0,
+          "no_effect_observed_count": 0,
+          "duplicate_effect_count": 0,
+          "multiple_logical_effect_count": 0
+        },
+        "waits": {
+          "admission": {
+            "count": 8.0,
+            "sum": 0.3910000000614673,
+            "average": 0.04887500000768341,
+            "observed_upper_bound": 0.1,
+            "max": 0.0779999999795109
+          },
+          "queue": {
+            "count": 8.0,
+            "sum": 7.484519000000001,
+            "average": 0.9355648750000001,
+            "observed_upper_bound": 2.5,
+            "max": 1.975137
+          },
+          "load_generator_permit": {
+            "count": 8,
+            "sum": 1.669995253905654e-05,
+            "max": 3.4999684430658817e-06,
+            "p95": 2.700020559132099e-06
+          },
+          "retry_delay": {}
+        },
+        "assertion_observations": {
+          "control_all_accepted_terminal": {
+            "accepted": 8,
+            "expected_states": {
+              "completed": 8
+            }
+          }
+        }
+      },
+      "assertions": [
+        {
+          "assertion_id": "control_all_accepted_terminal",
+          "passed": true,
+          "observed": {
+            "accepted": 8,
+            "expected_states": {
+              "completed": 8
+            }
+          }
+        },
+        {
+          "assertion_id": "accepted_equals_terminal",
+          "passed": true,
+          "observed": {
+            "accepted": 8,
+            "terminal": 8,
+            "missing": 0
+          }
+        },
+        {
+          "assertion_id": "active_queue_drained",
+          "passed": true,
+          "observed": {
+            "completed": 8
+          }
+        },
+        {
+          "assertion_id": "outcome_unknown_zero",
+          "passed": true,
+          "observed": 0
+        },
+        {
+          "assertion_id": "logical_effect_exactly_once",
+          "passed": true,
+          "observed": {
+            "expected_nonzero": 8,
+            "observed_unique": 8,
+            "duplicates": 0,
+            "multiple_logical": 0
+          }
+        },
+        {
+          "assertion_id": "trace_chain_complete",
+          "passed": true,
+          "observed": {
+            "task_count": 8,
+            "complete_count": 8,
+            "missing": 0,
+            "raw_tail_sha256": "39a4814783203c6909ab56d63926f3bfb6e903c8e89066da15249dae595b37b3",
+            "raw_tail_bytes": 146228
+          }
+        },
+        {
+          "assertion_id": "postgres_json_mirror_parity",
+          "passed": true,
+          "observed": {
+            "authority_count": 8,
+            "mirror_count": 8,
+            "file_count": 8,
+            "authority_sha256": "6717d6c4667c3e558c3dee73a4645b5be0a1b5357284d3aeec8b3f3af73497f3",
+            "mirror_sha256": "6717d6c4667c3e558c3dee73a4645b5be0a1b5357284d3aeec8b3f3af73497f3",
+            "file_sha256": "6717d6c4667c3e558c3dee73a4645b5be0a1b5357284d3aeec8b3f3af73497f3",
+            "matches": true
+          }
+        },
+        {
+          "assertion_id": "prometheus_targets_up",
+          "passed": true,
+          "observed": {
+            "api": 1,
+            "worker": 1
+          }
+        },
+        {
+          "assertion_id": "process_tree_rss_nonzero",
+          "passed": true,
+          "observed": {
+            "active_depth": 8,
+            "active_bytes": 9576,
+            "local_depth": 3,
+            "local_bytes": 3591,
+            "worker_in_flight": 3,
+            "worker_in_flight_bytes": 3591,
+            "cpu_downstream_outstanding": 4,
+            "gpu_downstream_outstanding": 0,
+            "cpu_downstream_outstanding_bytes": 4788,
+            "gpu_downstream_outstanding_bytes": 0,
+            "api_process_tree_rss_bytes": 161447936,
+            "worker_process_tree_rss_bytes": 255541248,
+            "executor_children_rss_bytes": 196255744,
+            "ingress_active_requests": 8,
+            "ingress_in_flight_bytes": 4032
+          }
+        },
+        {
+          "assertion_id": "isolated_runtime_cleanup",
+          "passed": true,
+          "observed": {
+            "schema_dropped": true,
+            "marker_processes_remaining": [],
+            "stopped_process_count": 1,
+            "errors": []
+          }
+        }
+      ],
+      "private_evidence_sha256": "36bda784f227ad9f05c5d7670fbb4e27f156257f6cac24567f8252651a5834b7",
+      "passed": true,
+      "cleanup": {
+        "schema_dropped": true,
+        "marker_processes_remaining": [],
+        "stopped_process_count": 1,
+        "errors": []
+      }
+    },
+    {
+      "profile_id": "control",
+      "name": "no-fault-control",
+      "repetition": 3,
+      "assertions": [
+        {
+          "assertion_id": "profile_execution",
+          "passed": false,
+          "observed": "RuntimeError:isolated_prometheus_start_failed:docker: Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint evm-s2-prom-s8-control-r3-fa979 (8ac2a356d517a936b4212aa31018d879607d5e82370f5fb752d0645464b840b6): failed to bind host port 127.0.0.1:57680/tcp: address already in use\n\nRun 'docker run --help' for more information"
+        },
+        {
+          "assertion_id": "isolated_runtime_cleanup",
+          "passed": true,
+          "observed": {
+            "schema_dropped": true,
+            "marker_processes_remaining": [],
+            "stopped_process_count": 1,
+            "errors": []
+          }
+        }
+      ],
+      "passed": false,
+      "cleanup": {
+        "schema_dropped": true,
+        "marker_processes_remaining": [],
+        "stopped_process_count": 1,
+        "errors": []
+      },
+      "private_evidence_sha256": "e16e1a87e6b6ff8fc080f3bbf9baaa1f5f13d5a6518ec43d6345e713412526af"
+    }
+  ],
+  "fault_analysis": {
+    "result_count": 3,
+    "expected_result_count": 21,
+    "retry_amplification": {
+      "count": 3,
+      "finite": false,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    "mttr_seconds": {
+      "count": 3,
+      "finite": false,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    "dependency_circuit_open_count": 0.0,
+    "duplicate_external_effect_count": -1,
+    "pool_timeout_count": 0.0,
+    "checks": {
+      "exact_matrix": false,
+      "all_profiles_passed": false,
+      "retry_amplification_bounded": false,
+      "dependency_circuit_observed": false,
+      "duplicate_effects_zero": false,
+      "pool_timeouts_zero": true,
+      "mttr_bounded": false,
+      "cleanup_complete": true
+    },
+    "passed": false
+  },
+  "soak_results": [],
+  "soak_analysis": {
+    "passed": false,
+    "reason": "fault_gate_failed"
+  },
+  "resource_efficiency": {
+    "cpu_soak": [],
+    "gpu_reference": {
+      "scope": "accepted_s4_reference_not_fresh_s8_gpu_concurrency",
+      "path": "docs/status/evidence/s4-gpu-batching-experiment.json",
+      "sha256": "8d2b3525eee115e38dab33f19b4426b9b8ce529ecd78cdd7b86d15eaf8530a22",
+      "selected_point": {
+        "batch_size": 8,
+        "max_delay_ms": 10,
+        "instances": 1
+      },
+      "repetitions": 3,
+      "successful_requests": 14463,
+      "equivalent_gpu_seconds": 27.700000000000003,
+      "requests_per_equivalent_gpu_second": 522.1299638989169
+    }
+  },
+  "acceptance": {
+    "S8-AC-01": false,
+    "S8-AC-02": false,
+    "S8-AC-03": false,
+    "S8-AC-04": false
+  },
+  "runtime_verdict": "not_passed",
+  "scenario_status": "implementing",
+  "private_evidence": {
+    "artifact_count": 42,
+    "aggregate_sha256": "04d38cfcabb8a7e41af9da4e28f7c776f9a8fd6e03ec8724807c27e2519c3507",
+    "location": "outside_git_private_evidence_root"
+  },
+  "claim_boundary": "Controlled external HTTP, PostgreSQL, process, Prometheus, OTLP, lightweight CPU/API, and one-CUDA-device evidence on one local physical node. No customer traffic, production SLA, physical multi-node or multi-zone HA/DR, multi-GPU, or simultaneous multi-model GPU residency claim."
+}
