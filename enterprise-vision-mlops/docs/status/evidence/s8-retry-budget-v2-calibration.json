@@ -1,0 +1,52 @@
+{
+  "schema_version": "evm.s8_retry_budget_calibration.v1",
+  "generated_at": "2026-08-24T07:24:06Z",
+  "source_revision": "a31f8ded6493f9e014a0afdcd83f00620b971fab",
+  "profile_version": "s8-dependency-soak-v2-20260824",
+  "scope": "zero_credit_pre_acceptance_calibration",
+  "input": {
+    "transient_requests": 12,
+    "healthy_requests": 4,
+    "recovery_requests": 1,
+    "retry_budget_per_60_seconds": 8,
+    "circuit_hold_seconds": 2.0
+  },
+  "terminal": {
+    "accepted": 17,
+    "terminal": 17,
+    "dlq": 12,
+    "completed": 5,
+    "missing": 0
+  },
+  "effects": {
+    "attempts": 25,
+    "unique": 5,
+    "duplicates": 0,
+    "multiple_logical": 0
+  },
+  "circuit": {
+    "open_count": 14,
+    "blocked_claim_cycles": 199,
+    "hold_count": 14,
+    "hold_seconds_total": 28.0,
+    "final_state": "closed"
+  },
+  "fault_recovery_elapsed_seconds": 40.109,
+  "cleanup": {
+    "schema_dropped": true,
+    "marker_processes_remaining": 0,
+    "errors": 0
+  },
+  "private_result": {
+    "sha256": "6b5e6c9d37f327509e11a3ede8ddd0e7908011d07584d0ab2a276327c3ad57ed",
+    "bytes": 80456,
+    "location": "outside_git_private_evidence_root"
+  },
+  "decision": {
+    "next_profile_version": "s8-dependency-soak-v3-20260824",
+    "maximum_mttr_seconds": 60.0,
+    "reason": "The 30-second provisional limit was below the deterministic 28-second circuit hold plus dispatch and recovery time. The 60-second bound is frozen before acceptance and is not retroactive credit."
+  },
+  "acceptance_credit": false,
+  "claim_boundary": "Local pre-acceptance calibration only; not S8 acceptance, production traffic, SLA, HA/DR, multi-node, multi-GPU, or simultaneous multi-model GPU evidence."
+}

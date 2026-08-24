@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T07:19:55Z",
+  "generated_at": "2026-08-24T07:29:00Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -4005,7 +4005,7 @@
         {
           "component": "S8 frozen execution and evidence contract",
           "files": [
-            "configs/s8_dependency_soak_v2.toml",
+            "configs/s8_dependency_soak_v3.toml",
             "configs/s8_soak_capacity_runtime.toml",
             "docs/status/2026-08-24-s8-design-reconciliation.md"
           ]
@@ -4062,6 +4062,12 @@
           "sha256": "e2af667369c2daef619f8ff74a8cf63b3499591908de0150b83662eb4c51187d",
           "generated_at": "2026-08-24T07:16:26.404911Z",
           "claim": "Rejected contract/runtime attempt: nine fresh control, latency, and transient repetitions passed; retry-budget repetition 1 expired five intended DLQ items after runner/config drift, cleanup passed, soak did not start, and no acceptance credit was awarded."
+        },
+        {
+          "path": "docs/status/evidence/s8-retry-budget-v2-calibration.json",
+          "sha256": "0f112462479335715a65ec9906ebe32cc99f865ed9b09146a855ae360eaf4e2f",
+          "generated_at": "2026-08-24T07:24:06Z",
+          "claim": "Zero-credit retry-budget calibration closed 17/17 tasks with 12 DLQ, 5 completed, duplicate effects zero, and cleanup complete; its 40.109-second fault recovery justified freezing the pre-acceptance v3 MTTR bound at 60 seconds."
         }
       ],
       "status": "implementing",
@@ -4072,7 +4078,7 @@
         "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
         "One final evidence index re-hashes every accepted result."
       ],
-      "next_action": "Rerun the complete 21-repetition fault matrix from the v2 frozen retry-budget revision; begin soak only after every fresh fault repetition passes.",
+      "next_action": "Run all 21 fault repetitions from the frozen v3 revision with no pilot reuse; begin the three 30-minute soak repetitions only after that gate passes.",
       "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
       "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.",
       "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
@@ -4133,7 +4139,7 @@
           {
             "component": "S8 frozen execution and evidence contract",
             "files": [
-              "configs/s8_dependency_soak_v2.toml",
+              "configs/s8_dependency_soak_v3.toml",
               "configs/s8_soak_capacity_runtime.toml",
               "docs/status/2026-08-24-s8-design-reconciliation.md"
             ]
@@ -4189,6 +4195,12 @@
           "sha256": "e2af667369c2daef619f8ff74a8cf63b3499591908de0150b83662eb4c51187d",
           "generated_at": "2026-08-24T07:16:26.404911Z",
           "claim": "Rejected contract/runtime attempt: nine fresh control, latency, and transient repetitions passed; retry-budget repetition 1 expired five intended DLQ items after runner/config drift, cleanup passed, soak did not start, and no acceptance credit was awarded."
+        },
+        {
+          "path": "docs/status/evidence/s8-retry-budget-v2-calibration.json",
+          "sha256": "0f112462479335715a65ec9906ebe32cc99f865ed9b09146a855ae360eaf4e2f",
+          "generated_at": "2026-08-24T07:24:06Z",
+          "claim": "Zero-credit retry-budget calibration closed 17/17 tasks with 12 DLQ, 5 completed, duplicate effects zero, and cleanup complete; its 40.109-second fault recovery justified freezing the pre-acceptance v3 MTTR bound at 60 seconds."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -4240,6 +4252,16 @@
           "evidence_refs": [
             "docs/status/evidence/s8-dependency-soak-attempt-02.json",
             "docs/status/2026-08-24-s8-attempt-02-rca.md"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T07:29:00Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "A zero-credit v2 retry-budget calibration passed terminal/effect/cleanup invariants and measured 40.109 seconds to recovery. The v3 profile freezes a 60-second MTTR bound before any acceptance run.",
+          "evidence_refs": [
+            "docs/status/evidence/s8-retry-budget-v2-calibration.json",
+            "docs/status/2026-08-24-s8-design-reconciliation.md"
           ]
         }
       ]

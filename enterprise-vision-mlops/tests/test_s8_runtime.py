@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_s8_config_freezes_fault_and_soak_contract() -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v2.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v3.toml")
 
     assert config.repetitions == 3
     assert config.soak_requests_per_second == 35.0
@@ -68,7 +68,7 @@ def _fault_results(config: S8RuntimeConfig) -> list[dict[str, object]]:
 
 
 def test_s8_fault_projection_is_recomputed_and_fail_closed() -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v2.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v3.toml")
     results = _fault_results(config)
 
     assert analyze_fault_results(results, config)["passed"] is True
@@ -80,7 +80,7 @@ def test_s8_fault_projection_is_recomputed_and_fail_closed() -> None:
 
 
 def test_s8_soak_private_recomputes_finite_resource_slopes(tmp_path: Path) -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v2.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v3.toml")
     samples = [
         {
             "offset_seconds": float(index),

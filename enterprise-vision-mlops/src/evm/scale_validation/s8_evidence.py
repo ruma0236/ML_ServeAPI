@@ -66,7 +66,7 @@ def validate_s8_experiment(
         "admission": Path("src/evm/control_panel/admission_queue.py"),
         "worker": Path("src/evm/control_panel/task_queue_worker.py"),
         "store": Path("src/evm/control_panel/transactional_store.py"),
-        "scenario_config": Path("configs/s8_dependency_soak_v2.toml"),
+        "scenario_config": Path("configs/s8_dependency_soak_v3.toml"),
         "soak_config": Path("configs/s8_soak_capacity_runtime.toml"),
     }
     recorded_blobs = dict(source.get("git_blobs", {}))

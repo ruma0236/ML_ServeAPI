@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Synchronize Scenario S8 progress")
     parser.add_argument(
         "--phase",
-        choices=("implementation", "failure", "verification"),
+        choices=("implementation", "failure", "calibration", "verification"),
         default="implementation",
     )
     parser.add_argument("--json-path", type=Path, default=DEFAULT_JSON)
@@ -63,7 +63,7 @@ def implementation_components() -> list[dict[str, object]]:
         {
             "component": "S8 frozen execution and evidence contract",
             "files": [
-                "configs/s8_dependency_soak_v2.toml",
+                "configs/s8_dependency_soak_v3.toml",
                 "configs/s8_soak_capacity_runtime.toml",
                 "docs/status/2026-08-24-s8-design-reconciliation.md",
             ],
@@ -75,6 +75,8 @@ def main() -> int:
     args = parse_args()
     if args.phase == "failure":
         return record_failed_attempt(args)
+    if args.phase == "calibration":
+        return record_calibration(args)
     if args.phase != "implementation":
         raise SystemExit("verification updates are produced by the S8 closure script")
     now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -187,6 +189,58 @@ def record_failed_attempt(args: argparse.Namespace) -> int:
                 artifact["path"],
                 f"docs/status/2026-08-24-s8-attempt-{args.attempt:02d}-rca.md",
             ],
+        }
+    )
+    payload["generated_at"] = now
+    ledger = ScenarioProgressLedger.model_validate(payload)
+    args.json_path.write_bytes((ledger.model_dump_json(indent=2) + "\n").encode("utf-8"))
+    args.markdown_path.write_text(
+        render_progress_markdown(ledger), encoding="utf-8", newline="\n"
+    )
+    return 0
+
+
+def record_calibration(args: argparse.Namespace) -> int:
+    now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    evidence_path = ROOT / "docs/status/evidence/s8-retry-budget-v2-calibration.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    artifact = {
+        "path": evidence_path.relative_to(ROOT).as_posix(),
+        "sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+        "generated_at": str(evidence["generated_at"]),
+        "claim": (
+            "Zero-credit retry-budget calibration closed 17/17 tasks with 12 DLQ, "
+            "5 completed, duplicate effects zero, and cleanup complete; its 40.109-second "
+            "fault recovery justified freezing the pre-acceptance v3 MTTR bound at 60 seconds."
+        ),
+    }
+    payload = json.loads(args.json_path.read_text(encoding="utf-8"))
+    scenario = next(item for item in payload["scenarios"] if item["scenario_id"] == "S8")
+    existing = [
+        item
+        for item in scenario["evidence_artifacts"]
+        if item.get("path") != artifact["path"]
+    ]
+    scenario["evidence_artifacts"] = [*existing, artifact]
+    scenario["evidence_index"] = [*existing, artifact]
+    scenario["observed_result"] = None
+    scenario["status"] = "implementing"
+    scenario["verdict_and_claim_boundary"]["verdict"] = "not_run"
+    scenario["next_action"] = (
+        "Run all 21 fault repetitions from the frozen v3 revision with no pilot reuse; "
+        "begin the three 30-minute soak repetitions only after that gate passes."
+    )
+    scenario["chronological_updates"].append(
+        {
+            "occurred_at": now,
+            "phase": "implementation",
+            "status": "implementing",
+            "summary": (
+                "A zero-credit v2 retry-budget calibration passed terminal/effect/cleanup "
+                "invariants and measured 40.109 seconds to recovery. The v3 profile freezes "
+                "a 60-second MTTR bound before any acceptance run."
+            ),
+            "evidence_refs": [artifact["path"], "docs/status/2026-08-24-s8-design-reconciliation.md"],
         }
     )
     payload["generated_at"] = now

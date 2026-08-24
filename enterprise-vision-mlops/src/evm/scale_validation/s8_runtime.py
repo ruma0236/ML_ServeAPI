@@ -221,7 +221,7 @@ class S8RuntimeConfig:
 
     def fault_matrix(self) -> FaultMatrix:
         return FaultMatrix(
-            version="s8-isolated-faults-v2-20260824",
+            version="s8-isolated-faults-v3-20260824",
             seed=self.seed,
             repetitions=self.repetitions,
             warmup_seconds=2.0,
@@ -1005,7 +1005,7 @@ def run_s8_experiment(
     root = root.resolve()
     config = S8RuntimeConfig.from_path(scenario_config_path)
     queue_config = AdmissionQueueConfig.from_path(queue_config_path)
-    if queue_config.profile_version != "s8-dependency-soak-v2-20260824":
+    if queue_config.profile_version != "s8-dependency-soak-v3-20260824":
         raise S8RuntimeError("s8_queue_profile_identity_invalid")
     if not port_is_available(queue_config.metrics_port):
         raise S8RuntimeError(f"s8_worker_metrics_port_in_use:{queue_config.metrics_port}")

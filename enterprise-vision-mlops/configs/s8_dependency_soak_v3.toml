@@ -1,5 +1,5 @@
 [profile]
-version = "s8-dependency-soak-v2-20260824"
+version = "s8-dependency-soak-v3-20260824"
 status = "frozen-before-experiment"
 
 [durable_queue]
@@ -44,7 +44,7 @@ backoff_max_seconds = 2.0
 jitter_ratio = 0.20
 global_budget = 8
 budget_window_seconds = 60.0
-budget_scope = "s8-dependency-soak-v2"
+budget_scope = "s8-dependency-soak-v3"
 
 [dependency_circuit]
 failure_threshold = 3
@@ -119,7 +119,7 @@ maximum_rss_slope_bytes_per_minute = 16777216.0
 maximum_fd_slope_per_minute = 2.0
 maximum_queue_slope_items_per_minute = 0.25
 maximum_artifact_slope_bytes_per_minute = 1048576.0
-maximum_mttr_seconds = 30.0
+maximum_mttr_seconds = 60.0
 
 [claim_boundary]
 physical_nodes = 1

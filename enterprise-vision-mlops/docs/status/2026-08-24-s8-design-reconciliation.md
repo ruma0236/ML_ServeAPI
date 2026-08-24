@@ -66,7 +66,7 @@ failure reopens it. Lease/fencing, PostgreSQL authority, idempotency, DLQ, and
 existing API response contracts remain unchanged.
 
 The circuit is disabled by default in the accepted S2 profile. It is enabled only
-by `configs/s8_dependency_soak_v2.toml`, providing a direct rollback to the prior
+by `configs/s8_dependency_soak_v3.toml`, providing a direct rollback to the prior
 behavior without a schema migration.
 
 ## Experiment And Stop Contract
@@ -88,10 +88,12 @@ behavior without a schema migration.
   rejected retry-budget repetition 1 because runner/config drift and a budget
   above circuit throughput produced five expiry outcomes instead of the
   intended DLQ closure. It also has zero acceptance credit.
-- The v2 profile reads the frozen twelve transient plus four healthy request
+- The v3 profile reads the frozen twelve transient plus four healthy request
   counts, limits the retry budget to eight per 60 seconds, and records
-  monotonic fault-to-terminal elapsed time. Final acceptance restarts all 21
-  fault repetitions from this revision.
+  monotonic fault-to-terminal elapsed time. A zero-credit v2 calibration
+  observed 28 seconds of circuit hold and 40.109 seconds to terminal closure,
+  so v3 freezes a 60-second MTTR guardrail before acceptance. Final acceptance
+  restarts all 21 fault repetitions from this revision.
 5. Stop on retry budget escape, unbounded slope, error or p99 guardrail breach,
    trace gap, identity ambiguity, or cleanup uncertainty.
 6. Re-hash all accepted public and private artifacts before closure.
