@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.s8_v4.e0_review_handoff.v1",
-  "generated_at": "2026-08-24T15:52:32.5926564Z",
+  "generated_at": "2026-08-24T16:02:30Z",
   "work_item": "E0",
   "status": "review_pending",
   "evidence_ready": true,
@@ -10,6 +10,7 @@
     "branch": "codex/distributed-scale-validation-plan",
     "runtime_revision": "e975b35733c67f54fb972b3ef378bd16f89eb2be",
     "evidence_commit": "3c13b7293b248a2b2443cec4af850bc05b907bb0",
+    "review_validation_commit": "46b4fa1cd2f8d9fca47d71f3b6c04af178c675ec",
     "experiment_path": "docs/status/evidence/s8-v4-e0-environment-experiment.json",
     "experiment_blob_oid": "9e674b95806cb264801b619b81da51f2a5f57041",
     "experiment_sha256": "5ca9cc34991e76a9a49fcb882316560f955a54a453d61c7aed5bacc465d12fbd"
@@ -63,43 +64,43 @@
     {
       "name": "focused_e0",
       "result": "passed",
-      "passed": 20,
+      "passed": 21,
       "skipped": 0,
-      "log_sha256": "eff9d520c9b7146332db0e2cab6df936bd54e57d01e2f92c5ab224d91a96fe2c"
+      "log_sha256": "e5e58da2427cad93e3fa68a8faef40c8726fb82d9400840342011c5d241fb8f4"
     },
     {
       "name": "full_python",
       "result": "passed",
-      "passed": 874,
+      "passed": 875,
       "skipped": 33,
-      "log_sha256": "f069a56d625c8d3a422a6a3e2e9aee08d212f0ada842dcade33ff70c940dcacb"
+      "log_sha256": "02c834286f66b6308f2897f5e8f84802152027fc65f0ae7d7b3b6934fa6ee2ac"
     },
     {
       "name": "real_postgresql",
       "result": "passed",
       "passed": 40,
       "skipped": 0,
-      "log_sha256": "3b38b11df8a89e8a1037f21e6154a3f92c6f5031da21b33c776a31504abb719b"
+      "log_sha256": "3958ec60cb362517c19ab2d506a68079e5429e8ef195c6224fcf6dbc627df76c"
     },
     {
       "name": "lifecycle_host",
       "result": "passed",
-      "passed": 61,
+      "passed": 144,
       "skipped": 0,
-      "log_sha256": "db7555bc078a7fef26c3487801c5622269f566dc52159b62fedb1901a3c1049b"
+      "log_sha256": "d5f953af7880ab5ad65fad0cfce5363c72d75454677739f16d7044787d54d87b"
     },
     {
       "name": "control_panel",
       "result": "passed",
       "passed": 59,
       "test_files": 17,
-      "log_sha256": "1a0d7d892a945bcf87ab1c3f69dfe9029ef6ef0590d936099f052d2860f453cf"
+      "log_sha256": "6366468b52973b84c8abf69d16d82340203c0a2014a1f72c0bc17cd3fe95b47d"
     },
     {
       "name": "frontend_production_build",
       "result": "passed",
       "transformed_modules": 1803,
-      "log_sha256": "5cf056d6beeffa0546c889e1de164d85ad4af01751a9fe7d9fe4df44d092d118"
+      "log_sha256": "e5b9bd1b6e96adbe06f0200bfc28b54e3ca7b0b727c6ee20f506499e80937bf7"
     },
     {
       "name": "git_blob_evidence_validator",
@@ -120,13 +121,13 @@
     "queue_outcome_unknown": 0,
     "prometheus_targets_up": 5,
     "prometheus_targets_total": 5,
-    "runtime_cleanup_sha256": "360ce906c286b1b0bab69a28b9770beb39d845b4a8b421373cf643204cf3e547"
+    "runtime_cleanup_sha256": "7a22feff34c428401065f2e73deca57ffc9d71e839debaca8f63f7ae6eba4115"
   },
   "private_review_evidence": {
     "artifact_count": 8,
-    "total_bytes": 5739,
-    "aggregate_sha256": "1c06c7e69d6c0bbb748c2ba2291e4c92d2c21df4e01f60f10d2d7b00904374f6",
-    "index_sha256": "bf89158557cf6af14e007a33d2a3648ef3fb99470f1638487cb5eaf73173f516"
+    "total_bytes": 6470,
+    "aggregate_sha256": "ffebf266437e5694ad6e89d6398bf41766cb9f875f157f0099d45af7f811b9d9",
+    "index_sha256": "85cbdff3f687c033d244fdf711f461ca222cf3796cede7645acb3c797cbf9b02"
   },
   "alignment": {
     "definition_alignment": true,

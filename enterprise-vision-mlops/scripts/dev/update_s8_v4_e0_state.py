@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from evm.scale_validation.v4_ledger import append_event, read_events  # noqa: E402
+from evm.scale_validation.e0_runtime import canonical_sha256, sha256_file  # noqa: E402
 
 
 MANIFEST = ROOT / "docs/status/evidence/s8-v4-evidence-manifest.json"
@@ -194,11 +195,84 @@ def validate_review_handoff(
         raise RuntimeError("e0_review_handoff_acceptance")
 
 
+def validate_private_review_evidence(handoff: dict[str, Any], root: Path) -> None:
+    if not root.is_dir():
+        raise RuntimeError("e0_review_private_root_missing")
+    index_path = root / "private-review-index.json"
+    index = json.loads(index_path.read_bytes())
+    expected_files = {
+        "focused_e0": "focused-e0.log",
+        "full_python": "full-python.log",
+        "real_postgresql": "real-postgresql.log",
+        "lifecycle_host": "lifecycle-host.log",
+        "control_panel": "control-panel.log",
+        "frontend_production_build": "frontend-build.log",
+        "git_blob_evidence_validator": "git-evidence-validator.log",
+    }
+    entries = []
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        if path == index_path:
+            continue
+        relative = path.relative_to(root).as_posix()
+        if relative.startswith("../") or Path(relative).is_absolute():
+            raise RuntimeError("e0_review_private_path_invalid")
+        entries.append(
+            {"path": relative, "bytes": path.stat().st_size, "sha256": sha256_file(path)}
+        )
+    expected_index = {
+        "artifact_count": len(entries),
+        "total_bytes": sum(item["bytes"] for item in entries),
+        "aggregate_sha256": canonical_sha256(entries),
+    }
+    for key, expected in expected_index.items():
+        if index.get(key) != expected:
+            raise RuntimeError(f"e0_review_private_index_{key}")
+    if index.get("entries") != entries:
+        raise RuntimeError("e0_review_private_index_entries")
+    review = dict(handoff.get("private_review_evidence", {}))
+    for key, expected in expected_index.items():
+        if review.get(key) != expected:
+            raise RuntimeError(f"e0_review_handoff_private_{key}")
+    if review.get("index_sha256") != sha256_file(index_path):
+        raise RuntimeError("e0_review_handoff_private_index_sha256")
+    regressions = {item["name"]: item for item in handoff.get("regressions", [])}
+    if set(regressions) != set(expected_files):
+        raise RuntimeError("e0_review_handoff_regression_set")
+    for name, relative in expected_files.items():
+        if regressions[name].get("log_sha256") != sha256_file(root / relative):
+            raise RuntimeError(f"e0_review_handoff_regression_sha256:{name}")
+    cleanup_path = root / "runtime-cleanup.json"
+    cleanup = json.loads(cleanup_path.read_bytes())
+    if cleanup.get("valid") is not True:
+        raise RuntimeError("e0_review_cleanup_invalid")
+    if handoff.get("cleanup", {}).get("runtime_cleanup_sha256") != sha256_file(cleanup_path):
+        raise RuntimeError("e0_review_cleanup_sha256")
+    review_revision = handoff.get("source_identity", {}).get("review_validation_commit")
+    if not isinstance(review_revision, str) or len(review_revision) != 40:
+        raise RuntimeError("e0_review_validation_revision")
+    subprocess.run(
+        ["git", "cat-file", "-e", f"{review_revision}^{{commit}}"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    )
+    if subprocess.run(
+        ["git", "merge-base", "--is-ancestor", review_revision, "HEAD"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+    ).returncode:
+        raise RuntimeError("e0_review_validation_revision_ancestry")
+    if cleanup.get("git") != {"head": review_revision, "origin": review_revision}:
+        raise RuntimeError("e0_review_cleanup_revision")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Append an E0 V4 state transition.")
     parser.add_argument("--to", choices=tuple(TRANSITIONS), required=True)
     parser.add_argument("--evidence", type=Path, default=EVIDENCE)
     parser.add_argument("--review-handoff", type=Path, default=REVIEW_HANDOFF)
+    parser.add_argument("--private-review-root", type=Path)
     return parser.parse_args()
 
 
@@ -260,6 +334,9 @@ def main() -> int:
             handoff,
             evidence_sha256=hashlib.sha256(args.evidence.read_bytes()).hexdigest(),
         )
+        if args.private_review_root is None:
+            raise RuntimeError("e0_review_private_root_required")
+        validate_private_review_evidence(handoff, args.private_review_root)
         review_handoff_ref = {
             "path": args.review_handoff.relative_to(ROOT).as_posix(),
             "sha256": hashlib.sha256(args.review_handoff.read_bytes()).hexdigest(),

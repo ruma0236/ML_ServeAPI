@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from scripts.dev.update_s8_v4_e0_state import remediation_transition, validate_review_handoff
+from scripts.dev.update_s8_v4_e0_state import (
+    remediation_transition,
+    validate_private_review_evidence,
+    validate_review_handoff,
+)
+from evm.scale_validation.e0_runtime import canonical_sha256, sha256_file
+from evm.scale_validation.s1_runtime import canonical_write
 from evm.scale_validation.v4_ledger import (
     V4LedgerError,
     append_event,
@@ -138,3 +144,63 @@ def test_e0_review_handoff_is_pending_and_fail_closed() -> None:
             mutated,
             evidence_sha256=hashlib.sha256(evidence_bytes).hexdigest(),
         )
+
+
+def test_e0_private_review_bundle_is_rehashed_and_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = {
+        "focused_e0": "focused-e0.log",
+        "full_python": "full-python.log",
+        "real_postgresql": "real-postgresql.log",
+        "lifecycle_host": "lifecycle-host.log",
+        "control_panel": "control-panel.log",
+        "frontend_production_build": "frontend-build.log",
+        "git_blob_evidence_validator": "git-evidence-validator.log",
+    }
+    for relative in files.values():
+        (tmp_path / relative).write_text(relative, encoding="utf-8")
+    revision = "a" * 40
+    canonical_write(
+        tmp_path / "runtime-cleanup.json",
+        {"valid": True, "git": {"head": revision, "origin": revision}},
+    )
+    entries = [
+        {"path": path.name, "bytes": path.stat().st_size, "sha256": sha256_file(path)}
+        for path in sorted(tmp_path.iterdir())
+    ]
+    canonical_write(
+        tmp_path / "private-review-index.json",
+        {
+            "schema_version": "evm.s8_v4.e0_review_private_index.v1",
+            "artifact_count": len(entries),
+            "total_bytes": sum(item["bytes"] for item in entries),
+            "aggregate_sha256": canonical_sha256(entries),
+            "entries": entries,
+        },
+    )
+    handoff = {
+        "source_identity": {"review_validation_commit": revision},
+        "regressions": [
+            {"name": name, "log_sha256": sha256_file(tmp_path / relative)}
+            for name, relative in files.items()
+        ],
+        "cleanup": {"runtime_cleanup_sha256": sha256_file(tmp_path / "runtime-cleanup.json")},
+        "private_review_evidence": {
+            "artifact_count": len(entries),
+            "total_bytes": sum(item["bytes"] for item in entries),
+            "aggregate_sha256": canonical_sha256(entries),
+            "index_sha256": sha256_file(tmp_path / "private-review-index.json"),
+        },
+    }
+
+    class Completed:
+        returncode = 0
+
+    monkeypatch.setattr(
+        "scripts.dev.update_s8_v4_e0_state.subprocess.run", lambda *a, **k: Completed()
+    )
+    validate_private_review_evidence(handoff, tmp_path)
+    (tmp_path / "focused-e0.log").write_text("mutated", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="index"):
+        validate_private_review_evidence(handoff, tmp_path)
