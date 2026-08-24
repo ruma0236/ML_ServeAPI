@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+import copy
+from pathlib import Path
+
+import pytest
+
+from evm.scale_validation.v4_ledger import (
+    V4LedgerError,
+    append_event,
+    calculate_event_hash,
+    read_events,
+    verify_events,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+LEDGER = ROOT / "docs/status/2026-08-24-s8-v4-progress-ledger.jsonl"
+
+
+def test_committed_v4_ledger_hash_chain() -> None:
+    events = read_events(LEDGER)
+    assert len(events) >= 9
+    assert events[-1]["event_hash"] == calculate_event_hash(events[-1])
+
+
+def test_v4_ledger_rejects_mutation() -> None:
+    events = read_events(LEDGER)
+    mutated = copy.deepcopy(events)
+    mutated[0]["summary"] = "mutated"
+    with pytest.raises(V4LedgerError, match="event_hash"):
+        verify_events(mutated)
+
+
+def test_v4_ledger_append_preserves_existing_bytes(tmp_path: Path) -> None:
+    ledger = tmp_path / "ledger.jsonl"
+    original = LEDGER.read_bytes()
+    ledger.write_bytes(original)
+    events = read_events(ledger)
+    event = {
+        "schema_version": "evm.s8_v4.progress_event.v1",
+        "event_id": "s8-v4-9999",
+        "event_type": "test",
+        "work_item": "E0",
+        "occurred_at": "2026-08-25T00:00:00Z",
+        "from_status": "contract_frozen",
+        "to_status": "ready",
+        "source_git_revision": "a" * 40,
+        "source_tree_sha": "b" * 40,
+        "acceptance_results": [],
+        "evidence_manifest": {"path": "fixture", "sha256": "c" * 64},
+        "credit": "non_credit",
+        "cleanup": "not_applicable",
+        "rca": None,
+        "summary": "fixture",
+        "claim_boundary": "fixture",
+    }
+    appended = append_event(ledger, event)
+    assert ledger.read_bytes().startswith(original)
+    updated = read_events(ledger)
+    assert len(updated) == len(events) + 1
+    assert updated[-1]["event_hash"] == appended["event_hash"]

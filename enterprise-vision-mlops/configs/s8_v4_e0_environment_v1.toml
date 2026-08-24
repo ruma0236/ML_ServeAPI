@@ -1,0 +1,30 @@
+schema_version = "evm.s8_v4.e0_runtime_config.v1"
+
+[identity]
+triton_image = "nvcr.io/nvidia/tritonserver:25.08-py3"
+triton_image_digest = "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0687a4d2ac9f7a5"
+expected_gpu_name = "NVIDIA GeForce RTX 4080 SUPER"
+model_name = "e0_cuda_linear"
+model_version = "1"
+backend = "python"
+
+[prediction]
+input_values = [1.0, 2.0, 3.0, 4.0]
+expected_output = [3.0, 5.0, 7.0, 9.0]
+
+[procedure]
+repetitions = 3
+readiness_timeout_seconds = 30
+prometheus_timeout_seconds = 30
+cleanup_timeout_seconds = 120
+vram_tolerance_mib = 256
+vram_tolerance_ratio = 0.05
+
+[ports]
+http = 18000
+grpc = 18001
+metrics = 18002
+
+[telemetry]
+prometheus_job = "evm-s8-v4-e0"
+profiler_required_repetitions = 3

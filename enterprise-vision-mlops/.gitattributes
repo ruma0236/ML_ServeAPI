@@ -10,4 +10,6 @@ configs/s2_*.toml text eol=lf
 configs/s3_*.toml text eol=lf
 configs/s5_*.toml text eol=lf
 configs/s6_*.toml text eol=lf
+configs/s8_v4_*.toml text eol=lf
+monitoring/prometheus/prometheus.yml text eol=lf
 infra/postgres/control-plane/*.sql text eol=lf
