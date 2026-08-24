@@ -690,6 +690,10 @@ def capacity_runtime_gauges(
         "evm_s3_capacity_executor_in_flight_bytes",
         "evm_s3_capacity_executor_outstanding",
         "evm_s3_capacity_executor_outstanding_bytes",
+        "evm_control_plane_db_pool_size",
+        "evm_control_plane_db_pool_available",
+        "evm_control_plane_db_pool_in_use",
+        "evm_control_plane_db_pool_waiting",
     }
     observed = {name: 0.0 for name in names}
     for replica in replicas:
@@ -1345,6 +1349,10 @@ def resource_summary(samples: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "evm_s3_capacity_executor_in_flight_bytes",
         "evm_s3_capacity_executor_outstanding",
         "evm_s3_capacity_executor_outstanding_bytes",
+        "evm_control_plane_db_pool_size",
+        "evm_control_plane_db_pool_available",
+        "evm_control_plane_db_pool_in_use",
+        "evm_control_plane_db_pool_waiting",
     )
     return {
         field: _statistics([float(sample.get(field, 0)) for sample in samples])

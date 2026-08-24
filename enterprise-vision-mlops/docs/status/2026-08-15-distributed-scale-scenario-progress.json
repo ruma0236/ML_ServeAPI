@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T06:36:59Z",
+  "generated_at": "2026-08-24T06:59:22Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3992,6 +3992,17 @@
           ]
         },
         {
+          "component": "S8 external runtime and independent evidence validation",
+          "files": [
+            "src/evm/scale_validation/s8_runtime.py",
+            "src/evm/scale_validation/s8_evidence.py",
+            "scripts/dev/run_s8_dependency_soak_experiment.py",
+            "scripts/dev/validate_s8_dependency_soak_evidence.py",
+            "tests/test_s8_runtime.py",
+            "tests/test_s8_evidence.py"
+          ]
+        },
+        {
           "component": "S8 frozen execution and evidence contract",
           "files": [
             "configs/s8_dependency_soak_v1.toml",
@@ -4003,7 +4014,8 @@
       "implementation_summary": [
         "The existing PostgreSQL durable queue now has an opt-in transient-dependency circuit with closed, open, and one-probe half-open states; the S2 profile remains disabled by default.",
         "The existing capacity runtime now samples process-tree open handles, queue gauges, and private artifact growth together with CPU and RSS.",
-        "A frozen S8 profile binds 35 RPS to 70 percent of the accepted S3 sustainable rate, three 30-minute soak repetitions, isolated dependency faults, bounded retry, and deterministic cleanup."
+        "A frozen S8 profile binds 35 RPS to 70 percent of the accepted S3 sustainable rate, three 30-minute soak repetitions, isolated dependency faults, bounded retry, and deterministic cleanup.",
+        "The S8 runner reuses the existing external task API, durable queue worker, HIGGS capacity API, PostgreSQL, Prometheus, and OTLP paths; the independent validator reprojects fault and soak outcomes from private raw artifacts and Git blob identities."
       ],
       "experiment_environment": "Implementation checkpoint only. The accepted experiment will use external TCP/HTTP, isolated PostgreSQL schemas, the real bounded queue worker, a deterministic Airflow-compatible dependency, Prometheus, W3C OTLP, and the existing HIGGS capacity route on one local physical node.",
       "test_or_experiment_steps": [
@@ -4095,6 +4107,17 @@
             ]
           },
           {
+            "component": "S8 external runtime and independent evidence validation",
+            "files": [
+              "src/evm/scale_validation/s8_runtime.py",
+              "src/evm/scale_validation/s8_evidence.py",
+              "scripts/dev/run_s8_dependency_soak_experiment.py",
+              "scripts/dev/validate_s8_dependency_soak_evidence.py",
+              "tests/test_s8_runtime.py",
+              "tests/test_s8_evidence.py"
+            ]
+          },
+          {
             "component": "S8 frozen execution and evidence contract",
             "files": [
               "configs/s8_dependency_soak_v1.toml",
@@ -4160,6 +4183,15 @@
           "phase": "implementation",
           "status": "implementing",
           "summary": "S8 implementation started at the S0-S7 verified gate with an opt-in dependency circuit, frozen 35 RPS soak contract, expanded resource sampling, and no acceptance credit yet.",
+          "evidence_refs": [
+            "docs/status/2026-08-24-s8-design-reconciliation.md"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T06:59:22Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "S8 implementation started at the S0-S7 verified gate with an opt-in dependency circuit, frozen 35 RPS soak contract, expanded resource sampling, external runner, independent mutation validator, and no acceptance credit yet.",
           "evidence_refs": [
             "docs/status/2026-08-24-s8-design-reconciliation.md"
           ]

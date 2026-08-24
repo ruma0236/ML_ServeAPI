@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T06:36:59Z`
+- Generated: `2026-08-24T06:59:22Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -764,6 +764,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 - Existing durable queue retry and dependency boundary: `src/evm/control_panel/admission_queue.py`, `src/evm/control_panel/task_queue_worker.py`, `src/evm/control_panel/transactional_store.py`
 - Existing capacity runtime resource sampler: `src/evm/scale_validation/s3_runtime.py`
+- S8 external runtime and independent evidence validation: `src/evm/scale_validation/s8_runtime.py`, `src/evm/scale_validation/s8_evidence.py`, `scripts/dev/run_s8_dependency_soak_experiment.py`, `scripts/dev/validate_s8_dependency_soak_evidence.py`, `tests/test_s8_runtime.py`, `tests/test_s8_evidence.py`
 - S8 frozen execution and evidence contract: `configs/s8_dependency_soak_v1.toml`, `configs/s8_soak_capacity_runtime.toml`, `docs/status/2026-08-24-s8-design-reconciliation.md`
 - Compatibility: Existing A-E guard evidence remains baseline-only and cannot substitute for fresh scale-soak evidence.
 - Migration: Introduce fault controls behind explicit profiles and retain a no-fault operating profile for rollback.
@@ -792,3 +793,4 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
 - `2026-08-24T06:36:59Z` `implementation` / `implementing`: S8 implementation started at the S0-S7 verified gate with an opt-in dependency circuit, frozen 35 RPS soak contract, expanded resource sampling, and no acceptance credit yet.
+- `2026-08-24T06:59:22Z` `implementation` / `implementing`: S8 implementation started at the S0-S7 verified gate with an opt-in dependency circuit, frozen 35 RPS soak contract, expanded resource sampling, external runner, independent mutation validator, and no acceptance credit yet.

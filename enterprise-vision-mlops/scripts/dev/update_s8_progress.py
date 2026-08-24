@@ -48,6 +48,17 @@ def implementation_components() -> list[dict[str, object]]:
             "files": ["src/evm/scale_validation/s3_runtime.py"],
         },
         {
+            "component": "S8 external runtime and independent evidence validation",
+            "files": [
+                "src/evm/scale_validation/s8_runtime.py",
+                "src/evm/scale_validation/s8_evidence.py",
+                "scripts/dev/run_s8_dependency_soak_experiment.py",
+                "scripts/dev/validate_s8_dependency_soak_evidence.py",
+                "tests/test_s8_runtime.py",
+                "tests/test_s8_evidence.py",
+            ],
+        },
+        {
             "component": "S8 frozen execution and evidence contract",
             "files": [
                 "configs/s8_dependency_soak_v1.toml",
@@ -72,6 +83,7 @@ def main() -> int:
         "The existing PostgreSQL durable queue now has an opt-in transient-dependency circuit with closed, open, and one-probe half-open states; the S2 profile remains disabled by default.",
         "The existing capacity runtime now samples process-tree open handles, queue gauges, and private artifact growth together with CPU and RSS.",
         "A frozen S8 profile binds 35 RPS to 70 percent of the accepted S3 sustainable rate, three 30-minute soak repetitions, isolated dependency faults, bounded retry, and deterministic cleanup.",
+        "The S8 runner reuses the existing external task API, durable queue worker, HIGGS capacity API, PostgreSQL, Prometheus, and OTLP paths; the independent validator reprojects fault and soak outcomes from private raw artifacts and Git blob identities.",
     ]
     scenario["experiment_environment"] = (
         "Implementation checkpoint only. The accepted experiment will use external TCP/HTTP, "
@@ -102,7 +114,8 @@ def main() -> int:
         "status": "implementing",
         "summary": (
             "S8 implementation started at the S0-S7 verified gate with an opt-in dependency circuit, "
-            "frozen 35 RPS soak contract, expanded resource sampling, and no acceptance credit yet."
+            "frozen 35 RPS soak contract, expanded resource sampling, external runner, independent "
+            "mutation validator, and no acceptance credit yet."
         ),
         "evidence_refs": ["docs/status/2026-08-24-s8-design-reconciliation.md"],
     }
