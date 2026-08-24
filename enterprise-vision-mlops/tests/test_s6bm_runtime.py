@@ -19,12 +19,63 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
 
 
+def identities() -> dict[str, object]:
+    config = S6BMConfig.from_path(CONFIG)
+    return {
+        "image_digest": config.image_digest,
+        "repository_sha256": config.repository_sha256,
+        "blue": {
+            "model_name": config.blue.model_name,
+            "model_version": config.blue.model_version,
+            "artifact_sha256": config.blue.artifact_sha256,
+            "config_sha256": config.blue.config_sha256,
+        },
+        "green": {
+            "model_name": config.green.model_name,
+            "model_version": config.green.model_version,
+            "artifact_sha256": config.green.artifact_sha256,
+            "config_sha256": config.green.config_sha256,
+        },
+        "lease": {
+            "scenario_id": "S6B-M",
+            "model_family": "tabular",
+            "purpose": "scale_validation_inference",
+            "owner_exact": True,
+        },
+    }
+
+
 def success_attempt(repetition: int = 1) -> dict[str, object]:
+    config = S6BMConfig.from_path(CONFIG)
+    records = []
+    for index in range(1000):
+        role = "blue" if index < 100 else "green"
+        model = config.blue if role == "blue" else config.green
+        records.append(
+            {
+                "request_id": f"request-{index:04d}",
+                "trace_id": f"{index + 1:032x}",
+                "status_code": 200,
+                "outcome": "completed",
+                "model_role": role,
+                "model_name": model.model_name,
+                "model_version": model.model_version,
+                "artifact_sha256": model.artifact_sha256,
+                "output": list(model.expected_output),
+                "elapsed_ms": 10.0,
+                "completed_monotonic": 100.0 + index * 0.001,
+            }
+        )
     return {
         "attempt_id": f"success-{repetition}",
         "profile": "successful_transition",
         "repetition": repetition,
-        "phase_timeline": [{"phase": phase} for phase in SUCCESS_PHASES],
+        "identities": identities(),
+        "phase_timeline": [
+            {"phase": phase, "monotonic_seconds": float(index + 1)}
+            for index, phase in enumerate(SUCCESS_PHASES)
+        ],
+        "request_records": records,
         "requests": {
             "logical": 1000,
             "accepted": 1000,
@@ -35,19 +86,38 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
             "transport_failure": 0,
             "http_5xx": 0,
         },
+        "idempotent_replay": {
+            "request_id": "request-0000",
+            "replayed": True,
+            "unique_count_before": 1000,
+            "unique_count_after": 1000,
+        },
         "illegal_owner_overlap": 0,
+        "owner_samples": [{"owner_exact": True}],
         "trace_complete": 1000,
         "blue_in_flight_before_unload": 0,
         "green_in_flight_before_unload": 0,
         "rollback_exact_blue": True,
         "latency": {
             "p95_ms": 10.0,
-            "p99_ms": 20.0,
-            "max_inter_completion_gap_ms": 100.0,
+            "p99_ms": 10.0,
+            "max_inter_completion_gap_ms": 1.0,
         },
         "transition_seconds": 2.0,
         "rollback_seconds": 2.0,
         "peak_vram_mib": 1024.0,
+        "physical_model_state": {
+            "green_loaded_ready": True,
+            "blue_unloaded_not_ready": True,
+            "blue_reloaded_ready": True,
+            "green_unloaded_not_ready": True,
+            "blue_final_ready": True,
+        },
+        "telemetry": {
+            "api_target_up": True,
+            "triton_target_up": True,
+            "trace_correlation_complete": True,
+        },
         "cleanup": {
             "blue_only": True,
             "green_unloaded": True,
@@ -58,18 +128,45 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
 
 
 def fault_attempt(profile: str, repetition: int = 1) -> dict[str, object]:
+    codes = {
+        "wrong_digest": "green_digest_mismatch",
+        "green_load_failure": "triton_model_control_failed",
+        "green_readiness_failure": "green_readiness_rejected",
+        "green_canary_failure": "green_canary_rejected",
+        "vram_preflight_rejection": "vram_preflight_rejected",
+    }
+    state = {
+        "phase": "blue_only",
+        "route_weights": {"blue": 100, "green": 0},
+        "loaded_roles": ["blue"],
+    }
+    observation: dict[str, object] = {"injection_observed": True}
+    if profile == "vram_preflight_rejection":
+        observation.update(free_vram_mib=1000.0, required_vram_mib=1512.0)
+    if profile == "green_canary_failure":
+        observation["canary_mismatch"] = True
     return {
         "attempt_id": f"{profile}-{repetition}",
         "profile": profile,
         "repetition": repetition,
         "guard_rejected": True,
-        "guard_code": f"{profile}_rejected",
+        "identities": identities(),
+        "guard_code": codes[profile],
+        "rejection": {
+            "request_sent": True,
+            "status_code": 409,
+            "guard_code": codes[profile],
+        },
+        "before_state": state,
+        "final_state": state,
+        "fault_observation": observation,
         "route_unchanged_blue": True,
         "green_effect_count": 0,
         "route_switch_count": 0,
         "http_5xx": 0,
         "orphan_count": 0,
         "blue_health_after": True,
+        "telemetry": {"api_target_up": True, "triton_target_up": True},
         "cleanup": {"blue_only": True, "green_unloaded": True},
     }
 

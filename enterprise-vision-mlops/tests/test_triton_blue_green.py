@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import httpx
 import pytest
 
 from evm.model_runtime import triton_blue_green as module
@@ -186,3 +187,33 @@ def test_s6bm_rejects_readiness_and_canary_without_route_switch(
         manager.control(control_request(manager, "canary_started", canary_passed=False))
     assert canary.value.code == "green_canary_rejected"
     assert manager.snapshot().phase == "green_warmup"
+
+
+def test_s6bm_triton_model_control_failure_keeps_route_and_phase(
+    manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Client:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> "Client":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def post(self, url: str) -> httpx.Response:
+            request = httpx.Request("POST", url)
+            return httpx.Response(400, request=request, json={"error": "missing model"})
+
+        def get(self, url: str) -> httpx.Response:
+            request = httpx.Request("GET", url)
+            return httpx.Response(404, request=request)
+
+    monkeypatch.setenv("EVM_S6BM_APPLY_MODEL_CONTROL", "1")
+    monkeypatch.setattr(module.httpx, "Client", Client)
+    before = manager.snapshot()
+    with pytest.raises(TritonBlueGreenError) as failed:
+        manager.control(control_request(manager, "green_loaded"))
+    assert failed.value.code == "triton_model_control_failed"
+    assert manager.snapshot() == before

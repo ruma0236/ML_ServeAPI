@@ -292,6 +292,8 @@ class TritonBlueGreenManager:
                 TRANSITIONS.labels(request.action, "rejected_approval").inc()
                 raise TritonBlueGreenError("approval_reused", request.run_id)
             self._validate_guard_signals(request)
+            self._validate_transition(state, request.action)
+            self._apply_model_control(state, request.action)
             self._transition(state, request.action)
             state.used_approvals.add(request.approval_id)
             state.generation += 1
@@ -447,6 +449,83 @@ class TritonBlueGreenManager:
             raise TritonBlueGreenError("green_canary_rejected", request.run_id)
 
     @staticmethod
+    def _validate_transition(state: _State, action: ControlAction) -> None:
+        legal = {
+            ("blue_only", "green_loaded"),
+            ("green_warmup", "canary_started"),
+            ("canary", "green_switched"),
+            ("green_active", "blue_drain_started"),
+            ("blue_draining", "blue_unloaded"),
+            ("green_only", "blue_loaded"),
+            ("rollback_warmup", "blue_switched"),
+            ("blue_active_rollback", "green_drain_started"),
+            ("green_draining", "green_unloaded"),
+            ("green_warmup", "green_aborted"),
+            ("canary", "green_aborted"),
+            ("rolled_back", "closed"),
+        }
+        if (state.phase, action) not in legal:
+            raise TritonBlueGreenError(
+                "illegal_blue_green_transition", f"{state.phase}:{action}"
+            )
+        if action == "blue_unloaded" and state.in_flight["blue"] != 0:
+            raise TritonBlueGreenError(
+                "blue_drain_incomplete", str(state.in_flight["blue"])
+            )
+        if action in {"green_unloaded", "green_aborted"} and state.in_flight["green"] != 0:
+            code = "green_drain_incomplete" if action == "green_unloaded" else "green_abort_in_flight"
+            raise TritonBlueGreenError(code, str(state.in_flight["green"]))
+
+    @staticmethod
+    def _apply_model_control(state: _State, action: ControlAction) -> None:
+        if os.getenv("EVM_S6BM_APPLY_MODEL_CONTROL", "0").strip().lower() not in {
+            "1",
+            "true",
+            "yes",
+        }:
+            return
+        role_by_action: dict[ControlAction, ModelRole] = {
+            "green_loaded": "green",
+            "blue_unloaded": "blue",
+            "blue_loaded": "blue",
+            "green_unloaded": "green",
+            "green_aborted": "green",
+        }
+        role = role_by_action.get(action)
+        if role is None:
+            return
+        identity = state.request.blue if role == "blue" else state.request.green
+        operation = "load" if action in {"green_loaded", "blue_loaded"} else "unload"
+        url = (
+            f"{state.request.triton_http_url}/v2/repository/models/"
+            f"{identity.model_name}/{operation}"
+        )
+        try:
+            with httpx.Client(timeout=15) as client:
+                response = client.post(url)
+                response.raise_for_status()
+                ready = client.get(
+                    f"{state.request.triton_http_url}/v2/models/"
+                    f"{identity.model_name}/versions/{identity.model_version}/ready"
+                )
+            if operation == "load" and ready.status_code != 200:
+                raise TritonBlueGreenError(
+                    "triton_model_not_ready", f"{identity.model_name}:{ready.status_code}"
+                )
+            if operation == "unload" and ready.status_code == 200:
+                raise TritonBlueGreenError(
+                    "triton_model_still_ready", identity.model_name
+                )
+        except TritonBlueGreenError:
+            TRANSITIONS.labels(action, "triton_effect_failed").inc()
+            raise
+        except (httpx.HTTPError, OSError) as exc:
+            TRANSITIONS.labels(action, "triton_effect_failed").inc()
+            raise TritonBlueGreenError(
+                "triton_model_control_failed", f"{identity.model_name}:{operation}:{exc}"
+            ) from exc
+
+    @staticmethod
     def _transition(state: _State, action: ControlAction) -> None:
         expected = {
             ("blue_only", "green_loaded"): "green_warmup",
@@ -462,11 +541,7 @@ class TritonBlueGreenManager:
             ("canary", "green_aborted"): "blue_only",
             ("rolled_back", "closed"): "closed",
         }
-        target = expected.get((state.phase, action))
-        if target is None:
-            raise TritonBlueGreenError(
-                "illegal_blue_green_transition", f"{state.phase}:{action}"
-            )
+        target = expected[(state.phase, action)]
         if action == "green_loaded":
             state.loaded.add("green")
         elif action == "canary_started":
@@ -474,24 +549,14 @@ class TritonBlueGreenManager:
         elif action == "green_switched":
             state.weights = {"blue": 0, "green": 100}
         elif action == "blue_unloaded":
-            if state.in_flight["blue"] != 0:
-                raise TritonBlueGreenError("blue_drain_incomplete", str(state.in_flight["blue"]))
             state.loaded.discard("blue")
         elif action == "blue_loaded":
             state.loaded.add("blue")
         elif action == "blue_switched":
             state.weights = {"blue": 100, "green": 0}
         elif action == "green_unloaded":
-            if state.in_flight["green"] != 0:
-                raise TritonBlueGreenError(
-                    "green_drain_incomplete", str(state.in_flight["green"])
-                )
             state.loaded.discard("green")
         elif action == "green_aborted":
-            if state.in_flight["green"] != 0:
-                raise TritonBlueGreenError(
-                    "green_abort_in_flight", str(state.in_flight["green"])
-                )
             state.weights = {"blue": 100, "green": 0}
             state.loaded.discard("green")
         state.phase = target
