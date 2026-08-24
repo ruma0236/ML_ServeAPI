@@ -63,7 +63,7 @@ def implementation_components() -> list[dict[str, object]]:
         {
             "component": "S8 frozen execution and evidence contract",
             "files": [
-                "configs/s8_dependency_soak_v3.toml",
+                "configs/s8_dependency_soak_v4.toml",
                 "configs/s8_soak_capacity_runtime.toml",
                 "docs/status/2026-08-24-s8-design-reconciliation.md",
             ],
@@ -137,20 +137,36 @@ def main() -> int:
 
 def record_failed_attempt(args: argparse.Namespace) -> int:
     now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    if args.attempt not in {1, 2}:
-        raise SystemExit("only retained S8 failed attempts 1 and 2 are supported")
+    if args.attempt not in {1, 2, 3}:
+        raise SystemExit("only retained S8 failed attempts 1 through 3 are supported")
     evidence_path = ROOT / f"docs/status/evidence/s8-dependency-soak-attempt-{args.attempt:02d}.json"
     evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
     digest = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
     payload = json.loads(args.json_path.read_text(encoding="utf-8"))
     scenario = next(item for item in payload["scenarios"] if item["scenario_id"] == "S8")
-    claim = (
-        "Rejected infrastructure attempt: control repetitions 1 and 2 passed, "
-        "repetition 3 hit a Docker host-port allocation race before admission; "
-        "cleanup passed and no acceptance credit was awarded."
-        if args.attempt == 1
-        else "Rejected contract/runtime attempt: nine fresh control, latency, and transient repetitions passed; retry-budget repetition 1 expired five intended DLQ items after runner/config drift, cleanup passed, soak did not start, and no acceptance credit was awarded."
-    )
+    components = implementation_components()
+    scenario["changed_components"] = components
+    scenario["implementation_delta"]["modified_existing_components"] = components
+    claims = {
+        1: (
+            "Rejected infrastructure attempt: control repetitions 1 and 2 passed, "
+            "repetition 3 hit a Docker host-port allocation race before admission; "
+            "cleanup passed and no acceptance credit was awarded."
+        ),
+        2: (
+            "Rejected contract/runtime attempt: nine fresh control, latency, and "
+            "transient repetitions passed; retry-budget repetition 1 expired five "
+            "intended DLQ items after runner/config drift, cleanup passed, soak did "
+            "not start, and no acceptance credit was awarded."
+        ),
+        3: (
+            "Rejected timeout-contract attempt: fifteen fault repetitions passed, "
+            "then timeout repetition 1 retained two outcome-unknown items because "
+            "the worker and HTTP timeouts shared a 10-second boundary; cleanup "
+            "passed, soak did not start, and no acceptance credit was awarded."
+        ),
+    }
+    claim = claims[args.attempt]
     artifact = {
         "path": evidence_path.relative_to(ROOT).as_posix(),
         "sha256": digest,
@@ -168,7 +184,7 @@ def record_failed_attempt(args: argparse.Namespace) -> int:
     scenario["status"] = "implementing"
     scenario["verdict_and_claim_boundary"]["verdict"] = "not_run"
     scenario["next_action"] = (
-        "Rerun the complete 21-repetition fault matrix from the v2 frozen retry-budget "
+        "Rerun the complete 21-repetition fault matrix from the v4 fail-closed timeout "
         "revision; begin soak only after every fresh fault repetition passes."
     )
     scenario["chronological_updates"].append(
@@ -178,12 +194,22 @@ def record_failed_attempt(args: argparse.Namespace) -> int:
             "status": "implementing",
             "summary": (
                 f"Attempt {args.attempt:02d} was rejected with zero acceptance credit. "
-                + (
-                    "An isolated Prometheus port-bind race occurred before control "
-                    "repetition 3 admission; two controls passed and cleanup completed."
-                    if args.attempt == 1
-                    else "Nine control/latency/transient repetitions passed, then retry-budget runner/config drift allowed five expiry outcomes; cleanup completed and soak did not start."
-                )
+                + {
+                    1: (
+                        "An isolated Prometheus port-bind race occurred before control "
+                        "repetition 3 admission; two controls passed and cleanup completed."
+                    ),
+                    2: (
+                        "Nine control/latency/transient repetitions passed, then "
+                        "retry-budget runner/config drift allowed five expiry outcomes; "
+                        "cleanup completed and soak did not start."
+                    ),
+                    3: (
+                        "Fifteen repetitions passed, then timeout repetition 1 retained "
+                        "two outcome-unknown items at an equal worker/HTTP timeout boundary; "
+                        "cleanup completed and soak did not start."
+                    ),
+                }[args.attempt]
             ),
             "evidence_refs": [
                 artifact["path"],

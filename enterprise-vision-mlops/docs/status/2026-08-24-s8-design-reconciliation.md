@@ -66,7 +66,7 @@ failure reopens it. Lease/fencing, PostgreSQL authority, idempotency, DLQ, and
 existing API response contracts remain unchanged.
 
 The circuit is disabled by default in the accepted S2 profile. It is enabled only
-by `configs/s8_dependency_soak_v3.toml`, providing a direct rollback to the prior
+by `configs/s8_dependency_soak_v4.toml`, providing a direct rollback to the prior
 behavior without a schema migration.
 
 ## Experiment And Stop Contract
@@ -94,6 +94,14 @@ behavior without a schema migration.
   observed 28 seconds of circuit hold and 40.109 seconds to terminal closure,
   so v3 freezes a 60-second MTTR guardrail before acceptance. Final acceptance
   restarts all 21 fault repetitions from this revision.
+- Attempt 03 passed fifteen fresh fault repetitions, then rejected timeout
+  repetition 1 because the worker and Airflow HTTP timeouts shared a 10-second
+  boundary. Two requests remained `outcome_unknown`; acceptance stayed zero and
+  cleanup completed. The v4 contract resolves ambiguous timeout submissions by
+  exact effect lookup after a 30-second bounded observation window: a missing
+  effect becomes an explicit terminal failure, while following healthy work must
+  complete. Timeout tasks require the failure trace subset and zero external
+  effect; they are never relabeled as successful work.
 5. Stop on retry budget escape, unbounded slope, error or p99 guardrail breach,
    trace gap, identity ambiguity, or cleanup uncertainty.
 6. Re-hash all accepted public and private artifacts before closure.

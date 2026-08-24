@@ -7,12 +7,14 @@ from pathlib import Path
 import pytest
 
 import evm.scale_validation.s2_runtime as s2_runtime
+from evm.control_panel.admission_queue import AdmissionQueueConfig
 
 from evm.scale_validation.s8_runtime import (
     FAULT_PROFILE_IDS,
     S8RuntimeConfig,
     analyze_fault_results,
     analyze_soak_private,
+    fault_mode_contract,
     linear_slope,
     statistics,
 )
@@ -22,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_s8_config_freezes_fault_and_soak_contract() -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v3.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v4.toml")
 
     assert config.repetitions == 3
     assert config.soak_requests_per_second == 35.0
@@ -30,6 +32,11 @@ def test_s8_config_freezes_fault_and_soak_contract() -> None:
     assert config.soak_resource_sample_interval_seconds == 1.0
     assert config.retry_transient_request_count == 12
     assert config.retry_healthy_request_count == 4
+    assert config.maximum_mttr_seconds == 60.0
+    queue_config = AdmissionQueueConfig.from_path(
+        ROOT / "configs/s8_dependency_soak_v4.toml"
+    )
+    assert queue_config.runtime_terminal_timeout_seconds == 30.0
     assert tuple(profile for profile in config.fault_matrix().profiles if profile != "I") == FAULT_PROFILE_IDS
     assert config.fault_matrix().profiles["I"] == config.fault_matrix().profiles["worker-loss"]
 
@@ -68,7 +75,7 @@ def _fault_results(config: S8RuntimeConfig) -> list[dict[str, object]]:
 
 
 def test_s8_fault_projection_is_recomputed_and_fail_closed() -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v3.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v4.toml")
     results = _fault_results(config)
 
     assert analyze_fault_results(results, config)["passed"] is True
@@ -80,7 +87,7 @@ def test_s8_fault_projection_is_recomputed_and_fail_closed() -> None:
 
 
 def test_s8_soak_private_recomputes_finite_resource_slopes(tmp_path: Path) -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v3.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v4.toml")
     samples = [
         {
             "offset_seconds": float(index),
@@ -128,6 +135,18 @@ def test_s8_numeric_helpers_never_publish_non_finite_statistics() -> None:
         [{"offset_seconds": 0, "value": 1}, {"offset_seconds": 60, "value": 2}],
         lambda item: item["value"],
     ) == 1.0
+
+
+def test_timeout_contract_fails_closed_without_external_effect() -> None:
+    no_effect, states, traces = fault_mode_contract(
+        {"timeout-task": "timeout_once", "healthy-task": "healthy"}
+    )
+
+    assert no_effect == {"timeout-task"}
+    assert states == {"timeout-task": "failed", "healthy-task": "completed"}
+    assert "airflow.rest" in traces["timeout-task"]
+    assert "queue.dispatch" not in traces["timeout-task"]
+    assert "queue.dispatch" in traces["healthy-task"]
 
 
 def test_isolated_prometheus_retries_only_port_collision(

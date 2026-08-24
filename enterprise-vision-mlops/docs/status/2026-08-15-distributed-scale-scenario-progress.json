@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T07:29:00Z",
+  "generated_at": "2026-08-24T07:52:10Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -4005,7 +4005,7 @@
         {
           "component": "S8 frozen execution and evidence contract",
           "files": [
-            "configs/s8_dependency_soak_v3.toml",
+            "configs/s8_dependency_soak_v4.toml",
             "configs/s8_soak_capacity_runtime.toml",
             "docs/status/2026-08-24-s8-design-reconciliation.md"
           ]
@@ -4068,6 +4068,12 @@
           "sha256": "0f112462479335715a65ec9906ebe32cc99f865ed9b09146a855ae360eaf4e2f",
           "generated_at": "2026-08-24T07:24:06Z",
           "claim": "Zero-credit retry-budget calibration closed 17/17 tasks with 12 DLQ, 5 completed, duplicate effects zero, and cleanup complete; its 40.109-second fault recovery justified freezing the pre-acceptance v3 MTTR bound at 60 seconds."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-attempt-03.json",
+          "sha256": "38ffd90a038d105fe123a6683d8b9bddc8b56817576f65a9b54d6ae999a951c5",
+          "generated_at": "2026-08-24T07:44:17.829794Z",
+          "claim": "Rejected timeout-contract attempt: fifteen fault repetitions passed, then timeout repetition 1 retained two outcome-unknown items because the worker and HTTP timeouts shared a 10-second boundary; cleanup passed, soak did not start, and no acceptance credit was awarded."
         }
       ],
       "status": "implementing",
@@ -4078,7 +4084,7 @@
         "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
         "One final evidence index re-hashes every accepted result."
       ],
-      "next_action": "Run all 21 fault repetitions from the frozen v3 revision with no pilot reuse; begin the three 30-minute soak repetitions only after that gate passes.",
+      "next_action": "Rerun the complete 21-repetition fault matrix from the v4 fail-closed timeout revision; begin soak only after every fresh fault repetition passes.",
       "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
       "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.",
       "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
@@ -4139,7 +4145,7 @@
           {
             "component": "S8 frozen execution and evidence contract",
             "files": [
-              "configs/s8_dependency_soak_v3.toml",
+              "configs/s8_dependency_soak_v4.toml",
               "configs/s8_soak_capacity_runtime.toml",
               "docs/status/2026-08-24-s8-design-reconciliation.md"
             ]
@@ -4201,6 +4207,12 @@
           "sha256": "0f112462479335715a65ec9906ebe32cc99f865ed9b09146a855ae360eaf4e2f",
           "generated_at": "2026-08-24T07:24:06Z",
           "claim": "Zero-credit retry-budget calibration closed 17/17 tasks with 12 DLQ, 5 completed, duplicate effects zero, and cleanup complete; its 40.109-second fault recovery justified freezing the pre-acceptance v3 MTTR bound at 60 seconds."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-attempt-03.json",
+          "sha256": "38ffd90a038d105fe123a6683d8b9bddc8b56817576f65a9b54d6ae999a951c5",
+          "generated_at": "2026-08-24T07:44:17.829794Z",
+          "claim": "Rejected timeout-contract attempt: fifteen fault repetitions passed, then timeout repetition 1 retained two outcome-unknown items because the worker and HTTP timeouts shared a 10-second boundary; cleanup passed, soak did not start, and no acceptance credit was awarded."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -4262,6 +4274,16 @@
           "evidence_refs": [
             "docs/status/evidence/s8-retry-budget-v2-calibration.json",
             "docs/status/2026-08-24-s8-design-reconciliation.md"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T07:52:10Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "Attempt 03 was rejected with zero acceptance credit. Fifteen repetitions passed, then timeout repetition 1 retained two outcome-unknown items at an equal worker/HTTP timeout boundary; cleanup completed and soak did not start.",
+          "evidence_refs": [
+            "docs/status/evidence/s8-dependency-soak-attempt-03.json",
+            "docs/status/2026-08-24-s8-attempt-03-rca.md"
           ]
         }
       ]

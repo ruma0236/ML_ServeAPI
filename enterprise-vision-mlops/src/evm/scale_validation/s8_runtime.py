@@ -26,6 +26,8 @@ from evm.scale_validation.s1_runtime import (
     utc_now,
 )
 from evm.scale_validation.s2_runtime import (
+    FULL_TRACE_NAMES,
+    TIMEOUT_FAILURE_TRACE_NAMES,
     RuntimeScope,
     accepted_tasks,
     assertion,
@@ -221,7 +223,7 @@ class S8RuntimeConfig:
 
     def fault_matrix(self) -> FaultMatrix:
         return FaultMatrix(
-            version="s8-isolated-faults-v3-20260824",
+            version="s8-isolated-faults-v4-20260824",
             seed=self.seed,
             repetitions=self.repetitions,
             warmup_seconds=2.0,
@@ -488,38 +490,54 @@ def execute_payload_mix(
         sample_interval=matrix.sample_interval_seconds,
     )
     mode_by_task = task_modes(submission, payloads)
-    no_effect = {
-        task_id
-        for task_id, mode in mode_by_task.items()
-        if mode in {"permanent", "always_transient"}
-    }
+    no_effect, expected_states, trace_requirements = fault_mode_contract(mode_by_task)
     effects = set(accepted) - no_effect
     rows = {str(row["task_id"]): row for row in terminal["final"]["queue"]}
-    expected_states = {
-        task_id: "dlq" if task_id in no_effect else "completed"
-        for task_id in accepted
+    profile_assertions = [
+        assertion(
+            f"{profile_id}_all_accepted_terminal",
+            bool(terminal.get("closed"))
+            and all(
+                rows.get(task_id, {}).get("state") == state
+                for task_id, state in expected_states.items()
+            ),
+            {
+                "accepted": len(accepted),
+                "expected_states": Counter(expected_states.values()),
+            },
+        )
+    ]
+    timeout_tasks = {
+        task_id for task_id, mode in mode_by_task.items() if mode == "timeout_once"
     }
+    if timeout_tasks:
+        profile_assertions.append(
+            assertion(
+                f"{profile_id}_timeout_closed_without_effect",
+                all(
+                    rows.get(task_id, {}).get("state") == "failed"
+                    and rows.get(task_id, {}).get("terminal_reason")
+                    == "external_effect_not_found_after_timeout"
+                    for task_id in timeout_tasks
+                ),
+                {
+                    task_id: {
+                        "state": rows.get(task_id, {}).get("state"),
+                        "terminal_reason": rows.get(task_id, {}).get("terminal_reason"),
+                    }
+                    for task_id in timeout_tasks
+                },
+            )
+        )
     return {
         "submissions": [submission],
         "accepted": accepted,
         "terminal": terminal,
         "trace_expected": accepted,
+        "trace_requirements": trace_requirements,
         "effect_expected": effects,
         "no_effect_expected": no_effect,
-        "assertions": [
-            assertion(
-                f"{profile_id}_all_accepted_terminal",
-                bool(terminal.get("closed"))
-                and all(
-                    rows.get(task_id, {}).get("state") == state
-                    for task_id, state in expected_states.items()
-                ),
-                {
-                    "accepted": len(accepted),
-                    "expected_states": Counter(expected_states.values()),
-                },
-            )
-        ],
+        "assertions": profile_assertions,
         "input_sequence_sha256": payload_digest(payloads),
         "extra": {
             "fault_profile": profile_id,
@@ -527,6 +545,32 @@ def execute_payload_mix(
             "mode_counts": dict(Counter(modes)),
         },
     }
+
+
+def fault_mode_contract(
+    mode_by_task: Mapping[str, str],
+) -> tuple[set[str], dict[str, str], dict[str, set[str]]]:
+    no_effect_modes = {"permanent", "always_transient", "timeout_once"}
+    no_effect = {
+        task_id for task_id, mode in mode_by_task.items() if mode in no_effect_modes
+    }
+    expected_states = {
+        task_id: (
+            "failed"
+            if mode == "timeout_once"
+            else "dlq"
+            if mode in {"permanent", "always_transient"}
+            else "completed"
+        )
+        for task_id, mode in mode_by_task.items()
+    }
+    trace_requirements = {
+        task_id: set(
+            TIMEOUT_FAILURE_TRACE_NAMES if mode == "timeout_once" else FULL_TRACE_NAMES
+        )
+        for task_id, mode in mode_by_task.items()
+    }
+    return no_effect, expected_states, trace_requirements
 
 
 def execute_retry_budget_profile(
@@ -1005,7 +1049,7 @@ def run_s8_experiment(
     root = root.resolve()
     config = S8RuntimeConfig.from_path(scenario_config_path)
     queue_config = AdmissionQueueConfig.from_path(queue_config_path)
-    if queue_config.profile_version != "s8-dependency-soak-v3-20260824":
+    if queue_config.profile_version != "s8-dependency-soak-v4-20260824":
         raise S8RuntimeError("s8_queue_profile_identity_invalid")
     if not port_is_available(queue_config.metrics_port):
         raise S8RuntimeError(f"s8_worker_metrics_port_in_use:{queue_config.metrics_port}")

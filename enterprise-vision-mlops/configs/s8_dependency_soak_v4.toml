@@ -1,5 +1,5 @@
 [profile]
-version = "s8-dependency-soak-v3-20260824"
+version = "s8-dependency-soak-v4-20260824"
 status = "frozen-before-experiment"
 
 [durable_queue]
@@ -31,7 +31,7 @@ lease_renew_interval_seconds = 2.0
 poll_interval_seconds = 0.1
 runtime_poll_interval_seconds = 0.25
 runtime_poll_batch_size = 4
-runtime_terminal_timeout_seconds = 120.0
+runtime_terminal_timeout_seconds = 30.0
 cpu_downstream_max_outstanding = 8
 gpu_downstream_max_outstanding = 1
 drain_timeout_seconds = 90.0
@@ -44,7 +44,7 @@ backoff_max_seconds = 2.0
 jitter_ratio = 0.20
 global_budget = 8
 budget_window_seconds = 60.0
-budget_scope = "s8-dependency-soak-v3"
+budget_scope = "s8-dependency-soak-v4"
 
 [dependency_circuit]
 failure_threshold = 3
