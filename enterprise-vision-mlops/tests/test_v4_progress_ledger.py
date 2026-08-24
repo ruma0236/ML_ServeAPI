@@ -27,12 +27,36 @@ ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs/status/2026-08-24-s8-v4-progress-ledger.jsonl"
 E0_EXPERIMENT = ROOT / "docs/status/evidence/s8-v4-e0-environment-experiment.json"
 E0_HANDOFF = ROOT / "docs/status/evidence/s8-v4-e0-review-handoff.json"
+E0_VERIFIED_CLOSURE = ROOT / "docs/status/evidence/s8-v4-e0-verified-closure.json"
+E0_PRE_SIGN_OFF_LEDGER_SHA256 = "0b825ab53b063ba181350b2ce3236b4b3b81cdf41736a09b03d99f102b89c58d"
 
 
 def test_committed_v4_ledger_hash_chain() -> None:
     events = read_events(LEDGER)
     assert len(events) >= 9
     assert events[-1]["event_hash"] == calculate_event_hash(events[-1])
+
+
+def test_e0_verified_sign_off_is_append_only_and_evidence_bound() -> None:
+    ledger_lines = LEDGER.read_bytes().splitlines(keepends=True)
+    assert hashlib.sha256(b"".join(ledger_lines[:41])).hexdigest() == (
+        E0_PRE_SIGN_OFF_LEDGER_SHA256
+    )
+
+    events = read_events(LEDGER)
+    event = events[-1]
+    closure_bytes = E0_VERIFIED_CLOSURE.read_bytes()
+    closure = json.loads(closure_bytes)
+    assert event["event_id"] == "s8-v4-0042"
+    assert event["from_status"] == "review_pending"
+    assert event["to_status"] == "verified"
+    assert event["acceptance_credit"] is True
+    assert event["reviewer_sign_off"]["result"] == "passed"
+    assert event["verified_closure"]["sha256"] == hashlib.sha256(closure_bytes).hexdigest()
+    assert closure["status"] == "verified"
+    assert closure["acceptance_credit"] is True
+    assert all(closure["acceptance"].values())
+    assert all(closure["alignment"].values())
 
 
 def test_v4_ledger_rejects_mutation() -> None:
