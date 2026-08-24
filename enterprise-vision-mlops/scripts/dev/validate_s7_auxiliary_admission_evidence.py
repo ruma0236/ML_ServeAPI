@@ -34,6 +34,11 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "docs/status/evidence/s7-auxiliary-admission-closure.json",
     )
     parser.add_argument("--config", type=Path, default=ROOT / "configs/s7_family_admission.toml")
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops"),
+    )
     parser.add_argument("--private-root", type=Path, required=True)
     parser.add_argument(
         "--runtime-smoke",
@@ -107,6 +112,7 @@ def main() -> int:
             runtime_smoke=json.loads(smoke_raw),
             runtime_smoke_sha256=hashlib.sha256(smoke_raw).hexdigest(),
             runtime_smoke_private_root=args.runtime_smoke_private_root,
+            data_root=args.data_root,
             regression_evidence=json.loads(regression_raw),
             regression_evidence_sha256=hashlib.sha256(regression_raw).hexdigest(),
             regression_root=args.regression_root,

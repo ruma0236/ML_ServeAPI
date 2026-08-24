@@ -426,6 +426,7 @@ def main() -> int:
             "schema_version": "evm.s7_current_revision_cuda_smoke.v2",
             "status": "verified",
             "verdict": "passed",
+            "acceptance_credit": False,
             "suite_id": suite_id,
             "source_identity": {
                 "revision": revision,

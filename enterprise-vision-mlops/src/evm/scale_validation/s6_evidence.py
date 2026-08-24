@@ -18,6 +18,8 @@ from evm.scale_validation.s6_runtime import (
 
 
 REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+TRACE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 SOURCE_PATHS = {
     "config": "enterprise-vision-mlops/configs/s6_rolling_handoff.toml",
     "runtime": "enterprise-vision-mlops/src/evm/scale_validation/s6_runtime.py",
@@ -354,6 +356,15 @@ def project_api_result(
     terminal = set(str(value) for value in database.get("terminal_ids", []))
     effects = [str(value) for value in database.get("effect_ids", [])]
     latencies = [float(item.get("logical_latency_ms", 0)) for item in successful]
+    raw_trace_matches = []
+    for item in successful:
+        trace_id = str(item.get("trace_id") or "")
+        attempts = list(item.get("attempts", []))
+        raw_trace_matches.append(
+            bool(TRACE_ID_PATTERN.fullmatch(trace_id))
+            and bool(attempts)
+            and all(str(attempt.get("trace_header") or "") == trace_id for attempt in attempts)
+        )
     recomputed = {
         "logical_requests": len(observations),
         "attempts": sum(len(item.get("attempts", [])) for item in observations),
@@ -363,9 +374,7 @@ def project_api_result(
         "accepted_loss": len(accepted - client_ids),
         "client_success_without_acceptance": len(client_ids - accepted),
         "duplicate_effects": len(effects) - len(set(effects)),
-        "trace_identity_matches": sum(
-            1 for item in successful if item.get("trace_identity_matches") is True
-        ),
+        "trace_identity_matches": sum(raw_trace_matches),
     }
     for key, value in recomputed.items():
         if payload.get(key) != value:
@@ -393,8 +402,33 @@ def project_api_result(
             if abs(float(payload.get(key, -1)) - value) > 1e-9:
                 errors.append(f"{prefix}:{key}")
     trace = dict(payload.get("trace_summary", {}))
-    if trace.get("complete") is not True:
-        errors.append(f"{prefix}:trace_complete")
+    sampled = [item for item in successful if item.get("sampled") is True]
+    sampled_matches = sum(
+        1
+        for item in sampled
+        if bool(TRACE_ID_PATTERN.fullmatch(str(item.get("trace_id") or "")))
+        and bool(item.get("attempts"))
+        and all(
+            str(attempt.get("trace_header") or "") == str(item.get("trace_id") or "")
+            for attempt in item.get("attempts", [])
+        )
+    )
+    expected_trace = {
+        "expected": len(sampled),
+        "observed": sampled_matches,
+        "missing": len(sampled) - sampled_matches,
+        "complete": bool(successful)
+        and all(raw_trace_matches)
+        and sampled_matches == len(sampled),
+    }
+    for key, expected in expected_trace.items():
+        if trace.get(key) != expected:
+            errors.append(f"{prefix}:trace_{key}")
+    if (
+        not SHA256_PATTERN.fullmatch(str(trace.get("raw_tail_sha256") or ""))
+        or int(trace.get("raw_tail_bytes", 0)) <= 0
+    ):
+        errors.append(f"{prefix}:trace_raw_evidence")
     drains = list(database.get("drain_events", []))
     expected_drain_ids = set(database.get("expected_drain_instance_ids", []))
     observed_drain_ids = {
@@ -406,18 +440,30 @@ def project_api_result(
         errors.append(f"{prefix}:drain_terminal")
     if int(payload.get("drain_event_count", -1)) != len(drains):
         errors.append(f"{prefix}:drain_count")
+    maximum_drain_seconds = max(
+        (float(item.get("drain_elapsed_seconds", -1)) for item in drains),
+        default=-1.0,
+    )
+    if (
+        maximum_drain_seconds < 0
+        or abs(float(payload.get("maximum_drain_seconds", -1)) - maximum_drain_seconds)
+        > 1e-9
+    ):
+        errors.append(f"{prefix}:maximum_drain_seconds")
     if payload.get("before", {}).get("release_ids") != ["old"]:
         errors.append(f"{prefix}:old_identity")
     if payload.get("after", {}).get("release_ids") != ["new"]:
         errors.append(f"{prefix}:new_identity")
     return {
         key: (
-            int(trace.get("expected", 0))
+            expected_trace["expected"]
             if key == "trace_expected"
-            else int(trace.get("observed", 0))
+            else expected_trace["observed"]
             if key == "trace_observed"
-            else bool(trace.get("complete"))
+            else expected_trace["complete"]
             if key == "trace_complete"
+            else maximum_drain_seconds
+            if key == "maximum_drain_seconds"
             else payload[key]
         )
         for key in API_PUBLIC_FIELDS
@@ -471,6 +517,26 @@ def project_gpu_result(
         and target_ready.get("device") == "cuda"
     )
     source_after = dict(payload.get("source_prediction_after", {}))
+    source_before = dict(payload.get("source_prediction_before", {}))
+    try:
+        source_before_monotonic = float(source_before["observed_monotonic"])
+        first_target_monotonic = float(samples[0]["observed_monotonic"])
+        last_target_monotonic = float(samples[-1]["observed_monotonic"])
+        source_after_monotonic = float(source_after["observed_monotonic"])
+        source_to_target = first_target_monotonic - source_before_monotonic
+        target_to_source = source_after_monotonic - last_target_monotonic
+        if source_to_target < 0 or target_to_source < 0:
+            raise ValueError("negative interruption")
+    except (IndexError, KeyError, TypeError, ValueError):
+        errors.append(f"{prefix}:interruption_timeline")
+        source_to_target = -1.0
+        target_to_source = -1.0
+    for key, expected in (
+        ("source_to_target_interruption_seconds", source_to_target),
+        ("target_to_source_interruption_seconds", target_to_source),
+    ):
+        if abs(float(payload.get(key, -1)) - expected) > 1e-9:
+            errors.append(f"{prefix}:{key}")
     target_cuda = bool(samples) and all(item.get("device") == "cuda" for item in samples)
     prometheus_restored = payload.get("prometheus_health") == "up"
     recomputed = {
@@ -483,8 +549,15 @@ def project_gpu_result(
         "target_cuda_inference": target_cuda,
         "source_cuda_inference_restored": source_after.get("device") == "cuda",
         "prometheus_restored": prometheus_restored,
+        "source_to_target_interruption_seconds": source_to_target,
+        "target_to_source_interruption_seconds": target_to_source,
     }
     for key, value in recomputed.items():
+        if key in {
+            "source_to_target_interruption_seconds",
+            "target_to_source_interruption_seconds",
+        }:
+            continue
         if payload.get(key) is not value:
             errors.append(f"{prefix}:{key}")
     return {

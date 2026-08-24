@@ -2,6 +2,7 @@
   "schema_version": "evm.s7_current_revision_cuda_smoke.v2",
   "status": "verified",
   "verdict": "passed",
+  "acceptance_credit": false,
   "suite_id": "20260824T040239Z-45f381ea",
   "source_identity": {
     "revision": "45f381ea17876d6b543eee3fe02c80c9079b946e",

@@ -67,6 +67,22 @@ S5_SMOKE_PATH = (
 S5_REGRESSION_PATH = (
     "enterprise-vision-mlops/docs/status/evidence/s5-reclosure-regression-evidence.json"
 )
+S5_EXPERIMENT_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/s5-spark-data-scale-experiment.json"
+)
+S5_HISTORICAL_CLOSURE_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/s5-spark-data-scale-closure.json"
+)
+S5_HISTORICAL_CLOSURE_COMMIT = "5aff04267969d18446b6c184dfad5a6e9cdf8e43"
+S5_CLOSURE_VALIDATOR_PATHS = {
+    "validator_cli": (
+        "enterprise-vision-mlops/scripts/dev/"
+        "validate_s5_spark_data_scale_evidence.py"
+    ),
+    "validator_module": (
+        "enterprise-vision-mlops/src/evm/scale_validation/s5_evidence.py"
+    ),
+}
 REQUIRED_REGRESSION_SUITES = (
     "changed_file_lint",
     "focused_s5",
@@ -217,6 +233,7 @@ def validate_s5_spark_data_scale_closure(
     private_root: Path | None = None,
     runtime_smoke: Mapping[str, Any] | None = None,
     runtime_smoke_sha256: str | None = None,
+    runtime_smoke_private_root: Path | None = None,
     regression_evidence: Mapping[str, Any] | None = None,
     regression_evidence_sha256: str | None = None,
     regression_root: Path | None = None,
@@ -240,9 +257,12 @@ def validate_s5_spark_data_scale_closure(
         errors.append("closure_acceptance")
     if closure.get("status") != "verified" or closure.get("verdict") != "passed":
         errors.append("closure_verdict")
+    if closure.get("claim_boundary") != config.claim_boundary:
+        errors.append("closure_claim_boundary")
     smoke_result = validate_s5_runtime_smoke(
         runtime_smoke or {},
         config=config,
+        private_root=runtime_smoke_private_root,
         git_root=git_root,
         validation_revision=validation_revision,
     )
@@ -253,9 +273,14 @@ def validate_s5_spark_data_scale_closure(
         validation_revision=validation_revision,
     )
     source = dict(closure.get("source_identity", {}))
+    experiment_commit = str(source.get("experiment_commit") or "")
     validator_revision = str(source.get("validator_revision") or "")
-    if not REVISION_PATTERN.fullmatch(validator_revision):
-        errors.append("closure_validator_revision")
+    for label, revision in (
+        ("experiment", experiment_commit),
+        ("validator", validator_revision),
+    ):
+        if not REVISION_PATTERN.fullmatch(revision):
+            errors.append(f"closure_{label}_revision")
     if final.get("runtime_smoke_git_blob_sha256") != runtime_smoke_sha256:
         errors.append("closure_runtime_smoke_sha256")
     if final.get("regression_git_blob_sha256") != regression_evidence_sha256:
@@ -264,14 +289,50 @@ def validate_s5_spark_data_scale_closure(
         errors.append("closure_runtime_smoke_revision")
     if final.get("regression_revision") != regression_result.get("revision"):
         errors.append("closure_regression_revision")
-    if git_root is not None and REVISION_PATTERN.fullmatch(validator_revision):
+    if (
+        git_root is not None
+        and REVISION_PATTERN.fullmatch(experiment_commit)
+        and REVISION_PATTERN.fullmatch(validator_revision)
+    ):
         try:
+            for revision in (experiment_commit, validator_revision):
+                _git(git_root, "cat-file", "-e", f"{revision}^{{commit}}")
+                if subprocess.run(
+                    ["git", "merge-base", "--is-ancestor", revision, validation_revision],
+                    cwd=git_root,
+                    check=False,
+                ).returncode:
+                    errors.append("closure_revision_not_ancestor")
+            expected_experiment = _git_blob_identity(
+                git_root, experiment_commit, S5_EXPERIMENT_PATH
+            )
             expected_smoke = _git_blob_identity(
                 git_root, validator_revision, S5_SMOKE_PATH
             )
             expected_regression = _git_blob_identity(
                 git_root, validator_revision, S5_REGRESSION_PATH
             )
+            expected_validators = {
+                name: _git_blob_identity(git_root, validator_revision, path)
+                for name, path in S5_CLOSURE_VALIDATOR_PATHS.items()
+            }
+            expected_historical_closure = _git_blob_identity(
+                git_root,
+                S5_HISTORICAL_CLOSURE_COMMIT,
+                S5_HISTORICAL_CLOSURE_PATH,
+            )
+            if _canonical(source.get("experiment")) != _canonical(
+                expected_experiment
+            ):
+                errors.append("closure_experiment_git_blob")
+            if _canonical(source.get("validators")) != _canonical(
+                expected_validators
+            ):
+                errors.append("closure_validator_git_blobs")
+            if _canonical(source.get("historical_closure")) != _canonical(
+                expected_historical_closure
+            ):
+                errors.append("closure_historical_git_blob")
             if _canonical(source.get("runtime_smoke")) != _canonical(expected_smoke):
                 errors.append("closure_runtime_smoke_git_blob")
             if _canonical(source.get("regression_evidence")) != _canonical(
@@ -323,6 +384,7 @@ def validate_s5_runtime_smoke(
     payload: Mapping[str, Any],
     *,
     config: S5RuntimeConfig,
+    private_root: Path | None = None,
     git_root: Path | None = None,
     validation_revision: str = "HEAD",
 ) -> dict[str, Any]:
@@ -352,24 +414,63 @@ def validate_s5_runtime_smoke(
         except (OSError, subprocess.CalledProcessError):
             errors.append("smoke_git_identity_unavailable")
     engines = list(payload.get("engines", []))
-    expected_engines = {
-        "single_process_columnar",
-        "spark_local",
-        "spark_kubernetes_1",
-    }
-    if {str(item.get("engine")) for item in engines} != expected_engines:
+    expected_engines = (
+        ("smoke-01", "single_process_columnar", "preparation_smoke"),
+        ("smoke-02", "spark_local", "spark_local_stage"),
+        ("smoke-03", "spark_kubernetes_1", "kubernetes_scale"),
+    )
+    observed_engines = [
+        (
+            str(item.get("point_id") or ""),
+            str(item.get("engine") or ""),
+            str(item.get("profile") or ""),
+        )
+        for item in engines
+        if isinstance(item, Mapping)
+    ]
+    if observed_engines != list(expected_engines):
         errors.append("smoke_engines")
     digests = {str(item.get("output_digest") or "") for item in engines}
-    if len(digests) != 1 or "" in digests:
+    if (
+        len(digests) != 1
+        or not all(SHA256_PATTERN.fullmatch(value) for value in digests)
+    ):
         errors.append("smoke_cross_engine_digest")
     if payload.get("cross_engine_output_digest_equal") is not (len(digests) == 1):
         errors.append("smoke_digest_summary")
     if any(
-        int(item.get("missing_records", -1)) != 0
+        int(item.get("semantic_row_count", -1)) != 766_864
+        or int(item.get("effective_row_count", -1)) != 766_864
+        or int(item.get("repeat_factor", -1)) != 1
+        or item.get("generated_io_only") is not False
+        or item.get("stage") != "small"
+        or int(item.get("repetition", -1)) != 1
+        or item.get("commit_state") != "committed"
+        or int(item.get("missing_records", -1)) != 0
         or int(item.get("duplicate_records", -1)) != 0
         for item in engines
     ):
         errors.append("smoke_integrity")
+    if any(
+        int(item.get("failed_task_count", 0)) != 0
+        or int(item.get("task_count", 1)) <= 0
+        or int(item.get("executors_added", 1)) <= 0
+        for item in engines
+        if str(item.get("engine") or "").startswith("spark_")
+    ):
+        errors.append("smoke_spark_execution")
+    private_summary: dict[str, Any] = {}
+    if private_root is None:
+        errors.append("smoke_private_root_required")
+    else:
+        if payload.get("suite_id") != private_root.name:
+            errors.append("smoke_private_suite_identity")
+        private_summary = _validate_private_evidence(
+            payload=payload,
+            results=engines,
+            root=private_root,
+            errors=errors,
+        )
     cleanup = dict(payload.get("cleanup", {}))
     if (
         int(cleanup.get("kubernetes_jobs_remaining", -1)) != 0
@@ -391,7 +492,12 @@ def validate_s5_runtime_smoke(
         raise S5EvidenceValidationError(
             "s5_runtime_smoke_invalid:" + ",".join(sorted(set(errors)))
         )
-    return {"status": "valid", "revision": revision, "engine_count": len(engines)}
+    return {
+        "status": "valid",
+        "revision": revision,
+        "engine_count": len(engines),
+        "private_evidence": private_summary,
+    }
 
 
 def validate_s5_regression_evidence(
@@ -444,6 +550,13 @@ def validate_s5_regression_evidence(
                 or file_sha256(target) != item.get("log_sha256")
             ):
                 errors.append(f"regression_log_identity:{suite_id}")
+            elif not _regression_log_matches_counts(
+                target,
+                suite_id=suite_id,
+                tests_passed=int(item.get("tests_passed", -1)),
+                tests_skipped=int(item.get("tests_skipped", -1)),
+            ):
+                errors.append(f"regression_log_counts:{suite_id}")
         if suite_id not in {"changed_file_lint", "frontend_production_build"} and int(
             item.get("tests_passed", 0)
         ) <= 0:
@@ -455,6 +568,28 @@ def validate_s5_regression_evidence(
             "s5_regression_invalid:" + ",".join(sorted(set(errors)))
         )
     return {"status": "valid", "revision": revision, "suite_count": len(suites)}
+
+
+def _regression_log_matches_counts(
+    path: Path, *, suite_id: str, tests_passed: int, tests_skipped: int
+) -> bool:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if suite_id == "changed_file_lint":
+        return (
+            tests_passed == 0
+            and tests_skipped == 0
+            and "All checks passed!" in text
+        )
+    if suite_id == "frontend_production_build":
+        return tests_passed == 0 and tests_skipped == 0 and "built in" in text
+    pytest_matches = re.findall(
+        r"(?m)^(\d+) passed(?:, (\d+) skipped)?(?:, \d+ warnings?)? in ", text
+    )
+    passed = sum(int(item[0]) for item in pytest_matches)
+    skipped = sum(int(item[1] or 0) for item in pytest_matches)
+    vitest_matches = re.findall(r"(?m)^\s*Tests\s+(\d+) passed", text)
+    passed += sum(int(item) for item in vitest_matches)
+    return passed == tests_passed and skipped == tests_skipped
 
 
 def _validate_s5_observed_results(

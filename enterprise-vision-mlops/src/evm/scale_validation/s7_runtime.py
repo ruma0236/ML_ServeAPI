@@ -259,6 +259,7 @@ def analyze_s7_profiles(
     prometheus_complete = True
     fairness_valid = True
     rejections_valid = True
+    outcomes_valid = True
     family_rollups: dict[str, dict[str, Any]] = {}
 
     for family in QUALITY_SCHEMAS:
@@ -273,6 +274,16 @@ def analyze_s7_profiles(
             for item in accepted_profiles
             if not str(item.get("profile_id")).endswith("fairness")
         ]
+        outcomes_valid = outcomes_valid and all(
+            int(item.get("request_count", -1)) > 0
+            and int(item.get("completed", -1)) == int(item.get("request_count", -2))
+            and int(item.get("rejected", -1)) == 0
+            and int(item.get("expired", -1)) == 0
+            and int(item.get("transport_failed", -1)) == 0
+            and int(item.get("pre_admission_rejection_count", -1)) == 0
+            and int(item.get("oom_count", -1)) == 0
+            for item in accepted_profiles
+        )
         expected_metric_schema = {
             "quality": list(QUALITY_SCHEMAS[family]),
             "generation": list(GENERATION_SCHEMAS[family]),
@@ -310,9 +321,15 @@ def analyze_s7_profiles(
             and len(over_limit) == config.repetitions
             and all(
                 int(item.get("accepted", 0)) == 0
+                and int(item.get("completed", 0)) == 0
                 and int(item.get("rejected", 0)) == config.requests_per_profile
-                and set(item.get("rejection_statuses", [])) <= {413, 422}
-                and bool(item.get("rejection_statuses"))
+                and int(item.get("expired", -1)) == 0
+                and int(item.get("transport_failed", -1)) == 0
+                and int(item.get("pre_admission_rejection_count", -1))
+                == config.requests_per_profile
+                and int(item.get("oom_count", -1)) == 0
+                and item.get("rejection_statuses") == [422]
+                and item.get("trace_complete") is True
                 for item in over_limit
             )
         )
@@ -396,7 +413,9 @@ def analyze_s7_profiles(
         ),
     }
     acceptance = {
-        "S7-AC-01": bool(matrix_complete and schema_valid and quality_valid),
+        "S7-AC-01": bool(
+            matrix_complete and schema_valid and quality_valid and outcomes_valid
+        ),
         "S7-AC-02": bool(
             matrix_complete
             and selected_safe
@@ -421,6 +440,7 @@ def analyze_s7_profiles(
             "trace_complete": traces_complete,
             "prometheus_complete": prometheus_complete,
             "bounded_over_limit_rejection": rejections_valid,
+            "profile_outcome_invariants": outcomes_valid,
             "fairness_and_hol": fairness_valid,
         },
     }

@@ -84,6 +84,11 @@ RECLOSURE_CLAIM_SUFFIX = (
     " ScienceQA-derived VLM evidence is restricted to non-commercial portfolio "
     "and research use under CC-BY-NC-SA-4.0."
 )
+OVER_LIMIT_REASON = {
+    "image": "image_pixels_exceeded",
+    "vlm": "output_tokens_exceeded",
+    "llm": "input_tokens_exceeded",
+}
 
 
 class S7EvidenceValidationError(RuntimeError):
@@ -186,16 +191,47 @@ def project_profile(
     known_outcomes = len(completed) + len(rejected) + len(expired) + len(transport)
     if known_outcomes != len(requests):
         errors.append(f"{prefix}:unknown_request_outcome")
+    is_over_limit = profile_id.endswith("over-limit")
+    if is_over_limit:
+        expected_reason = OVER_LIMIT_REASON[family]
+        intentional_rejected = [
+            item
+            for item in rejected
+            if int(item.get("status_code", 0)) == 422
+            and dict(item.get("response", {})).get("detail") == expected_reason
+            and item.get("oom") is False
+        ]
+        if (
+            len(intentional_rejected) != len(requests)
+            or completed
+            or expired
+            or transport
+            or any(item.get("oom") is not False for item in requests)
+        ):
+            errors.append(f"{prefix}:over_limit_outcome_invariant")
+    else:
+        intentional_rejected = []
+        if (
+            len(completed) != len(requests)
+            or rejected
+            or expired
+            or transport
+            or any(
+                int(item.get("status_code", 0)) != 200
+                or item.get("oom") is not False
+                for item in requests
+            )
+        ):
+            errors.append(f"{prefix}:admitted_outcome_invariant")
     for item in completed:
         observed_long = _scheduling_units(family, item) >= config.long_request_cost_units[family]
         if observed_long != (item.get("request_class") == "long"):
             errors.append(f"{prefix}:request_class_cost_mismatch")
-    trace_complete = bool(completed) and all(
-        item.get("trace_id_sent") and item.get("trace_id_sent") == item.get("trace_id_observed")
-        for item in completed
+    trace_complete = bool(requests) and all(
+        item.get("trace_id_sent")
+        and item.get("trace_id_sent") == item.get("trace_id_observed")
+        for item in requests
     )
-    if profile_id.endswith("over-limit"):
-        trace_complete = True
     final_admission = dict(payload.get("final_admission", {}))
     drained = (
         int(final_admission.get("active_requests", -1)) == 0
@@ -270,7 +306,7 @@ def project_profile(
         "long_completed": len(long_completed),
         "maximum_short_bypass": maximum_short_bypass,
         "long_request_max_wait_seconds": max(long_waits, default=0.0),
-        "pre_admission_rejection_count": len(rejected),
+        "pre_admission_rejection_count": len(intentional_rejected),
         "admitted_starvation_count": admitted_starvation_count,
         "long_request_noncompletion_count": long_request_noncompletion_count,
         "oom_count": sum(1 for item in requests if item.get("oom") is True),
@@ -420,6 +456,7 @@ def validate_s7_closure(
     runtime_smoke: Mapping[str, Any],
     runtime_smoke_sha256: str,
     runtime_smoke_private_root: Path,
+    data_root: Path,
     regression_evidence: Mapping[str, Any],
     regression_evidence_sha256: str,
     regression_root: Path,
@@ -468,6 +505,7 @@ def validate_s7_closure(
         runtime_smoke,
         config=config,
         private_root=runtime_smoke_private_root,
+        data_root=data_root,
         git_root=git_root,
         validation_revision=validation_revision,
     )
@@ -620,13 +658,18 @@ def validate_s7_runtime_smoke(
     *,
     config: S7RuntimeConfig,
     private_root: Path,
+    data_root: Path,
     git_root: Path | None = None,
     validation_revision: str = "HEAD",
 ) -> dict[str, Any]:
     errors: list[str] = []
     if payload.get("schema_version") != "evm.s7_current_revision_cuda_smoke.v2":
         errors.append("smoke_schema_version")
-    if payload.get("status") != "verified" or payload.get("verdict") != "passed":
+    if (
+        payload.get("status") != "verified"
+        or payload.get("verdict") != "passed"
+        or payload.get("acceptance_credit") is not False
+    ):
         errors.append("smoke_verdict")
     source = dict(payload.get("source_identity", {}))
     revision = str(source.get("revision") or "")
@@ -653,7 +696,10 @@ def validate_s7_runtime_smoke(
     documents = dict(private.get("documents", {}))
     preflight = dict(documents.get("preflight.json", {}))
     runtime_overrides = _validate_runtime_asset_overrides(
-        source.get("runtime_asset_overrides"), errors
+        source.get("runtime_asset_overrides"),
+        errors,
+        config=config,
+        data_root=data_root,
     )
     if _canonical(preflight.get("runtime_asset_overrides", {})) != _canonical(
         runtime_overrides
@@ -745,6 +791,35 @@ def validate_s7_runtime_smoke(
     }
     if _canonical(runtime) != _canonical(expected_runtime):
         errors.append("smoke_runtime_projection")
+    if any(
+        int(item.get("request_count", -1)) != config.requests_per_profile
+        or int(item.get("completed", -1)) != config.requests_per_profile
+        or int(item.get("rejected", -1)) != 0
+        or int(item.get("expired", -1)) != 0
+        or int(item.get("transport_failed", -1)) != 0
+        or int(item.get("pre_admission_rejection_count", -1)) != 0
+        or int(item.get("oom_count", -1)) != 0
+        or int(item.get("admitted_starvation_count", -1)) != 0
+        or item.get("trace_complete") is not True
+        or item.get("prometheus_up") is not True
+        or item.get("drained") is not True
+        or item.get("lease_identity_exact") is not True
+        or item.get("cleanup_passed") is not True
+        for item in projected
+    ):
+        errors.append("smoke_success_invariants")
+    if expected_runtime != {
+        "transport": "external_http",
+        "submitted_requests": 18,
+        "completed_requests": 18,
+        "rejected_requests": 0,
+        "transport_failures": 0,
+        "actual_cuda": True,
+        "trace_identity_complete": True,
+        "oom_count": 0,
+        "admitted_starvation_count": 0,
+    }:
+        errors.append("smoke_runtime_success_invariants")
     if (
         ready_projection.get("llm", {}).get("quantization_observed") != "int4_nf4"
         or ready_projection.get("llm", {}).get("loaded_in_4bit") is not True
@@ -836,6 +911,13 @@ def validate_s7_regression_evidence(
             or _file_sha256(target) != item.get("log_sha256")
         ):
             errors.append(f"regression_log_identity:{suite_id}")
+        elif not _regression_log_matches_counts(
+            target,
+            suite_id=suite_id,
+            tests_passed=int(item.get("tests_passed", -1)),
+            tests_skipped=int(item.get("tests_skipped", -1)),
+        ):
+            errors.append(f"regression_log_counts:{suite_id}")
         if suite_id not in {"changed_file_lint", "frontend_production_build"} and int(
             item.get("tests_passed", 0)
         ) <= 0:
@@ -845,6 +927,28 @@ def validate_s7_regression_evidence(
             "s7_regression_invalid:" + ",".join(sorted(set(errors)))
         )
     return {"status": "valid", "revision": revision, "suite_count": len(suites)}
+
+
+def _regression_log_matches_counts(
+    path: Path, *, suite_id: str, tests_passed: int, tests_skipped: int
+) -> bool:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if suite_id == "changed_file_lint":
+        return (
+            tests_passed == 0
+            and tests_skipped == 0
+            and "All checks passed!" in text
+        )
+    if suite_id == "frontend_production_build":
+        return tests_passed == 0 and tests_skipped == 0 and "built in" in text
+    pytest_matches = re.findall(
+        r"(?m)^(\d+) passed(?:, (\d+) skipped)?(?:, \d+ warnings?)? in ", text
+    )
+    passed = sum(int(item[0]) for item in pytest_matches)
+    skipped = sum(int(item[1] or 0) for item in pytest_matches)
+    vitest_matches = re.findall(r"(?m)^\s*Tests\s+(\d+) passed", text)
+    passed += sum(int(item) for item in vitest_matches)
+    return passed == tests_passed and skipped == tests_skipped
 
 
 def _preflight_asset_projection(config: S7RuntimeConfig) -> dict[str, Any]:
@@ -866,9 +970,16 @@ def _preflight_asset_projection(config: S7RuntimeConfig) -> dict[str, Any]:
 
 
 def _validate_runtime_asset_overrides(
-    value: Any, errors: list[str]
+    value: Any,
+    errors: list[str],
+    *,
+    config: S7RuntimeConfig,
+    data_root: Path,
 ) -> dict[str, dict[str, Any]]:
     overrides = dict(value) if isinstance(value, Mapping) else {}
+    raw_assets = dict(
+        tomllib.loads(config.path.read_text(encoding="utf-8")).get("assets", {})
+    )
     if set(overrides) - {"image"}:
         errors.append("smoke_runtime_asset_override_scope")
     for family, raw in overrides.items():
@@ -892,6 +1003,29 @@ def _validate_runtime_asset_overrides(
             == item.get("observed_manifest_sha256")
         ):
             errors.append("smoke_runtime_asset_override_identity")
+    for family in ("image", "vlm", "llm"):
+        raw_asset = dict(raw_assets.get(family, {}))
+        manifest = data_root / str(raw_asset.get("manifest") or "")
+        if not manifest.is_file():
+            errors.append(f"smoke_runtime_manifest_missing:{family}")
+            continue
+        observed_sha = _file_sha256(manifest)
+        override = dict(overrides.get(family, {}))
+        expected_sha = (
+            override.get("observed_manifest_sha256")
+            if override
+            else raw_asset.get("manifest_sha256")
+        )
+        if observed_sha != expected_sha:
+            errors.append(f"smoke_runtime_manifest_sha256:{family}")
+        if override:
+            record_count = sum(
+                1
+                for line in manifest.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            )
+            if int(override.get("record_count", -1)) != record_count:
+                errors.append(f"smoke_runtime_manifest_records:{family}")
     return {family: dict(raw) for family, raw in overrides.items()}
 
 

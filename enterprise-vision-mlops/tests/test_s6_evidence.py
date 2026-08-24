@@ -47,13 +47,16 @@ def _api_raw(repetition: int) -> dict[str, object]:
     observations = []
     for index, latency in enumerate((100.0, 110.0)):
         identity = f"r{repetition}-request-{index}"
+        trace_id = f"{repetition * 100 + index:032x}"
         observations.append(
             {
                 "logical_request_id": identity,
                 "success": True,
                 "logical_latency_ms": latency,
                 "trace_identity_matches": True,
-                "attempts": [{"status": 200}],
+                "trace_id": trace_id,
+                "sampled": index == 0,
+                "attempts": [{"status": 200, "trace_header": trace_id}],
             }
         )
     database = {
@@ -66,11 +69,15 @@ def _api_raw(repetition: int) -> dict[str, object]:
                 "instance_id": "pod-a",
                 "drain_completed": True,
                 "drain_elapsed_seconds": 0.1,
+                "started_at": "2026-08-24T00:00:00Z",
+                "completed_at": "2026-08-24T00:00:00.100000Z",
             },
             {
                 "instance_id": "pod-b",
                 "drain_completed": True,
                 "drain_elapsed_seconds": 0.2,
+                "started_at": "2026-08-24T00:00:01Z",
+                "completed_at": "2026-08-24T00:00:01.200000Z",
             },
         ],
         "expected_drain_instance_ids": ["pod-a", "pod-b"],
@@ -99,7 +106,14 @@ def _api_raw(repetition: int) -> dict[str, object]:
         "trace_expected": 1,
         "trace_observed": 1,
         "trace_complete": True,
-        "trace_summary": {"expected": 1, "observed": 1, "complete": True},
+        "trace_summary": {
+            "expected": 1,
+            "observed": 1,
+            "missing": 0,
+            "complete": True,
+            "raw_tail_bytes": 100,
+            "raw_tail_sha256": "f" * 64,
+        },
         "drain_event_count": 2,
         "maximum_drain_seconds": 0.2,
         "rollout_seconds": 8.0,
@@ -115,7 +129,11 @@ def _api_raw(repetition: int) -> dict[str, object]:
 
 def _gpu_raw(repetition: int, phase: str) -> dict[str, object]:
     samples = [
-        {"device": "cuda", "http_elapsed_ms": float(index + 1)}
+        {
+            "device": "cuda",
+            "http_elapsed_ms": float(index + 1),
+            "observed_monotonic": float(110 + index),
+        }
         for index in range(30)
     ]
     return {
@@ -144,8 +162,8 @@ def _gpu_raw(repetition: int, phase: str) -> dict[str, object]:
         "rollback_exact": True,
         "source_identity_before": "a" * 64,
         "source_identity_after": "a" * 64,
-        "source_to_target_interruption_seconds": 8.0,
-        "target_to_source_interruption_seconds": 7.0,
+        "source_to_target_interruption_seconds": 10.0,
+        "target_to_source_interruption_seconds": 11.0,
         "target_p50_ms": 15.5,
         "target_p95_ms": 28.55,
         "target_p99_ms": 29.71,
@@ -154,7 +172,8 @@ def _gpu_raw(repetition: int, phase: str) -> dict[str, object]:
         "source_cuda_inference_restored": True,
         "prometheus_restored": True,
         "prometheus_health": "up",
-        "source_prediction_after": {"device": "cuda"},
+        "source_prediction_before": {"device": "cuda", "observed_monotonic": 100.0},
+        "source_prediction_after": {"device": "cuda", "observed_monotonic": 150.0},
         "target_ready": {
             "candidate_id": "candidate",
             "model_sha256": "b" * 64,
@@ -270,6 +289,17 @@ def test_s6_api_projection_fails_closed_on_trace_or_drain_identity_mutation(
     assert any(expected in error for error in errors)
 
 
+def test_s6_api_projection_rejects_raw_trace_header_mismatch() -> None:
+    payload = _api_raw(1)
+    payload["observations"][0]["attempts"][0]["trace_header"] = "0" * 32
+    errors: list[str] = []
+
+    project_api_result(payload, errors=errors)
+
+    assert any("trace_identity_matches" in error for error in errors)
+    assert any("trace_observed" in error or "trace_complete" in error for error in errors)
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected"),
     [
@@ -297,6 +327,20 @@ def test_s6_gpu_projection_fails_closed_on_handoff_identity_mutation(
     project_gpu_result(payload, errors=errors, prefix="gpu")
 
     assert any(expected in error for error in errors)
+
+
+def test_s6_gpu_projection_rejects_summary_interruption_mismatch() -> None:
+    payload = _gpu_raw(1, "acceptance")
+    payload["source_to_target_interruption_seconds"] = 1.0
+    payload["target_to_source_interruption_seconds"] = 1.0
+    errors: list[str] = []
+
+    projected = project_gpu_result(payload, errors=errors, prefix="gpu")
+
+    assert any("source_to_target_interruption_seconds" in error for error in errors)
+    assert any("target_to_source_interruption_seconds" in error for error in errors)
+    assert projected["source_to_target_interruption_seconds"] == 10.0
+    assert projected["target_to_source_interruption_seconds"] == 11.0
 
 
 def _closure(payload: dict[str, object], config: S6RuntimeConfig) -> dict[str, object]:

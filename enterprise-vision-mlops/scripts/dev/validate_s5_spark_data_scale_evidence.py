@@ -47,6 +47,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT / "docs/status/evidence/s5-current-revision-runtime-smoke.json",
     )
+    parser.add_argument("--runtime-smoke-private-root", type=Path)
     parser.add_argument(
         "--regression-evidence",
         type=Path,
@@ -108,6 +109,12 @@ def main() -> int:
         ):
             if b"\r\n" in supporting_raw or not supporting_raw.endswith(b"\n"):
                 raise S5EvidenceValidationError(f"{label}_not_canonical_lf")
+        smoke_payload = json.loads(smoke_raw)
+        runtime_smoke_private_root = args.runtime_smoke_private_root or (
+            args.data_root
+            / "artifacts/scale_validation/private/s5"
+            / str(smoke_payload.get("suite_id") or "")
+        )
         result["closure"] = validate_s5_spark_data_scale_closure(
             json.loads(closure_raw),
             experiment=payload,
@@ -116,8 +123,9 @@ def main() -> int:
             git_root=git_root,
             validation_revision=args.git_revision or "HEAD",
             private_root=private_root,
-            runtime_smoke=json.loads(smoke_raw),
+            runtime_smoke=smoke_payload,
             runtime_smoke_sha256=hashlib.sha256(smoke_raw).hexdigest(),
+            runtime_smoke_private_root=runtime_smoke_private_root,
             regression_evidence=json.loads(regression_raw),
             regression_evidence_sha256=hashlib.sha256(regression_raw).hexdigest(),
             regression_root=args.regression_root,

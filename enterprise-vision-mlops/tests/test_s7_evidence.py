@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,7 @@ from evm.scale_validation.s7_evidence import (
     profile_projection_by_identity,
     project_profile,
     token_f1,
+    validate_s7_runtime_smoke,
 )
 from evm.scale_validation.s7_runtime import S7RuntimeConfig
 
@@ -96,9 +99,8 @@ def test_over_limit_rejection_is_not_admitted_starvation() -> None:
     for item in payload["requests"]:
         item["request_class"] = "long"
         item["outcome"] = "rejected"
-        item["status_code"] = 413
-        item["response"] = {}
-        item.pop("trace_id_observed")
+        item["status_code"] = 422
+        item["response"] = {"detail": "image_pixels_exceeded"}
     errors: list[str] = []
 
     projected = project_profile(payload, config=config(), errors=errors)
@@ -107,6 +109,71 @@ def test_over_limit_rejection_is_not_admitted_starvation() -> None:
     assert projected["pre_admission_rejection_count"] == 6
     assert projected["admitted_starvation_count"] == 0
     assert projected["long_request_noncompletion_count"] == 6
+
+
+def test_project_profile_rejects_admitted_profile_partial_rejection() -> None:
+    payload = image_profile()
+    request = payload["requests"][0]
+    request["outcome"] = "rejected"
+    request["status_code"] = 422
+    request["response"] = {"detail": "image_pixels_exceeded"}
+    errors: list[str] = []
+
+    project_profile(payload, config=config(), errors=errors)
+
+    assert any("admitted_outcome_invariant" in error for error in errors)
+
+
+def test_project_profile_rejects_over_limit_oom_or_wrong_reason() -> None:
+    payload = image_profile()
+    payload["profile_id"] = "image-over-limit"
+    for item in payload["requests"]:
+        item["request_class"] = "long"
+        item["outcome"] = "rejected"
+        item["status_code"] = 422
+        item["response"] = {"detail": "image_pixels_exceeded"}
+    payload["requests"][0]["oom"] = True
+    payload["requests"][1]["response"]["detail"] = "generic_rejection"
+    errors: list[str] = []
+
+    projected = project_profile(payload, config=config(), errors=errors)
+
+    assert any("over_limit_outcome_invariant" in error for error in errors)
+    assert projected["pre_admission_rejection_count"] == 4
+    assert projected["oom_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda profiles: next(
+            item
+            for item in profiles
+            if item["profile_id"] == "image-small" and item["repetition"] == 1
+        ).update({"completed": 5, "rejected": 1, "pre_admission_rejection_count": 1}),
+        lambda profiles: next(
+            item
+            for item in profiles
+            if item["profile_id"] == "image-over-limit"
+            and item["repetition"] == 1
+        ).update({"oom_count": 1}),
+    ],
+)
+def test_s7_analysis_rejects_outcome_summary_mutations(mutation) -> None:
+    from evm.scale_validation.s7_runtime import analyze_s7_profiles
+
+    public = json.loads(
+        (ROOT / "docs/status/evidence/s7-auxiliary-admission-reprojection.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    profiles = copy.deepcopy(public["profiles"])
+    mutation(profiles)
+
+    analysis = analyze_s7_profiles(profiles, config())
+
+    assert analysis["runtime_verdict"] == "failed"
+    assert not all(analysis["acceptance"].values())
 
 
 def test_project_profile_fails_closed_on_image_token_metric() -> None:
@@ -220,3 +287,68 @@ def test_asset_contract_binds_scienceqa_noncommercial_license() -> None:
     assert projected["vlm"]["dataset"]["license_id"] == "CC-BY-NC-SA-4.0"
     assert projected["vlm"]["noncommercial_restriction"] is True
     assert projected["llm"]["dataset"]["license_id"] == "CC-BY-SA-3.0"
+
+
+def test_current_s7_smoke_recomputes_raw_success_and_manifest_identity() -> None:
+    smoke = json.loads(
+        (ROOT / "docs/status/evidence/s7-current-revision-cuda-smoke.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    private_root = (
+        Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/")
+        / "scale_validation/private/s7"
+        / smoke["suite_id"]
+    )
+    result = validate_s7_runtime_smoke(
+        smoke,
+        config=config(),
+        private_root=private_root,
+        data_root=Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops"),
+    )
+
+    assert result["status"] == "valid"
+    assert result["families"] == 3
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        (
+            lambda value: value.__setitem__("acceptance_credit", True),
+            "smoke_verdict",
+        ),
+        (
+            lambda value: value["profiles"][0].__setitem__("completed", 5),
+            "smoke_profile_projection",
+        ),
+        (
+            lambda value: value["source_identity"]["runtime_asset_overrides"][
+                "image"
+            ].__setitem__("observed_manifest_sha256", "0" * 64),
+            "smoke_runtime_manifest_sha256:image",
+        ),
+    ],
+)
+def test_current_s7_smoke_fails_closed_on_summary_or_manifest_mutation(
+    mutation, expected: str
+) -> None:
+    smoke = json.loads(
+        (ROOT / "docs/status/evidence/s7-current-revision-cuda-smoke.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    private_root = (
+        Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/")
+        / "scale_validation/private/s7"
+        / smoke["suite_id"]
+    )
+    mutation(smoke)
+
+    with pytest.raises(S7EvidenceValidationError, match=expected):
+        validate_s7_runtime_smoke(
+            smoke,
+            config=config(),
+            private_root=private_root,
+            data_root=Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops"),
+        )
