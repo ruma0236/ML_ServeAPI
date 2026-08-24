@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T08:49:58Z`
+- Generated: `2026-08-24T09:41:54Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -739,7 +739,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.
 - Verdict: `not_run`
 - Claim boundary: Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.
-- Next action: Restart all 21 fault repetitions from the clean v6 revision; begin the 30-minute x3 soak only after the aggregate fault gate passes.
+- Next action: Record bounded resource-sampling misses, stop after repeated metrics unavailability, validate the remediation with a non-credit load, then restart the complete 21-fault plus three-soak acceptance suite.
 
 ### Affected Existing Components
 
@@ -795,6 +795,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s8-timeout-v5-preflight.json` (`85c953c0089a39a0ed972b5bb4434a6036187d8be8167f1dd24086ebe2371c8d`): Zero-credit v5 timeout preflight passed 6/6 terminal and trace closure, exact effect accounting, mirror parity, 51.484-second recovery, and cleanup; no S8 acceptance repetition is credited.
 - `docs/status/evidence/s8-dependency-soak-attempt-04.json` (`2144d670bda5f6d03db76d1f9ef4fdbecea6a77e79d3164eb4c5b0bb70c6803b`): Rejected MTTR-projection attempt: all 21 fault scopes passed, but aggregate admission failed because worker-loss MTTR incorrectly included a sequential timeout/HOL phase and reached 63.234 seconds; cleanup passed, soak did not start, and no acceptance credit was awarded.
 - `docs/status/evidence/s8-worker-mttr-v6-preflight.json` (`e73103e923f7ae7372d798dad9f397ba096109be81e437f5636ca51760314b70`): Zero-credit v6 worker-loss preflight separated 11.954-second exact worker MTTR from 62.234-second full profile elapsed, with 3/3 terminal and trace closure, duplicate effects zero, and cleanup complete.
+- `docs/status/evidence/s8-dependency-soak-attempt-05.json` (`e484326df4e5c52df9a91eccf9605f6e8a70bcf8aab61f97672351ebe02729c2`): Rejected resource-sampling attempt: all 21 fault scopes passed and the first 30-minute soak measurement ran, but a transient one-second metrics read timeout terminated the sampler and invalidated the point; cleanup passed and no acceptance credit was awarded.
 
 ### Chronological Updates
 
@@ -811,3 +812,4 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-24T08:44:17Z` `implementation` / `implementing`: V6 preserves full worker-loss profile elapsed time but defines operational worker MTTR as exact PID failure to the reclaimed slow task terminal outcome. The 60-second bound remains unchanged.
 - `2026-08-24T08:45:26Z` `implementation` / `implementing`: V6 preserves full worker-loss profile elapsed time but defines operational worker MTTR as exact PID failure to the reclaimed slow task terminal outcome. The 60-second bound remains unchanged.
 - `2026-08-24T08:49:58Z` `verification` / `implementing`: The zero-credit v6 worker-loss preflight passed with exact worker MTTR 11.954 seconds versus full profile elapsed 62.234 seconds, 3/3 terminal and trace closure, and complete cleanup.
+- `2026-08-24T09:41:54Z` `experiment` / `implementing`: Attempt 05 was rejected with zero acceptance credit. All 21 individual fault scopes passed and soak repetition 1 ran its measurement window, but a transient /metrics read timeout killed the resource sampler; the point was invalidated after cleanup instead of receiving partial credit.

@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T08:49:58Z",
+  "generated_at": "2026-08-24T09:41:54Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -4098,6 +4098,12 @@
           "sha256": "e73103e923f7ae7372d798dad9f397ba096109be81e437f5636ca51760314b70",
           "generated_at": "2026-08-24T08:48:43Z",
           "claim": "Zero-credit v6 worker-loss preflight separated 11.954-second exact worker MTTR from 62.234-second full profile elapsed, with 3/3 terminal and trace closure, duplicate effects zero, and cleanup complete."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-attempt-05.json",
+          "sha256": "e484326df4e5c52df9a91eccf9605f6e8a70bcf8aab61f97672351ebe02729c2",
+          "generated_at": "2026-08-24T09:37:48.685889Z",
+          "claim": "Rejected resource-sampling attempt: all 21 fault scopes passed and the first 30-minute soak measurement ran, but a transient one-second metrics read timeout terminated the sampler and invalidated the point; cleanup passed and no acceptance credit was awarded."
         }
       ],
       "status": "implementing",
@@ -4108,7 +4114,7 @@
         "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
         "One final evidence index re-hashes every accepted result."
       ],
-      "next_action": "Restart all 21 fault repetitions from the clean v6 revision; begin the 30-minute x3 soak only after the aggregate fault gate passes.",
+      "next_action": "Record bounded resource-sampling misses, stop after repeated metrics unavailability, validate the remediation with a non-credit load, then restart the complete 21-fault plus three-soak acceptance suite.",
       "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
       "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.",
       "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
@@ -4261,6 +4267,12 @@
           "sha256": "e73103e923f7ae7372d798dad9f397ba096109be81e437f5636ca51760314b70",
           "generated_at": "2026-08-24T08:48:43Z",
           "claim": "Zero-credit v6 worker-loss preflight separated 11.954-second exact worker MTTR from 62.234-second full profile elapsed, with 3/3 terminal and trace closure, duplicate effects zero, and cleanup complete."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-attempt-05.json",
+          "sha256": "e484326df4e5c52df9a91eccf9605f6e8a70bcf8aab61f97672351ebe02729c2",
+          "generated_at": "2026-08-24T09:37:48.685889Z",
+          "claim": "Rejected resource-sampling attempt: all 21 fault scopes passed and the first 30-minute soak measurement ran, but a transient one-second metrics read timeout terminated the sampler and invalidated the point; cleanup passed and no acceptance credit was awarded."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -4390,6 +4402,16 @@
           "summary": "The zero-credit v6 worker-loss preflight passed with exact worker MTTR 11.954 seconds versus full profile elapsed 62.234 seconds, 3/3 terminal and trace closure, and complete cleanup.",
           "evidence_refs": [
             "docs/status/evidence/s8-worker-mttr-v6-preflight.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T09:41:54Z",
+          "phase": "experiment",
+          "status": "implementing",
+          "summary": "Attempt 05 was rejected with zero acceptance credit. All 21 individual fault scopes passed and soak repetition 1 ran its measurement window, but a transient /metrics read timeout killed the resource sampler; the point was invalidated after cleanup instead of receiving partial credit.",
+          "evidence_refs": [
+            "docs/status/evidence/s8-dependency-soak-attempt-05.json",
+            "docs/status/2026-08-24-s8-attempt-05-rca.md"
           ]
         }
       ]

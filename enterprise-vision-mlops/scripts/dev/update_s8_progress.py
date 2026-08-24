@@ -154,8 +154,8 @@ def main() -> int:
 
 def record_failed_attempt(args: argparse.Namespace) -> int:
     now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    if args.attempt not in {1, 2, 3, 4}:
-        raise SystemExit("only retained S8 failed attempts 1 through 4 are supported")
+    if args.attempt not in {1, 2, 3, 4, 5}:
+        raise SystemExit("only retained S8 failed attempts 1 through 5 are supported")
     evidence_path = ROOT / f"docs/status/evidence/s8-dependency-soak-attempt-{args.attempt:02d}.json"
     evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
     digest = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
@@ -188,6 +188,12 @@ def record_failed_attempt(args: argparse.Namespace) -> int:
             "included a sequential timeout/HOL phase and reached 63.234 seconds; "
             "cleanup passed, soak did not start, and no acceptance credit was awarded."
         ),
+        5: (
+            "Rejected resource-sampling attempt: all 21 fault scopes passed and the "
+            "first 30-minute soak measurement ran, but a transient one-second metrics "
+            "read timeout terminated the sampler and invalidated the point; cleanup "
+            "passed and no acceptance credit was awarded."
+        ),
     }
     claim = claims[args.attempt]
     artifact = {
@@ -207,8 +213,16 @@ def record_failed_attempt(args: argparse.Namespace) -> int:
     scenario["status"] = "implementing"
     scenario["verdict_and_claim_boundary"]["verdict"] = "not_run"
     scenario["next_action"] = (
-        "Rerun the complete 21-repetition fault matrix from the v6 profile-specific "
-        "MTTR revision; begin soak only after every fresh fault repetition passes."
+        (
+            "Record bounded resource-sampling misses, stop after repeated metrics "
+            "unavailability, validate the remediation with a non-credit load, then "
+            "restart the complete 21-fault plus three-soak acceptance suite."
+        )
+        if args.attempt == 5
+        else (
+            "Rerun the complete 21-repetition fault matrix from the v6 profile-specific "
+            "MTTR revision; begin soak only after every fresh fault repetition passes."
+        )
     )
     scenario["chronological_updates"].append(
         {
@@ -236,6 +250,12 @@ def record_failed_attempt(args: argparse.Namespace) -> int:
                         "All 21 individual fault scopes passed, but worker-loss MTTR "
                         "included a sequential timeout/HOL phase and exceeded 60 seconds; "
                         "cleanup completed and soak did not start."
+                    ),
+                    5: (
+                        "All 21 individual fault scopes passed and soak repetition 1 "
+                        "ran its measurement window, but a transient /metrics read "
+                        "timeout killed the resource sampler; the point was invalidated "
+                        "after cleanup instead of receiving partial credit."
                     ),
                 }[args.attempt]
             ),
