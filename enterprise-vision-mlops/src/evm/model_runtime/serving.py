@@ -81,6 +81,12 @@ class ScenarioModelService:
         self.lock = threading.Lock()
         self.processor: Any = None
         self.model: Any = None
+        self.quantization_runtime: dict[str, Any] = {
+            "requested": config.quantization,
+            "observed": "none",
+            "loaded_in_4bit": False,
+            "linear_4bit_module_count": 0,
+        }
         self.registry = CollectorRegistry()
         self.admission = FamilyAdmissionController(
             FamilyAdmissionLimits.from_path(config.model_family, config.admission_config_path),
@@ -152,6 +158,20 @@ class ScenarioModelService:
                     quantization_config=quantization_config,
                     device_map={"": 0},
                 )
+                linear_4bit_modules = sum(
+                    1
+                    for module in base.modules()
+                    if module.__class__.__name__ == "Linear4bit"
+                )
+                loaded_in_4bit = getattr(base, "is_loaded_in_4bit", False) is True
+                if not loaded_in_4bit or linear_4bit_modules < 1:
+                    raise ModelRuntimeError("serving_int4_runtime_not_observed")
+                self.quantization_runtime = {
+                    "requested": self.config.quantization,
+                    "observed": "int4_nf4",
+                    "loaded_in_4bit": True,
+                    "linear_4bit_module_count": linear_4bit_modules,
+                }
             else:
                 base = AutoModelForCausalLM.from_pretrained(
                     self.config.base_model_dir,
@@ -175,6 +195,7 @@ class ScenarioModelService:
             "runtime_source_commit": runtime_source_commit,
             "lifecycle_run_id": self.config.lifecycle_run_id,
             "quantization": self.config.quantization,
+            "quantization_runtime": self.quantization_runtime,
             "environment": self.config.environment,
             "runtime": self.runtime,
             "gpu": nvidia_smi_snapshot(),

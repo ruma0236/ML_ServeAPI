@@ -6,6 +6,8 @@ import pytest
 
 from evm.scale_validation.s7_evidence import (
     S7EvidenceValidationError,
+    _ready_identity_projection,
+    asset_contract_projection,
     profile_projection_by_identity,
     project_profile,
     token_f1,
@@ -88,6 +90,25 @@ def test_project_profile_recomputes_quality_latency_and_trace() -> None:
     assert "generation" not in projected
 
 
+def test_over_limit_rejection_is_not_admitted_starvation() -> None:
+    payload = image_profile()
+    payload["profile_id"] = "image-over-limit"
+    for item in payload["requests"]:
+        item["request_class"] = "long"
+        item["outcome"] = "rejected"
+        item["status_code"] = 413
+        item["response"] = {}
+        item.pop("trace_id_observed")
+    errors: list[str] = []
+
+    projected = project_profile(payload, config=config(), errors=errors)
+
+    assert errors == []
+    assert projected["pre_admission_rejection_count"] == 6
+    assert projected["admitted_starvation_count"] == 0
+    assert projected["long_request_noncompletion_count"] == 6
+
+
 def test_project_profile_fails_closed_on_image_token_metric() -> None:
     payload = image_profile()
     payload["requests"][0]["response"]["operational_metrics"]["input_tokens"] = 4
@@ -150,3 +171,52 @@ def test_profile_projection_identity_rejects_duplicate_repetition() -> None:
     profile_projection_by_identity(duplicate, errors=errors, label="public")
 
     assert errors == ["public_profile_duplicate:image-small:r01"]
+
+
+def test_llm_ready_projection_requires_observed_4bit_runtime() -> None:
+    asset = {
+        "model_repository": "repository",
+        "model_revision": "revision",
+        "adapter_sha256": "a" * 64,
+        "data_identity_sha256": "b" * 64,
+        "model_source_commit": "c" * 40,
+        "quantization": "int4_nf4",
+    }
+    ready = {
+        "status": "ready",
+        "model_family": "llm",
+        "model_repository": "repository",
+        "model_revision": "revision",
+        "model_artifact_sha256": "a" * 64,
+        "data_identity_sha256": "b" * 64,
+        "model_source_commit": "c" * 40,
+        "runtime_source_commit": "d" * 40,
+        "quantization": "int4_nf4",
+        "quantization_runtime": {
+            "requested": "int4_nf4",
+            "observed": "int4_nf4",
+            "loaded_in_4bit": True,
+            "linear_4bit_module_count": 12,
+        },
+        "runtime": {"cuda_available": True, "torch": "2", "cuda": "12"},
+    }
+
+    projected = _ready_identity_projection("llm", ready, asset, "d" * 40)
+    assert projected["loaded_in_4bit"] is True
+
+    ready["quantization_runtime"]["loaded_in_4bit"] = False
+    with pytest.raises(ValueError, match="4bit"):
+        _ready_identity_projection("llm", ready, asset, "d" * 40)
+
+
+def test_asset_contract_binds_scienceqa_noncommercial_license() -> None:
+    projected = asset_contract_projection(
+        config=config(),
+        git_root=None,
+        revision="a" * 40,
+    )
+
+    assert projected["image"]["dataset"]["license_id"] == "CC-BY-4.0"
+    assert projected["vlm"]["dataset"]["license_id"] == "CC-BY-NC-SA-4.0"
+    assert projected["vlm"]["noncommercial_restriction"] is True
+    assert projected["llm"]["dataset"]["license_id"] == "CC-BY-SA-3.0"

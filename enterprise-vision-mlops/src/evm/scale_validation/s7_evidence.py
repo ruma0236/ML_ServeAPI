@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -34,14 +35,56 @@ SOURCE_PATHS = {
     "image_serving": ("enterprise-vision-mlops/apps/api/efficientnet_serving.py"),
     "gpu_lease": ("enterprise-vision-mlops/src/evm/control_panel/scenario_workloads.py"),
     "prometheus": ("enterprise-vision-mlops/monitoring/prometheus/prometheus.yml"),
+    "image_dataset_contract": (
+        "enterprise-vision-mlops/configs/scenarios/manufacturing-visual-inspection.json"
+    ),
+    "vlm_dataset_contract": (
+        "enterprise-vision-mlops/configs/scenarios/scienceqa-vlm-evaluation.json"
+    ),
+    "llm_dataset_contract": (
+        "enterprise-vision-mlops/configs/scenarios/dolly-instruction-tuning.json"
+    ),
 }
-EXPERIMENT_PATH = (
+HISTORICAL_EXPERIMENT_PATH = (
     "enterprise-vision-mlops/docs/status/evidence/s7-auxiliary-admission-experiment.json"
+)
+EXPERIMENT_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/s7-auxiliary-admission-reprojection.json"
+)
+RUNTIME_SMOKE_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/s7-current-revision-cuda-smoke.json"
 )
 CLOSURE_VALIDATOR_PATHS = {
     "validator_cli": SOURCE_PATHS["validator"],
     "validator_module": SOURCE_PATHS["evidence"],
 }
+HISTORICAL_EXPERIMENT_COMMIT = "c94c70d15b333b4047db55767ab291aadbae7edd"
+HISTORICAL_CLOSURE_COMMIT = "3ec30392bbde2313a26a43fa9bf74b757fa7ecbe"
+REGRESSION_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/"
+    "s7-reclosure-regression-evidence.json"
+)
+REQUIRED_REGRESSION_SUITES = (
+    "changed_file_lint",
+    "focused_s5_s6_s7",
+    "real_postgresql",
+    "lifecycle_host_e2e",
+    "full_python",
+    "control_panel",
+    "frontend_production_build",
+    "s0_s7_status_evidence",
+)
+SMOKE_CLAIM_BOUNDARY = (
+    "Current-revision external-HTTP CUDA identity smoke for image, VLM, and LLM "
+    "on one local physical node and one consumer GPU. ScienceQA-derived VLM "
+    "evidence is non-commercial portfolio/research evidence only. This is "
+    "regression and identity evidence, not production, SLA, HA, multi-GPU, or "
+    "broad model-quality evidence."
+)
+RECLOSURE_CLAIM_SUFFIX = (
+    " ScienceQA-derived VLM evidence is restricted to non-commercial portfolio "
+    "and research use under CC-BY-NC-SA-4.0."
+)
 
 
 class S7EvidenceValidationError(RuntimeError):
@@ -123,9 +166,12 @@ def project_profile(
         )
         for item in long_completed
     ]
-    starvation_count = sum(
+    admitted_long_requests = [
+        item for item in long_requests if item.get("outcome") != "rejected"
+    ]
+    admitted_starvation_count = sum(
         1
-        for item in long_requests
+        for item in admitted_long_requests
         if item.get("outcome") != "completed"
         or _finite(
             dict(item.get("response", {}))
@@ -135,6 +181,12 @@ def project_profile(
         )
         > config.starvation_seconds
     )
+    long_request_noncompletion_count = sum(
+        1 for item in long_requests if item.get("outcome") != "completed"
+    )
+    known_outcomes = len(completed) + len(rejected) + len(expired) + len(transport)
+    if known_outcomes != len(requests):
+        errors.append(f"{prefix}:unknown_request_outcome")
     for item in completed:
         observed_long = _scheduling_units(family, item) >= config.long_request_cost_units[family]
         if observed_long != (item.get("request_class") == "long"):
@@ -219,7 +271,9 @@ def project_profile(
         "long_completed": len(long_completed),
         "maximum_short_bypass": maximum_short_bypass,
         "long_request_max_wait_seconds": max(long_waits, default=0.0),
-        "starvation_count": starvation_count,
+        "pre_admission_rejection_count": len(rejected),
+        "admitted_starvation_count": admitted_starvation_count,
+        "long_request_noncompletion_count": long_request_noncompletion_count,
         "oom_count": sum(1 for item in requests if item.get("oom") is True),
         "peak_gpu_used_memory_bytes": peak_vram,
         "gpu_utilization_percent_max": max_gpu_util,
@@ -250,33 +304,58 @@ def validate_s7_experiment(
     validation_revision: str = "HEAD",
 ) -> dict[str, Any]:
     errors: list[str] = []
-    if payload.get("schema_version") != "evm.s7_auxiliary_admission_experiment.v1":
+    if payload.get("schema_version") != "evm.s7_auxiliary_admission_reprojection.v2":
         errors.append("schema_version")
     if payload.get("status") != "verified" or payload.get("verdict") != "passed":
         errors.append("verdict")
     source = dict(payload.get("source_identity", {}))
-    revision = str(source.get("revision") or "")
-    if not REVISION_PATTERN.fullmatch(revision):
-        errors.append("source_revision")
+    execution_revision = str(source.get("execution_revision") or "")
+    projection_revision = str(source.get("projection_revision") or "")
+    for label, revision in (
+        ("execution_revision", execution_revision),
+        ("projection_revision", projection_revision),
+    ):
+        if not REVISION_PATTERN.fullmatch(revision):
+            errors.append(label)
     if source.get("config_sha256") != config.sha256:
         errors.append("config_sha256")
-    git_identity: dict[str, Any] = {}
-    if git_root is not None and REVISION_PATTERN.fullmatch(revision):
+    execution_git_identity: dict[str, Any] = {}
+    projection_git_identity: dict[str, Any] = {}
+    if git_root is not None and all(
+        REVISION_PATTERN.fullmatch(value)
+        for value in (execution_revision, projection_revision)
+    ):
         try:
-            if subprocess.run(
-                ["git", "merge-base", "--is-ancestor", revision, validation_revision],
-                cwd=git_root,
-                check=False,
-            ).returncode:
-                errors.append("source_revision_not_ancestor")
-            git_identity = source_git_identity(git_root, revision)
-            if _canonical(source.get("git_blobs")) != _canonical(git_identity):
-                errors.append("git_blob_identity")
-            if git_identity.get("config", {}).get("sha256") != config.sha256:
+            for revision in (execution_revision, projection_revision):
+                if subprocess.run(
+                    ["git", "merge-base", "--is-ancestor", revision, validation_revision],
+                    cwd=git_root,
+                    check=False,
+                ).returncode:
+                    errors.append("source_revision_not_ancestor")
+            execution_git_identity = source_git_identity(git_root, execution_revision)
+            projection_git_identity = source_git_identity(git_root, projection_revision)
+            if _canonical(source.get("execution_git_blobs")) != _canonical(
+                execution_git_identity
+            ):
+                errors.append("execution_git_blob_identity")
+            if _canonical(source.get("projection_git_blobs")) != _canonical(
+                projection_git_identity
+            ):
+                errors.append("projection_git_blob_identity")
+            if projection_git_identity.get("config", {}).get("sha256") != config.sha256:
                 errors.append("config_git_blob_sha256")
+            historical = git_blob_identity(
+                git_root, HISTORICAL_EXPERIMENT_COMMIT, HISTORICAL_EXPERIMENT_PATH
+            )
+            if _canonical(source.get("historical_experiment")) != _canonical(historical):
+                errors.append("historical_experiment_identity")
         except (OSError, subprocess.CalledProcessError):
             errors.append("git_identity_unavailable")
     private = validate_private_evidence(private_root, errors)
+    preflight = dict(private.get("documents", {}).get("preflight.json", {}))
+    if preflight.get("source_revision") != execution_revision:
+        errors.append("private_execution_revision")
     projected = [
         project_profile(item, config=config, errors=errors) for item in private.get("profiles", [])
     ]
@@ -299,6 +378,17 @@ def validate_s7_experiment(
         errors.append("analysis_recompute_failed")
     if _canonical(payload.get("analysis")) != _canonical(analysis):
         errors.append("analysis_projection")
+    expected_assets = asset_contract_projection(
+        config=config,
+        git_root=git_root,
+        revision=projection_revision,
+    )
+    if _canonical(payload.get("asset_contracts")) != _canonical(expected_assets):
+        errors.append("asset_contract_projection")
+    if _canonical(preflight.get("assets")) != _canonical(
+        _preflight_asset_projection(config)
+    ):
+        errors.append("private_asset_identity")
     public_private = dict(payload.get("private_evidence", {}))
     expected_private = private.get("summary", {})
     for key in ("artifact_count", "total_bytes", "aggregate_sha256", "index_sha256"):
@@ -312,9 +402,11 @@ def validate_s7_experiment(
         raise S7EvidenceValidationError("s7_experiment_invalid:" + ",".join(sorted(set(errors))))
     return {
         "status": "valid",
-        "revision": revision,
-        "source_identity": git_identity,
+        "execution_revision": execution_revision,
+        "projection_revision": projection_revision,
+        "source_identity": projection_git_identity,
         "analysis": analysis,
+        "asset_contracts": expected_assets,
         "private_evidence": expected_private,
     }
 
@@ -326,11 +418,17 @@ def validate_s7_closure(
     experiment_sha256: str,
     config: S7RuntimeConfig,
     private_root: Path,
+    runtime_smoke: Mapping[str, Any],
+    runtime_smoke_sha256: str,
+    runtime_smoke_private_root: Path,
+    regression_evidence: Mapping[str, Any],
+    regression_evidence_sha256: str,
+    regression_root: Path,
     git_root: Path | None = None,
     validation_revision: str = "HEAD",
 ) -> dict[str, Any]:
     errors: list[str] = []
-    if closure.get("schema_version") != "evm.s7_auxiliary_admission_closure.v1":
+    if closure.get("schema_version") != "evm.s7_auxiliary_admission_closure.v2":
         errors.append("schema_version")
     validated = validate_s7_experiment(
         experiment,
@@ -344,23 +442,46 @@ def validate_s7_closure(
         errors.append("experiment_sha256")
     if _canonical(final.get("acceptance")) != _canonical(validated["analysis"]["acceptance"]):
         errors.append("acceptance")
-    if int(final.get("profile_repetitions", 0)) != 36:
-        errors.append("profile_repetitions")
-    required_regression = (
-        "focused_s7",
-        "real_postgresql",
-        "lifecycle_host_e2e",
-        "full_python",
-        "control_panel",
-        "frontend_production_build",
-        "s0_s6_regression",
-        "current_revision_cuda_smoke",
+    accounting = dict(validated["analysis"].get("outcome_accounting", {}))
+    expected_final = {
+        "profile_repetitions": accounting.get("profile_repetitions"),
+        "completed_requests": accounting.get("completed_requests"),
+        "intentional_pre_admission_rejections": accounting.get(
+            "intentional_pre_admission_rejections"
+        ),
+        "expired_requests": accounting.get("expired_requests"),
+        "transport_failures": accounting.get("transport_failures"),
+        "oom_count": accounting.get("all_profile_oom_count"),
+        "selected_admitted_starvation_count": accounting.get(
+            "selected_admitted_starvation_count"
+        ),
+        "full_matrix_long_noncompletion_count": accounting.get(
+            "full_matrix_long_noncompletion_count"
+        ),
+        "family_repetitions": accounting.get("family_repetitions"),
+    }
+    for key, expected in expected_final.items():
+        if _canonical(final.get(key)) != _canonical(expected):
+            errors.append(f"final_runtime:{key}")
+    if "starvation_count" in final:
+        errors.append("final_runtime:ambiguous_starvation_count")
+    smoke_result = validate_s7_runtime_smoke(
+        runtime_smoke,
+        config=config,
+        private_root=runtime_smoke_private_root,
+        git_root=git_root,
+        validation_revision=validation_revision,
     )
-    regression = dict(closure.get("regression", {}))
-    if any(
-        dict(regression.get(name, {})).get("status") != "passed" for name in required_regression
-    ):
-        errors.append("regression")
+    regression_result = validate_s7_regression_evidence(
+        regression_evidence,
+        regression_root=regression_root,
+        git_root=git_root,
+        validation_revision=validation_revision,
+    )
+    if final.get("runtime_smoke_git_blob_sha256") != runtime_smoke_sha256:
+        errors.append("runtime_smoke_sha256")
+    if final.get("regression_git_blob_sha256") != regression_evidence_sha256:
+        errors.append("regression_sha256")
     cleanup = dict(closure.get("cleanup", {}))
     for key in (
         "source_serving_ready",
@@ -376,10 +497,10 @@ def validate_s7_closure(
             errors.append(f"cleanup:{key}")
     if closure.get("status") != "verified" or closure.get("verdict") != "passed":
         errors.append("verdict")
-    if closure.get("claim_boundary") != config.claim_boundary:
+    if closure.get("claim_boundary") != config.claim_boundary + RECLOSURE_CLAIM_SUFFIX:
         errors.append("claim_boundary")
     source = dict(closure.get("source_identity", {}))
-    experiment_commit = str(source.get("experiment_commit") or "")
+    experiment_commit = str(source.get("reprojection_commit") or "")
     validator_revision = str(source.get("validator_revision") or "")
     if git_root is not None:
         try:
@@ -402,6 +523,22 @@ def validate_s7_closure(
             }
             if _canonical(source.get("validators")) != _canonical(expected_validators):
                 errors.append("closure_validator_git_blobs")
+            supporting = {
+                "runtime_smoke": git_blob_identity(
+                    git_root, validator_revision, RUNTIME_SMOKE_PATH
+                ),
+                "regression": git_blob_identity(
+                    git_root, validator_revision, REGRESSION_PATH
+                ),
+                "historical_closure": git_blob_identity(
+                    git_root,
+                    HISTORICAL_CLOSURE_COMMIT,
+                    "enterprise-vision-mlops/docs/status/evidence/"
+                    "s7-auxiliary-admission-closure.json",
+                ),
+            }
+            if _canonical(source.get("supporting_evidence")) != _canonical(supporting):
+                errors.append("closure_supporting_git_blobs")
         except (OSError, subprocess.CalledProcessError):
             errors.append("closure_git_identity_unavailable")
     if errors:
@@ -411,6 +548,427 @@ def validate_s7_closure(
         "experiment_sha256": experiment_sha256,
         "acceptance": validated["analysis"]["acceptance"],
         "profile_repetitions": 36,
+        "runtime_smoke": smoke_result,
+        "regression": regression_result,
+    }
+
+
+def asset_contract_projection(
+    *,
+    config: S7RuntimeConfig,
+    git_root: Path | None,
+    revision: str,
+) -> dict[str, Any]:
+    raw_config = tomllib.loads(config.path.read_text(encoding="utf-8"))
+    assets = dict(raw_config.get("assets", {}))
+    result: dict[str, Any] = {}
+    for family in ("image", "vlm", "llm"):
+        raw_asset = dict(assets.get(family, {}))
+        contract_path = SOURCE_PATHS[f"{family}_dataset_contract"]
+        if git_root is not None and REVISION_PATTERN.fullmatch(revision):
+            raw_contract = subprocess.run(
+                ["git", "show", f"{revision}:{contract_path}"],
+                cwd=git_root,
+                check=True,
+                capture_output=True,
+            ).stdout
+            contract_identity = git_blob_identity(git_root, revision, contract_path)
+        else:
+            local = config.path.parents[1] / Path(contract_path).relative_to(
+                "enterprise-vision-mlops"
+            )
+            raw_contract = local.read_bytes()
+            contract_identity = {
+                "path": contract_path,
+                "blob_oid": None,
+                "sha256": hashlib.sha256(raw_contract).hexdigest(),
+            }
+        contract = json.loads(raw_contract)
+        dataset = dict(contract.get("dataset", {}))
+        license_id = str(dataset.get("license_id") or "")
+        result[family] = {
+            "scenario_contract": contract_identity,
+            "dataset": {
+                key: dataset.get(key)
+                for key in (
+                    "dataset_id",
+                    "dataset_version",
+                    "source_url",
+                    "source_revision",
+                    "license_id",
+                    "license_url",
+                    "usage_policy",
+                )
+            },
+            "runtime_manifest_sha256": raw_asset.get("manifest_sha256"),
+            "model": {
+                "repository": raw_asset.get("model_repository")
+                or raw_asset.get("candidate_id"),
+                "revision": raw_asset.get("model_revision")
+                or raw_asset.get("model_artifact_sha256"),
+                "artifact_sha256": raw_asset.get("model_artifact_sha256")
+                or raw_asset.get("adapter_sha256"),
+                "source_commit": raw_asset.get("model_source_commit"),
+                "quantization": raw_asset.get("quantization", "none"),
+            },
+            "noncommercial_restriction": license_id == "CC-BY-NC-SA-4.0",
+        }
+    return result
+
+
+def validate_s7_runtime_smoke(
+    payload: Mapping[str, Any],
+    *,
+    config: S7RuntimeConfig,
+    private_root: Path,
+    git_root: Path | None = None,
+    validation_revision: str = "HEAD",
+) -> dict[str, Any]:
+    errors: list[str] = []
+    if payload.get("schema_version") != "evm.s7_current_revision_cuda_smoke.v2":
+        errors.append("smoke_schema_version")
+    if payload.get("status") != "verified" or payload.get("verdict") != "passed":
+        errors.append("smoke_verdict")
+    source = dict(payload.get("source_identity", {}))
+    revision = str(source.get("revision") or "")
+    if not REVISION_PATTERN.fullmatch(revision):
+        errors.append("smoke_revision")
+    if source.get("config_sha256") != config.sha256:
+        errors.append("smoke_config_sha256")
+    if git_root is not None and REVISION_PATTERN.fullmatch(revision):
+        try:
+            if subprocess.run(
+                ["git", "merge-base", "--is-ancestor", revision, validation_revision],
+                cwd=git_root,
+                check=False,
+            ).returncode:
+                errors.append("smoke_revision_not_ancestor")
+            if _canonical(source.get("git_blobs")) != _canonical(
+                source_git_identity(git_root, revision)
+            ):
+                errors.append("smoke_git_blob_identity")
+        except (OSError, subprocess.CalledProcessError):
+            errors.append("smoke_git_identity_unavailable")
+
+    private = validate_private_evidence(private_root, errors)
+    projected = [
+        project_profile(item, config=config, errors=errors)
+        for item in private.get("profiles", [])
+    ]
+    if len(projected) != 3 or {item.get("family") for item in projected} != {
+        "image",
+        "vlm",
+        "llm",
+    }:
+        errors.append("smoke_family_profiles")
+    if _canonical(
+        profile_projection_by_identity(
+            list(payload.get("profiles", [])), errors=errors, label="smoke_public"
+        )
+    ) != _canonical(
+        profile_projection_by_identity(projected, errors=errors, label="smoke_private")
+    ):
+        errors.append("smoke_profile_projection")
+
+    raw_config = tomllib.loads(config.path.read_text(encoding="utf-8"))
+    ready_projection: dict[str, Any] = {}
+    documents = dict(private.get("documents", {}))
+    for family in ("image", "vlm", "llm"):
+        ready = dict(documents.get(f"{family}-ready.json", {}))
+        try:
+            ready_projection[family] = _ready_identity_projection(
+                family,
+                ready,
+                dict(dict(raw_config.get("assets", {})).get(family, {})),
+                revision,
+            )
+        except (KeyError, TypeError, ValueError):
+            errors.append(f"smoke_ready_identity:{family}")
+    if _canonical(payload.get("family_ready_identity")) != _canonical(ready_projection):
+        errors.append("smoke_ready_projection")
+
+    expected_contracts = asset_contract_projection(
+        config=config, git_root=git_root, revision=revision
+    )
+    provenance_projection: dict[str, Any] = {}
+    for family in ("image", "vlm", "llm"):
+        raw_provenance = dict(
+            documents.get(f"asset-provenance/{family}.json", {})
+        )
+        provenance_projection[family] = _validate_asset_provenance(
+            family,
+            raw_provenance,
+            expected_contracts[family],
+            errors,
+        )
+    if _canonical(payload.get("asset_provenance")) != _canonical(
+        provenance_projection
+    ):
+        errors.append("smoke_asset_provenance_projection")
+
+    runtime = dict(payload.get("runtime_evidence", {}))
+    expected_runtime = {
+        "transport": "external_http",
+        "submitted_requests": sum(int(item["request_count"]) for item in projected),
+        "completed_requests": sum(int(item["completed"]) for item in projected),
+        "rejected_requests": sum(int(item["rejected"]) for item in projected),
+        "transport_failures": sum(
+            int(item["transport_failed"]) for item in projected
+        ),
+        "actual_cuda": all(
+            item.get("cuda_available") is True
+            or dict(item.get("runtime", {})).get("cuda_available") is True
+            for item in ready_projection.values()
+        ),
+        "trace_identity_complete": all(item["trace_complete"] for item in projected),
+        "oom_count": sum(int(item["oom_count"]) for item in projected),
+        "admitted_starvation_count": sum(
+            int(item["admitted_starvation_count"]) for item in projected
+        ),
+    }
+    if _canonical(runtime) != _canonical(expected_runtime):
+        errors.append("smoke_runtime_projection")
+    if (
+        ready_projection.get("llm", {}).get("quantization_observed") != "int4_nf4"
+        or ready_projection.get("llm", {}).get("loaded_in_4bit") is not True
+        or int(
+            ready_projection.get("llm", {}).get("linear_4bit_module_count", 0)
+        )
+        < 1
+    ):
+        errors.append("smoke_llm_4bit_runtime")
+    if expected_contracts["vlm"].get("noncommercial_restriction") is not True:
+        errors.append("smoke_vlm_noncommercial_boundary")
+
+    cleanup = dict(payload.get("cleanup", {}))
+    expected_cleanup = {
+        "source_serving_ready": True,
+        "source_cuda_inference": True,
+        "source_model_identity_exact": True,
+        "source_candidate_identity_exact": True,
+        "source_holder_identity_exact": True,
+        "service_processes_stopped": True,
+        "gpu_lease_zero": True,
+        "family_queues_drained": True,
+        "s7_prometheus_target_zero": True,
+        "prometheus_baseline_target_count": 5,
+        "prometheus_baseline_up_count": 5,
+    }
+    if _canonical(cleanup) != _canonical(expected_cleanup):
+        errors.append("smoke_cleanup")
+    public_private = dict(payload.get("private_evidence", {}))
+    for key in ("artifact_count", "total_bytes", "aggregate_sha256", "index_sha256"):
+        if public_private.get(key) != private.get("summary", {}).get(key):
+            errors.append(f"smoke_private_evidence:{key}")
+    if payload.get("claim_boundary") != SMOKE_CLAIM_BOUNDARY:
+        errors.append("smoke_claim_boundary")
+    if errors:
+        raise S7EvidenceValidationError(
+            "s7_runtime_smoke_invalid:" + ",".join(sorted(set(errors)))
+        )
+    return {
+        "status": "valid",
+        "revision": revision,
+        "families": 3,
+        "private_evidence": private.get("summary", {}),
+    }
+
+
+def validate_s7_regression_evidence(
+    payload: Mapping[str, Any],
+    *,
+    regression_root: Path,
+    git_root: Path | None = None,
+    validation_revision: str = "HEAD",
+) -> dict[str, Any]:
+    errors: list[str] = []
+    if payload.get("schema_version") != "evm.s7_reclosure_regression.v1":
+        errors.append("regression_schema_version")
+    if payload.get("status") != "passed":
+        errors.append("regression_status")
+    revision = str(dict(payload.get("source_identity", {})).get("revision") or "")
+    if not REVISION_PATTERN.fullmatch(revision):
+        errors.append("regression_revision")
+    elif git_root is not None and subprocess.run(
+        ["git", "merge-base", "--is-ancestor", revision, validation_revision],
+        cwd=git_root,
+        check=False,
+    ).returncode:
+        errors.append("regression_revision_not_ancestor")
+    suites = list(payload.get("suites", []))
+    by_id = {str(item.get("suite_id")): item for item in suites if isinstance(item, Mapping)}
+    if set(by_id) != set(REQUIRED_REGRESSION_SUITES):
+        errors.append("regression_suite_set")
+    for suite_id in REQUIRED_REGRESSION_SUITES:
+        item = dict(by_id.get(suite_id, {}))
+        if (
+            item.get("status") != "passed"
+            or int(item.get("exit_code", -1)) != 0
+            or not str(item.get("command") or "").strip()
+            or not re.fullmatch(r"[0-9a-f]{64}", str(item.get("log_sha256") or ""))
+            or int(item.get("log_bytes", 0)) <= 0
+        ):
+            errors.append(f"regression_suite:{suite_id}")
+        relative = Path(str(item.get("log_path") or ""))
+        target = regression_root / relative
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or not target.is_file()
+            or target.stat().st_size != int(item.get("log_bytes", -1))
+            or _file_sha256(target) != item.get("log_sha256")
+        ):
+            errors.append(f"regression_log_identity:{suite_id}")
+        if suite_id not in {"changed_file_lint", "frontend_production_build"} and int(
+            item.get("tests_passed", 0)
+        ) <= 0:
+            errors.append(f"regression_test_count:{suite_id}")
+    if errors:
+        raise S7EvidenceValidationError(
+            "s7_regression_invalid:" + ",".join(sorted(set(errors)))
+        )
+    return {"status": "valid", "revision": revision, "suite_count": len(suites)}
+
+
+def _preflight_asset_projection(config: S7RuntimeConfig) -> dict[str, Any]:
+    assets = dict(tomllib.loads(config.path.read_text(encoding="utf-8")).get("assets", {}))
+    return {
+        family: {
+            "manifest_sha256": raw.get("manifest_sha256"),
+            "model_artifact_sha256": raw.get("model_artifact_sha256")
+            or raw.get("adapter_sha256"),
+            "model_revision": raw.get("model_revision"),
+            "data_identity_sha256": raw.get("data_identity_sha256")
+            or raw.get("dataset_version"),
+            "quantization": raw.get("quantization", "none"),
+        }
+        for family, raw_value in assets.items()
+        if family in {"image", "vlm", "llm"}
+        for raw in [dict(raw_value)]
+    }
+
+
+def _ready_identity_projection(
+    family: str,
+    ready: Mapping[str, Any],
+    asset: Mapping[str, Any],
+    revision: str,
+) -> dict[str, Any]:
+    if family == "image":
+        expected = {
+            "status": "ok",
+            "model_sha256": asset.get("model_artifact_sha256"),
+            "candidate_id": asset.get("candidate_id"),
+            "dataset_version": asset.get("dataset_version"),
+            "device": "cuda",
+            "cuda_available": True,
+        }
+        if any(ready.get(key) != value for key, value in expected.items()):
+            raise ValueError("image_ready_identity")
+        return {
+            "status": "ok",
+            "model_family": "image",
+            "candidate_id": ready["candidate_id"],
+            "model_artifact_sha256": ready["model_sha256"],
+            "data_identity_sha256": ready["dataset_version"],
+            "device": "cuda",
+            "cuda_available": True,
+            "quantization_requested": "none",
+            "quantization_observed": "none",
+        }
+    quantization = dict(ready.get("quantization_runtime", {}))
+    expected_observed = "int4_nf4" if family == "llm" else "none"
+    expected = {
+        "status": "ready",
+        "model_family": family,
+        "model_repository": asset.get("model_repository"),
+        "model_revision": asset.get("model_revision"),
+        "model_artifact_sha256": asset.get("adapter_sha256"),
+        "data_identity_sha256": asset.get("data_identity_sha256"),
+        "model_source_commit": asset.get("model_source_commit"),
+        "runtime_source_commit": revision,
+        "quantization": asset.get("quantization", "none"),
+    }
+    if any(ready.get(key) != value for key, value in expected.items()):
+        raise ValueError(f"{family}_ready_identity")
+    if (
+        quantization.get("requested") != asset.get("quantization", "none")
+        or quantization.get("observed") != expected_observed
+        or dict(ready.get("runtime", {})).get("cuda_available") is not True
+    ):
+        raise ValueError(f"{family}_runtime_identity")
+    if family == "llm" and (
+        quantization.get("loaded_in_4bit") is not True
+        or int(quantization.get("linear_4bit_module_count", 0)) < 1
+    ):
+        raise ValueError("llm_4bit_runtime")
+    return {
+        "status": "ready",
+        "model_family": family,
+        "model_repository": ready["model_repository"],
+        "model_revision": ready["model_revision"],
+        "model_artifact_sha256": ready["model_artifact_sha256"],
+        "data_identity_sha256": ready["data_identity_sha256"],
+        "model_source_commit": ready["model_source_commit"],
+        "runtime_source_commit": ready["runtime_source_commit"],
+        "quantization_requested": asset.get("quantization", "none"),
+        "quantization_observed": quantization["observed"],
+        "loaded_in_4bit": quantization.get("loaded_in_4bit", False),
+        "linear_4bit_module_count": int(
+            quantization.get("linear_4bit_module_count", 0)
+        ),
+        "runtime": {
+            "cuda_available": True,
+            "torch": dict(ready["runtime"]).get("torch"),
+            "cuda": dict(ready["runtime"]).get("cuda"),
+        },
+    }
+
+
+def _validate_asset_provenance(
+    family: str,
+    payload: Mapping[str, Any],
+    expected: Mapping[str, Any],
+    errors: list[str],
+) -> dict[str, Any]:
+    if payload.get("schema_version") != "evm.s7_asset_provenance.v1":
+        errors.append(f"asset_provenance_schema:{family}")
+    contract = dict(expected.get("scenario_contract", {}))
+    if (
+        payload.get("family") != family
+        or payload.get("scenario_contract_path") != contract.get("path")
+        or payload.get("scenario_contract_sha256") != contract.get("sha256")
+        or _canonical(payload.get("dataset")) != _canonical(expected.get("dataset"))
+        or payload.get("runtime_manifest_sha256")
+        != expected.get("runtime_manifest_sha256")
+        or _canonical(payload.get("model")) != _canonical(expected.get("model"))
+    ):
+        errors.append(f"asset_provenance_identity:{family}")
+    cache = dict(payload.get("cache_manifest", {}))
+    entries = list(cache.get("entries", []))
+    if (
+        not entries
+        or int(cache.get("file_count", -1)) != len(entries)
+        or int(cache.get("total_bytes", -1))
+        != sum(int(item.get("bytes", -1)) for item in entries)
+        or cache.get("aggregate_sha256") != canonical_sha256(entries)
+        or any(
+            not re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256") or ""))
+            or int(item.get("bytes", 0)) <= 0
+            for item in entries
+        )
+    ):
+        errors.append(f"asset_cache_manifest:{family}")
+    return {
+        "scenario_contract_path": payload.get("scenario_contract_path"),
+        "scenario_contract_sha256": payload.get("scenario_contract_sha256"),
+        "dataset": payload.get("dataset"),
+        "runtime_manifest_sha256": payload.get("runtime_manifest_sha256"),
+        "model": payload.get("model"),
+        "cache_manifest": {
+            key: cache.get(key)
+            for key in ("file_count", "total_bytes", "aggregate_sha256")
+        },
     }
 
 
@@ -430,6 +988,7 @@ def validate_private_evidence(root: Path, errors: list[str]) -> dict[str, Any]:
     entries = list(index.get("artifacts", []))
     observed: list[dict[str, Any]] = []
     profiles: list[dict[str, Any]] = []
+    documents: dict[str, dict[str, Any]] = {}
     for entry in entries:
         relative = str(entry.get("path") or "")
         path = root / relative
@@ -446,6 +1005,13 @@ def validate_private_evidence(root: Path, errors: list[str]) -> dict[str, Any]:
                 profiles.append(json.loads(path.read_bytes()))
             except json.JSONDecodeError:
                 errors.append(f"private_profile_invalid:{relative}")
+        elif relative.endswith(".json"):
+            try:
+                value = json.loads(path.read_bytes())
+                if isinstance(value, dict):
+                    documents[relative] = value
+            except json.JSONDecodeError:
+                errors.append(f"private_document_invalid:{relative}")
     observed.sort(key=lambda item: item["path"])
     if _canonical(observed) != _canonical(entries):
         errors.append("private_index_projection")
@@ -458,7 +1024,7 @@ def validate_private_evidence(root: Path, errors: list[str]) -> dict[str, Any]:
         "aggregate_sha256": aggregate,
         "index_sha256": hashlib.sha256(raw).hexdigest(),
     }
-    return {"profiles": profiles, "summary": summary}
+    return {"profiles": profiles, "documents": documents, "summary": summary}
 
 
 def profile_projection_by_identity(

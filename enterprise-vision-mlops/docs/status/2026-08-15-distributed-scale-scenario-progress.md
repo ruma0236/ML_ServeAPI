@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-23T19:46:04Z`
+- Generated: `2026-08-24T03:55:06Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -481,16 +481,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 
-- Status: `verified`
+- Status: `implementing`
 - Engineering question: Can larger partitioned data remain memory-bounded, deterministic, and restartable?
 - Why now: Single-process data preparation does not demonstrate executor or shuffle behavior.
 - Observed gap: Partition sizing, spill, skew, retry, and idempotent distributed commits are unproven.
 - Existing-system baseline: The existing Airflow data path uses deterministic Python and columnar processing, but distributed executor, shuffle, spill, skew, and retry behavior are not implemented or evidenced.
 - Architecture before: Data processing is reproducible at local scale but remains mostly process-local.
 - Architecture after: Spark executors process governed partitions with bounded memory and deterministic commits.
-- Verdict: `passed`
+- Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Review S6 readiness and dependencies only; do not start S6 in this closure turn.
+- Next action: Generate and validate canonical current-revision S5 runtime smoke evidence.
 
 ### Affected Existing Components
 
@@ -531,10 +531,10 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S5-AC-01` [passed]: Records per second, storage rate, peak executor memory, GC, shuffle, spill, and skew are reported.
-- `S5-AC-02` [passed]: Output contains zero missing and zero duplicate records.
-- `S5-AC-03` [passed]: Retry preserves row count and output digest.
-- `S5-AC-04` [passed]: Generated load volume is not represented as new semantic diversity.
+- `S5-AC-01` [pending]: Records per second, storage rate, peak executor memory, GC, shuffle, spill, and skew are reported.
+- `S5-AC-02` [pending]: Output contains zero missing and zero duplicate records.
+- `S5-AC-03` [pending]: Retry preserves row count and output digest.
+- `S5-AC-04` [pending]: Generated load volume is not represented as new semantic diversity.
 
 ### Current Evidence
 
@@ -552,6 +552,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T12:41:26.869521Z` `experiment` / `implementing`: Attempt 01 stopped fail-closed after the executor-loss commit because replay derived repeat_factor=1 instead of the immutable generated-I/O repeat_factor=4; the failed evidence and cleanup were preserved and no acceptance credit was granted.
 - `2026-08-23T13:03:56.294024Z` `experiment` / `implementing`: Attempt 02 completed all 30 runtime points but was rejected for closure because its original public projection could not independently recompute executor-loss replay acceptance; strict public/private validation was added before a fresh run.
 - `2026-08-23T13:25:23.777125Z` `verification` / `verified`: A fresh strict-validator matrix completed 30 accepted points including three exact executor-loss replays; all four S5 acceptance criteria, current-revision smoke, regressions, canonical Git-byte hashes, private inventory rehash, and cleanup passed.
+- `2026-08-24T03:55:06Z` `verification` / `implementing`: Independent post-closure audit reopened S5: the historical 30-point matrix remains immutable, but closure v1 trusted regression, runtime-smoke, and cleanup summaries instead of independently validating their raw logs and current-revision measurements.
 
 ## S6: API Rolling Continuity & GPU Controlled Handoff
 
@@ -629,16 +630,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S7: Image/VLM/LLM Auxiliary Admission
 
-- Status: `verified`
+- Status: `implementing`
 - Engineering question: Do image and generative workloads use model-family-specific cost admission and metrics?
 - Why now: Tabular capacity does not cover image decode, pixels, tokens, or long requests.
 - Observed gap: Image, token, and in-flight cost bounds are not uniformly enforced or measured.
 - Existing-system baseline: The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.
 - Architecture before: Multiple model families run without one cost-aware admission proof.
 - Architecture after: Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.
-- Verdict: `passed`
+- Verdict: `not_run`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Review V3 S8 dependency-soak and resource-efficiency readiness and blockers only; do not start S8 in this closure turn.
+- Next action: Reproject the immutable 36-run matrix with scoped starvation and rejection accounting.
 
 ### Affected Existing Components
 
@@ -685,10 +686,10 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S7-AC-01` [passed]: Each model family has distinct p95, p99, and quality metric schemas.
-- `S7-AC-02` [passed]: Selected admission limits have zero OOM and zero starvation.
-- `S7-AC-03` [passed]: Long-request head-of-line behavior and fairness are measured.
-- `S7-AC-04` [passed]: Unsupported or unverified metrics remain absent.
+- `S7-AC-01` [pending]: Each model family has distinct p95, p99, and quality metric schemas.
+- `S7-AC-02` [pending]: Selected admission limits have zero OOM and zero starvation.
+- `S7-AC-03` [pending]: Long-request head-of-line behavior and fairness are measured.
+- `S7-AC-04` [pending]: Unsupported or unverified metrics remain absent.
 
 ### Current Evidence
 
@@ -711,6 +712,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T19:18:38.297228Z` `experiment` / `implementing`: The first full 36-repetition matrix completed 162 requests and 54 explicit over-limit rejections with exact cleanup, but strict validation rejected the public projection because public config order and private lexical order were compared positionally. The suite receives zero credit; stable profile/repetition identity comparison and duplicate rejection are implemented before a clean full rerun.
 - `2026-08-23T19:26:44.534372Z` `experiment` / `implementing`: A clean second 36-repetition matrix passed the independent raw-derived experiment validator: each family completed 12 repetitions, with 162 completed requests, 54 explicit bounded rejections, zero OOM/starvation, complete trace and Prometheus evidence, family quality gates, fairness/HOL, and exact cleanup. Full regressions and canonical closure remain pending.
 - `2026-08-23T19:45:30Z` `verification` / `verified`: The accepted 36-repetition family matrix, current-revision CUDA smoke, all required regressions, private rehash, Git-blob closure, and exact cleanup passed S7-AC-01..04; three failed attempts remain retained with zero acceptance credit.
+- `2026-08-24T03:55:06Z` `verification` / `implementing`: Independent post-closure audit reopened S7: closure v1 did not recompute its numerical totals, conflated 54 intentional over-limit pre-admission rejections with selected/admitted starvation, and did not bind family asset provenance or observed LLM 4-bit readiness.
 
 ## S8: Dependency Soak & Resource-efficiency Closure
 

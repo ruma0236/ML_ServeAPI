@@ -61,6 +61,21 @@ SOURCE_PATHS = {
     "spark_job": "enterprise-vision-mlops/src/evm/scale_validation/s5_spark_job.py",
     "runner": "enterprise-vision-mlops/scripts/dev/run_s5_spark_data_scale_experiment.py",
 }
+S5_SMOKE_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/s5-current-revision-runtime-smoke.json"
+)
+S5_REGRESSION_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/s5-reclosure-regression-evidence.json"
+)
+REQUIRED_REGRESSION_SUITES = (
+    "changed_file_lint",
+    "focused_s5",
+    "full_python_real_postgresql",
+    "lifecycle_host_e2e",
+    "control_panel",
+    "frontend_production_build",
+    "s0_s7_regression",
+)
 
 
 class S5EvidenceValidationError(RuntimeError):
@@ -200,9 +215,14 @@ def validate_s5_spark_data_scale_closure(
     git_root: Path | None = None,
     validation_revision: str = "HEAD",
     private_root: Path | None = None,
+    runtime_smoke: Mapping[str, Any] | None = None,
+    runtime_smoke_sha256: str | None = None,
+    regression_evidence: Mapping[str, Any] | None = None,
+    regression_evidence_sha256: str | None = None,
+    regression_root: Path | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
-    if closure.get("schema_version") != "evm.s5_spark_data_scale_closure.v1":
+    if closure.get("schema_version") != "evm.s5_spark_data_scale_closure.v2":
         errors.append("closure_schema_version")
     validated = validate_s5_spark_data_scale_evidence(
         experiment,
@@ -220,21 +240,46 @@ def validate_s5_spark_data_scale_closure(
         errors.append("closure_acceptance")
     if closure.get("status") != "verified" or closure.get("verdict") != "passed":
         errors.append("closure_verdict")
-    required_regression = (
-        "focused_s5",
-        "full_python_real_postgresql",
-        "lifecycle_host_e2e",
-        "control_panel",
-        "frontend_production_build",
-        "s0_s4_regression",
-        "current_revision_runtime_smoke",
+    smoke_result = validate_s5_runtime_smoke(
+        runtime_smoke or {},
+        config=config,
+        git_root=git_root,
+        validation_revision=validation_revision,
     )
-    regression = dict(closure.get("regression", {}))
-    if any(
-        dict(regression.get(name, {})).get("status") != "passed"
-        for name in required_regression
-    ):
-        errors.append("closure_regression")
+    regression_result = validate_s5_regression_evidence(
+        regression_evidence or {},
+        regression_root=regression_root,
+        git_root=git_root,
+        validation_revision=validation_revision,
+    )
+    source = dict(closure.get("source_identity", {}))
+    validator_revision = str(source.get("validator_revision") or "")
+    if final.get("runtime_smoke_git_blob_sha256") != runtime_smoke_sha256:
+        errors.append("closure_runtime_smoke_sha256")
+    if final.get("regression_git_blob_sha256") != regression_evidence_sha256:
+        errors.append("closure_regression_sha256")
+    if final.get("runtime_smoke_revision") != smoke_result.get("revision"):
+        errors.append("closure_runtime_smoke_revision")
+    if final.get("regression_revision") != regression_result.get("revision"):
+        errors.append("closure_regression_revision")
+    if validator_revision != regression_result.get("revision"):
+        errors.append("closure_validator_revision")
+    if git_root is not None and REVISION_PATTERN.fullmatch(validator_revision):
+        try:
+            expected_smoke = _git_blob_identity(
+                git_root, validator_revision, S5_SMOKE_PATH
+            )
+            expected_regression = _git_blob_identity(
+                git_root, validator_revision, S5_REGRESSION_PATH
+            )
+            if _canonical(source.get("runtime_smoke")) != _canonical(expected_smoke):
+                errors.append("closure_runtime_smoke_git_blob")
+            if _canonical(source.get("regression_evidence")) != _canonical(
+                expected_regression
+            ):
+                errors.append("closure_regression_git_blob")
+        except (OSError, subprocess.CalledProcessError):
+            errors.append("closure_supporting_git_identity")
     cleanup = dict(closure.get("cleanup", {}))
     for key in (
         "runtime_cleanup_passed",
@@ -244,6 +289,22 @@ def validate_s5_spark_data_scale_closure(
     ):
         if cleanup.get(key) is not True:
             errors.append(f"closure_cleanup:{key}")
+    if int(cleanup.get("s5_jobs_remaining", -1)) != 0:
+        errors.append("closure_cleanup:s5_jobs_remaining")
+    if int(cleanup.get("s5_executor_pods_remaining", -1)) != 0:
+        errors.append("closure_cleanup:s5_executor_pods_remaining")
+    if cleanup.get("pvc_phase") != "Bound":
+        errors.append("closure_cleanup:pvc_phase")
+    smoke_cleanup = dict(runtime_smoke.get("cleanup", {})) if runtime_smoke else {}
+    if int(cleanup.get("s5_jobs_remaining", -1)) != int(
+        smoke_cleanup.get("kubernetes_jobs_remaining", -2)
+    ):
+        errors.append("closure_cleanup:smoke_jobs_parity")
+    if int(cleanup.get("s5_executor_pods_remaining", -1)) != int(
+        smoke_cleanup.get("kubernetes_executor_pods_remaining", -2)
+    ):
+        errors.append("closure_cleanup:smoke_pods_parity")
+    _validate_s5_observed_results(final, validated, errors)
     if errors:
         raise S5EvidenceValidationError(
             "s5_spark_data_scale_closure_invalid:" + ",".join(sorted(set(errors)))
@@ -253,7 +314,168 @@ def validate_s5_spark_data_scale_closure(
         "experiment_sha256": experiment_sha256,
         "point_result_count": 30,
         "acceptance": validated["acceptance"],
+        "runtime_smoke": smoke_result,
+        "regression": regression_result,
     }
+
+
+def validate_s5_runtime_smoke(
+    payload: Mapping[str, Any],
+    *,
+    config: S5RuntimeConfig,
+    git_root: Path | None = None,
+    validation_revision: str = "HEAD",
+) -> dict[str, Any]:
+    errors: list[str] = []
+    if payload.get("schema_version") != "evm.s5_current_revision_runtime_smoke.v2":
+        errors.append("smoke_schema_version")
+    if payload.get("status") != "passed" or payload.get("acceptance_credit") is not False:
+        errors.append("smoke_status")
+    source = dict(payload.get("source_identity", {}))
+    revision = str(source.get("revision") or "")
+    if not REVISION_PATTERN.fullmatch(revision):
+        errors.append("smoke_revision")
+    if source.get("config_sha256") != config.sha256:
+        errors.append("smoke_config_sha256")
+    if git_root is not None and REVISION_PATTERN.fullmatch(revision):
+        try:
+            if subprocess.run(
+                ["git", "merge-base", "--is-ancestor", revision, validation_revision],
+                cwd=git_root,
+                check=False,
+            ).returncode:
+                errors.append("smoke_revision_not_ancestor")
+            if _canonical(source.get("git_blobs")) != _canonical(
+                source_git_identity(git_root, revision)
+            ):
+                errors.append("smoke_git_blob_identity")
+        except (OSError, subprocess.CalledProcessError):
+            errors.append("smoke_git_identity_unavailable")
+    engines = list(payload.get("engines", []))
+    expected_engines = {
+        "single_process_columnar",
+        "spark_local",
+        "spark_kubernetes_1",
+    }
+    if {str(item.get("engine")) for item in engines} != expected_engines:
+        errors.append("smoke_engines")
+    digests = {str(item.get("output_digest") or "") for item in engines}
+    if len(digests) != 1 or "" in digests:
+        errors.append("smoke_cross_engine_digest")
+    if payload.get("cross_engine_output_digest_equal") is not (len(digests) == 1):
+        errors.append("smoke_digest_summary")
+    if any(
+        int(item.get("missing_records", -1)) != 0
+        or int(item.get("duplicate_records", -1)) != 0
+        for item in engines
+    ):
+        errors.append("smoke_integrity")
+    cleanup = dict(payload.get("cleanup", {}))
+    if (
+        int(cleanup.get("kubernetes_jobs_remaining", -1)) != 0
+        or int(cleanup.get("kubernetes_executor_pods_remaining", -1)) != 0
+        or cleanup.get("pvc_phase") != "Bound"
+        or cleanup.get("source_dataset_unchanged") is not True
+    ):
+        errors.append("smoke_cleanup")
+    health = dict(payload.get("runtime_health", {}))
+    if (
+        health.get("api_status") != "ok"
+        or int(health.get("existing_serving_desired_replicas", -1)) != 1
+        or int(health.get("existing_serving_available_replicas", -1)) != 1
+        or int(health.get("prometheus_targets_total", -1)) < 1
+        or health.get("prometheus_targets_total") != health.get("prometheus_targets_up")
+    ):
+        errors.append("smoke_runtime_health")
+    if errors:
+        raise S5EvidenceValidationError(
+            "s5_runtime_smoke_invalid:" + ",".join(sorted(set(errors)))
+        )
+    return {"status": "valid", "revision": revision, "engine_count": len(engines)}
+
+
+def validate_s5_regression_evidence(
+    payload: Mapping[str, Any],
+    *,
+    regression_root: Path | None,
+    git_root: Path | None = None,
+    validation_revision: str = "HEAD",
+) -> dict[str, Any]:
+    errors: list[str] = []
+    if payload.get("schema_version") != "evm.s5_reclosure_regression.v1":
+        errors.append("regression_schema_version")
+    if payload.get("status") != "passed":
+        errors.append("regression_status")
+    revision = str(dict(payload.get("source_identity", {})).get("revision") or "")
+    if not REVISION_PATTERN.fullmatch(revision):
+        errors.append("regression_revision")
+    elif git_root is not None:
+        try:
+            if subprocess.run(
+                ["git", "merge-base", "--is-ancestor", revision, validation_revision],
+                cwd=git_root,
+                check=False,
+            ).returncode:
+                errors.append("regression_revision_not_ancestor")
+        except OSError:
+            errors.append("regression_revision_unavailable")
+    suites = list(payload.get("suites", []))
+    by_id = {str(item.get("suite_id")): item for item in suites if isinstance(item, Mapping)}
+    if set(by_id) != set(REQUIRED_REGRESSION_SUITES):
+        errors.append("regression_suite_set")
+    for suite_id in REQUIRED_REGRESSION_SUITES:
+        item = dict(by_id.get(suite_id, {}))
+        if (
+            item.get("status") != "passed"
+            or int(item.get("exit_code", -1)) != 0
+            or not str(item.get("command") or "").strip()
+            or not SHA256_PATTERN.fullmatch(str(item.get("log_sha256") or ""))
+            or int(item.get("log_bytes", 0)) <= 0
+        ):
+            errors.append(f"regression_suite:{suite_id}")
+        relative = Path(str(item.get("log_path") or ""))
+        if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+            errors.append(f"regression_log_path:{suite_id}")
+        elif regression_root is not None:
+            target = regression_root / relative
+            if (
+                not target.is_file()
+                or target.stat().st_size != int(item.get("log_bytes", -1))
+                or file_sha256(target) != item.get("log_sha256")
+            ):
+                errors.append(f"regression_log_identity:{suite_id}")
+        if suite_id not in {"changed_file_lint", "frontend_production_build"} and int(
+            item.get("tests_passed", 0)
+        ) <= 0:
+            errors.append(f"regression_test_count:{suite_id}")
+    if regression_root is None:
+        errors.append("regression_root_missing")
+    if errors:
+        raise S5EvidenceValidationError(
+            "s5_regression_invalid:" + ",".join(sorted(set(errors)))
+        )
+    return {"status": "valid", "revision": revision, "suite_count": len(suites)}
+
+
+def _validate_s5_observed_results(
+    final: Mapping[str, Any], validated: Mapping[str, Any], errors: list[str]
+) -> None:
+    summaries = dict(validated.get("engine_summaries", {}))
+    columnar = dict(summaries.get("single_process_columnar", {}))
+    spark = [
+        dict(value)
+        for name, value in summaries.items()
+        if str(name).startswith("spark_")
+    ]
+    expected_spark_peak = max(
+        (int(item.get("max_peak_executor_memory_bytes", 0)) for item in spark),
+        default=0,
+    )
+    expected_columnar_peak = int(columnar.get("max_peak_executor_memory_bytes", 0))
+    if int(final.get("maximum_peak_spark_executor_memory_bytes", -1)) != expected_spark_peak:
+        errors.append("closure_spark_peak_memory")
+    if int(final.get("maximum_peak_columnar_process_memory_bytes", -1)) != expected_columnar_peak:
+        errors.append("closure_columnar_peak_memory")
 
 
 def _validate_result_matrix(

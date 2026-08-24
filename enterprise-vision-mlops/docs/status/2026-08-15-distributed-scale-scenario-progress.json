@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-23T19:46:04Z",
+  "generated_at": "2026-08-24T03:55:06Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2739,7 +2739,8 @@
         "Added one shared semantic fingerprint and idempotent output-commit contract for single-process, Docker local Spark, and Kubernetes Spark execution.",
         "Added scoped Spark RBAC, executor-count configuration, event-log telemetry, exact executor-loss injection, and run-scoped cleanup.",
         "Registered spark-data-scale as an allow-listed existing pipeline stage without adding it to the daily heavy path.",
-        "Added strict public/private result projection, source Git-blob binding, canonical evidence hashing, and negative closure tests."
+        "Added strict public/private result projection, source Git-blob binding, canonical evidence hashing, and negative closure tests.",
+        "Independent post-closure audit reopened S5: the historical 30-point matrix remains immutable, but closure v1 trusted regression, runtime-smoke, and cleanup summaries instead of independently validating their raw logs and current-revision measurements."
       ],
       "experiment_environment": "A clean-revision controlled experiment ran on one local physical node with Docker Desktop Kubernetes, official Spark 3.5.5, F-drive governed storage, single-process columnar and local Spark controls, Kubernetes executor counts 1/2/4, and three exact executor-loss replay repetitions. No customer traffic or physical multi-node cluster was used.",
       "test_or_experiment_steps": [
@@ -2751,7 +2752,7 @@
         {
           "criterion_id": "S5-AC-01",
           "description": "Records per second, storage rate, peak executor memory, GC, shuffle, spill, and skew are reported.",
-          "status": "passed",
+          "status": "pending",
           "evidence_refs": [
             "docs/status/evidence/s5-spark-data-scale-experiment.json",
             "docs/status/evidence/s5-spark-data-scale-closure.json"
@@ -2760,7 +2761,7 @@
         {
           "criterion_id": "S5-AC-02",
           "description": "Output contains zero missing and zero duplicate records.",
-          "status": "passed",
+          "status": "pending",
           "evidence_refs": [
             "docs/status/evidence/s5-spark-data-scale-experiment.json",
             "docs/status/evidence/s5-spark-data-scale-closure.json"
@@ -2769,7 +2770,7 @@
         {
           "criterion_id": "S5-AC-03",
           "description": "Retry preserves row count and output digest.",
-          "status": "passed",
+          "status": "pending",
           "evidence_refs": [
             "docs/status/evidence/s5-spark-data-scale-experiment.json",
             "docs/status/evidence/s5-spark-data-scale-closure.json"
@@ -2778,14 +2779,14 @@
         {
           "criterion_id": "S5-AC-04",
           "description": "Generated load volume is not represented as new semantic diversity.",
-          "status": "passed",
+          "status": "pending",
           "evidence_refs": [
             "docs/status/evidence/s5-spark-data-scale-experiment.json",
             "docs/status/evidence/s5-spark-data-scale-closure.json"
           ]
         }
       ],
-      "observed_result": "A fresh 30-point matrix passed across single-process columnar, local Spark, Kubernetes executors 1/2/4, and three exact executor-loss replays. All governed outputs had zero missing and duplicate records. Executor-loss replay preserved the 3,061,802 semantic-row count and output digest while explicitly separating 12,247,208 generated-I/O rows from semantic diversity. Peak executor memory was 150,994,944 bytes, maximum GC ratio was 0.06634, maximum measured skew ratio was 280.18, and all scoped jobs/pods were cleaned up.",
+      "observed_result": null,
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json",
@@ -2824,10 +2825,14 @@
           "claim": "Strict closure independently recomputes S5-AC-01 through S5-AC-04, binds canonical Git bytes and private inventory hashes, records all RCA, regressions, runtime health, and cleanup."
         }
       ],
-      "status": "verified",
+      "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
-      "unresolved_items": [],
-      "next_action": "Review S6 readiness and dependencies only; do not start S6 in this closure turn.",
+      "unresolved_items": [
+        "Generate and validate canonical current-revision S5 runtime smoke evidence.",
+        "Bind command, exit code, test count, and private log hashes for required regressions.",
+        "Reclose from the unchanged 30-point matrix only after mutation tests and cleanup pass."
+      ],
+      "next_action": "Generate and validate canonical current-revision S5 runtime smoke evidence.",
       "architecture_before": "Data processing is reproducible at local scale but remains mostly process-local.",
       "architecture_after": "Spark executors process governed partitions with bounded memory and deterministic commits.",
       "existing_system_baseline": "The existing Airflow data path uses deterministic Python and columnar processing, but distributed executor, shuffle, spill, skew, and retry behavior are not implemented or evidenced.",
@@ -2968,7 +2973,7 @@
         }
       ],
       "verdict_and_claim_boundary": {
-        "verdict": "passed",
+        "verdict": "not_run",
         "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
         "final_system_validation_required": true
       },
@@ -3015,6 +3020,15 @@
           "evidence_refs": [
             "docs/status/evidence/s5-spark-data-scale-experiment.json",
             "docs/status/evidence/s5-current-revision-runtime-smoke.json",
+            "docs/status/evidence/s5-spark-data-scale-closure.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T03:55:06Z",
+          "phase": "verification",
+          "status": "implementing",
+          "summary": "Independent post-closure audit reopened S5: the historical 30-point matrix remains immutable, but closure v1 trusted regression, runtime-smoke, and cleanup summaries instead of independently validating their raw logs and current-revision measurements.",
+          "evidence_refs": [
             "docs/status/evidence/s5-spark-data-scale-closure.json"
           ]
         }
@@ -3417,7 +3431,8 @@
         "Three subsequent family diagnostics completed real external-HTTP CUDA requests and family metric projection, but were rejected with zero credit because cleanup observed Prometheus before the five frozen baseline targets had reloaded; cleanup now requires exact 5/5 restoration.",
         "Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision each completed six real CUDA requests and restored B0, the lease, the S7 target, and Prometheus 5/5; this is a non-acceptance readiness gate only.",
         "The first complete 36-repetition matrix produced healthy runtime results but received zero credit because the strict validator compared semantically identical profile projections by list position; stable profile/repetition identity mapping now preserves order independence while rejecting duplicates.",
-        "A clean 36-repetition matrix, current-revision CUDA smoke, required regressions, canonical Git-blob validation, private inventory rehash, and exact runtime cleanup passed all four S7 acceptance criteria."
+        "A clean 36-repetition matrix, current-revision CUDA smoke, required regressions, canonical Git-blob validation, private inventory rehash, and exact runtime cleanup passed all four S7 acceptance criteria.",
+        "Independent post-closure audit reopened S7: closure v1 did not recompute its numerical totals, conflated 54 intentional over-limit pre-admission rejections with selected/admitted starvation, and did not bind family asset provenance or observed LLM 4-bit readiness."
       ],
       "experiment_environment": "Three non-acceptance diagnostics, one rejected matrix, one accepted 36-repetition matrix, and a current-revision CUDA smoke exercised the existing image, VLM, and LLM routes sequentially with external HTTP and real CUDA on one controlled local physical node and one GPU.",
       "test_or_experiment_steps": [
@@ -3429,7 +3444,7 @@
         {
           "criterion_id": "S7-AC-01",
           "description": "Each model family has distinct p95, p99, and quality metric schemas.",
-          "status": "passed",
+          "status": "pending",
           "evidence_refs": [
             "docs/status/evidence/s7-auxiliary-admission-experiment.json",
             "docs/status/evidence/s7-auxiliary-admission-closure.json"
@@ -3438,7 +3453,7 @@
         {
           "criterion_id": "S7-AC-02",
           "description": "Selected admission limits have zero OOM and zero starvation.",
-          "status": "passed",
+          "status": "pending",
           "evidence_refs": [
             "docs/status/evidence/s7-auxiliary-admission-experiment.json",
             "docs/status/evidence/s7-auxiliary-admission-closure.json"
@@ -3447,7 +3462,7 @@
         {
           "criterion_id": "S7-AC-03",
           "description": "Long-request head-of-line behavior and fairness are measured.",
-          "status": "passed",
+          "status": "pending",
           "evidence_refs": [
             "docs/status/evidence/s7-auxiliary-admission-experiment.json",
             "docs/status/evidence/s7-auxiliary-admission-closure.json"
@@ -3456,14 +3471,14 @@
         {
           "criterion_id": "S7-AC-04",
           "description": "Unsupported or unverified metrics remain absent.",
-          "status": "passed",
+          "status": "pending",
           "evidence_refs": [
             "docs/status/evidence/s7-auxiliary-admission-experiment.json",
             "docs/status/evidence/s7-auxiliary-admission-closure.json"
           ]
         }
       ],
-      "observed_result": "The accepted matrix completed 36 independent profile repetitions: 12 each for image, VLM, and LLM. It completed 162 admitted requests and returned 54 explicit bounded over-limit rejections with zero OOM and zero starvation. Raw-derived validation confirmed distinct family quality and latency schemas, bounded fairness and head-of-line behavior, complete trace and Prometheus attribution, and absence of unsupported metrics. Current-revision smoke completed 6 of 6 external-HTTP CUDA requests. Cleanup restored B0 serving 1/1, active GPU leases and queue work to zero, S7 Prometheus targets to zero, and the frozen Prometheus baseline to 5/5 UP.",
+      "observed_result": null,
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json",
@@ -3508,10 +3523,15 @@
           "claim": "Strict closure binds acceptance, regressions, private hashes, Git blobs, and cleanup without broad production claims."
         }
       ],
-      "status": "verified",
+      "status": "implementing",
       "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
-      "unresolved_items": [],
-      "next_action": "Review V3 S8 dependency-soak and resource-efficiency readiness and blockers only; do not start S8 in this closure turn.",
+      "unresolved_items": [
+        "Reproject the immutable 36-run matrix with scoped starvation and rejection accounting.",
+        "Bind dataset/model license, provenance, and cache manifests for all families.",
+        "Capture all-family current-revision CUDA ready identity and observed LLM 4-bit loading.",
+        "Reclose only after numerical mutation tests, regressions, and exact cleanup pass."
+      ],
+      "next_action": "Reproject the immutable 36-run matrix with scoped starvation and rejection accounting.",
       "architecture_before": "Multiple model families run without one cost-aware admission proof.",
       "architecture_after": "Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.",
       "existing_system_baseline": "The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.",
@@ -3701,7 +3721,7 @@
         }
       ],
       "verdict_and_claim_boundary": {
-        "verdict": "passed",
+        "verdict": "not_run",
         "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
         "final_system_validation_required": true
       },
@@ -3779,6 +3799,15 @@
           "summary": "The accepted 36-repetition family matrix, current-revision CUDA smoke, all required regressions, private rehash, Git-blob closure, and exact cleanup passed S7-AC-01..04; three failed attempts remain retained with zero acceptance credit.",
           "evidence_refs": [
             "docs/status/evidence/s7-auxiliary-admission-experiment.json",
+            "docs/status/evidence/s7-auxiliary-admission-closure.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T03:55:06Z",
+          "phase": "verification",
+          "status": "implementing",
+          "summary": "Independent post-closure audit reopened S7: closure v1 did not recompute its numerical totals, conflated 54 intentional over-limit pre-admission rejections with selected/admitted starvation, and did not bind family asset provenance or observed LLM 4-bit readiness.",
+          "evidence_refs": [
             "docs/status/evidence/s7-auxiliary-admission-closure.json"
           ]
         }

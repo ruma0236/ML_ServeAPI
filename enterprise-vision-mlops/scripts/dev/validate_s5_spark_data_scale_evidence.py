@@ -42,6 +42,17 @@ def parse_args() -> argparse.Namespace:
         default=Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops"),
     )
     parser.add_argument("--private-root", type=Path)
+    parser.add_argument(
+        "--runtime-smoke",
+        type=Path,
+        default=ROOT / "docs/status/evidence/s5-current-revision-runtime-smoke.json",
+    )
+    parser.add_argument(
+        "--regression-evidence",
+        type=Path,
+        default=ROOT / "docs/status/evidence/s5-reclosure-regression-evidence.json",
+    )
+    parser.add_argument("--regression-root", type=Path)
     parser.add_argument("--git-revision")
     parser.add_argument("--require-closure", action="store_true")
     return parser.parse_args()
@@ -89,6 +100,14 @@ def main() -> int:
         closure_raw = load_bytes(args.closure, args.git_revision, git_root)
         if b"\r\n" in closure_raw or not closure_raw.endswith(b"\n"):
             raise S5EvidenceValidationError("s5_closure_not_canonical_lf")
+        smoke_raw = load_bytes(args.runtime_smoke, args.git_revision, git_root)
+        regression_raw = load_bytes(args.regression_evidence, args.git_revision, git_root)
+        for label, supporting_raw in (
+            ("s5_runtime_smoke", smoke_raw),
+            ("s5_regression", regression_raw),
+        ):
+            if b"\r\n" in supporting_raw or not supporting_raw.endswith(b"\n"):
+                raise S5EvidenceValidationError(f"{label}_not_canonical_lf")
         result["closure"] = validate_s5_spark_data_scale_closure(
             json.loads(closure_raw),
             experiment=payload,
@@ -97,6 +116,11 @@ def main() -> int:
             git_root=git_root,
             validation_revision=args.git_revision or "HEAD",
             private_root=private_root,
+            runtime_smoke=json.loads(smoke_raw),
+            runtime_smoke_sha256=hashlib.sha256(smoke_raw).hexdigest(),
+            regression_evidence=json.loads(regression_raw),
+            regression_evidence_sha256=hashlib.sha256(regression_raw).hexdigest(),
+            regression_root=args.regression_root,
         )
         result["closure_sha256"] = hashlib.sha256(closure_raw).hexdigest()
     result["hash_source"] = args.git_revision or "worktree"

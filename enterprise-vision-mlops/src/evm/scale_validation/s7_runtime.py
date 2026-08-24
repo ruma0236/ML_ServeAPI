@@ -287,7 +287,7 @@ def analyze_s7_profiles(
         )
         selected_safe = selected_safe and all(
             int(item.get("oom_count", 0)) == 0
-            and int(item.get("starvation_count", 0)) == 0
+            and int(item.get("admitted_starvation_count", -1)) == 0
             and item.get("drained") is True
             and item.get("lease_identity_exact") is True
             and item.get("cleanup_passed") is True
@@ -325,7 +325,7 @@ def analyze_s7_profiles(
             and all(
                 int(item.get("short_completed", 0)) == config.fairness_short_requests
                 and int(item.get("long_completed", 0)) == config.fairness_long_requests
-                and int(item.get("starvation_count", 0)) == 0
+                and int(item.get("admitted_starvation_count", -1)) == 0
                 and int(item.get("maximum_short_bypass", 0)) <= config.max_short_bypass
                 and _finite(item.get("long_request_max_wait_seconds"), "long_wait")
                 <= config.starvation_seconds
@@ -336,6 +336,23 @@ def analyze_s7_profiles(
             "profile_repetitions": len(family_profiles),
             "completed": sum(int(item.get("completed", 0)) for item in family_profiles),
             "rejected": sum(int(item.get("rejected", 0)) for item in family_profiles),
+            "expired": sum(int(item.get("expired", 0)) for item in family_profiles),
+            "transport_failed": sum(
+                int(item.get("transport_failed", 0)) for item in family_profiles
+            ),
+            "intentional_pre_admission_rejections": sum(
+                int(item.get("pre_admission_rejection_count", 0))
+                for item in family_profiles
+            ),
+            "selected_admitted_starvation_count": sum(
+                int(item.get("admitted_starvation_count", 0))
+                for item in accepted_profiles
+            ),
+            "full_matrix_long_noncompletion_count": sum(
+                int(item.get("long_request_noncompletion_count", 0))
+                for item in family_profiles
+            ),
+            "oom_count": sum(int(item.get("oom_count", 0)) for item in family_profiles),
             "p95_seconds_max": max(
                 (_finite(item.get("p95_seconds"), "p95") for item in accepted_profiles),
                 default=0.0,
@@ -354,6 +371,30 @@ def analyze_s7_profiles(
             "generation_schema": list(GENERATION_SCHEMAS[family]),
         }
 
+    outcome_accounting = {
+        "profile_repetitions": len(profiles),
+        "family_repetitions": {
+            family: int(values["profile_repetitions"])
+            for family, values in family_rollups.items()
+        },
+        "completed_requests": sum(int(item.get("completed", 0)) for item in profiles),
+        "intentional_pre_admission_rejections": sum(
+            int(item.get("pre_admission_rejection_count", 0)) for item in profiles
+        ),
+        "expired_requests": sum(int(item.get("expired", 0)) for item in profiles),
+        "transport_failures": sum(
+            int(item.get("transport_failed", 0)) for item in profiles
+        ),
+        "all_profile_oom_count": sum(int(item.get("oom_count", 0)) for item in profiles),
+        "selected_admitted_starvation_count": sum(
+            int(item.get("admitted_starvation_count", 0))
+            for item in profiles
+            if not str(item.get("profile_id")).endswith("over-limit")
+        ),
+        "full_matrix_long_noncompletion_count": sum(
+            int(item.get("long_request_noncompletion_count", 0)) for item in profiles
+        ),
+    }
     acceptance = {
         "S7-AC-01": bool(matrix_complete and schema_valid and quality_valid),
         "S7-AC-02": bool(
@@ -372,10 +413,11 @@ def analyze_s7_profiles(
         "matrix_complete": matrix_complete,
         "profile_repetition_count": len(profiles),
         "family_rollups": family_rollups,
+        "outcome_accounting": outcome_accounting,
         "checks": {
             "distinct_metric_schemas": schema_valid,
             "quality_thresholds": quality_valid,
-            "zero_oom_and_starvation": selected_safe,
+            "selected_admission_zero_oom_and_admitted_starvation": selected_safe,
             "trace_complete": traces_complete,
             "prometheus_complete": prometheus_complete,
             "bounded_over_limit_rejection": rejections_valid,

@@ -57,6 +57,11 @@ from evm.scale_validation.s7_runtime import (  # noqa: E402
 PROMETHEUS_URL = "http://127.0.0.1:9090"
 TARGET_JOB = "evm-s7-family"
 EXPECTED_BASELINE_TARGET_COUNT = 5
+SCENARIO_CONTRACT_PATHS = {
+    "image": "configs/scenarios/manufacturing-visual-inspection.json",
+    "vlm": "configs/scenarios/scienceqa-vlm-evaluation.json",
+    "llm": "configs/scenarios/dolly-instruction-tuning.json",
+}
 
 
 @dataclass(frozen=True)
@@ -163,6 +168,11 @@ def main() -> int:
     (suite_root / "profiles").mkdir()
     assets = load_assets(args.config, args.data_root)
     validate_assets(assets)
+    asset_provenance = capture_asset_provenance(
+        root=args.root,
+        suite_root=suite_root,
+        assets=assets,
+    )
     holder = capture_holder()
     source_before = source_serving_probe(holder, data_root=args.data_root)
     active_lease = read_active_gpu_lease()
@@ -200,11 +210,13 @@ def main() -> int:
             "prometheus_baseline": prometheus_before,
             "expected_prometheus_baseline_target_count": EXPECTED_BASELINE_TARGET_COUNT,
             "assets": public_asset_identity(assets),
+            "asset_provenance": public_asset_provenance(asset_provenance),
             "input_catalog_sha256": canonical_sha256(public_input_catalog(input_catalog)),
             "started_at": utc_now(),
         },
     )
     profile_results: list[dict[str, Any]] = []
+    ready_identities: dict[str, dict[str, Any]] = {}
     failed: dict[str, Any] | None = None
     failure_exc: Exception | None = None
     family_cleanup: list[dict[str, Any]] = []
@@ -237,7 +249,10 @@ def main() -> int:
                     lease=lease,
                 )
                 ready = wait_ready(service.base_url, timeout=240)
-                assert_ready_identity(family, ready, assets[family], revision)
+                ready_identities[family] = assert_ready_identity(
+                    family, ready, assets[family], revision
+                )
+                canonical_write(suite_root / f"{family}-ready.json", ready)
                 write_target(target_path, assets[family].port, family, suite_id)
                 prometheus_recovery = refresh_prometheus_target(family, timeout=45)
                 warmup(
@@ -384,6 +399,88 @@ def main() -> int:
         canonical_write(suite_root / "failed-attempt.json", failed)
         raise failure_exc
     if args.diagnostic:
+        index = private_evidence_index(suite_root)
+        canonical_write(suite_root / "private-evidence-index.json", index)
+        errors: list[str] = []
+        projected = [
+            project_profile(item, config=config, errors=errors)
+            for item in profile_results
+        ]
+        if errors or set(ready_identities) != set(families):
+            raise S7RuntimeError("s7_diagnostic_projection_failed:" + ",".join(errors))
+        index_raw = (suite_root / "private-evidence-index.json").read_bytes()
+        public = {
+            "schema_version": "evm.s7_current_revision_cuda_smoke.v2",
+            "status": "verified",
+            "verdict": "passed",
+            "suite_id": suite_id,
+            "source_identity": {
+                "revision": revision,
+                "branch": branch,
+                "config_sha256": config.sha256,
+                "git_blobs": source_git_identity(args.root.parent, revision),
+            },
+            "families": list(families),
+            "profiles": projected,
+            "family_ready_identity": ready_identities,
+            "asset_provenance": public_asset_provenance(asset_provenance),
+            "runtime_evidence": {
+                "transport": "external_http",
+                "submitted_requests": sum(item["request_count"] for item in projected),
+                "completed_requests": sum(item["completed"] for item in projected),
+                "rejected_requests": sum(item["rejected"] for item in projected),
+                "transport_failures": sum(item["transport_failed"] for item in projected),
+                "actual_cuda": all(
+                    dict(item.get("runtime", {})).get("cuda_available") is True
+                    if family != "image"
+                    else item.get("device") == "cuda"
+                    for family, item in ready_identities.items()
+                ),
+                "trace_identity_complete": all(
+                    item["trace_complete"] for item in projected
+                ),
+                "oom_count": sum(item["oom_count"] for item in projected),
+                "admitted_starvation_count": sum(
+                    item["admitted_starvation_count"] for item in projected
+                ),
+            },
+            "cleanup": {
+                "source_serving_ready": cleanup["source_model_sha256_exact"],
+                "source_cuda_inference": cleanup["source_cuda_inference"],
+                "source_model_identity_exact": cleanup["source_model_sha256_exact"],
+                "source_candidate_identity_exact": cleanup["source_candidate_exact"],
+                "source_holder_identity_exact": cleanup["holder_uid_exact"],
+                "service_processes_stopped": all(
+                    item["service_process_stopped"] for item in family_cleanup
+                ),
+                "gpu_lease_zero": cleanup["gpu_lease_zero"],
+                "family_queues_drained": all(item["drained"] for item in projected),
+                "s7_prometheus_target_zero": bool(
+                    dict(cleanup["s7_target_cleanup"]).get("restored")
+                ),
+                "prometheus_baseline_target_count": cleanup["prometheus_baseline"][
+                    "target_count"
+                ],
+                "prometheus_baseline_up_count": cleanup["prometheus_baseline"][
+                    "up_count"
+                ],
+            },
+            "private_evidence": {
+                "artifact_count": len(index["artifacts"]),
+                "total_bytes": sum(int(item["bytes"]) for item in index["artifacts"]),
+                "aggregate_sha256": index["aggregate_sha256"],
+                "index_sha256": hashlib.sha256(index_raw).hexdigest(),
+                "location": "outside_git_private_evidence_root",
+            },
+            "claim_boundary": (
+                "Current-revision external-HTTP CUDA identity smoke for image, VLM, "
+                "and LLM on one local physical node and one consumer GPU. ScienceQA "
+                "is non-commercial research/portfolio-only. This is not production, "
+                "SLA, HA, multi-GPU, or broad model-quality evidence."
+            ),
+            "generated_at": utc_now(),
+        }
+        write_public_json(args.output, public)
         print(json.dumps({"status": "diagnostic_passed", "suite_root": str(suite_root)}))
         return 0
     index = private_evidence_index(suite_root)
@@ -1005,24 +1102,73 @@ def wait_ready(base_url: str, *, timeout: float) -> dict[str, Any]:
 
 def assert_ready_identity(
     family: str, ready: dict[str, Any], asset: AssetSpec, revision: str
-) -> None:
+) -> dict[str, Any]:
     if family == "image":
         if (
             ready.get("status") != "ok"
             or ready.get("model_sha256") != asset.model_artifact_sha256
             or ready.get("candidate_id") != asset.candidate_id
+            or ready.get("dataset_version") != asset.dataset_version
             or ready.get("device") != "cuda"
+            or ready.get("cuda_available") is not True
         ):
             raise S7RuntimeError("s7_image_ready_identity_mismatch")
-    elif (
+        return {
+            "status": ready["status"],
+            "model_family": "image",
+            "candidate_id": ready["candidate_id"],
+            "model_artifact_sha256": ready["model_sha256"],
+            "data_identity_sha256": ready["dataset_version"],
+            "device": ready["device"],
+            "cuda_available": ready["cuda_available"],
+            "quantization_requested": "none",
+            "quantization_observed": "none",
+        }
+    quantization = dict(ready.get("quantization_runtime", {}))
+    expected_observed = "int4_nf4" if family == "llm" else "none"
+    if (
         ready.get("status") != "ready"
         or ready.get("model_family") != family
+        or ready.get("model_repository") != asset.model_repository
         or ready.get("model_artifact_sha256") != asset.adapter_sha256
         or ready.get("model_revision") != asset.model_revision
+        or ready.get("data_identity_sha256") != asset.data_identity_sha256
+        or ready.get("model_source_commit") != asset.model_source_commit
         or ready.get("runtime_source_commit") != revision
+        or ready.get("quantization") != asset.quantization
+        or quantization.get("requested") != asset.quantization
+        or quantization.get("observed") != expected_observed
         or not dict(ready.get("runtime", {})).get("cuda_available")
+        or (
+            family == "llm"
+            and (
+                quantization.get("loaded_in_4bit") is not True
+                or int(quantization.get("linear_4bit_module_count", 0)) < 1
+            )
+        )
     ):
         raise S7RuntimeError(f"s7_{family}_ready_identity_mismatch")
+    return {
+        "status": ready["status"],
+        "model_family": family,
+        "model_repository": ready["model_repository"],
+        "model_revision": ready["model_revision"],
+        "model_artifact_sha256": ready["model_artifact_sha256"],
+        "data_identity_sha256": ready["data_identity_sha256"],
+        "model_source_commit": ready["model_source_commit"],
+        "runtime_source_commit": ready["runtime_source_commit"],
+        "quantization_requested": asset.quantization,
+        "quantization_observed": quantization["observed"],
+        "loaded_in_4bit": quantization["loaded_in_4bit"],
+        "linear_4bit_module_count": int(
+            quantization["linear_4bit_module_count"]
+        ),
+        "runtime": {
+            "cuda_available": dict(ready["runtime"])["cuda_available"],
+            "torch": dict(ready["runtime"]).get("torch"),
+            "cuda": dict(ready["runtime"]).get("cuda"),
+        },
+    }
 
 
 def sample_resources(
@@ -1368,6 +1514,99 @@ def public_asset_identity(assets: dict[str, AssetSpec]) -> dict[str, Any]:
             "quantization": asset.quantization,
         }
         for family, asset in assets.items()
+    }
+
+
+def capture_asset_provenance(
+    *, root: Path, suite_root: Path, assets: dict[str, AssetSpec]
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    output_root = suite_root / "asset-provenance"
+    output_root.mkdir(parents=True, exist_ok=True)
+    for family, relative in SCENARIO_CONTRACT_PATHS.items():
+        contract_path = root / relative
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        dataset = dict(contract.get("dataset", {}))
+        asset = assets[family]
+        cache_roots = (
+            [asset.model_artifact]
+            if family == "image"
+            else [asset.base_model, asset.adapter]
+        )
+        cache_entries: list[dict[str, Any]] = []
+        for cache_root in cache_roots:
+            if cache_root is None:
+                continue
+            paths = [cache_root] if cache_root.is_file() else sorted(cache_root.rglob("*"))
+            for path in paths:
+                if not path.is_file():
+                    continue
+                cache_entries.append(
+                    {
+                        "scope": "model_artifact"
+                        if cache_root.is_file()
+                        else cache_root.name,
+                        "path": path.name
+                        if cache_root.is_file()
+                        else path.relative_to(cache_root).as_posix(),
+                        "bytes": path.stat().st_size,
+                        "sha256": file_sha256(path),
+                    }
+                )
+        cache_entries.sort(key=lambda item: (item["scope"], item["path"]))
+        payload = {
+            "schema_version": "evm.s7_asset_provenance.v1",
+            "family": family,
+            "scenario_contract_path": relative,
+            "scenario_contract_sha256": file_sha256(contract_path),
+            "dataset": {
+                key: dataset[key]
+                for key in (
+                    "dataset_id",
+                    "dataset_version",
+                    "source_url",
+                    "source_revision",
+                    "license_id",
+                    "license_url",
+                    "usage_policy",
+                )
+            },
+            "runtime_manifest_sha256": asset.manifest_sha256,
+            "model": {
+                "repository": asset.model_repository or asset.candidate_id,
+                "revision": asset.model_revision or asset.model_artifact_sha256,
+                "artifact_sha256": asset.model_artifact_sha256 or asset.adapter_sha256,
+                "source_commit": asset.model_source_commit,
+                "quantization": asset.quantization,
+            },
+            "cache_manifest": {
+                "file_count": len(cache_entries),
+                "total_bytes": sum(int(item["bytes"]) for item in cache_entries),
+                "aggregate_sha256": canonical_sha256(cache_entries),
+                "entries": cache_entries,
+            },
+        }
+        canonical_write(output_root / f"{family}.json", payload)
+        result[family] = payload
+    return result
+
+
+def public_asset_provenance(
+    provenance: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    return {
+        family: {
+            "scenario_contract_path": payload["scenario_contract_path"],
+            "scenario_contract_sha256": payload["scenario_contract_sha256"],
+            "dataset": payload["dataset"],
+            "runtime_manifest_sha256": payload["runtime_manifest_sha256"],
+            "model": payload["model"],
+            "cache_manifest": {
+                key: payload["cache_manifest"][key]
+                for key in ("file_count", "total_bytes", "aggregate_sha256")
+            },
+        }
+        for family, payload in provenance.items()
     }
 
 

@@ -119,3 +119,43 @@ def test_scenario_serving_separates_model_and_runtime_source_identity(monkeypatc
     assert payload["runtime_source_commit"] == "e" * 40
     assert payload["admission"]["policy"]["family"] == "vlm"
     assert payload["admission"]["active_requests"] == 0
+
+
+def test_scenario_serving_ready_exposes_observed_quantization_runtime(monkeypatch) -> None:
+    def load(service: ScenarioModelService) -> None:
+        service.quantization_runtime = {
+            "requested": "int4_nf4",
+            "observed": "int4_nf4",
+            "loaded_in_4bit": True,
+            "linear_4bit_module_count": 8,
+        }
+
+    monkeypatch.setattr(ScenarioModelService, "_load", load)
+    monkeypatch.setattr(
+        "evm.model_runtime.serving.runtime_inventory",
+        lambda: {"torch": "test", "cuda_available": True},
+    )
+    service = ScenarioModelService(
+        ScenarioServingConfig(
+            model_family="llm",
+            base_model_dir=Path("base"),
+            adapter_dir=Path("adapter"),
+            model_repository="generalized/repository",
+            model_revision="a" * 40,
+            model_artifact_sha256="b" * 64,
+            data_identity_sha256="c" * 64,
+            source_commit="d" * 40,
+            lifecycle_run_id="runtime-control",
+            quantization="int4_nf4",
+        )
+    )
+
+    payload = service.ready_payload()
+
+    assert payload["quantization"] == "int4_nf4"
+    assert payload["quantization_runtime"] == {
+        "requested": "int4_nf4",
+        "observed": "int4_nf4",
+        "loaded_in_4bit": True,
+        "linear_4bit_module_count": 8,
+    }

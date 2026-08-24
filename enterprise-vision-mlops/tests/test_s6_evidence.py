@@ -243,6 +243,62 @@ def test_s6_evidence_validator_rejects_summary_only_pass_mutation(tmp_path: Path
         )
 
 
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        (
+            lambda value: value["trace_summary"].__setitem__("complete", False),
+            "trace_complete",
+        ),
+        (
+            lambda value: value["database"]["drain_events"][0].__setitem__(
+                "instance_id", "unexpected-pod"
+            ),
+            "drain_identity_closure",
+        ),
+    ],
+)
+def test_s6_api_projection_fails_closed_on_trace_or_drain_identity_mutation(
+    mutation, expected: str
+) -> None:
+    payload = _api_raw(1)
+    mutation(payload)
+    errors: list[str] = []
+
+    project_api_result(payload, errors=errors)
+
+    assert any(expected in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        (
+            lambda value: value["owner_timeline"][0].__setitem__("owner_count", 2),
+            "owner_overlap",
+        ),
+        (
+            lambda value: value.__setitem__("source_identity_after", "z" * 64),
+            "rollback_identity",
+        ),
+        (
+            lambda value: value.__setitem__("approval_reuse_rejected", False),
+            "approval",
+        ),
+    ],
+)
+def test_s6_gpu_projection_fails_closed_on_handoff_identity_mutation(
+    mutation, expected: str
+) -> None:
+    payload = _gpu_raw(1, "acceptance")
+    mutation(payload)
+    errors: list[str] = []
+
+    project_gpu_result(payload, errors=errors, prefix="gpu")
+
+    assert any(expected in error for error in errors)
+
+
 def _closure(payload: dict[str, object], config: S6RuntimeConfig) -> dict[str, object]:
     return {
         "schema_version": "evm.s6_rolling_handoff_closure.v1",

@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--evidence",
         type=Path,
-        default=ROOT / "docs/status/evidence/s7-auxiliary-admission-experiment.json",
+        default=ROOT / "docs/status/evidence/s7-auxiliary-admission-reprojection.json",
     )
     parser.add_argument(
         "--closure",
@@ -35,6 +35,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config", type=Path, default=ROOT / "configs/s7_family_admission.toml")
     parser.add_argument("--private-root", type=Path, required=True)
+    parser.add_argument(
+        "--runtime-smoke",
+        type=Path,
+        default=ROOT / "docs/status/evidence/s7-current-revision-cuda-smoke.json",
+    )
+    parser.add_argument("--runtime-smoke-private-root", type=Path)
+    parser.add_argument(
+        "--regression-evidence",
+        type=Path,
+        default=ROOT / "docs/status/evidence/s7-reclosure-regression-evidence.json",
+    )
+    parser.add_argument("--regression-root", type=Path)
     parser.add_argument("--git-revision")
     parser.add_argument("--require-closure", action="store_true")
     return parser.parse_args()
@@ -76,14 +88,28 @@ def main() -> int:
     )
     result["evidence_sha256"] = hashlib.sha256(raw).hexdigest()
     if args.require_closure:
+        if args.runtime_smoke_private_root is None or args.regression_root is None:
+            raise S7EvidenceValidationError(
+                "s7_closure_requires_runtime_smoke_private_root_and_regression_root"
+            )
         closure_raw = load_bytes(args.closure, args.git_revision, git_root)
         require_canonical(closure_raw, "s7_closure")
+        smoke_raw = load_bytes(args.runtime_smoke, args.git_revision, git_root)
+        regression_raw = load_bytes(args.regression_evidence, args.git_revision, git_root)
+        require_canonical(smoke_raw, "s7_runtime_smoke")
+        require_canonical(regression_raw, "s7_regression")
         result["closure"] = validate_s7_closure(
             json.loads(closure_raw),
             experiment=payload,
             experiment_sha256=result["evidence_sha256"],
             config=config,
             private_root=args.private_root,
+            runtime_smoke=json.loads(smoke_raw),
+            runtime_smoke_sha256=hashlib.sha256(smoke_raw).hexdigest(),
+            runtime_smoke_private_root=args.runtime_smoke_private_root,
+            regression_evidence=json.loads(regression_raw),
+            regression_evidence_sha256=hashlib.sha256(regression_raw).hexdigest(),
+            regression_root=args.regression_root,
             git_root=git_root,
             validation_revision=args.git_revision or "HEAD",
         )

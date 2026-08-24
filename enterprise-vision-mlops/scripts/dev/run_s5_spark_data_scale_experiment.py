@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import requests
+
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -55,6 +57,7 @@ def main() -> int:
     failed_attempts: list[dict[str, Any]] = []
     try:
         if args.smoke_only:
+            source_manifest_sha256 = file_sha256(config.manifest_path)
             smoke = _run_preparation_smoke(
                 config=config,
                 manifest=manifest,
@@ -62,7 +65,20 @@ def main() -> int:
                 suite_id=suite_id,
                 suite_root=suite_root,
             )
-            print(json.dumps(smoke, indent=2, ensure_ascii=False))
+            private_index = private_evidence_index(suite_root)
+            write_public_json(suite_root / "private-evidence-index.json", private_index)
+            public_smoke = _public_runtime_smoke(
+                smoke=smoke,
+                source_revision=source_revision,
+                source_branch=source_branch,
+                config=config,
+                suite_id=suite_id,
+                suite_root=suite_root,
+                private_index=private_index,
+                source_manifest_sha256=source_manifest_sha256,
+            )
+            write_public_json(args.public_evidence, public_smoke)
+            print(json.dumps(public_smoke, indent=2, ensure_ascii=False))
             return 0
         for stage in ("small", "medium", "large"):
             for repetition in range(1, config.repetitions + 1):
@@ -274,6 +290,116 @@ def _run_preparation_smoke(
     if result["status"] != "passed":
         raise S5RuntimeError(f"s5_preparation_smoke_failed:{result}")
     return result
+
+
+def _public_runtime_smoke(
+    *,
+    smoke: dict[str, Any],
+    source_revision: str,
+    source_branch: str,
+    config: S5RuntimeConfig,
+    suite_id: str,
+    suite_root: Path,
+    private_index: dict[str, Any],
+    source_manifest_sha256: str,
+) -> dict[str, Any]:
+    cleanup = dict(smoke["cleanup"])
+    jobs = json.loads(
+        _run(
+            [
+                "kubectl",
+                "get",
+                "jobs",
+                "-n",
+                config.namespace,
+                "-l",
+                "evm_s5_role=submitter",
+                "-o",
+                "json",
+            ],
+            check=False,
+            default='{"items": []}',
+        )
+    ).get("items", [])
+    return {
+        "schema_version": "evm.s5_current_revision_runtime_smoke.v2",
+        "status": smoke["status"],
+        "acceptance_credit": False,
+        "suite_id": suite_id,
+        "source_identity": {
+            "revision": source_revision,
+            "branch": source_branch,
+            "config_sha256": config.sha256,
+            "git_blobs": source_git_identity(ROOT.parent, source_revision),
+        },
+        "engines": [
+            project_s5_result(item, point_id=f"smoke-{index:02d}")
+            for index, item in enumerate(smoke["engines"], start=1)
+        ],
+        "cross_engine_output_digest_equal": smoke[
+            "cross_engine_output_digest_equal"
+        ],
+        "cleanup": {
+            "kubernetes_executor_pods_remaining": int(
+                cleanup["executor_pods_remaining"]
+            ),
+            "kubernetes_jobs_remaining": len(jobs),
+            "pvc_phase": cleanup["pvc_phase"],
+            "source_dataset_unchanged": (
+                file_sha256(config.manifest_path) == source_manifest_sha256
+            ),
+        },
+        "runtime_health": _runtime_health(),
+        "private_evidence": {
+            "artifact_count": private_index["artifact_count"],
+            "total_bytes": private_index["total_bytes"],
+            "index_sha256": file_sha256(
+                suite_root / "private-evidence-index.json"
+            ),
+            "location": "outside_git_private_evidence_root",
+        },
+        "claim_boundary": (
+            "Current-revision local cross-engine smoke only; no production SLA, "
+            "physical multi-node, full-terabyte, or customer-traffic claim."
+        ),
+        "generated_at": utc_now(),
+    }
+
+
+def _runtime_health() -> dict[str, Any]:
+    response = requests.get("http://127.0.0.1:8000/health", timeout=10)
+    response.raise_for_status()
+    api = response.json()
+    serving = json.loads(
+        _run(
+            [
+                "kubectl",
+                "get",
+                "deployment",
+                "evm-b0-production",
+                "-n",
+                "evm-production",
+                "-o",
+                "json",
+            ]
+        )
+    )
+    prometheus = requests.get(
+        "http://127.0.0.1:9090/api/v1/targets", timeout=10
+    )
+    prometheus.raise_for_status()
+    targets = prometheus.json().get("data", {}).get("activeTargets", [])
+    desired = int(serving.get("spec", {}).get("replicas", 0))
+    available = int(serving.get("status", {}).get("availableReplicas", 0))
+    return {
+        "api_status": api.get("status"),
+        "existing_serving_desired_replicas": desired,
+        "existing_serving_available_replicas": available,
+        "prometheus_targets_total": len(targets),
+        "prometheus_targets_up": sum(
+            1 for item in targets if item.get("health") == "up"
+        ),
+    }
 
 
 def _preflight(config: S5RuntimeConfig, *, image: str, build_image: bool) -> None:
