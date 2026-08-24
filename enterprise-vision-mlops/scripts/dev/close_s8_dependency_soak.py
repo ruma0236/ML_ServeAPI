@@ -206,14 +206,12 @@ def build_closure(
         "accepted_experiment": {
             "fault_repetitions": len(fault_results),
             "soak_repetitions": len(soak_results),
-            "soak_target_requests_per_second": experiment["config"]["soak"][
-                "target_requests_per_second"
-            ],
-            "soak_measurement_seconds": experiment["config"]["soak"][
-                "measurement_seconds"
+            "soak_target_requests_per_second": experiment["config"]["soak_rps"],
+            "soak_measurement_seconds": experiment["config"][
+                "soak_measurement_seconds"
             ],
             "requests_per_repetition": [
-                int(item["load"]["completed_requests"]) for item in soak_results
+                int(item["load"]["successful_count"]) for item in soak_results
             ],
             "p99_ms": [float(item["load"]["latency_ms"]["p99"]) for item in soak_results],
             "error_rate": [float(item["load"]["error_rate"]) for item in soak_results],
@@ -250,6 +248,7 @@ def build_closure(
         "evidence_corrections_retained": [
             "docs/status/2026-08-24-s8-evidence-nonfinite-rca.md",
             "docs/status/2026-08-24-s8-regression-dependency-rca.md",
+            "docs/status/2026-08-24-s8-closure-command-rca.md",
         ],
         "unresolved_blockers": [],
         "residual_risks": [
