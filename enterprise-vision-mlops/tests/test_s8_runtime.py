@@ -149,7 +149,57 @@ def test_s8_soak_private_recomputes_finite_resource_slopes(tmp_path: Path) -> No
 
     assert projection["passed"] is True
     assert projection["resource_sample_count"] == 1621
+    assert projection["runtime_gauge_sample_count"] == 1621
+    assert projection["runtime_gauge_failure_count"] == 0
     assert projection["requests_per_cpu_second"] > 0
+
+
+def test_s8_soak_private_rejects_excessive_runtime_gauge_sampling_loss(
+    tmp_path: Path,
+) -> None:
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v6.toml")
+    samples = []
+    for index in range(1621):
+        runtime_gauge_ok = index < 1619
+        sample = {
+            "offset_seconds": float(index),
+            "runtime_gauge_sample_ok": runtime_gauge_ok,
+            "runtime_gauge_error": None if runtime_gauge_ok else "ReadTimeout",
+            "api_process_tree_rss_bytes": 100_000_000,
+            "load_generator_rss_bytes": 20_000_000,
+            "api_process_tree_open_handles": 20,
+            "load_generator_open_handles": 5,
+            "api_process_tree_cpu_percent": 25.0,
+            "load_generator_cpu_percent": 5.0,
+            "artifact_bytes": 1_000,
+        }
+        if runtime_gauge_ok:
+            sample.update(
+                {
+                    "evm_control_plane_db_pool_in_use": 1,
+                    "evm_control_plane_db_pool_waiting": 0,
+                    "evm_s3_capacity_executor_queue_depth": 0,
+                }
+            )
+        samples.append(sample)
+    target = tmp_path / "point-evidence-private.json"
+    target.write_text(
+        json.dumps(
+            {
+                "resource_samples": samples,
+                "measurement": {"observations": [{"status_code": 200}]},
+                "evidence_valid": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    projection = analyze_soak_private(target, config)
+
+    assert projection["checks"]["sample_count"] is True
+    assert projection["checks"]["runtime_gauge_sample_count"] is False
+    assert projection["runtime_gauge_failure_count"] == 2
+    assert projection["passed"] is False
 
 
 def test_s8_numeric_helpers_never_publish_non_finite_statistics() -> None:

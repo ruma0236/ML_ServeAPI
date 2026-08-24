@@ -849,6 +849,9 @@ def analyze_soak_private(
 ) -> dict[str, Any]:
     payload = json.loads(private_path.read_text(encoding="utf-8"))
     samples = [dict(item) for item in payload.get("resource_samples", [])]
+    runtime_gauge_samples = [
+        item for item in samples if bool(item.get("runtime_gauge_sample_ok", True))
+    ]
     minimum_samples = int(
         config.soak_measurement_seconds
         / config.soak_resource_sample_interval_seconds
@@ -866,15 +869,15 @@ def analyze_soak_private(
             + float(item.get("load_generator_open_handles", 0)),
         ),
         "pool_in_use_per_minute": linear_slope(
-            samples,
+            runtime_gauge_samples,
             lambda item: float(item.get("evm_control_plane_db_pool_in_use", 0)),
         ),
         "pool_waiting_per_minute": linear_slope(
-            samples,
+            runtime_gauge_samples,
             lambda item: float(item.get("evm_control_plane_db_pool_waiting", 0)),
         ),
         "queue_depth_per_minute": linear_slope(
-            samples,
+            runtime_gauge_samples,
             lambda item: float(
                 item.get("evm_s3_capacity_executor_queue_depth", 0)
             ),
@@ -890,6 +893,9 @@ def analyze_soak_private(
     efficiency = completed / cpu_seconds if cpu_seconds > 0 else 0.0
     checks = {
         "sample_count": len(samples) >= minimum_samples,
+        "runtime_gauge_sample_count": (
+            len(runtime_gauge_samples) >= minimum_samples
+        ),
         "rss_slope": slopes["rss_bytes_per_minute"]
         <= config.maximum_rss_slope_bytes_per_minute,
         "fd_slope": slopes["open_handles_per_minute"]
@@ -906,6 +912,8 @@ def analyze_soak_private(
     return {
         "private_evidence_sha256": sha256_file(private_path),
         "resource_sample_count": len(samples),
+        "runtime_gauge_sample_count": len(runtime_gauge_samples),
+        "runtime_gauge_failure_count": len(samples) - len(runtime_gauge_samples),
         "slopes": slopes,
         "completed_requests": completed,
         "cpu_seconds": cpu_seconds,

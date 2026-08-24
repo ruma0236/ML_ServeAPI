@@ -102,6 +102,8 @@ class S3RuntimeConfig:
     retry_after_seconds: int
     client_max_in_flight: int
     resource_sample_interval_seconds: float
+    resource_metrics_timeout_seconds: float
+    resource_metrics_max_consecutive_failures: int
     trace_flush_seconds: float
     trace_poll_interval_seconds: float
     prometheus_scrape_interval_seconds: float
@@ -180,6 +182,12 @@ class S3RuntimeConfig:
             resource_sample_interval_seconds=float(
                 execution["resource_sample_interval_seconds"]
             ),
+            resource_metrics_timeout_seconds=float(
+                execution.get("resource_metrics_timeout_seconds", 1.0)
+            ),
+            resource_metrics_max_consecutive_failures=int(
+                execution.get("resource_metrics_max_consecutive_failures", 3)
+            ),
             trace_flush_seconds=float(execution["trace_flush_seconds"]),
             trace_poll_interval_seconds=float(
                 execution["trace_poll_interval_seconds"]
@@ -247,6 +255,7 @@ class S3RuntimeConfig:
             self.max_request_bytes,
             self.retry_after_seconds,
             self.client_max_in_flight,
+            self.resource_metrics_max_consecutive_failures,
             self.prior_depth,
             self.rollback_depth,
             *self.closed_steps,
@@ -256,6 +265,7 @@ class S3RuntimeConfig:
         positive_floats = (
             self.request_timeout_seconds,
             self.resource_sample_interval_seconds,
+            self.resource_metrics_timeout_seconds,
             self.trace_flush_seconds,
             self.trace_poll_interval_seconds,
             self.prometheus_scrape_interval_seconds,
@@ -682,6 +692,8 @@ def directory_bytes(path: Path) -> int:
 
 def capacity_runtime_gauges(
     replicas: Sequence[ApiReplica],
+    *,
+    timeout_seconds: float = 1.0,
 ) -> dict[str, float]:
     names = {
         "evm_s3_capacity_executor_queue_depth",
@@ -697,7 +709,10 @@ def capacity_runtime_gauges(
     }
     observed = {name: 0.0 for name in names}
     for replica in replicas:
-        response = requests.get(f"{replica.base_url}/metrics", timeout=1)
+        response = requests.get(
+            f"{replica.base_url}/metrics",
+            timeout=timeout_seconds,
+        )
         response.raise_for_status()
         for family in text_string_to_metric_families(response.text):
             for sample in family.samples:
@@ -1148,6 +1163,8 @@ async def collect_resource_samples(
     stop: StopController,
     finished: asyncio.Event,
     artifact_root: Path,
+    runtime_metrics_timeout_seconds: float = 1.0,
+    runtime_metrics_max_consecutive_failures: int = 3,
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     runner = psutil.Process(os.getpid())
@@ -1161,6 +1178,7 @@ async def collect_resource_samples(
     previous_runner_cpu = float(runner_times.user + runner_times.system)
     psutil.cpu_percent(None)
     high_cpu_samples = 0
+    consecutive_runtime_metric_failures = 0
     started = time.perf_counter()
     previous_sample = started
     while not finished.is_set():
@@ -1187,7 +1205,18 @@ async def collect_resource_samples(
         runner_times = runner.cpu_times()
         runner_cpu = float(runner_times.user + runner_times.system)
         host_cpu = float(psutil.cpu_percent(None))
-        runtime_gauges = await asyncio.to_thread(capacity_runtime_gauges, replicas)
+        runtime_gauges: dict[str, float] = {}
+        runtime_gauge_error: str | None = None
+        try:
+            runtime_gauges = await asyncio.to_thread(
+                capacity_runtime_gauges,
+                replicas,
+                timeout_seconds=runtime_metrics_timeout_seconds,
+            )
+            consecutive_runtime_metric_failures = 0
+        except requests.RequestException as exc:
+            consecutive_runtime_metric_failures += 1
+            runtime_gauge_error = type(exc).__name__
         artifact_bytes = await asyncio.to_thread(directory_bytes, artifact_root)
         sample = {
             "offset_seconds": sampled_at - started,
@@ -1210,6 +1239,11 @@ async def collect_resource_samples(
                 (runner_cpu - previous_runner_cpu) / elapsed * 100,
             ),
             "artifact_bytes": artifact_bytes,
+            "runtime_gauge_sample_ok": runtime_gauge_error is None,
+            "runtime_gauge_error": runtime_gauge_error,
+            "runtime_gauge_consecutive_failures": (
+                consecutive_runtime_metric_failures
+            ),
             **runtime_gauges,
         }
         previous_runner_cpu = runner_cpu
@@ -1222,6 +1256,12 @@ async def collect_resource_samples(
             stop.stop("host_cpu_guardrail")
         if sample["api_process_tree_rss_bytes"] > maximum_process_tree_rss_bytes:
             stop.stop("api_process_tree_rss_guardrail")
+        if (
+            consecutive_runtime_metric_failures
+            >= runtime_metrics_max_consecutive_failures
+        ):
+            stop.stop("runtime_metrics_unavailable")
+            break
     return samples
 
 
@@ -1355,7 +1395,9 @@ def resource_summary(samples: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "evm_control_plane_db_pool_waiting",
     )
     return {
-        field: _statistics([float(sample.get(field, 0)) for sample in samples])
+        field: _statistics(
+            [float(sample[field]) for sample in samples if field in sample]
+        )
         for field in fields
     }
 
@@ -1931,6 +1973,12 @@ async def _run_measured_phase(
             stop=stop,
             finished=finished,
             artifact_root=artifact_root,
+            runtime_metrics_timeout_seconds=(
+                config.resource_metrics_timeout_seconds
+            ),
+            runtime_metrics_max_consecutive_failures=(
+                config.resource_metrics_max_consecutive_failures
+            ),
         )
     )
     try:

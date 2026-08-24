@@ -139,6 +139,17 @@ Historical `ContainerStatusUnknown` and old terminal Kubernetes objects are
 recorded as unrelated local-cluster debt. They are not deleted, hidden, or counted
 as S8 acceptance failures unless S8 creates or changes them.
 
+## Resource Sampling Amendment
+
+Attempt 05 exposed an evidence-runtime defect: one transient one-second
+`/metrics` timeout terminated the sampler and invalidated the first 30-minute
+soak only after its measurement window ended. The remediation records sampling
+failures explicitly, retains independent host/process measurements, computes
+queue and pool slopes only from valid runtime-gauge samples, requires at least
+90 percent valid gauge coverage, and stops after three consecutive failures.
+The `35 RPS`, 30-minute measurement, three-repetition requirement, and all S8
+guardrail thresholds remain unchanged.
+
 ## Portfolio Boundary
 
 Allowed: a controlled single-local-node experiment showing bounded retries,

@@ -6,9 +6,11 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import requests
 
 from evm.scale_validation.s3_higgs import file_sha256
 from evm.scale_validation.s3_runtime import (
@@ -18,10 +20,13 @@ from evm.scale_validation.s3_runtime import (
     S3LoadPoint,
     S3RuntimeConfig,
     S3RuntimeError,
+    StopController,
+    collect_resource_samples,
     evaluate_point_assertions,
     identify_first_bottleneck,
     otlp_trace_summary,
     recalculate_s2_capacity,
+    resource_summary,
     run_load_phase,
     select_sustainable_points,
     stable_public_projection,
@@ -33,6 +38,109 @@ from evm.scale_validation.s3_runtime import (
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_CONFIG = ROOT / "configs" / "s3_capacity_runtime.toml"
+
+
+def _resource_gauges() -> dict[str, float]:
+    return {
+        "evm_s3_capacity_executor_queue_depth": 0.0,
+        "evm_s3_capacity_executor_queue_bytes": 0.0,
+        "evm_s3_capacity_executor_in_flight": 0.0,
+        "evm_s3_capacity_executor_in_flight_bytes": 0.0,
+        "evm_s3_capacity_executor_outstanding": 0.0,
+        "evm_s3_capacity_executor_outstanding_bytes": 0.0,
+        "evm_control_plane_db_pool_size": 1.0,
+        "evm_control_plane_db_pool_available": 1.0,
+        "evm_control_plane_db_pool_in_use": 0.0,
+        "evm_control_plane_db_pool_waiting": 0.0,
+    }
+
+
+def test_resource_sampler_records_transient_metrics_timeout_and_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    finished = asyncio.Event()
+    calls = 0
+
+    def sample_gauges(_replicas, *, timeout_seconds):
+        nonlocal calls
+        calls += 1
+        assert timeout_seconds == 0.25
+        if calls == 1:
+            raise requests.ReadTimeout("bounded test timeout")
+        finished.set()
+        return _resource_gauges()
+
+    monkeypatch.setattr(
+        "evm.scale_validation.s3_runtime.capacity_runtime_gauges",
+        sample_gauges,
+    )
+    replica = SimpleNamespace(
+        replica_id="api-0",
+        runtime=SimpleNamespace(pid=os.getpid()),
+    )
+
+    samples = asyncio.run(
+        collect_resource_samples(
+            replicas=[replica],
+            interval_seconds=0.001,
+            maximum_host_cpu_percent=100.0,
+            maximum_process_tree_rss_bytes=2**63 - 1,
+            stop=StopController(),
+            finished=finished,
+            artifact_root=tmp_path,
+            runtime_metrics_timeout_seconds=0.25,
+            runtime_metrics_max_consecutive_failures=3,
+        )
+    )
+
+    assert len(samples) == 2
+    assert samples[0]["runtime_gauge_sample_ok"] is False
+    assert samples[0]["runtime_gauge_error"] == "ReadTimeout"
+    assert "evm_control_plane_db_pool_size" not in samples[0]
+    assert samples[1]["runtime_gauge_sample_ok"] is True
+    assert samples[1]["evm_control_plane_db_pool_size"] == 1.0
+    summary = resource_summary(samples)
+    assert summary["api_process_tree_rss_bytes"]["count"] == 2
+    assert summary["evm_control_plane_db_pool_size"]["count"] == 1
+
+
+def test_resource_sampler_stops_after_bounded_consecutive_metrics_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def unavailable(_replicas, *, timeout_seconds):
+        del timeout_seconds
+        raise requests.ReadTimeout("bounded test timeout")
+
+    monkeypatch.setattr(
+        "evm.scale_validation.s3_runtime.capacity_runtime_gauges",
+        unavailable,
+    )
+    stop = StopController()
+    replica = SimpleNamespace(
+        replica_id="api-0",
+        runtime=SimpleNamespace(pid=os.getpid()),
+    )
+
+    samples = asyncio.run(
+        collect_resource_samples(
+            replicas=[replica],
+            interval_seconds=0.001,
+            maximum_host_cpu_percent=100.0,
+            maximum_process_tree_rss_bytes=2**63 - 1,
+            stop=stop,
+            finished=asyncio.Event(),
+            artifact_root=tmp_path,
+            runtime_metrics_timeout_seconds=0.25,
+            runtime_metrics_max_consecutive_failures=3,
+        )
+    )
+
+    assert len(samples) == 3
+    assert stop.reason == "runtime_metrics_unavailable"
+    assert all(not sample["runtime_gauge_sample_ok"] for sample in samples)
+    assert samples[-1]["runtime_gauge_consecutive_failures"] == 3
 
 
 def _runtime_fixture(tmp_path: Path) -> tuple[S3RuntimeConfig, dict[str, str]]:

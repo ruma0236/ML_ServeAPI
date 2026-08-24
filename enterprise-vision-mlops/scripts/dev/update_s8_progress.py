@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
             "timeout-preflight-pass",
             "mttr-remediation",
             "worker-mttr-preflight",
+            "resource-sampler-remediation",
             "verification",
         ),
         default="implementation",
@@ -94,6 +95,8 @@ def main() -> int:
         return record_mttr_remediation(args)
     if args.phase == "worker-mttr-preflight":
         return record_worker_mttr_preflight(args)
+    if args.phase == "resource-sampler-remediation":
+        return record_resource_sampler_remediation(args)
     if args.phase != "implementation":
         raise SystemExit("verification updates are produced by the S8 closure script")
     now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -459,6 +462,47 @@ def record_mttr_remediation(args: argparse.Namespace) -> int:
             "evidence_refs": [
                 "docs/status/evidence/s8-dependency-soak-attempt-04.json",
                 "docs/status/2026-08-24-s8-attempt-04-rca.md",
+            ],
+        }
+    )
+    payload["generated_at"] = now
+    ledger = ScenarioProgressLedger.model_validate(payload)
+    args.json_path.write_bytes((ledger.model_dump_json(indent=2) + "\n").encode("utf-8"))
+    args.markdown_path.write_text(
+        render_progress_markdown(ledger), encoding="utf-8", newline="\n"
+    )
+    return 0
+
+
+def record_resource_sampler_remediation(args: argparse.Namespace) -> int:
+    now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    payload = json.loads(args.json_path.read_text(encoding="utf-8"))
+    scenario = next(item for item in payload["scenarios"] if item["scenario_id"] == "S8")
+    components = implementation_components()
+    scenario["changed_components"] = components
+    scenario["implementation_delta"]["modified_existing_components"] = components
+    scenario["observed_result"] = None
+    scenario["status"] = "implementing"
+    scenario["verdict_and_claim_boundary"]["verdict"] = "not_run"
+    scenario["next_action"] = (
+        "Run a short zero-credit 35 RPS sampler validation, then restart all 21 "
+        "fault repetitions and the three 30-minute soak repetitions from the "
+        "clean resource-sampling revision."
+    )
+    scenario["chronological_updates"].append(
+        {
+            "occurred_at": now,
+            "phase": "implementation",
+            "status": "implementing",
+            "summary": (
+                "Resource sampling now records transient metrics failures, uses "
+                "only valid gauge samples for queue and pool slopes, requires at "
+                "least 90 percent valid gauge coverage, and stops fail closed after "
+                "three consecutive failures. The accepted load and guardrails are unchanged."
+            ),
+            "evidence_refs": [
+                "docs/status/evidence/s8-dependency-soak-attempt-05.json",
+                "docs/status/2026-08-24-s8-attempt-05-rca.md",
             ],
         }
     )

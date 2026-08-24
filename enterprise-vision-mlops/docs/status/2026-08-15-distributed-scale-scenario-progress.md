@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T09:41:54Z`
+- Generated: `2026-08-24T09:49:18Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -739,7 +739,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.
 - Verdict: `not_run`
 - Claim boundary: Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.
-- Next action: Record bounded resource-sampling misses, stop after repeated metrics unavailability, validate the remediation with a non-credit load, then restart the complete 21-fault plus three-soak acceptance suite.
+- Next action: Run a short zero-credit 35 RPS sampler validation, then restart all 21 fault repetitions and the three 30-minute soak repetitions from the clean resource-sampling revision.
 
 ### Affected Existing Components
 
@@ -813,3 +813,4 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-24T08:45:26Z` `implementation` / `implementing`: V6 preserves full worker-loss profile elapsed time but defines operational worker MTTR as exact PID failure to the reclaimed slow task terminal outcome. The 60-second bound remains unchanged.
 - `2026-08-24T08:49:58Z` `verification` / `implementing`: The zero-credit v6 worker-loss preflight passed with exact worker MTTR 11.954 seconds versus full profile elapsed 62.234 seconds, 3/3 terminal and trace closure, and complete cleanup.
 - `2026-08-24T09:41:54Z` `experiment` / `implementing`: Attempt 05 was rejected with zero acceptance credit. All 21 individual fault scopes passed and soak repetition 1 ran its measurement window, but a transient /metrics read timeout killed the resource sampler; the point was invalidated after cleanup instead of receiving partial credit.
+- `2026-08-24T09:49:18Z` `implementation` / `implementing`: Resource sampling now records transient metrics failures, uses only valid gauge samples for queue and pool slopes, requires at least 90 percent valid gauge coverage, and stops fail closed after three consecutive failures. The accepted load and guardrails are unchanged.
