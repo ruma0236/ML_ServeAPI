@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts.dev.update_s8_v4_e0_state import remediation_transition
 from evm.scale_validation.v4_ledger import (
     V4LedgerError,
     append_event,
@@ -60,3 +61,17 @@ def test_v4_ledger_append_preserves_existing_bytes(tmp_path: Path) -> None:
     updated = read_events(ledger)
     assert len(updated) == len(events) + 1
     assert updated[-1]["event_hash"] == appended["event_hash"]
+
+
+def test_e0_gpu_lease_remediation_is_recorded_as_append_only_amendment() -> None:
+    transition = remediation_transition(
+        {
+            "failure": "ScenarioWorkloadError:s8-v4-e0-1-fixture",
+            "credit": "zero_credit",
+        },
+        amendment=True,
+    )
+    assert transition["event_type"] == "e0_gpu_lease_remediation_amendment"
+    assert "GPU lease" in transition["summary"]
+    assert "E0" in transition["rca"]
+    assert transition["credit"] == "non_credit"

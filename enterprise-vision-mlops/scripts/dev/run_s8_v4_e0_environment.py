@@ -707,7 +707,9 @@ def run_attempt(
         lease = acquire_scale_validation_gpu_lease(
             f"s8-v4-{attempt_id}",
             source_commit=revision,
-            purpose="s8_v4_e0_triton_qualification",
+            purpose="scale_validation_inference",
+            scenario_id="E0",
+            model_family="tabular",
             owner_pid=os.getpid(),
             ttl_seconds=900,
         )
@@ -890,6 +892,13 @@ def collect_prior_failures(private_base: Path, suite_root: Path) -> list[dict[st
         if suite_root in path.parents:
             continue
         payload = json.loads(path.read_bytes())
+        rca = payload.get("rca")
+        if str(payload.get("failure", "")).startswith("ScenarioWorkloadError:s8-v4-e0-"):
+            rca = (
+                "The existing shared GPU lease admitted only S4/S7 identities. "
+                "E0 was fail-closed before Triton start; the contract was extended only "
+                "for E0 tabular runs with the s8-v4-e0- prefix."
+            )
         destination_root.mkdir(parents=True, exist_ok=True)
         destination = destination_root / f"{path.parent.name}-{path.name}"
         shutil.copyfile(path, destination)
@@ -899,7 +908,7 @@ def collect_prior_failures(private_base: Path, suite_root: Path) -> list[dict[st
                 "occurred_at": payload.get("occurred_at"),
                 "credit": payload.get("credit"),
                 "failure": payload.get("failure"),
-                "rca": payload.get("rca"),
+                "rca": rca,
                 "private_evidence": {
                     "path": destination.relative_to(suite_root).as_posix(),
                     "bytes": destination.stat().st_size,

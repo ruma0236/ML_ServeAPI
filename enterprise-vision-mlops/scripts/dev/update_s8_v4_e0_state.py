@@ -57,6 +57,37 @@ TRANSITIONS = {
 }
 
 
+def remediation_transition(evidence: dict[str, Any], *, amendment: bool) -> dict[str, str]:
+    failure = str(evidence.get("failure") or "")
+    if failure.startswith("ScenarioWorkloadError:s8-v4-e0-"):
+        return {
+            "event_type": (
+                "e0_gpu_lease_remediation_amendment"
+                if amendment
+                else "e0_gpu_lease_remediation_required"
+            ),
+            "summary": (
+                "E0 stopped fail-closed before Triton start because the shared GPU lease "
+                "contract did not admit the exact E0 identity; B0 was restored and no "
+                "acceptance repetition was credited"
+            ),
+            "credit": "non_credit",
+            "acceptance": "E0-AC-01..04 pending; no acceptance repetition credited",
+            "next_gate": (
+                "Commit the exact E0 lease identity extension, then append a fresh ready event"
+            ),
+            "rca": (
+                "The shared scale-validation GPU lease admitted only S4 and S7 identities. "
+                "E0 was rejected before Triton start; remediation is restricted to E0, the "
+                "tabular family, and the s8-v4-e0- run prefix."
+            ),
+        }
+    return {
+        **TRANSITIONS["remediation_required"],
+        "rca": str(evidence.get("rca") or "CUPTI path detection was not portable."),
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Append an E0 V4 state transition.")
     parser.add_argument("--to", choices=tuple(TRANSITIONS), required=True)
@@ -97,7 +128,7 @@ def main() -> int:
     expected_prior = {
         "ready": {"contract_frozen", "remediation_required"},
         "running": "ready",
-        "remediation_required": "running",
+        "remediation_required": {"running", "remediation_required"},
         "review_pending": "running",
     }[args.to]
     if isinstance(expected_prior, set):
@@ -163,7 +194,14 @@ def main() -> int:
 
     events = read_events(LEDGER)
     next_number = max(int(str(event["event_id"]).rsplit("-", 1)[1]) for event in events) + 1
-    transition = TRANSITIONS[args.to]
+    transition: dict[str, Any] = TRANSITIONS[args.to]
+    transition_evidence: dict[str, Any] | None = None
+    if args.to == "remediation_required":
+        transition_evidence = json.loads(args.evidence.read_bytes())
+        transition = remediation_transition(
+            transition_evidence,
+            amendment=prior == "remediation_required",
+        )
     event = {
         "schema_version": "evm.s8_v4.progress_event.v1",
         "event_id": f"s8-v4-{next_number:04d}",
@@ -181,7 +219,7 @@ def main() -> int:
         },
         "credit": transition["credit"],
         "cleanup": cleanup,
-        "rca": None,
+        "rca": transition.get("rca"),
         "summary": transition["summary"],
         "claim_boundary": (
             "one Windows/WSL2 physical node, one RTX 4080, controlled traffic; "
@@ -189,6 +227,15 @@ def main() -> int:
             "security/privacy/compliance, FinOps, end-to-end retraining, or long-term drift claim"
         ),
     }
+    if transition_evidence is not None:
+        event["failure_evidence"] = {
+            "attempt_id": transition_evidence.get("attempt_id"),
+            "credit": transition_evidence.get("credit"),
+            "failure": transition_evidence.get("failure"),
+            "sha256": hashlib.sha256(args.evidence.read_bytes()).hexdigest(),
+        }
+        if prior == "remediation_required":
+            event["amends_event_id"] = events[-1]["event_id"]
     appended = append_event(LEDGER, event)
 
     progress = PROGRESS.read_text(encoding="utf-8")
@@ -208,10 +255,15 @@ def main() -> int:
     progress = re.sub(
         r"^Generated: .+$", f"Generated: {generated_at}", progress, count=1, flags=re.MULTILINE
     )
+    chronology_action = (
+        f"appended an amendment while remaining `{args.to}`"
+        if prior == args.to
+        else f"transitioned `{prior}` -> `{args.to}`"
+    )
     chronology = (
-        f"\n- `{generated_at}`: E0 transitioned `{prior}` -> `{args.to}` at source "
-        f"`{revision}`. {transition['summary']}. This checkpoint is `{transition['credit']}` "
-        "and reviewer sign-off remains pending.\n"
+        f"\n- `{generated_at}`: E0 {chronology_action} at source `{revision}`. "
+        f"{transition['summary']}. This checkpoint is `{transition['credit']}` and reviewer "
+        "sign-off remains pending.\n"
     )
     marker = "\n## External Canonical References\n"
     if marker not in progress:
