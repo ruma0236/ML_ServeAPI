@@ -59,6 +59,27 @@ TRANSITIONS = {
 
 def remediation_transition(evidence: dict[str, Any], *, amendment: bool) -> dict[str, str]:
     failure = str(evidence.get("failure") or "")
+    if failure.startswith("CalledProcessError:") and "--trace=cuda-sw" in failure:
+        return {
+            "event_type": "e0_profiler_method_remediation_required",
+            "summary": (
+                "E0 stopped before profiler credit because the pinned Nsight 2025.4 CLI "
+                "does not implement the cuda-sw option; cleanup restored B0 and no repetition "
+                "received acceptance credit"
+            ),
+            "credit": "zero_credit",
+            "acceptance": "E0-AC-01..04 pending; no acceptance repetition credited",
+            "next_gate": (
+                "Use the frozen image's supported CUPTI Activity API path and rerun all three "
+                "independent repetitions"
+            ),
+            "rca": (
+                "Current Nsight documentation names cuda-sw, but the exact 2025.4.1 CLI in "
+                "the frozen Triton image exposes only cuda and cuda-hw. The V4 contract permits "
+                "Nsight or CUPTI, so remediation selects direct CUPTI kernel activity records "
+                "without changing the Triton image digest."
+            ),
+        }
     if failure.startswith("E0RuntimeError:e0_profiler_not_parseable"):
         return {
             "event_type": "e0_profiler_scope_remediation_required",

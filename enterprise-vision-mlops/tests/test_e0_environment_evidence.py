@@ -138,7 +138,7 @@ def test_e0_attempt_does_not_credit_profiler_or_cleanup_mutation() -> None:
     scope["profiler"]["triton_inference_traced"] = True  # type: ignore[index]
     assert project_attempt(scope, config)["passed"] is False
     method = raw_attempt(config, 1)
-    method["profiler"]["trace_method"] = "cuda"  # type: ignore[index]
+    method["profiler"]["trace_method"] = "nsight-cuda"  # type: ignore[index]
     assert project_attempt(method, config)["passed"] is False
     cleanup = raw_attempt(config, 1)
     cleanup["cleanup"]["vram_delta_mib"] = 4096.0  # type: ignore[index]

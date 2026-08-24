@@ -124,8 +124,8 @@ class E0RuntimeConfig:
             raise E0RuntimeError("e0_vram_tolerance_contract")
         if self.profiler_required_repetitions != 3:
             raise E0RuntimeError("e0_profiler_repetitions_must_equal_three")
-        if self.profiler_trace_method != "cuda-sw":
-            raise E0RuntimeError("e0_profiler_trace_method_must_equal_cuda_sw")
+        if self.profiler_trace_method != "cupti-activity":
+            raise E0RuntimeError("e0_profiler_trace_method_must_equal_cupti_activity")
         if len({self.http_port, self.grpc_port, self.metrics_port}) != 3:
             raise E0RuntimeError("e0_ports_must_be_distinct")
         if not self.triton_image_digest.startswith("sha256:"):

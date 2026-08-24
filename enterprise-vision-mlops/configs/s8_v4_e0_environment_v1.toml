@@ -28,4 +28,4 @@ metrics = 18002
 [telemetry]
 prometheus_job = "evm-s8-v4-e0"
 profiler_required_repetitions = 3
-profiler_trace_method = "cuda-sw"
+profiler_trace_method = "cupti-activity"

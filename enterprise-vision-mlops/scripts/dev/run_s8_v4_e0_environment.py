@@ -562,8 +562,56 @@ def run_profiler_probe(
     source_path = profile_root / "e0-profiler-probe.cu"
     source_path.write_text(
         """#include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cuda.h>
 #include <cuda_runtime.h>
+#include <cupti.h>
+#include <cupti_activity.h>
+
+static int kernel_count = 0;
+static int timestamped_kernel_count = 0;
+
+static void cupti_check(CUptiResult result, const char* operation) {
+    if (result == CUPTI_SUCCESS) return;
+    const char* message = nullptr;
+    cuptiGetResultString(result, &message);
+    std::fprintf(stderr, "CUPTI_ERROR operation=%s message=%s\\n", operation,
+                 message == nullptr ? "unknown" : message);
+    std::exit(10);
+}
+
+void CUPTIAPI buffer_requested(uint8_t** buffer, size_t* size, size_t* max_records) {
+    *size = 32 * 1024;
+    *buffer = static_cast<uint8_t*>(std::malloc(*size));
+    if (*buffer == nullptr) std::exit(11);
+    *max_records = 0;
+}
+
+void CUPTIAPI buffer_completed(CUcontext context, uint32_t stream_id, uint8_t* buffer,
+                               size_t, size_t valid_size) {
+    CUpti_Activity* record = nullptr;
+    while (true) {
+        CUptiResult result = cuptiActivityGetNextRecord(buffer, valid_size, &record);
+        if (result == CUPTI_ERROR_MAX_LIMIT_REACHED) break;
+        cupti_check(result, "cuptiActivityGetNextRecord");
+        if (record->kind != CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL) continue;
+        const auto* kernel = reinterpret_cast<const CUpti_ActivityKernel10*>(record);
+        ++kernel_count;
+        if (kernel->start > 0 && kernel->end > kernel->start) ++timestamped_kernel_count;
+        std::printf("E0_CUPTI_KERNEL|name=%s|start=%llu|end=%llu|device=%u|stream=%u\\n",
+                    kernel->name == nullptr ? "unknown" : kernel->name,
+                    static_cast<unsigned long long>(kernel->start),
+                    static_cast<unsigned long long>(kernel->end), kernel->deviceId,
+                    kernel->streamId);
+    }
+    size_t dropped = 0;
+    cupti_check(cuptiActivityGetNumDroppedRecords(context, stream_id, &dropped),
+                "cuptiActivityGetNumDroppedRecords");
+    std::printf("E0_CUPTI_DROPPED=%zu\\n", dropped);
+    std::free(buffer);
+}
 
 __global__ void e0_probe(float* values) {
     const int index = threadIdx.x;
@@ -571,6 +619,12 @@ __global__ void e0_probe(float* values) {
 }
 
 int main() {
+    uint32_t cupti_version = 0;
+    cupti_check(cuptiGetVersion(&cupti_version), "cuptiGetVersion");
+    cupti_check(cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed),
+                "cuptiActivityRegisterCallbacks");
+    cupti_check(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL),
+                "cuptiActivityEnable");
     constexpr int count = 256;
     float host[count];
     for (int index = 0; index < count; ++index) host[index] = float(index);
@@ -579,12 +633,19 @@ int main() {
     if (cudaMemcpy(device, host, sizeof(host), cudaMemcpyHostToDevice) != cudaSuccess) return 3;
     e0_probe<<<1, count>>>(device);
     if (cudaDeviceSynchronize() != cudaSuccess) return 4;
+    cupti_check(cuptiActivityFlushAll(CUPTI_ACTIVITY_FLAG_FLUSH_FORCED),
+                "cuptiActivityFlushAll");
+    cupti_check(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL),
+                "cuptiActivityDisable");
     if (cudaMemcpy(host, device, sizeof(host), cudaMemcpyDeviceToHost) != cudaSuccess) return 5;
     cudaFree(device);
     for (int index = 0; index < count; ++index) {
         if (std::fabs(host[index] - (float(index) * 2.0f + 1.0f)) > 1e-6f) return 6;
     }
-    std::printf("E0_CUDA_PROBE_OK count=%d\\n", count);
+    std::printf("E0_CUPTI_VERSION=%u\\n", cupti_version);
+    std::printf("E0_CUDA_PROBE_OK count=%d kernels=%d timestamped=%d\\n", count,
+                kernel_count, timestamped_kernel_count);
+    if (kernel_count < 1 || timestamped_kernel_count < 1) return 7;
     return 0;
 }
 """,
@@ -592,29 +653,60 @@ int main() {
         newline="\n",
     )
     command = (
-        "nvcc -O2 /evidence/e0-profiler-probe.cu -o /tmp/e0-profiler-probe && "
-        f"nsys profile --sample=none --cpuctxsw=none "
-        f"--trace={config.profiler_trace_method},nvtx,osrt "
-        "--force-overwrite=true --output=/evidence/e0-cuda-probe /tmp/e0-profiler-probe"
+        "nvcc -O2 -I/usr/local/cuda/include /evidence/e0-profiler-probe.cu "
+        "-o /tmp/e0-profiler-probe -L/usr/local/cuda/targets/x86_64-linux/lib "
+        "-Wl,-rpath,/usr/local/cuda/targets/x86_64-linux/lib -lcupti && "
+        "LD_LIBRARY_PATH=/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH} "
+        "/tmp/e0-profiler-probe"
     )
     completed = run(
         ["docker", "exec", container, "bash", "-lc", command],
         timeout=180,
+        check=False,
     )
-    log_path = profile_root / "e0-profiler-probe.log"
-    log_path.write_text(
+    timeline_path = profile_root / "cupti-gpu-activity-timeline.txt"
+    timeline_path.write_text(
         completed.stdout + "\n--- STDERR ---\n" + completed.stderr,
         encoding="utf-8",
         newline="\n",
     )
-    if "E0_CUDA_PROBE_OK" not in completed.stdout:
-        raise E0RuntimeError("e0_profiler_probe_output")
+    if completed.returncode != 0:
+        raise E0RuntimeError(f"e0_cupti_probe_exit:{completed.returncode}")
+    kernel_rows = []
+    for line in completed.stdout.splitlines():
+        match = re.match(r"^E0_CUPTI_KERNEL\|.*\|start=(\d+)\|end=(\d+)\|", line)
+        if match is None:
+            continue
+        start, end = (int(value) for value in match.groups())
+        if start > 0 and end > start:
+            kernel_rows.append(line)
+    version_match = re.search(r"^E0_CUPTI_VERSION=(\d+)$", completed.stdout, re.MULTILINE)
+    if "E0_CUDA_PROBE_OK" not in completed.stdout or not kernel_rows or version_match is None:
+        raise E0RuntimeError("e0_cupti_gpu_timeline_missing")
+    summary_path = profile_root / "cupti-activity-summary.json"
+    canonical_write(
+        summary_path,
+        {
+            "tool": "cupti",
+            "version": version_match.group(1),
+            "trace_method": config.profiler_trace_method,
+            "kernel_count": len(kernel_rows),
+            "timeline_sha256": sha256_file(timeline_path),
+        },
+    )
     return {
+        "tool": "cupti",
+        "version": version_match.group(1),
         "scope": "same-container-cuda-profiler-qualification",
         "triton_inference_traced": False,
         "trace_method": config.profiler_trace_method,
+        "parseable": True,
+        "cuda_kernel_count": len(kernel_rows),
+        "timeline_sha256": sha256_file(timeline_path),
+        "timeline_bytes": timeline_path.stat().st_size,
         "source_sha256": sha256_file(source_path),
-        "execution_log_sha256": sha256_file(log_path),
+        "execution_log_sha256": sha256_file(timeline_path),
+        "stats_sha256": sha256_file(summary_path),
     }
 
 
@@ -641,64 +733,6 @@ def stop_triton(container: str) -> None:
         time.sleep(0.5)
     if container_exists(container):
         run(["docker", "rm", "-f", container], check=False, timeout=30)
-
-
-def profile_summary(
-    config: E0RuntimeConfig, attempt_root: Path, qualification: dict[str, Any]
-) -> dict[str, Any]:
-    profile_root = attempt_root / "profiler"
-    reports = sorted(profile_root.glob("e0-cuda-probe*.nsys-rep"))
-    if len(reports) != 1:
-        raise E0RuntimeError(f"e0_profiler_report_count:{len(reports)}")
-    report = reports[0]
-    stats = run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "-v",
-            f"{profile_root}:/evidence",
-            "--entrypoint",
-            "bash",
-            config.immutable_image,
-            "-lc",
-            f"nsys stats --report cuda_gpu_kern_sum --format csv /evidence/{report.name}",
-        ],
-        timeout=180,
-        check=False,
-    )
-    stats_path = profile_root / "nsys-cuda-kernel-summary.txt"
-    stats_path.write_text(
-        stats.stdout + "\n--- STDERR ---\n" + stats.stderr,
-        encoding="utf-8",
-        newline="\n",
-    )
-    kernel_lines = [
-        line for line in stats.stdout.splitlines() if re.match(r'^"?\d+(?:\.\d+)?"?,', line.strip())
-    ]
-    if stats.returncode != 0 or not kernel_lines:
-        raise E0RuntimeError(f"e0_profiler_not_parseable:{stats.stderr[-1000:]}")
-    version = run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--entrypoint",
-            "nsys",
-            config.immutable_image,
-            "--version",
-        ]
-    ).stdout.strip()
-    return {
-        "tool": "nsight-systems",
-        "version": version,
-        **qualification,
-        "parseable": True,
-        "cuda_kernel_count": len(kernel_lines),
-        "timeline_sha256": sha256_file(report),
-        "timeline_bytes": report.stat().st_size,
-        "stats_sha256": sha256_file(stats_path),
-    }
 
 
 def container_exists(name: str) -> bool:
@@ -897,7 +931,7 @@ def run_attempt(
         raise E0RuntimeError("e0_attempt_raw_missing")
     b0_after = b0_cuda_inference()
     gpu_after, vram_wait = wait_vram_restore(gpu_before, config.cleanup_timeout_seconds)
-    profile = profile_summary(config, attempt_root, profiler_qualification)
+    profile = profiler_qualification
     queues = queue_counts()
     cleanup = {
         "elapsed_seconds": max(vram_wait, time.monotonic() - cleanup_started),
@@ -975,6 +1009,12 @@ def collect_prior_failures(private_base: Path, suite_root: Path) -> list[dict[st
                 "The default Nsight cuda trace recorded API launches but no GPU workload "
                 "rows in WSL2. The profiler contract now uses the vendor-documented cuda-sw "
                 "method; Triton inference tracing remains outside the E0 claim."
+            )
+        elif failure.startswith("CalledProcessError:") and "--trace=cuda-sw" in failure:
+            rca = (
+                "The pinned Nsight 2025.4.1 CLI does not implement cuda-sw. The frozen image "
+                "was retained and profiler qualification moved to its supported direct CUPTI "
+                "Activity API path."
             )
         destination_root.mkdir(parents=True, exist_ok=True)
         destination = destination_root / f"{path.parent.name}-{path.name}"

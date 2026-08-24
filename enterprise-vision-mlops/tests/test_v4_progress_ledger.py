@@ -95,3 +95,13 @@ def test_e0_profiler_wrapper_failure_records_zero_credit_scope_rca() -> None:
     assert transition["event_type"] == "e0_profiler_scope_remediation_required"
     assert transition["credit"] == "zero_credit"
     assert "cuda-sw" in transition["rca"]
+
+
+def test_e0_unsupported_nsys_method_records_cupti_remediation() -> None:
+    transition = remediation_transition(
+        {"failure": "CalledProcessError:nsys profile --trace=cuda-sw", "credit": "zero_credit"},
+        amendment=False,
+    )
+    assert transition["event_type"] == "e0_profiler_method_remediation_required"
+    assert transition["credit"] == "zero_credit"
+    assert "CUPTI" in transition["rca"]
