@@ -118,11 +118,11 @@ def blob_identity(revision: str, path: str) -> dict[str, Any]:
     }
 
 
-def pytest_counts(text: str) -> tuple[int, int]:
+def pytest_counts(text: str, *, occurrence: int = -1) -> tuple[int, int]:
     matches = list(re.finditer(r"(\d+) passed(?:, (\d+) skipped)?", text))
     if not matches:
         raise S6BMReviewError("pytest_count_missing")
-    match = matches[-1]
+    match = matches[occurrence]
     return int(match.group(1)), int(match.group(2) or 0)
 
 
@@ -161,7 +161,7 @@ def validate_regressions(root: Path, revision: str) -> list[dict[str, Any]]:
                 raise S6BMReviewError("frontend_module_count")
             item["modules_transformed"] = int(match.group(1))
         elif suite_id == "control_panel":
-            passed, skipped = pytest_counts(text)
+            passed, skipped = pytest_counts(text, occurrence=0)
             ui = re.search(r"Tests\s+(\d+) passed", text)
             files = re.search(r"Test Files\s+(\d+) passed", text)
             if ui is None or files is None or skipped != 0:

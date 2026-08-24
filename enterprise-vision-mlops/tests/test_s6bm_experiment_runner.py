@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GIT_ROOT = ROOT.parent
 RUNNER = ROOT / "scripts/dev/run_s8_v4_s6bm_experiment.py"
 VALIDATOR = ROOT / "scripts/dev/validate_s8_v4_s6bm.py"
+REVIEW_WRITER = ROOT / "scripts/dev/write_s8_v4_s6bm_review.py"
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
 
 
@@ -27,6 +28,15 @@ def load_runner():
 
 def load_validator():
     spec = importlib.util.spec_from_file_location("s6bm_evidence_validator", VALIDATOR)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_review_writer():
+    spec = importlib.util.spec_from_file_location("s6bm_review_writer", REVIEW_WRITER)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -72,6 +82,14 @@ def test_validator_reads_config_blob_from_parent_repository_root() -> None:
     ).stdout
 
     assert validator.git_bytes(revision, CONFIG) == blob
+
+
+def test_review_writer_separates_python_and_ui_pass_counts() -> None:
+    writer = load_review_writer()
+    log = "77 passed in 10.0s\nTest Files 17 passed\nTests 59 passed (59)\n"
+
+    assert writer.pytest_counts(log, occurrence=0) == (77, 0)
+    assert writer.pytest_counts(log) == (59, 0)
 
 
 def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
