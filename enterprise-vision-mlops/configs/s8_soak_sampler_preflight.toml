@@ -1,0 +1,63 @@
+schema_version = "evm.s3_capacity_runtime.v1"
+preparation_config_sha256 = "3d9869aa69033cab06d64c0d83c118a524d2291b0c2c624ecac03da465c2f468"
+dataset_version = "uci-higgs-2014-s3-v1"
+seed = 20260824
+
+[paths]
+registry_relative_path = "artifacts/scale_validation/s3/capacity-registry.json"
+replay_features_relative_path = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/replay/features.npy"
+
+[execution]
+max_outstanding_per_replica = 128
+max_outstanding_bytes_per_replica = 1048576
+max_request_bytes = 8192
+admission_wait_seconds = 0.05
+request_timeout_seconds = 5.0
+retry_after_seconds = 1
+client_max_in_flight = 256
+resource_sample_interval_seconds = 1.0
+resource_metrics_timeout_seconds = 3.0
+resource_metrics_max_consecutive_failures = 3
+trace_flush_seconds = 10.0
+trace_poll_interval_seconds = 0.25
+prometheus_scrape_interval_seconds = 1.0
+
+[closed_concurrency]
+repetitions = 3
+warmup_seconds = 10.0
+measurement_seconds = 120.0
+cooldown_seconds = 5.0
+steps = [1]
+baseline_api_replicas = 1
+baseline_cpu_workers = 1
+
+[open_arrival_rate]
+repetitions = 3
+warmup_seconds = 10.0
+measurement_seconds = 120.0
+cooldown_seconds = 5.0
+requests_per_second = [35.0]
+baseline_api_replicas = 1
+baseline_cpu_workers = 1
+
+[topology_comparison]
+probe_family = "branch-heavy"
+closed_concurrency = 1
+open_requests_per_second = 35.0
+api_replicas = [1]
+cpu_workers = [1]
+
+[guardrails]
+maximum_error_rate = 0.01
+maximum_p99_ms = 250.0
+maximum_host_cpu_percent = 90.0
+maximum_process_tree_rss_bytes = 8589934592
+maximum_load_generator_start_lag_ms = 100.0
+queue_drain_timeout_seconds = 30.0
+
+[capacity_recalculation]
+maximum_queue_wait_seconds = 2.0
+safety_factor = 0.70
+prior_depth = 64
+rollback_depth = 64
+allow_automatic_increase = false
