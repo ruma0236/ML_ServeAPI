@@ -6,6 +6,8 @@ from pathlib import Path
 def test_api_container_includes_control_panel_runtime_files() -> None:
     dockerfile = Path("apps/api/Dockerfile").read_text(encoding="utf-8")
     compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+    requirements = Path("apps/api/requirements.txt").read_text(encoding="utf-8")
+    project = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert "COPY apps/api /app/apps/api" in dockerfile
     assert "COPY configs /app/configs" in dockerfile
@@ -19,6 +21,8 @@ def test_api_container_includes_control_panel_runtime_files() -> None:
     assert 'org.opencontainers.image.revision="${SOURCE_REVISION}"' in dockerfile
     assert "EVM_IMAGE_SOURCE_REVISION=${SOURCE_REVISION}" in dockerfile
     assert "SOURCE_REVISION: ${EVM_GIT_COMMIT:-unknown}" in compose
+    assert "pillow==12.2.0" in requirements
+    assert '"pillow==12.2.0"' in project
 
 
 def test_pipeline_container_has_project_root_markers_for_config_resolution() -> None:
