@@ -75,6 +75,13 @@ def normalize_histogram_overflow(value: Any, path: str = "root") -> list[str]:
 
 
 def copy_original(source: Path, target: Path) -> dict[str, Any]:
+    if target.is_file():
+        return {
+            "source": source.name,
+            "preserved_path": target.as_posix(),
+            "sha256": sha256_file(target),
+            "bytes": target.stat().st_size,
+        }
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, target)
     return {
@@ -123,8 +130,9 @@ def main() -> int:
     evidence_path = args.evidence.resolve()
     require_revision(args.projection_revision)
     amendment_root = private_root / "amendments" / AMENDMENT_ID
-    if amendment_root.exists():
-        raise RuntimeError(f"amendment_already_exists:{AMENDMENT_ID}")
+    amendment_manifest_path = amendment_root / "amendment-manifest.json"
+    if amendment_manifest_path.exists():
+        raise RuntimeError(f"amendment_already_complete:{AMENDMENT_ID}")
 
     original_index = private_root / "private-evidence-index.json"
     original_summary = private_root / "suite-summary-private.json"
@@ -162,7 +170,14 @@ def main() -> int:
         private = read_mapping(path)
         amended_paths = normalize_histogram_overflow(private, "private")
         expected = ["private.metrics.summary.queue_wait_seconds.observed_upper_bound"]
-        if amended_paths != expected:
+        queue_summary = dict(private.get("metrics", {})).get("summary", {}).get(
+            "queue_wait_seconds", {}
+        )
+        if amended_paths not in ([], expected) or not (
+            queue_summary.get("observed_upper_bound") is None
+            and queue_summary.get("observed_upper_bound_status")
+            == "overflowed_finite_buckets"
+        ):
             raise RuntimeError(f"unexpected_private_amendment_paths:r{repetition}:{amended_paths}")
         canonical_write(path, private)
         normalized_private.append(
@@ -172,7 +187,8 @@ def main() -> int:
                 "original_sha256": original["sha256"],
                 "normalized_sha256": sha256_file(path),
                 "normalized_bytes": path.stat().st_size,
-                "amended_paths": amended_paths,
+                "amended_paths": expected,
+                "resumed_from_partial_projection": not bool(amended_paths),
             }
         )
         for result in payload.get("fault_results", []):
@@ -191,7 +207,11 @@ def main() -> int:
         [dict(item) for item in payload.get("fault_results", [])], config
     )
     public_amendments = normalize_histogram_overflow(payload, "public")
-    if public_amendments:
+    expected_public_amendments = [
+        f"public.fault_results[{index}].strict_evidence.waits.queue.observed_upper_bound"
+        for index in range(9, 12)
+    ]
+    if public_amendments != expected_public_amendments:
         raise RuntimeError(f"unbound_public_non_finite:{public_amendments}")
     projection_blob = git_blob_identity(ROOT, args.projection_revision, PROJECTION_PATH)
     payload["source_identity"]["evidence_projection"] = {
@@ -219,13 +239,24 @@ def main() -> int:
         "projection_identity": payload["source_identity"]["evidence_projection"],
         "preserved_originals": preserved,
         "normalized_private": normalized_private,
+        "normalized_public_paths": public_amendments,
+        "failed_projection_attempts": [
+            {
+                "attempt": 1,
+                "credit": "zero_credit",
+                "reason": (
+                    "The first projection omitted the three derived strict-evidence "
+                    "queue histogram overflow fields and stopped before public/index write."
+                ),
+            }
+        ],
         "runtime_semantics_changed": False,
         "claim": (
             "Only non-finite histogram overflow representation and evidence hashes "
             "changed; the 21 fault and three soak executions were not rerun."
         ),
     }
-    canonical_write(amendment_root / "amendment-manifest.json", amendment_manifest)
+    canonical_write(amendment_manifest_path, amendment_manifest)
     index = private_index(private_root)
     canonical_write(original_index, index)
     payload["private_evidence"] = {
