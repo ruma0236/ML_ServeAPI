@@ -62,10 +62,12 @@ def canonical_write(path: Path, payload: Any) -> None:
     path.write_text(canonical(payload) + "\n", encoding="utf-8", newline="\n")
 
 
-def git_bytes(revision: str, relative: str) -> bytes:
+def git_bytes(revision: str, path: Path) -> bytes:
+    git_root = Path(git_text("rev-parse", "--show-toplevel")).resolve()
+    relative = path.resolve().relative_to(git_root).as_posix()
     result = subprocess.run(
         ["git", "show", f"{revision}:{relative}"],
-        cwd=ROOT,
+        cwd=git_root,
         capture_output=True,
         check=False,
     )
@@ -189,8 +191,7 @@ def validate(
         ["git", "merge-base", "--is-ancestor", revision, "HEAD"], cwd=ROOT
     ).returncode != 0:
         raise S6BMValidationError("source_ancestry")
-    config_relative = config_path.resolve().relative_to(ROOT.resolve()).as_posix()
-    config_git_sha = hashlib.sha256(git_bytes(revision, config_relative)).hexdigest()
+    config_git_sha = hashlib.sha256(git_bytes(revision, config_path)).hexdigest()
     contract = dict(experiment.get("contract", {}))
     if contract.get("config_sha256") != config_git_sha:
         raise S6BMValidationError("config_git_blob_sha")
