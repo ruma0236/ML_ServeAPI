@@ -1,0 +1,95 @@
+{
+  "schema_version": "evm.s8_v4.evidence_manifest.v1",
+  "generated_at": "2026-08-24T13:20:19Z",
+  "status": "contract_frozen",
+  "runtime_execution_started": false,
+  "acceptance_credit": false,
+  "v3_prerequisite": {
+    "status": "verified",
+    "git_revision": "80a56e501cf46359a8de908fc39dc3c02a642fc1",
+    "closure_path": "docs/status/evidence/s8-dependency-soak-closure.json",
+    "closure_sha256": "3f7feba82828211bbf0f02770f4de79d014e12db1266d79cd8e5c03cebc1b5fc"
+  },
+  "canonical_documents": [
+    {
+      "path": "docs/architecture/2026-08-24-mlops-operational-coverage.md",
+      "blob_oid": "4f09dc982f83871e9a6915be5cb06a4531b13b15",
+      "sha256": "d0097a7f4d198864b17e78384529c9d975ffa4d0c47550195aa4406c3241199d",
+      "bytes": 8286
+    },
+    {
+      "path": "docs/agenda/2026-08-24-v3-v4-crosswalk.md",
+      "blob_oid": "3a6a5b1296687acb060c94ae2e4361f20a8661d8",
+      "sha256": "579a8533f2a6824ee0658e94bda281cfb74e8f076578c680caf2e4edb2676e72",
+      "bytes": 5627
+    },
+    {
+      "path": "docs/agenda/2026-08-24-distributed-scale-operational-validation-plan-v4.md",
+      "blob_oid": "737fc31bd7bdba0fb8e9c5eab6c30bc6304f6f32",
+      "sha256": "0a5681a95621a2fe36a972dbbc362bf1198e09c996d6de8425dbe69e9b53768a",
+      "bytes": 15410
+    },
+    {
+      "path": "docs/status/2026-08-24-s8-v4-progress.md",
+      "blob_oid": "4ce35e1dca84cd53f0de42e249731284b592776b",
+      "sha256": "6e7bdccef9e7382cf3bb733c756a60f1dfeb896a2ed3f82823e5ec4232b43c9e",
+      "bytes": 2898
+    },
+    {
+      "path": "docs/issues/issue-register.md",
+      "blob_oid": "33a66c3ea3e8acb08836bf4ccd5d50a9c1feb606",
+      "sha256": "51b1dc1bd889faa28bf06056c8d6f1cecda4c04623974fbc643468d41196f670",
+      "bytes": 97961
+    }
+  ],
+  "ledger_contract": {
+    "path": "docs/status/2026-08-24-s8-v4-progress-ledger.jsonl",
+    "append_only": true,
+    "correction_policy": "append_amendment_only",
+    "encoding": "utf-8",
+    "line_ending": "lf",
+    "hash_algorithm": "sha256",
+    "event_hash_input": "canonical JSON of the event without event_hash; sort_keys=true; separators=(',', ':'); allow_nan=false; no trailing newline"
+  },
+  "work_items": [
+    {
+      "work_item": "E0",
+      "tracking_id": "EVM-299",
+      "status": "contract_frozen",
+      "acceptance_criteria": ["E0-AC-01", "E0-AC-02", "E0-AC-03", "E0-AC-04"],
+      "attempts": [],
+      "reviewer_sign_off": "pending"
+    },
+    {
+      "work_item": "S6B-M",
+      "tracking_id": "EVM-300",
+      "status": "planned",
+      "acceptance_criteria": ["S6B-M-AC-01", "S6B-M-AC-02", "S6B-M-AC-03", "S6B-M-AC-04"],
+      "attempts": [],
+      "reviewer_sign_off": "pending"
+    },
+    {
+      "work_item": "X1",
+      "tracking_id": "EVM-301",
+      "status": "planned",
+      "acceptance_criteria": ["X1-AC-01", "X1-AC-02", "X1-AC-03", "X1-AC-04", "X1-AC-05", "X1-AC-06"],
+      "attempts": [],
+      "reviewer_sign_off": "pending"
+    },
+    {
+      "work_item": "S8-V4-INTEGRATED",
+      "tracking_id": "EVM-302",
+      "status": "planned",
+      "acceptance_criteria": ["V4-AC-01", "V4-AC-02", "V4-AC-03", "V4-AC-04", "V4-AC-05", "V4-AC-06"],
+      "attempts": [],
+      "reviewer_sign_off": "pending"
+    }
+  ],
+  "credit_policy": {
+    "allowed": ["credit", "zero_credit", "non_credit"],
+    "calibration": "non_credit",
+    "failure_or_incomplete_evidence": "zero_credit",
+    "verified_requires_reviewer_sign_off": true
+  },
+  "claim_boundary": "One Windows/WSL2 physical node, one RTX 4080, and controlled traffic. Customer production SLA, multi-node or multi-zone HA/DR, multi-GPU/MIG/MPS, autoscaling, tenant security isolation, privacy/compliance, FinOps, end-to-end training/retraining, and long-term drift/quality are not evidenced."
+}

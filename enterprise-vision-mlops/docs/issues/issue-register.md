@@ -569,6 +569,26 @@ its failed attempts and rollback boundary remain independent operational evidenc
 No V4 Triton, heterogeneous-model concurrency, CUDA overlap, production SLA, HA/DR,
 or shared-GPU acceptance is credited until fresh V4 runtime evidence satisfies its own contract.
 
+### S8-V4 Triton And Heterogeneous-model Operational Validation
+
+Canonical plan:
+`docs/agenda/2026-08-24-distributed-scale-operational-validation-plan-v4.md`.
+V3 remains closed and immutable at `80a56e5`; V4 does not inherit V3 acceptance
+credit or the V3 `35 RPS` load.
+
+| ID | Work item | Status | Dependency | Evidence / Exit Criteria |
+|---|---|---|---|---|
+| `EVM-EPIC-26` | S8-V4 Triton And Heterogeneous-model Operational Validation | Contract Frozen / Jira pending | V3 S0-S8 verified | Coverage matrix, V3-V4 crosswalk, versioned V4 plan, append-only hash ledger, and evidence manifest committed before runtime work |
+| `EVM-299` | E0 Triton Environment And Profiler Baseline | Contract Frozen / Not Run / Jira pending | EVM-EPIC-26 | WSL2/Docker/CUDA/Triton image, GPU UUID, batch-one inference, Prometheus, Nsight/CUPTI and cleanup pass three independent repetitions |
+| `EVM-300` | S6B-M Triton Model Blue/Green | Planned / Not Run / Jira pending | EVM-299 verified | One Triton GPU Pod; warmup, 10% canary, switch, drain, unload, exact rollback and wrong-digest fail-closed evidence |
+| `EVM-301` | X1 Heterogeneous-model Concurrency | Planned / Not Run / Jira pending | EVM-300 verified | Four governed lightweight models; solo/serial/concurrent/per-model batching; API replicas 1/2; CPU workers 1/2/4; profiler-qualified overlap only |
+| `EVM-302` | Integrated S8-V4 Fault, Recovery And Soak Closure | Planned / Not Run / Jira pending | EVM-301 verified | Six fault classes x3 plus three 30-minute soaks at X1-derived load; strict identity, fairness, retry/DLQ, resource slopes, cleanup and independent review |
+
+V4 claim boundary is one Windows/WSL2 physical node, one RTX 4080, and
+controlled traffic. Customer production SLA, multi-node/zone HA/DR,
+multi-GPU/MIG/MPS, autoscaling, tenant security isolation, privacy/compliance,
+FinOps, end-to-end retraining, and long-term drift/quality remain unverified.
+
 ### Current Jira Timebox And Hierarchy
 
 - Sprint `144` was closed on `2026-08-01 23:06:25 KST` after unresolved
