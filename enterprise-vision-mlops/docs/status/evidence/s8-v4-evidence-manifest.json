@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.s8_v4.evidence_manifest.v1",
-  "generated_at": "2026-08-24T16:57:11.138962Z",
+  "generated_at": "2026-08-24T17:11:08.455894Z",
   "status": "contract_frozen",
   "runtime_execution_started": true,
   "acceptance_credit": false,
@@ -55,7 +55,7 @@
     {
       "work_item": "E0",
       "tracking_id": "EVM-299",
-      "status": "running",
+      "status": "review_pending",
       "acceptance_criteria": [
         "E0-AC-01",
         "E0-AC-02",
@@ -146,13 +146,24 @@
       ],
       "reviewer_sign_off": "pending",
       "evidence": {
-        "path": "docs/status/evidence/s8-v4-e0-environment-experiment.json",
-        "sha256": "5ca9cc34991e76a9a49fcb882316560f955a54a453d61c7aed5bacc465d12fbd",
-        "private_aggregate_sha256": "247d5b1baf144d5e0977fead67a8cc2d25f34202ee0dc4e1c1e7fd9530a75dca",
+        "path": "docs/status/evidence/s8-v4-e0-remediation-review.json",
+        "sha256": "b2d13229d77980f1d0c6f6c0ea4b554b1b656db7feb899b02325964e653ff2b9",
+        "private_aggregate_sha256": "82cd58a7a18c146e332b12ca0e7dd7dfc1aca448d6b6f0f2f3d5e1e88a3e0b86",
         "runtime_revision": "e975b35733c67f54fb972b3ef378bd16f89eb2be",
+        "validation_revision": "37fa279c1c42035252cc1d38e059dd18a35d06df",
+        "historical_evidence": {
+          "path": "docs/status/evidence/s8-v4-e0-environment-experiment.json",
+          "sha256": "5ca9cc34991e76a9a49fcb882316560f955a54a453d61c7aed5bacc465d12fbd",
+          "private_aggregate_sha256": "247d5b1baf144d5e0977fead67a8cc2d25f34202ee0dc4e1c1e7fd9530a75dca",
+          "runtime_revision": "e975b35733c67f54fb972b3ef378bd16f89eb2be",
+          "review_handoff": {
+            "path": "docs/status/evidence/s8-v4-e0-review-handoff.json",
+            "sha256": "da59a274230c44bafe7c91c17ecbf557d5d4b9395f0b06241e450fafdeb9550e"
+          }
+        },
         "review_handoff": {
-          "path": "docs/status/evidence/s8-v4-e0-review-handoff.json",
-          "sha256": "da59a274230c44bafe7c91c17ecbf557d5d4b9395f0b06241e450fafdeb9550e"
+          "path": "docs/status/evidence/s8-v4-e0-remediation-review.json",
+          "sha256": "b2d13229d77980f1d0c6f6c0ea4b554b1b656db7feb899b02325964e653ff2b9"
         }
       }
     },

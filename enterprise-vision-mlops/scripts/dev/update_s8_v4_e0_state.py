@@ -17,7 +17,11 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from evm.scale_validation.v4_ledger import append_event, read_events  # noqa: E402
+from evm.scale_validation.e0_remediation_evidence import (  # noqa: E402
+    validate_remediation_review,
+)
 from evm.scale_validation.e0_runtime import canonical_sha256, sha256_file  # noqa: E402
+from evm.scale_validation.e0_runtime import E0RuntimeConfig  # noqa: E402
 
 
 MANIFEST = ROOT / "docs/status/evidence/s8-v4-evidence-manifest.json"
@@ -25,6 +29,8 @@ LEDGER = ROOT / "docs/status/2026-08-24-s8-v4-progress-ledger.jsonl"
 PROGRESS = ROOT / "docs/status/2026-08-24-s8-v4-progress.md"
 EVIDENCE = ROOT / "docs/status/evidence/s8-v4-e0-environment-experiment.json"
 REVIEW_HANDOFF = ROOT / "docs/status/evidence/s8-v4-e0-review-handoff.json"
+REMEDIATION_REVIEW = ROOT / "docs/status/evidence/s8-v4-e0-remediation-review.json"
+CONFIG = ROOT / "configs/s8_v4_e0_environment_v1.toml"
 
 
 TRANSITIONS = {
@@ -50,11 +56,11 @@ TRANSITIONS = {
         "next_gate": "Commit the path-independent CUPTI probe, then append a fresh ready event",
     },
     "review_pending": {
-        "event_type": "e0_evidence_ready",
-        "summary": "E0 evidence package passed self-validation and awaits independent source-local review",
+        "event_type": "e0_remediation_evidence_ready",
+        "summary": "E0 strict remediation evidence passed fail-closed self-validation and awaits independent source-local re-review",
         "credit": "non_credit",
-        "acceptance": "E0-AC-01..04 evidence-ready; reviewer sign-off pending",
-        "next_gate": "Independent review; S6B-M remains blocked until a verified event",
+        "acceptance": "E0-AC-01..04 strictly revalidated; reviewer sign-off pending",
+        "next_gate": "Independent re-review; S6B-M remains blocked until a verified event",
     },
 }
 
@@ -321,6 +327,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--evidence", type=Path, default=EVIDENCE)
     parser.add_argument("--review-handoff", type=Path, default=REVIEW_HANDOFF)
     parser.add_argument("--private-review-root", type=Path)
+    parser.add_argument("--remediation-review", type=Path)
+    parser.add_argument("--original-private-root", type=Path)
+    parser.add_argument("--remediation-root", type=Path)
     return parser.parse_args()
 
 
@@ -370,60 +379,94 @@ def main() -> int:
     cleanup: Any = "not_applicable_pre_execution"
     review_handoff_ref: dict[str, Any] | None = None
     if args.to == "review_pending":
-        evidence = json.loads(args.evidence.read_bytes())
+        if args.remediation_review is not None:
+            if args.original_private_root is None or args.remediation_root is None:
+                raise RuntimeError("e0_remediation_private_roots_required")
+            evidence = json.loads(args.remediation_review.read_bytes())
+            validation = validate_remediation_review(
+                evidence,
+                original_evidence_path=args.evidence,
+                config=E0RuntimeConfig.from_path(CONFIG),
+                original_private_root=args.original_private_root,
+                remediation_root=args.remediation_root,
+                project_root=ROOT,
+            )
+            acceptance = dict(validation["acceptance"])
+            review_handoff_ref = {
+                "path": args.remediation_review.relative_to(ROOT).as_posix(),
+                "sha256": hashlib.sha256(args.remediation_review.read_bytes()).hexdigest(),
+            }
+        else:
+            evidence = json.loads(args.evidence.read_bytes())
+            handoff = json.loads(args.review_handoff.read_bytes())
+            validate_review_handoff(
+                evidence,
+                handoff,
+                evidence_sha256=hashlib.sha256(args.evidence.read_bytes()).hexdigest(),
+            )
+            if args.private_review_root is None:
+                raise RuntimeError("e0_review_private_root_required")
+            validate_private_review_evidence(handoff, args.private_review_root)
+            acceptance = dict(evidence.get("acceptance", {}))
+            review_handoff_ref = {
+                "path": args.review_handoff.relative_to(ROOT).as_posix(),
+                "sha256": hashlib.sha256(args.review_handoff.read_bytes()).hexdigest(),
+            }
         if evidence.get("status") != "review_pending":
             raise RuntimeError("e0_evidence_not_review_pending")
-        acceptance = dict(evidence.get("acceptance", {}))
         if not acceptance or not all(acceptance.values()):
             raise RuntimeError("e0_evidence_acceptance_not_ready")
-        handoff = json.loads(args.review_handoff.read_bytes())
-        validate_review_handoff(
-            evidence,
-            handoff,
-            evidence_sha256=hashlib.sha256(args.evidence.read_bytes()).hexdigest(),
-        )
-        if args.private_review_root is None:
-            raise RuntimeError("e0_review_private_root_required")
-        validate_private_review_evidence(handoff, args.private_review_root)
-        review_handoff_ref = {
-            "path": args.review_handoff.relative_to(ROOT).as_posix(),
-            "sha256": hashlib.sha256(args.review_handoff.read_bytes()).hexdigest(),
-        }
         acceptance_results = [
             {"criterion": criterion, "result": "passed" if passed else "failed"}
             for criterion, passed in sorted(acceptance.items())
         ]
         cleanup = evidence.get("cleanup")
-        successful_attempts = [
-            {
-                "attempt_id": item["summary"]["attempt_id"],
-                "repetition": item["summary"]["repetition"],
-                "credit": item["summary"]["credit"],
-                "passed": item["summary"]["passed"],
-                "private_evidence_sha256": item["private_evidence"]["sha256"],
-                "public_evidence": args.evidence.relative_to(ROOT).as_posix(),
+        if args.remediation_review is not None:
+            historical_evidence = dict(e0.get("evidence", {}))
+            e0["evidence"] = {
+                "path": args.remediation_review.relative_to(ROOT).as_posix(),
+                "sha256": hashlib.sha256(args.remediation_review.read_bytes()).hexdigest(),
+                "private_aggregate_sha256": evidence["private_evidence"][
+                    "aggregate_sha256"
+                ],
+                "runtime_revision": evidence["historical_runtime"]["runtime_revision"],
+                "validation_revision": evidence["source_identity"]["validation_revision"],
+                "historical_evidence": historical_evidence,
+                "review_handoff": review_handoff_ref,
             }
-            for item in evidence["attempts"]
-        ]
-        failed_attempts = [
-            {
-                "attempt_id": item["attempt_id"],
-                "credit": item["credit"],
-                "passed": False,
-                "failure": item["failure"],
-                "private_evidence_sha256": item["private_evidence"]["sha256"],
-                "public_evidence": args.evidence.relative_to(ROOT).as_posix(),
+        else:
+            successful_attempts = [
+                {
+                    "attempt_id": item["summary"]["attempt_id"],
+                    "repetition": item["summary"]["repetition"],
+                    "credit": item["summary"]["credit"],
+                    "passed": item["summary"]["passed"],
+                    "private_evidence_sha256": item["private_evidence"]["sha256"],
+                    "public_evidence": args.evidence.relative_to(ROOT).as_posix(),
+                }
+                for item in evidence["attempts"]
+            ]
+            failed_attempts = [
+                {
+                    "attempt_id": item["attempt_id"],
+                    "credit": item["credit"],
+                    "passed": False,
+                    "failure": item["failure"],
+                    "private_evidence_sha256": item["private_evidence"]["sha256"],
+                    "public_evidence": args.evidence.relative_to(ROOT).as_posix(),
+                }
+                for item in evidence.get("failed_attempts_and_rca", [])
+            ]
+            e0["attempts"] = [*failed_attempts, *successful_attempts]
+            e0["evidence"] = {
+                "path": args.evidence.relative_to(ROOT).as_posix(),
+                "sha256": hashlib.sha256(args.evidence.read_bytes()).hexdigest(),
+                "private_aggregate_sha256": evidence["private_evidence"][
+                    "aggregate_sha256"
+                ],
+                "runtime_revision": evidence["source_identity"]["runtime_revision"],
+                "review_handoff": review_handoff_ref,
             }
-            for item in evidence.get("failed_attempts_and_rca", [])
-        ]
-        e0["attempts"] = [*failed_attempts, *successful_attempts]
-        e0["evidence"] = {
-            "path": args.evidence.relative_to(ROOT).as_posix(),
-            "sha256": hashlib.sha256(args.evidence.read_bytes()).hexdigest(),
-            "private_aggregate_sha256": evidence["private_evidence"]["aggregate_sha256"],
-            "runtime_revision": evidence["source_identity"]["runtime_revision"],
-            "review_handoff": review_handoff_ref,
-        }
     e0["status"] = args.to
     e0["reviewer_sign_off"] = "pending"
     manifest["generated_at"] = generated_at
