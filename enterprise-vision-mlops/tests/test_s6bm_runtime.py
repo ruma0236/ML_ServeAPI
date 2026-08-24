@@ -205,6 +205,19 @@ def test_s6bm_success_projection_rejects_loss_identity_and_cleanup() -> None:
             project_success_attempt(raw, config)
 
 
+def test_s6bm_success_projection_reports_transport_failure_before_trace_gap() -> None:
+    config = S6BMConfig.from_path(CONFIG)
+    raw = success_attempt()
+    raw["request_records"][0] = {  # type: ignore[index]
+        "request_id": "request-0000",
+        "status_code": 0,
+        "outcome": "transport_failure",
+    }
+
+    with pytest.raises(S6BMRuntimeError, match="s6bm_request_not_completed"):
+        project_success_attempt(raw, config)
+
+
 def test_s6bm_fault_projection_rejects_fail_open_mutations() -> None:
     config = S6BMConfig.from_path(CONFIG)
     assert project_fault_attempt(fault_attempt("wrong_digest"), config, "wrong_digest")

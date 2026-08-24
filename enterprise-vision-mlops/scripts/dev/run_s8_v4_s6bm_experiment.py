@@ -821,10 +821,16 @@ def request_body(run_id: str, request_id: str, *, hold_ms: int = 0) -> dict[str,
     }
 
 
-def send_request(config: S6BMConfig, body: Mapping[str, Any]) -> dict[str, Any]:
+def send_request(
+    config: S6BMConfig,
+    body: Mapping[str, Any],
+    *,
+    session: requests.Session | None = None,
+) -> dict[str, Any]:
     attempted = time.perf_counter()
+    client = session if session is not None else requests
     try:
-        response = requests.post(api_url(config, "predict"), json=dict(body), timeout=20)
+        response = client.post(api_url(config, "predict"), json=dict(body), timeout=20)
         completed = time.perf_counter()
         parsed = response.json()
         if response.status_code != 200:
@@ -871,8 +877,31 @@ def send_batch(
     concurrency: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     bodies = [request_body(run_id, f"{prefix}-{index:05d}") for index in range(count)]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
-        records = list(pool.map(lambda body: send_request(config, body), bodies))
+    local = threading.local()
+    sessions: list[requests.Session] = []
+    sessions_lock = threading.Lock()
+
+    def dispatch(body: Mapping[str, Any]) -> dict[str, Any]:
+        session = getattr(local, "session", None)
+        if session is None:
+            session = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=1,
+                pool_maxsize=1,
+                pool_block=True,
+            )
+            session.mount("http://", adapter)
+            local.session = session
+            with sessions_lock:
+                sessions.append(session)
+        return send_request(config, body, session=session)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
+            records = list(pool.map(dispatch, bodies))
+    finally:
+        for session in sessions:
+            session.close()
     return records, bodies
 
 
@@ -1514,6 +1543,7 @@ def main() -> int:
     attempts: list[dict[str, Any]] = []
     baselines: list[dict[str, Any]] = []
     failure: dict[str, Any] | None = None
+    caught_exception: Exception | None = None
     triton_log = suite_root / "runtime" / "triton.log"
     try:
         scale_holder(holder, 0)
@@ -1583,6 +1613,7 @@ def main() -> int:
         if not analysis["evidence_ready"]:
             raise S6BMExperimentError(f"acceptance_not_ready:{analysis}")
     except Exception as exc:
+        caught_exception = exc
         failure = {
             "schema_version": "evm.s8_v4.s6bm_failed_attempt.v1",
             "suite_id": suite_id,
@@ -1593,8 +1624,6 @@ def main() -> int:
             "credit": "zero_credit",
             "rca_status": "preserved_for_follow_up",
         }
-        canonical_write(suite_root / "failed-attempt.json", failure)
-        raise
     finally:
         cleanup_errors: list[dict[str, str]] = []
         cleanup_actions: list[tuple[str, Callable[[], None]]] = [
@@ -1641,6 +1670,19 @@ def main() -> int:
 
     cleanup = cleanup_snapshot(config, holder, gpu_before, prometheus_before)
     canonical_write(suite_root / "final-cleanup.json", cleanup)
+    if failure is not None:
+        failure.update(
+            {
+                "acceptance_credit_requests": 0,
+                "executed_logical_requests": sum(
+                    int(item.get("requests", {}).get("logical", 0))
+                    for item in attempts
+                    if item.get("profile") == "successful_transition"
+                ),
+                "cleanup": {key: value for key, value in cleanup.items() if key != "gpu_after"},
+            }
+        )
+        canonical_write(suite_root / "failed-attempt.json", failure)
     cleanup_passed = all(
         value is True
         for key, value in cleanup.items()
@@ -1680,6 +1722,10 @@ def main() -> int:
             },
         )
         raise S6BMExperimentError(f"final_cleanup_failed:{cleanup}")
+    if caught_exception is not None:
+        raise S6BMExperimentError(
+            f"controlled_execution_failed:{type(caught_exception).__name__}:{caught_exception}"
+        ) from caught_exception
 
     index = private_index(suite_root)
     index_path = suite_root / "private-evidence-index.json"

@@ -246,14 +246,17 @@ def _project_request_records(
     request_ids = [str(item.get("request_id", "")) for item in records]
     if len(set(request_ids)) != len(request_ids) or any(not item for item in request_ids):
         raise S6BMRuntimeError("s6bm_request_identity_duplicate")
+    if any(
+        int(item.get("status_code", 0)) != 200 or item.get("outcome") != "completed"
+        for item in records
+    ):
+        raise S6BMRuntimeError("s6bm_request_not_completed")
     trace_ids = [str(item.get("trace_id", "")) for item in records]
     if len(set(trace_ids)) != len(trace_ids) or any(TRACE_ID.fullmatch(item) is None for item in trace_ids):
         raise S6BMRuntimeError("s6bm_trace_identity")
     completion_times: list[float] = []
     latencies: list[float] = []
     for record in records:
-        if int(record.get("status_code", 0)) != 200 or record.get("outcome") != "completed":
-            raise S6BMRuntimeError("s6bm_request_not_completed")
         role = str(record.get("model_role", ""))
         if role not in {"blue", "green"}:
             raise S6BMRuntimeError("s6bm_request_role")

@@ -4,6 +4,8 @@ import hashlib
 import importlib.util
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 
@@ -40,3 +42,37 @@ def test_git_blob_hash_uses_parent_repository_root() -> None:
     ).stdout
 
     assert runner.git_blob_sha256(revision, CONFIG) == hashlib.sha256(blob).hexdigest()
+
+
+def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
+    runner = load_runner()
+    created = []
+    seen: list[int] = []
+    seen_lock = threading.Lock()
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.closed = False
+            created.append(self)
+
+        def mount(self, _prefix: str, _adapter: object) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+    def fake_send(_config, body, *, session=None):
+        time.sleep(0.002)
+        with seen_lock:
+            seen.append(id(session))
+        return {"request_id": body["request_id"]}
+
+    monkeypatch.setattr(runner.requests, "Session", FakeSession)
+    monkeypatch.setattr(runner, "send_request", fake_send)
+
+    records, bodies = runner.send_batch(object(), "run-id", "batch", 24, 3)
+
+    assert len(records) == len(bodies) == 24
+    assert 1 <= len(created) <= 3
+    assert set(seen) == {id(session) for session in created}
+    assert all(session.closed for session in created)
