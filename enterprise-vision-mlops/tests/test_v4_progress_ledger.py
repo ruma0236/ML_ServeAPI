@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
 
-from scripts.dev.update_s8_v4_e0_state import remediation_transition
+from scripts.dev.update_s8_v4_e0_state import remediation_transition, validate_review_handoff
 from evm.scale_validation.v4_ledger import (
     V4LedgerError,
     append_event,
@@ -17,6 +19,8 @@ from evm.scale_validation.v4_ledger import (
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs/status/2026-08-24-s8-v4-progress-ledger.jsonl"
+E0_EXPERIMENT = ROOT / "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+E0_HANDOFF = ROOT / "docs/status/evidence/s8-v4-e0-review-handoff.json"
 
 
 def test_committed_v4_ledger_hash_chain() -> None:
@@ -115,3 +119,22 @@ def test_e0_cupti_compile_failure_records_zero_credit_rca() -> None:
     assert transition["event_type"] == "e0_cupti_compile_remediation_required"
     assert transition["credit"] == "zero_credit"
     assert "LD_LIBRARY_PATH" in transition["rca"]
+
+
+def test_e0_review_handoff_is_pending_and_fail_closed() -> None:
+    evidence_bytes = E0_EXPERIMENT.read_bytes()
+    evidence = json.loads(evidence_bytes)
+    handoff = json.loads(E0_HANDOFF.read_bytes())
+    validate_review_handoff(
+        evidence,
+        handoff,
+        evidence_sha256=hashlib.sha256(evidence_bytes).hexdigest(),
+    )
+    mutated = copy.deepcopy(handoff)
+    mutated["acceptance"]["E0-AC-03"]["result"] = "failed"
+    with pytest.raises(RuntimeError, match="handoff_acceptance"):
+        validate_review_handoff(
+            evidence,
+            mutated,
+            evidence_sha256=hashlib.sha256(evidence_bytes).hexdigest(),
+        )

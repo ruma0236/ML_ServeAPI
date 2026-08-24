@@ -23,6 +23,7 @@ MANIFEST = ROOT / "docs/status/evidence/s8-v4-evidence-manifest.json"
 LEDGER = ROOT / "docs/status/2026-08-24-s8-v4-progress-ledger.jsonl"
 PROGRESS = ROOT / "docs/status/2026-08-24-s8-v4-progress.md"
 EVIDENCE = ROOT / "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+REVIEW_HANDOFF = ROOT / "docs/status/evidence/s8-v4-e0-review-handoff.json"
 
 
 TRANSITIONS = {
@@ -168,10 +169,36 @@ def remediation_transition(evidence: dict[str, Any], *, amendment: bool) -> dict
     }
 
 
+def validate_review_handoff(
+    evidence: dict[str, Any], handoff: dict[str, Any], *, evidence_sha256: str
+) -> None:
+    if (
+        handoff.get("status") != "review_pending"
+        or handoff.get("evidence_ready") is not True
+        or handoff.get("acceptance_credit") is not False
+        or handoff.get("reviewer_sign_off") != "pending"
+    ):
+        raise RuntimeError("e0_review_handoff_state_invalid")
+    source_identity = dict(handoff.get("source_identity", {}))
+    if source_identity.get("runtime_revision") != evidence["source_identity"]["runtime_revision"]:
+        raise RuntimeError("e0_review_handoff_runtime_revision")
+    if source_identity.get("experiment_sha256") != evidence_sha256:
+        raise RuntimeError("e0_review_handoff_experiment_sha256")
+    acceptance = dict(evidence.get("acceptance", {}))
+    handoff_acceptance = dict(handoff.get("acceptance", {}))
+    observed = {
+        criterion: dict(result).get("result") == "passed"
+        for criterion, result in handoff_acceptance.items()
+    }
+    if observed != acceptance:
+        raise RuntimeError("e0_review_handoff_acceptance")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Append an E0 V4 state transition.")
     parser.add_argument("--to", choices=tuple(TRANSITIONS), required=True)
     parser.add_argument("--evidence", type=Path, default=EVIDENCE)
+    parser.add_argument("--review-handoff", type=Path, default=REVIEW_HANDOFF)
     return parser.parse_args()
 
 
@@ -219,6 +246,7 @@ def main() -> int:
         raise RuntimeError(f"e0_transition_invalid:{prior}->{args.to}")
     acceptance_results: list[dict[str, Any]] = []
     cleanup: Any = "not_applicable_pre_execution"
+    review_handoff_ref: dict[str, Any] | None = None
     if args.to == "review_pending":
         evidence = json.loads(args.evidence.read_bytes())
         if evidence.get("status") != "review_pending":
@@ -226,6 +254,16 @@ def main() -> int:
         acceptance = dict(evidence.get("acceptance", {}))
         if not acceptance or not all(acceptance.values()):
             raise RuntimeError("e0_evidence_acceptance_not_ready")
+        handoff = json.loads(args.review_handoff.read_bytes())
+        validate_review_handoff(
+            evidence,
+            handoff,
+            evidence_sha256=hashlib.sha256(args.evidence.read_bytes()).hexdigest(),
+        )
+        review_handoff_ref = {
+            "path": args.review_handoff.relative_to(ROOT).as_posix(),
+            "sha256": hashlib.sha256(args.review_handoff.read_bytes()).hexdigest(),
+        }
         acceptance_results = [
             {"criterion": criterion, "result": "passed" if passed else "failed"}
             for criterion, passed in sorted(acceptance.items())
@@ -259,6 +297,7 @@ def main() -> int:
             "sha256": hashlib.sha256(args.evidence.read_bytes()).hexdigest(),
             "private_aggregate_sha256": evidence["private_evidence"]["aggregate_sha256"],
             "runtime_revision": evidence["source_identity"]["runtime_revision"],
+            "review_handoff": review_handoff_ref,
         }
     e0["status"] = args.to
     e0["reviewer_sign_off"] = "pending"
@@ -316,6 +355,8 @@ def main() -> int:
         }
         if prior == "remediation_required":
             event["amends_event_id"] = events[-1]["event_id"]
+    if review_handoff_ref is not None:
+        event["review_handoff"] = review_handoff_ref
     appended = append_event(LEDGER, event)
 
     progress = PROGRESS.read_text(encoding="utf-8")

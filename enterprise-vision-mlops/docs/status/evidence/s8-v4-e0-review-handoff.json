@@ -1,0 +1,146 @@
+{
+  "schema_version": "evm.s8_v4.e0_review_handoff.v1",
+  "generated_at": "2026-08-24T15:52:32.5926564Z",
+  "work_item": "E0",
+  "status": "review_pending",
+  "evidence_ready": true,
+  "acceptance_credit": false,
+  "reviewer_sign_off": "pending",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "runtime_revision": "e975b35733c67f54fb972b3ef378bd16f89eb2be",
+    "evidence_commit": "3c13b7293b248a2b2443cec4af850bc05b907bb0",
+    "experiment_path": "docs/status/evidence/s8-v4-e0-environment-experiment.json",
+    "experiment_blob_oid": "9e674b95806cb264801b619b81da51f2a5f57041",
+    "experiment_sha256": "5ca9cc34991e76a9a49fcb882316560f955a54a453d61c7aed5bacc465d12fbd"
+  },
+  "acceptance": {
+    "E0-AC-01": {
+      "result": "passed",
+      "basis": "image, model repository, artifact, config, GPU name, and GPU UUID matched in 3 of 3 repetitions"
+    },
+    "E0-AC-02": {
+      "result": "passed",
+      "basis": "Triton PyTorch KIND_GPU readiness and 100 deterministic CUDA inferences passed in each repetition"
+    },
+    "E0-AC-03": {
+      "result": "passed",
+      "basis": "Triton and Prometheus metrics were queryable and direct CUPTI activity captured one timestamped CUDA kernel per repetition"
+    },
+    "E0-AC-04": {
+      "result": "passed",
+      "basis": "B0, ports, target, lease, queue state, Kubernetes resources, and VRAM baseline restored in 3 of 3 repetitions"
+    }
+  },
+  "runtime_identity": {
+    "triton_image_digest": "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0687a4d2ac9f7a5",
+    "gpu_uuid": "GPU-4eea4bfc-f15e-bd25-c1b8-ed53ade9ad1d",
+    "gpu_name": "NVIDIA GeForce RTX 4080 SUPER",
+    "model_repository_sha256": "372290c637aceeb29d6abfa61f8a46e22e30ef8ea24e341a587ee5a07f817ac9",
+    "model_artifact_sha256": "5fc4f7cf0974537cf2c16005ef46785f08d4414a973e4f06157f5a547deb7880",
+    "model_config_sha256": "30d9424e86d9d4810c98ecf485ce23fad84de05d4cf98b82159760e2e00cd7dc",
+    "output_sha256": "30b079977f0dfa3c7f8a31e1de3a2ed5253b462575cb5bca77f650554d1df905"
+  },
+  "measurements": {
+    "accepted_repetitions": 3,
+    "historical_non_or_zero_credit_attempts": 7,
+    "readiness_seconds": [0.782, 0.766, 0.781],
+    "prometheus_target_up_seconds": [1.5, 0.0, 0.0],
+    "triton_successful_inferences": [100, 100, 100],
+    "triton_gpu_memory_used_bytes": [3111124992, 3100639232, 3449815040],
+    "profiler": {
+      "tool": "cupti",
+      "version": "130000",
+      "trace_method": "cupti-activity",
+      "scope": "same-container-cuda-profiler-qualification",
+      "triton_inference_traced": false,
+      "timestamped_kernel_records": [1, 1, 1]
+    },
+    "cleanup_seconds": [18.375, 16.594, 18.14],
+    "vram_delta_mib": [-1, -40, 4]
+  },
+  "regressions": [
+    {
+      "name": "focused_e0",
+      "result": "passed",
+      "passed": 20,
+      "skipped": 0,
+      "log_sha256": "eff9d520c9b7146332db0e2cab6df936bd54e57d01e2f92c5ab224d91a96fe2c"
+    },
+    {
+      "name": "full_python",
+      "result": "passed",
+      "passed": 874,
+      "skipped": 33,
+      "log_sha256": "f069a56d625c8d3a422a6a3e2e9aee08d212f0ada842dcade33ff70c940dcacb"
+    },
+    {
+      "name": "real_postgresql",
+      "result": "passed",
+      "passed": 40,
+      "skipped": 0,
+      "log_sha256": "3b38b11df8a89e8a1037f21e6154a3f92c6f5031da21b33c776a31504abb719b"
+    },
+    {
+      "name": "lifecycle_host",
+      "result": "passed",
+      "passed": 61,
+      "skipped": 0,
+      "log_sha256": "db7555bc078a7fef26c3487801c5622269f566dc52159b62fedb1901a3c1049b"
+    },
+    {
+      "name": "control_panel",
+      "result": "passed",
+      "passed": 59,
+      "test_files": 17,
+      "log_sha256": "1a0d7d892a945bcf87ab1c3f69dfe9029ef6ef0590d936099f052d2860f453cf"
+    },
+    {
+      "name": "frontend_production_build",
+      "result": "passed",
+      "transformed_modules": 1803,
+      "log_sha256": "5cf056d6beeffa0546c889e1de164d85ad4af01751a9fe7d9fe4df44d092d118"
+    },
+    {
+      "name": "git_blob_evidence_validator",
+      "result": "passed",
+      "hash_source": "HEAD",
+      "log_sha256": "af6db68dc621188fbd916ad98c38058bd16987ddd0532a477c103cbd870e4d3a"
+    }
+  ],
+  "cleanup": {
+    "b0_cuda_inference": true,
+    "e0_containers_absent": true,
+    "e0_kubernetes_resources_absent": true,
+    "gpu_lease_absent": true,
+    "e0_ports_absent": true,
+    "prometheus_target_absent": true,
+    "queue_active": 0,
+    "queue_leased": 0,
+    "queue_outcome_unknown": 0,
+    "prometheus_targets_up": 5,
+    "prometheus_targets_total": 5,
+    "runtime_cleanup_sha256": "360ce906c286b1b0bab69a28b9770beb39d845b4a8b421373cf643204cf3e547"
+  },
+  "private_review_evidence": {
+    "artifact_count": 8,
+    "total_bytes": 5739,
+    "aggregate_sha256": "1c06c7e69d6c0bbb748c2ba2291e4c92d2c21df4e01f60f10d2d7b00904374f6",
+    "index_sha256": "bf89158557cf6af14e007a33d2a3648ef3fb99470f1638487cb5eaf73173f516"
+  },
+  "alignment": {
+    "definition_alignment": true,
+    "experiment_purpose_alignment": true,
+    "validation_purpose_alignment": true,
+    "test_purpose_alignment": true,
+    "reviewer_sign_off": "pending"
+  },
+  "residual_limits": [
+    "Nsight 2025.4.1 in the pinned Triton image did not expose a GPU workload table for the WSL2 trace attempts; E0 profiler acceptance uses direct CUPTI activity records instead.",
+    "The CUPTI qualification timeline is tied to the same container, lease, image, and attempt but is not a trace of the Triton inference kernels.",
+    "Historical S2 non-finite generic-validator debt remains outside E0 and is unchanged.",
+    "S6B-M, X1, and integrated S8-V4 remain not started."
+  ],
+  "claim_boundary": "Controlled qualification on one Windows/WSL2 physical node and one RTX 4080; no production SLA, HA/DR, multi-node, multi-GPU, MIG, MPS, Triton inference kernel trace, or CUDA-overlap claim.",
+  "next_action": "Independent source-local review of E0 evidence; do not mark verified and do not start S6B-M."
+}
