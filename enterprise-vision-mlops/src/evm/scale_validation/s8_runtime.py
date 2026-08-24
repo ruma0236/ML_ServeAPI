@@ -223,7 +223,7 @@ class S8RuntimeConfig:
 
     def fault_matrix(self) -> FaultMatrix:
         return FaultMatrix(
-            version="s8-isolated-faults-v4-20260824",
+            version="s8-isolated-faults-v5-20260824",
             seed=self.seed,
             repetitions=self.repetitions,
             warmup_seconds=2.0,
@@ -474,6 +474,7 @@ def execute_payload_mix(
         delay_seconds=delay_seconds,
         terminal_after_seconds=0.1,
     )
+    isolate_timeout_delays(payloads, profile_id=profile_id)
     start_worker_and_monitoring(scope, matrix)
     submission = submit_payloads(
         api_url=scope.api.base_url,
@@ -571,6 +572,19 @@ def fault_mode_contract(
         for task_id, mode in mode_by_task.items()
     }
     return no_effect, expected_states, trace_requirements
+
+
+def isolate_timeout_delays(
+    payloads: Sequence[dict[str, Any]], *, profile_id: str
+) -> None:
+    if profile_id != "timeout":
+        return
+    for payload in payloads:
+        config = payload.get("config_payload")
+        if not isinstance(config, dict):
+            raise S8RuntimeError("s8_timeout_payload_config_invalid")
+        if str(config.get("s2_failure_mode")) != "timeout_once":
+            config["s2_delay_seconds"] = 0.0
 
 
 def execute_retry_budget_profile(
@@ -1049,7 +1063,7 @@ def run_s8_experiment(
     root = root.resolve()
     config = S8RuntimeConfig.from_path(scenario_config_path)
     queue_config = AdmissionQueueConfig.from_path(queue_config_path)
-    if queue_config.profile_version != "s8-dependency-soak-v4-20260824":
+    if queue_config.profile_version != "s8-dependency-soak-v5-20260824":
         raise S8RuntimeError("s8_queue_profile_identity_invalid")
     if not port_is_available(queue_config.metrics_port):
         raise S8RuntimeError(f"s8_worker_metrics_port_in_use:{queue_config.metrics_port}")

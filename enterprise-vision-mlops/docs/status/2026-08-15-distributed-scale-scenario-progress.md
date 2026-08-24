@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T07:52:10Z`
+- Generated: `2026-08-24T08:07:50Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -739,7 +739,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.
 - Verdict: `not_run`
 - Claim boundary: Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.
-- Next action: Rerun the complete 21-repetition fault matrix from the v4 fail-closed timeout revision; begin soak only after every fresh fault repetition passes.
+- Next action: Run a zero-credit v5 timeout preflight with delay isolated to timeout tasks; only then restart all 21 fault repetitions and the gated soak.
 
 ### Affected Existing Components
 
@@ -765,7 +765,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Existing durable queue retry and dependency boundary: `src/evm/control_panel/admission_queue.py`, `src/evm/control_panel/task_queue_worker.py`, `src/evm/control_panel/transactional_store.py`
 - Existing capacity runtime resource sampler: `src/evm/scale_validation/s3_runtime.py`
 - S8 external runtime and independent evidence validation: `src/evm/scale_validation/s8_runtime.py`, `src/evm/scale_validation/s8_evidence.py`, `scripts/dev/run_s8_dependency_soak_experiment.py`, `scripts/dev/validate_s8_dependency_soak_evidence.py`, `tests/test_s8_runtime.py`, `tests/test_s8_evidence.py`
-- S8 frozen execution and evidence contract: `configs/s8_dependency_soak_v4.toml`, `configs/s8_soak_capacity_runtime.toml`, `docs/status/2026-08-24-s8-design-reconciliation.md`
+- S8 frozen execution and evidence contract: `configs/s8_dependency_soak_v5.toml`, `configs/s8_soak_capacity_runtime.toml`, `docs/status/2026-08-24-s8-design-reconciliation.md`
 - Compatibility: Existing A-E guard evidence remains baseline-only and cannot substitute for fresh scale-soak evidence.
 - Migration: Introduce fault controls behind explicit profiles and retain a no-fault operating profile for rollback.
 
@@ -791,6 +791,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s8-dependency-soak-attempt-02.json` (`e2af667369c2daef619f8ff74a8cf63b3499591908de0150b83662eb4c51187d`): Rejected contract/runtime attempt: nine fresh control, latency, and transient repetitions passed; retry-budget repetition 1 expired five intended DLQ items after runner/config drift, cleanup passed, soak did not start, and no acceptance credit was awarded.
 - `docs/status/evidence/s8-retry-budget-v2-calibration.json` (`0f112462479335715a65ec9906ebe32cc99f865ed9b09146a855ae360eaf4e2f`): Zero-credit retry-budget calibration closed 17/17 tasks with 12 DLQ, 5 completed, duplicate effects zero, and cleanup complete; its 40.109-second fault recovery justified freezing the pre-acceptance v3 MTTR bound at 60 seconds.
 - `docs/status/evidence/s8-dependency-soak-attempt-03.json` (`38ffd90a038d105fe123a6683d8b9bddc8b56817576f65a9b54d6ae999a951c5`): Rejected timeout-contract attempt: fifteen fault repetitions passed, then timeout repetition 1 retained two outcome-unknown items because the worker and HTTP timeouts shared a 10-second boundary; cleanup passed, soak did not start, and no acceptance credit was awarded.
+- `docs/status/evidence/s8-timeout-v4-preflight.json` (`89a5880ad8e86f3005430cc5ef6d1df84c50d30724f638e33264a8931ea96e2b`): Zero-credit v4 timeout preflight closed 6/6 terminal outcomes and preserved duplicate effects zero, but failed strict trace 2/6 and the 60-second MTTR guardrail because timeout delay leaked to four healthy tasks.
 
 ### Chronological Updates
 
@@ -801,3 +802,4 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-24T07:19:55Z` `experiment` / `implementing`: Attempt 02 was rejected with zero acceptance credit. Nine control/latency/transient repetitions passed, then retry-budget runner/config drift allowed five expiry outcomes; cleanup completed and soak did not start.
 - `2026-08-24T07:29:00Z` `implementation` / `implementing`: A zero-credit v2 retry-budget calibration passed terminal/effect/cleanup invariants and measured 40.109 seconds to recovery. The v3 profile freezes a 60-second MTTR bound before any acceptance run.
 - `2026-08-24T07:52:10Z` `experiment` / `implementing`: Attempt 03 was rejected with zero acceptance credit. Fifteen repetitions passed, then timeout repetition 1 retained two outcome-unknown items at an equal worker/HTTP timeout boundary; cleanup completed and soak did not start.
+- `2026-08-24T08:07:50Z` `implementation` / `implementing`: The zero-credit v4 timeout preflight reached 6/6 terminal outcomes but failed trace and MTTR because the 12-second injected delay also affected four healthy tasks. V5 scopes delay to timeout work only.

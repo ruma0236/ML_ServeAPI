@@ -15,6 +15,7 @@ from evm.scale_validation.s8_runtime import (
     analyze_fault_results,
     analyze_soak_private,
     fault_mode_contract,
+    isolate_timeout_delays,
     linear_slope,
     statistics,
 )
@@ -24,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_s8_config_freezes_fault_and_soak_contract() -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v4.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v5.toml")
 
     assert config.repetitions == 3
     assert config.soak_requests_per_second == 35.0
@@ -34,7 +35,7 @@ def test_s8_config_freezes_fault_and_soak_contract() -> None:
     assert config.retry_healthy_request_count == 4
     assert config.maximum_mttr_seconds == 60.0
     queue_config = AdmissionQueueConfig.from_path(
-        ROOT / "configs/s8_dependency_soak_v4.toml"
+        ROOT / "configs/s8_dependency_soak_v5.toml"
     )
     assert queue_config.runtime_terminal_timeout_seconds == 30.0
     assert tuple(profile for profile in config.fault_matrix().profiles if profile != "I") == FAULT_PROFILE_IDS
@@ -75,7 +76,7 @@ def _fault_results(config: S8RuntimeConfig) -> list[dict[str, object]]:
 
 
 def test_s8_fault_projection_is_recomputed_and_fail_closed() -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v4.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v5.toml")
     results = _fault_results(config)
 
     assert analyze_fault_results(results, config)["passed"] is True
@@ -87,7 +88,7 @@ def test_s8_fault_projection_is_recomputed_and_fail_closed() -> None:
 
 
 def test_s8_soak_private_recomputes_finite_resource_slopes(tmp_path: Path) -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v4.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v5.toml")
     samples = [
         {
             "offset_seconds": float(index),
@@ -147,6 +148,28 @@ def test_timeout_contract_fails_closed_without_external_effect() -> None:
     assert "airflow.rest" in traces["timeout-task"]
     assert "queue.dispatch" not in traces["timeout-task"]
     assert "queue.dispatch" in traces["healthy-task"]
+
+
+def test_timeout_delay_is_scoped_to_timeout_requests() -> None:
+    payloads = [
+        {
+            "config_payload": {
+                "s2_failure_mode": "timeout_once",
+                "s2_delay_seconds": 12.0,
+            }
+        },
+        {
+            "config_payload": {
+                "s2_failure_mode": "healthy",
+                "s2_delay_seconds": 12.0,
+            }
+        },
+    ]
+
+    isolate_timeout_delays(payloads, profile_id="timeout")
+
+    assert payloads[0]["config_payload"]["s2_delay_seconds"] == 12.0
+    assert payloads[1]["config_payload"]["s2_delay_seconds"] == 0.0
 
 
 def test_isolated_prometheus_retries_only_port_collision(

@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=ROOT / "configs/s8_dependency_soak_v4.toml",
+        default=ROOT / "configs/s8_dependency_soak_v5.toml",
     )
     parser.add_argument("--private-root", type=Path, required=True)
     parser.add_argument("--git-revision")

@@ -26,7 +26,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Synchronize Scenario S8 progress")
     parser.add_argument(
         "--phase",
-        choices=("implementation", "failure", "calibration", "verification"),
+        choices=(
+            "implementation",
+            "failure",
+            "calibration",
+            "timeout-preflight",
+            "verification",
+        ),
         default="implementation",
     )
     parser.add_argument("--json-path", type=Path, default=DEFAULT_JSON)
@@ -63,7 +69,7 @@ def implementation_components() -> list[dict[str, object]]:
         {
             "component": "S8 frozen execution and evidence contract",
             "files": [
-                "configs/s8_dependency_soak_v4.toml",
+                "configs/s8_dependency_soak_v5.toml",
                 "configs/s8_soak_capacity_runtime.toml",
                 "docs/status/2026-08-24-s8-design-reconciliation.md",
             ],
@@ -77,6 +83,8 @@ def main() -> int:
         return record_failed_attempt(args)
     if args.phase == "calibration":
         return record_calibration(args)
+    if args.phase == "timeout-preflight":
+        return record_timeout_preflight(args)
     if args.phase != "implementation":
         raise SystemExit("verification updates are produced by the S8 closure script")
     now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -267,6 +275,62 @@ def record_calibration(args: argparse.Namespace) -> int:
                 "a 60-second MTTR bound before any acceptance run."
             ),
             "evidence_refs": [artifact["path"], "docs/status/2026-08-24-s8-design-reconciliation.md"],
+        }
+    )
+    payload["generated_at"] = now
+    ledger = ScenarioProgressLedger.model_validate(payload)
+    args.json_path.write_bytes((ledger.model_dump_json(indent=2) + "\n").encode("utf-8"))
+    args.markdown_path.write_text(
+        render_progress_markdown(ledger), encoding="utf-8", newline="\n"
+    )
+    return 0
+
+
+def record_timeout_preflight(args: argparse.Namespace) -> int:
+    now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    evidence_path = ROOT / "docs/status/evidence/s8-timeout-v4-preflight.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    artifact = {
+        "path": evidence_path.relative_to(ROOT).as_posix(),
+        "sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+        "generated_at": str(evidence["generated_at"]),
+        "claim": (
+            "Zero-credit v4 timeout preflight closed 6/6 terminal outcomes and "
+            "preserved duplicate effects zero, but failed strict trace 2/6 and the "
+            "60-second MTTR guardrail because timeout delay leaked to four healthy tasks."
+        ),
+    }
+    payload = json.loads(args.json_path.read_text(encoding="utf-8"))
+    scenario = next(item for item in payload["scenarios"] if item["scenario_id"] == "S8")
+    components = implementation_components()
+    scenario["changed_components"] = components
+    scenario["implementation_delta"]["modified_existing_components"] = components
+    existing = [
+        item for item in scenario["evidence_artifacts"] if item.get("path") != artifact["path"]
+    ]
+    scenario["evidence_artifacts"] = [*existing, artifact]
+    scenario["evidence_index"] = [*existing, artifact]
+    scenario["observed_result"] = None
+    scenario["status"] = "implementing"
+    scenario["verdict_and_claim_boundary"]["verdict"] = "not_run"
+    scenario["next_action"] = (
+        "Run a zero-credit v5 timeout preflight with delay isolated to timeout tasks; "
+        "only then restart all 21 fault repetitions and the gated soak."
+    )
+    scenario["chronological_updates"].append(
+        {
+            "occurred_at": now,
+            "phase": "implementation",
+            "status": "implementing",
+            "summary": (
+                "The zero-credit v4 timeout preflight reached 6/6 terminal outcomes "
+                "but failed trace and MTTR because the 12-second injected delay also "
+                "affected four healthy tasks. V5 scopes delay to timeout work only."
+            ),
+            "evidence_refs": [
+                artifact["path"],
+                "docs/status/2026-08-24-s8-timeout-v4-preflight-rca.md",
+            ],
         }
     )
     payload["generated_at"] = now

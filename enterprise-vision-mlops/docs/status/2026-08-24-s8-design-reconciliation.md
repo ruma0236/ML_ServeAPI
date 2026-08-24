@@ -66,7 +66,7 @@ failure reopens it. Lease/fencing, PostgreSQL authority, idempotency, DLQ, and
 existing API response contracts remain unchanged.
 
 The circuit is disabled by default in the accepted S2 profile. It is enabled only
-by `configs/s8_dependency_soak_v4.toml`, providing a direct rollback to the prior
+by `configs/s8_dependency_soak_v5.toml`, providing a direct rollback to the prior
 behavior without a schema migration.
 
 ## Experiment And Stop Contract
@@ -102,6 +102,14 @@ behavior without a schema migration.
   effect becomes an explicit terminal failure, while following healthy work must
   complete. Timeout tasks require the failure trace subset and zero external
   effect; they are never relabeled as successful work.
+- The zero-credit v4 timeout preflight proved the improved terminal policy with
+  `6/6` terminal outcomes, `0` outcome-unknown, and `0` duplicate effects. It
+  still failed because the injected 12-second delay reached four healthy tasks,
+  producing six worker timeouts, only `2/6` complete trace contracts, and
+  `72.828 s` fault-to-terminal recovery against the frozen `60 s` guardrail.
+  V5 preserves the terminal policy and applies the delay only to requests marked
+  `timeout_once`; a separate passing zero-credit preflight is required before the
+  entire 21-repetition acceptance matrix restarts.
 5. Stop on retry budget escape, unbounded slope, error or p99 guardrail breach,
    trace gap, identity ambiguity, or cleanup uncertainty.
 6. Re-hash all accepted public and private artifacts before closure.
