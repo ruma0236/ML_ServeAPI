@@ -1,0 +1,130 @@
+[profile]
+version = "s8-dependency-soak-v1-20260824"
+status = "frozen-before-experiment"
+
+[durable_queue]
+max_depth = 64
+max_bytes = 393216
+max_item_bytes = 262144
+ingress_max_body_bytes = 262144
+ingress_max_concurrent_requests = 32
+ingress_max_inflight_bytes = 1048576
+ingress_max_chunks = 128
+max_age_seconds = 120.0
+admission_wait_seconds = 0.25
+retry_after_seconds = 2
+pending_max_depth = 32
+pending_max_bytes = 262144
+pending_max_age_seconds = 600.0
+
+[local_queue]
+max_depth = 8
+max_bytes = 262144
+
+[worker]
+work_timeout_seconds = 10.0
+cpu_workers_min = 1
+cpu_workers_max = 4
+gpu_workers = 1
+lease_seconds = 6.0
+lease_renew_interval_seconds = 2.0
+poll_interval_seconds = 0.1
+runtime_poll_interval_seconds = 0.25
+runtime_poll_batch_size = 4
+runtime_terminal_timeout_seconds = 120.0
+cpu_downstream_max_outstanding = 8
+gpu_downstream_max_outstanding = 1
+drain_timeout_seconds = 90.0
+metrics_port = 9478
+
+[retry]
+max_attempts = 3
+backoff_base_seconds = 0.25
+backoff_max_seconds = 2.0
+jitter_ratio = 0.20
+global_budget = 32
+budget_window_seconds = 60.0
+budget_scope = "s8-dependency-soak-v1"
+
+[dependency_circuit]
+failure_threshold = 3
+hold_seconds = 2.0
+half_open_max_in_flight = 1
+
+[resource_limits]
+rss_cap_bytes = 1073741824
+rss_slope_tolerance_bytes_per_minute = 16777216
+rss_slope_warmup_seconds = 60.0
+rss_slope_window_seconds = 600.0
+
+[retention]
+terminal_queue_max_rows = 512
+terminal_queue_max_age_seconds = 3600.0
+task_history_max_terminal_rows = 512
+idempotency_tombstone_max_rows = 4096
+idempotency_tombstone_retention_seconds = 86400.0
+compaction_batch_size = 64
+
+[experiment]
+schema_version = "evm.s8_dependency_soak_config.v1"
+seed = 20260824
+repetitions = 3
+fault_sample_interval_seconds = 0.5
+fault_drain_timeout_seconds = 120.0
+trace_flush_seconds = 10.0
+prometheus_scrape_interval_seconds = 1.0
+
+[soak]
+probe_family = "branch-heavy"
+requests_per_second = 35.0
+capacity_reference_requests_per_second = 49.977777777778
+capacity_fraction = 0.70
+api_replicas = 1
+cpu_workers = 1
+warmup_seconds = 60.0
+measurement_seconds = 1800.0
+cooldown_seconds = 30.0
+resource_sample_interval_seconds = 1.0
+
+[faults.latency]
+request_count = 8
+concurrency = 2
+delay_seconds = 1.0
+
+[faults.transient]
+request_count = 8
+concurrency = 4
+failure_mode = "transient_once"
+
+[faults.timeout]
+timeout_request_count = 2
+healthy_request_count = 4
+concurrency = 2
+failure_mode = "timeout_once"
+delay_seconds = 12.0
+
+[faults.retry_budget]
+transient_request_count = 12
+healthy_request_count = 4
+concurrency = 4
+failure_mode = "always_transient"
+
+[guardrails]
+maximum_retry_amplification = 3.0
+maximum_error_rate = 0.01
+maximum_p99_ms = 250.0
+maximum_host_cpu_percent = 90.0
+maximum_process_tree_rss_bytes = 8589934592
+maximum_rss_slope_bytes_per_minute = 16777216.0
+maximum_fd_slope_per_minute = 2.0
+maximum_queue_slope_items_per_minute = 0.25
+maximum_artifact_slope_bytes_per_minute = 1048576.0
+maximum_mttr_seconds = 30.0
+
+[claim_boundary]
+physical_nodes = 1
+cuda_devices = 1
+customer_traffic = false
+production_sla = false
+multi_node_ha = false
+multi_gpu = false

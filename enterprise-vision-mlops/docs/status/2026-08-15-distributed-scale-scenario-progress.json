@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T05:13:52Z",
+  "generated_at": "2026-08-24T06:36:59Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3976,11 +3976,36 @@
         "Run a 30 to 60 minute soak near the selected safe operating point.",
         "Calculate CPU/GPU time efficiency and re-hash every accepted evidence artifact."
       ],
-      "changed_components": [],
-      "implementation_summary": [
-        "Implementation has not started."
+      "changed_components": [
+        {
+          "component": "Existing durable queue retry and dependency boundary",
+          "files": [
+            "src/evm/control_panel/admission_queue.py",
+            "src/evm/control_panel/task_queue_worker.py",
+            "src/evm/control_panel/transactional_store.py"
+          ]
+        },
+        {
+          "component": "Existing capacity runtime resource sampler",
+          "files": [
+            "src/evm/scale_validation/s3_runtime.py"
+          ]
+        },
+        {
+          "component": "S8 frozen execution and evidence contract",
+          "files": [
+            "configs/s8_dependency_soak_v1.toml",
+            "configs/s8_soak_capacity_runtime.toml",
+            "docs/status/2026-08-24-s8-design-reconciliation.md"
+          ]
+        }
       ],
-      "experiment_environment": "Not exercised. Planned scope is a generalized local single-node container and Kubernetes runtime with one accelerator where required.",
+      "implementation_summary": [
+        "The existing PostgreSQL durable queue now has an opt-in transient-dependency circuit with closed, open, and one-probe half-open states; the S2 profile remains disabled by default.",
+        "The existing capacity runtime now samples process-tree open handles, queue gauges, and private artifact growth together with CPU and RSS.",
+        "A frozen S8 profile binds 35 RPS to 70 percent of the accepted S3 sustainable rate, three 30-minute soak repetitions, isolated dependency faults, bounded retry, and deterministic cleanup."
+      ],
+      "experiment_environment": "Implementation checkpoint only. The accepted experiment will use external TCP/HTTP, isolated PostgreSQL schemas, the real bounded queue worker, a deterministic Airflow-compatible dependency, Prometheus, W3C OTLP, and the existing HIGGS capacity route on one local physical node.",
       "test_or_experiment_steps": [
         "Validate one dependency fault at a time and prove cleanup before the next.",
         "Run the cross-layer soak only after every isolated scenario has passed.",
@@ -4014,15 +4039,15 @@
       ],
       "observed_result": null,
       "evidence_artifacts": [],
-      "status": "planned",
-      "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
+      "status": "implementing",
+      "claim_boundary": "Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.",
       "unresolved_items": [
         "Retry amplification stays within the declared budget.",
         "Memory, file descriptor, pool, queue, and artifact slopes remain bounded.",
         "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
         "One final evidence index re-hashes every accepted result."
       ],
-      "next_action": "Begin only after S0 through S7 have accepted evidence and clean cleanup.",
+      "next_action": "Run the isolated dependency-fault repetitions, then the 35 RPS 30-minute soak repetitions, recompute S8-AC-01..04 from raw evidence, and close only after regression and Git-blob validation.",
       "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
       "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.",
       "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
@@ -4054,7 +4079,30 @@
         ]
       },
       "implementation_delta": {
-        "modified_existing_components": [],
+        "modified_existing_components": [
+          {
+            "component": "Existing durable queue retry and dependency boundary",
+            "files": [
+              "src/evm/control_panel/admission_queue.py",
+              "src/evm/control_panel/task_queue_worker.py",
+              "src/evm/control_panel/transactional_store.py"
+            ]
+          },
+          {
+            "component": "Existing capacity runtime resource sampler",
+            "files": [
+              "src/evm/scale_validation/s3_runtime.py"
+            ]
+          },
+          {
+            "component": "S8 frozen execution and evidence contract",
+            "files": [
+              "configs/s8_dependency_soak_v1.toml",
+              "configs/s8_soak_capacity_runtime.toml",
+              "docs/status/2026-08-24-s8-design-reconciliation.md"
+            ]
+          }
+        ],
         "compatibility": [
           "Existing A-E guard evidence remains baseline-only and cannot substitute for fresh scale-soak evidence."
         ],
@@ -4096,7 +4144,7 @@
       "evidence_index": [],
       "verdict_and_claim_boundary": {
         "verdict": "not_run",
-        "claim_boundary": "No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.",
+        "claim_boundary": "Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.",
         "final_system_validation_required": true
       },
       "chronological_updates": [
@@ -4106,6 +4154,15 @@
           "status": "planned",
           "summary": "The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.",
           "evidence_refs": []
+        },
+        {
+          "occurred_at": "2026-08-24T06:36:59Z",
+          "phase": "implementation",
+          "status": "implementing",
+          "summary": "S8 implementation started at the S0-S7 verified gate with an opt-in dependency circuit, frozen 35 RPS soak contract, expanded resource sampling, and no acceptance credit yet.",
+          "evidence_refs": [
+            "docs/status/2026-08-24-s8-design-reconciliation.md"
+          ]
         }
       ]
     }

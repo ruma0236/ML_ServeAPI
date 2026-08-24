@@ -22,6 +22,7 @@ import httpx
 import numpy as np
 import psutil
 import requests
+from prometheus_client.parser import text_string_to_metric_families
 
 from evm.scale_validation.s3_higgs import file_sha256
 
@@ -631,17 +632,20 @@ def process_tree_sample(pid: int) -> dict[str, float | int]:
             "cpu_percent": 0.0,
             "cpu_time_seconds": 0.0,
             "process_count": 0,
+            "open_handles": 0,
         }
     rss = 0
     cpu = 0.0
     cpu_time = 0.0
     count = 0
+    open_handles = 0
     for process in processes:
         try:
             rss += int(process.memory_info().rss)
             cpu += float(process.cpu_percent(None))
             times = process.cpu_times()
             cpu_time += float(times.user + times.system)
+            open_handles += process_open_handles(process)
             count += 1
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
@@ -650,7 +654,52 @@ def process_tree_sample(pid: int) -> dict[str, float | int]:
         "cpu_percent": cpu,
         "cpu_time_seconds": cpu_time,
         "process_count": count,
+        "open_handles": open_handles,
     }
+
+
+def process_open_handles(process: psutil.Process) -> int:
+    try:
+        if hasattr(process, "num_handles"):
+            return int(process.num_handles())
+        if hasattr(process, "num_fds"):
+            return int(process.num_fds())
+    except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+        return 0
+    return 0
+
+
+def directory_bytes(path: Path) -> int:
+    total = 0
+    for candidate in path.rglob("*"):
+        try:
+            if candidate.is_file():
+                total += candidate.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def capacity_runtime_gauges(
+    replicas: Sequence[ApiReplica],
+) -> dict[str, float]:
+    names = {
+        "evm_s3_capacity_executor_queue_depth",
+        "evm_s3_capacity_executor_queue_bytes",
+        "evm_s3_capacity_executor_in_flight",
+        "evm_s3_capacity_executor_in_flight_bytes",
+        "evm_s3_capacity_executor_outstanding",
+        "evm_s3_capacity_executor_outstanding_bytes",
+    }
+    observed = {name: 0.0 for name in names}
+    for replica in replicas:
+        response = requests.get(f"{replica.base_url}/metrics", timeout=1)
+        response.raise_for_status()
+        for family in text_string_to_metric_families(response.text):
+            for sample in family.samples:
+                if sample.name in observed:
+                    observed[sample.name] += float(sample.value)
+    return observed
 
 
 def start_isolated_prometheus(
@@ -1094,6 +1143,7 @@ async def collect_resource_samples(
     maximum_process_tree_rss_bytes: int,
     stop: StopController,
     finished: asyncio.Event,
+    artifact_root: Path,
 ) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     runner = psutil.Process(os.getpid())
@@ -1133,6 +1183,8 @@ async def collect_resource_samples(
         runner_times = runner.cpu_times()
         runner_cpu = float(runner_times.user + runner_times.system)
         host_cpu = float(psutil.cpu_percent(None))
+        runtime_gauges = await asyncio.to_thread(capacity_runtime_gauges, replicas)
+        artifact_bytes = await asyncio.to_thread(directory_bytes, artifact_root)
         sample = {
             "offset_seconds": sampled_at - started,
             "host_cpu_percent": host_cpu,
@@ -1144,11 +1196,17 @@ async def collect_resource_samples(
             "api_process_tree_cpu_percent": sum(
                 float(value["cpu_percent"]) for value in api.values()
             ),
+            "api_process_tree_open_handles": sum(
+                int(value["open_handles"]) for value in api.values()
+            ),
             "load_generator_rss_bytes": int(runner.memory_info().rss),
+            "load_generator_open_handles": process_open_handles(runner),
             "load_generator_cpu_percent": max(
                 0.0,
                 (runner_cpu - previous_runner_cpu) / elapsed * 100,
             ),
+            "artifact_bytes": artifact_bytes,
+            **runtime_gauges,
         }
         previous_runner_cpu = runner_cpu
         previous_sample = sampled_at
@@ -1276,8 +1334,17 @@ def resource_summary(samples: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "host_memory_percent",
         "api_process_tree_rss_bytes",
         "api_process_tree_cpu_percent",
+        "api_process_tree_open_handles",
         "load_generator_rss_bytes",
         "load_generator_cpu_percent",
+        "load_generator_open_handles",
+        "artifact_bytes",
+        "evm_s3_capacity_executor_queue_depth",
+        "evm_s3_capacity_executor_queue_bytes",
+        "evm_s3_capacity_executor_in_flight",
+        "evm_s3_capacity_executor_in_flight_bytes",
+        "evm_s3_capacity_executor_outstanding",
+        "evm_s3_capacity_executor_outstanding_bytes",
     )
     return {
         field: _statistics([float(sample.get(field, 0)) for sample in samples])
@@ -1716,6 +1783,7 @@ def run_capacity_point(
                 duration_seconds=measurement_duration,
                 config=config,
                 stop=stop,
+                artifact_root=private_root,
             )
         )
         load = summarize_load_phase(phase)
@@ -1843,6 +1911,7 @@ async def _run_measured_phase(
     duration_seconds: float,
     config: S3RuntimeConfig,
     stop: StopController,
+    artifact_root: Path,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     finished = asyncio.Event()
     sampler = asyncio.create_task(
@@ -1853,6 +1922,7 @@ async def _run_measured_phase(
             maximum_process_tree_rss_bytes=config.maximum_process_tree_rss_bytes,
             stop=stop,
             finished=finished,
+            artifact_root=artifact_root,
         )
     )
     try:

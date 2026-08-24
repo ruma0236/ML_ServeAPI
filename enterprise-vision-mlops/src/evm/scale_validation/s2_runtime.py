@@ -1674,6 +1674,9 @@ def bounded_metric_summary(
     )
     queue_wait = histogram_metric_summary(worker, "evm_task_queue_wait_seconds")
     queue_wait["max"] = max_metric(worker, "evm_task_queue_wait_max_seconds")
+    circuit_hold = histogram_metric_summary(
+        worker, "evm_task_queue_dependency_circuit_hold_seconds"
+    )
     return {
         "admission": admission,
         "terminal": terminals,
@@ -1689,6 +1692,43 @@ def bounded_metric_summary(
         "admission_wait_seconds": admission_wait,
         "queue_wait_seconds": queue_wait,
         "retry_delay_seconds": retry_delay,
+        "dependency_circuit": {
+            "state": {
+                state: max_metric(
+                    worker,
+                    "evm_task_queue_dependency_circuit_state",
+                    labels={"state": state},
+                )
+                for state in ("closed", "open", "half_open")
+            },
+            "opens": max_metric(
+                worker, "evm_task_queue_dependency_circuit_opens_total"
+            ),
+            "blocked_claim_cycles": max_metric(
+                worker,
+                "evm_task_queue_dependency_circuit_blocked_claims_total",
+            ),
+            "hold_seconds": circuit_hold,
+        },
+        "control_plane_pool": {
+            process: {
+                "size": max_metric(metrics, "evm_control_plane_db_pool_size"),
+                "available": max_metric(
+                    metrics, "evm_control_plane_db_pool_available"
+                ),
+                "in_use": max_metric(metrics, "evm_control_plane_db_pool_in_use"),
+                "waiting": max_metric(
+                    metrics, "evm_control_plane_db_pool_waiting"
+                ),
+                "timeouts": max_metric(
+                    metrics, "evm_control_plane_db_pool_timeouts_total"
+                ),
+                "acquire_wait": histogram_metric_summary(
+                    metrics, "evm_control_plane_db_pool_acquire_seconds"
+                ),
+            }
+            for process, metrics in (("api", api), ("worker", worker))
+        },
         "worker_in_flight_bytes": {
             resource: max_metric(
                 worker,

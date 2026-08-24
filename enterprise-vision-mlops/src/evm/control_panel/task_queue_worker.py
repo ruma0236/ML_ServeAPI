@@ -20,6 +20,10 @@ from evm.control_panel.admission_queue import (
     QUEUE_COMPACTIONS,
     QUEUE_CONSUMER_FAILURES,
     QUEUE_CPU_SCALE_EVENTS,
+    QUEUE_DEPENDENCY_CIRCUIT_BLOCKED_CLAIMS,
+    QUEUE_DEPENDENCY_CIRCUIT_HOLD_SECONDS,
+    QUEUE_DEPENDENCY_CIRCUIT_OPENS,
+    QUEUE_DEPENDENCY_CIRCUIT_STATE,
     QUEUE_DLQ,
     QUEUE_DOWNSTREAM_OUTSTANDING,
     QUEUE_DOWNSTREAM_OUTSTANDING_BYTES,
@@ -188,11 +192,17 @@ class BoundedTaskQueueWorker:
         self._rss_warmup_deadline = (
             time.monotonic() + config.rss_slope_warmup_seconds
         )
+        self._dependency_circuit_state = "closed"
+        self._dependency_circuit_failures = 0
+        self._dependency_circuit_open_until = 0.0
+        self._dependency_half_open_claims = 0
+        self._dependency_circuit_open_count = 0
         QUEUE_WORKER_CAPACITY.labels(resource_class="cpu").set(self.cpu_target)
         QUEUE_WORKER_CAPACITY.labels(resource_class="gpu").set(config.gpu_workers)
         QUEUE_WORKER_LIVE_CONSUMERS.labels(resource_class="cpu").set(0)
         QUEUE_WORKER_LIVE_CONSUMERS.labels(resource_class="gpu").set(0)
         QUEUE_EXECUTOR_PROCESS_TREE_RSS_PEAK_BYTES.set(0)
+        self._observe_dependency_circuit()
 
     async def run(self, *, once: bool = False) -> None:
         await asyncio.to_thread(
@@ -312,6 +322,14 @@ class BoundedTaskQueueWorker:
         self.stop_event.set()
 
     async def _fill_local_queues(self) -> None:
+        if not self._dependency_circuit_allows_claims():
+            return
+        half_open_slots = (
+            self.config.circuit_half_open_max_in_flight
+            - self._dependency_half_open_claims
+            if self._dependency_circuit_state == "half_open"
+            else self.config.local_max_depth
+        )
         for kind, queue, target in (
             ("gpu", self.gpu_queue, self.config.gpu_workers),
             ("cpu", self.cpu_queue, self.cpu_target),
@@ -320,6 +338,7 @@ class BoundedTaskQueueWorker:
             available_count = min(
                 resource_slots,
                 self.config.local_max_depth - self.local_count,
+                half_open_slots,
             )
             available_bytes = self.config.local_max_bytes - self.local_bytes
             if available_count <= 0 or available_bytes <= 0:
@@ -344,6 +363,11 @@ class BoundedTaskQueueWorker:
                 self.local_count += 1
                 self.local_bytes += lease.payload_bytes
                 queue.put_nowait(lease)
+                if self._dependency_circuit_state == "half_open":
+                    self._dependency_half_open_claims += 1
+                    half_open_slots -= 1
+            if half_open_slots <= 0:
+                break
         self._observe_local()
 
     async def _consumer(self, kind: str, index: int) -> None:
@@ -410,6 +434,11 @@ class BoundedTaskQueueWorker:
                     )
                 self.local_count -= 1
                 self.local_bytes -= lease.payload_bytes
+                if (
+                    self._dependency_circuit_state == "half_open"
+                    and self._dependency_half_open_claims
+                ):
+                    self._dependency_half_open_claims = 0
                 QUEUE_IN_FLIGHT.labels(resource_class=kind).set(self.in_flight[kind])
                 QUEUE_IN_FLIGHT_BYTES.labels(resource_class=kind).set(
                     self.in_flight_bytes[kind]
@@ -504,6 +533,7 @@ class BoundedTaskQueueWorker:
                             state=queue_state,
                             reason="runtime_terminal",
                         ).inc()
+                    self._record_dependency_success()
                 except asyncio.CancelledError:
                     await self._terminate_executor(process)
                     raise
@@ -681,6 +711,72 @@ class BoundedTaskQueueWorker:
         if state == "dlq":
             QUEUE_DLQ.labels(reason=metric_failure).inc()
             QUEUE_TERMINALS.labels(state="dlq", reason=metric_failure).inc()
+        if transient:
+            self._record_dependency_failure()
+        else:
+            self._record_dependency_success()
+
+    @property
+    def _dependency_circuit_enabled(self) -> bool:
+        return self.config.circuit_failure_threshold > 0
+
+    def _dependency_circuit_allows_claims(self) -> bool:
+        if not self._dependency_circuit_enabled:
+            return True
+        now = time.monotonic()
+        if self._dependency_circuit_state == "open":
+            if now < self._dependency_circuit_open_until:
+                QUEUE_DEPENDENCY_CIRCUIT_BLOCKED_CLAIMS.inc()
+                return False
+            self._dependency_circuit_state = "half_open"
+            self._dependency_half_open_claims = 0
+            self._observe_dependency_circuit()
+        if self._dependency_circuit_state == "half_open":
+            allowed = (
+                self._dependency_half_open_claims
+                < self.config.circuit_half_open_max_in_flight
+            )
+            if not allowed:
+                QUEUE_DEPENDENCY_CIRCUIT_BLOCKED_CLAIMS.inc()
+            return allowed
+        return True
+
+    def _record_dependency_success(self) -> None:
+        if not self._dependency_circuit_enabled:
+            return
+        self._dependency_circuit_failures = 0
+        self._dependency_circuit_open_until = 0.0
+        self._dependency_half_open_claims = 0
+        self._dependency_circuit_state = "closed"
+        self._observe_dependency_circuit()
+
+    def _record_dependency_failure(self) -> None:
+        if not self._dependency_circuit_enabled:
+            return
+        was_half_open = self._dependency_circuit_state == "half_open"
+        self._dependency_circuit_failures += 1
+        self._dependency_half_open_claims = 0
+        if (
+            was_half_open
+            or self._dependency_circuit_failures
+            >= self.config.circuit_failure_threshold
+        ):
+            self._dependency_circuit_state = "open"
+            self._dependency_circuit_open_until = (
+                time.monotonic() + self.config.circuit_hold_seconds
+            )
+            self._dependency_circuit_open_count += 1
+            QUEUE_DEPENDENCY_CIRCUIT_OPENS.inc()
+            QUEUE_DEPENDENCY_CIRCUIT_HOLD_SECONDS.observe(
+                self.config.circuit_hold_seconds
+            )
+        self._observe_dependency_circuit()
+
+    def _observe_dependency_circuit(self) -> None:
+        for state in ("closed", "open", "half_open"):
+            QUEUE_DEPENDENCY_CIRCUIT_STATE.labels(state=state).set(
+                int(self._dependency_circuit_state == state)
+            )
 
     def _observe_reconciliation(self, result: dict[str, object]) -> None:
         transitions = result.get("transitions")
@@ -996,6 +1092,16 @@ class BoundedTaskQueueWorker:
             "executor_process_tree_rss_peak_bytes": (
                 self._executor_process_tree_rss_peak_bytes
             ),
+            "dependency_circuit": {
+                "enabled": self._dependency_circuit_enabled,
+                "state": self._dependency_circuit_state,
+                "consecutive_transient_failures": self._dependency_circuit_failures,
+                "hold_remaining_seconds": max(
+                    0.0,
+                    self._dependency_circuit_open_until - time.monotonic(),
+                ),
+                "open_count": self._dependency_circuit_open_count,
+            },
             "error": error,
         }
         self.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)

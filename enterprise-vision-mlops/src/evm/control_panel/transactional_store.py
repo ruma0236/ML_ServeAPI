@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Callable, Iterator, Mapping, Sequence
 from uuid import uuid4
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 from evm.control_panel.admission_queue import (
     ACTIVE_QUEUE_STATES,
@@ -41,6 +41,22 @@ CONTROL_PLANE_DB_POOL_ACQUIRE_SECONDS = Histogram(
 CONTROL_PLANE_DB_POOL_TIMEOUTS = Counter(
     "evm_control_plane_db_pool_timeouts_total",
     "Bounded control-plane PostgreSQL pool acquisition timeouts.",
+)
+CONTROL_PLANE_DB_POOL_SIZE = Gauge(
+    "evm_control_plane_db_pool_size",
+    "Current dedicated control-plane PostgreSQL pool size.",
+)
+CONTROL_PLANE_DB_POOL_AVAILABLE = Gauge(
+    "evm_control_plane_db_pool_available",
+    "Currently available dedicated control-plane PostgreSQL connections.",
+)
+CONTROL_PLANE_DB_POOL_IN_USE = Gauge(
+    "evm_control_plane_db_pool_in_use",
+    "Derived dedicated control-plane PostgreSQL connections in use.",
+)
+CONTROL_PLANE_DB_POOL_WAITING = Gauge(
+    "evm_control_plane_db_pool_waiting",
+    "Requests currently waiting for a dedicated control-plane connection.",
 )
 CONTROL_PLANE_DB_VERSION_CONFLICTS = Counter(
     "evm_control_plane_db_version_conflicts_total",
@@ -342,11 +358,16 @@ class TransactionalControlPlaneStore:
             self.ensure_schema()
         else:
             self.verify_schema()
+        self._observe_pool_stats()
 
     def close(self) -> None:
         if self._pool is not None:
             self._pool.close()
             self._pool = None
+            CONTROL_PLANE_DB_POOL_SIZE.set(0)
+            CONTROL_PLANE_DB_POOL_AVAILABLE.set(0)
+            CONTROL_PLANE_DB_POOL_IN_USE.set(0)
+            CONTROL_PLANE_DB_POOL_WAITING.set(0)
 
     def telemetry(self) -> PoolTelemetrySnapshot:
         with self._telemetry_lock:
@@ -357,16 +378,30 @@ class TransactionalControlPlaneStore:
                 wait_seconds_max=self._wait_seconds_max,
             )
 
+    def _observe_pool_stats(self) -> None:
+        if self._pool is None:
+            return
+        stats = self._pool.get_stats()
+        size = max(0, int(stats.get("pool_size", 0)))
+        available = max(0, int(stats.get("pool_available", 0)))
+        waiting = max(0, int(stats.get("requests_waiting", 0)))
+        CONTROL_PLANE_DB_POOL_SIZE.set(size)
+        CONTROL_PLANE_DB_POOL_AVAILABLE.set(available)
+        CONTROL_PLANE_DB_POOL_IN_USE.set(max(0, size - available))
+        CONTROL_PLANE_DB_POOL_WAITING.set(waiting)
+
     @contextmanager
     def _acquire(self, operation: str) -> Iterator[Any]:
         del operation
         if self._pool is None:
             raise ControlPlaneStoreUnavailable("transactional store is disabled")
         started = time.monotonic()
+        self._observe_pool_stats()
         try:
             with self._pool.connection(
                 timeout=self.configuration.acquire_timeout_seconds
             ) as connection:
+                self._observe_pool_stats()
                 waited = time.monotonic() - started
                 with self._telemetry_lock:
                     self._acquisitions += 1
@@ -389,6 +424,8 @@ class TransactionalControlPlaneStore:
             raise ControlPlaneTransactionTimeout(
                 "control-plane database transaction exceeded its bounded wait"
             ) from exc
+        finally:
+            self._observe_pool_stats()
 
     @contextmanager
     def transaction(self, operation: str) -> Iterator[Any]:

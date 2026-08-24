@@ -175,6 +175,23 @@ QUEUE_RETRIES = Counter(
     "Task queue retry outcomes by bounded failure class.",
     ("outcome", "failure_class"),
 )
+QUEUE_DEPENDENCY_CIRCUIT_STATE = Gauge(
+    "evm_task_queue_dependency_circuit_state",
+    "One-hot state of the bounded dependency circuit.",
+    ("state",),
+)
+QUEUE_DEPENDENCY_CIRCUIT_OPENS = Counter(
+    "evm_task_queue_dependency_circuit_opens_total",
+    "Dependency circuit transitions to open after bounded transient failures.",
+)
+QUEUE_DEPENDENCY_CIRCUIT_BLOCKED_CLAIMS = Counter(
+    "evm_task_queue_dependency_circuit_blocked_claims_total",
+    "Durable queue claim cycles held while the dependency circuit is open.",
+)
+QUEUE_DEPENDENCY_CIRCUIT_HOLD_SECONDS = Histogram(
+    "evm_task_queue_dependency_circuit_hold_seconds",
+    "Configured dependency circuit hold duration when the circuit opens.",
+)
 QUEUE_TERMINALS = Counter(
     "evm_task_queue_terminal_total",
     "Task queue terminal outcomes.",
@@ -266,6 +283,9 @@ class AdmissionQueueConfig:
     global_retry_budget: int
     retry_budget_window_seconds: float
     retry_budget_scope: str
+    circuit_failure_threshold: int
+    circuit_hold_seconds: float
+    circuit_half_open_max_in_flight: int
     drain_timeout_seconds: float
     rss_cap_bytes: int
     rss_slope_tolerance_bytes_per_minute: int
@@ -287,6 +307,7 @@ class AdmissionQueueConfig:
         local = payload.get("local_queue", {})
         worker = payload.get("worker", {})
         retry = payload.get("retry", {})
+        circuit = payload.get("dependency_circuit", {})
         limits = payload.get("resource_limits", {})
         retention = payload.get("retention", {})
         config = cls(
@@ -332,6 +353,11 @@ class AdmissionQueueConfig:
             global_retry_budget=int(retry["global_budget"]),
             retry_budget_window_seconds=float(retry["budget_window_seconds"]),
             retry_budget_scope=str(retry["budget_scope"]),
+            circuit_failure_threshold=int(circuit.get("failure_threshold", 0)),
+            circuit_hold_seconds=float(circuit.get("hold_seconds", 0)),
+            circuit_half_open_max_in_flight=int(
+                circuit.get("half_open_max_in_flight", 1)
+            ),
             drain_timeout_seconds=float(worker["drain_timeout_seconds"]),
             rss_cap_bytes=int(limits["rss_cap_bytes"]),
             rss_slope_tolerance_bytes_per_minute=int(
@@ -456,6 +482,16 @@ class AdmissionQueueConfig:
             )
         if not self.retry_budget_scope or len(self.retry_budget_scope) > 128:
             raise ValueError("retry_budget_scope must be between 1 and 128 characters")
+        if self.circuit_failure_threshold < 0 or self.circuit_hold_seconds < 0:
+            raise ValueError("dependency circuit threshold and hold cannot be negative")
+        if bool(self.circuit_failure_threshold) != bool(self.circuit_hold_seconds):
+            raise ValueError(
+                "dependency circuit threshold and hold must be enabled together"
+            )
+        if self.circuit_half_open_max_in_flight != 1:
+            raise ValueError(
+                "the dependency circuit permits exactly one half-open probe"
+            )
         retention_positive = {
             "terminal_queue_max_rows": self.terminal_queue_max_rows,
             "terminal_queue_max_age_seconds": self.terminal_queue_max_age_seconds,
@@ -510,6 +546,9 @@ class AdmissionQueueConfig:
             "global_retry_budget": self.global_retry_budget,
             "retry_budget_window_seconds": self.retry_budget_window_seconds,
             "retry_budget_scope": self.retry_budget_scope,
+            "circuit_failure_threshold": self.circuit_failure_threshold,
+            "circuit_hold_seconds": self.circuit_hold_seconds,
+            "circuit_half_open_max_in_flight": self.circuit_half_open_max_in_flight,
             "drain_timeout_seconds": self.drain_timeout_seconds,
             "rss_cap_bytes": self.rss_cap_bytes,
             "rss_slope_tolerance_bytes_per_minute": self.rss_slope_tolerance_bytes_per_minute,

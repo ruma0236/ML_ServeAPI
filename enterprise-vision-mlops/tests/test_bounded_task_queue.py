@@ -115,6 +115,8 @@ def test_s2_profile_is_frozen_and_uses_canonical_utf8_bytes():
     assert active.lease_renew_interval_seconds < active.lease_seconds
     assert active.ingress_max_body_bytes <= active.max_item_bytes
     assert active.retry_budget_scope == "s2-bounded-queue-v6-strict-evidence"
+    assert active.circuit_failure_threshold == 0
+    assert active.circuit_hold_seconds == 0
     assert active.local_max_depth <= active.durable_max_depth
     assert active.rss_slope_warmup_seconds == 5.0
     assert active.rss_slope_window_seconds == 30.0
@@ -122,6 +124,62 @@ def test_s2_profile_is_frozen_and_uses_canonical_utf8_bytes():
     assert canonical_json_bytes(payload) == '{"a":1,"z":"한글"}'.encode("utf-8")
     assert canonical_payload_size(payload) == len(canonical_json_bytes(payload))
     assert len(active.sha256) == 64
+
+
+def test_dependency_circuit_opens_holds_and_closes_after_half_open_success(
+    monkeypatch,
+):
+    worker = object.__new__(BoundedTaskQueueWorker)
+    worker.config = config(
+        circuit_failure_threshold=2,
+        circuit_hold_seconds=5.0,
+        circuit_half_open_max_in_flight=1,
+    )
+    worker._dependency_circuit_state = "closed"
+    worker._dependency_circuit_failures = 0
+    worker._dependency_circuit_open_until = 0.0
+    worker._dependency_half_open_claims = 0
+    worker._dependency_circuit_open_count = 0
+    observed = 100.0
+    monkeypatch.setattr(task_queue_worker.time, "monotonic", lambda: observed)
+
+    worker._record_dependency_failure()
+    assert worker._dependency_circuit_state == "closed"
+    assert worker._dependency_circuit_allows_claims() is True
+
+    worker._record_dependency_failure()
+    assert worker._dependency_circuit_state == "open"
+    assert worker._dependency_circuit_open_count == 1
+    assert worker._dependency_circuit_allows_claims() is False
+
+    observed = 106.0
+    assert worker._dependency_circuit_allows_claims() is True
+    assert worker._dependency_circuit_state == "half_open"
+
+    worker._record_dependency_success()
+    assert worker._dependency_circuit_state == "closed"
+    assert worker._dependency_circuit_failures == 0
+
+
+def test_dependency_circuit_reopens_when_half_open_probe_fails(monkeypatch):
+    worker = object.__new__(BoundedTaskQueueWorker)
+    worker.config = config(
+        circuit_failure_threshold=1,
+        circuit_hold_seconds=2.0,
+        circuit_half_open_max_in_flight=1,
+    )
+    worker._dependency_circuit_state = "half_open"
+    worker._dependency_circuit_failures = 1
+    worker._dependency_circuit_open_until = 0.0
+    worker._dependency_half_open_claims = 1
+    worker._dependency_circuit_open_count = 1
+    monkeypatch.setattr(task_queue_worker.time, "monotonic", lambda: 50.0)
+
+    worker._record_dependency_failure()
+
+    assert worker._dependency_circuit_state == "open"
+    assert worker._dependency_circuit_open_until == 52.0
+    assert worker._dependency_half_open_claims == 0
 
 
 def test_worker_rss_slope_starts_a_fresh_idle_window_after_active_work(monkeypatch):

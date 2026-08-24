@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T05:13:52Z`
+- Generated: `2026-08-24T06:36:59Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -730,7 +730,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S8: Dependency Soak & Resource-efficiency Closure
 
-- Status: `planned`
+- Status: `implementing`
 - Engineering question: Do bounded retries and selected operating points remain stable during faults and soak?
 - Why now: Closure requires long-run resource trends and dependency recovery after isolated passes.
 - Observed gap: Retry amplification, resource slope, efficiency, and final re-hash are unproven.
@@ -738,8 +738,8 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture before: Isolated guards exist without a distributed-scale soak and efficiency closure.
 - Architecture after: Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.
 - Verdict: `not_run`
-- Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Begin only after S0 through S7 have accepted evidence and clean cleanup.
+- Claim boundary: Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.
+- Next action: Run the isolated dependency-fault repetitions, then the 35 RPS 30-minute soak repetitions, recompute S8-AC-01..04 from raw evidence, and close only after regression and Git-blob validation.
 
 ### Affected Existing Components
 
@@ -762,7 +762,9 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Implementation Delta
 
-- No existing-system code change has started.
+- Existing durable queue retry and dependency boundary: `src/evm/control_panel/admission_queue.py`, `src/evm/control_panel/task_queue_worker.py`, `src/evm/control_panel/transactional_store.py`
+- Existing capacity runtime resource sampler: `src/evm/scale_validation/s3_runtime.py`
+- S8 frozen execution and evidence contract: `configs/s8_dependency_soak_v1.toml`, `configs/s8_soak_capacity_runtime.toml`, `docs/status/2026-08-24-s8-design-reconciliation.md`
 - Compatibility: Existing A-E guard evidence remains baseline-only and cannot substitute for fresh scale-soak evidence.
 - Migration: Introduce fault controls behind explicit profiles and retain a no-fault operating profile for rollback.
 
@@ -789,3 +791,4 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
+- `2026-08-24T06:36:59Z` `implementation` / `implementing`: S8 implementation started at the S0-S7 verified gate with an opt-in dependency circuit, frozen 35 RPS soak contract, expanded resource sampling, and no acceptance credit yet.
