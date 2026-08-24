@@ -1,27 +1,450 @@
 {
-  "schema_version": "evm.s7_current_revision_cuda_smoke.v1",
+  "schema_version": "evm.s7_current_revision_cuda_smoke.v2",
   "status": "verified",
   "verdict": "passed",
+  "suite_id": "20260824T040239Z-45f381ea",
   "source_identity": {
-    "revision": "c94c70d15b333b4047db55767ab291aadbae7edd",
+    "revision": "45f381ea17876d6b543eee3fe02c80c9079b946e",
     "branch": "codex/distributed-scale-validation-plan",
-    "config_sha256": "44f057932a402787becc9476c598a2dd00d05cbb8915df7f3fa6eac143f79d93"
+    "config_sha256": "44f057932a402787becc9476c598a2dd00d05cbb8915df7f3fa6eac143f79d93",
+    "git_blobs": {
+      "config": {
+        "path": "enterprise-vision-mlops/configs/s7_family_admission.toml",
+        "blob_oid": "e4d7162fa0fdbd3968832d5fc57465e12c1a1358",
+        "sha256": "44f057932a402787becc9476c598a2dd00d05cbb8915df7f3fa6eac143f79d93"
+      },
+      "runtime": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s7_runtime.py",
+        "blob_oid": "ecc2f8f980cd7934ac4013898b3403bdce79a041",
+        "sha256": "705e66938acd83e9a3679f20a65ec6ee465b7540d2b07e7b45b925d08a7d2757"
+      },
+      "evidence": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s7_evidence.py",
+        "blob_oid": "3537f35bc724737d3d5d128dfa2b6aeab31a3a60",
+        "sha256": "5e0f02c9d3e50102b7be8761cc9648c5535dd28a08787e7eb018643967f1c9cc"
+      },
+      "runner": {
+        "path": "enterprise-vision-mlops/scripts/dev/run_s7_auxiliary_admission_experiment.py",
+        "blob_oid": "10992809798d1f79c7df14a6cb33f81762cb2f40",
+        "sha256": "e71d23c744e592844de741cc7238baf739dfdd3c1853016c89ad70557e340660"
+      },
+      "validator": {
+        "path": "enterprise-vision-mlops/scripts/dev/validate_s7_auxiliary_admission_evidence.py",
+        "blob_oid": "e22cedf2f2dbd33e2d93739d3f5deee21a6f846a",
+        "sha256": "c6f168bdfa62b8729e0ec025c26f84ef9e4776f0932fd5d268b17f4d7db2d594"
+      },
+      "admission": {
+        "path": "enterprise-vision-mlops/src/evm/model_runtime/family_admission.py",
+        "blob_oid": "70a92a402b74645ea7883743f63a5cdd21e8aedc",
+        "sha256": "cb4d0b568b1acd80460261dd2f5e568d95896cc0b6dbb303f2410e979e810e0a"
+      },
+      "generative_serving": {
+        "path": "enterprise-vision-mlops/src/evm/model_runtime/serving.py",
+        "blob_oid": "fea90f934f40651dbddb48d7d9de256673ef5340",
+        "sha256": "bd4ed25fe1b0d45c13970d31ecedccea03dc52ee0e6c3f767015cfad8e7b0d8d"
+      },
+      "image_serving": {
+        "path": "enterprise-vision-mlops/apps/api/efficientnet_serving.py",
+        "blob_oid": "b2d0bc004388f0ccdb97a1ec9aadeaea5d796c36",
+        "sha256": "76a9a23a0f1cf18a5bf47c4fc8f7a5bed8a445a484a2d023e88e36e4f6960cbd"
+      },
+      "gpu_lease": {
+        "path": "enterprise-vision-mlops/src/evm/control_panel/scenario_workloads.py",
+        "blob_oid": "2d35c9f6ff20d9b17158f6bee5e4a4412470a4ea",
+        "sha256": "c5f9d0736cb02ef7a3e3ecce82a346b330ac570bcc71a1eda5bfa185dd92c332"
+      },
+      "prometheus": {
+        "path": "enterprise-vision-mlops/monitoring/prometheus/prometheus.yml",
+        "blob_oid": "82c9eeab16d910db4ed33c3591b4652bd9c1b7ab",
+        "sha256": "508535bc75ce289bcb42e93b9658b49a58594e73dc7eb348375d7deb427a14d7"
+      },
+      "image_dataset_contract": {
+        "path": "enterprise-vision-mlops/configs/scenarios/manufacturing-visual-inspection.json",
+        "blob_oid": "657cbfaa8706c71b89110e943bf193e9592fa83a",
+        "sha256": "d812a591d66b6d71cb50035d697e5cd4744d2aa4eb78dbd9f8424aa1d0a9503d"
+      },
+      "vlm_dataset_contract": {
+        "path": "enterprise-vision-mlops/configs/scenarios/scienceqa-vlm-evaluation.json",
+        "blob_oid": "7ff2a8c8b13b56c9b62dbc5fc08bc0dbb02ea727",
+        "sha256": "3680e2fc3af9e339bb1224d28e0c4bc67a61cfa74d4d2846c04dd698808afe85"
+      },
+      "llm_dataset_contract": {
+        "path": "enterprise-vision-mlops/configs/scenarios/dolly-instruction-tuning.json",
+        "blob_oid": "5bcf4cc3d27e22723c67d274bcca5c89b36c1116",
+        "sha256": "2b2ee4fdcadef81983c9c06faa8a28e10b6203f2bed7f751edbd1ae75f9c4c18"
+      }
+    },
+    "runtime_asset_overrides": {
+      "image": {
+        "scope": "non_acceptance_current_revision_diagnostic_only",
+        "reason": "curated_manifest_regenerated_after_accepted_matrix",
+        "frozen_manifest_sha256": "33d37c40901026b9bd5ddd5ee41546864c86a03add507a2da78b937b12d01ff1",
+        "observed_manifest_sha256": "af778afa736749a10a332aca16df7fe5195dbaffc21a53b0f1eb269d8c1feb74",
+        "dataset_version": "visa-open-data-e35d93d5561f",
+        "record_count": 4317,
+        "acceptance_credit": false
+      }
+    }
+  },
+  "families": [
+    "image",
+    "vlm",
+    "llm"
+  ],
+  "profiles": [
+    {
+      "profile_id": "image-small",
+      "family": "image",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 0.2659999999741558,
+      "throughput_requests_per_second": 22.556390979635157,
+      "p50_seconds": 0.125,
+      "p95_seconds": 0.16824999999516876,
+      "p99_seconds": 0.17124999999214197,
+      "maximum_queue_wait_seconds": 0.125,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "pre_admission_rejection_count": 0,
+      "admitted_starvation_count": 0,
+      "long_request_noncompletion_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 2881486848,
+      "gpu_utilization_percent_max": 22.0,
+      "gpu_temperature_celsius_max": 51.0,
+      "quality": {
+        "binary_accuracy": 0.6666666666666666,
+        "mean_confidence": 0.7407833333333333
+      },
+      "metric_schema": {
+        "quality": [
+          "binary_accuracy",
+          "mean_confidence"
+        ],
+        "generation": [],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "inference_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true
+    },
+    {
+      "profile_id": "vlm-small-short",
+      "family": "vlm",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 4.062000000005355,
+      "throughput_requests_per_second": 1.4771048744441384,
+      "p50_seconds": 2.2965000000112923,
+      "p95_seconds": 2.7965000000040163,
+      "p99_seconds": 2.8089000000050874,
+      "maximum_queue_wait_seconds": 2.078,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "pre_admission_rejection_count": 0,
+      "admitted_starvation_count": 0,
+      "long_request_noncompletion_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 6958350336,
+      "gpu_utilization_percent_max": 100.0,
+      "gpu_temperature_celsius_max": 64.0,
+      "quality": {
+        "accuracy": 0.8333333333333334,
+        "parse_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "accuracy",
+          "parse_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "image_bytes",
+          "image_pixels",
+          "queue_wait_seconds",
+          "decode_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 20,
+        "tokens_per_second_mean": 9.308230499999999,
+        "ttft_p95_seconds": 0.26918025,
+        "tpot_p95_seconds": 0.0554525,
+        "termination_reasons": {
+          "eos_or_model_stop": 6
+        }
+      }
+    },
+    {
+      "profile_id": "llm-short",
+      "family": "llm",
+      "repetition": 1,
+      "request_count": 6,
+      "accepted": 6,
+      "completed": 6,
+      "rejected": 0,
+      "expired": 0,
+      "transport_failed": 0,
+      "rejection_statuses": [],
+      "measurement_seconds": 3.3429999999934807,
+      "throughput_requests_per_second": 1.7947950942302424,
+      "p50_seconds": 1.9059999999881256,
+      "p95_seconds": 2.253999999993539,
+      "p99_seconds": 2.288399999991816,
+      "maximum_queue_wait_seconds": 1.735,
+      "short_request_count": 6,
+      "long_request_count": 0,
+      "short_completed": 6,
+      "long_completed": 0,
+      "maximum_short_bypass": 0,
+      "long_request_max_wait_seconds": 0.0,
+      "pre_admission_rejection_count": 0,
+      "admitted_starvation_count": 0,
+      "long_request_noncompletion_count": 0,
+      "oom_count": 0,
+      "peak_gpu_used_memory_bytes": 3601858560,
+      "gpu_utilization_percent_max": 41.0,
+      "gpu_temperature_celsius_max": 48.0,
+      "quality": {
+        "mean_token_f1": 0.1059482808881641,
+        "nonempty_rate": 1.0
+      },
+      "metric_schema": {
+        "quality": [
+          "mean_token_f1",
+          "nonempty_rate"
+        ],
+        "generation": [
+          "generated_tokens_total",
+          "tokens_per_second_mean",
+          "ttft_p95_seconds",
+          "tpot_p95_seconds",
+          "termination_reasons"
+        ],
+        "operational": [
+          "request_bytes",
+          "queue_wait_seconds",
+          "preprocess_seconds",
+          "input_tokens",
+          "generated_tokens",
+          "generation_seconds",
+          "inference_seconds",
+          "tokens_per_second",
+          "ttft_seconds",
+          "tpot_seconds",
+          "peak_vram_bytes"
+        ]
+      },
+      "trace_complete": true,
+      "prometheus_up": true,
+      "drained": true,
+      "lease_identity_exact": true,
+      "cleanup_passed": true,
+      "generation": {
+        "generated_tokens_total": 47,
+        "tokens_per_second_mean": 14.462107000000001,
+        "ttft_p95_seconds": 0.10314075,
+        "tpot_p95_seconds": 0.07945,
+        "termination_reasons": {
+          "max_new_tokens": 5,
+          "eos_or_model_stop": 1
+        }
+      }
+    }
+  ],
+  "family_ready_identity": {
+    "image": {
+      "status": "ok",
+      "model_family": "image",
+      "candidate_id": "effnet-b0-img224-expedited-adamw",
+      "model_artifact_sha256": "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f",
+      "data_identity_sha256": "visa-open-data-e35d93d5561f",
+      "device": "cuda",
+      "cuda_available": true,
+      "quantization_requested": "none",
+      "quantization_observed": "none"
+    },
+    "vlm": {
+      "status": "ready",
+      "model_family": "vlm",
+      "model_repository": "HuggingFaceTB/SmolVLM-500M-Instruct",
+      "model_revision": "a7da5b986cb59b408707209984f360a5f4ad7e47",
+      "model_artifact_sha256": "9135f9045b92f2bb5914818e47d168187c327307b2ff2826a4d319b78cb6534b",
+      "data_identity_sha256": "8bce3a7ad9c60599100ba59d1e538ce29d08434f98b7e9521d2b212427bed7a1",
+      "model_source_commit": "d6444b542d183bbd51a7782c561cbc962ec0d6b3",
+      "runtime_source_commit": "45f381ea17876d6b543eee3fe02c80c9079b946e",
+      "quantization_requested": "none",
+      "quantization_observed": "none",
+      "loaded_in_4bit": false,
+      "linear_4bit_module_count": 0,
+      "runtime": {
+        "cuda_available": true,
+        "torch": "2.13.0+cu126",
+        "cuda": null
+      }
+    },
+    "llm": {
+      "status": "ready",
+      "model_family": "llm",
+      "model_repository": "Qwen/Qwen2.5-0.5B-Instruct",
+      "model_revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+      "model_artifact_sha256": "326f95c3cba5cf29a02fb7798be0c282083da303359d350d27ddbd9861a85d58",
+      "data_identity_sha256": "15b54c61c6ff2f1141c1c8f1b8edd27a6817afb3ae0f02008c53659b1b8a8557",
+      "model_source_commit": "d6444b542d183bbd51a7782c561cbc962ec0d6b3",
+      "runtime_source_commit": "45f381ea17876d6b543eee3fe02c80c9079b946e",
+      "quantization_requested": "int4_nf4",
+      "quantization_observed": "int4_nf4",
+      "loaded_in_4bit": true,
+      "linear_4bit_module_count": 168,
+      "runtime": {
+        "cuda_available": true,
+        "torch": "2.13.0+cu126",
+        "cuda": null
+      }
+    }
+  },
+  "asset_provenance": {
+    "image": {
+      "scenario_contract_path": "configs/scenarios/manufacturing-visual-inspection.json",
+      "scenario_contract_sha256": "d812a591d66b6d71cb50035d697e5cd4744d2aa4eb78dbd9f8424aa1d0a9503d",
+      "dataset": {
+        "dataset_id": "visa",
+        "dataset_version": "visa-open-data-e35d93d5561f",
+        "source_url": "https://registry.opendata.aws/visa/",
+        "source_revision": "visa-open-data-e35d93d5561f",
+        "license_id": "CC-BY-4.0",
+        "license_url": "https://creativecommons.org/licenses/by/4.0/",
+        "usage_policy": "portfolio-and-commercial-use-with-attribution"
+      },
+      "runtime_manifest_sha256": "af778afa736749a10a332aca16df7fe5195dbaffc21a53b0f1eb269d8c1feb74",
+      "model": {
+        "repository": "effnet-b0-img224-expedited-adamw",
+        "revision": "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f",
+        "artifact_sha256": "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f",
+        "source_commit": null,
+        "quantization": "none"
+      },
+      "cache_manifest": {
+        "file_count": 1,
+        "total_bytes": 16320531,
+        "aggregate_sha256": "4726c688368c57f96c52d55b76c87564d6546493a21d6b9c71863e9edf23ce40"
+      }
+    },
+    "vlm": {
+      "scenario_contract_path": "configs/scenarios/scienceqa-vlm-evaluation.json",
+      "scenario_contract_sha256": "3680e2fc3af9e339bb1224d28e0c4bc67a61cfa74d4d2846c04dd698808afe85",
+      "dataset": {
+        "dataset_id": "scienceqa-img",
+        "dataset_version": "scienceqa-img-69dd4d6b6737-test-512",
+        "source_url": "https://github.com/lupantech/ScienceQA",
+        "source_revision": "69dd4d6b67373d38f96a5badd5d24d0eb5bcdc50",
+        "license_id": "CC-BY-NC-SA-4.0",
+        "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+        "usage_policy": "non-commercial-portfolio-and-research-only"
+      },
+      "runtime_manifest_sha256": "b4d5b881eda5c546d411facb073233d6a8ae62a9a26fd8ff1c26c2a859e224cf",
+      "model": {
+        "repository": "HuggingFaceTB/SmolVLM-500M-Instruct",
+        "revision": "a7da5b986cb59b408707209984f360a5f4ad7e47",
+        "artifact_sha256": "9135f9045b92f2bb5914818e47d168187c327307b2ff2826a4d319b78cb6534b",
+        "source_commit": "d6444b542d183bbd51a7782c561cbc962ec0d6b3",
+        "quantization": "none"
+      },
+      "cache_manifest": {
+        "file_count": 30,
+        "total_bytes": 1021561248,
+        "aggregate_sha256": "a8f56f92d5589bf466b87918ca656fa63d1d28189e76793e7f1a014555c71053"
+      }
+    },
+    "llm": {
+      "scenario_contract_path": "configs/scenarios/dolly-instruction-tuning.json",
+      "scenario_contract_sha256": "2b2ee4fdcadef81983c9c06faa8a28e10b6203f2bed7f751edbd1ae75f9c4c18",
+      "dataset": {
+        "dataset_id": "databricks-dolly-15k",
+        "dataset_version": "dolly-15k-bdd27f4d94b9",
+        "source_url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k",
+        "source_revision": "bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a",
+        "license_id": "CC-BY-SA-3.0",
+        "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+        "usage_policy": "portfolio-and-commercial-use-with-attribution-and-share-alike"
+      },
+      "runtime_manifest_sha256": "98e339fbc09414d776c314c777ed6ee71153a8f65f7207cae2b01bf7a65790fa",
+      "model": {
+        "repository": "Qwen/Qwen2.5-0.5B-Instruct",
+        "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+        "artifact_sha256": "326f95c3cba5cf29a02fb7798be0c282083da303359d350d27ddbd9861a85d58",
+        "source_commit": "d6444b542d183bbd51a7782c561cbc962ec0d6b3",
+        "quantization": "int4_nf4"
+      },
+      "cache_manifest": {
+        "file_count": 18,
+        "total_bytes": 1001768786,
+        "aggregate_sha256": "80f5b022eedfb18a6f4757f762307ab2ed9437a07e027090921c51ed77140e1f"
+      }
+    }
   },
   "runtime_evidence": {
-    "existing_route": "/predict",
     "transport": "external_http",
-    "family": "image",
-    "profile_id": "image-small",
-    "profile_repetitions": 1,
-    "submitted_requests": 6,
-    "completed_requests": 6,
+    "submitted_requests": 18,
+    "completed_requests": 18,
     "rejected_requests": 0,
     "transport_failures": 0,
     "actual_cuda": true,
     "trace_identity_complete": true,
     "oom_count": 0,
-    "starvation_count": 0,
-    "family_metric_schema_present": true
+    "admitted_starvation_count": 0
   },
   "cleanup": {
     "source_serving_ready": true,
@@ -29,20 +452,20 @@
     "source_model_identity_exact": true,
     "source_candidate_identity_exact": true,
     "source_holder_identity_exact": true,
-    "service_process_stopped": true,
+    "service_processes_stopped": true,
     "gpu_lease_zero": true,
-    "family_queue_drained": true,
+    "family_queues_drained": true,
     "s7_prometheus_target_zero": true,
     "prometheus_baseline_target_count": 5,
     "prometheus_baseline_up_count": 5
   },
   "private_evidence": {
-    "artifact_count": 12,
-    "total_bytes": 121196,
-    "aggregate_sha256": "7dbe50091b2c0aafe79cde77eb06cff6e60f14d8730bcd1c54eeafb246eb6496",
-    "index_sha256": "a8a6c32cbd1442c43c828e24b40da1cd258228aacd157a6490b4a3d02984e30c",
+    "artifact_count": 24,
+    "total_bytes": 184282,
+    "aggregate_sha256": "4515dc5218af3470dde92f8e7bd6209f5ad11f835af9bb99714584e7f4b869d0",
+    "index_sha256": "d07fc86b662baea65279ca6964a742960cf5731aa6a850ea338ffe9839284a13",
     "location": "outside_git_private_evidence_root"
   },
-  "claim_boundary": "Current-revision external-HTTP CUDA smoke on one local physical node and one consumer GPU. This is regression and cleanup evidence, not production, SLA, HA, multi-GPU, or broad model-quality evidence.",
-  "generated_at": "2026-08-23T19:41:16.478936Z"
+  "claim_boundary": "Current-revision external-HTTP CUDA identity smoke for image, VLM, and LLM on one local physical node and one consumer GPU. ScienceQA is non-commercial research/portfolio-only. This is not production, SLA, HA, multi-GPU, or broad model-quality evidence.",
+  "generated_at": "2026-08-24T04:05:09.352909Z"
 }

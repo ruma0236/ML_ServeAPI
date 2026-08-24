@@ -76,10 +76,9 @@ REQUIRED_REGRESSION_SUITES = (
 )
 SMOKE_CLAIM_BOUNDARY = (
     "Current-revision external-HTTP CUDA identity smoke for image, VLM, and LLM "
-    "on one local physical node and one consumer GPU. ScienceQA-derived VLM "
-    "evidence is non-commercial portfolio/research evidence only. This is "
-    "regression and identity evidence, not production, SLA, HA, multi-GPU, or "
-    "broad model-quality evidence."
+    "on one local physical node and one consumer GPU. ScienceQA is non-commercial "
+    "research/portfolio-only. This is not production, SLA, HA, multi-GPU, or broad "
+    "model-quality evidence."
 )
 RECLOSURE_CLAIM_SUFFIX = (
     " ScienceQA-derived VLM evidence is restricted to non-commercial portfolio "
@@ -982,9 +981,15 @@ def _validate_asset_provenance(
     if payload.get("schema_version") != "evm.s7_asset_provenance.v1":
         errors.append(f"asset_provenance_schema:{family}")
     contract = dict(expected.get("scenario_contract", {}))
+    observed_contract_path = str(payload.get("scenario_contract_path") or "")
+    normalized_contract_path = (
+        observed_contract_path
+        if observed_contract_path.startswith("enterprise-vision-mlops/")
+        else f"enterprise-vision-mlops/{observed_contract_path}"
+    )
     if (
         payload.get("family") != family
-        or payload.get("scenario_contract_path") != contract.get("path")
+        or normalized_contract_path != contract.get("path")
         or payload.get("scenario_contract_sha256") != contract.get("sha256")
         or _canonical(payload.get("dataset")) != _canonical(expected.get("dataset"))
         or payload.get("runtime_manifest_sha256")

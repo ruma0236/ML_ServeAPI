@@ -38,6 +38,7 @@ from evm.control_panel.scenario_workloads import (  # noqa: E402
 )
 from evm.scale_validation.evidence import write_public_json  # noqa: E402
 from evm.scale_validation.s7_evidence import (  # noqa: E402
+    SMOKE_CLAIM_BOUNDARY,
     project_profile,
     source_git_identity,
 )
@@ -485,12 +486,7 @@ def main() -> int:
                 "index_sha256": hashlib.sha256(index_raw).hexdigest(),
                 "location": "outside_git_private_evidence_root",
             },
-            "claim_boundary": (
-                "Current-revision external-HTTP CUDA identity smoke for image, VLM, "
-                "and LLM on one local physical node and one consumer GPU. ScienceQA "
-                "is non-commercial research/portfolio-only. This is not production, "
-                "SLA, HA, multi-GPU, or broad model-quality evidence."
-            ),
+            "claim_boundary": SMOKE_CLAIM_BOUNDARY,
             "generated_at": utc_now(),
         }
         write_public_json(args.output, public)
