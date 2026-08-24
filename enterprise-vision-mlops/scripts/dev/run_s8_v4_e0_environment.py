@@ -655,7 +655,7 @@ int main() {
     command = (
         "nvcc -O2 -I/usr/local/cuda/include /evidence/e0-profiler-probe.cu "
         "-o /tmp/e0-profiler-probe -L/usr/local/cuda/targets/x86_64-linux/lib "
-        "-Wl,-rpath,/usr/local/cuda/targets/x86_64-linux/lib -lcupti && "
+        "-lcupti && "
         "LD_LIBRARY_PATH=/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH} "
         "/tmp/e0-profiler-probe"
     )
@@ -1015,6 +1015,12 @@ def collect_prior_failures(private_base: Path, suite_root: Path) -> list[dict[st
                 "The pinned Nsight 2025.4.1 CLI does not implement cuda-sw. The frozen image "
                 "was retained and profiler qualification moved to its supported direct CUPTI "
                 "Activity API path."
+            )
+        elif failure.startswith("E0RuntimeError:e0_cupti_probe_exit:1"):
+            rca = (
+                "NVCC rejected the GCC-style -Wl rpath option before the CUPTI probe ran. "
+                "The redundant rpath option was removed because runtime resolution is already "
+                "bound by LD_LIBRARY_PATH."
             )
         destination_root.mkdir(parents=True, exist_ok=True)
         destination = destination_root / f"{path.parent.name}-{path.name}"

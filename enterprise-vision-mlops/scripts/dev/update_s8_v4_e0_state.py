@@ -59,6 +59,22 @@ TRANSITIONS = {
 
 def remediation_transition(evidence: dict[str, Any], *, amendment: bool) -> dict[str, str]:
     failure = str(evidence.get("failure") or "")
+    if failure.startswith("E0RuntimeError:e0_cupti_probe_exit:1"):
+        return {
+            "event_type": "e0_cupti_compile_remediation_required",
+            "summary": (
+                "E0 stopped before CUPTI execution because NVCC rejected an unnecessary "
+                "GCC-style rpath option; cleanup restored B0 and no repetition received credit"
+            ),
+            "credit": "zero_credit",
+            "acceptance": "E0-AC-01..04 pending; no acceptance repetition credited",
+            "next_gate": "Remove the redundant rpath option and rerun all three repetitions",
+            "rca": (
+                "The probe linked against the correct CUPTI directory but passed -Wl directly "
+                "to NVCC. Runtime library resolution is already frozen through LD_LIBRARY_PATH, "
+                "so removing the unsupported and redundant rpath flag is the minimal fix."
+            ),
+        }
     if failure.startswith("CalledProcessError:") and "--trace=cuda-sw" in failure:
         return {
             "event_type": "e0_profiler_method_remediation_required",

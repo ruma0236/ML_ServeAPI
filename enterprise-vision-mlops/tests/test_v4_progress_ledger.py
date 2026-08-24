@@ -105,3 +105,13 @@ def test_e0_unsupported_nsys_method_records_cupti_remediation() -> None:
     assert transition["event_type"] == "e0_profiler_method_remediation_required"
     assert transition["credit"] == "zero_credit"
     assert "CUPTI" in transition["rca"]
+
+
+def test_e0_cupti_compile_failure_records_zero_credit_rca() -> None:
+    transition = remediation_transition(
+        {"failure": "E0RuntimeError:e0_cupti_probe_exit:1", "credit": "zero_credit"},
+        amendment=False,
+    )
+    assert transition["event_type"] == "e0_cupti_compile_remediation_required"
+    assert transition["credit"] == "zero_credit"
+    assert "LD_LIBRARY_PATH" in transition["rca"]
