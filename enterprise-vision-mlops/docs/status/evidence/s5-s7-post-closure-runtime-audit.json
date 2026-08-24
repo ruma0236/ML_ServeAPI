@@ -1,0 +1,43 @@
+{
+  "schema_version": "evm.s5_s7_post_closure_runtime_audit.v1",
+  "generated_at": "2026-08-24T05:06:29Z",
+  "status": "passed",
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "reclosure_revision": "d585ed8e4ebb514089d7471011470943b9a3db80",
+    "closures": {
+      "S5": {
+        "path": "enterprise-vision-mlops/docs/status/evidence/s5-spark-data-scale-closure.json",
+        "blob_oid": "0401301904b5aa23ce14394c88472c37cb33c629",
+        "sha256": "e8d5e85fd6b9774677fe49bb2954bdc30c1f1da34e9b65138ed54e375217a849"
+      },
+      "S6": {
+        "path": "enterprise-vision-mlops/docs/status/evidence/s6-rolling-handoff-closure.json",
+        "blob_oid": "3d2e47ef6476c02a898d6ff65493c0807a9ca520",
+        "sha256": "fb3dc5c8773e6d7adde36fa59cf60e893e527b83be9497a4936c72ce8b458c31"
+      },
+      "S7": {
+        "path": "enterprise-vision-mlops/docs/status/evidence/s7-auxiliary-admission-closure.json",
+        "blob_oid": "5603bb177d7fe08788951a68d457fe68099193a5",
+        "sha256": "30fec6916f4463d39a86103ea0c0ea0cf583a5add18a2a30d78cf4b1994587bf"
+      }
+    }
+  },
+  "checks": {
+    "source_serving_ready_replicas": "1/1",
+    "staging_target_replicas": 0,
+    "actual_cuda_inference": true,
+    "active_queue_lease_outcome_unknown": 0,
+    "scenario_labeled_temporary_resources": 0,
+    "prometheus_targets_up": "5/5"
+  },
+  "private_evidence": {
+    "path": "private/post-closure-audit/d585ed8/runtime/cleanup-smoke.log",
+    "bytes": 739,
+    "sha256": "d6101692c400b8ff4e5ffa2c03002c18112365086965d4e7c19648e877b26f88"
+  },
+  "residual_risks": [
+    "Three historical ContainerStatusUnknown serving Pods remain visible as unrelated cluster debt and were not deleted or credited to acceptance.",
+    "The proof remains limited to one local physical node and one GPU; it is not customer traffic, production SLA, HA/DR, or multi-GPU evidence."
+  ]
+}

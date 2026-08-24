@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T04:43:07Z`
+- Generated: `2026-08-24T05:06:29Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -481,16 +481,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S5: Criteo Spark Memory-bounded Data Scale
 
-- Status: `implementing`
+- Status: `verified`
 - Engineering question: Can larger partitioned data remain memory-bounded, deterministic, and restartable?
 - Why now: Single-process data preparation does not demonstrate executor or shuffle behavior.
 - Observed gap: Partition sizing, spill, skew, retry, and idempotent distributed commits are unproven.
 - Existing-system baseline: The existing Airflow data path uses deterministic Python and columnar processing, but distributed executor, shuffle, spill, skew, and retry behavior are not implemented or evidenced.
 - Architecture before: Data processing is reproducible at local scale but remains mostly process-local.
 - Architecture after: Spark executors process governed partitions with bounded memory and deterministic commits.
-- Verdict: `not_run`
+- Verdict: `passed`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Generate and validate canonical current-revision S5 runtime smoke evidence.
+- Next action: Post-closure audit is complete; keep S8 planned and not started in this turn.
 
 ### Affected Existing Components
 
@@ -531,17 +531,19 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S5-AC-01` [pending]: Records per second, storage rate, peak executor memory, GC, shuffle, spill, and skew are reported.
-- `S5-AC-02` [pending]: Output contains zero missing and zero duplicate records.
-- `S5-AC-03` [pending]: Retry preserves row count and output digest.
-- `S5-AC-04` [pending]: Generated load volume is not represented as new semantic diversity.
+- `S5-AC-01` [passed]: Records per second, storage rate, peak executor memory, GC, shuffle, spill, and skew are reported.
+- `S5-AC-02` [passed]: Output contains zero missing and zero duplicate records.
+- `S5-AC-03` [passed]: Retry preserves row count and output digest.
+- `S5-AC-04` [passed]: Generated load volume is not represented as new semantic diversity.
 
 ### Current Evidence
 
 - `docs/status/evidence/s5-current-revision-runtime-smoke.json` (`7aedba989c0283c1307ff6203a299c899b221510dedd9a606a2dc3e3a3911e1e`): Current-revision smoke reproduced the same 766,864-row digest with zero missing or duplicate records across columnar, local Spark, and Kubernetes Spark paths and exact cleanup.
+- `docs/status/evidence/s5-reclosure-regression-evidence.json` (`8e5f6b3ddb75e07c87ba6f89257d74b419c191493713eff2017f6ad716246624`): Current-revision S5 regression commands, exit codes, counts, and private log hashes are bound for independent validation.
+- `docs/status/evidence/s5-s7-post-closure-runtime-audit.json` (`7a2131975ffc5d2c2d5c20812d4831e4223fd5d5bd24a44066291da4b1f97782`): Post-reclosure runtime audit proves healthy serving, real CUDA inference, empty active queue ownership, monitoring recovery, and exact temporary-resource cleanup.
 - `docs/status/evidence/s5-spark-data-scale-attempt-01.json` (`051402f28cf7f30cab1ab784f0df5424984e21e67a47fc02a75a61b1ec493ee6`): The first clean-revision matrix stopped fail-closed at retry replay because its immutable generated-I/O identity differed; 27 retained measurements grant no acceptance credit.
 - `docs/status/evidence/s5-spark-data-scale-attempt-02.json` (`2c3c7c909b526148d81f08a7637f8993039e7ad17bc6decad0d2ad3f15357601`): A 30-point runtime pass was rejected for closure because its original public projection omitted the executor-loss and replay fields needed for independent S5-AC-03 recomputation.
-- `docs/status/evidence/s5-spark-data-scale-closure.json` (`b5d7f67278c2307b980ea4e43f918f40f0b977d2049e6a510d11cfa09b8bd1f5`): Strict closure independently recomputes S5-AC-01 through S5-AC-04, binds canonical Git bytes and private inventory hashes, records all RCA, regressions, runtime health, and cleanup.
+- `docs/status/evidence/s5-spark-data-scale-closure.json` (`e8d5e85fd6b9774677fe49bb2954bdc30c1f1da34e9b65138ed54e375217a849`): Strict v2 reclosure independently validates the unchanged 30-point matrix, three-engine smoke, regression logs, cleanup, and canonical Git identities.
 - `docs/status/evidence/s5-spark-data-scale-experiment.json` (`61937a003ec75f0c6e2edb868e5f849d8fe3bfcbd4e48dd89d68d789f9f9f0bf`): The accepted 30-point clean-revision matrix covers all required engines, three executor-loss replays, bounded telemetry, exact row/digest integrity, and generated-I/O semantic separation.
 - `docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json` (`853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e`): Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure.
 
@@ -553,6 +555,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T13:03:56.294024Z` `experiment` / `implementing`: Attempt 02 completed all 30 runtime points but was rejected for closure because its original public projection could not independently recompute executor-loss replay acceptance; strict public/private validation was added before a fresh run.
 - `2026-08-23T13:25:23.777125Z` `verification` / `verified`: A fresh strict-validator matrix completed 30 accepted points including three exact executor-loss replays; all four S5 acceptance criteria, current-revision smoke, regressions, canonical Git-byte hashes, private inventory rehash, and cleanup passed.
 - `2026-08-24T03:55:06Z` `verification` / `implementing`: Independent post-closure audit reopened S5: the historical 30-point matrix remains immutable, but closure v1 trusted regression, runtime-smoke, and cleanup summaries instead of independently validating their raw logs and current-revision measurements.
+- `2026-08-24T05:03:05Z` `verification` / `verified`: Independent post-closure revalidation completed: The immutable 30-point matrix and 57-artifact inventory were rehashed. Three-engine current-revision smoke, strict mutation tests, all required regressions, and cleanup passed without rerunning the matrix.
 
 ## S6: API Rolling Continuity & GPU Controlled Handoff
 
@@ -565,7 +568,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Stateless API continuity and controlled GPU handoff have separate evidence and claims.
 - Verdict: `passed`
 - Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Review S7 model-family-specific admission readiness and blockers only; do not start S7 in this closure turn.
+- Next action: Post-closure audit is complete; keep S8 planned and not started in this turn.
 
 ### Affected Existing Components
 
@@ -615,31 +618,34 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Current Evidence
 
-- `docs/status/evidence/s6-api-rolling-preflight-checkpoint.json` (`2196776f456c08b186be1c03f4c8b33d0587d4d16a7da242f35a6b6e95e0e708`): The isolated two-replica API, drain, PostgreSQL identity, OTLP and Prometheus preflight passed without acceptance credit.
+- `docs/status/evidence/s5-s7-post-closure-runtime-audit.json` (`7a2131975ffc5d2c2d5c20812d4831e4223fd5d5bd24a44066291da4b1f97782`): Post-reclosure runtime audit proves healthy serving, real CUDA inference, empty active queue ownership, monitoring recovery, and exact temporary-resource cleanup.
 - `docs/status/evidence/s6-api-rolling-failed-attempt-01.json` (`83bbabcebdec742bcf0b333e86eef38bf0dc2c3753eb86ef7805ac943aa6e11e`): The first rolling attempt was rejected because exact old-Pod drain evidence had not converged when rollout status returned.
 - `docs/status/evidence/s6-api-rolling-failed-attempt-02.json` (`fd27ec25a4b198d37b6600f9da6af12178c651cb0f675a2323cccdabf03ba1b1`): The second rolling attempt was rejected because the initial shared latency gate and instantaneous scrape check did not model rollout recovery correctly.
-- `docs/status/evidence/s6-rolling-handoff-experiment.json` (`0fa59c817c4ea4d2b8f829154f3fb6ad875abb6c9ecfdc38ed5dd367bd2d824a`): Three API rolling and three single-GPU handoff repetitions passed from independently recomputed private raw evidence.
+- `docs/status/evidence/s6-api-rolling-preflight-checkpoint.json` (`2196776f456c08b186be1c03f4c8b33d0587d4d16a7da242f35a6b6e95e0e708`): The isolated two-replica API, drain, PostgreSQL identity, OTLP and Prometheus preflight passed without acceptance credit.
 - `docs/status/evidence/s6-current-revision-runtime-smoke.json` (`549e3c46b75f7cba1449fada78cd9f086a8a51290786725c9e09c1c2a9c689a6`): The current revision preserved healthy API, PostgreSQL, queue-worker, CUDA serving and Prometheus behavior before isolated cleanup.
-- `docs/status/evidence/s6-rolling-handoff-closure.json` (`8d99ca8cfe8a24e6ba808949b6b537d95a0ce93f70c7c0959b80b9bf72f96440`): Strict closure binds the accepted experiment, regressions, failed-attempt RCA, Git blobs, private inventory and cleanup without claiming GPU HA.
+- `docs/status/evidence/s6-rolling-handoff-closure.json` (`fb3dc5c8773e6d7adde36fa59cf60e893e527b83be9497a4936c72ce8b458c31`): Strict v2 reclosure recomputes request traces and monotonic interruption times and narrows final drain claims to the evidence actually measured.
+- `docs/status/evidence/s6-rolling-handoff-experiment.json` (`0fa59c817c4ea4d2b8f829154f3fb6ad875abb6c9ecfdc38ed5dd367bd2d824a`): Three API rolling and three single-GPU handoff repetitions passed from independently recomputed private raw evidence.
+- `docs/status/evidence/s7-reclosure-regression-evidence.json` (`6a75a5eb067b8abe2e7d05b34170cfd05257150c566a287ecd81920598cf25df`): Current-revision S6/S7 regression commands, exit codes, counts, and private log hashes are bound for independent validation.
 
 ### Chronological Updates
 
 - `2026-08-14T19:34:00Z` `design` / `planned`: The authoritative in-place scenario contract was reviewed against the existing ML Serve API system.
 - `2026-08-23T14:03:04Z` `implementation` / `implementing`: Drain-aware API admission, transactional rollout-probe identity, and isolated zero-unavailable Kubernetes contracts were implemented; acceptance experiments remain pending.
 - `2026-08-23T15:52:06Z` `verification` / `verified`: Three API rolling and three controlled single-GPU handoff repetitions passed all four S6 criteria; strict evidence, current-revision regressions, exact rollback, baseline restoration, and isolated-resource cleanup also passed.
+- `2026-08-24T05:03:05Z` `verification` / `verified`: Independent post-closure revalidation completed: Raw trace headers and monotonic GPU interruption timelines were recomputed. The final repetitions prove exact-UID drain events under traffic; only the separate preflight proves an approximately two-second in-flight drain.
 
 ## S7: Image/VLM/LLM Auxiliary Admission
 
-- Status: `implementing`
+- Status: `verified`
 - Engineering question: Do image and generative workloads use model-family-specific cost admission and metrics?
 - Why now: Tabular capacity does not cover image decode, pixels, tokens, or long requests.
 - Observed gap: Image, token, and in-flight cost bounds are not uniformly enforced or measured.
 - Existing-system baseline: The existing workload ledger can run image, VLM, and LLM profiles sequentially, but admission is not uniformly derived from decode, pixels, tokens, in-flight cost, and long-request fairness.
 - Architecture before: Multiple model families run without one cost-aware admission proof.
 - Architecture after: Image, pixel, token, and in-flight budgets govern family-specific queues and metrics.
-- Verdict: `not_run`
-- Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation.
-- Next action: Reproject the immutable 36-run matrix with scoped starvation and rejection accounting.
+- Verdict: `passed`
+- Claim boundary: No production, customer traffic, multi-zone HA, or physical multi-node claim is allowed from this scenario. A scenario pass does not replace final cross-scenario system validation. ScienceQA-derived VLM evidence is restricted to non-commercial portfolio and research use under CC-BY-NC-SA-4.0.
+- Next action: Post-closure audit is complete; keep S8 planned and not started in this turn.
 
 ### Affected Existing Components
 
@@ -686,22 +692,24 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S7-AC-01` [pending]: Each model family has distinct p95, p99, and quality metric schemas.
-- `S7-AC-02` [pending]: Selected admission limits have zero OOM and zero starvation.
-- `S7-AC-03` [pending]: Long-request head-of-line behavior and fairness are measured.
-- `S7-AC-04` [pending]: Unsupported or unverified metrics remain absent.
+- `S7-AC-01` [passed]: Each model family has distinct p95, p99, and quality metric schemas.
+- `S7-AC-02` [passed]: Selected admission limits have zero OOM and zero starvation.
+- `S7-AC-03` [passed]: Long-request head-of-line behavior and fairness are measured.
+- `S7-AC-04` [passed]: Unsupported or unverified metrics remain absent.
 
 ### Current Evidence
 
-- `docs/status/evidence/s7-auxiliary-admission-closure.json` (`ae93a79488e0c531f81055f95a6abf4d47ab508d3390c4de882ae5c43cc91a50`): Strict closure binds acceptance, regressions, private hashes, Git blobs, and cleanup without broad production claims.
+- `docs/status/evidence/s5-s7-post-closure-runtime-audit.json` (`7a2131975ffc5d2c2d5c20812d4831e4223fd5d5bd24a44066291da4b1f97782`): Post-reclosure runtime audit proves healthy serving, real CUDA inference, empty active queue ownership, monitoring recovery, and exact temporary-resource cleanup.
+- `docs/status/evidence/s7-auxiliary-admission-closure.json` (`30fec6916f4463d39a86103ea0c0ea0cf583a5add18a2a30d78cf4b1994587bf`): Strict v2 reclosure recomputes all 36 profile outcomes, binds family provenance and readiness identity, and separates admitted starvation from intentional rejection.
 - `docs/status/evidence/s7-auxiliary-admission-experiment.json` (`032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014`): The clean 36-repetition matrix passed independent raw-derived family admission validation.
 - `docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json` (`f039fc112072526387b2520f729190ef3da04dbf44d11370970ca095dc948eb9`): The first image warmup exposed host-to-container input remapping and received zero acceptance credit.
 - `docs/status/evidence/s7-auxiliary-admission-failed-attempt-02.json` (`5d9ee5c495287b800babba19fd771ee5fadc127bff553f3a58dcbcbfe5b8f78b`): Completed diagnostics exposed premature Prometheus cleanup observation and received zero acceptance credit.
 - `docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json` (`a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550`): The first full matrix exposed position-dependent projection validation and received zero acceptance credit.
-- `docs/status/evidence/s7-auxiliary-admission-reprojection.json` (`8c839f584347a191943d397218cdec3d910b94fb5aff7cc31b58ed54c532b922`): The immutable 36-run matrix is reprojected with selected/admitted starvation separated from intentional over-limit pre-admission rejection.
+- `docs/status/evidence/s7-auxiliary-admission-reprojection.json` (`8c839f584347a191943d397218cdec3d910b94fb5aff7cc31b58ed54c532b922`): The immutable 36-run matrix is deterministically reprojected with exact per-profile outcome invariants and scoped starvation accounting.
 - `docs/status/evidence/s7-current-revision-cuda-smoke.json` (`10aff4a9f6f57e7e18a52cd3a7576e1b856ea08d66578dd44c23e50316a55799`): The current revision completed real external-HTTP CUDA inference and restored the exact baseline.
 - `docs/status/evidence/s7-family-diagnostic-gate.json` (`14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d`): Fresh image, VLM, and LLM diagnostics completed 18 of 18 real-CUDA requests and closed only the readiness gate.
 - `docs/status/evidence/s7-post-closure-smoke-attempt-01.json` (`84774ee833712e60ccee4263083c037c13038efba8b3951b7c38dcf7fe1a0301`): The first post-closure current-revision smoke stopped before runtime mutation because the image curation manifest had been regenerated; it receives zero credit.
+- `docs/status/evidence/s7-reclosure-regression-evidence.json` (`6a75a5eb067b8abe2e7d05b34170cfd05257150c566a287ecd81920598cf25df`): Current-revision S6/S7 regression commands, exit codes, counts, and private log hashes are bound for independent validation.
 
 ### Chronological Updates
 
@@ -710,11 +718,12 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T18:31:45Z` `implementation` / `implementing`: The existing GPU lease and B0 handoff boundary now govern an external-HTTP CUDA runner with Prometheus discovery, process-tree resource samples, canonical private evidence indexing, and raw-derived S7 validation; no acceptance run has been credited.
 - `2026-08-23T18:45:56.552378Z` `experiment` / `implementing`: The first image diagnostic failed closed at warmup with HTTP 422 because a native-host input was remapped to a container-only mount. The lease, process, B0 CUDA serving, Prometheus 5/5 baseline, and S7 target were cleaned up; remediation is implemented and the attempt receives zero acceptance credit.
 - `2026-08-23T18:59:18.922527Z` `recovery` / `implementing`: Image, VLM, and LLM diagnostics completed real external-HTTP CUDA requests, but all three were rejected because cleanup returned during the transient 0/0 Prometheus restart state. Exact 5/5 baseline restoration is now a fail-closed runner and evidence condition; post-recovery B0, lease, target, and private hashes are retained with zero acceptance credit.
-- `2026-08-23T19:08:22.335888Z` `verification` / `implementing`: Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision completed 18 of 18 real external-HTTP CUDA requests with family-specific metrics, zero OOM/starvation, and exact B0/lease/S7-target/Prometheus 5/5 cleanup. This closes only the diagnostic gate; the 12-profile by 3-repetition matrix and all S7 ACs remain pending.
+- `2026-08-23T19:08:22.335888Z` `verification` / `implementing`: Fresh image, VLM, and LLM diagnostics at the strict-cleanup revision completed 18 of 18 admitted real external-HTTP CUDA requests with family-specific metrics, zero OOM and zero admitted starvation, and exact B0/lease/S7-target/Prometheus 5/5 cleanup. This closes only the diagnostic gate; the 12-profile by 3-repetition matrix and all S7 ACs remain pending.
 - `2026-08-23T19:18:38.297228Z` `experiment` / `implementing`: The first full 36-repetition matrix completed 162 requests and 54 explicit over-limit rejections with exact cleanup, but strict validation rejected the public projection because public config order and private lexical order were compared positionally. The suite receives zero credit; stable profile/repetition identity comparison and duplicate rejection are implemented before a clean full rerun.
-- `2026-08-23T19:26:44.534372Z` `experiment` / `implementing`: A clean second 36-repetition matrix passed the independent raw-derived experiment validator: each family completed 12 repetitions, with 162 completed requests, 54 explicit bounded rejections, zero OOM/starvation, complete trace and Prometheus evidence, family quality gates, fairness/HOL, and exact cleanup. Full regressions and canonical closure remain pending.
+- `2026-08-23T19:26:44.534372Z` `experiment` / `implementing`: A clean second 36-repetition matrix passed the historical v1 projection: each family completed 12 repetitions, with 162 completed requests, 54 intentional over-limit pre-admission rejections, zero OOM and zero selected/admitted starvation, complete trace and Prometheus evidence, family quality gates, fairness/HOL, and exact cleanup. Full regressions and canonical closure remained pending.
 - `2026-08-23T19:45:30Z` `verification` / `verified`: The accepted 36-repetition family matrix, current-revision CUDA smoke, all required regressions, private rehash, Git-blob closure, and exact cleanup passed S7-AC-01..04; three failed attempts remain retained with zero acceptance credit.
 - `2026-08-24T03:55:06Z` `verification` / `implementing`: Independent post-closure audit reopened S7: closure v1 did not recompute its numerical totals, conflated 54 intentional over-limit pre-admission rejections with selected/admitted starvation, and did not bind family asset provenance or observed LLM 4-bit readiness.
+- `2026-08-24T05:03:05Z` `verification` / `verified`: Independent post-closure revalidation completed: The immutable 36-run matrix was reprojected as 162 completed requests, 54 intentional pre-admission rejections, zero selected/admitted starvation, and 54 full-matrix long noncompletions. Provenance, readiness, LLM int4, regressions, and cleanup passed.
 
 ## S8: Dependency Soak & Resource-efficiency Closure
 
