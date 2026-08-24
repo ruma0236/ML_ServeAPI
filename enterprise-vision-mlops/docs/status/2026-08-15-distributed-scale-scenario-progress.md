@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T04:12:30Z`
+- Generated: `2026-08-24T04:43:07Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -698,8 +698,8 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json` (`f039fc112072526387b2520f729190ef3da04dbf44d11370970ca095dc948eb9`): The first image warmup exposed host-to-container input remapping and received zero acceptance credit.
 - `docs/status/evidence/s7-auxiliary-admission-failed-attempt-02.json` (`5d9ee5c495287b800babba19fd771ee5fadc127bff553f3a58dcbcbfe5b8f78b`): Completed diagnostics exposed premature Prometheus cleanup observation and received zero acceptance credit.
 - `docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json` (`a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550`): The first full matrix exposed position-dependent projection validation and received zero acceptance credit.
-- `docs/status/evidence/s7-auxiliary-admission-reprojection.json` (`7b00369486eb97e82d062503e02cd6b144f597e6db00df26027ef7dc795b4e94`): The immutable 36-run matrix is reprojected with selected/admitted starvation separated from intentional over-limit pre-admission rejection.
-- `docs/status/evidence/s7-current-revision-cuda-smoke.json` (`07bc76f0b5eae84b9770564f2b617432170fe7c70b9bf67604cd9a707f11ded4`): The current revision completed real external-HTTP CUDA inference and restored the exact baseline.
+- `docs/status/evidence/s7-auxiliary-admission-reprojection.json` (`8c839f584347a191943d397218cdec3d910b94fb5aff7cc31b58ed54c532b922`): The immutable 36-run matrix is reprojected with selected/admitted starvation separated from intentional over-limit pre-admission rejection.
+- `docs/status/evidence/s7-current-revision-cuda-smoke.json` (`10aff4a9f6f57e7e18a52cd3a7576e1b856ea08d66578dd44c23e50316a55799`): The current revision completed real external-HTTP CUDA inference and restored the exact baseline.
 - `docs/status/evidence/s7-family-diagnostic-gate.json` (`14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d`): Fresh image, VLM, and LLM diagnostics completed 18 of 18 real-CUDA requests and closed only the readiness gate.
 - `docs/status/evidence/s7-post-closure-smoke-attempt-01.json` (`84774ee833712e60ccee4263083c037c13038efba8b3951b7c38dcf7fe1a0301`): The first post-closure current-revision smoke stopped before runtime mutation because the image curation manifest had been regenerated; it receives zero credit.
 

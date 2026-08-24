@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T04:12:30Z",
+  "generated_at": "2026-08-24T04:43:07Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3512,13 +3512,13 @@
         },
         {
           "path": "docs/status/evidence/s7-auxiliary-admission-reprojection.json",
-          "sha256": "7b00369486eb97e82d062503e02cd6b144f597e6db00df26027ef7dc795b4e94",
-          "generated_at": "2026-08-24T03:56:57.495961Z",
+          "sha256": "8c839f584347a191943d397218cdec3d910b94fb5aff7cc31b58ed54c532b922",
+          "generated_at": "2026-08-24T04:38:10.613770Z",
           "claim": "The immutable 36-run matrix is reprojected with selected/admitted starvation separated from intentional over-limit pre-admission rejection."
         },
         {
           "path": "docs/status/evidence/s7-current-revision-cuda-smoke.json",
-          "sha256": "07bc76f0b5eae84b9770564f2b617432170fe7c70b9bf67604cd9a707f11ded4",
+          "sha256": "10aff4a9f6f57e7e18a52cd3a7576e1b856ea08d66578dd44c23e50316a55799",
           "generated_at": "2026-08-24T04:05:09.352909Z",
           "claim": "The current revision completed real external-HTTP CUDA inference and restored the exact baseline."
         },
@@ -3721,13 +3721,13 @@
         },
         {
           "path": "docs/status/evidence/s7-auxiliary-admission-reprojection.json",
-          "sha256": "7b00369486eb97e82d062503e02cd6b144f597e6db00df26027ef7dc795b4e94",
-          "generated_at": "2026-08-24T03:56:57.495961Z",
+          "sha256": "8c839f584347a191943d397218cdec3d910b94fb5aff7cc31b58ed54c532b922",
+          "generated_at": "2026-08-24T04:38:10.613770Z",
           "claim": "The immutable 36-run matrix is reprojected with selected/admitted starvation separated from intentional over-limit pre-admission rejection."
         },
         {
           "path": "docs/status/evidence/s7-current-revision-cuda-smoke.json",
-          "sha256": "07bc76f0b5eae84b9770564f2b617432170fe7c70b9bf67604cd9a707f11ded4",
+          "sha256": "10aff4a9f6f57e7e18a52cd3a7576e1b856ea08d66578dd44c23e50316a55799",
           "generated_at": "2026-08-24T04:05:09.352909Z",
           "claim": "The current revision completed real external-HTTP CUDA inference and restored the exact baseline."
         },
