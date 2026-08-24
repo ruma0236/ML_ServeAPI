@@ -59,6 +59,28 @@ TRANSITIONS = {
 
 def remediation_transition(evidence: dict[str, Any], *, amendment: bool) -> dict[str, str]:
     failure = str(evidence.get("failure") or "")
+    if failure.startswith("HTTPError:500 Server Error"):
+        return {
+            "event_type": "e0_triton_backend_remediation_required",
+            "summary": (
+                "E0 reached Triton readiness but the first inference failed because the "
+                "Python backend CuPy runtime expected CUDA 12 libraries while the frozen "
+                "official image provides CUDA 13; cleanup restored B0 and no repetition "
+                "received acceptance credit"
+            ),
+            "credit": "zero_credit",
+            "acceptance": "E0-AC-01..04 pending; no acceptance repetition credited",
+            "next_gate": (
+                "Use the frozen image's PyTorch GPU backend with a deterministic TorchScript "
+                "model, then append a fresh ready event"
+            ),
+            "rca": (
+                "The Triton image bundled CuPy built for CUDA 12 while its CUDA runtime is 13. "
+                "The Python backend therefore failed to load libnvrtc.so.12. The remediation "
+                "keeps the image digest fixed and moves only the deterministic test model to "
+                "the image-supported PyTorch GPU backend."
+            ),
+        }
     if failure.startswith("ScenarioWorkloadError:s8-v4-e0-"):
         return {
             "event_type": (

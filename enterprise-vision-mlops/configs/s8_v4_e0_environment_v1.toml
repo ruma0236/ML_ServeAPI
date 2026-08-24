@@ -6,7 +6,7 @@ triton_image_digest = "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0
 expected_gpu_name = "NVIDIA GeForce RTX 4080 SUPER"
 model_name = "e0_cuda_linear"
 model_version = "1"
-backend = "python"
+backend = "pytorch"
 
 [prediction]
 input_values = [1.0, 2.0, 3.0, 4.0]

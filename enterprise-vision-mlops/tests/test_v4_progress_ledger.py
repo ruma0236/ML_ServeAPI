@@ -75,3 +75,13 @@ def test_e0_gpu_lease_remediation_is_recorded_as_append_only_amendment() -> None
     assert "GPU lease" in transition["summary"]
     assert "E0" in transition["rca"]
     assert transition["credit"] == "non_credit"
+
+
+def test_e0_triton_backend_failure_records_zero_credit_rca() -> None:
+    transition = remediation_transition(
+        {"failure": "HTTPError:500 Server Error for url: fixture", "credit": "zero_credit"},
+        amendment=False,
+    )
+    assert transition["event_type"] == "e0_triton_backend_remediation_required"
+    assert transition["credit"] == "zero_credit"
+    assert "libnvrtc.so.12" in transition["rca"]

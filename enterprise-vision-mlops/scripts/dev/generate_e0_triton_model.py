@@ -5,9 +5,11 @@ import hashlib
 import json
 from pathlib import Path
 
+import torch
+
 
 CONFIG = """name: "e0_cuda_linear"
-backend: "python"
+backend: "pytorch"
 max_batch_size: 8
 input [
   {
@@ -33,26 +35,9 @@ instance_group [
 """
 
 
-MODEL = """import cupy as cp
-import triton_python_backend_utils as pb_utils
-
-
-class TritonPythonModel:
-    def initialize(self, args):
-        self.device_id = int(args["model_instance_device_id"])
-        cp.cuda.Device(self.device_id).use()
-
-    def execute(self, requests):
-        responses = []
-        for request in requests:
-            input_tensor = pb_utils.get_input_tensor_by_name(request, "INPUT__0")
-            gpu_input = cp.asarray(input_tensor.as_numpy(), dtype=cp.float32)
-            gpu_output = gpu_input * cp.float32(2.0) + cp.float32(1.0)
-            cp.cuda.get_current_stream().synchronize()
-            output_tensor = pb_utils.Tensor("OUTPUT__0", cp.asnumpy(gpu_output))
-            responses.append(pb_utils.InferenceResponse(output_tensors=[output_tensor]))
-        return responses
-"""
+class E0CudaLinear(torch.nn.Module):
+    def forward(self, value: torch.Tensor) -> torch.Tensor:
+        return value * 2.0 + 1.0
 
 
 def sha256(path: Path) -> str:
@@ -81,9 +66,11 @@ def main() -> int:
     version_root = model_root / "1"
     version_root.mkdir(parents=True, exist_ok=False)
     config_path = model_root / "config.pbtxt"
-    artifact_path = version_root / "model.py"
+    artifact_path = version_root / "model.pt"
     config_path.write_text(CONFIG, encoding="utf-8", newline="\n")
-    artifact_path.write_text(MODEL, encoding="utf-8", newline="\n")
+    torch.manual_seed(0)
+    model = torch.jit.script(E0CudaLinear().eval())
+    torch.jit.save(model, artifact_path)
     entries = [
         {
             "path": path.relative_to(args.output).as_posix(),
@@ -96,7 +83,12 @@ def main() -> int:
         "schema_version": "evm.s8_v4.e0_model_repository.v1",
         "model_name": "e0_cuda_linear",
         "model_version": "1",
-        "backend": "python",
+        "backend": "pytorch",
+        "framework": {
+            "name": "torchscript",
+            "torch_version": torch.__version__,
+            "cuda_build": torch.version.cuda,
+        },
         "entries": entries,
         "repository_sha256": hashlib.sha256(canonical(entries).encode("ascii")).hexdigest(),
         "config_sha256": sha256(config_path),

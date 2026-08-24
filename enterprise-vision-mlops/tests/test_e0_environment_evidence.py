@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+import torch
 
 from evm.scale_validation import e0_evidence
 from evm.scale_validation.e0_evidence import (
@@ -239,7 +240,9 @@ def test_e0_generator_is_deterministic(tmp_path: Path) -> None:
         )
         manifests.append(json.loads(completed.stdout))
     assert manifests[0] == manifests[1]
-    assert (
-        hashlib.sha256((roots[0] / "e0_cuda_linear/1/model.py").read_bytes()).hexdigest()
-        == manifests[0]["artifact_sha256"]
-    )
+    artifact = roots[0] / "e0_cuda_linear/1/model.pt"
+    assert hashlib.sha256(artifact.read_bytes()).hexdigest() == manifests[0]["artifact_sha256"]
+    loaded = torch.jit.load(artifact)
+    actual = loaded(torch.tensor([[1.0, 2.0, 3.0, 4.0]])).tolist()[0]
+    assert actual == [3.0, 5.0, 7.0, 9.0]
+    assert manifests[0]["backend"] == "pytorch"

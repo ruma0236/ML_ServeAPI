@@ -298,7 +298,7 @@ def capture_environment(config: E0RuntimeConfig) -> dict[str, Any]:
             config.immutable_image,
             "-lc",
             "nsys --version; nvcc --version | tail -1; "
-            "python3 -c 'import cupy; print(cupy.__version__)'; "
+            "nvidia-smi --query-gpu=uuid,name --format=csv,noheader; "
             "ldconfig -p | grep -q 'libcupti.so' && echo CUPTI_PRESENT",
         ],
         timeout=60,
@@ -516,7 +516,7 @@ def container_gpu(config: E0RuntimeConfig, container: str) -> dict[str, Any]:
             "bash",
             "-lc",
             "nvcc --version | tail -1; nsys --version; "
-            "python3 -c 'import cupy; d=cupy.cuda.Device(); print(d.id); print(cupy.__version__)'",
+            "ldconfig -p | grep -q 'libcudart.so.13' && echo CUDA_RUNTIME_PRESENT",
         ]
     )
     return {
