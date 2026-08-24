@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T05:06:29Z",
+  "generated_at": "2026-08-24T05:13:52Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -3063,6 +3063,15 @@
             "docs/status/evidence/s5-s7-post-closure-runtime-audit.json",
             "docs/status/2026-08-24-s5-s7-post-closure-independent-audit.md"
           ]
+        },
+        {
+          "occurred_at": "2026-08-24T05:13:52Z",
+          "phase": "verification",
+          "status": "verified",
+          "summary": "Git SHA 16a41c4, Jira SCRUM-206 Done, the canonical Notion V3 page, and the Obsidian work log, Current Context, retrieval index, and graph were cross-checked against the S5 strict-v2 claim and S8 not-started boundary.",
+          "evidence_refs": [
+            "docs/status/2026-08-24-s5-s7-post-closure-independent-audit.md"
+          ]
         }
       ]
     },
@@ -3429,6 +3438,15 @@
             "docs/status/evidence/s6-rolling-handoff-closure.json",
             "docs/status/evidence/s7-reclosure-regression-evidence.json",
             "docs/status/evidence/s5-s7-post-closure-runtime-audit.json",
+            "docs/status/2026-08-24-s5-s7-post-closure-independent-audit.md"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T05:13:52Z",
+          "phase": "verification",
+          "status": "verified",
+          "summary": "Git SHA 16a41c4, Jira SCRUM-205 Done, the canonical Notion V3 page, and the Obsidian work log, Current Context, retrieval index, and graph were cross-checked against the narrowed S6 drain-evidence claim and S8 not-started boundary.",
+          "evidence_refs": [
             "docs/status/2026-08-24-s5-s7-post-closure-independent-audit.md"
           ]
         }
@@ -3932,6 +3950,15 @@
             "docs/status/evidence/s7-auxiliary-admission-closure.json",
             "docs/status/evidence/s7-reclosure-regression-evidence.json",
             "docs/status/evidence/s5-s7-post-closure-runtime-audit.json",
+            "docs/status/2026-08-24-s5-s7-post-closure-independent-audit.md"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T05:13:52Z",
+          "phase": "verification",
+          "status": "verified",
+          "summary": "Git SHA 16a41c4, Jira SCRUM-207 Done, the canonical Notion V3 page, and the Obsidian work log, Current Context, retrieval index, and graph were cross-checked against the S7 strict-v2 outcome, provenance, license boundary, and S8 not-started state.",
+          "evidence_refs": [
             "docs/status/2026-08-24-s5-s7-post-closure-independent-audit.md"
           ]
         }

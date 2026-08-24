@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T05:06:29Z`
+- Generated: `2026-08-24T05:13:52Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -556,6 +556,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T13:25:23.777125Z` `verification` / `verified`: A fresh strict-validator matrix completed 30 accepted points including three exact executor-loss replays; all four S5 acceptance criteria, current-revision smoke, regressions, canonical Git-byte hashes, private inventory rehash, and cleanup passed.
 - `2026-08-24T03:55:06Z` `verification` / `implementing`: Independent post-closure audit reopened S5: the historical 30-point matrix remains immutable, but closure v1 trusted regression, runtime-smoke, and cleanup summaries instead of independently validating their raw logs and current-revision measurements.
 - `2026-08-24T05:03:05Z` `verification` / `verified`: Independent post-closure revalidation completed: The immutable 30-point matrix and 57-artifact inventory were rehashed. Three-engine current-revision smoke, strict mutation tests, all required regressions, and cleanup passed without rerunning the matrix.
+- `2026-08-24T05:13:52Z` `verification` / `verified`: Git SHA 16a41c4, Jira SCRUM-206 Done, the canonical Notion V3 page, and the Obsidian work log, Current Context, retrieval index, and graph were cross-checked against the S5 strict-v2 claim and S8 not-started boundary.
 
 ## S6: API Rolling Continuity & GPU Controlled Handoff
 
@@ -633,6 +634,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T14:03:04Z` `implementation` / `implementing`: Drain-aware API admission, transactional rollout-probe identity, and isolated zero-unavailable Kubernetes contracts were implemented; acceptance experiments remain pending.
 - `2026-08-23T15:52:06Z` `verification` / `verified`: Three API rolling and three controlled single-GPU handoff repetitions passed all four S6 criteria; strict evidence, current-revision regressions, exact rollback, baseline restoration, and isolated-resource cleanup also passed.
 - `2026-08-24T05:03:05Z` `verification` / `verified`: Independent post-closure revalidation completed: Raw trace headers and monotonic GPU interruption timelines were recomputed. The final repetitions prove exact-UID drain events under traffic; only the separate preflight proves an approximately two-second in-flight drain.
+- `2026-08-24T05:13:52Z` `verification` / `verified`: Git SHA 16a41c4, Jira SCRUM-205 Done, the canonical Notion V3 page, and the Obsidian work log, Current Context, retrieval index, and graph were cross-checked against the narrowed S6 drain-evidence claim and S8 not-started boundary.
 
 ## S7: Image/VLM/LLM Auxiliary Admission
 
@@ -724,6 +726,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-23T19:45:30Z` `verification` / `verified`: The accepted 36-repetition family matrix, current-revision CUDA smoke, all required regressions, private rehash, Git-blob closure, and exact cleanup passed S7-AC-01..04; three failed attempts remain retained with zero acceptance credit.
 - `2026-08-24T03:55:06Z` `verification` / `implementing`: Independent post-closure audit reopened S7: closure v1 did not recompute its numerical totals, conflated 54 intentional over-limit pre-admission rejections with selected/admitted starvation, and did not bind family asset provenance or observed LLM 4-bit readiness.
 - `2026-08-24T05:03:05Z` `verification` / `verified`: Independent post-closure revalidation completed: The immutable 36-run matrix was reprojected as 162 completed requests, 54 intentional pre-admission rejections, zero selected/admitted starvation, and 54 full-matrix long noncompletions. Provenance, readiness, LLM int4, regressions, and cleanup passed.
+- `2026-08-24T05:13:52Z` `verification` / `verified`: Git SHA 16a41c4, Jira SCRUM-207 Done, the canonical Notion V3 page, and the Obsidian work log, Current Context, retrieval index, and graph were cross-checked against the S7 strict-v2 outcome, provenance, license boundary, and S8 not-started state.
 
 ## S8: Dependency Soak & Resource-efficiency Closure
 
