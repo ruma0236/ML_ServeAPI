@@ -89,8 +89,9 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
         "idempotent_replay": {
             "request_id": "request-0000",
             "replayed": True,
-            "unique_count_before": 1000,
-            "unique_count_after": 1000,
+            "unique_count_before": 100,
+            "unique_count_after": 100,
+            "record": {**records[0], "replayed": True},
         },
         "illegal_owner_overlap": 0,
         "owner_samples": [{"owner_exact": True}],
@@ -189,6 +190,12 @@ def test_s6bm_success_projection_rejects_loss_identity_and_cleanup() -> None:
         ("trace", lambda raw: raw.update(trace_complete=999)),
         ("drain", lambda raw: raw.update(blue_in_flight_before_unload=1)),
         ("rollback", lambda raw: raw.update(rollback_exact_blue=False)),
+        (
+            "replay",
+            lambda raw: raw["idempotent_replay"]["record"].update(
+                artifact_sha256="f" * 64
+            ),
+        ),
         ("cleanup", lambda raw: raw["cleanup"].update(queue_zero=False)),  # type: ignore[union-attr]
     ]
     for _name, mutate in mutations:

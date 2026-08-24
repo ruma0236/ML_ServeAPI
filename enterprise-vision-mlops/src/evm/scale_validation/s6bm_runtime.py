@@ -314,11 +314,30 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
     if total < int(config.procedure["logical_requests_per_transition"]):
         raise S6BMRuntimeError("s6bm_success_request_count")
     replay = dict(raw.get("idempotent_replay", {}))
+    replay_record = dict(replay.get("record", {}))
+    original = next(
+        (item for item in records if item["request_id"] == replay.get("request_id")), None
+    )
     if (
         replay.get("replayed") is not True
-        or replay.get("request_id") not in {item["request_id"] for item in records}
-        or int(replay.get("unique_count_before", -1)) != total
-        or int(replay.get("unique_count_after", -1)) != total
+        or original is None
+        or int(replay.get("unique_count_before", 0)) <= 0
+        or int(replay.get("unique_count_before", -1))
+        != int(replay.get("unique_count_after", -2))
+        or int(replay.get("unique_count_after", 0)) > total
+        or replay_record.get("replayed") is not True
+        or any(
+            replay_record.get(key) != original.get(key)
+            for key in (
+                "request_id",
+                "trace_id",
+                "model_role",
+                "model_name",
+                "model_version",
+                "artifact_sha256",
+                "output",
+            )
+        )
     ):
         raise S6BMRuntimeError("s6bm_idempotent_replay")
     if int(raw.get("illegal_owner_overlap", -1)) != 0:

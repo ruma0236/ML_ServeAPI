@@ -42,7 +42,6 @@ from evm.scale_validation.s6bm_runtime import (  # noqa: E402
     analyze_attempts,
     canonical,
     canonical_sha256,
-    project_success_attempt,
     sha256_file,
 )
 
@@ -1210,6 +1209,7 @@ def run_success(
             "replayed": replay.get("replayed") is True,
             "unique_count_before": replay_before,
             "unique_count_after": replay_after,
+            "record": replay,
         },
         "illegal_owner_overlap": sum(not item["owner_exact"] for item in owner_samples),
         "owner_samples": owner_samples,
@@ -1238,7 +1238,6 @@ def run_success(
             and telemetry["triton_target_up"],
         },
     }
-    project_success_attempt(result, config)
     reset_controller(config, lease)
     return result
 
