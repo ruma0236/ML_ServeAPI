@@ -1,0 +1,62 @@
+{
+  "schema_version": "evm.s8_current_revision_runtime_smoke.v1",
+  "generated_at": "2026-08-24T12:57:13.238451Z",
+  "status": "verified",
+  "verdict": "passed",
+  "acceptance_credit": false,
+  "source_identity": {
+    "revision": "370146d04a163c030793a299e92feab8046c0b8d",
+    "branch": "codex/distributed-scale-validation-plan",
+    "git_blobs": {
+      "runner": {
+        "path": "scripts/dev/run_s8_current_revision_smoke.py",
+        "blob_oid": "7a30fb0b655c833e96ccf90ba903f0fcb943781c",
+        "sha256": "7d1cafe3361f3f04000df8d96f4aa8549ce005e8a6448dd21b4bd47983066856"
+      },
+      "closure": {
+        "path": "src/evm/scale_validation/s8_closure.py",
+        "blob_oid": "871fda683b0e47cfbfc2727945c7d79b0ad8454f",
+        "sha256": "d2ababba29ba0f6d7f8346c00c676ff689058cd42579a9fbe6983c48c89b903f"
+      },
+      "runtime": {
+        "path": "src/evm/scale_validation/s8_runtime.py",
+        "blob_oid": "61a284c010232f32d817f44dbd41ddc48cd82fe1",
+        "sha256": "bb71a2ff844b4d60b35f51273f0bf02f59bb822717639d265b8d72754f210cae"
+      },
+      "serving": {
+        "path": "apps/api/efficientnet_serving.py",
+        "blob_oid": "b2d0bc004388f0ccdb97a1ec9aadeaea5d796c36",
+        "sha256": "76a9a23a0f1cf18a5bf47c4fc8f7a5bed8a445a484a2d023e88e36e4f6960cbd"
+      },
+      "serving_manifest": {
+        "path": "infra/kubernetes/expedited-production-validation/production/serving.yaml",
+        "blob_oid": "2126f1733ed3a3f8fb3e0fab1be9a7a6a728a44f",
+        "sha256": "7dbceed0a71ca9e564f28f64f556e530f330bde8066ed016e5fa1f754294f5eb"
+      }
+    }
+  },
+  "checks": {
+    "api_healthy": true,
+    "queue_worker_healthy": true,
+    "control_plane_postgresql_healthy": true,
+    "source_serving_ready": true,
+    "target_serving_scaled_zero": true,
+    "real_cuda_inference": true,
+    "prometheus_all_targets_up": true,
+    "prometheus_targets_total": 5,
+    "prometheus_targets_up": 5,
+    "queue_active_zero": true,
+    "queue_leased_zero": true,
+    "queue_outcome_unknown_zero": true,
+    "s8_processes_removed": true,
+    "s8_containers_removed": true,
+    "worker_metrics_port_available": true,
+    "historical_terminal_serving_pods": 3
+  },
+  "private_evidence": {
+    "path": "runtime/s8-current-revision-smoke-private.json",
+    "bytes": 3100,
+    "sha256": "9178792bddc55b3bf5e1e3ba2667f98ef03a83aa3f3afdbcdb3cb9073c6d725b"
+  },
+  "claim_boundary": "Current-revision diagnostic on one local physical node and one CUDA device; no customer traffic, production SLA, HA/DR, or multi-GPU claim. Historical terminal Pods are disclosed but excluded from the active serving baseline."
+}
