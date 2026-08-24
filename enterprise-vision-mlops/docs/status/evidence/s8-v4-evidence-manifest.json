@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.s8_v4.evidence_manifest.v1",
-  "generated_at": "2026-08-24T17:11:08.455894Z",
+  "generated_at": "2026-08-24T18:53:36.805472Z",
   "status": "contract_frozen",
   "runtime_execution_started": true,
   "acceptance_credit": false,
@@ -55,7 +55,7 @@
     {
       "work_item": "E0",
       "tracking_id": "EVM-299",
-      "status": "review_pending",
+      "status": "verified",
       "acceptance_criteria": [
         "E0-AC-01",
         "E0-AC-02",
@@ -144,7 +144,7 @@
           "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
         }
       ],
-      "reviewer_sign_off": "pending",
+      "reviewer_sign_off": "passed",
       "evidence": {
         "path": "docs/status/evidence/s8-v4-e0-remediation-review.json",
         "sha256": "b2d13229d77980f1d0c6f6c0ea4b554b1b656db7feb899b02325964e653ff2b9",
@@ -165,20 +165,117 @@
           "path": "docs/status/evidence/s8-v4-e0-remediation-review.json",
           "sha256": "b2d13229d77980f1d0c6f6c0ea4b554b1b656db7feb899b02325964e653ff2b9"
         }
+      },
+      "acceptance_credit": true,
+      "verified_closure": {
+        "path": "docs/status/evidence/s8-v4-e0-verified-closure.json",
+        "sha256": "f768e7df20fa47b87b04853a9b83a1ab62b1eb26414dda854741182b4d39bb82",
+        "source_revision": "d8f83c79a2c516864663fc6c6957b2eed67aabba"
       }
     },
     {
       "work_item": "S6B-M",
       "tracking_id": "EVM-300",
-      "status": "planned",
+      "status": "review_pending",
       "acceptance_criteria": [
         "S6B-M-AC-01",
         "S6B-M-AC-02",
         "S6B-M-AC-03",
         "S6B-M-AC-04"
       ],
-      "attempts": [],
-      "reviewer_sign_off": "pending"
+      "attempts": [
+        {
+          "attempt_id": "s6bm-20260824T180700Z-477266d4",
+          "credit": "zero_credit",
+          "passed": false,
+          "acceptance_credit_requests": 0,
+          "failure_class": "historical_zero_credit_failure",
+          "private_evidence_sha256": "b94ec797e6807b9ac99369119ee98e833c380282faf2e9aa4c52ded4441f477b"
+        },
+        {
+          "attempt_id": "s6bm-20260824T180954Z-bfaea1bf",
+          "credit": "zero_credit",
+          "passed": false,
+          "acceptance_credit_requests": 0,
+          "failure_class": "historical_zero_credit_failure",
+          "private_evidence_sha256": "b5edb5a1e89d8cfb6696cf0a37cbb1fd17408825635ddace7063e8096331c10a"
+        },
+        {
+          "attempt_id": "s6bm-20260824t181425z-1662cbac",
+          "credit": "zero_credit",
+          "passed": false,
+          "acceptance_credit_requests": 0,
+          "failure_class": "historical_zero_credit_failure",
+          "private_evidence_sha256": "8bcbf5d5c84a38b09e41ebc9394a6dcf49686f51b821ad1a4406ace810fd617f"
+        },
+        {
+          "attempt_id": "s6bm-20260824t181737z-be24d119",
+          "credit": "zero_credit",
+          "passed": false,
+          "acceptance_credit_requests": 0,
+          "failure_class": "post_runtime_cleanup_snapshot",
+          "private_evidence_sha256": "dcd35d181f0bc552fa803361abd17db78efdfeaef81562236ea5cb318c4fdcf2"
+        },
+        {
+          "attempt_id": "s6bm-20260824t182336z-90507f64",
+          "credit": "zero_credit",
+          "passed": false,
+          "acceptance_credit_requests": 0,
+          "failure_class": "historical_zero_credit_failure",
+          "private_evidence_sha256": "fb62d3f771dcc7d708082fc2f976a93a57500d4cb9afa0d3805a642a55c4414a"
+        },
+        {
+          "attempt_id": "s6bm-20260824t182852z-0bd44177",
+          "credit": "zero_credit",
+          "passed": false,
+          "acceptance_credit_requests": 0,
+          "failure_class": "historical_zero_credit_failure",
+          "private_evidence_sha256": "14d26d34c9564d24d3ed73246c9c6593f743c0d90cee6c65fb20c5907e3b15a9"
+        },
+        {
+          "attempt_id": "s6bm-20260824t183417z-1386b37a",
+          "credit": "non_credit",
+          "passed": true,
+          "evidence_ready": true,
+          "acceptance_credit": false,
+          "successful_transition_repetitions": 3,
+          "logical_requests": 3000,
+          "fault_repetitions": 15,
+          "private_evidence_sha256": "0ea7eebb9135d32a36e204d0627a78a50aef6873c97c510ebdbc2c95cffec976",
+          "public_evidence": "docs/status/evidence/s8-v4-s6bm-experiment.json"
+        },
+        {
+          "attempt_id": "s6bm-validator-git-root-diagnostic",
+          "credit": "non_credit",
+          "passed": false,
+          "acceptance_credit": false,
+          "failure_class": "validator_git_root_projection",
+          "private_evidence_sha256": "0a19567c68b35abf4511f41592e3b6183e43cf24f7716591afab3896d0b1e235"
+        },
+        {
+          "attempt_id": "s6bm-smoke-20260824t184215z-57df75b5",
+          "credit": "non_credit",
+          "passed": true,
+          "acceptance_credit": false,
+          "diagnostic_only": true,
+          "private_evidence_sha256": "78c299978bfa596817efccf58b4eefc357f44c60a357e011fdde6d1a8b23fcdf"
+        }
+      ],
+      "reviewer_sign_off": "pending",
+      "acceptance_credit": false,
+      "evidence": {
+        "experiment_path": "docs/status/evidence/s8-v4-s6bm-experiment.json",
+        "experiment_sha256": "1d4419536c5dbfe4376f70257df196db99847ce762a0bed1102aaa9792437fbe",
+        "mutation_path": "docs/status/evidence/s8-v4-s6bm-mutation-validation.json",
+        "mutation_sha256": "da9059986eae41d445329c2689ae7e7260ed294a27d949747e0be20494822405",
+        "review_handoff_path": "docs/status/evidence/s8-v4-s6bm-review-handoff.json",
+        "review_handoff_sha256": "44d04f49dd0da279dbf62bfb2e49b8b55ba4236751ea3aa84a188953da8b0c07",
+        "private_artifacts": 33,
+        "private_aggregate_sha256": "0ea7eebb9135d32a36e204d0627a78a50aef6873c97c510ebdbc2c95cffec976",
+        "runtime_revision": "d7e1256416cc048d2e7adada6895d28d071125d4",
+        "validation_revision": "27904e39e5370e7213fc870f55935f233c7f8b5c"
+      },
+      "claim_boundary": "one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, controlled traffic; not production SLA, physical HA, node failover, multi-node, multi-GPU, MIG, MPS, or a zero-interruption guarantee"
     },
     {
       "work_item": "X1",
