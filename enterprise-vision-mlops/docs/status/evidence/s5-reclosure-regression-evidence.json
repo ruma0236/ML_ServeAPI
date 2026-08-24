@@ -1,0 +1,89 @@
+{
+  "schema_version": "evm.s5_reclosure_regression.v1",
+  "status": "passed",
+  "generated_at": "2026-08-24T04:45:44Z",
+  "source_identity": {
+    "revision": "14031a258be41a39ad2a8f9fe0626e75108f40fa",
+    "branch": "codex/distributed-scale-validation-plan"
+  },
+  "environment": "One local physical node; local PostgreSQL 16 and Docker Desktop Kubernetes. Secrets are omitted from public commands.",
+  "suites": [
+    {
+      "suite_id": "changed_file_lint",
+      "status": "passed",
+      "command": "python -m ruff check <S5-S7 audit changed files>",
+      "exit_code": 0,
+      "tests_passed": 0,
+      "tests_skipped": 0,
+      "log_path": "changed_file_lint.log",
+      "log_bytes": 20,
+      "log_sha256": "a4443afdcfb6d7363adb285762515ccf7cf50473b1a05c20c1a50f6bed4d26b0"
+    },
+    {
+      "suite_id": "focused_s5",
+      "status": "passed",
+      "command": "python -m pytest -q tests/test_s5_runtime.py tests/test_s5_evidence.py",
+      "exit_code": 0,
+      "tests_passed": 17,
+      "tests_skipped": 0,
+      "log_path": "focused_s5.log",
+      "log_bytes": 101,
+      "log_sha256": "351ae90494784daef87a40adfc2cc8e7d199e0f702bc642ced92f304a3f3953d"
+    },
+    {
+      "suite_id": "full_python_real_postgresql",
+      "status": "passed",
+      "command": "EVM_TEST_CONTROL_PLANE_DATABASE_URL=<local-secret> python -m pytest -q",
+      "exit_code": 0,
+      "tests_passed": 859,
+      "tests_skipped": 1,
+      "log_path": "full_python.log",
+      "log_bytes": 1547,
+      "log_sha256": "1c56c12f0af14cb13af84f54d50f7f322b36c9cf141f4662a00bc094dee8f50a"
+    },
+    {
+      "suite_id": "lifecycle_host_e2e",
+      "status": "passed",
+      "command": "python -m pytest -q tests/test_lifecycle*.py tests/test_host_runtime*.py",
+      "exit_code": 0,
+      "tests_passed": 144,
+      "tests_skipped": 0,
+      "log_path": "lifecycle_host_e2e.log",
+      "log_bytes": 183,
+      "log_sha256": "8a103f0ec7e388684cfbd888c83fb587fe0f3429322e79869bdf129dda756155"
+    },
+    {
+      "suite_id": "control_panel",
+      "status": "passed",
+      "command": "python -m pytest -q tests/test_control_panel*.py && npm --prefix apps/control-panel run test -- --run",
+      "exit_code": 0,
+      "tests_passed": 136,
+      "tests_skipped": 0,
+      "log_path": "control_panel.log",
+      "log_bytes": 522,
+      "log_sha256": "73e6b191ae825e400a79238f0839bd368ce48580d125d7c3d795b337b2f9317b"
+    },
+    {
+      "suite_id": "frontend_production_build",
+      "status": "passed",
+      "command": "npm --prefix apps/control-panel run build",
+      "exit_code": 0,
+      "tests_passed": 0,
+      "tests_skipped": 0,
+      "log_path": "frontend_production_build.log",
+      "log_bytes": 435,
+      "log_sha256": "8f64621242f261e9ef8b15e1b3901c493a337fa15b3ce0ccf13edaa7ef8b8b8b"
+    },
+    {
+      "suite_id": "s0_s7_regression",
+      "status": "passed",
+      "command": "python -m pytest -q tests/test_scale_validation_evidence.py tests/test_scale_scenario_progress.py tests/test_s3_capacity_evidence.py tests/test_s4_gpu_batching_evidence.py tests/test_s5_evidence.py tests/test_s6_evidence.py tests/test_s7_evidence.py; then canonical S0-S7 status/evidence validators",
+      "exit_code": 0,
+      "tests_passed": 93,
+      "tests_skipped": 0,
+      "log_path": "s0_s7_status_evidence.log",
+      "log_bytes": 16149,
+      "log_sha256": "ac075b51e2b4f7d10918af080f33c412a2e08cf3b426c9ce5737b8147db4995d"
+    }
+  ]
+}
