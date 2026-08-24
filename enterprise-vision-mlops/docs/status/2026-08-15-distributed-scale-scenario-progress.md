@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T09:49:18Z`
+- Generated: `2026-08-24T09:55:46Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -739,7 +739,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.
 - Verdict: `not_run`
 - Claim boundary: Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.
-- Next action: Run a short zero-credit 35 RPS sampler validation, then restart all 21 fault repetitions and the three 30-minute soak repetitions from the clean resource-sampling revision.
+- Next action: Sample runtime gauges from the existing isolated Prometheus cache instead of competing direct API reads, repeat the zero-credit preflight, then restart the complete acceptance suite.
 
 ### Affected Existing Components
 
@@ -796,6 +796,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s8-dependency-soak-attempt-04.json` (`2144d670bda5f6d03db76d1f9ef4fdbecea6a77e79d3164eb4c5b0bb70c6803b`): Rejected MTTR-projection attempt: all 21 fault scopes passed, but aggregate admission failed because worker-loss MTTR incorrectly included a sequential timeout/HOL phase and reached 63.234 seconds; cleanup passed, soak did not start, and no acceptance credit was awarded.
 - `docs/status/evidence/s8-worker-mttr-v6-preflight.json` (`e73103e923f7ae7372d798dad9f397ba096109be81e437f5636ca51760314b70`): Zero-credit v6 worker-loss preflight separated 11.954-second exact worker MTTR from 62.234-second full profile elapsed, with 3/3 terminal and trace closure, duplicate effects zero, and cleanup complete.
 - `docs/status/evidence/s8-dependency-soak-attempt-05.json` (`e484326df4e5c52df9a91eccf9605f6e8a70bcf8aab61f97672351ebe02729c2`): Rejected resource-sampling attempt: all 21 fault scopes passed and the first 30-minute soak measurement ran, but a transient one-second metrics read timeout terminated the sampler and invalidated the point; cleanup passed and no acceptance credit was awarded.
+- `docs/status/evidence/s8-resource-sampler-v6-preflight-attempt-01.json` (`8eb0e7ca826d807c61df4b870a84a98e199dfd87e05cf538c2680f952dd878ee`): Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors and p99 40.95 ms, but collected only 55 of at least 108 required runtime-gauge samples; no acceptance credit was awarded.
 
 ### Chronological Updates
 
@@ -814,3 +815,4 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-24T08:49:58Z` `verification` / `implementing`: The zero-credit v6 worker-loss preflight passed with exact worker MTTR 11.954 seconds versus full profile elapsed 62.234 seconds, 3/3 terminal and trace closure, and complete cleanup.
 - `2026-08-24T09:41:54Z` `experiment` / `implementing`: Attempt 05 was rejected with zero acceptance credit. All 21 individual fault scopes passed and soak repetition 1 ran its measurement window, but a transient /metrics read timeout killed the resource sampler; the point was invalidated after cleanup instead of receiving partial credit.
 - `2026-08-24T09:49:18Z` `implementation` / `implementing`: Resource sampling now records transient metrics failures, uses only valid gauge samples for queue and pool slopes, requires at least 90 percent valid gauge coverage, and stops fail closed after three consecutive failures. The accepted load and guardrails are unchanged.
+- `2026-08-24T09:55:46Z` `experiment` / `implementing`: The first sampler preflight passed 4,200/4,200 requests at 35 RPS with zero errors, p99 40.95 ms, complete trace/cleanup, and no metrics-read exception. It was rejected because direct API metrics reads yielded only 55 samples in 120 seconds versus the 108 minimum.

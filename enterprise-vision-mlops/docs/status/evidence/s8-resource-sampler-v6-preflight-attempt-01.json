@@ -1,0 +1,1023 @@
+{
+  "acceptance": {
+    "S3-AC-01": false,
+    "S3-AC-02": false,
+    "S3-AC-03": false,
+    "S3-AC-04": false
+  },
+  "analysis": {
+    "acceptance": {
+      "S3-AC-01": false,
+      "S3-AC-02": false,
+      "S3-AC-03": false,
+      "S3-AC-04": false
+    },
+    "aggregated_points": [
+      {
+        "evidence_valid": true,
+        "guardrail_pass_count": 1,
+        "load_summary": {
+          "client_minus_server_p99_ms": {
+            "count": 1,
+            "max": 8.976499957498,
+            "mean": 8.976499957498,
+            "min": 8.976499957498,
+            "p50": 8.976499957498,
+            "p95": 8.976499957498,
+            "p99": 8.976499957498
+          },
+          "error_rate": {
+            "count": 1,
+            "max": 0.0,
+            "mean": 0.0,
+            "min": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0
+          },
+          "latency_ms": {
+            "count": 4200,
+            "p95": {
+              "count": 1,
+              "max": 17.977400042582,
+              "mean": 17.977400042582,
+              "min": 17.977400042582,
+              "p50": 17.977400042582,
+              "p95": 17.977400042582,
+              "p99": 17.977400042582
+            },
+            "p99": {
+              "count": 1,
+              "max": 40.945299959276,
+              "mean": 40.945299959276,
+              "min": 40.945299959276,
+              "p50": 40.945299959276,
+              "p95": 40.945299959276,
+              "p99": 40.945299959276
+            }
+          },
+          "offered_rate_per_second": {
+            "count": 1,
+            "max": 35.0,
+            "mean": 35.0,
+            "min": 35.0,
+            "p50": 35.0,
+            "p95": 35.0,
+            "p99": 35.0
+          },
+          "prediction_p99_ms": {
+            "count": 1,
+            "max": 0.216900021769,
+            "mean": 0.216900021769,
+            "min": 0.216900021769,
+            "p50": 0.216900021769,
+            "p95": 0.216900021769,
+            "p99": 0.216900021769
+          },
+          "queue_wait_p99_ms": {
+            "count": 1,
+            "max": 6.985799991526,
+            "mean": 6.985799991526,
+            "min": 6.985799991526,
+            "p50": 6.985799991526,
+            "p95": 6.985799991526,
+            "p99": 6.985799991526
+          },
+          "server_total_p99_ms": {
+            "count": 1,
+            "max": 31.968800001778,
+            "mean": 31.968800001778,
+            "min": 31.968800001778,
+            "p50": 31.968800001778,
+            "p95": 31.968800001778,
+            "p99": 31.968800001778
+          },
+          "service_rate_per_second": {
+            "count": 1,
+            "max": 35.0,
+            "mean": 35.0,
+            "min": 35.0,
+            "p50": 35.0,
+            "p95": 35.0,
+            "p99": 35.0
+          }
+        },
+        "point": {
+          "api_replicas": 1,
+          "cpu_workers": 1,
+          "load": 35.0,
+          "matrix_scope": "baseline",
+          "mode": "open",
+          "probe_family": "branch-heavy"
+        },
+        "private_evidence_sha256": [
+          "8d0425f0b19ce4fa611bce335fb074c285b41631a781f61a7cdb54e03ee758a8"
+        ],
+        "repetition_count": 1,
+        "resource_summary": {
+          "api_process_tree_cpu_percent": {
+            "count": 1,
+            "max": 49.978590793152,
+            "mean": 49.978590793152,
+            "min": 49.978590793152,
+            "p50": 49.978590793152,
+            "p95": 49.978590793152,
+            "p99": 49.978590793152
+          },
+          "api_process_tree_rss_bytes": {
+            "count": 1,
+            "max": 183144448.0,
+            "mean": 183144448.0,
+            "min": 183144448.0,
+            "p50": 183144448.0,
+            "p95": 183144448.0,
+            "p99": 183144448.0
+          },
+          "host_cpu_percent": {
+            "count": 1,
+            "max": 29.5,
+            "mean": 29.5,
+            "min": 29.5,
+            "p50": 29.5,
+            "p95": 29.5,
+            "p99": 29.5
+          },
+          "host_memory_percent": {
+            "count": 1,
+            "max": 49.0,
+            "mean": 49.0,
+            "min": 49.0,
+            "p50": 49.0,
+            "p95": 49.0,
+            "p99": 49.0
+          },
+          "load_generator_cpu_percent": {
+            "count": 1,
+            "max": 18.715165195906,
+            "mean": 18.715165195906,
+            "min": 18.715165195906,
+            "p50": 18.715165195906,
+            "p95": 18.715165195906,
+            "p99": 18.715165195906
+          },
+          "load_generator_rss_bytes": {
+            "count": 1,
+            "max": 173793280.0,
+            "mean": 173793280.0,
+            "min": 173793280.0,
+            "p50": 173793280.0,
+            "p95": 173793280.0,
+            "p99": 173793280.0
+          }
+        },
+        "trace_complete": true,
+        "within_guardrails": true
+      }
+    ],
+    "bottleneck": {
+      "attribution_boundary": "The load generator and API share one physical host, so client HTTP scheduling and host contention cannot be isolated as a remote-generator network result.",
+      "curve_boundaries": [],
+      "first_observed": null,
+      "identified": false,
+      "method": "first frozen guardrail crossing, attributed with client-versus-server latency, queue-wait, prediction, API/load-generator CPU, error, W3C span, and topology telemetry",
+      "signal_source": "recomputed_from_persisted_point_results",
+      "topology_point_count": 0
+    },
+    "curves": {
+      "branch-heavy:closed": [],
+      "branch-heavy:open": [
+        {
+          "evidence_valid": true,
+          "guardrail_pass_count": 1,
+          "load_summary": {
+            "client_minus_server_p99_ms": {
+              "count": 1,
+              "max": 8.976499957498,
+              "mean": 8.976499957498,
+              "min": 8.976499957498,
+              "p50": 8.976499957498,
+              "p95": 8.976499957498,
+              "p99": 8.976499957498
+            },
+            "error_rate": {
+              "count": 1,
+              "max": 0.0,
+              "mean": 0.0,
+              "min": 0.0,
+              "p50": 0.0,
+              "p95": 0.0,
+              "p99": 0.0
+            },
+            "latency_ms": {
+              "count": 4200,
+              "p95": {
+                "count": 1,
+                "max": 17.977400042582,
+                "mean": 17.977400042582,
+                "min": 17.977400042582,
+                "p50": 17.977400042582,
+                "p95": 17.977400042582,
+                "p99": 17.977400042582
+              },
+              "p99": {
+                "count": 1,
+                "max": 40.945299959276,
+                "mean": 40.945299959276,
+                "min": 40.945299959276,
+                "p50": 40.945299959276,
+                "p95": 40.945299959276,
+                "p99": 40.945299959276
+              }
+            },
+            "offered_rate_per_second": {
+              "count": 1,
+              "max": 35.0,
+              "mean": 35.0,
+              "min": 35.0,
+              "p50": 35.0,
+              "p95": 35.0,
+              "p99": 35.0
+            },
+            "prediction_p99_ms": {
+              "count": 1,
+              "max": 0.216900021769,
+              "mean": 0.216900021769,
+              "min": 0.216900021769,
+              "p50": 0.216900021769,
+              "p95": 0.216900021769,
+              "p99": 0.216900021769
+            },
+            "queue_wait_p99_ms": {
+              "count": 1,
+              "max": 6.985799991526,
+              "mean": 6.985799991526,
+              "min": 6.985799991526,
+              "p50": 6.985799991526,
+              "p95": 6.985799991526,
+              "p99": 6.985799991526
+            },
+            "server_total_p99_ms": {
+              "count": 1,
+              "max": 31.968800001778,
+              "mean": 31.968800001778,
+              "min": 31.968800001778,
+              "p50": 31.968800001778,
+              "p95": 31.968800001778,
+              "p99": 31.968800001778
+            },
+            "service_rate_per_second": {
+              "count": 1,
+              "max": 35.0,
+              "mean": 35.0,
+              "min": 35.0,
+              "p50": 35.0,
+              "p95": 35.0,
+              "p99": 35.0
+            }
+          },
+          "point": {
+            "api_replicas": 1,
+            "cpu_workers": 1,
+            "load": 35.0,
+            "matrix_scope": "baseline",
+            "mode": "open",
+            "probe_family": "branch-heavy"
+          },
+          "private_evidence_sha256": [
+            "8d0425f0b19ce4fa611bce335fb074c285b41631a781f61a7cdb54e03ee758a8"
+          ],
+          "repetition_count": 1,
+          "resource_summary": {
+            "api_process_tree_cpu_percent": {
+              "count": 1,
+              "max": 49.978590793152,
+              "mean": 49.978590793152,
+              "min": 49.978590793152,
+              "p50": 49.978590793152,
+              "p95": 49.978590793152,
+              "p99": 49.978590793152
+            },
+            "api_process_tree_rss_bytes": {
+              "count": 1,
+              "max": 183144448.0,
+              "mean": 183144448.0,
+              "min": 183144448.0,
+              "p50": 183144448.0,
+              "p95": 183144448.0,
+              "p99": 183144448.0
+            },
+            "host_cpu_percent": {
+              "count": 1,
+              "max": 29.5,
+              "mean": 29.5,
+              "min": 29.5,
+              "p50": 29.5,
+              "p95": 29.5,
+              "p99": 29.5
+            },
+            "host_memory_percent": {
+              "count": 1,
+              "max": 49.0,
+              "mean": 49.0,
+              "min": 49.0,
+              "p50": 49.0,
+              "p95": 49.0,
+              "p99": 49.0
+            },
+            "load_generator_cpu_percent": {
+              "count": 1,
+              "max": 18.715165195906,
+              "mean": 18.715165195906,
+              "min": 18.715165195906,
+              "p50": 18.715165195906,
+              "p95": 18.715165195906,
+              "p99": 18.715165195906
+            },
+            "load_generator_rss_bytes": {
+              "count": 1,
+              "max": 173793280.0,
+              "mean": 173793280.0,
+              "min": 173793280.0,
+              "p50": 173793280.0,
+              "p95": 173793280.0,
+              "p99": 173793280.0
+            }
+          },
+          "trace_complete": true,
+          "within_guardrails": true
+        }
+      ],
+      "incremental:closed": [],
+      "incremental:open": [],
+      "logistic:closed": [],
+      "logistic:open": [],
+      "online-linear:closed": [],
+      "online-linear:open": [],
+      "probabilistic:closed": [],
+      "probabilistic:open": []
+    },
+    "runtime_verdict": "not_passed",
+    "s2_capacity_recalculation": {
+      "automatic_increase_allowed": false,
+      "calculated_depth": 49,
+      "formula": "floor(service_rate_rps * maximum_queue_wait_seconds * safety_factor)",
+      "maximum_queue_wait_seconds": 2.0,
+      "measured_service_rate_per_second": 35.0,
+      "prior_depth": 64,
+      "rollback_depth": 64,
+      "safety_factor": 0.7,
+      "selected_depth": 49,
+      "service_rate_selection": "minimum sustainable open-loop rate across probes",
+      "units": {
+        "depth": "requests",
+        "queue_wait": "seconds",
+        "service_rate": "requests/second"
+      }
+    },
+    "scenario_status": "implementing",
+    "skipped_point_count": 0,
+    "sustainable_operating_points": {
+      "branch-heavy:closed": {
+        "below_or_equal_peak": false,
+        "error_rate": 1,
+        "load": null,
+        "lower_than_peak_required": false,
+        "lower_than_peak_when_required": false,
+        "p99_ms": 0,
+        "peak_service_rate_per_second": 0.0,
+        "selected": false,
+        "selection_rule": "highest measured service rate satisfying frozen error, p99, host CPU, RSS, and load-generator lag guardrails",
+        "service_rate_per_second": 0
+      },
+      "branch-heavy:open": {
+        "below_or_equal_peak": true,
+        "error_rate": 0.0,
+        "load": 35.0,
+        "lower_than_peak_required": false,
+        "lower_than_peak_when_required": true,
+        "p99_ms": 40.945299959276,
+        "peak_service_rate_per_second": 35.0,
+        "selected": true,
+        "selection_rule": "highest measured service rate satisfying frozen error, p99, host CPU, RSS, and load-generator lag guardrails",
+        "service_rate_per_second": 35.0
+      },
+      "incremental:closed": {
+        "below_or_equal_peak": false,
+        "error_rate": 1,
+        "load": null,
+        "lower_than_peak_required": false,
+        "lower_than_peak_when_required": false,
+        "p99_ms": 0,
+        "peak_service_rate_per_second": 0.0,
+        "selected": false,
+        "selection_rule": "highest measured service rate satisfying frozen error, p99, host CPU, RSS, and load-generator lag guardrails",
+        "service_rate_per_second": 0
+      },
+      "incremental:open": {
+        "below_or_equal_peak": false,
+        "error_rate": 1,
+        "load": null,
+        "lower_than_peak_required": false,
+        "lower_than_peak_when_required": false,
+        "p99_ms": 0,
+        "peak_service_rate_per_second": 0.0,
+        "selected": false,
+        "selection_rule": "highest measured service rate satisfying frozen error, p99, host CPU, RSS, and load-generator lag guardrails",
+        "service_rate_per_second": 0
+      },
+      "logistic:closed": {
+        "below_or_equal_peak": false,
+        "error_rate": 1,
+        "load": null,
+        "lower_than_peak_required": false,
+        "lower_than_peak_when_required": false,
+        "p99_ms": 0,
+        "peak_service_rate_per_second": 0.0,
+        "selected": false,
+        "selection_rule": "highest measured service rate satisfying frozen error, p99, host CPU, RSS, and load-generator lag guardrails",
+        "service_rate_per_second": 0
+      },
+      "logistic:open": {
+        "below_or_equal_peak": false,
+        "error_rate": 1,
+        "load": null,
+        "lower_than_peak_required": false,
+        "lower_than_peak_when_required": false,
+        "p99_ms": 0,
+        "peak_service_rate_per_second": 0.0,
+        "selected": false,
+        "selection_rule": "highest measured service rate satisfying frozen error, p99, host CPU, RSS, and load-generator lag guardrails",
+        "service_rate_per_second": 0
+      },
+      "online-linear:closed": {
+        "below_or_equal_peak": false,
+        "error_rate": 1,
+        "load": null,
+        "lower_than_peak_required": false,
+        "lower_than_peak_when_required": false,
+        "p99_ms": 0,
+        "peak_service_rate_per_second": 0.0,
+        "selected": false,
+        "selection_rule": "highest measured service rate satisfying frozen error, p99, host CPU, RSS, and load-generator lag guardrails",
+        "service_rate_per_second": 0
+      },
+      "online-linear:open": {
+        "below_or_equal_peak": false,
+        "error_rate": 1,
+        "load": null,
+        "lower_than_peak_required": false,
+        "lower_than_peak_when_required": false,
+        "p99_ms": 0,
+        "peak_service_rate_per_second": 0.0,
+        "selected": false,
+        "selection_rule": "highest measured service rate satisfying frozen error, p99, host CPU, RSS, and load-generator lag guardrails",
+        "service_rate_per_second": 0
+      },
+      "probabilistic:closed": {
+        "below_or_equal_peak": false,
+        "error_rate": 1,
+        "load": null,
+        "lower_than_peak_required": false,
+        "lower_than_peak_when_required": false,
+        "p99_ms": 0,
+        "peak_service_rate_per_second": 0.0,
+        "selected": false,
+        "selection_rule": "highest measured service rate satisfying frozen error, p99, host CPU, RSS, and load-generator lag guardrails",
+        "service_rate_per_second": 0
+      },
+      "probabilistic:open": {
+        "below_or_equal_peak": false,
+        "error_rate": 1,
+        "load": null,
+        "lower_than_peak_required": false,
+        "lower_than_peak_when_required": false,
+        "p99_ms": 0,
+        "peak_service_rate_per_second": 0.0,
+        "selected": false,
+        "selection_rule": "highest measured service rate satisfying frozen error, p99, host CPU, RSS, and load-generator lag guardrails",
+        "service_rate_per_second": 0
+      }
+    },
+    "topology_comparison_complete": true,
+    "trace_complete": true
+  },
+  "claim_boundary": "Controlled HIGGS lightweight CPU/API capacity on one local physical node. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, business A/B, or full-terabyte claim.",
+  "environment": {
+    "api_runtime": "real_existing_uvicorn_fastapi_application",
+    "api_transport": "external_tcp_http",
+    "customer_traffic": false,
+    "load_generator": "co_located_and_measured_separately",
+    "model_runtime": "existing_s3_capacity_probe_subroute",
+    "observability": "isolated_prometheus_and_w3c_otlp",
+    "physical_scope": "one_local_physical_node"
+  },
+  "failed_attempts_and_rca": [],
+  "generated_at": "2026-08-24T09:53:46.854401Z",
+  "identity": {
+    "dataset_identity_sha256": "eecb0f824e149c8e9062f216d834e8ccc519ea774c0f79392f23bb11f3f7550d",
+    "dataset_version": "uci-higgs-2014-s3-v1",
+    "feature_count": 28,
+    "preparation_config_sha256": "3d9869aa69033cab06d64c0d83c118a524d2291b0c2c624ecac03da465c2f468",
+    "registry_sha256": "6666ef28ea681ee694525e2d5ee1f2e1fefe460f4cc730a6c64fb78fe6bed012",
+    "replay_features_sha256": "dde408a9a1df8a1cdd0e12ac6cbd0ef655ffa5049781b1d008a449c8b8fbc359",
+    "replay_rows": 200000,
+    "runtime_config_sha256": "a42240266189cb529bc34d5083406ffd9dc58162cd3369cd73191803f9862fab",
+    "split_manifest_sha256": "7058c9fd81e06465e64d8be98cfad065aefccea2063c0404775fcaf0d7c19e00"
+  },
+  "point_results": [
+    {
+      "assertions": {
+        "api_process_tree_rss_nonzero": true,
+        "cleanup_complete": true,
+        "client_request_identity_complete": true,
+        "load_generator_rss_nonzero": true,
+        "prometheus_targets_up": true,
+        "requests_observed": true,
+        "response_trace_identity_complete": true,
+        "runtime_completed": true,
+        "sampled_trace_chain_complete": true,
+        "sampled_trace_nonzero": true,
+        "terminal_gauges_zero": true,
+        "transport_errors_accounted": true
+      },
+      "cleanup": {
+        "lingering_pid_count": 0,
+        "marker_process_count": 0,
+        "prometheus_container_absent": true,
+        "stopped_pid_count": 2
+      },
+      "evidence_valid": true,
+      "failure": null,
+      "finished_at": "2026-08-24T09:53:46.597180Z",
+      "guardrails": {
+        "checks": {
+          "api_process_tree_rss": true,
+          "error_rate": true,
+          "host_cpu": true,
+          "load_generator_schedule_complete": true,
+          "load_generator_start_lag": true,
+          "p99_latency": true
+        },
+        "crossed": [],
+        "within_guardrails": true
+      },
+      "load": {
+        "all_response_latency_ms": {
+          "count": 4200,
+          "max": 74.61000001057982,
+          "mean": 9.67817704717163,
+          "min": 4.966199980117381,
+          "p50": 8.1530999741517,
+          "p95": 17.977400042582303,
+          "p99": 40.94529995927587
+        },
+        "client_request_identity_count": 4200,
+        "declared_duration_seconds": 120.0,
+        "error_rate": 0.0,
+        "latency_ms": {
+          "count": 4200,
+          "max": 74.61000001057982,
+          "mean": 9.67817704717163,
+          "min": 4.966199980117381,
+          "p50": 8.1530999741517,
+          "p95": 17.977400042582303,
+          "p99": 40.94529995927587
+        },
+        "load_generator_permit_wait_ms": {
+          "count": 4200,
+          "max": 20.74219996575266,
+          "mean": 0.008516881041162248,
+          "min": 0.00019994331523776054,
+          "p50": 0.000500003807246685,
+          "p95": 0.000700005330145359,
+          "p99": 0.001200009137392044
+        },
+        "observed_elapsed_seconds": 119.97586120001506,
+        "offered_rate_per_second": 35.0,
+        "planned_request_count": 4200,
+        "replica_request_counts": {
+          "replica-0": 4200
+        },
+        "request_count": 4200,
+        "response_trace_id_count": 4200,
+        "server_response_count": 4200,
+        "server_timings_ms": {
+          "admission_wait_ms": {
+            "count": 4200,
+            "max": 1.4894999912939966,
+            "mean": 0.08272195276471653,
+            "min": 0.05289999535307288,
+            "p50": 0.0754999928176403,
+            "p95": 0.13150001177564263,
+            "p99": 0.22799998987466097
+          },
+          "compute_ms": {
+            "count": 4200,
+            "max": 51.34480004198849,
+            "mean": 3.2792484754325066,
+            "min": 2.120500023011118,
+            "p50": 2.642399980686605,
+            "p95": 4.8833999899216,
+            "p99": 14.225699997041374
+          },
+          "prediction_ms": {
+            "count": 4200,
+            "max": 1.1910999892279506,
+            "mean": 0.06760938079207249,
+            "min": 0.049600028432905674,
+            "p50": 0.05770003190264106,
+            "p95": 0.11639995500445366,
+            "p99": 0.2169000217691064
+          },
+          "queue_wait_ms": {
+            "count": 4200,
+            "max": 35.045199969317764,
+            "mean": 1.2172928090218367,
+            "min": 0.045599997974932194,
+            "p50": 0.3035999834537506,
+            "p95": 3.954300016630441,
+            "p99": 6.98579999152571
+          },
+          "total_ms": {
+            "count": 4200,
+            "max": 52.6325999526307,
+            "mean": 4.57926323721906,
+            "min": 2.2722999565303326,
+            "p50": 3.257500007748604,
+            "p95": 8.690299990121275,
+            "p99": 31.96880000177771
+          },
+          "transform_ms": {
+            "count": 4200,
+            "max": 1.2928000069223344,
+            "mean": 0.09655523856747009,
+            "min": 0.062400009483098984,
+            "p50": 0.08560001151636243,
+            "p95": 0.15569996321573853,
+            "p99": 0.24119997397065163
+          },
+          "validation_ms": {
+            "count": 4200,
+            "max": 51.137100032065064,
+            "mean": 3.089665499975949,
+            "min": 1.9812000100500882,
+            "p50": 2.463200013153255,
+            "p95": 4.627700021956116,
+            "p99": 14.007500023581088
+          }
+        },
+        "service_rate_per_second": 35.0,
+        "start_lag_ms": {
+          "count": 4200,
+          "max": 39.779071463271976,
+          "mean": 7.323607946191693,
+          "min": 0.0,
+          "p50": 4.864700022153556,
+          "p95": 21.68354287277907,
+          "p99": 25.051828590221703
+        },
+        "status_counts": {
+          "200": 4200
+        },
+        "stop_reason": null,
+        "stopped": false,
+        "successful_count": 4200,
+        "successful_within_window": 4200,
+        "target_arrival_rate_per_second": 35.0,
+        "trace_identity_match_count": 4200,
+        "transport_error_count": 0,
+        "unscheduled_request_count": 0,
+        "worker_request_counts": {
+          "replica-0/slot-0": 4200
+        }
+      },
+      "measurement_metric_delta": {
+        "counters": {
+          "admission_accepted": 4215.0,
+          "admission_rejected": 0.0,
+          "request_error": 0.0,
+          "request_ok": 4215.0,
+          "worker_error": 0.0,
+          "worker_ok": 4215.0
+        },
+        "wait_histograms": {
+          "evm_s3_capacity_executor_admission_wait_seconds": {
+            "count": 4215.0,
+            "mean_seconds": 8.282797190958406e-05,
+            "sum_seconds": 0.34911990159889683
+          },
+          "evm_s3_capacity_executor_queue_wait_seconds": {
+            "count": 4215.0,
+            "mean_seconds": 0.0012148978168195642,
+            "sum_seconds": 5.120794297894463
+          }
+        }
+      },
+      "metrics": {
+        "counters": {
+          "admission_accepted": 4550.0,
+          "admission_rejected": 0.0,
+          "request_error": 0.0,
+          "request_ok": 4550.0,
+          "worker_error": 0.0,
+          "worker_ok": 4550.0
+        },
+        "observed_peaks": {
+          "evm_s3_capacity_executor_in_flight": 1.0,
+          "evm_s3_capacity_executor_in_flight_bytes": 695.0,
+          "evm_s3_capacity_executor_outstanding": 3.0,
+          "evm_s3_capacity_executor_outstanding_bytes": 2072.0,
+          "evm_s3_capacity_executor_queue_bytes": 1392.0,
+          "evm_s3_capacity_executor_queue_depth": 2.0
+        },
+        "terminal_gauges": {
+          "evm_s3_capacity_executor_in_flight": 0.0,
+          "evm_s3_capacity_executor_in_flight_bytes": 0.0,
+          "evm_s3_capacity_executor_outstanding": 0.0,
+          "evm_s3_capacity_executor_outstanding_bytes": 0.0,
+          "evm_s3_capacity_executor_queue_bytes": 0.0,
+          "evm_s3_capacity_executor_queue_depth": 0.0
+        },
+        "wait_histograms": {
+          "evm_s3_capacity_executor_admission_wait_seconds": {
+            "count": 4550.0,
+            "mean_seconds": 8.295140690988973e-05,
+            "sum_seconds": 0.3774289014399983
+          },
+          "evm_s3_capacity_executor_queue_wait_seconds": {
+            "count": 4550.0,
+            "mean_seconds": 0.0012197178896071368,
+            "sum_seconds": 5.549716397712473
+          }
+        }
+      },
+      "payload_sequence_sha256": "eeed767c86535df25dff12db559592c0b864b61c79ce495ff8a3624b709e60e6",
+      "point": {
+        "api_replicas": 1,
+        "cpu_workers": 1,
+        "load": 35.0,
+        "matrix_scope": "baseline",
+        "mode": "open",
+        "probe_family": "branch-heavy"
+      },
+      "private_evidence_bytes": 4900997,
+      "private_evidence_sha256": "8d0425f0b19ce4fa611bce335fb074c285b41631a781f61a7cdb54e03ee758a8",
+      "repetition": 1,
+      "resources": {
+        "api_process_tree_cpu_percent": {
+          "count": 55,
+          "max": 49.97859079315188,
+          "mean": 33.11276373825723,
+          "min": 19.651466046272077,
+          "p50": 31.67266047543553,
+          "p95": 48.678841769208105,
+          "p99": 49.97859079315188
+        },
+        "api_process_tree_open_handles": {
+          "count": 55,
+          "max": 1154.0,
+          "mean": 1122.4545454545455,
+          "min": 1091.0,
+          "p50": 1126.0,
+          "p95": 1150.0,
+          "p99": 1154.0
+        },
+        "api_process_tree_rss_bytes": {
+          "count": 55,
+          "max": 183144448.0,
+          "mean": 181981630.83636364,
+          "min": 178593792.0,
+          "p50": 183070720.0,
+          "p95": 183144448.0,
+          "p99": 183144448.0
+        },
+        "artifact_bytes": {
+          "count": 55,
+          "max": 307.0,
+          "mean": 307.0,
+          "min": 307.0,
+          "p50": 307.0,
+          "p95": 307.0,
+          "p99": 307.0
+        },
+        "evm_control_plane_db_pool_available": {
+          "count": 55,
+          "max": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "p99": 0.0
+        },
+        "evm_control_plane_db_pool_in_use": {
+          "count": 55,
+          "max": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "p99": 0.0
+        },
+        "evm_control_plane_db_pool_size": {
+          "count": 55,
+          "max": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "p99": 0.0
+        },
+        "evm_control_plane_db_pool_waiting": {
+          "count": 55,
+          "max": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "p99": 0.0
+        },
+        "evm_s3_capacity_executor_in_flight": {
+          "count": 55,
+          "max": 1.0,
+          "mean": 0.2,
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 1.0,
+          "p99": 1.0
+        },
+        "evm_s3_capacity_executor_in_flight_bytes": {
+          "count": 55,
+          "max": 696.0,
+          "mean": 137.8181818181818,
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 694.0,
+          "p99": 696.0
+        },
+        "evm_s3_capacity_executor_outstanding": {
+          "count": 55,
+          "max": 3.0,
+          "mean": 0.2727272727272727,
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 2.0,
+          "p99": 3.0
+        },
+        "evm_s3_capacity_executor_outstanding_bytes": {
+          "count": 55,
+          "max": 2079.0,
+          "mean": 188.2,
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 1371.0,
+          "p99": 2079.0
+        },
+        "evm_s3_capacity_executor_queue_bytes": {
+          "count": 55,
+          "max": 1395.0,
+          "mean": 50.38181818181818,
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 677.0,
+          "p99": 1395.0
+        },
+        "evm_s3_capacity_executor_queue_depth": {
+          "count": 55,
+          "max": 2.0,
+          "mean": 0.07272727272727272,
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 1.0,
+          "p99": 2.0
+        },
+        "host_cpu_percent": {
+          "count": 55,
+          "max": 29.5,
+          "mean": 16.047272727272727,
+          "min": 7.3,
+          "p50": 15.0,
+          "p95": 24.2,
+          "p99": 29.5
+        },
+        "host_memory_percent": {
+          "count": 55,
+          "max": 49.0,
+          "mean": 48.64545454545456,
+          "min": 48.4,
+          "p50": 48.6,
+          "p95": 49.0,
+          "p99": 49.0
+        },
+        "load_generator_cpu_percent": {
+          "count": 55,
+          "max": 18.715165195906025,
+          "mean": 7.59283057083248,
+          "min": 1.35077272413924,
+          "p50": 7.019992669482621,
+          "p95": 13.485325247374542,
+          "p99": 18.715165195906025
+        },
+        "load_generator_open_handles": {
+          "count": 55,
+          "max": 669.0,
+          "mean": 667.4727272727273,
+          "min": 662.0,
+          "p50": 668.0,
+          "p95": 669.0,
+          "p99": 669.0
+        },
+        "load_generator_rss_bytes": {
+          "count": 55,
+          "max": 173793280.0,
+          "mean": 168784020.94545454,
+          "min": 163655680.0,
+          "p50": 168820736.0,
+          "p95": 173600768.0,
+          "p99": 173793280.0
+        }
+      },
+      "run_identity_sha256": "43cdd57302bbbf8c82c4d745389f6fbbac1df91eca3e2a8238b882e40b1aaee8",
+      "runtime_config_sha256": "a42240266189cb529bc34d5083406ffd9dc58162cd3369cd73191803f9862fab",
+      "schema_version": "evm.s3_capacity_point_public.v1",
+      "source_revision": "2d749b2a52e6f7ae2f5586848475fe8c9423bec3",
+      "started_at": "2026-08-24T09:51:15.955415Z",
+      "trace": {
+        "admission_required_span_names": [
+          "POST /control-panel/v1/scenario-workloads/capacity-probes/predict",
+          "s3.capacity.admission"
+        ],
+        "client_only_sampled_trace_count": 0,
+        "complete_sampled_trace_count": 42,
+        "complete_trace_contract_counts": {
+          "full": 42
+        },
+        "expected_sampled_trace_count": 42,
+        "expected_server_sampled_trace_count": 42,
+        "expected_trace_contract_counts": {
+          "full": 42
+        },
+        "flush_boundary": "before_api_process_stop",
+        "flush_completed": true,
+        "flush_poll_count": 1,
+        "flush_wait_seconds": 0.01600000000325963,
+        "missing_sampled_trace_count": 0,
+        "observed_sampled_trace_count": 42,
+        "observed_span_names": [
+          "POST /control-panel/v1/scenario-workloads/capacity-probes/predict",
+          "s3.capacity.admission",
+          "s3.capacity.prediction",
+          "s3.capacity.transform",
+          "s3.capacity.validation",
+          "s3.capacity.worker"
+        ],
+        "raw_tail_bytes": 298906,
+        "raw_tail_sha256": "536001381d7f7404ad0843567c00458a600b28365a244b63470b51a37bd13b25",
+        "required_span_names": [
+          "POST /control-panel/v1/scenario-workloads/capacity-probes/predict",
+          "s3.capacity.admission",
+          "s3.capacity.prediction",
+          "s3.capacity.transform",
+          "s3.capacity.validation",
+          "s3.capacity.worker"
+        ]
+      }
+    }
+  ],
+  "private_evidence": {
+    "aggregate_sha256": "967271b3146a76a4c6758d86644e6aa1554cd5733902a7bdbf6b372bf57cbee1",
+    "artifact_count": 6,
+    "location": "outside_git_private_evidence_root"
+  },
+  "runtime_contract": {
+    "closed": {
+      "cooldown_seconds": 5.0,
+      "measurement_seconds": 120.0,
+      "steps": [
+        1
+      ],
+      "warmup_seconds": 10.0
+    },
+    "closure_eligible": false,
+    "open": {
+      "cooldown_seconds": 5.0,
+      "measurement_seconds": 120.0,
+      "requests_per_second": [
+        35.0
+      ],
+      "warmup_seconds": 10.0
+    },
+    "repetitions": 1,
+    "seed": 20260824,
+    "sha256": "a42240266189cb529bc34d5083406ffd9dc58162cd3369cd73191803f9862fab"
+  },
+  "runtime_verdict": "not_passed",
+  "scenario_status": "implementing",
+  "schema_version": "evm.s3_capacity_experiment.v1",
+  "skipped_points": [],
+  "source_identity": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "implementation_revision": "2d749b2a52e6f7ae2f5586848475fe8c9423bec3",
+    "runtime_module_sha256": "adaf5340e9f942ee9ab4ce31ce1842dc3e63440ad91fc4c0dbb9c821fee5741a"
+  },
+  "started_at": "2026-08-24T09:51:15.880638Z"
+}
