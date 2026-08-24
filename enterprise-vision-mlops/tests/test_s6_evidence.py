@@ -344,8 +344,11 @@ def test_s6_gpu_projection_rejects_summary_interruption_mismatch() -> None:
 
 
 def _closure(payload: dict[str, object], config: S6RuntimeConfig) -> dict[str, object]:
+    api_results = payload["api_repetitions"]
+    gpu_results = payload["gpu_repetitions"]
+    private_evidence = payload["private_evidence"]
     return {
-        "schema_version": "evm.s6_rolling_handoff_closure.v1",
+        "schema_version": "evm.s6_rolling_handoff_closure.v2",
         "status": "verified",
         "verdict": "passed",
         "claim_boundary": config.claim_boundary,
@@ -357,9 +360,60 @@ def _closure(payload: dict[str, object], config: S6RuntimeConfig) -> dict[str, o
             "experiment_git_blob_sha256": hashlib.sha256(
                 (canonical_json(payload) + "\n").encode("utf-8")
             ).hexdigest(),
+            "private_artifact_count": private_evidence["artifact_count"],
+            "private_total_bytes": private_evidence["total_bytes"],
+            "private_index_sha256": private_evidence["index_sha256"],
             "api_repetitions": 3,
+            "api_logical_requests": sum(
+                int(item["logical_requests"]) for item in api_results
+            ),
+            "api_attempts": sum(int(item["attempts"]) for item in api_results),
+            "api_accepted_loss": sum(
+                int(item["accepted_loss"]) for item in api_results
+            ),
+            "api_duplicate_effects": sum(
+                int(item["duplicate_effects"]) for item in api_results
+            ),
+            "api_trace_identity_matches": sum(
+                int(item["trace_identity_matches"]) for item in api_results
+            ),
+            "api_p99_ms": [float(item["p99_ms"]) for item in api_results],
+            "api_rollout_seconds": [
+                float(item["rollout_seconds"]) for item in api_results
+            ],
             "gpu_repetitions": 3,
+            "gpu_source_to_target_interruption_seconds": [
+                float(item["source_to_target_interruption_seconds"])
+                for item in gpu_results
+            ],
+            "gpu_target_to_source_interruption_seconds": [
+                float(item["target_to_source_interruption_seconds"])
+                for item in gpu_results
+            ],
+            "gpu_owner_overlap": sum(
+                0 if item["zero_owner_overlap"] else 1 for item in gpu_results
+            ),
+            "gpu_cuda_inference": all(
+                item["target_cuda_inference"] for item in gpu_results
+            ),
+            "rollback_identity_exact": all(
+                item["rollback_exact"] for item in gpu_results
+            ),
             "acceptance": payload["analysis"]["acceptance"],
+        },
+        "drain_evidence_scope": {
+            "final_acceptance_scope": "exact-old-pod-uid-drain-events-under-traffic",
+            "final_maximum_drain_seconds": [
+                float(item["maximum_drain_seconds"]) for item in api_results
+            ],
+            "final_long_in_flight_wait_claimed": False,
+            "separate_preflight_processing_delay_ms": 2000,
+            "separate_preflight_completed_during_termination": True,
+            "claim": (
+                "The three accepted repetitions prove exact target-scoped drain events, "
+                "not a long in-flight wait. A separate non-acceptance preflight proves "
+                "one approximately two-second request completed during termination."
+            ),
         },
         "failed_attempts_and_rca": [
             {"attempt_id": "S6-ATTEMPT-01", "acceptance_credit": False},
@@ -422,6 +476,25 @@ def test_s6_closure_recomputes_acceptance_and_requires_cleanup(tmp_path: Path) -
 
     closure["cleanup"]["source_serving_ready"] = False
     with pytest.raises(S6EvidenceValidationError, match="closure_cleanup"):
+        validate_s6_closure(
+            closure,
+            experiment=payload,
+            experiment_sha256=closure["final_runtime_evidence"][
+                "experiment_git_blob_sha256"
+            ],
+            config=config,
+            private_root=private_root,
+        )
+
+
+def test_s6_closure_rejects_overstated_long_in_flight_drain_claim(
+    tmp_path: Path,
+) -> None:
+    payload, config, private_root = _payload(tmp_path)
+    closure = _closure(payload, config)
+    closure["drain_evidence_scope"]["final_long_in_flight_wait_claimed"] = True
+
+    with pytest.raises(S6EvidenceValidationError, match="closure_drain_evidence_scope"):
         validate_s6_closure(
             closure,
             experiment=payload,

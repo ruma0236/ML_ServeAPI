@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from evm.scale_validation.s5_runtime import S5RuntimeConfig  # noqa: E402
+from evm.scale_validation.s6_runtime import S6RuntimeConfig  # noqa: E402
 from evm.scale_validation.s7_evidence import RECLOSURE_CLAIM_SUFFIX  # noqa: E402
 from evm.scale_validation.s7_runtime import S7RuntimeConfig  # noqa: E402
 
@@ -34,12 +35,18 @@ S5_EXPERIMENT = ROOT / "docs/status/evidence/s5-spark-data-scale-experiment.json
 S5_SMOKE = ROOT / "docs/status/evidence/s5-current-revision-runtime-smoke.json"
 S5_REGRESSION = ROOT / "docs/status/evidence/s5-reclosure-regression-evidence.json"
 S5_CLOSURE = ROOT / "docs/status/evidence/s5-spark-data-scale-closure.json"
+S6_EXPERIMENT = ROOT / "docs/status/evidence/s6-rolling-handoff-experiment.json"
+S6_PREFLIGHT = ROOT / "docs/status/evidence/s6-api-rolling-preflight-checkpoint.json"
+S6_SMOKE = ROOT / "docs/status/evidence/s6-current-revision-runtime-smoke.json"
+S6_CLOSURE = ROOT / "docs/status/evidence/s6-rolling-handoff-closure.json"
 S7_EXPERIMENT = ROOT / "docs/status/evidence/s7-auxiliary-admission-reprojection.json"
 S7_SMOKE = ROOT / "docs/status/evidence/s7-current-revision-cuda-smoke.json"
 S7_REGRESSION = ROOT / "docs/status/evidence/s7-reclosure-regression-evidence.json"
 S7_CLOSURE = ROOT / "docs/status/evidence/s7-auxiliary-admission-closure.json"
 S5_HISTORICAL_CLOSURE_COMMIT = "5aff04267969d18446b6c184dfad5a6e9cdf8e43"
 S5_EXPERIMENT_COMMIT = "c0ab34f95c09eef04a98640772660a51aab98107"
+S6_EXPERIMENT_COMMIT = "abab6bb360c770e77738a99a41bb036332715e9b"
+S6_HISTORICAL_CLOSURE_COMMIT = "4f503a30d7fd48d32a53f17f9fa5b5e93fe6ba52"
 S7_HISTORICAL_CLOSURE_COMMIT = "3ec30392bbde2313a26a43fa9bf74b757fa7ecbe"
 
 
@@ -236,6 +243,7 @@ def write_regressions(revision: str, regression_root: Path) -> None:
 
 def write_closures(supporting_revision: str) -> None:
     write_json(S5_CLOSURE, build_s5_closure(supporting_revision))
+    write_json(S6_CLOSURE, build_s6_closure(supporting_revision))
     write_json(S7_CLOSURE, build_s7_closure(supporting_revision))
 
 
@@ -432,6 +440,142 @@ def build_s7_closure(revision: str) -> dict[str, Any]:
             "private_inventory_rehash_passed": True,
             "git_blob_validation_passed": True,
         },
+    }
+
+
+def build_s6_closure(revision: str) -> dict[str, Any]:
+    experiment = load_git_json(revision, S6_EXPERIMENT)
+    smoke = load_git_json(revision, S6_SMOKE)
+    regression = load_git_json(revision, S7_REGRESSION)
+    historical = load_git_json(S6_HISTORICAL_CLOSURE_COMMIT, S6_CLOSURE)
+    config = S6RuntimeConfig.from_path(
+        ROOT / "configs/s6_rolling_handoff.toml",
+        data_root=Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops"),
+    )
+    api = list(experiment["api_repetitions"])
+    gpu = list(experiment["gpu_repetitions"])
+    private = dict(experiment["private_evidence"])
+    by_suite = {item["suite_id"]: item for item in regression["suites"]}
+    experiment_identity = git_blob_identity(S6_EXPERIMENT_COMMIT, S6_EXPERIMENT)
+    drain_seconds = [float(item["maximum_drain_seconds"]) for item in api]
+    return {
+        "schema_version": "evm.s6_rolling_handoff_closure.v2",
+        "generated_at": now_iso(),
+        "status": "verified",
+        "verdict": "passed",
+        "source_identity": {
+            "branch": "codex/distributed-scale-validation-plan",
+            "runtime_revision": experiment["source_identity"]["revision"],
+            "experiment_commit": S6_EXPERIMENT_COMMIT,
+            "validator_revision": revision,
+            "experiment": experiment_identity,
+            "validators": {
+                "validator_cli": git_blob_identity(
+                    revision,
+                    ROOT / "scripts/dev/validate_s6_rolling_handoff_evidence.py",
+                ),
+                "validator_module": git_blob_identity(
+                    revision, ROOT / "src/evm/scale_validation/s6_evidence.py"
+                ),
+            },
+            "supporting_evidence": {
+                "historical_closure": git_blob_identity(
+                    S6_HISTORICAL_CLOSURE_COMMIT, S6_CLOSURE
+                ),
+                "preflight": git_blob_identity(revision, S6_PREFLIGHT),
+                "post_closure_regression": git_blob_identity(
+                    revision, S7_REGRESSION
+                ),
+            },
+        },
+        "final_runtime_evidence": {
+            "experiment_git_blob_sha256": experiment_identity["sha256"],
+            "private_artifact_count": private["artifact_count"],
+            "private_total_bytes": private["total_bytes"],
+            "private_index_sha256": private["index_sha256"],
+            "api_repetitions": len(api),
+            "api_logical_requests": sum(int(item["logical_requests"]) for item in api),
+            "api_attempts": sum(int(item["attempts"]) for item in api),
+            "api_accepted_loss": sum(int(item["accepted_loss"]) for item in api),
+            "api_duplicate_effects": sum(int(item["duplicate_effects"]) for item in api),
+            "api_trace_identity_matches": sum(
+                int(item["trace_identity_matches"]) for item in api
+            ),
+            "api_p99_ms": [float(item["p99_ms"]) for item in api],
+            "api_rollout_seconds": [float(item["rollout_seconds"]) for item in api],
+            "gpu_repetitions": len(gpu),
+            "gpu_source_to_target_interruption_seconds": [
+                float(item["source_to_target_interruption_seconds"]) for item in gpu
+            ],
+            "gpu_target_to_source_interruption_seconds": [
+                float(item["target_to_source_interruption_seconds"]) for item in gpu
+            ],
+            "gpu_owner_overlap": sum(
+                0 if item["zero_owner_overlap"] else 1 for item in gpu
+            ),
+            "gpu_cuda_inference": all(item["target_cuda_inference"] for item in gpu),
+            "rollback_identity_exact": all(item["rollback_exact"] for item in gpu),
+            "acceptance": experiment["analysis"]["acceptance"],
+        },
+        "drain_evidence_scope": {
+            "final_acceptance_scope": "exact-old-pod-uid-drain-events-under-traffic",
+            "final_maximum_drain_seconds": drain_seconds,
+            "final_long_in_flight_wait_claimed": False,
+            "separate_preflight_processing_delay_ms": 2000,
+            "separate_preflight_completed_during_termination": True,
+            "claim": (
+                "The three accepted repetitions prove exact target-scoped drain events, "
+                "not a long in-flight wait. A separate non-acceptance preflight proves "
+                "one approximately two-second request completed during termination."
+            ),
+        },
+        "failed_attempts_and_rca": historical["failed_attempts_and_rca"]
+        + [
+            {
+                "attempt_id": "S6-POST-CLOSURE-AUDIT-01",
+                "acceptance_credit": False,
+                "root_cause": (
+                    "Closure v1 trusted sampled trace and interruption summaries and "
+                    "did not scope the microsecond final drains against the two-second preflight."
+                ),
+                "resolution": (
+                    "Closure v2 recomputes raw trace headers, drain maxima, and monotonic "
+                    "GPU interruption timelines and explicitly narrows the drain claim."
+                ),
+            }
+        ],
+        "regression": {
+            "focused_s6": {
+                "status": "passed",
+                "tests_passed": by_suite["focused_s5_s6_s7"]["tests_passed"],
+            },
+            "full_python_real_postgresql": {
+                "status": "passed",
+                "tests_passed": by_suite["full_python"]["tests_passed"],
+                "tests_skipped": by_suite["full_python"]["tests_skipped"],
+            },
+            "lifecycle_host_e2e": {
+                "status": "passed",
+                "tests_passed": by_suite["lifecycle_host_e2e"]["tests_passed"],
+            },
+            "control_panel": {
+                "status": "passed",
+                "tests_passed": by_suite["control_panel"]["tests_passed"],
+            },
+            "frontend_production_build": {"status": "passed"},
+            "s0_s5_regression": {
+                "status": "passed",
+                "tests_passed": by_suite["s0_s7_status_evidence"]["tests_passed"],
+            },
+            "current_revision_runtime_smoke": {
+                "status": "passed",
+                "path": "docs/status/evidence/s6-current-revision-runtime-smoke.json",
+                "sha256": hashlib.sha256(git_bytes(revision, S6_SMOKE)).hexdigest(),
+                "revision": smoke["source_identity"]["revision"],
+            },
+        },
+        "cleanup": historical["cleanup"],
+        "claim_boundary": config.claim_boundary,
     }
 
 

@@ -45,6 +45,19 @@ CLOSURE_VALIDATOR_PATHS = {
         "enterprise-vision-mlops/src/evm/scale_validation/s6_evidence.py"
     ),
 }
+HISTORICAL_CLOSURE_COMMIT = "4f503a30d7fd48d32a53f17f9fa5b5e93fe6ba52"
+HISTORICAL_CLOSURE_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/"
+    "s6-rolling-handoff-closure.json"
+)
+PREFLIGHT_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/"
+    "s6-api-rolling-preflight-checkpoint.json"
+)
+POST_CLOSURE_REGRESSION_PATH = (
+    "enterprise-vision-mlops/docs/status/evidence/"
+    "s7-reclosure-regression-evidence.json"
+)
 API_PUBLIC_FIELDS = (
     "repetition",
     "logical_requests",
@@ -211,7 +224,7 @@ def validate_s6_closure(
     validation_revision: str = "HEAD",
 ) -> dict[str, Any]:
     errors: list[str] = []
-    if closure.get("schema_version") != "evm.s6_rolling_handoff_closure.v1":
+    if closure.get("schema_version") != "evm.s6_rolling_handoff_closure.v2":
         errors.append("closure_schema_version")
     validated = validate_s6_experiment(
         experiment,
@@ -231,10 +244,72 @@ def validate_s6_closure(
         errors.append("closure_api_repetitions")
     if int(final.get("gpu_repetitions", 0)) != 3:
         errors.append("closure_gpu_repetitions")
+    api_results = list(experiment.get("api_repetitions", []))
+    gpu_results = list(experiment.get("gpu_repetitions", []))
+    private_summary = dict(validated.get("private_evidence", {}))
+    expected_final = {
+        "private_artifact_count": private_summary.get("artifact_count"),
+        "private_total_bytes": private_summary.get("total_bytes"),
+        "private_index_sha256": private_summary.get("index_sha256"),
+        "api_logical_requests": sum(
+            int(item.get("logical_requests", 0)) for item in api_results
+        ),
+        "api_attempts": sum(int(item.get("attempts", 0)) for item in api_results),
+        "api_accepted_loss": sum(
+            int(item.get("accepted_loss", 0)) for item in api_results
+        ),
+        "api_duplicate_effects": sum(
+            int(item.get("duplicate_effects", 0)) for item in api_results
+        ),
+        "api_trace_identity_matches": sum(
+            int(item.get("trace_identity_matches", 0)) for item in api_results
+        ),
+        "api_p99_ms": [float(item.get("p99_ms", 0)) for item in api_results],
+        "api_rollout_seconds": [
+            float(item.get("rollout_seconds", 0)) for item in api_results
+        ],
+        "gpu_source_to_target_interruption_seconds": [
+            float(item.get("source_to_target_interruption_seconds", 0))
+            for item in gpu_results
+        ],
+        "gpu_target_to_source_interruption_seconds": [
+            float(item.get("target_to_source_interruption_seconds", 0))
+            for item in gpu_results
+        ],
+        "gpu_owner_overlap": sum(
+            0 if item.get("zero_owner_overlap") is True else 1
+            for item in gpu_results
+        ),
+        "gpu_cuda_inference": bool(gpu_results)
+        and all(item.get("target_cuda_inference") is True for item in gpu_results),
+        "rollback_identity_exact": bool(gpu_results)
+        and all(item.get("rollback_exact") is True for item in gpu_results),
+    }
+    for key, expected in expected_final.items():
+        if canonical(final.get(key)) != canonical(expected):
+            errors.append(f"closure_final:{key}")
     if closure.get("status") != "verified" or closure.get("verdict") != "passed":
         errors.append("closure_verdict")
     if closure.get("claim_boundary") != config.claim_boundary:
         errors.append("closure_claim_boundary")
+
+    expected_drain_seconds = [
+        float(item.get("maximum_drain_seconds", 0)) for item in api_results
+    ]
+    drain_scope = dict(closure.get("drain_evidence_scope", {}))
+    if drain_scope != {
+        "final_acceptance_scope": "exact-old-pod-uid-drain-events-under-traffic",
+        "final_maximum_drain_seconds": expected_drain_seconds,
+        "final_long_in_flight_wait_claimed": False,
+        "separate_preflight_processing_delay_ms": 2000,
+        "separate_preflight_completed_during_termination": True,
+        "claim": (
+            "The three accepted repetitions prove exact target-scoped drain events, "
+            "not a long in-flight wait. A separate non-acceptance preflight proves "
+            "one approximately two-second request completed during termination."
+        ),
+    }:
+        errors.append("closure_drain_evidence_scope")
 
     required_regression = (
         "focused_s6",
@@ -328,6 +403,38 @@ def validate_s6_closure(
             }
             if canonical(source.get("validators")) != canonical(expected_validators):
                 errors.append("closure_validator_git_blobs")
+            expected_supporting = {
+                "historical_closure": git_blob_identity(
+                    git_root,
+                    HISTORICAL_CLOSURE_COMMIT,
+                    HISTORICAL_CLOSURE_PATH,
+                ),
+                "preflight": git_blob_identity(
+                    git_root, validator_revision, PREFLIGHT_PATH
+                ),
+                "post_closure_regression": git_blob_identity(
+                    git_root, validator_revision, POST_CLOSURE_REGRESSION_PATH
+                ),
+            }
+            if canonical(source.get("supporting_evidence")) != canonical(
+                expected_supporting
+            ):
+                errors.append("closure_supporting_git_blobs")
+            preflight_raw = subprocess.run(
+                ["git", "show", f"{validator_revision}:{PREFLIGHT_PATH}"],
+                cwd=git_root,
+                check=True,
+                capture_output=True,
+            ).stdout
+            preflight = json.loads(preflight_raw)
+            drain_preflight = dict(preflight.get("target_scoped_drain_preflight", {}))
+            if (
+                int(drain_preflight.get("accepted_request_processing_delay_ms", -1))
+                != 2000
+                or drain_preflight.get("request_completed_during_termination")
+                is not True
+            ):
+                errors.append("closure_preflight_drain_contract")
         except (OSError, subprocess.CalledProcessError):
             errors.append("closure_git_identity_unavailable")
 
