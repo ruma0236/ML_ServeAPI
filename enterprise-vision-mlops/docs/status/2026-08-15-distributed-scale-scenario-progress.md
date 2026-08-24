@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T10:10:26Z`
+- Generated: `2026-08-24T13:08:17.336347Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -730,16 +730,16 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ## S8: Dependency Soak & Resource-efficiency Closure
 
-- Status: `implementing`
+- Status: `verified`
 - Engineering question: Do bounded retries and selected operating points remain stable during faults and soak?
 - Why now: Closure requires long-run resource trends and dependency recovery after isolated passes.
 - Observed gap: Retry amplification, resource slope, efficiency, and final re-hash are unproven.
 - Existing-system baseline: The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.
 - Architecture before: Isolated guards exist without a distributed-scale soak and efficiency closure.
 - Architecture after: Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.
-- Verdict: `not_run`
-- Claim boundary: Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.
-- Next action: Restart the complete 21-fault matrix from the clean sampler revision; begin the three 30-minute soak repetitions only after every fault scope passes.
+- Verdict: `passed`
+- Claim boundary: Controlled dependency-fault and 35 RPS soak evidence on one local Windows/WSL2 physical node and one RTX 4080 CUDA device. This does not establish customer production SLA, physical multi-node or multi-zone HA/DR, multi-GPU/MIG/MPS, autoscaling, security isolation, or simultaneous multi-model GPU residency.
+- Next action: Freeze the S8-V4 umbrella contracts and append-only ledger before any E0 runtime mutation.
 
 ### Affected Existing Components
 
@@ -766,6 +766,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Existing capacity runtime resource sampler: `src/evm/scale_validation/s3_runtime.py`
 - S8 external runtime and independent evidence validation: `src/evm/scale_validation/s8_runtime.py`, `src/evm/scale_validation/s8_evidence.py`, `scripts/dev/run_s8_dependency_soak_experiment.py`, `scripts/dev/validate_s8_dependency_soak_evidence.py`, `tests/test_s8_runtime.py`, `tests/test_s8_evidence.py`
 - S8 frozen execution and evidence contract: `configs/s8_dependency_soak_v6.toml`, `configs/s8_soak_capacity_runtime.toml`, `docs/status/2026-08-24-s8-design-reconciliation.md`
+- S8 strict closure and current-revision verification: `src/evm/scale_validation/s8_closure.py`, `scripts/dev/run_s8_current_revision_smoke.py`, `scripts/dev/run_s8_closure_regressions.py`, `scripts/dev/close_s8_dependency_soak.py`, `scripts/dev/validate_s8_dependency_soak_evidence.py`, `tests/test_s8_closure.py`
 - Compatibility: Existing A-E guard evidence remains baseline-only and cannot substitute for fresh scale-soak evidence.
 - Migration: Introduce fault controls behind explicit profiles and retain a no-fault operating profile for rollback.
 
@@ -780,10 +781,10 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 
 ### Acceptance
 
-- `S8-AC-01` [pending]: Retry amplification stays within the declared budget.
-- `S8-AC-02` [pending]: Memory, file descriptor, pool, queue, and artifact slopes remain bounded.
-- `S8-AC-03` [pending]: MTTR, request impact, efficiency Pareto, and residual risk are recorded.
-- `S8-AC-04` [pending]: One final evidence index re-hashes every accepted result.
+- `S8-AC-01` [passed]: Retry amplification stays within the declared budget.
+- `S8-AC-02` [passed]: Memory, file descriptor, pool, queue, and artifact slopes remain bounded.
+- `S8-AC-03` [passed]: MTTR, request impact, efficiency Pareto, and residual risk are recorded.
+- `S8-AC-04` [passed]: One final evidence index re-hashes every accepted result.
 
 ### Current Evidence
 
@@ -798,6 +799,10 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s8-dependency-soak-attempt-05.json` (`e484326df4e5c52df9a91eccf9605f6e8a70bcf8aab61f97672351ebe02729c2`): Rejected resource-sampling attempt: all 21 fault scopes passed and the first 30-minute soak measurement ran, but a transient one-second metrics read timeout terminated the sampler and invalidated the point; cleanup passed and no acceptance credit was awarded.
 - `docs/status/evidence/s8-resource-sampler-v6-preflight-attempt-01.json` (`8eb0e7ca826d807c61df4b870a84a98e199dfd87e05cf538c2680f952dd878ee`): Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors and p99 40.95 ms, but collected only 55 of at least 108 required runtime-gauge samples; no acceptance credit was awarded.
 - `docs/status/evidence/s8-resource-sampler-v6-preflight.json` (`363cdd69b67fde694bcdca370944e698c3a1e57cc47f0896ebee6c9371342517`): Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors, p99 22.42 ms, 118/118 valid Prometheus gauge samples versus 108 required, complete trace/drain, and cleanup.
+- `docs/status/evidence/s8-dependency-soak-experiment.json` (`722604203143099daa35acfd21999d07df2b3960ecd1b9a64d92e1c68657a1c3`): Twenty-one isolated fault repetitions and three independent 35 RPS soak repetitions passed the frozen S8 runtime contract.
+- `docs/status/evidence/s8-current-revision-runtime-smoke.json` (`65e02fe395274ce01d42a68a495c2867c864af0aa0db22d5ab548d8fcbe134cd`): Current-revision CUDA inference, serving, Prometheus, queue, and cleanup diagnostic passed without acceptance credit.
+- `docs/status/evidence/s8-closure-regression-evidence.json` (`d36691b0f652d064d84eb4cf824990dadb7b66958683a6daf10e9d5a74e31972`): Risk-proportionate Python, PostgreSQL, lifecycle, Control Panel, frontend, and status regressions passed from private hash-linked logs.
+- `docs/status/evidence/s8-dependency-soak-closure.json` (`3f7feba82828211bbf0f02770f4de79d014e12db1266d79cd8e5c03cebc1b5fc`): Independent raw-derived validation and final private/public rehash close S8-AC-01 through S8-AC-04.
 
 ### Chronological Updates
 
@@ -820,3 +825,4 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-24T09:59:02Z` `implementation` / `implementing`: Resource sampling now reads timestamped gauges from the existing isolated Prometheus cache instead of competing direct API metrics requests. It records transient or stale samples, uses only valid gauges for queue and pool slopes, requires at least 90 percent coverage, and stops fail closed after three consecutive failures.
 - `2026-08-24T10:05:40Z` `implementation` / `implementing`: Resource sampling now reads timestamped gauges from the existing isolated Prometheus cache instead of competing direct API metrics requests. The capacity-only API exports already-maintained metrics without synchronously refreshing unrelated evidence ledgers; the default control-plane scrape behavior is unchanged. Stale or missing samples remain explicit and fail closed under the coverage contract.
 - `2026-08-24T10:10:26Z` `verification` / `implementing`: The second zero-credit sampler preflight completed 4,200/4,200 requests at 35 RPS with p99 22.42 ms and zero errors. It captured 118/118 valid Prometheus gauge samples versus 108 required, with complete trace, drain, and deterministic cleanup.
+- `2026-08-24T13:08:17.336347Z` `verification` / `verified`: S8-V3 closed at the hash-linked supporting revision: 21/21 fault repetitions, three 35 RPS 30-minute soaks, current-revision CUDA/Prometheus/queue cleanup, all required regressions, and S8-AC-01..04 passed.

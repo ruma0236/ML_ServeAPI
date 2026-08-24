@@ -1,0 +1,102 @@
+{
+  "schema_version": "evm.s8_dependency_soak_closure.v1",
+  "generated_at": "2026-08-24T13:08:17.336347Z",
+  "status": "verified",
+  "verdict": "passed",
+  "source_identity": {
+    "supporting_revision": "cb5920bf1ccae04f962eeca219c7e8098ac38f45",
+    "branch": "codex/distributed-scale-validation-plan",
+    "supporting_artifacts": {
+      "experiment": {
+        "path": "docs/status/evidence/s8-dependency-soak-experiment.json",
+        "blob_oid": "686c7d10c3fc3e76d70f3b3162a9246b9ebe024e",
+        "sha256": "722604203143099daa35acfd21999d07df2b3960ecd1b9a64d92e1c68657a1c3"
+      },
+      "runtime_smoke": {
+        "path": "docs/status/evidence/s8-current-revision-runtime-smoke.json",
+        "blob_oid": "f41fc229c1a4e229226b1fd7e54ef92e0fdafd6e",
+        "sha256": "65e02fe395274ce01d42a68a495c2867c864af0aa0db22d5ab548d8fcbe134cd"
+      },
+      "regression": {
+        "path": "docs/status/evidence/s8-closure-regression-evidence.json",
+        "blob_oid": "2be6b244c640816bbd2547273374353d0133eacc",
+        "sha256": "d36691b0f652d064d84eb4cf824990dadb7b66958683a6daf10e9d5a74e31972"
+      }
+    },
+    "closure_implementation": {
+      "path": "src/evm/scale_validation/s8_closure.py",
+      "blob_oid": "871fda683b0e47cfbfc2727945c7d79b0ad8454f",
+      "sha256": "d2ababba29ba0f6d7f8346c00c676ff689058cd42579a9fbe6983c48c89b903f"
+    },
+    "closure_writer": {
+      "path": "scripts/dev/close_s8_dependency_soak.py",
+      "blob_oid": "9367ac77737e7d8c8e9e227642897dabe66e3be8",
+      "sha256": "5afdbac28f28b1bb293314e67f97978e3fbd0b1df1620bb8c667f260bf665ede"
+    }
+  },
+  "accepted_experiment": {
+    "fault_repetitions": 21,
+    "soak_repetitions": 3,
+    "soak_target_requests_per_second": 35.0,
+    "soak_measurement_seconds": 1800.0,
+    "requests_per_repetition": [
+      63000,
+      63000,
+      63000
+    ],
+    "p99_ms": [
+      19.107099971733987,
+      18.849399988539517,
+      18.97360000293702
+    ],
+    "error_rate": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "failed_attempts_zero_credit": 5
+  },
+  "acceptance": {
+    "S8-AC-01": true,
+    "S8-AC-02": true,
+    "S8-AC-03": true,
+    "S8-AC-04": true
+  },
+  "closure_checks": {
+    "definition_alignment": true,
+    "experiment_purpose_alignment": true,
+    "validation_purpose_alignment": true,
+    "test_purpose_alignment": true,
+    "required_repetitions_complete": true,
+    "canonical_git_blob_hashes_valid": true,
+    "private_evidence_rehashed": true,
+    "regressions_passed": true,
+    "runtime_cleanup_passed": true,
+    "claim_boundary_recorded": true,
+    "unresolved_blockers_zero": true,
+    "independent_validator_passed": true
+  },
+  "private_closure_evidence": {
+    "artifact_count": 17,
+    "aggregate_sha256": "9b2533632276198bf5983ceb0db5b275cd6a28d5b4bca48b484f3d92f336c1bb",
+    "index_sha256": "59d47119a80799ed8f5fc5263e9467fbfb19fd45782e2f1b088c7258993b105c"
+  },
+  "failed_attempts_retained": [
+    "docs/status/evidence/s8-dependency-soak-attempt-01.json",
+    "docs/status/evidence/s8-dependency-soak-attempt-02.json",
+    "docs/status/evidence/s8-dependency-soak-attempt-03.json",
+    "docs/status/evidence/s8-dependency-soak-attempt-04.json",
+    "docs/status/evidence/s8-dependency-soak-attempt-05.json"
+  ],
+  "evidence_corrections_retained": [
+    "docs/status/2026-08-24-s8-evidence-nonfinite-rca.md",
+    "docs/status/2026-08-24-s8-regression-dependency-rca.md",
+    "docs/status/2026-08-24-s8-closure-command-rca.md"
+  ],
+  "unresolved_blockers": [],
+  "residual_risks": [
+    "Three historical terminal serving Pods remain visible as unrelated cluster debt and are excluded from the active baseline.",
+    "The accepted experiment uses controlled local traffic on one physical node, not customer production traffic."
+  ],
+  "claim_boundary": "Controlled dependency-fault and 35 RPS soak evidence on one local Windows/WSL2 physical node and one RTX 4080 CUDA device. This does not establish customer production SLA, physical multi-node or multi-zone HA/DR, multi-GPU/MIG/MPS, autoscaling, security isolation, or simultaneous multi-model GPU residency."
+}

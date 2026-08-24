@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T10:10:26Z",
+  "generated_at": "2026-08-24T13:08:17.336347Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -4009,13 +4009,25 @@
             "configs/s8_soak_capacity_runtime.toml",
             "docs/status/2026-08-24-s8-design-reconciliation.md"
           ]
+        },
+        {
+          "component": "S8 strict closure and current-revision verification",
+          "files": [
+            "src/evm/scale_validation/s8_closure.py",
+            "scripts/dev/run_s8_current_revision_smoke.py",
+            "scripts/dev/run_s8_closure_regressions.py",
+            "scripts/dev/close_s8_dependency_soak.py",
+            "scripts/dev/validate_s8_dependency_soak_evidence.py",
+            "tests/test_s8_closure.py"
+          ]
         }
       ],
       "implementation_summary": [
         "The existing PostgreSQL durable queue now has an opt-in transient-dependency circuit with closed, open, and one-probe half-open states; the S2 profile remains disabled by default.",
         "The existing capacity runtime now samples process-tree open handles, queue gauges, and private artifact growth together with CPU and RSS.",
         "A frozen S8 profile binds 35 RPS to 70 percent of the accepted S3 sustainable rate, three 30-minute soak repetitions, isolated dependency faults, bounded retry, and deterministic cleanup.",
-        "The S8 runner reuses the existing external task API, durable queue worker, HIGGS capacity API, PostgreSQL, Prometheus, and OTLP paths; the independent validator reprojects fault and soak outcomes from private raw artifacts and Git blob identities."
+        "The S8 runner reuses the existing external task API, durable queue worker, HIGGS capacity API, PostgreSQL, Prometheus, and OTLP paths; the independent validator reprojects fault and soak outcomes from private raw artifacts and Git blob identities.",
+        "Strict closure separates immutable experiment inventory from later regression/smoke evidence, reprojects every AC, and validates committed Git bytes plus private raw hashes."
       ],
       "experiment_environment": "Implementation checkpoint only. The accepted experiment will use external TCP/HTTP, isolated PostgreSQL schemas, the real bounded queue worker, a deterministic Airflow-compatible dependency, Prometheus, W3C OTLP, and the existing HIGGS capacity route on one local physical node.",
       "test_or_experiment_steps": [
@@ -4027,29 +4039,42 @@
         {
           "criterion_id": "S8-AC-01",
           "description": "Retry amplification stays within the declared budget.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s8-dependency-soak-experiment.json",
+            "docs/status/evidence/s8-dependency-soak-closure.json"
+          ]
         },
         {
           "criterion_id": "S8-AC-02",
           "description": "Memory, file descriptor, pool, queue, and artifact slopes remain bounded.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s8-dependency-soak-experiment.json",
+            "docs/status/evidence/s8-dependency-soak-closure.json"
+          ]
         },
         {
           "criterion_id": "S8-AC-03",
           "description": "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s8-dependency-soak-experiment.json",
+            "docs/status/evidence/s8-dependency-soak-closure.json"
+          ]
         },
         {
           "criterion_id": "S8-AC-04",
           "description": "One final evidence index re-hashes every accepted result.",
-          "status": "pending",
-          "evidence_refs": []
+          "status": "passed",
+          "evidence_refs": [
+            "docs/status/evidence/s8-current-revision-runtime-smoke.json",
+            "docs/status/evidence/s8-closure-regression-evidence.json",
+            "docs/status/evidence/s8-dependency-soak-closure.json"
+          ]
         }
       ],
-      "observed_result": null,
+      "observed_result": "The existing ML Serve path completed 21 of 21 isolated dependency-fault repetitions and three independent 30-minute 35 RPS soaks. Each soak completed 63,000 requests with zero errors; retry, resource slopes, terminal identity, trace, and cleanup gates were independently recomputed and all accepted private/public artifacts rehashed.",
       "evidence_artifacts": [
         {
           "path": "docs/status/evidence/s8-dependency-soak-attempt-01.json",
@@ -4116,17 +4141,36 @@
           "sha256": "363cdd69b67fde694bcdca370944e698c3a1e57cc47f0896ebee6c9371342517",
           "generated_at": "2026-08-24T10:08:20.929599Z",
           "claim": "Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors, p99 22.42 ms, 118/118 valid Prometheus gauge samples versus 108 required, complete trace/drain, and cleanup."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-experiment.json",
+          "sha256": "722604203143099daa35acfd21999d07df2b3960ecd1b9a64d92e1c68657a1c3",
+          "generated_at": "2026-08-24T12:23:26.508335Z",
+          "claim": "Twenty-one isolated fault repetitions and three independent 35 RPS soak repetitions passed the frozen S8 runtime contract."
+        },
+        {
+          "path": "docs/status/evidence/s8-current-revision-runtime-smoke.json",
+          "sha256": "65e02fe395274ce01d42a68a495c2867c864af0aa0db22d5ab548d8fcbe134cd",
+          "generated_at": "2026-08-24T13:05:40.898596Z",
+          "claim": "Current-revision CUDA inference, serving, Prometheus, queue, and cleanup diagnostic passed without acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s8-closure-regression-evidence.json",
+          "sha256": "d36691b0f652d064d84eb4cf824990dadb7b66958683a6daf10e9d5a74e31972",
+          "generated_at": "2026-08-24T13:07:49.605459Z",
+          "claim": "Risk-proportionate Python, PostgreSQL, lifecycle, Control Panel, frontend, and status regressions passed from private hash-linked logs."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-closure.json",
+          "sha256": "3f7feba82828211bbf0f02770f4de79d014e12db1266d79cd8e5c03cebc1b5fc",
+          "generated_at": "2026-08-24T13:08:17.336347Z",
+          "claim": "Independent raw-derived validation and final private/public rehash close S8-AC-01 through S8-AC-04."
         }
       ],
-      "status": "implementing",
-      "claim_boundary": "Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.",
-      "unresolved_items": [
-        "Retry amplification stays within the declared budget.",
-        "Memory, file descriptor, pool, queue, and artifact slopes remain bounded.",
-        "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
-        "One final evidence index re-hashes every accepted result."
-      ],
-      "next_action": "Restart the complete 21-fault matrix from the clean sampler revision; begin the three 30-minute soak repetitions only after every fault scope passes.",
+      "status": "verified",
+      "claim_boundary": "Controlled dependency-fault and 35 RPS soak evidence on one local Windows/WSL2 physical node and one RTX 4080 CUDA device. This does not establish customer production SLA, physical multi-node or multi-zone HA/DR, multi-GPU/MIG/MPS, autoscaling, security isolation, or simultaneous multi-model GPU residency.",
+      "unresolved_items": [],
+      "next_action": "Freeze the S8-V4 umbrella contracts and append-only ledger before any E0 runtime mutation.",
       "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
       "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.",
       "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
@@ -4190,6 +4234,17 @@
               "configs/s8_dependency_soak_v6.toml",
               "configs/s8_soak_capacity_runtime.toml",
               "docs/status/2026-08-24-s8-design-reconciliation.md"
+            ]
+          },
+          {
+            "component": "S8 strict closure and current-revision verification",
+            "files": [
+              "src/evm/scale_validation/s8_closure.py",
+              "scripts/dev/run_s8_current_revision_smoke.py",
+              "scripts/dev/run_s8_closure_regressions.py",
+              "scripts/dev/close_s8_dependency_soak.py",
+              "scripts/dev/validate_s8_dependency_soak_evidence.py",
+              "tests/test_s8_closure.py"
             ]
           }
         ],
@@ -4297,11 +4352,35 @@
           "sha256": "363cdd69b67fde694bcdca370944e698c3a1e57cc47f0896ebee6c9371342517",
           "generated_at": "2026-08-24T10:08:20.929599Z",
           "claim": "Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors, p99 22.42 ms, 118/118 valid Prometheus gauge samples versus 108 required, complete trace/drain, and cleanup."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-experiment.json",
+          "sha256": "722604203143099daa35acfd21999d07df2b3960ecd1b9a64d92e1c68657a1c3",
+          "generated_at": "2026-08-24T12:23:26.508335Z",
+          "claim": "Twenty-one isolated fault repetitions and three independent 35 RPS soak repetitions passed the frozen S8 runtime contract."
+        },
+        {
+          "path": "docs/status/evidence/s8-current-revision-runtime-smoke.json",
+          "sha256": "65e02fe395274ce01d42a68a495c2867c864af0aa0db22d5ab548d8fcbe134cd",
+          "generated_at": "2026-08-24T13:05:40.898596Z",
+          "claim": "Current-revision CUDA inference, serving, Prometheus, queue, and cleanup diagnostic passed without acceptance credit."
+        },
+        {
+          "path": "docs/status/evidence/s8-closure-regression-evidence.json",
+          "sha256": "d36691b0f652d064d84eb4cf824990dadb7b66958683a6daf10e9d5a74e31972",
+          "generated_at": "2026-08-24T13:07:49.605459Z",
+          "claim": "Risk-proportionate Python, PostgreSQL, lifecycle, Control Panel, frontend, and status regressions passed from private hash-linked logs."
+        },
+        {
+          "path": "docs/status/evidence/s8-dependency-soak-closure.json",
+          "sha256": "3f7feba82828211bbf0f02770f4de79d014e12db1266d79cd8e5c03cebc1b5fc",
+          "generated_at": "2026-08-24T13:08:17.336347Z",
+          "claim": "Independent raw-derived validation and final private/public rehash close S8-AC-01 through S8-AC-04."
         }
       ],
       "verdict_and_claim_boundary": {
-        "verdict": "not_run",
-        "claim_boundary": "Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.",
+        "verdict": "passed",
+        "claim_boundary": "Controlled dependency-fault and 35 RPS soak evidence on one local Windows/WSL2 physical node and one RTX 4080 CUDA device. This does not establish customer production SLA, physical multi-node or multi-zone HA/DR, multi-GPU/MIG/MPS, autoscaling, security isolation, or simultaneous multi-model GPU residency.",
         "final_system_validation_required": true
       },
       "chronological_updates": [
@@ -4485,6 +4564,18 @@
           "summary": "The second zero-credit sampler preflight completed 4,200/4,200 requests at 35 RPS with p99 22.42 ms and zero errors. It captured 118/118 valid Prometheus gauge samples versus 108 required, with complete trace, drain, and deterministic cleanup.",
           "evidence_refs": [
             "docs/status/evidence/s8-resource-sampler-v6-preflight.json"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T13:08:17.336347Z",
+          "phase": "verification",
+          "status": "verified",
+          "summary": "S8-V3 closed at the hash-linked supporting revision: 21/21 fault repetitions, three 35 RPS 30-minute soaks, current-revision CUDA/Prometheus/queue cleanup, all required regressions, and S8-AC-01..04 passed.",
+          "evidence_refs": [
+            "docs/status/evidence/s8-dependency-soak-experiment.json",
+            "docs/status/evidence/s8-current-revision-runtime-smoke.json",
+            "docs/status/evidence/s8-closure-regression-evidence.json",
+            "docs/status/evidence/s8-dependency-soak-closure.json"
           ]
         }
       ]
