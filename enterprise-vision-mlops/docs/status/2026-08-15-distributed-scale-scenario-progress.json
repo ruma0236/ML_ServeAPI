@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T10:05:40Z",
+  "generated_at": "2026-08-24T10:10:26Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -4110,6 +4110,12 @@
           "sha256": "8eb0e7ca826d807c61df4b870a84a98e199dfd87e05cf538c2680f952dd878ee",
           "generated_at": "2026-08-24T09:53:46.854401Z",
           "claim": "Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors and p99 40.95 ms, but collected only 55 of at least 108 required runtime-gauge samples; no acceptance credit was awarded."
+        },
+        {
+          "path": "docs/status/evidence/s8-resource-sampler-v6-preflight.json",
+          "sha256": "363cdd69b67fde694bcdca370944e698c3a1e57cc47f0896ebee6c9371342517",
+          "generated_at": "2026-08-24T10:08:20.929599Z",
+          "claim": "Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors, p99 22.42 ms, 118/118 valid Prometheus gauge samples versus 108 required, complete trace/drain, and cleanup."
         }
       ],
       "status": "implementing",
@@ -4120,7 +4126,7 @@
         "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
         "One final evidence index re-hashes every accepted result."
       ],
-      "next_action": "Run a short zero-credit 35 RPS sampler validation, then restart all 21 fault repetitions and the three 30-minute soak repetitions from the clean resource-sampling revision.",
+      "next_action": "Restart the complete 21-fault matrix from the clean sampler revision; begin the three 30-minute soak repetitions only after every fault scope passes.",
       "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
       "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.",
       "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
@@ -4285,6 +4291,12 @@
           "sha256": "8eb0e7ca826d807c61df4b870a84a98e199dfd87e05cf538c2680f952dd878ee",
           "generated_at": "2026-08-24T09:53:46.854401Z",
           "claim": "Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors and p99 40.95 ms, but collected only 55 of at least 108 required runtime-gauge samples; no acceptance credit was awarded."
+        },
+        {
+          "path": "docs/status/evidence/s8-resource-sampler-v6-preflight.json",
+          "sha256": "363cdd69b67fde694bcdca370944e698c3a1e57cc47f0896ebee6c9371342517",
+          "generated_at": "2026-08-24T10:08:20.929599Z",
+          "claim": "Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors, p99 22.42 ms, 118/118 valid Prometheus gauge samples versus 108 required, complete trace/drain, and cleanup."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -4464,6 +4476,15 @@
           "evidence_refs": [
             "docs/status/evidence/s8-dependency-soak-attempt-05.json",
             "docs/status/2026-08-24-s8-attempt-05-rca.md"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T10:10:26Z",
+          "phase": "verification",
+          "status": "implementing",
+          "summary": "The second zero-credit sampler preflight completed 4,200/4,200 requests at 35 RPS with p99 22.42 ms and zero errors. It captured 118/118 valid Prometheus gauge samples versus 108 required, with complete trace, drain, and deterministic cleanup.",
+          "evidence_refs": [
+            "docs/status/evidence/s8-resource-sampler-v6-preflight.json"
           ]
         }
       ]

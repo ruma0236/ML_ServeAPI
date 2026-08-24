@@ -164,6 +164,12 @@ incident, or VLM evidence ledgers. This avoids turning observability into an
 extra measured workload. The default API metrics behavior is unchanged; the
 mode is set only by the versioned S3/S8 isolated runtime launcher.
 
+The second 120-second non-credit validation passed this gate with
+`4,200/4,200` successful requests at `35 RPS`, p99 `22.42 ms`, error rate `0`,
+and `118/118` valid cached-gauge samples versus `108` required. Trace, terminal
+drain, and cleanup also passed. This validates the measurement path only and
+does not count toward the three S8 soak repetitions.
+
 ## Portfolio Boundary
 
 Allowed: a controlled single-local-node experiment showing bounded retries,

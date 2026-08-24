@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
             "worker-mttr-preflight",
             "resource-sampler-remediation",
             "resource-sampler-preflight-failure",
+            "resource-sampler-preflight-pass",
             "verification",
         ),
         default="implementation",
@@ -100,6 +101,8 @@ def main() -> int:
         return record_resource_sampler_remediation(args)
     if args.phase == "resource-sampler-preflight-failure":
         return record_resource_sampler_preflight_failure(args)
+    if args.phase == "resource-sampler-preflight-pass":
+        return record_resource_sampler_preflight_pass(args)
     if args.phase != "implementation":
         raise SystemExit("verification updates are produced by the S8 closure script")
     now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -569,6 +572,59 @@ def record_resource_sampler_preflight_failure(args: argparse.Namespace) -> int:
                 artifact["path"],
                 "docs/status/2026-08-24-s8-resource-sampler-preflight-01-rca.md",
             ],
+        }
+    )
+    payload["generated_at"] = now
+    ledger = ScenarioProgressLedger.model_validate(payload)
+    args.json_path.write_bytes((ledger.model_dump_json(indent=2) + "\n").encode("utf-8"))
+    args.markdown_path.write_text(
+        render_progress_markdown(ledger), encoding="utf-8", newline="\n"
+    )
+    return 0
+
+
+def record_resource_sampler_preflight_pass(args: argparse.Namespace) -> int:
+    now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    evidence_path = ROOT / "docs/status/evidence/s8-resource-sampler-v6-preflight.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    artifact = {
+        "path": evidence_path.relative_to(ROOT).as_posix(),
+        "sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+        "generated_at": str(evidence["generated_at"]),
+        "claim": (
+            "Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests "
+            "with zero errors, p99 22.42 ms, 118/118 valid Prometheus gauge "
+            "samples versus 108 required, complete trace/drain, and cleanup."
+        ),
+    }
+    payload = json.loads(args.json_path.read_text(encoding="utf-8"))
+    scenario = next(item for item in payload["scenarios"] if item["scenario_id"] == "S8")
+    existing = [
+        item
+        for item in scenario["evidence_artifacts"]
+        if item.get("path") != artifact["path"]
+    ]
+    scenario["evidence_artifacts"] = [*existing, artifact]
+    scenario["evidence_index"] = [*existing, artifact]
+    scenario["observed_result"] = None
+    scenario["status"] = "implementing"
+    scenario["verdict_and_claim_boundary"]["verdict"] = "not_run"
+    scenario["next_action"] = (
+        "Restart the complete 21-fault matrix from the clean sampler revision; "
+        "begin the three 30-minute soak repetitions only after every fault scope passes."
+    )
+    scenario["chronological_updates"].append(
+        {
+            "occurred_at": now,
+            "phase": "verification",
+            "status": "implementing",
+            "summary": (
+                "The second zero-credit sampler preflight completed 4,200/4,200 "
+                "requests at 35 RPS with p99 22.42 ms and zero errors. It captured "
+                "118/118 valid Prometheus gauge samples versus 108 required, with "
+                "complete trace, drain, and deterministic cleanup."
+            ),
+            "evidence_refs": [artifact["path"]],
         }
     )
     payload["generated_at"] = now

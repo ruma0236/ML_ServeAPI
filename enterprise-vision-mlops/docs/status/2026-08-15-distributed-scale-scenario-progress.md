@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T10:05:40Z`
+- Generated: `2026-08-24T10:10:26Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -739,7 +739,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.
 - Verdict: `not_run`
 - Claim boundary: Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.
-- Next action: Run a short zero-credit 35 RPS sampler validation, then restart all 21 fault repetitions and the three 30-minute soak repetitions from the clean resource-sampling revision.
+- Next action: Restart the complete 21-fault matrix from the clean sampler revision; begin the three 30-minute soak repetitions only after every fault scope passes.
 
 ### Affected Existing Components
 
@@ -797,6 +797,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s8-worker-mttr-v6-preflight.json` (`e73103e923f7ae7372d798dad9f397ba096109be81e437f5636ca51760314b70`): Zero-credit v6 worker-loss preflight separated 11.954-second exact worker MTTR from 62.234-second full profile elapsed, with 3/3 terminal and trace closure, duplicate effects zero, and cleanup complete.
 - `docs/status/evidence/s8-dependency-soak-attempt-05.json` (`e484326df4e5c52df9a91eccf9605f6e8a70bcf8aab61f97672351ebe02729c2`): Rejected resource-sampling attempt: all 21 fault scopes passed and the first 30-minute soak measurement ran, but a transient one-second metrics read timeout terminated the sampler and invalidated the point; cleanup passed and no acceptance credit was awarded.
 - `docs/status/evidence/s8-resource-sampler-v6-preflight-attempt-01.json` (`8eb0e7ca826d807c61df4b870a84a98e199dfd87e05cf538c2680f952dd878ee`): Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors and p99 40.95 ms, but collected only 55 of at least 108 required runtime-gauge samples; no acceptance credit was awarded.
+- `docs/status/evidence/s8-resource-sampler-v6-preflight.json` (`363cdd69b67fde694bcdca370944e698c3a1e57cc47f0896ebee6c9371342517`): Zero-credit 35 RPS sampler preflight completed 4,200/4,200 requests with zero errors, p99 22.42 ms, 118/118 valid Prometheus gauge samples versus 108 required, complete trace/drain, and cleanup.
 
 ### Chronological Updates
 
@@ -818,3 +819,4 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-24T09:55:46Z` `experiment` / `implementing`: The first sampler preflight passed 4,200/4,200 requests at 35 RPS with zero errors, p99 40.95 ms, complete trace/cleanup, and no metrics-read exception. It was rejected because direct API metrics reads yielded only 55 samples in 120 seconds versus the 108 minimum.
 - `2026-08-24T09:59:02Z` `implementation` / `implementing`: Resource sampling now reads timestamped gauges from the existing isolated Prometheus cache instead of competing direct API metrics requests. It records transient or stale samples, uses only valid gauges for queue and pool slopes, requires at least 90 percent coverage, and stops fail closed after three consecutive failures.
 - `2026-08-24T10:05:40Z` `implementation` / `implementing`: Resource sampling now reads timestamped gauges from the existing isolated Prometheus cache instead of competing direct API metrics requests. The capacity-only API exports already-maintained metrics without synchronously refreshing unrelated evidence ledgers; the default control-plane scrape behavior is unchanged. Stale or missing samples remain explicit and fail closed under the coverage contract.
+- `2026-08-24T10:10:26Z` `verification` / `implementing`: The second zero-credit sampler preflight completed 4,200/4,200 requests at 35 RPS with p99 22.42 ms and zero errors. It captured 118/118 valid Prometheus gauge samples versus 108 required, with complete trace, drain, and deterministic cleanup.
