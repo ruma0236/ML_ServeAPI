@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T03:55:06Z",
+  "generated_at": "2026-08-24T04:12:30Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -2789,10 +2789,10 @@
       "observed_result": null,
       "evidence_artifacts": [
         {
-          "path": "docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json",
-          "sha256": "853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e",
-          "generated_at": "2026-08-23T12:22:30Z",
-          "claim": "Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure."
+          "path": "docs/status/evidence/s5-current-revision-runtime-smoke.json",
+          "sha256": "7aedba989c0283c1307ff6203a299c899b221510dedd9a606a2dc3e3a3911e1e",
+          "generated_at": "2026-08-24T03:58:16.846228Z",
+          "claim": "Current-revision smoke reproduced the same 766,864-row digest with zero missing or duplicate records across columnar, local Spark, and Kubernetes Spark paths and exact cleanup."
         },
         {
           "path": "docs/status/evidence/s5-spark-data-scale-attempt-01.json",
@@ -2807,22 +2807,22 @@
           "claim": "A 30-point runtime pass was rejected for closure because its original public projection omitted the executor-loss and replay fields needed for independent S5-AC-03 recomputation."
         },
         {
+          "path": "docs/status/evidence/s5-spark-data-scale-closure.json",
+          "sha256": "b5d7f67278c2307b980ea4e43f918f40f0b977d2049e6a510d11cfa09b8bd1f5",
+          "generated_at": "2026-08-23T13:21:30.966389Z",
+          "claim": "Strict closure independently recomputes S5-AC-01 through S5-AC-04, binds canonical Git bytes and private inventory hashes, records all RCA, regressions, runtime health, and cleanup."
+        },
+        {
           "path": "docs/status/evidence/s5-spark-data-scale-experiment.json",
           "sha256": "61937a003ec75f0c6e2edb868e5f849d8fe3bfcbd4e48dd89d68d789f9f9f0bf",
           "generated_at": "2026-08-23T13:14:42.726889Z",
           "claim": "The accepted 30-point clean-revision matrix covers all required engines, three executor-loss replays, bounded telemetry, exact row/digest integrity, and generated-I/O semantic separation."
         },
         {
-          "path": "docs/status/evidence/s5-current-revision-runtime-smoke.json",
-          "sha256": "803784d8de841ca50026e42220dbd4d269b2df85a920fe68c43bd6e5fdcd303b",
-          "generated_at": "2026-08-23T13:20:33.466588Z",
-          "claim": "Current-revision smoke reproduced the same 766,864-row digest with zero missing or duplicate records across columnar, local Spark, and Kubernetes Spark paths and exact cleanup."
-        },
-        {
-          "path": "docs/status/evidence/s5-spark-data-scale-closure.json",
-          "sha256": "b5d7f67278c2307b980ea4e43f918f40f0b977d2049e6a510d11cfa09b8bd1f5",
-          "generated_at": "2026-08-23T13:21:30.966389Z",
-          "claim": "Strict closure independently recomputes S5-AC-01 through S5-AC-04, binds canonical Git bytes and private inventory hashes, records all RCA, regressions, runtime health, and cleanup."
+          "path": "docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json",
+          "sha256": "853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e",
+          "generated_at": "2026-08-23T12:22:30Z",
+          "claim": "Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure."
         }
       ],
       "status": "implementing",
@@ -2936,10 +2936,10 @@
       },
       "evidence_index": [
         {
-          "path": "docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json",
-          "sha256": "853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e",
-          "generated_at": "2026-08-23T12:22:30Z",
-          "claim": "Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure."
+          "path": "docs/status/evidence/s5-current-revision-runtime-smoke.json",
+          "sha256": "7aedba989c0283c1307ff6203a299c899b221510dedd9a606a2dc3e3a3911e1e",
+          "generated_at": "2026-08-24T03:58:16.846228Z",
+          "claim": "Current-revision smoke reproduced the same 766,864-row digest with zero missing or duplicate records across columnar, local Spark, and Kubernetes Spark paths and exact cleanup."
         },
         {
           "path": "docs/status/evidence/s5-spark-data-scale-attempt-01.json",
@@ -2954,22 +2954,22 @@
           "claim": "A 30-point runtime pass was rejected for closure because its original public projection omitted the executor-loss and replay fields needed for independent S5-AC-03 recomputation."
         },
         {
+          "path": "docs/status/evidence/s5-spark-data-scale-closure.json",
+          "sha256": "b5d7f67278c2307b980ea4e43f918f40f0b977d2049e6a510d11cfa09b8bd1f5",
+          "generated_at": "2026-08-23T13:21:30.966389Z",
+          "claim": "Strict closure independently recomputes S5-AC-01 through S5-AC-04, binds canonical Git bytes and private inventory hashes, records all RCA, regressions, runtime health, and cleanup."
+        },
+        {
           "path": "docs/status/evidence/s5-spark-data-scale-experiment.json",
           "sha256": "61937a003ec75f0c6e2edb868e5f849d8fe3bfcbd4e48dd89d68d789f9f9f0bf",
           "generated_at": "2026-08-23T13:14:42.726889Z",
           "claim": "The accepted 30-point clean-revision matrix covers all required engines, three executor-loss replays, bounded telemetry, exact row/digest integrity, and generated-I/O semantic separation."
         },
         {
-          "path": "docs/status/evidence/s5-current-revision-runtime-smoke.json",
-          "sha256": "803784d8de841ca50026e42220dbd4d269b2df85a920fe68c43bd6e5fdcd303b",
-          "generated_at": "2026-08-23T13:20:33.466588Z",
-          "claim": "Current-revision smoke reproduced the same 766,864-row digest with zero missing or duplicate records across columnar, local Spark, and Kubernetes Spark paths and exact cleanup."
-        },
-        {
-          "path": "docs/status/evidence/s5-spark-data-scale-closure.json",
-          "sha256": "b5d7f67278c2307b980ea4e43f918f40f0b977d2049e6a510d11cfa09b8bd1f5",
-          "generated_at": "2026-08-23T13:21:30.966389Z",
-          "claim": "Strict closure independently recomputes S5-AC-01 through S5-AC-04, binds canonical Git bytes and private inventory hashes, records all RCA, regressions, runtime health, and cleanup."
+          "path": "docs/status/evidence/s5-spark-data-scale-implementation-checkpoint.json",
+          "sha256": "853b5bea52eebdaebaec9bd98ac4542ed503ba16103144437ff96edfe3311e6e",
+          "generated_at": "2026-08-23T12:22:30Z",
+          "claim": "Governed intake and one non-acceptance cross-engine preparation smoke passed; all S5 acceptance criteria remain pending until the full clean-revision matrix and independent closure."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -3481,6 +3481,18 @@
       "observed_result": null,
       "evidence_artifacts": [
         {
+          "path": "docs/status/evidence/s7-auxiliary-admission-closure.json",
+          "sha256": "ae93a79488e0c531f81055f95a6abf4d47ab508d3390c4de882ae5c43cc91a50",
+          "generated_at": "2026-08-23T19:42:28.849003Z",
+          "claim": "Strict closure binds acceptance, regressions, private hashes, Git blobs, and cleanup without broad production claims."
+        },
+        {
+          "path": "docs/status/evidence/s7-auxiliary-admission-experiment.json",
+          "sha256": "032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014",
+          "generated_at": "2026-08-23T19:26:44.534372Z",
+          "claim": "The clean 36-repetition matrix passed independent raw-derived family admission validation."
+        },
+        {
           "path": "docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json",
           "sha256": "f039fc112072526387b2520f729190ef3da04dbf44d11370970ca095dc948eb9",
           "generated_at": "2026-08-23T18:45:56.552378Z",
@@ -3493,34 +3505,34 @@
           "claim": "Completed diagnostics exposed premature Prometheus cleanup observation and received zero acceptance credit."
         },
         {
-          "path": "docs/status/evidence/s7-family-diagnostic-gate.json",
-          "sha256": "14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d",
-          "generated_at": "2026-08-23T19:08:22.335888Z",
-          "claim": "Fresh image, VLM, and LLM diagnostics completed 18 of 18 real-CUDA requests and closed only the readiness gate."
-        },
-        {
           "path": "docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json",
           "sha256": "a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550",
           "generated_at": "2026-08-23T19:18:38.297228Z",
           "claim": "The first full matrix exposed position-dependent projection validation and received zero acceptance credit."
         },
         {
-          "path": "docs/status/evidence/s7-auxiliary-admission-experiment.json",
-          "sha256": "032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014",
-          "generated_at": "2026-08-23T19:26:44.534372Z",
-          "claim": "The clean 36-repetition matrix passed independent raw-derived family admission validation."
+          "path": "docs/status/evidence/s7-auxiliary-admission-reprojection.json",
+          "sha256": "7b00369486eb97e82d062503e02cd6b144f597e6db00df26027ef7dc795b4e94",
+          "generated_at": "2026-08-24T03:56:57.495961Z",
+          "claim": "The immutable 36-run matrix is reprojected with selected/admitted starvation separated from intentional over-limit pre-admission rejection."
         },
         {
           "path": "docs/status/evidence/s7-current-revision-cuda-smoke.json",
-          "sha256": "0a52a985b5daf956e1d366e78633164eac2e6b08f1ce6fd5ecc035150ec12e87",
-          "generated_at": "2026-08-23T19:41:16.478936Z",
+          "sha256": "07bc76f0b5eae84b9770564f2b617432170fe7c70b9bf67604cd9a707f11ded4",
+          "generated_at": "2026-08-24T04:05:09.352909Z",
           "claim": "The current revision completed real external-HTTP CUDA inference and restored the exact baseline."
         },
         {
-          "path": "docs/status/evidence/s7-auxiliary-admission-closure.json",
-          "sha256": "ae93a79488e0c531f81055f95a6abf4d47ab508d3390c4de882ae5c43cc91a50",
-          "generated_at": "2026-08-23T19:42:28.849003Z",
-          "claim": "Strict closure binds acceptance, regressions, private hashes, Git blobs, and cleanup without broad production claims."
+          "path": "docs/status/evidence/s7-family-diagnostic-gate.json",
+          "sha256": "14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d",
+          "generated_at": "2026-08-23T19:08:22.335888Z",
+          "claim": "Fresh image, VLM, and LLM diagnostics completed 18 of 18 real-CUDA requests and closed only the readiness gate."
+        },
+        {
+          "path": "docs/status/evidence/s7-post-closure-smoke-attempt-01.json",
+          "sha256": "84774ee833712e60ccee4263083c037c13038efba8b3951b7c38dcf7fe1a0301",
+          "generated_at": "2026-08-24T04:01:35.505748Z",
+          "claim": "The first post-closure current-revision smoke stopped before runtime mutation because the image curation manifest had been regenerated; it receives zero credit."
         }
       ],
       "status": "implementing",
@@ -3678,6 +3690,18 @@
       },
       "evidence_index": [
         {
+          "path": "docs/status/evidence/s7-auxiliary-admission-closure.json",
+          "sha256": "ae93a79488e0c531f81055f95a6abf4d47ab508d3390c4de882ae5c43cc91a50",
+          "generated_at": "2026-08-23T19:42:28.849003Z",
+          "claim": "Strict closure binds acceptance, regressions, private hashes, Git blobs, and cleanup without broad production claims."
+        },
+        {
+          "path": "docs/status/evidence/s7-auxiliary-admission-experiment.json",
+          "sha256": "032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014",
+          "generated_at": "2026-08-23T19:26:44.534372Z",
+          "claim": "The clean 36-repetition matrix passed independent raw-derived family admission validation."
+        },
+        {
           "path": "docs/status/evidence/s7-auxiliary-admission-failed-attempt-01.json",
           "sha256": "f039fc112072526387b2520f729190ef3da04dbf44d11370970ca095dc948eb9",
           "generated_at": "2026-08-23T18:45:56.552378Z",
@@ -3690,34 +3714,34 @@
           "claim": "Completed diagnostics exposed premature Prometheus cleanup observation and received zero acceptance credit."
         },
         {
-          "path": "docs/status/evidence/s7-family-diagnostic-gate.json",
-          "sha256": "14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d",
-          "generated_at": "2026-08-23T19:08:22.335888Z",
-          "claim": "Fresh image, VLM, and LLM diagnostics completed 18 of 18 real-CUDA requests and closed only the readiness gate."
-        },
-        {
           "path": "docs/status/evidence/s7-auxiliary-admission-failed-attempt-03.json",
           "sha256": "a40f5188033f4b2c8747eeafea4c2312dcef2048f76bf24c5131c8f0e4f0c550",
           "generated_at": "2026-08-23T19:18:38.297228Z",
           "claim": "The first full matrix exposed position-dependent projection validation and received zero acceptance credit."
         },
         {
-          "path": "docs/status/evidence/s7-auxiliary-admission-experiment.json",
-          "sha256": "032cbb29eb8579369945c95fb6f3105db6a6589aa27b26273f51d4ea6957a014",
-          "generated_at": "2026-08-23T19:26:44.534372Z",
-          "claim": "The clean 36-repetition matrix passed independent raw-derived family admission validation."
+          "path": "docs/status/evidence/s7-auxiliary-admission-reprojection.json",
+          "sha256": "7b00369486eb97e82d062503e02cd6b144f597e6db00df26027ef7dc795b4e94",
+          "generated_at": "2026-08-24T03:56:57.495961Z",
+          "claim": "The immutable 36-run matrix is reprojected with selected/admitted starvation separated from intentional over-limit pre-admission rejection."
         },
         {
           "path": "docs/status/evidence/s7-current-revision-cuda-smoke.json",
-          "sha256": "0a52a985b5daf956e1d366e78633164eac2e6b08f1ce6fd5ecc035150ec12e87",
-          "generated_at": "2026-08-23T19:41:16.478936Z",
+          "sha256": "07bc76f0b5eae84b9770564f2b617432170fe7c70b9bf67604cd9a707f11ded4",
+          "generated_at": "2026-08-24T04:05:09.352909Z",
           "claim": "The current revision completed real external-HTTP CUDA inference and restored the exact baseline."
         },
         {
-          "path": "docs/status/evidence/s7-auxiliary-admission-closure.json",
-          "sha256": "ae93a79488e0c531f81055f95a6abf4d47ab508d3390c4de882ae5c43cc91a50",
-          "generated_at": "2026-08-23T19:42:28.849003Z",
-          "claim": "Strict closure binds acceptance, regressions, private hashes, Git blobs, and cleanup without broad production claims."
+          "path": "docs/status/evidence/s7-family-diagnostic-gate.json",
+          "sha256": "14f60b6ffdf5741615388016c6f743c9a51592f26060fb89c0ffd261d754a32d",
+          "generated_at": "2026-08-23T19:08:22.335888Z",
+          "claim": "Fresh image, VLM, and LLM diagnostics completed 18 of 18 real-CUDA requests and closed only the readiness gate."
+        },
+        {
+          "path": "docs/status/evidence/s7-post-closure-smoke-attempt-01.json",
+          "sha256": "84774ee833712e60ccee4263083c037c13038efba8b3951b7c38dcf7fe1a0301",
+          "generated_at": "2026-08-24T04:01:35.505748Z",
+          "claim": "The first post-closure current-revision smoke stopped before runtime mutation because the image curation manifest had been regenerated; it receives zero credit."
         }
       ],
       "verdict_and_claim_boundary": {
