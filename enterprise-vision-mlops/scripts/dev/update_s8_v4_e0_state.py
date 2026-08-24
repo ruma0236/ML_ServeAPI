@@ -120,7 +120,7 @@ def main() -> int:
             for criterion, passed in sorted(acceptance.items())
         ]
         cleanup = evidence.get("cleanup")
-        e0["attempts"] = [
+        successful_attempts = [
             {
                 "attempt_id": item["summary"]["attempt_id"],
                 "repetition": item["summary"]["repetition"],
@@ -131,6 +131,18 @@ def main() -> int:
             }
             for item in evidence["attempts"]
         ]
+        failed_attempts = [
+            {
+                "attempt_id": item["attempt_id"],
+                "credit": item["credit"],
+                "passed": False,
+                "failure": item["failure"],
+                "private_evidence_sha256": item["private_evidence"]["sha256"],
+                "public_evidence": args.evidence.relative_to(ROOT).as_posix(),
+            }
+            for item in evidence.get("failed_attempts_and_rca", [])
+        ]
+        e0["attempts"] = [*failed_attempts, *successful_attempts]
         e0["evidence"] = {
             "path": args.evidence.relative_to(ROOT).as_posix(),
             "sha256": hashlib.sha256(args.evidence.read_bytes()).hexdigest(),
