@@ -157,10 +157,11 @@ def git(*arguments: str) -> str:
 
 
 def git_blob_sha256(revision: str, path: Path) -> str:
-    relative = path.resolve().relative_to(ROOT.resolve()).as_posix()
+    git_root = Path(git("rev-parse", "--show-toplevel")).resolve()
+    relative = path.resolve().relative_to(git_root).as_posix()
     payload = subprocess.run(
         ["git", "show", f"{revision}:{relative}"],
-        cwd=ROOT,
+        cwd=git_root,
         capture_output=True,
         timeout=30,
         check=True,
@@ -1470,6 +1471,7 @@ def main() -> int:
     args = parse_args()
     config = S6BMConfig.from_path(args.config)
     source = source_identity()
+    config_git_blob_sha256 = git_blob_sha256(source["revision"], args.config)
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ").lower()
     suite_id = f"s6bm-{timestamp}-{uuid4().hex[:8]}"
     suite_root = args.private_base / suite_id
@@ -1691,7 +1693,7 @@ def main() -> int:
         "suite_id": suite_id,
         "source_identity": source,
         "contract": {
-            "config_sha256": git_blob_sha256(source["revision"], args.config),
+            "config_sha256": config_git_blob_sha256,
             "snapshot_sha256": canonical_sha256(config.public_snapshot()),
         },
         "environment": {
