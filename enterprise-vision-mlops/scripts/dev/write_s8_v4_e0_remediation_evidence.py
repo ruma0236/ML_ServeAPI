@@ -36,6 +36,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--original-private-root", type=Path, required=True)
     parser.add_argument("--remediation-root", type=Path, required=True)
+    parser.add_argument("--current-smoke", required=True)
+    parser.add_argument("--failed-smoke", required=True)
+    parser.add_argument("--accepted-regressions", required=True)
+    parser.add_argument("--failed-regressions", required=True)
+    parser.add_argument("--focused-e0", required=True)
+    parser.add_argument("--mutation-regressions", required=True)
+    parser.add_argument("--strict-validator", required=True)
+    parser.add_argument("--changed-files-lint", required=True)
     parser.add_argument(
         "--output",
         type=Path,
@@ -56,14 +64,14 @@ def main() -> int:
     revision = git_value("rev-parse", "HEAD")
     references = {
         "historical_prometheus": "historical-prometheus.json",
-        "current_smoke": "current-revision-smoke-984892f/smoke-private.json",
-        "failed_smoke": "current-revision-smoke-b859714/smoke-private.json",
-        "accepted_regressions": "regressions-984892f-r2/regressions",
-        "failed_regressions": "regressions-984892f/regressions",
-        "focused_e0": "focused-e0-984892f.log",
-        "mutation_regressions": "mutation-regressions-984892f.log",
-        "strict_validator": "strict-validator-984892f.log",
-        "changed_files_lint": "changed-files-lint-984892f.log",
+        "current_smoke": args.current_smoke,
+        "failed_smoke": args.failed_smoke,
+        "accepted_regressions": args.accepted_regressions,
+        "failed_regressions": args.failed_regressions,
+        "focused_e0": args.focused_e0,
+        "mutation_regressions": args.mutation_regressions,
+        "strict_validator": args.strict_validator,
+        "changed_files_lint": args.changed_files_lint,
     }
     write_private_index(args.remediation_root, generated_at=generated_at)
     payload = build_remediation_review(
