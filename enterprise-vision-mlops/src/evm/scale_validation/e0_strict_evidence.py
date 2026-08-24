@@ -551,3 +551,54 @@ def strict_revalidate_e0_runtime(
             "CUPTI is a standalone CUDA qualification, not a Triton trace or overlap proof"
         ),
     }
+
+
+def public_strict_projection(strict: Mapping[str, Any]) -> dict[str, Any]:
+    attempts = []
+    for item in strict.get("attempts", []):
+        prometheus = {
+            name: {
+                "sample_count": evidence["sample_count"],
+                "maximum": evidence["maximum"],
+            }
+            for name, evidence in sorted(item["prometheus"].items())
+        }
+        records = list(item["profiler"]["kernel_records"])
+        attempts.append(
+            {
+                "attempt_identity_sha256": hashlib.sha256(
+                    str(item["attempt_id"]).encode("utf-8")
+                ).hexdigest(),
+                "repetition": item["repetition"],
+                "credit": item["credit"],
+                "model_identity": item["model_identity"],
+                "gpu_identity_consistent": True,
+                "request_count": item["request_count"],
+                "output_correct": item["output_correct"],
+                "gpu_instance_proven": item["gpu_instance_proven"],
+                "direct_metrics": item["direct_metrics"],
+                "prometheus": prometheus,
+                "profiler": {
+                    "qualification_method": item["profiler"]["qualification_method"],
+                    "kernel_record_count": len(records),
+                    "devices": sorted({record["device"] for record in records}),
+                    "streams": sorted({record["stream"] for record in records}),
+                    "context_collected": item["profiler"]["context_collected"],
+                    "triton_inference_traced": item["profiler"][
+                        "triton_inference_traced"
+                    ],
+                    "claim_boundary": item["profiler"]["claim_boundary"],
+                },
+                "cleanup": item["cleanup"],
+                "acceptance": item["acceptance"],
+            }
+        )
+    return {
+        "schema_version": strict["schema_version"],
+        "strict_contract": strict["strict_contract"],
+        "attempts": attempts,
+        "acceptance": strict["acceptance"],
+        "evidence_ready": strict["evidence_ready"],
+        "final_cleanup": strict["final_cleanup"],
+        "claim_boundary": strict["claim_boundary"],
+    }
