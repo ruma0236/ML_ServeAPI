@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_s8_config_freezes_fault_and_soak_contract() -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v5.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v6.toml")
 
     assert config.repetitions == 3
     assert config.soak_requests_per_second == 35.0
@@ -35,7 +35,7 @@ def test_s8_config_freezes_fault_and_soak_contract() -> None:
     assert config.retry_healthy_request_count == 4
     assert config.maximum_mttr_seconds == 60.0
     queue_config = AdmissionQueueConfig.from_path(
-        ROOT / "configs/s8_dependency_soak_v5.toml"
+        ROOT / "configs/s8_dependency_soak_v6.toml"
     )
     assert queue_config.runtime_terminal_timeout_seconds == 30.0
     assert tuple(profile for profile in config.fault_matrix().profiles if profile != "I") == FAULT_PROFILE_IDS
@@ -52,7 +52,9 @@ def _fault_results(config: S8RuntimeConfig) -> list[dict[str, object]]:
                     "repetition": repetition,
                     "terminal": {"accepted_count": 4, "elapsed_seconds": 2.0},
                     "profile_observations": {
-                        "fault_recovery_elapsed_seconds": 2.0
+                        "fault_recovery_elapsed_seconds": 2.0,
+                        "mttr_seconds": 2.0,
+                        "mttr_basis": "fault_profile_execution_to_terminal",
                     },
                     "external_effects": {"attempts": 4, "duplicates": 0},
                     "metrics": {
@@ -76,7 +78,7 @@ def _fault_results(config: S8RuntimeConfig) -> list[dict[str, object]]:
 
 
 def test_s8_fault_projection_is_recomputed_and_fail_closed() -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v5.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v6.toml")
     results = _fault_results(config)
 
     assert analyze_fault_results(results, config)["passed"] is True
@@ -87,8 +89,34 @@ def test_s8_fault_projection_is_recomputed_and_fail_closed() -> None:
     assert projection["checks"]["retry_amplification_bounded"] is False
 
 
+def test_s8_worker_loss_mttr_uses_exact_recovery_boundary() -> None:
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v6.toml")
+    results = _fault_results(config)
+    worker_loss = next(item for item in results if item["profile_id"] == "worker-loss")
+    worker_loss["profile_observations"] = {
+        "fault_recovery_elapsed_seconds": 63.234,
+        "worker_recovery_elapsed_seconds": 18.0,
+        "mttr_seconds": 18.0,
+        "mttr_basis": "worker_pid_failure_to_reclaimed_task_terminal",
+    }
+
+    projection = analyze_fault_results(results, config)
+
+    assert projection["passed"] is True
+    sample = next(
+        item
+        for item in projection["mttr_samples"]
+        if item["profile_id"] == "worker-loss"
+    )
+    assert sample["seconds"] == 18.0
+    assert sample["full_profile_elapsed_seconds"] == 63.234
+
+    worker_loss["profile_observations"]["mttr_seconds"] = 60.001
+    assert analyze_fault_results(results, config)["checks"]["mttr_bounded"] is False
+
+
 def test_s8_soak_private_recomputes_finite_resource_slopes(tmp_path: Path) -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v5.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v6.toml")
     samples = [
         {
             "offset_seconds": float(index),

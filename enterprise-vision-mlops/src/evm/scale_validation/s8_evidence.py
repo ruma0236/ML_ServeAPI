@@ -66,7 +66,7 @@ def validate_s8_experiment(
         "admission": Path("src/evm/control_panel/admission_queue.py"),
         "worker": Path("src/evm/control_panel/task_queue_worker.py"),
         "store": Path("src/evm/control_panel/transactional_store.py"),
-        "scenario_config": Path("configs/s8_dependency_soak_v5.toml"),
+        "scenario_config": Path("configs/s8_dependency_soak_v6.toml"),
         "soak_config": Path("configs/s8_soak_capacity_runtime.toml"),
     }
     recorded_blobs = dict(source.get("git_blobs", {}))
@@ -202,6 +202,31 @@ def validate_fault_private_evidence(
             errors.append(f"fault_effect_projection:{profile}:{repetition}")
         if canonical(public.get("metrics")) != canonical(dict(private.get("metrics", {})).get("summary", {})):
             errors.append(f"fault_metric_projection:{profile}:{repetition}")
+        extra = dict(private.get("extra", {}))
+        expected_observations = {
+            key: value
+            for key, value in extra.items()
+            if key
+            in {
+                "accepted_completion_throughput_per_second",
+                "declared_duration_seconds",
+                "declared_rate_per_second",
+                "observed_arrival_window_seconds",
+                "rss_slope",
+                "sustained_sample_count",
+                "variant",
+                "fault_recovery_elapsed_seconds",
+                "worker_recovery_elapsed_seconds",
+                "mttr_seconds",
+                "mttr_basis",
+            }
+        }
+        if canonical(public.get("profile_observations")) != canonical(
+            expected_observations
+        ):
+            errors.append(f"fault_observation_projection:{profile}:{repetition}")
+        if canonical(public.get("assertions")) != canonical(private.get("assertions")):
+            errors.append(f"fault_assertion_projection:{profile}:{repetition}")
         if not bool(private.get("passed")) or not bool(public.get("passed")):
             errors.append(f"fault_not_passed:{profile}:{repetition}")
         if not all(bool(item.get("passed")) for item in public.get("assertions", [])):

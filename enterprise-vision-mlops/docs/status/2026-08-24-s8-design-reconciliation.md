@@ -66,7 +66,7 @@ failure reopens it. Lease/fencing, PostgreSQL authority, idempotency, DLQ, and
 existing API response contracts remain unchanged.
 
 The circuit is disabled by default in the accepted S2 profile. It is enabled only
-by `configs/s8_dependency_soak_v5.toml`, providing a direct rollback to the prior
+by `configs/s8_dependency_soak_v6.toml`, providing a direct rollback to the prior
 behavior without a schema migration.
 
 ## Experiment And Stop Contract

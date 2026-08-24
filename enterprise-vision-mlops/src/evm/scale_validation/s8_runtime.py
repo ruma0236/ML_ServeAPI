@@ -223,7 +223,7 @@ class S8RuntimeConfig:
 
     def fault_matrix(self) -> FaultMatrix:
         return FaultMatrix(
-            version="s8-isolated-faults-v5-20260824",
+            version="s8-isolated-faults-v6-20260824",
             seed=self.seed,
             repetitions=self.repetitions,
             warmup_seconds=2.0,
@@ -346,9 +346,22 @@ def run_fault_scope(
             result = run_profile_i(scope, matrix, repetition)
         else:
             result = execute_fault_profile(scope, matrix, profile_id, repetition)
+        full_profile_elapsed = time.monotonic() - execution_started
+        result_extra = dict(result.get("extra") or {})
+        worker_recovery = result_extra.get("worker_recovery_elapsed_seconds")
         result["extra"] = {
-            **dict(result.get("extra") or {}),
-            "fault_recovery_elapsed_seconds": time.monotonic() - execution_started,
+            **result_extra,
+            "fault_recovery_elapsed_seconds": full_profile_elapsed,
+            "mttr_seconds": (
+                float(worker_recovery)
+                if profile_id == "worker-loss" and worker_recovery is not None
+                else full_profile_elapsed
+            ),
+            "mttr_basis": (
+                "worker_pid_failure_to_reclaimed_task_terminal"
+                if profile_id == "worker-loss"
+                else "fault_profile_execution_to_terminal"
+            ),
         }
         queue_config = AdmissionQueueConfig.from_path(queue_config_path)
         public, private = finalize_profile_scope(
@@ -709,16 +722,29 @@ def analyze_fault_results(
     circuit_opens = 0.0
     duplicate_effects = 0
     pool_timeouts = 0.0
+    mttr_samples: list[dict[str, Any]] = []
     for result in results:
         accepted = int(dict(result.get("terminal", {})).get("accepted_count", 0))
         attempts = int(dict(result.get("external_effects", {})).get("attempts", 0))
         amplification.append(attempts / accepted if accepted else math.inf)
-        mttr.append(
-            float(
-                dict(result.get("profile_observations", {})).get(
-                    "fault_recovery_elapsed_seconds", math.inf
-                )
+        observations = dict(result.get("profile_observations", {}))
+        measured_mttr = float(
+            observations.get(
+                "mttr_seconds",
+                observations.get("fault_recovery_elapsed_seconds", math.inf),
             )
+        )
+        mttr.append(measured_mttr)
+        mttr_samples.append(
+            {
+                "profile_id": str(result.get("profile_id", "")),
+                "repetition": int(result.get("repetition", 0)),
+                "basis": str(observations.get("mttr_basis", "legacy_full_profile")),
+                "seconds": measured_mttr,
+                "full_profile_elapsed_seconds": float(
+                    observations.get("fault_recovery_elapsed_seconds", math.inf)
+                ),
+            }
         )
         metrics = dict(result.get("metrics", {}))
         circuit_opens += float(
@@ -751,6 +777,8 @@ def analyze_fault_results(
         "expected_result_count": expected,
         "retry_amplification": statistics(amplification),
         "mttr_seconds": statistics(mttr),
+        "mttr_samples": mttr_samples,
+        "mttr_basis_counts": dict(Counter(item["basis"] for item in mttr_samples)),
         "dependency_circuit_open_count": circuit_opens,
         "duplicate_external_effect_count": duplicate_effects,
         "pool_timeout_count": pool_timeouts,
@@ -1063,7 +1091,7 @@ def run_s8_experiment(
     root = root.resolve()
     config = S8RuntimeConfig.from_path(scenario_config_path)
     queue_config = AdmissionQueueConfig.from_path(queue_config_path)
-    if queue_config.profile_version != "s8-dependency-soak-v5-20260824":
+    if queue_config.profile_version != "s8-dependency-soak-v6-20260824":
         raise S8RuntimeError("s8_queue_profile_identity_invalid")
     if not port_is_available(queue_config.metrics_port):
         raise S8RuntimeError(f"s8_worker_metrics_port_in_use:{queue_config.metrics_port}")

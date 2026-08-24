@@ -1,5 +1,5 @@
 [profile]
-version = "s8-dependency-soak-v5-20260824"
+version = "s8-dependency-soak-v6-20260824"
 status = "frozen-before-experiment"
 
 [durable_queue]
@@ -44,7 +44,7 @@ backoff_max_seconds = 2.0
 jitter_ratio = 0.20
 global_budget = 8
 budget_window_seconds = 60.0
-budget_scope = "s8-dependency-soak-v5"
+budget_scope = "s8-dependency-soak-v6"
 
 [dependency_circuit]
 failure_threshold = 3

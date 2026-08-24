@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T08:40:10Z`
+- Generated: `2026-08-24T08:45:26Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -739,7 +739,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.
 - Verdict: `not_run`
 - Claim boundary: Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.
-- Next action: Rerun the complete 21-repetition fault matrix from the v6 profile-specific MTTR revision; begin soak only after every fresh fault repetition passes.
+- Next action: Run a zero-credit worker-loss v6 preflight, then restart all 21 fault repetitions; start the 30-minute x3 soak only after the fault gate passes.
 
 ### Affected Existing Components
 
@@ -765,7 +765,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Existing durable queue retry and dependency boundary: `src/evm/control_panel/admission_queue.py`, `src/evm/control_panel/task_queue_worker.py`, `src/evm/control_panel/transactional_store.py`
 - Existing capacity runtime resource sampler: `src/evm/scale_validation/s3_runtime.py`
 - S8 external runtime and independent evidence validation: `src/evm/scale_validation/s8_runtime.py`, `src/evm/scale_validation/s8_evidence.py`, `scripts/dev/run_s8_dependency_soak_experiment.py`, `scripts/dev/validate_s8_dependency_soak_evidence.py`, `tests/test_s8_runtime.py`, `tests/test_s8_evidence.py`
-- S8 frozen execution and evidence contract: `configs/s8_dependency_soak_v5.toml`, `configs/s8_soak_capacity_runtime.toml`, `docs/status/2026-08-24-s8-design-reconciliation.md`
+- S8 frozen execution and evidence contract: `configs/s8_dependency_soak_v6.toml`, `configs/s8_soak_capacity_runtime.toml`, `docs/status/2026-08-24-s8-design-reconciliation.md`
 - Compatibility: Existing A-E guard evidence remains baseline-only and cannot substitute for fresh scale-soak evidence.
 - Migration: Introduce fault controls behind explicit profiles and retain a no-fault operating profile for rollback.
 
@@ -807,3 +807,5 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-24T08:07:50Z` `implementation` / `implementing`: The zero-credit v4 timeout preflight reached 6/6 terminal outcomes but failed trace and MTTR because the 12-second injected delay also affected four healthy tasks. V5 scopes delay to timeout work only.
 - `2026-08-24T08:18:35Z` `verification` / `implementing`: The zero-credit v5 timeout preflight passed 6/6 terminal and trace closure, exact effect accounting, mirror parity, bounded 51.484-second recovery, and cleanup. Acceptance credit remains zero.
 - `2026-08-24T08:40:10Z` `experiment` / `implementing`: Attempt 04 was rejected with zero acceptance credit. All 21 individual fault scopes passed, but worker-loss MTTR included a sequential timeout/HOL phase and exceeded 60 seconds; cleanup completed and soak did not start.
+- `2026-08-24T08:44:17Z` `implementation` / `implementing`: V6 preserves full worker-loss profile elapsed time but defines operational worker MTTR as exact PID failure to the reclaimed slow task terminal outcome. The 60-second bound remains unchanged.
+- `2026-08-24T08:45:26Z` `implementation` / `implementing`: V6 preserves full worker-loss profile elapsed time but defines operational worker MTTR as exact PID failure to the reclaimed slow task terminal outcome. The 60-second bound remains unchanged.

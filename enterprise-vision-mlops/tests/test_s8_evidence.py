@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import copy
+import json
+import hashlib
 from pathlib import Path
 
 import pytest
 
 import evm.scale_validation.s8_evidence as evidence
 from evm.scale_validation.s8_evidence import S8EvidenceValidationError
+from evm.scale_validation.s8_evidence import validate_fault_private_evidence
 from evm.scale_validation.s8_runtime import (
     FAULT_PROFILE_IDS,
     SCHEMA_VERSION,
@@ -20,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _payload(monkeypatch: pytest.MonkeyPatch) -> tuple[dict, S8RuntimeConfig]:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v5.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v6.toml")
     faults = []
     for profile in FAULT_PROFILE_IDS:
         for repetition in range(1, 4):
@@ -30,7 +33,9 @@ def _payload(monkeypatch: pytest.MonkeyPatch) -> tuple[dict, S8RuntimeConfig]:
                     "repetition": repetition,
                     "terminal": {"accepted_count": 4, "elapsed_seconds": 2.0},
                     "profile_observations": {
-                        "fault_recovery_elapsed_seconds": 2.0
+                        "fault_recovery_elapsed_seconds": 2.0,
+                        "mttr_seconds": 2.0,
+                        "mttr_basis": "fault_profile_execution_to_terminal",
                     },
                     "external_effects": {"attempts": 4, "duplicates": 0},
                     "metrics": {
@@ -152,6 +157,82 @@ def test_s8_validator_recomputes_summary(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert result["valid"] is True
     assert result["fault_result_count"] == 21
+
+
+def test_fault_private_projection_rejects_mttr_mutation(tmp_path: Path) -> None:
+    profile = "worker-loss"
+    repetition = 1
+    private_path = (
+        tmp_path
+        / "faults"
+        / profile
+        / f"repetition-{repetition}"
+        / "profile-result-private.json"
+    )
+    private_path.parent.mkdir(parents=True)
+    assertions = [{"assertion_id": "worker_recovered", "passed": True}]
+    private = {
+        "terminal": {
+            "accepted_count": 1,
+            "terminal_seen_count": 1,
+            "missing_terminal_count": 0,
+            "elapsed_seconds": 3.0,
+            "final": {"state_counts": {"completed": 1}},
+        },
+        "fixture": {
+            "attempts": 1,
+            "unique_external_effects": 1,
+            "duplicate_external_effects": 0,
+            "tasks_with_multiple_logical_effects": 0,
+            "max_runtime_concurrency": {"cpu": 1},
+            "max_external_in_flight": {"cpu": 1},
+        },
+        "metrics": {"summary": {}},
+        "extra": {
+            "fault_recovery_elapsed_seconds": 63.234,
+            "worker_recovery_elapsed_seconds": 18.0,
+            "mttr_seconds": 18.0,
+            "mttr_basis": "worker_pid_failure_to_reclaimed_task_terminal",
+        },
+        "assertions": assertions,
+        "passed": True,
+    }
+    private_path.write_text(json.dumps(private), encoding="utf-8")
+    public = {
+        "profile_id": profile,
+        "repetition": repetition,
+        "private_evidence_sha256": hashlib.sha256(private_path.read_bytes()).hexdigest(),
+        "terminal": {
+            "accepted_count": 1,
+            "terminal_count": 1,
+            "missing_count": 0,
+            "elapsed_seconds": 3.0,
+            "final_state_counts": {"completed": 1},
+        },
+        "external_effects": {
+            "attempts": 1,
+            "unique": 1,
+            "duplicates": 0,
+            "multiple_logical": 0,
+            "max_runtime_concurrency": {"cpu": 1},
+            "max_external_in_flight": {"cpu": 1},
+            "cuda_probe_count": 0,
+            "cuda_failure_count": 0,
+            "cuda_nonzero_activity_count": 0,
+            "cuda_peak_allocated_bytes": 0,
+        },
+        "metrics": {},
+        "profile_observations": dict(private["extra"]),
+        "assertions": assertions,
+        "passed": True,
+    }
+
+    errors, _ = validate_fault_private_evidence([public], private_root=tmp_path)
+    assert errors == ["fault_matrix_identity"]
+
+    public["profile_observations"]["mttr_seconds"] = 1.0
+    errors, _ = validate_fault_private_evidence([public], private_root=tmp_path)
+    assert "fault_observation_projection:worker-loss:1" in errors
 
 
 @pytest.mark.parametrize(

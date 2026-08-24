@@ -55,12 +55,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scenario-config",
         type=Path,
-        default=ROOT / "configs/s8_dependency_soak_v5.toml",
+        default=ROOT / "configs/s8_dependency_soak_v6.toml",
     )
     parser.add_argument(
         "--queue-config",
         type=Path,
-        default=ROOT / "configs/s8_dependency_soak_v5.toml",
+        default=ROOT / "configs/s8_dependency_soak_v6.toml",
     )
     parser.add_argument(
         "--soak-config",

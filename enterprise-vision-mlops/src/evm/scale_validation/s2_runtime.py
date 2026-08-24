@@ -2165,6 +2165,9 @@ def finalize_profile_scope(
                 "sustained_sample_count",
                 "variant",
                 "fault_recovery_elapsed_seconds",
+                "worker_recovery_elapsed_seconds",
+                "mttr_seconds",
+                "mttr_basis",
             }
         },
         "strict_evidence": strict_evidence,
@@ -2894,6 +2897,7 @@ def run_profile_i(
     old_pid = scope.worker.pid if scope.worker else 0
     old_create_time = psutil.Process(old_pid).create_time()
     old_children = [child.pid for child in psutil.Process(old_pid).children(recursive=True)]
+    worker_failure_started = time.monotonic()
     stopped = scope.stop_worker(force=True)
     old_dead = not psutil.pid_exists(old_pid)
     orphan_children = [pid for pid in old_children if psutil.pid_exists(pid)]
@@ -2913,6 +2917,7 @@ def run_profile_i(
         timeout=matrix.drain_timeout_seconds,
         sample_interval=matrix.sample_interval_seconds,
     )
+    worker_recovery_elapsed_seconds = time.monotonic() - worker_failure_started
     follow_submission = submit_payloads(
         api_url=scope.api.base_url,
         payloads=[timeout_payload, healthy],
@@ -3022,7 +3027,11 @@ def run_profile_i(
             ),
         ],
         "input_sequence_sha256": payload_digest([slow, timeout_payload, healthy]),
-        "extra": {"worker_replacement": replacement_identity, "heartbeat": heartbeat},
+        "extra": {
+            "worker_replacement": replacement_identity,
+            "heartbeat": heartbeat,
+            "worker_recovery_elapsed_seconds": worker_recovery_elapsed_seconds,
+        },
     }
 
 
