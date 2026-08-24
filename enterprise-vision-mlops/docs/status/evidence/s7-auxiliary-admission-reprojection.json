@@ -5,7 +5,7 @@
   "suite_id": "20260823T192119Z-6704349a",
   "source_identity": {
     "execution_revision": "6704349afa277cca8b1dac95154d34aff8d644ec",
-    "projection_revision": "bb64dd50c2d0c3dae4668d63eb01cad31501c275",
+    "projection_revision": "6f8fbb466fda6f250f78a97caff8a36e853d087a",
     "branch": "codex/distributed-scale-validation-plan",
     "config_sha256": "44f057932a402787becc9476c598a2dd00d05cbb8915df7f3fa6eac143f79d93",
     "execution_git_blobs": {
@@ -83,23 +83,23 @@
       },
       "runtime": {
         "path": "enterprise-vision-mlops/src/evm/scale_validation/s7_runtime.py",
-        "blob_oid": "ecc2f8f980cd7934ac4013898b3403bdce79a041",
-        "sha256": "705e66938acd83e9a3679f20a65ec6ee465b7540d2b07e7b45b925d08a7d2757"
+        "blob_oid": "d1b482f1b8363bc4d1b8b7fe1243b086a7322b96",
+        "sha256": "95776898979a290a8af98faf6520b6d04e1012c28696d815f1e9b394f6c2eb45"
       },
       "evidence": {
         "path": "enterprise-vision-mlops/src/evm/scale_validation/s7_evidence.py",
-        "blob_oid": "d25d0b09c9b2d05c62a02a584f544f6ecc900909",
-        "sha256": "59988d6e46d79d683c3d66a79d776689b8994b7965a4a92b9f842717474a6e3d"
+        "blob_oid": "4fa371a5ac0509d100d14ce19d37ead90800c196",
+        "sha256": "7e10249ce4388dbf45629c5f0e5c6cec874640f2a30ec7ce8bf447cdaa8aaeb7"
       },
       "runner": {
         "path": "enterprise-vision-mlops/scripts/dev/run_s7_auxiliary_admission_experiment.py",
-        "blob_oid": "fbdaf6d31b60c4fbfa2ff8b2617c2b43918f9c78",
-        "sha256": "2d7106de720ace9b7d485ab48ad8a78c809e06c1de46b881722d18755d2d1138"
+        "blob_oid": "b1da0020333148142ef8857178c44db0c1e2624c",
+        "sha256": "259dce70642411a732af1f8f7ac4d46f050149c2fe66813bd08158d0925faa18"
       },
       "validator": {
         "path": "enterprise-vision-mlops/scripts/dev/validate_s7_auxiliary_admission_evidence.py",
-        "blob_oid": "e22cedf2f2dbd33e2d93739d3f5deee21a6f846a",
-        "sha256": "c6f168bdfa62b8729e0ec025c26f84ef9e4776f0932fd5d268b17f4d7db2d594"
+        "blob_oid": "004e51a0c21ad65bf3e5d8ebd39b74d8df8f6395",
+        "sha256": "e950cc202785597310ca5efde36f413382da6c06fe46ea8c1a0d8a9d14cf47ba"
       },
       "admission": {
         "path": "enterprise-vision-mlops/src/evm/model_runtime/family_admission.py",
@@ -2797,6 +2797,7 @@
       "trace_complete": true,
       "prometheus_complete": true,
       "bounded_over_limit_rejection": true,
+      "profile_outcome_invariants": true,
       "fairness_and_hol": true
     }
   },
@@ -2892,5 +2893,5 @@
   "failed_attempts": [],
   "historical_projection_note": "The immutable 36-run private matrix is reprojected without rerun. Selected/admitted starvation is separated from intentional over-limit pre-admission rejection; the original v1 experiment and closure remain addressable in Git history.",
   "claim_boundary": "Controlled family-specific admission evidence on one local physical node and one consumer GPU. No customer traffic, production SLA, physical multi-node or multi-zone HA, stateful HA/DR, multi-GPU, broad benchmark-quality, or business A/B claim.",
-  "generated_at": "2026-08-24T03:56:57.495961Z"
+  "generated_at": "2026-08-24T04:38:10.613770Z"
 }
