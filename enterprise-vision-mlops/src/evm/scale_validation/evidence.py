@@ -14,8 +14,14 @@ class PublicEvidenceIntegrityError(ValueError):
     pass
 
 
+def _reject_non_finite_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
 def canonical_public_json_bytes(payload: Any) -> bytes:
-    return (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    return (
+        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    ).encode("utf-8")
 
 
 def write_public_json(path: Path, payload: Any) -> None:
@@ -30,8 +36,11 @@ def require_canonical_lf(path: str, payload: bytes) -> bytes:
         raise PublicEvidenceIntegrityError(f"public evidence is not canonical LF: {path}")
     if path.endswith(".json"):
         try:
-            json.loads(payload.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            json.loads(
+                payload.decode("utf-8"),
+                parse_constant=_reject_non_finite_constant,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise PublicEvidenceIntegrityError(
                 f"public evidence is not valid UTF-8 JSON: {path}"
             ) from exc

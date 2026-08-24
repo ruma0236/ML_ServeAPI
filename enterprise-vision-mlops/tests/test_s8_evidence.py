@@ -159,6 +159,21 @@ def test_s8_validator_recomputes_summary(monkeypatch: pytest.MonkeyPatch) -> Non
     assert result["fault_result_count"] == 21
 
 
+def test_s8_validator_rejects_non_finite_evidence_without_crashing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload, config = _payload(monkeypatch)
+    payload["fault_results"][0]["metrics"]["observed_upper_bound"] = float("inf")
+
+    with pytest.raises(S8EvidenceValidationError, match="non_finite"):
+        evidence.validate_s8_experiment(
+            payload,
+            config=config,
+            private_root=ROOT,
+            project_root=ROOT,
+        )
+
+
 def test_fault_private_projection_rejects_mttr_mutation(tmp_path: Path) -> None:
     profile = "worker-loss"
     repetition = 1

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import random
 import subprocess
@@ -770,7 +771,7 @@ def histogram_metric_summary(
     name: str,
     *,
     labels: Mapping[str, str] | None = None,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     count = max_metric(samples, f"{name}_count", labels=labels)
     total = max_metric(samples, f"{name}_sum", labels=labels)
     upper_bound = 0.0
@@ -788,12 +789,15 @@ def histogram_metric_summary(
             if raw not in {"+Inf", "Inf"}:
                 candidates.append(float(raw))
         upper_bound = min(candidates, default=float("inf"))
-    return {
+    summary: dict[str, Any] = {
         "count": count,
         "sum": total,
         "average": total / count if count else 0.0,
-        "observed_upper_bound": upper_bound,
+        "observed_upper_bound": None if math.isinf(upper_bound) else upper_bound,
     }
+    if math.isinf(upper_bound):
+        summary["observed_upper_bound_status"] = "overflowed_finite_buckets"
+    return summary
 
 
 def build_task_payload(
@@ -1821,22 +1825,32 @@ def bounded_metric_summary(
 
 def merge_histogram_summaries(
     *summaries: Mapping[str, Any],
-) -> dict[str, float]:
+) -> dict[str, Any]:
     count = sum(float(item.get("count", 0)) for item in summaries)
     total = sum(float(item.get("sum", 0)) for item in summaries)
-    return {
+    overflowed = any(
+        float(item.get("count", 0)) > 0
+        and item.get("observed_upper_bound") is None
+        for item in summaries
+    )
+    finite_bounds = [
+        float(item.get("observed_upper_bound", 0))
+        for item in summaries
+        if item.get("observed_upper_bound") is not None
+    ]
+    merged: dict[str, Any] = {
         "count": count,
         "sum": total,
         "average": total / count if count else 0.0,
-        "observed_upper_bound": max(
-            (float(item.get("observed_upper_bound", 0)) for item in summaries),
-            default=0.0,
-        ),
+        "observed_upper_bound": None if overflowed else max(finite_bounds, default=0.0),
         "max": max(
             (float(item.get("max", 0)) for item in summaries),
             default=0.0,
         ),
     }
+    if overflowed:
+        merged["observed_upper_bound_status"] = "overflowed_finite_buckets"
+    return merged
 
 
 def assertion(assertion_id: str, passed: bool, observed: Any) -> dict[str, Any]:

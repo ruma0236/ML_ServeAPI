@@ -50,6 +50,10 @@ def validate_s8_experiment(
 ) -> dict[str, Any]:
     errors: list[str] = []
     _validate_finite(payload, "evidence", errors)
+    if errors:
+        raise S8EvidenceValidationError(
+            "s8_experiment_invalid:" + ",".join(sorted(set(errors)))
+        )
     if payload.get("schema_version") != SCHEMA_VERSION:
         errors.append("schema_version")
     source = dict(payload.get("source_identity", {}))
@@ -83,6 +87,38 @@ def validate_s8_experiment(
         recorded_blobs.get("runtime", {})
     ).get("sha256"):
         errors.append("runtime_module_sha256")
+    projection = dict(source.get("evidence_projection", {}))
+    amendments = _mappings(payload.get("evidence_amendments"))
+    if amendments and not projection:
+        errors.append("evidence_projection_missing")
+    if projection:
+        projection_revision = str(projection.get("revision") or "")
+        if not REVISION_PATTERN.fullmatch(projection_revision):
+            errors.append("evidence_projection_revision")
+        else:
+            if REVISION_PATTERN.fullmatch(revision) and not _is_ancestor(
+                project_root, revision, projection_revision
+            ):
+                errors.append("evidence_projection_runtime_ancestry")
+            if not _is_ancestor(
+                project_root, projection_revision, validation_revision
+            ):
+                errors.append("evidence_projection_validation_ancestry")
+            try:
+                expected_projection = git_blob_identity(
+                    project_root,
+                    projection_revision,
+                    Path("scripts/dev/reproject_s8_dependency_soak_evidence.py"),
+                )
+            except (OSError, subprocess.SubprocessError):
+                errors.append("evidence_projection_unresolvable")
+            else:
+                if canonical(projection.get("script")) != canonical(
+                    expected_projection
+                ):
+                    errors.append("evidence_projection_blob")
+        if projection.get("runtime_semantics_changed") is not False:
+            errors.append("evidence_projection_runtime_semantics")
     public_config = dict(payload.get("config", {}))
     if public_config.get("scenario_sha256") != config.sha256:
         errors.append("scenario_config_sha256")
@@ -174,7 +210,10 @@ def validate_fault_private_evidence(
             errors.append(f"fault_private_sha256:{profile}:{repetition}")
         private = _read_mapping(path)
         observed.append(private)
+        finite_error_count = len(errors)
         _validate_finite(private, f"fault:{profile}:{repetition}", errors)
+        if len(errors) != finite_error_count:
+            continue
         terminal = dict(private.get("terminal", {}))
         fixture = dict(private.get("fixture", {}))
         expected_terminal = {
@@ -254,7 +293,10 @@ def validate_soak_private_evidence(
         if sha256_file(path) != public.get("private_evidence_sha256"):
             errors.append(f"soak_private_sha256:{repetition}")
         private = _read_mapping(path)
+        finite_error_count = len(errors)
         _validate_finite(private, f"soak:{repetition}", errors)
+        if len(errors) != finite_error_count:
+            continue
         expected_public = public_point_projection(private)
         expected_public["private_evidence_sha256"] = sha256_file(path)
         expected_public["private_evidence_bytes"] = path.stat().st_size
@@ -272,6 +314,7 @@ def validate_private_index(
     if not path.is_file():
         return {}, ["private_index_missing"]
     payload = _read_mapping(path)
+    _validate_finite(payload, "private_index", errors)
     entries = _mappings(payload.get("artifacts"))
     for entry in entries:
         target = root / str(entry.get("path"))
@@ -295,6 +338,16 @@ def validate_private_index(
         errors.append("public_private_count")
     if public_summary.get("aggregate_sha256") != projected["aggregate_sha256"]:
         errors.append("public_private_aggregate")
+    indexed_paths = {str(entry.get("path")) for entry in entries}
+    actual_paths = {
+        candidate.relative_to(root).as_posix()
+        for candidate in root.rglob("*")
+        if candidate.is_file()
+        and candidate.name
+        not in {"private-evidence-index.json", "suite-summary-private.json"}
+    }
+    if indexed_paths != actual_paths:
+        errors.append("private_index_inventory")
     return projected, errors
 
 

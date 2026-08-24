@@ -921,14 +921,21 @@ def canonical_write(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
     temporary.write_bytes(
-        (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        (
+            json.dumps(payload, sort_keys=True, indent=2, allow_nan=False) + "\n"
+        ).encode("utf-8")
     )
     temporary.replace(path)
 
 
 def canonical_digest(payload: object) -> str:
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
     ).hexdigest()
 
 

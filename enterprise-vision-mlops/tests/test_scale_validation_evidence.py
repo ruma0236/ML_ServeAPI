@@ -39,6 +39,11 @@ def test_public_json_writer_and_rehash_use_canonical_lf(tmp_path: Path) -> None:
     assert public_file_sha256(path) == hashlib.sha256(payload).hexdigest()
 
 
+def test_public_json_writer_rejects_non_finite_values(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Out of range float values"):
+        write_public_json(tmp_path / "evidence.json", {"value": float("inf")})
+
+
 def test_public_artifact_verifier_rehashes_actual_bytes(tmp_path: Path) -> None:
     path = tmp_path / "evidence.json"
     write_public_json(path, {"status": "pass"})
@@ -63,6 +68,12 @@ def test_public_artifact_verifier_rejects_crlf_and_wrong_hash() -> None:
         verify_public_artifacts(
             [artifact("evidence.json", "a" * 64)],
             load_bytes=lambda _: b'{"status":"pass"}\n',
+        )
+
+    with pytest.raises(PublicEvidenceIntegrityError, match="not valid UTF-8 JSON"):
+        verify_public_artifacts(
+            [artifact("evidence.json", "a" * 64)],
+            load_bytes=lambda _: b'{"value":Infinity}\n',
         )
 
 

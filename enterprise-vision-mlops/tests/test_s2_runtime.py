@@ -211,6 +211,25 @@ def test_histogram_merge_preserves_measurements_across_worker_restart():
     }
 
 
+def test_histogram_overflow_is_json_safe_and_propagates_through_merge():
+    samples = {
+        "wait_seconds_count": [{"labels": {}, "value": 2}],
+        "wait_seconds_sum": [{"labels": {}, "value": 3}],
+        "wait_seconds_bucket": [
+            {"labels": {"le": "1.0"}, "value": 1},
+            {"labels": {"le": "+Inf"}, "value": 2},
+        ],
+    }
+
+    summary = s2_runtime.histogram_metric_summary(samples, "wait_seconds")
+    merged = merge_histogram_summaries(summary)
+
+    assert summary["observed_upper_bound"] is None
+    assert summary["observed_upper_bound_status"] == "overflowed_finite_buckets"
+    assert merged["observed_upper_bound"] is None
+    assert merged["observed_upper_bound_status"] == "overflowed_finite_buckets"
+
+
 def test_worker_executor_rss_peak_reads_retained_heartbeat_value(tmp_path):
     heartbeat = tmp_path / "worker-heartbeat.json"
     heartbeat.write_text(
