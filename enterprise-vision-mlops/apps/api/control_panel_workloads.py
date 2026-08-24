@@ -33,6 +33,16 @@ from evm.model_runtime.gpu_batch_probe import (
     execute_gpu_batch_probe,
     load_gpu_batch_probe_descriptor,
 )
+from evm.model_runtime.triton_blue_green import (
+    TritonBlueGreenControlRequest,
+    TritonBlueGreenError,
+    TritonBlueGreenInitializeRequest,
+    TritonBlueGreenPredictRequest,
+    TritonBlueGreenPredictResponse,
+    TritonBlueGreenResetRequest,
+    TritonBlueGreenStateResponse,
+    manager as triton_blue_green_manager,
+)
 from evm.control_panel.scenario_workload_control import (
     ScenarioWorkloadApprovalRequest,
     ScenarioWorkloadLaunchRequest,
@@ -273,6 +283,62 @@ async def predict_scenario_gpu_batch_probe(
         ) from exc
 
 
+@router.post(
+    "/scenario-workloads/triton-blue-green/initialize",
+    response_model=TritonBlueGreenStateResponse,
+)
+def initialize_triton_blue_green(
+    request: TritonBlueGreenInitializeRequest,
+) -> TritonBlueGreenStateResponse:
+    return triton_blue_green_operation(lambda: triton_blue_green_manager.initialize(request))
+
+
+@router.post(
+    "/scenario-workloads/triton-blue-green/control",
+    response_model=TritonBlueGreenStateResponse,
+)
+def control_triton_blue_green(
+    request: TritonBlueGreenControlRequest,
+) -> TritonBlueGreenStateResponse:
+    return triton_blue_green_operation(lambda: triton_blue_green_manager.control(request))
+
+
+@router.post(
+    "/scenario-workloads/triton-blue-green/predict",
+    response_model=TritonBlueGreenPredictResponse,
+)
+async def predict_triton_blue_green(
+    request: TritonBlueGreenPredictRequest,
+) -> TritonBlueGreenPredictResponse:
+    try:
+        return await triton_blue_green_manager.predict(request)
+    except TritonBlueGreenError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.get(
+    "/scenario-workloads/triton-blue-green/state",
+    response_model=TritonBlueGreenStateResponse,
+)
+def triton_blue_green_state() -> TritonBlueGreenStateResponse:
+    return triton_blue_green_manager.snapshot()
+
+
+@router.post(
+    "/scenario-workloads/triton-blue-green/reset",
+)
+def reset_triton_blue_green(request: TritonBlueGreenResetRequest) -> dict[str, bool]:
+    triton_blue_green_operation(
+        lambda: triton_blue_green_manager.reset(
+            request.run_id, request.lease_id, request.fencing_token
+        )
+    )
+    return {"reset": True}
+
+
 @router.get("/scenario-workloads/{run_id}", response_model=ScenarioWorkloadRunView)
 def scenario_workload_run(run_id: str) -> ScenarioWorkloadRunView:
     try:
@@ -302,6 +368,16 @@ def capacity_probe_operation(operation):
             status_code=exc.status_code,
             detail={"error": exc.code, "message": str(exc)},
             headers=exc.headers,
+        ) from exc
+
+
+def triton_blue_green_operation(operation):
+    try:
+        return operation()
+    except TritonBlueGreenError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": str(exc)},
         ) from exc
 
 

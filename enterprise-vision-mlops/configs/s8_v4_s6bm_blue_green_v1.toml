@@ -1,0 +1,57 @@
+schema_version = "evm.s8_v4.s6bm_runtime_config.v1"
+
+[identity]
+triton_image = "nvcr.io/nvidia/tritonserver:25.08-py3"
+triton_image_digest = "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0687a4d2ac9f7a5"
+expected_gpu_name = "NVIDIA GeForce RTX 4080 SUPER"
+model_repository_sha256 = "5f27136b5f53522b2e8b21a9e2ba6dc25c63b7a6e862c839f704c6b2437efbed"
+seed = 20260825
+
+[blue]
+model_name = "s6bm_blue"
+model_version = "1"
+artifact_sha256 = "4ba059b79a9c8b91017dd415395cddc53395d593360131598fec303a210771f8"
+config_sha256 = "ca9c4846c17b2c3a1ff8fe48cf6bc5b66bab7aa58037eb84366875e4cfc4490b"
+expected_output = [3.0, 5.0, 7.0, 9.0]
+
+[green]
+model_name = "s6bm_green"
+model_version = "1"
+artifact_sha256 = "194a45c3f82d95ef3a21da16f533ba959fd1c76afa9088a6a795256c50fd2146"
+config_sha256 = "b3b33e38e4bd6ae82a8f2dbbc53a9dd1ef1db54be679615eca1352858e003499"
+expected_output = [4.0, 6.0, 8.0, 10.0]
+
+[procedure]
+baseline_repetitions = 3
+successful_transition_repetitions = 3
+wrong_digest_repetitions = 3
+negative_profile_repetitions = 3
+logical_requests_per_transition = 1000
+baseline_requests = 250
+canary_requests = 100
+warmup_requests = 20
+request_concurrency = 16
+long_in_flight_hold_ms = 1200
+readiness_timeout_seconds = 30
+drain_timeout_seconds = 15
+cleanup_timeout_seconds = 120
+vram_headroom_mib = 512
+max_transition_p99_ms = 250.0
+max_inter_completion_gap_ms = 2500.0
+max_transition_5xx = 0
+canary_weight_percent = 10
+
+[ports]
+triton_http = 18100
+triton_grpc = 18101
+triton_metrics = 18102
+api = 18110
+
+[telemetry]
+prometheus_job_triton = "evm-s8-v4-s6bm-triton"
+prometheus_job_api = "evm-s8-v4-s6bm-api"
+prometheus_scrape_seconds = 1
+
+[claim_boundary]
+scope = "one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, controlled traffic"
+excluded = ["production SLA", "physical HA", "node failover", "multi-node", "multi-GPU", "MIG", "MPS", "zero-interruption guarantee"]

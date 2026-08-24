@@ -899,7 +899,7 @@ def acquire_scale_validation_gpu_lease(
     *,
     source_commit: str,
     purpose: Literal["scale_validation_training", "scale_validation_inference"],
-    scenario_id: Literal["S4", "S7", "E0"] = "S4",
+    scenario_id: Literal["S4", "S7", "E0", "S6B-M"] = "S4",
     model_family: GpuLeaseModelFamily = "tabular",
     owner_pid: int | None = None,
     ttl_seconds: int = 7200,
@@ -912,6 +912,11 @@ def acquire_scale_validation_gpu_lease(
             and run_id.startswith("s7-")
         )
         or (scenario_id == "E0" and model_family == "tabular" and run_id.startswith("s8-v4-e0-"))
+        or (
+            scenario_id == "S6B-M"
+            and model_family == "tabular"
+            and run_id.startswith("s8-v4-s6bm-")
+        )
     )
     if not valid_identity or len(source_commit) != 40:
         raise ScenarioWorkloadError(
@@ -958,7 +963,7 @@ def assert_scale_validation_gpu_lease_owner(
     lease_id: str,
     fencing_token: str,
     purpose: Literal["scale_validation_training", "scale_validation_inference"],
-    scenario_id: Literal["S4", "S7", "E0"] = "S4",
+    scenario_id: Literal["S4", "S7", "E0", "S6B-M"] = "S4",
     model_family: GpuLeaseModelFamily = "tabular",
 ) -> GpuLease:
     lease = read_active_gpu_lease()
