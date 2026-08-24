@@ -2164,6 +2164,7 @@ def finalize_profile_scope(
                 "rss_slope",
                 "sustained_sample_count",
                 "variant",
+                "fault_recovery_elapsed_seconds",
             }
         },
         "strict_evidence": strict_evidence,

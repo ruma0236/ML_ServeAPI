@@ -63,7 +63,7 @@ def implementation_components() -> list[dict[str, object]]:
         {
             "component": "S8 frozen execution and evidence contract",
             "files": [
-                "configs/s8_dependency_soak_v1.toml",
+                "configs/s8_dependency_soak_v2.toml",
                 "configs/s8_soak_capacity_runtime.toml",
                 "docs/status/2026-08-24-s8-design-reconciliation.md",
             ],

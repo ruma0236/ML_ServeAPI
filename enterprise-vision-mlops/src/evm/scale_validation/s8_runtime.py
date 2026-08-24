@@ -113,6 +113,8 @@ class S8RuntimeConfig:
     maximum_queue_slope_items_per_minute: float
     maximum_artifact_slope_bytes_per_minute: float
     maximum_mttr_seconds: float
+    retry_transient_request_count: int
+    retry_healthy_request_count: int
 
     @classmethod
     def from_path(cls, path: Path) -> "S8RuntimeConfig":
@@ -121,6 +123,8 @@ class S8RuntimeConfig:
         payload = tomllib.loads(raw.decode("utf-8"))
         experiment = section(payload, "experiment")
         soak = section(payload, "soak")
+        faults = section(payload, "faults")
+        retry_budget = section(faults, "retry_budget")
         guardrails = section(payload, "guardrails")
         config = cls(
             path=resolved,
@@ -170,6 +174,10 @@ class S8RuntimeConfig:
                 guardrails["maximum_artifact_slope_bytes_per_minute"]
             ),
             maximum_mttr_seconds=float(guardrails["maximum_mttr_seconds"]),
+            retry_transient_request_count=int(
+                retry_budget["transient_request_count"]
+            ),
+            retry_healthy_request_count=int(retry_budget["healthy_request_count"]),
         )
         config.validate()
         return config
@@ -208,10 +216,12 @@ class S8RuntimeConfig:
             raise S8RuntimeError("s8_positive_frozen_bound_invalid")
         if not 0 <= self.maximum_error_rate < 1:
             raise S8RuntimeError("s8_error_guardrail_invalid")
+        if self.retry_transient_request_count != 12 or self.retry_healthy_request_count != 4:
+            raise S8RuntimeError("s8_retry_budget_workload_contract_invalid")
 
     def fault_matrix(self) -> FaultMatrix:
         return FaultMatrix(
-            version="s8-isolated-faults-v1-20260824",
+            version="s8-isolated-faults-v2-20260824",
             seed=self.seed,
             repetitions=self.repetitions,
             warmup_seconds=2.0,
@@ -223,7 +233,11 @@ class S8RuntimeConfig:
                 "control": {"name": "no-fault-control"},
                 "latency": {"name": "bounded-dependency-latency"},
                 "transient": {"name": "transient-recovery"},
-                "retry-budget": {"name": "retry-budget-and-circuit-recovery"},
+                "retry-budget": {
+                    "name": "retry-budget-and-circuit-recovery",
+                    "transient_request_count": self.retry_transient_request_count,
+                    "healthy_request_count": self.retry_healthy_request_count,
+                },
                 "poison": {"name": "poison-dlq-and-healthy-hol"},
                 "timeout": {"name": "dependency-timeout-and-recovery"},
                 "worker-loss": {
@@ -325,10 +339,15 @@ def run_fault_scope(
             trace_path=trace_path,
             marker=marker,
         )
+        execution_started = time.monotonic()
         if profile_id == "worker-loss":
             result = run_profile_i(scope, matrix, repetition)
         else:
             result = execute_fault_profile(scope, matrix, profile_id, repetition)
+        result["extra"] = {
+            **dict(result.get("extra") or {}),
+            "fault_recovery_elapsed_seconds": time.monotonic() - execution_started,
+        }
         queue_config = AdmissionQueueConfig.from_path(queue_config_path)
         public, private = finalize_profile_scope(
             scope=scope,
@@ -515,7 +534,10 @@ def execute_retry_budget_profile(
     matrix: FaultMatrix,
     repetition: int,
 ) -> dict[str, Any]:
-    modes = ["always_transient"] * 20 + ["healthy"] * 2
+    spec = matrix.profiles["retry-budget"]
+    modes = ["always_transient"] * int(spec["transient_request_count"]) + [
+        "healthy"
+    ] * int(spec["healthy_request_count"])
     payloads, traces = profile_payloads(
         profile_id="S8-retry-budget",
         repetition=repetition,
@@ -633,7 +655,13 @@ def analyze_fault_results(
         accepted = int(dict(result.get("terminal", {})).get("accepted_count", 0))
         attempts = int(dict(result.get("external_effects", {})).get("attempts", 0))
         amplification.append(attempts / accepted if accepted else math.inf)
-        mttr.append(float(dict(result.get("terminal", {})).get("elapsed_seconds", math.inf)))
+        mttr.append(
+            float(
+                dict(result.get("profile_observations", {})).get(
+                    "fault_recovery_elapsed_seconds", math.inf
+                )
+            )
+        )
         metrics = dict(result.get("metrics", {}))
         circuit_opens += float(
             dict(metrics.get("dependency_circuit", {})).get("opens", 0)
@@ -977,7 +1005,7 @@ def run_s8_experiment(
     root = root.resolve()
     config = S8RuntimeConfig.from_path(scenario_config_path)
     queue_config = AdmissionQueueConfig.from_path(queue_config_path)
-    if queue_config.profile_version != "s8-dependency-soak-v1-20260824":
+    if queue_config.profile_version != "s8-dependency-soak-v2-20260824":
         raise S8RuntimeError("s8_queue_profile_identity_invalid")
     if not port_is_available(queue_config.metrics_port):
         raise S8RuntimeError(f"s8_worker_metrics_port_in_use:{queue_config.metrics_port}")

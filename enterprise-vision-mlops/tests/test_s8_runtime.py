@@ -22,12 +22,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_s8_config_freezes_fault_and_soak_contract() -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v1.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v2.toml")
 
     assert config.repetitions == 3
     assert config.soak_requests_per_second == 35.0
     assert config.soak_measurement_seconds == 1800.0
     assert config.soak_resource_sample_interval_seconds == 1.0
+    assert config.retry_transient_request_count == 12
+    assert config.retry_healthy_request_count == 4
     assert tuple(profile for profile in config.fault_matrix().profiles if profile != "I") == FAULT_PROFILE_IDS
     assert config.fault_matrix().profiles["I"] == config.fault_matrix().profiles["worker-loss"]
 
@@ -41,6 +43,9 @@ def _fault_results(config: S8RuntimeConfig) -> list[dict[str, object]]:
                     "profile_id": profile,
                     "repetition": repetition,
                     "terminal": {"accepted_count": 4, "elapsed_seconds": 2.0},
+                    "profile_observations": {
+                        "fault_recovery_elapsed_seconds": 2.0
+                    },
                     "external_effects": {"attempts": 4, "duplicates": 0},
                     "metrics": {
                         "dependency_circuit": {
@@ -63,7 +68,7 @@ def _fault_results(config: S8RuntimeConfig) -> list[dict[str, object]]:
 
 
 def test_s8_fault_projection_is_recomputed_and_fail_closed() -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v1.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v2.toml")
     results = _fault_results(config)
 
     assert analyze_fault_results(results, config)["passed"] is True
@@ -75,7 +80,7 @@ def test_s8_fault_projection_is_recomputed_and_fail_closed() -> None:
 
 
 def test_s8_soak_private_recomputes_finite_resource_slopes(tmp_path: Path) -> None:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v1.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v2.toml")
     samples = [
         {
             "offset_seconds": float(index),

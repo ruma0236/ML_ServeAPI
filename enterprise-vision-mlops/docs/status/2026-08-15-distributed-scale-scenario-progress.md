@@ -765,7 +765,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Existing durable queue retry and dependency boundary: `src/evm/control_panel/admission_queue.py`, `src/evm/control_panel/task_queue_worker.py`, `src/evm/control_panel/transactional_store.py`
 - Existing capacity runtime resource sampler: `src/evm/scale_validation/s3_runtime.py`
 - S8 external runtime and independent evidence validation: `src/evm/scale_validation/s8_runtime.py`, `src/evm/scale_validation/s8_evidence.py`, `scripts/dev/run_s8_dependency_soak_experiment.py`, `scripts/dev/validate_s8_dependency_soak_evidence.py`, `tests/test_s8_runtime.py`, `tests/test_s8_evidence.py`
-- S8 frozen execution and evidence contract: `configs/s8_dependency_soak_v1.toml`, `configs/s8_soak_capacity_runtime.toml`, `docs/status/2026-08-24-s8-design-reconciliation.md`
+- S8 frozen execution and evidence contract: `configs/s8_dependency_soak_v2.toml`, `configs/s8_soak_capacity_runtime.toml`, `docs/status/2026-08-24-s8-design-reconciliation.md`
 - Compatibility: Existing A-E guard evidence remains baseline-only and cannot substitute for fresh scale-soak evidence.
 - Migration: Introduce fault controls behind explicit profiles and retain a no-fault operating profile for rollback.
 

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _payload(monkeypatch: pytest.MonkeyPatch) -> tuple[dict, S8RuntimeConfig]:
-    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v1.toml")
+    config = S8RuntimeConfig.from_path(ROOT / "configs/s8_dependency_soak_v2.toml")
     faults = []
     for profile in FAULT_PROFILE_IDS:
         for repetition in range(1, 4):
@@ -29,6 +29,9 @@ def _payload(monkeypatch: pytest.MonkeyPatch) -> tuple[dict, S8RuntimeConfig]:
                     "profile_id": profile,
                     "repetition": repetition,
                     "terminal": {"accepted_count": 4, "elapsed_seconds": 2.0},
+                    "profile_observations": {
+                        "fault_recovery_elapsed_seconds": 2.0
+                    },
                     "external_effects": {"attempts": 4, "duplicates": 0},
                     "metrics": {
                         "dependency_circuit": {
