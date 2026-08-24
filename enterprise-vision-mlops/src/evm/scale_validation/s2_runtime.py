@@ -446,7 +446,6 @@ def start_isolated_prometheus(
     worker_port: int,
     scrape_interval_seconds: float,
 ) -> PrometheusRuntime:
-    port = available_port()
     config_path = private_root / "prometheus.yml"
     targets_path = private_root / "prometheus-targets.json"
     config_path.write_text(
@@ -486,35 +485,55 @@ def start_isolated_prometheus(
         newline="\n",
     )
     container_name = f"evm-s2-prom-{marker}"[:63]
-    command = [
-        "docker",
-        "run",
-        "--detach",
-        "--rm",
-        "--name",
-        container_name,
-        "--add-host",
-        "host.docker.internal:host-gateway",
-        "--publish",
-        f"127.0.0.1:{port}:9090",
-        "--volume",
-        f"{config_path}:/etc/prometheus/prometheus.yml:ro",
-        "--volume",
-        f"{targets_path.parent}:/etc/prometheus/targets:ro",
-        "prom/prometheus:v2.55.1",
-        "--config.file=/etc/prometheus/prometheus.yml",
-        "--storage.tsdb.path=/prometheus",
-        "--storage.tsdb.retention.time=1h",
-    ]
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"isolated_prometheus_start_failed:{result.stderr.strip()}")
-    runtime = PrometheusRuntime(
-        container_name=container_name,
-        base_url=f"http://127.0.0.1:{port}",
-        config_path=config_path,
-        targets_path=targets_path,
-    )
+    runtime: PrometheusRuntime | None = None
+    failures: list[str] = []
+    for _attempt in range(3):
+        port = available_port()
+        command = [
+            "docker",
+            "run",
+            "--detach",
+            "--rm",
+            "--name",
+            container_name,
+            "--add-host",
+            "host.docker.internal:host-gateway",
+            "--publish",
+            f"127.0.0.1:{port}:9090",
+            "--volume",
+            f"{config_path}:/etc/prometheus/prometheus.yml:ro",
+            "--volume",
+            f"{targets_path.parent}:/etc/prometheus/targets:ro",
+            "prom/prometheus:v2.55.1",
+            "--config.file=/etc/prometheus/prometheus.yml",
+            "--storage.tsdb.path=/prometheus",
+            "--storage.tsdb.retention.time=1h",
+        ]
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode == 0:
+            runtime = PrometheusRuntime(
+                container_name=container_name,
+                base_url=f"http://127.0.0.1:{port}",
+                config_path=config_path,
+                targets_path=targets_path,
+            )
+            break
+        failure = result.stderr.strip()
+        failures.append(failure)
+        port_collision = "address already in use" in failure or "port is already allocated" in failure
+        if not port_collision:
+            raise RuntimeError(f"isolated_prometheus_start_failed:{failure}")
+        subprocess.run(
+            ["docker", "rm", "--force", container_name],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    if runtime is None:
+        raise RuntimeError(
+            "isolated_prometheus_port_collision_retry_exhausted:" + " | ".join(failures)
+        )
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         try:

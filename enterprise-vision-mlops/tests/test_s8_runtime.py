@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
+
+import pytest
+
+import evm.scale_validation.s2_runtime as s2_runtime
 
 from evm.scale_validation.s8_runtime import (
     FAULT_PROFILE_IDS,
@@ -118,3 +123,39 @@ def test_s8_numeric_helpers_never_publish_non_finite_statistics() -> None:
         [{"offset_seconds": 0, "value": 1}, {"offset_seconds": 60, "value": 2}],
         lambda item: item["value"],
     ) == 1.0
+
+
+def test_isolated_prometheus_retries_only_port_collision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ports = iter((51001, 51002))
+    docker_runs = 0
+
+    def fake_run(command, **_kwargs):
+        nonlocal docker_runs
+        if command[:2] == ["docker", "run"]:
+            docker_runs += 1
+            if docker_runs == 1:
+                return subprocess.CompletedProcess(
+                    command, 1, "", "failed to bind host port: address already in use"
+                )
+            return subprocess.CompletedProcess(command, 0, "container-id", "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    class Ready:
+        status_code = 200
+
+    monkeypatch.setattr(s2_runtime, "available_port", lambda: next(ports))
+    monkeypatch.setattr(s2_runtime.subprocess, "run", fake_run)
+    monkeypatch.setattr(s2_runtime.requests, "get", lambda *_args, **_kwargs: Ready())
+
+    runtime = s2_runtime.start_isolated_prometheus(
+        private_root=tmp_path,
+        marker="s8-test",
+        api_port=8000,
+        worker_port=9478,
+        scrape_interval_seconds=1.0,
+    )
+
+    assert docker_runs == 2
+    assert runtime.base_url == "http://127.0.0.1:51002"
