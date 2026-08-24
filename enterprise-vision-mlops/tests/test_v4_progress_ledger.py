@@ -94,4 +94,4 @@ def test_e0_profiler_wrapper_failure_records_zero_credit_scope_rca() -> None:
     )
     assert transition["event_type"] == "e0_profiler_scope_remediation_required"
     assert transition["credit"] == "zero_credit"
-    assert "same-container" in transition["rca"]
+    assert "cuda-sw" in transition["rca"]

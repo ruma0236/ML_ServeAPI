@@ -67,6 +67,7 @@ class E0RuntimeConfig:
     metrics_port: int
     prometheus_job: str
     profiler_required_repetitions: int
+    profiler_trace_method: str
 
     @classmethod
     def from_path(cls, path: Path) -> "E0RuntimeConfig":
@@ -103,6 +104,7 @@ class E0RuntimeConfig:
             metrics_port=int(ports["metrics"]),
             prometheus_job=str(telemetry["prometheus_job"]),
             profiler_required_repetitions=int(telemetry["profiler_required_repetitions"]),
+            profiler_trace_method=str(telemetry["profiler_trace_method"]),
         )
         config.assert_frozen()
         return config
@@ -122,6 +124,8 @@ class E0RuntimeConfig:
             raise E0RuntimeError("e0_vram_tolerance_contract")
         if self.profiler_required_repetitions != 3:
             raise E0RuntimeError("e0_profiler_repetitions_must_equal_three")
+        if self.profiler_trace_method != "cuda-sw":
+            raise E0RuntimeError("e0_profiler_trace_method_must_equal_cuda_sw")
         if len({self.http_port, self.grpc_port, self.metrics_port}) != 3:
             raise E0RuntimeError("e0_ports_must_be_distinct")
         if not self.triton_image_digest.startswith("sha256:"):
@@ -157,6 +161,7 @@ class E0RuntimeConfig:
             },
             "prometheus_job": self.prometheus_job,
             "profiler_required_repetitions": self.profiler_required_repetitions,
+            "profiler_trace_method": self.profiler_trace_method,
             "prediction_input_sha256": canonical_sha256(list(self.input_values)),
             "expected_output_sha256": canonical_sha256(list(self.expected_output)),
         }
@@ -235,6 +240,7 @@ def project_attempt(raw: Mapping[str, Any], config: E0RuntimeConfig) -> dict[str
         profiler.get("tool") in {"nsight-systems", "cupti"}
         and profiler.get("scope") == "same-container-cuda-profiler-qualification"
         and profiler.get("triton_inference_traced") is False
+        and profiler.get("trace_method") == config.profiler_trace_method
         and profiler.get("parseable") is True
         and int(profiler.get("cuda_kernel_count", 0)) > 0
         and _is_sha256(profiler.get("timeline_sha256"))
@@ -293,6 +299,7 @@ def project_attempt(raw: Mapping[str, Any], config: E0RuntimeConfig) -> dict[str
             "version": profiler.get("version"),
             "scope": profiler.get("scope"),
             "triton_inference_traced": profiler.get("triton_inference_traced"),
+            "trace_method": profiler.get("trace_method"),
             "cuda_kernel_count": int(profiler.get("cuda_kernel_count", 0)),
             "timeline_sha256": profiler.get("timeline_sha256"),
             "source_sha256": profiler.get("source_sha256"),

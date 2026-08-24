@@ -79,6 +79,7 @@ def raw_attempt(config: E0RuntimeConfig, repetition: int) -> dict[str, object]:
             "version": "fixture",
             "scope": "same-container-cuda-profiler-qualification",
             "triton_inference_traced": False,
+            "trace_method": config.profiler_trace_method,
             "parseable": True,
             "cuda_kernel_count": 1,
             "timeline_sha256": "4" * 64,
@@ -136,6 +137,9 @@ def test_e0_attempt_does_not_credit_profiler_or_cleanup_mutation() -> None:
     scope = raw_attempt(config, 1)
     scope["profiler"]["triton_inference_traced"] = True  # type: ignore[index]
     assert project_attempt(scope, config)["passed"] is False
+    method = raw_attempt(config, 1)
+    method["profiler"]["trace_method"] = "cuda"  # type: ignore[index]
+    assert project_attempt(method, config)["passed"] is False
     cleanup = raw_attempt(config, 1)
     cleanup["cleanup"]["vram_delta_mib"] = 4096.0  # type: ignore[index]
     assert project_attempt(cleanup, config)["passed"] is False

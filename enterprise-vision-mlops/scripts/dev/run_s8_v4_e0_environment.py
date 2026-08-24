@@ -555,7 +555,9 @@ def infer(config: E0RuntimeConfig, attempt_id: str) -> dict[str, Any]:
     return {"request": payload, "response": first, "output": values}
 
 
-def run_profiler_probe(attempt_root: Path, container: str) -> dict[str, Any]:
+def run_profiler_probe(
+    config: E0RuntimeConfig, attempt_root: Path, container: str
+) -> dict[str, Any]:
     profile_root = attempt_root / "profiler"
     source_path = profile_root / "e0-profiler-probe.cu"
     source_path.write_text(
@@ -591,7 +593,8 @@ int main() {
     )
     command = (
         "nvcc -O2 /evidence/e0-profiler-probe.cu -o /tmp/e0-profiler-probe && "
-        "nsys profile --sample=none --cpuctxsw=none --trace=cuda,nvtx,osrt "
+        f"nsys profile --sample=none --cpuctxsw=none "
+        f"--trace={config.profiler_trace_method},nvtx,osrt "
         "--force-overwrite=true --output=/evidence/e0-cuda-probe /tmp/e0-profiler-probe"
     )
     completed = run(
@@ -609,6 +612,7 @@ int main() {
     return {
         "scope": "same-container-cuda-profiler-qualification",
         "triton_inference_traced": False,
+        "trace_method": config.profiler_trace_method,
         "source_sha256": sha256_file(source_path),
         "execution_log_sha256": sha256_file(log_path),
     }
@@ -785,7 +789,7 @@ def run_attempt(
         )
         observed_container_gpu = container_gpu(config, container)
         inference = infer(config, attempt_id)
-        profiler_qualification = run_profiler_probe(attempt_root, container)
+        profiler_qualification = run_profiler_probe(config, attempt_root, container)
         metrics_text = requests.get(
             f"http://127.0.0.1:{config.metrics_port}/metrics", timeout=10
         ).text
@@ -968,9 +972,9 @@ def collect_prior_failures(private_base: Path, suite_root: Path) -> list[dict[st
             )
         elif failure.startswith("E0RuntimeError:e0_profiler_not_parseable"):
             rca = (
-                "The Triton process-wrapper report contained no CUDA kernel rows. Profiler "
-                "qualification moved to a deterministic CUDA probe in the same container "
-                "and lease; Triton inference tracing remains outside the E0 claim."
+                "The default Nsight cuda trace recorded API launches but no GPU workload "
+                "rows in WSL2. The profiler contract now uses the vendor-documented cuda-sw "
+                "method; Triton inference tracing remains outside the E0 claim."
             )
         destination_root.mkdir(parents=True, exist_ok=True)
         destination = destination_root / f"{path.parent.name}-{path.name}"

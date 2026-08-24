@@ -63,21 +63,21 @@ def remediation_transition(evidence: dict[str, Any], *, amendment: bool) -> dict
         return {
             "event_type": "e0_profiler_scope_remediation_required",
             "summary": (
-                "E0 Triton CUDA inference and metrics passed, but the Triton process-wrapper "
-                "Nsight report contained no kernel rows; cleanup restored B0 and the attempt "
-                "received zero acceptance credit"
+                "E0 Triton CUDA inference and the standalone CUDA probe passed, but Nsight's "
+                "default trace recorded CUDA API calls without GPU workload rows; cleanup "
+                "restored B0 and the attempt received zero acceptance credit"
             ),
             "credit": "zero_credit",
             "acceptance": "E0-AC-01..04 pending; no acceptance repetition credited",
             "next_gate": (
-                "Qualify Nsight/CUPTI with a same-container deterministic CUDA probe and keep "
-                "Triton inference tracing explicitly outside the E0 claim"
+                "Force the vendor-documented cuda-sw trace method for WSL2, then rerun all "
+                "three independent repetitions"
             ),
             "rca": (
-                "Nsight produced a parseable report container but observed no Triton CUDA "
-                "kernel rows under the process-wrapper strategy. E0 only requires profiler "
-                "capability, so remediation separates a same-container CUDA qualification "
-                "timeline from the independently measured Triton CUDA inference evidence."
+                "Both the Triton wrapper and a same-container deterministic CUDA probe "
+                "produced reports with CUDA API launch calls but no GPU workload rows under "
+                "the default cuda method. WSL2 is a virtualized environment, so the frozen "
+                "profiler contract now forces Nsight's legacy software trace, cuda-sw."
             ),
         }
     if failure.startswith("HTTPError:500 Server Error"):
