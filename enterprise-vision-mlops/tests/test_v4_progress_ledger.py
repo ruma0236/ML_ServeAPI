@@ -44,7 +44,7 @@ def test_e0_verified_sign_off_is_append_only_and_evidence_bound() -> None:
     )
 
     events = read_events(LEDGER)
-    event = events[-1]
+    event = next(item for item in events if item["event_id"] == "s8-v4-0042")
     closure_bytes = E0_VERIFIED_CLOSURE.read_bytes()
     closure = json.loads(closure_bytes)
     assert event["event_id"] == "s8-v4-0042"
