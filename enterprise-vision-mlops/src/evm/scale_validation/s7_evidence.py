@@ -651,6 +651,15 @@ def validate_s7_runtime_smoke(
             errors.append("smoke_git_identity_unavailable")
 
     private = validate_private_evidence(private_root, errors)
+    documents = dict(private.get("documents", {}))
+    preflight = dict(documents.get("preflight.json", {}))
+    runtime_overrides = _validate_runtime_asset_overrides(
+        source.get("runtime_asset_overrides"), errors
+    )
+    if _canonical(preflight.get("runtime_asset_overrides", {})) != _canonical(
+        runtime_overrides
+    ):
+        errors.append("smoke_runtime_asset_override_projection")
     projected = [
         project_profile(item, config=config, errors=errors)
         for item in private.get("profiles", [])
@@ -672,7 +681,6 @@ def validate_s7_runtime_smoke(
 
     raw_config = tomllib.loads(config.path.read_text(encoding="utf-8"))
     ready_projection: dict[str, Any] = {}
-    documents = dict(private.get("documents", {}))
     for family in ("image", "vlm", "llm"):
         ready = dict(documents.get(f"{family}-ready.json", {}))
         try:
@@ -690,6 +698,16 @@ def validate_s7_runtime_smoke(
     expected_contracts = asset_contract_projection(
         config=config, git_root=git_root, revision=revision
     )
+    expected_preflight_assets = _preflight_asset_projection(config)
+    for family, override in runtime_overrides.items():
+        expected_contracts[family]["runtime_manifest_sha256"] = override[
+            "observed_manifest_sha256"
+        ]
+        expected_preflight_assets[family]["manifest_sha256"] = override[
+            "observed_manifest_sha256"
+        ]
+    if _canonical(preflight.get("assets")) != _canonical(expected_preflight_assets):
+        errors.append("smoke_preflight_asset_identity")
     provenance_projection: dict[str, Any] = {}
     for family in ("image", "vlm", "llm"):
         raw_provenance = dict(
@@ -846,6 +864,36 @@ def _preflight_asset_projection(config: S7RuntimeConfig) -> dict[str, Any]:
         if family in {"image", "vlm", "llm"}
         for raw in [dict(raw_value)]
     }
+
+
+def _validate_runtime_asset_overrides(
+    value: Any, errors: list[str]
+) -> dict[str, dict[str, Any]]:
+    overrides = dict(value) if isinstance(value, Mapping) else {}
+    if set(overrides) - {"image"}:
+        errors.append("smoke_runtime_asset_override_scope")
+    for family, raw in overrides.items():
+        item = dict(raw)
+        if (
+            family != "image"
+            or item.get("scope")
+            != "non_acceptance_current_revision_diagnostic_only"
+            or item.get("reason")
+            != "curated_manifest_regenerated_after_accepted_matrix"
+            or item.get("acceptance_credit") is not False
+            or item.get("dataset_version") != "visa-open-data-e35d93d5561f"
+            or int(item.get("record_count", 0)) < 6
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", str(item.get("frozen_manifest_sha256") or "")
+            )
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", str(item.get("observed_manifest_sha256") or "")
+            )
+            or item.get("frozen_manifest_sha256")
+            == item.get("observed_manifest_sha256")
+        ):
+            errors.append("smoke_runtime_asset_override_identity")
+    return {family: dict(raw) for family, raw in overrides.items()}
 
 
 def _ready_identity_projection(

@@ -1,0 +1,14 @@
+{
+  "schema_version": "evm.s7_post_closure_smoke_failed_attempt.v1",
+  "attempt_id": "S7-POST-CLOSURE-SMOKE-ATTEMPT-01",
+  "source_revision": "414ecc9aaa5562b930b4e7313c00da8b425b12ff",
+  "failure_stage": "preflight_asset_identity",
+  "reason": "The governed image curation manifest was regenerated after the accepted matrix, while VLM and LLM manifests retained their frozen identities.",
+  "runtime_mutation_started": false,
+  "gpu_lease_acquired": false,
+  "source_serving_scaled_down": false,
+  "acceptance_credit": false,
+  "remediation": "Keep the accepted matrix bound to its historical manifest and explicitly bind the current manifest only to a non-acceptance current-revision diagnostic.",
+  "claim_boundary": "This failed preflight is operational drift evidence and carries no S7 acceptance credit.",
+  "generated_at": "2026-08-24T04:01:35.505748Z"
+}

@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -146,6 +146,14 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated subset for a non-acceptance diagnostic run.",
     )
     parser.add_argument("--diagnostic", action="store_true")
+    parser.add_argument(
+        "--acknowledge-diagnostic-manifest-drift",
+        action="store_true",
+        help=(
+            "Permit a read-only image-manifest SHA override only for a non-acceptance "
+            "diagnostic; the accepted matrix remains bound to the frozen config."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -167,6 +175,9 @@ def main() -> int:
     suite_root.mkdir(parents=True, exist_ok=False)
     (suite_root / "profiles").mkdir()
     assets = load_assets(args.config, args.data_root)
+    runtime_asset_overrides: dict[str, dict[str, Any]] = {}
+    if args.diagnostic and args.acknowledge_diagnostic_manifest_drift:
+        assets, runtime_asset_overrides = resolve_diagnostic_manifest_drift(assets)
     validate_assets(assets)
     asset_provenance = capture_asset_provenance(
         root=args.root,
@@ -210,6 +221,7 @@ def main() -> int:
             "prometheus_baseline": prometheus_before,
             "expected_prometheus_baseline_target_count": EXPECTED_BASELINE_TARGET_COUNT,
             "assets": public_asset_identity(assets),
+            "runtime_asset_overrides": runtime_asset_overrides,
             "asset_provenance": public_asset_provenance(asset_provenance),
             "input_catalog_sha256": canonical_sha256(public_input_catalog(input_catalog)),
             "started_at": utc_now(),
@@ -419,6 +431,7 @@ def main() -> int:
                 "branch": branch,
                 "config_sha256": config.sha256,
                 "git_blobs": source_git_identity(args.root.parent, revision),
+                "runtime_asset_overrides": runtime_asset_overrides,
             },
             "families": list(families),
             "profiles": projected,
@@ -587,6 +600,37 @@ def validate_assets(assets: dict[str, AssetSpec]) -> None:
                 or file_sha256(asset.adapter / "adapter_model.safetensors") != asset.adapter_sha256
             ):
                 raise S7RuntimeError(f"s7_adapter_identity_mismatch:{asset.family}")
+
+
+def resolve_diagnostic_manifest_drift(
+    assets: dict[str, AssetSpec],
+) -> tuple[dict[str, AssetSpec], dict[str, dict[str, Any]]]:
+    resolved = dict(assets)
+    overrides: dict[str, dict[str, Any]] = {}
+    for family, asset in assets.items():
+        if not asset.manifest.is_file():
+            raise S7RuntimeError(f"s7_manifest_missing:{family}")
+        observed = file_sha256(asset.manifest)
+        if observed == asset.manifest_sha256:
+            continue
+        if family != "image":
+            raise S7RuntimeError(f"s7_manifest_identity_mismatch:{family}")
+        records = read_jsonl(asset.manifest)
+        if len(records) < 6 or any(
+            not str(item.get("content_sha256") or "") for item in records[:24]
+        ):
+            raise S7RuntimeError("s7_diagnostic_image_manifest_not_governed")
+        resolved[family] = replace(asset, manifest_sha256=observed)
+        overrides[family] = {
+            "scope": "non_acceptance_current_revision_diagnostic_only",
+            "reason": "curated_manifest_regenerated_after_accepted_matrix",
+            "frozen_manifest_sha256": asset.manifest_sha256,
+            "observed_manifest_sha256": observed,
+            "dataset_version": asset.dataset_version,
+            "record_count": len(records),
+            "acceptance_credit": False,
+        }
+    return resolved, overrides
 
 
 def prepare_inputs(

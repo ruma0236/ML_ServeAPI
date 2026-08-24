@@ -159,3 +159,33 @@ def test_s7_config_rejects_changed_repetition(tmp_path: Path) -> None:
 
     with pytest.raises(S7RuntimeError, match="repetition_contract"):
         S7RuntimeConfig.from_path(path)
+
+
+def test_s7_diagnostic_manifest_override_is_explicit_and_non_acceptance(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        "\n".join(
+            '{"sample_id":"%s","content_sha256":"%s"}' % (index, "a" * 64)
+            for index in range(6)
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    asset = s7_runner.AssetSpec(
+        family="image",
+        port=1,
+        manifest=manifest,
+        manifest_sha256="b" * 64,
+        dataset_version="visa-open-data-e35d93d5561f",
+    )
+
+    resolved, overrides = s7_runner.resolve_diagnostic_manifest_drift(
+        {"image": asset}
+    )
+
+    assert resolved["image"].manifest_sha256 != asset.manifest_sha256
+    assert overrides["image"]["acceptance_credit"] is False
+    assert overrides["image"]["frozen_manifest_sha256"] == "b" * 64
