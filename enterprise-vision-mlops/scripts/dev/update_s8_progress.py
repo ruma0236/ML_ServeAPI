@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
             "failure",
             "calibration",
             "timeout-preflight",
+            "timeout-preflight-pass",
             "verification",
         ),
         default="implementation",
@@ -85,6 +86,8 @@ def main() -> int:
         return record_calibration(args)
     if args.phase == "timeout-preflight":
         return record_timeout_preflight(args)
+    if args.phase == "timeout-preflight-pass":
+        return record_timeout_preflight_pass(args)
     if args.phase != "implementation":
         raise SystemExit("verification updates are produced by the S8 closure script")
     now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -331,6 +334,56 @@ def record_timeout_preflight(args: argparse.Namespace) -> int:
                 artifact["path"],
                 "docs/status/2026-08-24-s8-timeout-v4-preflight-rca.md",
             ],
+        }
+    )
+    payload["generated_at"] = now
+    ledger = ScenarioProgressLedger.model_validate(payload)
+    args.json_path.write_bytes((ledger.model_dump_json(indent=2) + "\n").encode("utf-8"))
+    args.markdown_path.write_text(
+        render_progress_markdown(ledger), encoding="utf-8", newline="\n"
+    )
+    return 0
+
+
+def record_timeout_preflight_pass(args: argparse.Namespace) -> int:
+    now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    evidence_path = ROOT / "docs/status/evidence/s8-timeout-v5-preflight.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    artifact = {
+        "path": evidence_path.relative_to(ROOT).as_posix(),
+        "sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+        "generated_at": str(evidence["generated_at"]),
+        "claim": (
+            "Zero-credit v5 timeout preflight passed 6/6 terminal and trace "
+            "closure, exact effect accounting, mirror parity, 51.484-second "
+            "recovery, and cleanup; no S8 acceptance repetition is credited."
+        ),
+    }
+    payload = json.loads(args.json_path.read_text(encoding="utf-8"))
+    scenario = next(item for item in payload["scenarios"] if item["scenario_id"] == "S8")
+    existing = [
+        item for item in scenario["evidence_artifacts"] if item.get("path") != artifact["path"]
+    ]
+    scenario["evidence_artifacts"] = [*existing, artifact]
+    scenario["evidence_index"] = [*existing, artifact]
+    scenario["observed_result"] = None
+    scenario["status"] = "implementing"
+    scenario["verdict_and_claim_boundary"]["verdict"] = "not_run"
+    scenario["next_action"] = (
+        "Restart all 21 fault repetitions from the clean v5 revision; start the "
+        "30-minute x3 soak only when every fault repetition passes."
+    )
+    scenario["chronological_updates"].append(
+        {
+            "occurred_at": now,
+            "phase": "verification",
+            "status": "implementing",
+            "summary": (
+                "The zero-credit v5 timeout preflight passed 6/6 terminal and "
+                "trace closure, exact effect accounting, mirror parity, bounded "
+                "51.484-second recovery, and cleanup. Acceptance credit remains zero."
+            ),
+            "evidence_refs": [artifact["path"]],
         }
     )
     payload["generated_at"] = now

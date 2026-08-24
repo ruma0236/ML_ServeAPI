@@ -1,7 +1,7 @@
 # Distributed Scale Scenario Progress
 
 - Schema: `evm.scale_validation.progress.v2`
-- Generated: `2026-08-24T08:07:50Z`
+- Generated: `2026-08-24T08:18:35Z`
 - Authoritative plan: `docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md`
 - Claim boundary: This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.
 
@@ -739,7 +739,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - Architecture after: Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.
 - Verdict: `not_run`
 - Claim boundary: Controlled traffic on one local physical node and one CUDA device only. S8 does not prove customer production SLA, multi-node or multi-zone HA/DR, multi-GPU behavior, or simultaneous residency and execution of multiple GPU model families.
-- Next action: Run a zero-credit v5 timeout preflight with delay isolated to timeout tasks; only then restart all 21 fault repetitions and the gated soak.
+- Next action: Restart all 21 fault repetitions from the clean v5 revision; start the 30-minute x3 soak only when every fault repetition passes.
 
 ### Affected Existing Components
 
@@ -792,6 +792,7 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `docs/status/evidence/s8-retry-budget-v2-calibration.json` (`0f112462479335715a65ec9906ebe32cc99f865ed9b09146a855ae360eaf4e2f`): Zero-credit retry-budget calibration closed 17/17 tasks with 12 DLQ, 5 completed, duplicate effects zero, and cleanup complete; its 40.109-second fault recovery justified freezing the pre-acceptance v3 MTTR bound at 60 seconds.
 - `docs/status/evidence/s8-dependency-soak-attempt-03.json` (`38ffd90a038d105fe123a6683d8b9bddc8b56817576f65a9b54d6ae999a951c5`): Rejected timeout-contract attempt: fifteen fault repetitions passed, then timeout repetition 1 retained two outcome-unknown items because the worker and HTTP timeouts shared a 10-second boundary; cleanup passed, soak did not start, and no acceptance credit was awarded.
 - `docs/status/evidence/s8-timeout-v4-preflight.json` (`89a5880ad8e86f3005430cc5ef6d1df84c50d30724f638e33264a8931ea96e2b`): Zero-credit v4 timeout preflight closed 6/6 terminal outcomes and preserved duplicate effects zero, but failed strict trace 2/6 and the 60-second MTTR guardrail because timeout delay leaked to four healthy tasks.
+- `docs/status/evidence/s8-timeout-v5-preflight.json` (`85c953c0089a39a0ed972b5bb4434a6036187d8be8167f1dd24086ebe2371c8d`): Zero-credit v5 timeout preflight passed 6/6 terminal and trace closure, exact effect accounting, mirror parity, 51.484-second recovery, and cleanup; no S8 acceptance repetition is credited.
 
 ### Chronological Updates
 
@@ -803,3 +804,4 @@ Only a scenario with passed acceptance criteria and hashed evidence may be `veri
 - `2026-08-24T07:29:00Z` `implementation` / `implementing`: A zero-credit v2 retry-budget calibration passed terminal/effect/cleanup invariants and measured 40.109 seconds to recovery. The v3 profile freezes a 60-second MTTR bound before any acceptance run.
 - `2026-08-24T07:52:10Z` `experiment` / `implementing`: Attempt 03 was rejected with zero acceptance credit. Fifteen repetitions passed, then timeout repetition 1 retained two outcome-unknown items at an equal worker/HTTP timeout boundary; cleanup completed and soak did not start.
 - `2026-08-24T08:07:50Z` `implementation` / `implementing`: The zero-credit v4 timeout preflight reached 6/6 terminal outcomes but failed trace and MTTR because the 12-second injected delay also affected four healthy tasks. V5 scopes delay to timeout work only.
+- `2026-08-24T08:18:35Z` `verification` / `implementing`: The zero-credit v5 timeout preflight passed 6/6 terminal and trace closure, exact effect accounting, mirror parity, bounded 51.484-second recovery, and cleanup. Acceptance credit remains zero.

@@ -110,6 +110,13 @@ behavior without a schema migration.
   V5 preserves the terminal policy and applies the delay only to requests marked
   `timeout_once`; a separate passing zero-credit preflight is required before the
   entire 21-repetition acceptance matrix restarts.
+- The zero-credit v5 timeout preflight passed that gate: `6/6` accepted tasks
+  reached terminal states with `4` completed and `2` explicit no-effect timeout
+  failures; trace completeness was `6/6`, eligible effects were exactly `4/4`,
+  duplicate and multiple logical effects were `0`, PostgreSQL and JSON mirror
+  parity matched, and fault-to-terminal recovery was `51.484 s` under the
+  frozen `60 s` bound. This preflight carries no acceptance credit; all 21 fault
+  repetitions still restart from the clean v5 revision.
 5. Stop on retry budget escape, unbounded slope, error or p99 guardrail breach,
    trace gap, identity ambiguity, or cleanup uncertainty.
 6. Re-hash all accepted public and private artifacts before closure.

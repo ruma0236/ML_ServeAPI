@@ -1,0 +1,59 @@
+{
+  "schema_version": "evm.s8_timeout_preflight.v1",
+  "generated_at": "2026-08-24T08:16:51Z",
+  "source_revision": "b826e47ba382b17e911f71a29694bbc0c7a330b5",
+  "profile_version": "s8-dependency-soak-v5-20260824",
+  "acceptance_credit": false,
+  "passed": true,
+  "input": {
+    "accepted": 6,
+    "timeout_requests": 2,
+    "healthy_requests": 4,
+    "timeout_delay_seconds": 12.0,
+    "healthy_delay_seconds": 0.0
+  },
+  "terminal": {
+    "terminal_count": 6,
+    "completed": 4,
+    "failed": 2,
+    "outcome_unknown": 0,
+    "elapsed_seconds": 41.687
+  },
+  "effects": {
+    "eligible": 4,
+    "unique": 4,
+    "duplicates": 0,
+    "multiple_logical": 0,
+    "no_effect_expected": 2,
+    "no_effect_observed": 2
+  },
+  "trace": {
+    "complete": 6,
+    "expected": 6,
+    "missing": 0,
+    "passed": true
+  },
+  "recovery": {
+    "fault_to_terminal_seconds": 51.484,
+    "maximum_seconds": 60.0,
+    "passed": true
+  },
+  "mirror": {
+    "authority_count": 6,
+    "file_count": 6,
+    "matches": true
+  },
+  "cleanup": {
+    "schema_dropped": true,
+    "marker_processes_remaining": 0,
+    "errors": 0
+  },
+  "private_evidence": {
+    "artifact_count": 18,
+    "aggregate_sha256": "63c43399d19fecf9078b5dda899116ababf9426663384c02617c606282647dc3",
+    "pilot_result_sha256": "5c46ee8c29864843ead4296e7a795f5fa3d97caccc4f8e20d8eed888a199dad9",
+    "location": "outside_git_private_evidence_root"
+  },
+  "next_gate": "Restart all 21 fault repetitions from the clean v5 revision; the 30-minute x3 soak remains gated by all fault repetitions.",
+  "claim_boundary": "Passing zero-credit controlled preflight on one local physical node; not S8 acceptance, production SLA, HA/DR, or multi-node evidence."
+}

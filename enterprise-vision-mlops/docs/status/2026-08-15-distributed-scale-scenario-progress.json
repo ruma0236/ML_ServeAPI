@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.scale_validation.progress.v2",
-  "generated_at": "2026-08-24T08:07:50Z",
+  "generated_at": "2026-08-24T08:18:35Z",
   "authoritative_plan": "docs/agenda/2026-08-15-distributed-scale-operational-validation-plan-v3.md",
   "public_record": true,
   "claim_boundary": "This ledger reports local development evidence only. Planned or implementing work is not benchmark, availability, scale, or production proof.",
@@ -4080,6 +4080,12 @@
           "sha256": "89a5880ad8e86f3005430cc5ef6d1df84c50d30724f638e33264a8931ea96e2b",
           "generated_at": "2026-08-24T07:58:05Z",
           "claim": "Zero-credit v4 timeout preflight closed 6/6 terminal outcomes and preserved duplicate effects zero, but failed strict trace 2/6 and the 60-second MTTR guardrail because timeout delay leaked to four healthy tasks."
+        },
+        {
+          "path": "docs/status/evidence/s8-timeout-v5-preflight.json",
+          "sha256": "85c953c0089a39a0ed972b5bb4434a6036187d8be8167f1dd24086ebe2371c8d",
+          "generated_at": "2026-08-24T08:16:51Z",
+          "claim": "Zero-credit v5 timeout preflight passed 6/6 terminal and trace closure, exact effect accounting, mirror parity, 51.484-second recovery, and cleanup; no S8 acceptance repetition is credited."
         }
       ],
       "status": "implementing",
@@ -4090,7 +4096,7 @@
         "MTTR, request impact, efficiency Pareto, and residual risk are recorded.",
         "One final evidence index re-hashes every accepted result."
       ],
-      "next_action": "Run a zero-credit v5 timeout preflight with delay isolated to timeout tasks; only then restart all 21 fault repetitions and the gated soak.",
+      "next_action": "Restart all 21 fault repetitions from the clean v5 revision; start the 30-minute x3 soak only when every fault repetition passes.",
       "architecture_before": "Isolated guards exist without a distributed-scale soak and efficiency closure.",
       "architecture_after": "Dependency faults, sustained load, cleanup, efficiency, and hashes close one ledger.",
       "existing_system_baseline": "The existing system has service-specific failure guards, bounded retries in selected paths, monitoring, and recovery evidence, but no distributed-scale dependency soak or resource-efficiency closure exists.",
@@ -4225,6 +4231,12 @@
           "sha256": "89a5880ad8e86f3005430cc5ef6d1df84c50d30724f638e33264a8931ea96e2b",
           "generated_at": "2026-08-24T07:58:05Z",
           "claim": "Zero-credit v4 timeout preflight closed 6/6 terminal outcomes and preserved duplicate effects zero, but failed strict trace 2/6 and the 60-second MTTR guardrail because timeout delay leaked to four healthy tasks."
+        },
+        {
+          "path": "docs/status/evidence/s8-timeout-v5-preflight.json",
+          "sha256": "85c953c0089a39a0ed972b5bb4434a6036187d8be8167f1dd24086ebe2371c8d",
+          "generated_at": "2026-08-24T08:16:51Z",
+          "claim": "Zero-credit v5 timeout preflight passed 6/6 terminal and trace closure, exact effect accounting, mirror parity, 51.484-second recovery, and cleanup; no S8 acceptance repetition is credited."
         }
       ],
       "verdict_and_claim_boundary": {
@@ -4306,6 +4318,15 @@
           "evidence_refs": [
             "docs/status/evidence/s8-timeout-v4-preflight.json",
             "docs/status/2026-08-24-s8-timeout-v4-preflight-rca.md"
+          ]
+        },
+        {
+          "occurred_at": "2026-08-24T08:18:35Z",
+          "phase": "verification",
+          "status": "implementing",
+          "summary": "The zero-credit v5 timeout preflight passed 6/6 terminal and trace closure, exact effect accounting, mirror parity, bounded 51.484-second recovery, and cleanup. Acceptance credit remains zero.",
+          "evidence_refs": [
+            "docs/status/evidence/s8-timeout-v5-preflight.json"
           ]
         }
       ]
