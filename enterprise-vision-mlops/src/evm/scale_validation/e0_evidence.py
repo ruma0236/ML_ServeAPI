@@ -110,6 +110,24 @@ def validate_e0_evidence(
         errors.append("acceptance_projection")
     if not analysis["evidence_ready"]:
         errors.append("acceptance_not_evidence_ready")
+    for failure in payload.get("failed_attempts_and_rca", []):
+        if not isinstance(failure, Mapping):
+            errors.append("failed_attempt_mapping")
+            continue
+        if failure.get("credit") not in {"non_credit", "zero_credit"}:
+            errors.append("failed_attempt_credit")
+        private = dict(failure.get("private_evidence", {}))
+        relative = str(private.get("path") or "")
+        path = private_root / relative
+        if (
+            not relative
+            or Path(relative).is_absolute()
+            or ".." in Path(relative).parts
+            or not path.is_file()
+        ):
+            errors.append("failed_attempt_private_path")
+        elif sha256_file(path) != private.get("sha256"):
+            errors.append("failed_attempt_private_sha256")
     alignment = dict(payload.get("alignment", {}))
     for key in (
         "definition_alignment",
@@ -161,6 +179,7 @@ def validate_e0_evidence(
         "status": "review_pending",
         "runtime_revision": revision,
         "attempt_count": len(projected_attempts),
+        "failed_attempt_count": len(payload.get("failed_attempts_and_rca", [])),
         "acceptance": analysis["acceptance"],
         "reviewer_sign_off": "pending",
     }

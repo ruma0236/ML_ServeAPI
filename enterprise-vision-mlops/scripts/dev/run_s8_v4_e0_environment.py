@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -298,7 +299,7 @@ def capture_environment(config: E0RuntimeConfig) -> dict[str, Any]:
             "-lc",
             "nsys --version; nvcc --version | tail -1; "
             "python3 -c 'import cupy; print(cupy.__version__)'; "
-            "test -e /usr/local/cuda/extras/CUPTI/lib64/libcupti.so && echo CUPTI_PRESENT",
+            "ldconfig -p | grep -q 'libcupti.so' && echo CUPTI_PRESENT",
         ],
         timeout=60,
     )
@@ -882,6 +883,33 @@ def private_index(root: Path) -> dict[str, Any]:
     }
 
 
+def collect_prior_failures(private_base: Path, suite_root: Path) -> list[dict[str, Any]]:
+    copied: list[dict[str, Any]] = []
+    destination_root = suite_root / "historical-failures"
+    for path in sorted(private_base.glob("e0-*/failed-*.json")):
+        if suite_root in path.parents:
+            continue
+        payload = json.loads(path.read_bytes())
+        destination_root.mkdir(parents=True, exist_ok=True)
+        destination = destination_root / f"{path.parent.name}-{path.name}"
+        shutil.copyfile(path, destination)
+        copied.append(
+            {
+                "attempt_id": payload.get("attempt_id"),
+                "occurred_at": payload.get("occurred_at"),
+                "credit": payload.get("credit"),
+                "failure": payload.get("failure"),
+                "rca": payload.get("rca"),
+                "private_evidence": {
+                    "path": destination.relative_to(suite_root).as_posix(),
+                    "bytes": destination.stat().st_size,
+                    "sha256": sha256_file(destination),
+                },
+            }
+        )
+    return copied
+
+
 def main() -> int:
     args = parse_args()
     if not args.maintenance_approved:
@@ -895,27 +923,40 @@ def main() -> int:
         raise E0RuntimeError("e0_stale_prometheus_target")
     if any(container_exists(f"{CONTAINER_PREFIX}{index}") for index in range(1, 4)):
         raise E0RuntimeError("e0_stale_container")
-    holder = capture_holder()
-    b0_cuda_inference()
-    queues = queue_counts()
-    if any(queues.values()) or read_active_gpu_lease() is not None:
-        raise E0RuntimeError(f"e0_preflight_control_plane_not_idle:{queues}")
-    environment = capture_environment(config)
-    if environment["kubernetes"]["gpu_allocatable"] != "1":
-        raise E0RuntimeError("e0_kubernetes_gpu_allocatable")
-    if not all(
-        environment["profiler_capability"][key] for key in ("nsys_present", "cupti_present")
-    ):
-        raise E0RuntimeError("e0_profiler_capability_missing")
-    reload_prometheus()
-    baseline_prometheus = prometheus_baseline()
-    if baseline_prometheus["total"] != baseline_prometheus["up"]:
-        raise E0RuntimeError(f"e0_prometheus_baseline_unhealthy:{baseline_prometheus}")
-    canonical_write(suite_root / "environment-preflight-private.json", environment)
-    model = generate_model_repository(suite_root)
+    prior_failures = collect_prior_failures(args.private_base, suite_root)
+    try:
+        holder = capture_holder()
+        b0_cuda_inference()
+        queues = queue_counts()
+        if any(queues.values()) or read_active_gpu_lease() is not None:
+            raise E0RuntimeError(f"e0_preflight_control_plane_not_idle:{queues}")
+        environment = capture_environment(config)
+        if environment["kubernetes"]["gpu_allocatable"] != "1":
+            raise E0RuntimeError("e0_kubernetes_gpu_allocatable")
+        if not all(
+            environment["profiler_capability"][key] for key in ("nsys_present", "cupti_present")
+        ):
+            raise E0RuntimeError("e0_profiler_capability_missing")
+        reload_prometheus()
+        baseline_prometheus = prometheus_baseline()
+        if baseline_prometheus["total"] != baseline_prometheus["up"]:
+            raise E0RuntimeError(f"e0_prometheus_baseline_unhealthy:{baseline_prometheus}")
+        canonical_write(suite_root / "environment-preflight-private.json", environment)
+        model = generate_model_repository(suite_root)
+    except Exception as exc:
+        failed = {
+            "attempt_id": f"e0-preflight-{uuid4().hex[:12]}",
+            "occurred_at": utc_now(),
+            "credit": "non_credit",
+            "failure": f"{type(exc).__name__}:{exc}",
+            "rca": "Preflight stopped before B0 mutation or acceptance repetition.",
+            "source_revision": revision,
+        }
+        canonical_write(suite_root / "failed-preflight.json", failed)
+        raise
     summaries: list[dict[str, Any]] = []
     public_attempts: list[dict[str, Any]] = []
-    failed_attempts: list[dict[str, Any]] = []
+    failed_attempts: list[dict[str, Any]] = prior_failures
     try:
         for repetition in range(1, config.repetitions + 1):
             summary, raw_path = run_attempt(

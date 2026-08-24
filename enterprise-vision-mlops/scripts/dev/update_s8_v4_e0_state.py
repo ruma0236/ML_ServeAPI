@@ -40,6 +40,13 @@ TRANSITIONS = {
         "acceptance": "E0-AC-01..04 pending",
         "next_gate": "Three repetitions, strict evidence projection, and complete cleanup",
     },
+    "remediation_required": {
+        "event_type": "e0_preflight_remediation_required",
+        "summary": "E0 non-credit preflight stopped on a CUPTI location-detection defect; B0 and control-plane baselines remained unchanged",
+        "credit": "non_credit",
+        "acceptance": "E0-AC-01..04 pending; no acceptance repetition credited",
+        "next_gate": "Commit the path-independent CUPTI probe, then append a fresh ready event",
+    },
     "review_pending": {
         "event_type": "e0_evidence_ready",
         "summary": "E0 evidence package passed self-validation and awaits independent source-local review",
@@ -88,11 +95,16 @@ def main() -> int:
     e0 = next(item for item in manifest["work_items"] if item["work_item"] == "E0")
     prior = str(e0["status"])
     expected_prior = {
-        "ready": "contract_frozen",
+        "ready": {"contract_frozen", "remediation_required"},
         "running": "ready",
+        "remediation_required": "running",
         "review_pending": "running",
     }[args.to]
-    if prior != expected_prior:
+    if isinstance(expected_prior, set):
+        prior_valid = prior in expected_prior
+    else:
+        prior_valid = prior == expected_prior
+    if not prior_valid:
         raise RuntimeError(f"e0_transition_invalid:{prior}->{args.to}")
     acceptance_results: list[dict[str, Any]] = []
     cleanup: Any = "not_applicable_pre_execution"
@@ -128,7 +140,11 @@ def main() -> int:
     e0["status"] = args.to
     e0["reviewer_sign_off"] = "pending"
     manifest["generated_at"] = generated_at
-    manifest["runtime_execution_started"] = args.to in {"running", "review_pending"}
+    manifest["runtime_execution_started"] = args.to in {
+        "running",
+        "remediation_required",
+        "review_pending",
+    }
     manifest["acceptance_credit"] = False
     write_json(MANIFEST, manifest)
     manifest_sha = hashlib.sha256(MANIFEST.read_bytes()).hexdigest()
