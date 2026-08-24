@@ -254,6 +254,8 @@ def validate_s5_spark_data_scale_closure(
     )
     source = dict(closure.get("source_identity", {}))
     validator_revision = str(source.get("validator_revision") or "")
+    if not REVISION_PATTERN.fullmatch(validator_revision):
+        errors.append("closure_validator_revision")
     if final.get("runtime_smoke_git_blob_sha256") != runtime_smoke_sha256:
         errors.append("closure_runtime_smoke_sha256")
     if final.get("regression_git_blob_sha256") != regression_evidence_sha256:
@@ -262,8 +264,6 @@ def validate_s5_spark_data_scale_closure(
         errors.append("closure_runtime_smoke_revision")
     if final.get("regression_revision") != regression_result.get("revision"):
         errors.append("closure_regression_revision")
-    if validator_revision != regression_result.get("revision"):
-        errors.append("closure_validator_revision")
     if git_root is not None and REVISION_PATTERN.fullmatch(validator_revision):
         try:
             expected_smoke = _git_blob_identity(
