@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.s8_v4.e0_review_handoff.v1",
-  "generated_at": "2026-08-24T16:02:30Z",
+  "generated_at": "2026-08-24T16:07:25.4371273Z",
   "work_item": "E0",
   "status": "review_pending",
   "evidence_ready": true,
@@ -10,7 +10,7 @@
     "branch": "codex/distributed-scale-validation-plan",
     "runtime_revision": "e975b35733c67f54fb972b3ef378bd16f89eb2be",
     "evidence_commit": "3c13b7293b248a2b2443cec4af850bc05b907bb0",
-    "review_validation_commit": "46b4fa1cd2f8d9fca47d71f3b6c04af178c675ec",
+    "review_validation_commit": "1440acc4e55c036b1e527a7504e5b9b80660b365",
     "experiment_path": "docs/status/evidence/s8-v4-e0-environment-experiment.json",
     "experiment_blob_oid": "9e674b95806cb264801b619b81da51f2a5f57041",
     "experiment_sha256": "5ca9cc34991e76a9a49fcb882316560f955a54a453d61c7aed5bacc465d12fbd"
@@ -45,6 +45,7 @@
   "measurements": {
     "accepted_repetitions": 3,
     "historical_non_or_zero_credit_attempts": 7,
+    "review_command_zero_credit_events": 1,
     "readiness_seconds": [0.782, 0.766, 0.781],
     "prometheus_target_up_seconds": [1.5, 0.0, 0.0],
     "triton_successful_inferences": [100, 100, 100],
@@ -64,43 +65,43 @@
     {
       "name": "focused_e0",
       "result": "passed",
-      "passed": 21,
+      "passed": 22,
       "skipped": 0,
-      "log_sha256": "e5e58da2427cad93e3fa68a8faef40c8726fb82d9400840342011c5d241fb8f4"
+      "log_sha256": "f89073ab72eaf48ea9c879888e4dd8d4b1f13e4fbbd32c60a70331c1072076b8"
     },
     {
       "name": "full_python",
       "result": "passed",
-      "passed": 875,
+      "passed": 876,
       "skipped": 33,
-      "log_sha256": "02c834286f66b6308f2897f5e8f84802152027fc65f0ae7d7b3b6934fa6ee2ac"
+      "log_sha256": "1fef62d46b00601e95625b0982823f935aa2842539f52f6ce03610a14568acdc"
     },
     {
       "name": "real_postgresql",
       "result": "passed",
       "passed": 40,
       "skipped": 0,
-      "log_sha256": "3958ec60cb362517c19ab2d506a68079e5429e8ef195c6224fcf6dbc627df76c"
+      "log_sha256": "2c0caeb00d910cd04ac497e722a96d820924c38d818b28578d1cdb3d1f4860b1"
     },
     {
       "name": "lifecycle_host",
       "result": "passed",
       "passed": 144,
       "skipped": 0,
-      "log_sha256": "d5f953af7880ab5ad65fad0cfce5363c72d75454677739f16d7044787d54d87b"
+      "log_sha256": "465ed06a707a5831d601c4e8de830b54559530f8368455fb7d730909a6bd6841"
     },
     {
       "name": "control_panel",
       "result": "passed",
       "passed": 59,
       "test_files": 17,
-      "log_sha256": "6366468b52973b84c8abf69d16d82340203c0a2014a1f72c0bc17cd3fe95b47d"
+      "log_sha256": "857dd11ed2658194dc63d45c8c32e11180647541d2f5ea8ce5fd34d02c927eea"
     },
     {
       "name": "frontend_production_build",
       "result": "passed",
       "transformed_modules": 1803,
-      "log_sha256": "e5b9bd1b6e96adbe06f0200bfc28b54e3ca7b0b727c6ee20f506499e80937bf7"
+      "log_sha256": "f49d174804cf32906bbb1cb7b52ced8b48a93fa1d3fa49a9f75afc682c3baa6d"
     },
     {
       "name": "git_blob_evidence_validator",
@@ -121,13 +122,13 @@
     "queue_outcome_unknown": 0,
     "prometheus_targets_up": 5,
     "prometheus_targets_total": 5,
-    "runtime_cleanup_sha256": "7a22feff34c428401065f2e73deca57ffc9d71e839debaca8f63f7ae6eba4115"
+    "runtime_cleanup_sha256": "fc474d665d580353c230db2357723b01fac409c911958839ea85fa91662c86b3"
   },
   "private_review_evidence": {
-    "artifact_count": 8,
-    "total_bytes": 6470,
-    "aggregate_sha256": "ffebf266437e5694ad6e89d6398bf41766cb9f875f157f0099d45af7f811b9d9",
-    "index_sha256": "85cbdff3f687c033d244fdf711f461ca222cf3796cede7645acb3c797cbf9b02"
+    "artifact_count": 9,
+    "total_bytes": 6971,
+    "aggregate_sha256": "25d98dfdeb5a1ffa81c2aa44a43e39a5b29ceba8e669134aa9265d84d685fa0a",
+    "index_sha256": "7b45f642d1cdd9a452e80d1fadb0d8e977453777a5e8cfc0f54d84a4da3b22ef"
   },
   "alignment": {
     "definition_alignment": true,

@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.s8_v4.evidence_manifest.v1",
-  "generated_at": "2026-08-24T15:45:12.963111Z",
+  "generated_at": "2026-08-24T16:08:43.933496Z",
   "status": "contract_frozen",
   "runtime_execution_started": true,
   "acceptance_credit": false,
@@ -55,15 +55,106 @@
     {
       "work_item": "E0",
       "tracking_id": "EVM-299",
-      "status": "running",
+      "status": "review_pending",
       "acceptance_criteria": [
         "E0-AC-01",
         "E0-AC-02",
         "E0-AC-03",
         "E0-AC-04"
       ],
-      "attempts": [],
-      "reviewer_sign_off": "pending"
+      "attempts": [
+        {
+          "attempt_id": "e0-preflight-20260824T151519Z",
+          "credit": "non_credit",
+          "passed": false,
+          "failure": "CalledProcessError: profiler capability probe used an obsolete fixed CUPTI path",
+          "private_evidence_sha256": "38bed3162c8428dc8981527c3c08e84c970c0dfbb1935b14a33b357db6201977",
+          "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+        },
+        {
+          "attempt_id": "e0-failed-7681b06fb513",
+          "credit": "zero_credit",
+          "passed": false,
+          "failure": "ScenarioWorkloadError:s8-v4-e0-1-90fa86299639",
+          "private_evidence_sha256": "7ceb36e92fb57463bbfe55a4f60dad7087350c3f1ef0bcbf181e0b9fcc48230e",
+          "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+        },
+        {
+          "attempt_id": "e0-failed-382cd7ecef7f",
+          "credit": "zero_credit",
+          "passed": false,
+          "failure": "HTTPError:500 Server Error: Internal Server Error for url: http://127.0.0.1:18000/v2/models/e0_cuda_linear/infer",
+          "private_evidence_sha256": "8e8709c49c568d3acebc275de6ae352aa0c3411ea719778c7884b7dabc65418c",
+          "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+        },
+        {
+          "attempt_id": "e0-failed-e2affb49385f",
+          "credit": "zero_credit",
+          "passed": false,
+          "failure": "E0RuntimeError:e0_profiler_not_parseable:",
+          "private_evidence_sha256": "db60b089ddcbc110a623604b05114582b1faaa2309c5465145f1831a67a1486b",
+          "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+        },
+        {
+          "attempt_id": "e0-failed-7dff285c5faf",
+          "credit": "zero_credit",
+          "passed": false,
+          "failure": "E0RuntimeError:e0_profiler_not_parseable:",
+          "private_evidence_sha256": "45f3ed21b12ba1318de8abedc36c4ee22c0915aae1bc3d0f90fb79675492a493",
+          "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+        },
+        {
+          "attempt_id": "e0-failed-f03f4314d32e",
+          "credit": "zero_credit",
+          "passed": false,
+          "failure": "CalledProcessError:Command '['docker', 'exec', 'evm-s8-v4-e0-r1', 'bash', '-lc', 'nvcc -O2 /evidence/e0-profiler-probe.cu -o /tmp/e0-profiler-probe && nsys profile --sample=none --cpuctxsw=none --trace=cuda-sw,nvtx,osrt --force-overwrite=true --output=/evidence/e0-cuda-probe /tmp/e0-profiler-probe']' returned non-zero exit status 1.",
+          "private_evidence_sha256": "d96a588cf6d81ba27e234f320a59179c03ea312893afdea8bb55277ab4c02c4e",
+          "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+        },
+        {
+          "attempt_id": "e0-failed-499c7f9cb812",
+          "credit": "zero_credit",
+          "passed": false,
+          "failure": "E0RuntimeError:e0_cupti_probe_exit:1",
+          "private_evidence_sha256": "a04e7f821d3da985ed092531d404e1978e7f8d1b1f193ec54eca98c58e98cfb4",
+          "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+        },
+        {
+          "attempt_id": "e0-1-ce443b45ec9a",
+          "repetition": 1,
+          "credit": "credit",
+          "passed": true,
+          "private_evidence_sha256": "3b71a2e791b2aa06be6cf9b98385c6878af87b67a77191132f42f0466d43287a",
+          "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+        },
+        {
+          "attempt_id": "e0-2-ae3e8e8eadeb",
+          "repetition": 2,
+          "credit": "credit",
+          "passed": true,
+          "private_evidence_sha256": "ab5d1a0fcb7e9f3e4eb59d59e250fe9661e0780f366079c0245f3ca088e235f2",
+          "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+        },
+        {
+          "attempt_id": "e0-3-e2d8d328d0ee",
+          "repetition": 3,
+          "credit": "credit",
+          "passed": true,
+          "private_evidence_sha256": "d9f311fda8387ff7b1331d6a22c4378f9e625383abf48e26d37301f117139384",
+          "public_evidence": "docs/status/evidence/s8-v4-e0-environment-experiment.json"
+        }
+      ],
+      "reviewer_sign_off": "pending",
+      "evidence": {
+        "path": "docs/status/evidence/s8-v4-e0-environment-experiment.json",
+        "sha256": "5ca9cc34991e76a9a49fcb882316560f955a54a453d61c7aed5bacc465d12fbd",
+        "private_aggregate_sha256": "247d5b1baf144d5e0977fead67a8cc2d25f34202ee0dc4e1c1e7fd9530a75dca",
+        "runtime_revision": "e975b35733c67f54fb972b3ef378bd16f89eb2be",
+        "review_handoff": {
+          "path": "docs/status/evidence/s8-v4-e0-review-handoff.json",
+          "sha256": "da59a274230c44bafe7c91c17ecbf557d5d4b9395f0b06241e450fafdeb9550e"
+        }
+      }
     },
     {
       "work_item": "S6B-M",
