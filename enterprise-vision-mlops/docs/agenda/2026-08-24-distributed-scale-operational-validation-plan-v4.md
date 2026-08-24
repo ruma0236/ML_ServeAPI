@@ -66,7 +66,7 @@ prior event. Public JSON and JSONL use canonical LF bytes.
 
 ## E0: Triton Environment And Profiler Baseline
 
-Tracking: `EVM-299` under the V4 umbrella.
+Tracking: `EVM-299` / `SCRUM-210` under `SCRUM-209`.
 
 State at plan freeze: `contract_frozen`; runtime not started.
 
@@ -149,7 +149,7 @@ HA, DR, multi-GPU, MIG, MPS, or CUDA overlap evidence.
 
 ## S6B-M: Triton Model Blue/Green
 
-Tracking: `EVM-300` under the V4 umbrella.
+Tracking: `EVM-300` / `SCRUM-211` under `SCRUM-209`.
 
 State at plan freeze: `planned`; it cannot enter `contract_frozen` until E0 is
 verified and exact Blue/Green artifacts are selected.
@@ -214,7 +214,7 @@ multi-replica GPU HA, zero-downtime production serving, or node failover.
 
 ## X1: Heterogeneous-model Concurrency
 
-Tracking: `EVM-301` under the V4 umbrella.
+Tracking: `EVM-301` / `SCRUM-212` under `SCRUM-209`.
 
 State at plan freeze: `planned`; exact artifacts and per-model batch candidates
 are frozen by append-only amendment only after S6B-M is verified.
@@ -301,7 +301,7 @@ not imply simultaneous kernel execution.
 
 ## Integrated S8-V4: Fault, Recovery, And Soak Closure
 
-Tracking: `EVM-302` under the V4 umbrella.
+Tracking: `EVM-302` / `SCRUM-213` under `SCRUM-209`.
 
 State at plan freeze: `planned`; it cannot be frozen until X1 selects the
 balanced and hot operating points.

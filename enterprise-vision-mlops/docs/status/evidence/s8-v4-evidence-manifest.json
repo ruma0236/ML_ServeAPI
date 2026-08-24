@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.s8_v4.evidence_manifest.v1",
-  "generated_at": "2026-08-24T13:20:19Z",
+  "generated_at": "2026-08-24T13:43:18Z",
   "status": "contract_frozen",
   "runtime_execution_started": false,
   "acceptance_credit": false,
@@ -25,21 +25,21 @@
     },
     {
       "path": "docs/agenda/2026-08-24-distributed-scale-operational-validation-plan-v4.md",
-      "blob_oid": "737fc31bd7bdba0fb8e9c5eab6c30bc6304f6f32",
-      "sha256": "0a5681a95621a2fe36a972dbbc362bf1198e09c996d6de8425dbe69e9b53768a",
-      "bytes": 15410
+      "blob_oid": "7bfb0cbbd4e5c8a9a94280b8c7ae28cc478d6a69",
+      "sha256": "3c7a81cd9b6abb7c5f18888d301350015083e9ae390bdea3f3ea6e4571d5f397",
+      "bytes": 15450
     },
     {
       "path": "docs/status/2026-08-24-s8-v4-progress.md",
-      "blob_oid": "4ce35e1dca84cd53f0de42e249731284b592776b",
-      "sha256": "6e7bdccef9e7382cf3bb733c756a60f1dfeb896a2ed3f82823e5ec4232b43c9e",
-      "bytes": 2898
+      "blob_oid": "f3d8993b7e99030b6cc97f57c4af039415475804",
+      "sha256": "d0edf41e00912f10952eac3b7e26757b03f1d224ad4610b1d7b13e40879d3646",
+      "bytes": 3528
     },
     {
       "path": "docs/issues/issue-register.md",
-      "blob_oid": "33a66c3ea3e8acb08836bf4ccd5d50a9c1feb606",
-      "sha256": "51b1dc1bd889faa28bf06056c8d6f1cecda4c04623974fbc643468d41196f670",
-      "bytes": 97961
+      "blob_oid": "417cf5b53a4caf9421f95837774722e1548b0dd5",
+      "sha256": "8df8b1f52aa729624e25f44e3118788fd6b2da189e4ec10acbe0edd7f587a481",
+      "bytes": 98446
     }
   ],
   "ledger_contract": {
