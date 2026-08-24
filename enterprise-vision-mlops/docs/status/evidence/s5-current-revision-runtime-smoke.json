@@ -1,56 +1,146 @@
 {
+  "schema_version": "evm.s5_current_revision_runtime_smoke.v2",
+  "status": "passed",
   "acceptance_credit": false,
-  "claim_boundary": "Current-revision local smoke only; no production SLA, physical multi-node, full-terabyte, or customer-traffic claim.",
+  "suite_id": "20260824T035735Z-bb64dd50c2d0",
+  "source_identity": {
+    "revision": "bb64dd50c2d0c3dae4668d63eb01cad31501c275",
+    "branch": "codex/distributed-scale-validation-plan",
+    "config_sha256": "3ac9ccebb9ca3d55e8f90f7bd1d176924fcd95d3c86237431aa70948285c87af",
+    "git_blobs": {
+      "config": {
+        "path": "enterprise-vision-mlops/configs/s5_spark_data_scale.toml",
+        "blob_oid": "24d5d61dd57f7e601864e76a9436676d61c7fb89",
+        "sha256": "3ac9ccebb9ca3d55e8f90f7bd1d176924fcd95d3c86237431aa70948285c87af"
+      },
+      "runtime": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s5_runtime.py",
+        "blob_oid": "ed1a3068f04766a07d710db344c45193990693f5",
+        "sha256": "b18b507d2f16a85a1f6f9a8d54ebc136ea0ef58ee350d315bf3d87d5f65ccaf6"
+      },
+      "spark_job": {
+        "path": "enterprise-vision-mlops/src/evm/scale_validation/s5_spark_job.py",
+        "blob_oid": "1e8f1d688bead2f4617b7786ac15c7c74f10ca3b",
+        "sha256": "21bae55a836ebb4517a47da7d3a7c9ac694b93c82a405bc78d1a0596783b270b"
+      },
+      "runner": {
+        "path": "enterprise-vision-mlops/scripts/dev/run_s5_spark_data_scale_experiment.py",
+        "blob_oid": "cddba853f5466a4689d7aa5b4efc7a7e641593e9",
+        "sha256": "320352ec0c0d7210218d5ece62f4123a7a6b5e395502fb579a3806e5fa0fbf44"
+      }
+    }
+  },
+  "engines": [
+    {
+      "point_id": "smoke-01",
+      "engine": "single_process_columnar",
+      "stage": "small",
+      "repetition": 1,
+      "profile": "preparation_smoke",
+      "semantic_row_count": 766864,
+      "effective_row_count": 766864,
+      "repeat_factor": 1,
+      "generated_io_only": false,
+      "duration_seconds": 0.5908207000175025,
+      "records_per_second": 1297964.0015613574,
+      "mib_per_second": 91.62220875853795,
+      "peak_executor_memory_bytes": 357765120,
+      "gc_time_ms": 0,
+      "shuffle_read_bytes": 0,
+      "shuffle_write_bytes": 0,
+      "memory_spill_bytes": 0,
+      "disk_spill_bytes": 0,
+      "skew_ratio": 280.1795407098121,
+      "missing_records": 0,
+      "duplicate_records": 0,
+      "output_digest": "3c2a07850d6170e25990aee1b1e8ce6f3cf035bc8d3fc064271b936a55644784",
+      "commit_state": "committed"
+    },
+    {
+      "point_id": "smoke-02",
+      "engine": "spark_local",
+      "stage": "small",
+      "repetition": 1,
+      "profile": "spark_local_stage",
+      "executor_count": 1,
+      "semantic_row_count": 766864,
+      "effective_row_count": 766864,
+      "repeat_factor": 1,
+      "generated_io_only": false,
+      "duration_seconds": 8.057738069997868,
+      "records_per_second": 95171.1253627537,
+      "mib_per_second": 6.718051275137002,
+      "peak_executor_memory_bytes": 29360080,
+      "gc_time_ms": 412,
+      "gc_ratio": 0.036707056307911615,
+      "shuffle_read_bytes": 14984214,
+      "shuffle_write_bytes": 14984214,
+      "memory_spill_bytes": 0,
+      "disk_spill_bytes": 0,
+      "skew_ratio": 280.1795407098121,
+      "missing_records": 0,
+      "duplicate_records": 0,
+      "output_digest": "3c2a07850d6170e25990aee1b1e8ce6f3cf035bc8d3fc064271b936a55644784",
+      "commit_state": "committed",
+      "task_count": 71,
+      "failed_task_count": 0,
+      "executors_added": 1,
+      "executors_removed": 0
+    },
+    {
+      "point_id": "smoke-03",
+      "engine": "spark_kubernetes_1",
+      "stage": "small",
+      "repetition": 1,
+      "profile": "kubernetes_scale",
+      "executor_count": 1,
+      "semantic_row_count": 766864,
+      "effective_row_count": 766864,
+      "repeat_factor": 1,
+      "generated_io_only": false,
+      "duration_seconds": 14.841671187998145,
+      "records_per_second": 51669.652984909924,
+      "mib_per_second": 3.6473182049501087,
+      "peak_executor_memory_bytes": 33554432,
+      "gc_time_ms": 180,
+      "gc_ratio": 0.02254791431792559,
+      "shuffle_read_bytes": 14912743,
+      "shuffle_write_bytes": 14912743,
+      "memory_spill_bytes": 0,
+      "disk_spill_bytes": 0,
+      "skew_ratio": 280.1795407098121,
+      "missing_records": 0,
+      "duplicate_records": 0,
+      "output_digest": "3c2a07850d6170e25990aee1b1e8ce6f3cf035bc8d3fc064271b936a55644784",
+      "commit_state": "committed",
+      "task_count": 55,
+      "failed_task_count": 0,
+      "executors_added": 1,
+      "executors_removed": 0,
+      "executor_kill_observed": false,
+      "executor_identity_count": 1
+    }
+  ],
+  "cross_engine_output_digest_equal": true,
   "cleanup": {
     "kubernetes_executor_pods_remaining": 0,
     "kubernetes_jobs_remaining": 0,
     "pvc_phase": "Bound",
     "source_dataset_unchanged": true
   },
-  "cross_engine_output_digest_equal": true,
-  "engines": [
-    {
-      "duplicate_records": 0,
-      "effective_row_count": 766864,
-      "engine": "single_process_columnar",
-      "missing_records": 0,
-      "peak_executor_memory_bytes": 364060672,
-      "records_per_second": 1348376.641
-    },
-    {
-      "duplicate_records": 0,
-      "effective_row_count": 766864,
-      "engine": "spark_local",
-      "missing_records": 0,
-      "peak_executor_memory_bytes": 29360080,
-      "records_per_second": 94017.185
-    },
-    {
-      "duplicate_records": 0,
-      "effective_row_count": 766864,
-      "engine": "spark_kubernetes_1",
-      "missing_records": 0,
-      "peak_executor_memory_bytes": 33554432,
-      "records_per_second": 53293.21
-    }
-  ],
-  "generated_at": "2026-08-23T13:20:33.466588Z",
-  "private_evidence": {
-    "artifact_count": 6,
-    "index_sha256": "8b1fc01b8d0e4ad9e1da9d4827d735b3777157bf475db199bafd6ead46bd7926",
-    "total_bytes": 13161
-  },
   "runtime_health": {
     "api_status": "ok",
-    "existing_serving_available_replicas": 1,
     "existing_serving_desired_replicas": 1,
-    "prometheus_targets_total": 4,
-    "prometheus_targets_up": 4
+    "existing_serving_available_replicas": 1,
+    "prometheus_targets_total": 5,
+    "prometheus_targets_up": 5
   },
-  "schema_version": "evm.s5_current_revision_runtime_smoke.v1",
-  "source_identity": {
-    "branch": "codex/distributed-scale-validation-plan",
-    "revision": "c0ab34f95c09eef04a98640772660a51aab98107"
+  "private_evidence": {
+    "artifact_count": 6,
+    "total_bytes": 13170,
+    "index_sha256": "7455cd356fa60da896d240dc1888a6039410168718a68313e347f6aca0e3a26a",
+    "location": "outside_git_private_evidence_root"
   },
-  "status": "passed"
+  "claim_boundary": "Current-revision local cross-engine smoke only; no production SLA, physical multi-node, full-terabyte, or customer-traffic claim.",
+  "generated_at": "2026-08-24T03:58:16.846228Z"
 }
