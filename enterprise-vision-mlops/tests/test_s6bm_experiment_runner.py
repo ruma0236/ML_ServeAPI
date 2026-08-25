@@ -118,7 +118,24 @@ def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
     monkeypatch.setattr(runner.requests, "Session", FakeSession)
     monkeypatch.setattr(runner, "send_request", fake_send)
 
-    records, bodies = runner.send_batch(object(), "run-id", "batch", 24, 3)
+    class Model:
+        model_name = "s6bm_blue"
+        model_version = "1"
+        artifact_sha256 = "a" * 64
+
+    class Config:
+        blue = Model()
+        green = Model()
+
+    records, bodies = runner.send_batch(
+        Config(),
+        "run-id",
+        "attempt-id",
+        "batch",
+        24,
+        3,
+        expected_model_role="blue",
+    )
 
     assert len(records) == len(bodies) == 24
     assert 1 <= len(created) <= 3

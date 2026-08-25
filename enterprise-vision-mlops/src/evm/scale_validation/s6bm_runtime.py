@@ -28,6 +28,8 @@ SUCCESS_PHASES = [
     "rolled_back",
 ]
 TRACE_ID = re.compile(r"^[a-f0-9]{32}$")
+SPAN_ID = re.compile(r"^[a-f0-9]{16}$")
+SHA256 = re.compile(r"^[a-f0-9]{64}$")
 
 
 class S6BMRuntimeError(RuntimeError):
@@ -252,18 +254,45 @@ def _project_request_records(
     ):
         raise S6BMRuntimeError("s6bm_request_not_completed")
     trace_ids = [str(item.get("trace_id", "")) for item in records]
-    if len(set(trace_ids)) != len(trace_ids) or any(TRACE_ID.fullmatch(item) is None for item in trace_ids):
+    if len(set(trace_ids)) != len(trace_ids) or any(
+        TRACE_ID.fullmatch(item) is None for item in trace_ids
+    ):
         raise S6BMRuntimeError("s6bm_trace_identity")
+    attempt_id = str(raw.get("attempt_id", ""))
+    run_id = str(dict(raw.get("identities", {})).get("lease", {}).get("run_id", ""))
+    if not attempt_id or not run_id:
+        raise S6BMRuntimeError("s6bm_request_attempt_identity")
+    effect_ids: set[str] = set()
     completion_times: list[float] = []
     latencies: list[float] = []
     for record in records:
+        if record.get("attempt_id") != attempt_id or record.get("run_id") != run_id:
+            raise S6BMRuntimeError("s6bm_request_attempt_identity")
         role = str(record.get("model_role", ""))
         if role not in {"blue", "green"}:
             raise S6BMRuntimeError("s6bm_request_role")
         expected_identity = _expected_identity(config, role)
         if any(record.get(key) != value for key, value in expected_identity.items()):
             raise S6BMRuntimeError("s6bm_request_model_identity")
-        expected_output = config.blue.expected_output if role == "blue" else config.green.expected_output
+        if dict(record.get("offered_identity", {})) != expected_identity:
+            raise S6BMRuntimeError("s6bm_offered_served_identity")
+        traceparent = str(record.get("offered_traceparent", ""))
+        trace_parts = traceparent.split("-")
+        if (
+            len(trace_parts) != 4
+            or trace_parts[0] != "00"
+            or trace_parts[1] != record.get("trace_id")
+            or SPAN_ID.fullmatch(trace_parts[2]) is None
+            or trace_parts[3] not in {"00", "01"}
+        ):
+            raise S6BMRuntimeError("s6bm_traceparent_binding")
+        effect_id = str(record.get("effect_id", ""))
+        if SHA256.fullmatch(effect_id) is None or effect_id in effect_ids:
+            raise S6BMRuntimeError("s6bm_effect_identity")
+        effect_ids.add(effect_id)
+        expected_output = (
+            config.blue.expected_output if role == "blue" else config.green.expected_output
+        )
         output = tuple(_finite(item, "request_output") for item in record.get("output", []))
         if len(output) != len(expected_output) or any(
             not math.isclose(observed, expected, rel_tol=0, abs_tol=1e-5)
@@ -314,7 +343,7 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
     if dict(raw.get("requests", {})) != requests:
         raise S6BMRuntimeError("s6bm_request_projection")
     total = requests["logical"]
-    if total < int(config.procedure["logical_requests_per_transition"]):
+    if total != int(config.procedure["logical_requests_per_transition"]):
         raise S6BMRuntimeError("s6bm_success_request_count")
     replay = dict(raw.get("idempotent_replay", {}))
     replay_record = dict(replay.get("record", {}))
@@ -325,8 +354,7 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
         replay.get("replayed") is not True
         or original is None
         or int(replay.get("unique_count_before", 0)) <= 0
-        or int(replay.get("unique_count_before", -1))
-        != int(replay.get("unique_count_after", -2))
+        or int(replay.get("unique_count_before", -1)) != int(replay.get("unique_count_after", -2))
         or int(replay.get("unique_count_after", 0)) > total
         or replay_record.get("replayed") is not True
         or any(
@@ -334,6 +362,11 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
             for key in (
                 "request_id",
                 "trace_id",
+                "run_id",
+                "attempt_id",
+                "effect_id",
+                "offered_traceparent",
+                "offered_identity",
                 "model_role",
                 "model_name",
                 "model_version",
@@ -380,6 +413,7 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
         telemetry.get("api_target_up") is not True
         or telemetry.get("triton_target_up") is not True
         or telemetry.get("trace_correlation_complete") is not True
+        or telemetry.get("metric_delta_complete") is not True
     ):
         raise S6BMRuntimeError("s6bm_telemetry")
     cleanup = dict(raw.get("cleanup", {}))
@@ -464,7 +498,49 @@ def project_fault_attempt(
     }
 
 
-def analyze_attempts(raw_attempts: Sequence[Mapping[str, Any]], config: S6BMConfig) -> dict[str, Any]:
+def analyze_attempts(
+    raw_attempts: Sequence[Mapping[str, Any]], config: S6BMConfig
+) -> dict[str, Any]:
+    allowed_profiles = {
+        "successful_transition",
+        "wrong_digest",
+        "green_load_failure",
+        "green_readiness_failure",
+        "green_canary_failure",
+        "vram_preflight_rejection",
+    }
+    observed_profiles = [str(item.get("profile", "")) for item in raw_attempts]
+    if any(profile not in allowed_profiles for profile in observed_profiles):
+        raise S6BMRuntimeError("s6bm_profile_out_of_contract")
+    attempt_ids = [str(item.get("attempt_id", "")) for item in raw_attempts]
+    if any(not attempt_id for attempt_id in attempt_ids) or len(set(attempt_ids)) != len(
+        attempt_ids
+    ):
+        raise S6BMRuntimeError("s6bm_attempt_identity_duplicate")
+
+    def require_repetitions(profile: str, expected: int) -> None:
+        observed = [
+            int(item.get("repetition", 0))
+            for item in raw_attempts
+            if item.get("profile") == profile
+        ]
+        expected_set = set(range(1, expected + 1))
+        if len(observed) != expected or set(observed) != expected_set:
+            raise S6BMRuntimeError(f"s6bm_repetition_set:{profile}:{observed}")
+
+    repetitions = int(config.procedure["successful_transition_repetitions"])
+    fault_repetitions = int(config.procedure["wrong_digest_repetitions"])
+    supplemental_repetitions = int(config.procedure["negative_profile_repetitions"])
+    require_repetitions("successful_transition", repetitions)
+    require_repetitions("wrong_digest", fault_repetitions)
+    for profile in (
+        "green_load_failure",
+        "green_readiness_failure",
+        "green_canary_failure",
+        "vram_preflight_rejection",
+    ):
+        require_repetitions(profile, supplemental_repetitions)
+
     success = [
         project_success_attempt(item, config)
         for item in raw_attempts
@@ -489,9 +565,6 @@ def analyze_attempts(raw_attempts: Sequence[Mapping[str, Any]], config: S6BMConf
         ]
         for profile in supplementary_profiles
     }
-    repetitions = int(config.procedure["successful_transition_repetitions"])
-    fault_repetitions = int(config.procedure["wrong_digest_repetitions"])
-    supplemental_repetitions = int(config.procedure["negative_profile_repetitions"])
     ac = {
         "S6B-M-AC-01": len(success) == repetitions and all(item["passed"] for item in success),
         "S6B-M-AC-02": len(success) == repetitions and all(item["passed"] for item in success),

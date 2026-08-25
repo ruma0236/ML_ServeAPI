@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,7 @@ def identities() -> dict[str, object]:
             "config_sha256": config.green.config_sha256,
         },
         "lease": {
+            "run_id": "s8-v4-s6bm-unit-test",
             "scenario_id": "S6B-M",
             "model_family": "tabular",
             "purpose": "scale_validation_inference",
@@ -53,8 +55,20 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
         model = config.blue if role == "blue" else config.green
         records.append(
             {
+                "run_id": "s8-v4-s6bm-unit-test",
+                "attempt_id": f"success-{repetition}",
                 "request_id": f"request-{index:04d}",
                 "trace_id": f"{index + 1:032x}",
+                "effect_id": hashlib.sha256(
+                    f"success-{repetition}:request-{index:04d}".encode("ascii")
+                ).hexdigest(),
+                "offered_traceparent": (f"00-{index + 1:032x}-{index + 2:016x}-01"),
+                "offered_identity": {
+                    "model_role": role,
+                    "model_name": model.model_name,
+                    "model_version": model.model_version,
+                    "artifact_sha256": model.artifact_sha256,
+                },
                 "status_code": 200,
                 "outcome": "completed",
                 "model_role": role,
@@ -118,6 +132,7 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
             "api_target_up": True,
             "triton_target_up": True,
             "trace_correlation_complete": True,
+            "metric_delta_complete": True,
         },
         "cleanup": {
             "blue_only": True,
@@ -192,9 +207,7 @@ def test_s6bm_success_projection_rejects_loss_identity_and_cleanup() -> None:
         ("rollback", lambda raw: raw.update(rollback_exact_blue=False)),
         (
             "replay",
-            lambda raw: raw["idempotent_replay"]["record"].update(
-                artifact_sha256="f" * 64
-            ),
+            lambda raw: raw["idempotent_replay"]["record"].update(artifact_sha256="f" * 64),
         ),
         ("cleanup", lambda raw: raw["cleanup"].update(queue_zero=False)),  # type: ignore[union-attr]
     ]
@@ -247,15 +260,52 @@ def test_s6bm_analysis_requires_every_repetition_and_supplementary_guard() -> No
     ]
     attempts = [success_attempt(repetition) for repetition in range(1, 4)]
     attempts.extend(
-        fault_attempt(profile, repetition)
-        for profile in profiles
-        for repetition in range(1, 4)
+        fault_attempt(profile, repetition) for profile in profiles for repetition in range(1, 4)
     )
     analysis = analyze_attempts(attempts, config)
     assert all(analysis["acceptance"].values())
     assert analysis["supplementary_guards_passed"] is True
     assert analysis["evidence_ready"] is True
 
-    incomplete = analyze_attempts(attempts[:-1], config)
-    assert incomplete["supplementary_guards_passed"] is False
-    assert incomplete["evidence_ready"] is False
+    with pytest.raises(S6BMRuntimeError, match="s6bm_repetition_set"):
+        analyze_attempts(attempts[:-1], config)
+
+
+def test_s6bm_analysis_rejects_duplicate_and_out_of_contract_repetitions() -> None:
+    config = S6BMConfig.from_path(CONFIG)
+    profiles = [
+        "wrong_digest",
+        "green_load_failure",
+        "green_readiness_failure",
+        "green_canary_failure",
+        "vram_preflight_rejection",
+    ]
+    attempts = [success_attempt(repetition) for repetition in range(1, 4)]
+    attempts.extend(
+        fault_attempt(profile, repetition) for profile in profiles for repetition in range(1, 4)
+    )
+
+    duplicate = copy.deepcopy(attempts)
+    duplicate[1]["repetition"] = 1
+    with pytest.raises(S6BMRuntimeError, match="s6bm_repetition_set"):
+        analyze_attempts(duplicate, config)
+
+    out_of_contract = copy.deepcopy(attempts)
+    out_of_contract[2]["repetition"] = 4
+    with pytest.raises(S6BMRuntimeError, match="s6bm_repetition_set"):
+        analyze_attempts(out_of_contract, config)
+
+
+def test_s6bm_success_rejects_offered_identity_and_effect_mutations() -> None:
+    config = S6BMConfig.from_path(CONFIG)
+    offered = success_attempt()
+    offered["request_records"][0]["offered_identity"]["model_name"] = "substituted"  # type: ignore[index]
+    with pytest.raises(S6BMRuntimeError, match="s6bm_offered_served_identity"):
+        project_success_attempt(offered, config)
+
+    duplicate_effect = success_attempt()
+    duplicate_effect["request_records"][1]["effect_id"] = duplicate_effect[  # type: ignore[index]
+        "request_records"
+    ][0]["effect_id"]
+    with pytest.raises(S6BMRuntimeError, match="s6bm_effect_identity"):
+        project_success_attempt(duplicate_effect, config)

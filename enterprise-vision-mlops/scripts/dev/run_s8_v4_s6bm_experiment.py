@@ -44,6 +44,13 @@ from evm.scale_validation.s6bm_runtime import (  # noqa: E402
     canonical_sha256,
     sha256_file,
 )
+from evm.scale_validation.s6bm_observability import (  # noqa: E402
+    attempt_span_count,
+    collect_attempt_trace_export,
+    direct_metric_value,
+    prometheus_value,
+    validate_observability_bundle,
+)
 
 
 SERVING_URL = "http://127.0.0.1:30800"
@@ -55,6 +62,12 @@ TARGET_ROOT = Path(
 TRITON_TARGET = TARGET_ROOT / "s8-v4-s6bm-triton.json"
 API_TARGET = TARGET_ROOT / "s8-v4-s6bm-api.json"
 CONTAINER_NAME = "evm-s8-v4-s6bm-triton"
+OTEL_TRACE_FILE = Path(
+    os.getenv(
+        "EVM_OTEL_TRACE_FILE",
+        "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/scale_validation/otel/traces.json",
+    )
+)
 
 
 class S6BMExperimentError(RuntimeError):
@@ -105,7 +118,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--public-output",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment-v2.json",
     )
     return parser.parse_args()
 
@@ -134,8 +147,7 @@ def run(
     )
     if check and result.returncode != 0:
         raise S6BMExperimentError(
-            f"command_failed:{result.returncode}:{' '.join(command)}:"
-            f"{result.stderr[-1500:]}"
+            f"command_failed:{result.returncode}:{' '.join(command)}:{result.stderr[-1500:]}"
         )
     return result
 
@@ -297,20 +309,15 @@ def capture_gpu() -> dict[str, Any]:
 def queue_counts() -> dict[str, int]:
     sql = (
         "SELECT count(*) FILTER (WHERE state IN "
-        "('available','retry_wait','leased','runtime_pending','outcome_unknown'))," 
+        "('available','retry_wait','leased','runtime_pending','outcome_unknown')),"
         "count(*) FILTER (WHERE state='leased'),"
         "count(*) FILTER (WHERE state='outcome_unknown') "
         "FROM evm_control_plane.task_admission_queue;"
     )
-    shell = (
-        "psql -v ON_ERROR_STOP=1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" "
-        f"-At -F '|' -c \"{sql}\""
-    )
+    shell = f'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F \'|\' -c "{sql}"'
     values = [
         int(value)
-        for value in run(
-            ["docker", "exec", "evm-control-plane-postgres", "sh", "-lc", shell]
-        )
+        for value in run(["docker", "exec", "evm-control-plane-postgres", "sh", "-lc", shell])
         .stdout.strip()
         .split("|")
     ]
@@ -346,9 +353,7 @@ def wait_prometheus_baseline(expected: Mapping[str, Any], timeout: float = 30) -
 
 
 def prometheus_query(query: str) -> float:
-    response = requests.get(
-        f"{PROMETHEUS_URL}/api/v1/query", params={"query": query}, timeout=10
-    )
+    response = requests.get(f"{PROMETHEUS_URL}/api/v1/query", params={"query": query}, timeout=10)
     response.raise_for_status()
     result = list(dict(response.json()["data"])["result"])
     return 0.0 if not result else float(result[0]["value"][1])
@@ -378,6 +383,39 @@ def write_prometheus_targets(config: S6BMConfig, suite_id: str) -> None:
     reload_prometheus()
 
 
+def bind_prometheus_attempt(
+    config: S6BMConfig,
+    *,
+    suite_id: str,
+    attempt_id: str,
+) -> None:
+    labels = {
+        "scenario": "s8-v4-s6bm",
+        "suite_id": suite_id,
+        "attempt_id": attempt_id,
+    }
+    canonical_write(
+        TRITON_TARGET,
+        [
+            {
+                "targets": [f"host.docker.internal:{config.ports['triton_metrics']}"],
+                "labels": labels,
+            }
+        ],
+    )
+    canonical_write(
+        API_TARGET,
+        [
+            {
+                "targets": [f"host.docker.internal:{config.ports['api']}"],
+                "labels": labels,
+            }
+        ],
+    )
+    reload_prometheus()
+    wait_prometheus_jobs(config, present=True)
+
+
 def remove_prometheus_targets() -> None:
     canonical_write(TRITON_TARGET, [])
     canonical_write(API_TARGET, [])
@@ -385,9 +423,7 @@ def remove_prometheus_targets() -> None:
     deadline = time.monotonic() + 30
     temporary_jobs = {"evm-s8-v4-s6bm-triton", "evm-s8-v4-s6bm-api"}
     while time.monotonic() < deadline:
-        jobs = {
-            str(dict(item.get("labels", {})).get("job")) for item in prometheus_targets()
-        }
+        jobs = {str(dict(item.get("labels", {})).get("job")) for item in prometheus_targets()}
         if not (temporary_jobs & jobs):
             break
         time.sleep(0.5)
@@ -436,10 +472,7 @@ def wait_prometheus_jobs(config: S6BMConfig, *, present: bool, timeout: float = 
     }
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        observed = {
-            str(dict(item.get("labels", {})).get("job"))
-            for item in prometheus_targets()
-        }
+        observed = {str(dict(item.get("labels", {})).get("job")) for item in prometheus_targets()}
         healthy = {
             str(dict(item.get("labels", {})).get("job"))
             for item in prometheus_targets()
@@ -531,7 +564,13 @@ def container_exists(name: str) -> bool:
     return run(["docker", "inspect", name], check=False, timeout=10).returncode == 0
 
 
-def start_api(config: S6BMConfig, suite_root: Path) -> ApiProcess:
+def start_api(
+    config: S6BMConfig,
+    suite_root: Path,
+    *,
+    source_revision: str,
+    suite_id: str,
+) -> ApiProcess:
     stdout_path = suite_root / "runtime" / "api-stdout.log"
     stderr_path = suite_root / "runtime" / "api-stderr.log"
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
@@ -545,8 +584,11 @@ def start_api(config: S6BMConfig, suite_root: Path) -> ApiProcess:
             "EVM_S6BM_APPLY_MODEL_CONTROL": "1",
             "EVM_METRICS_REFRESH_MODE": "export-only",
             "EVM_OTEL_ENABLED": "1",
+            "EVM_OTEL_REQUIRED": "1",
+            "EVM_IMAGE_SOURCE_REVISION": source_revision,
             "OTEL_SERVICE_NAME": "evm-s8-v4-s6bm-api",
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318",
+            "OTEL_SERVICE_INSTANCE_ID": suite_id,
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:4318/v1/traces",
         }
     )
     process = subprocess.Popen(
@@ -654,9 +696,7 @@ def model_ready(config: S6BMConfig, role: str) -> bool:
 def direct_infer(config: S6BMConfig, role: str) -> dict[str, Any]:
     model = config.blue if role == "blue" else config.green
     response = requests.post(
-        triton_url(
-            config, f"/v2/models/{model.model_name}/versions/{model.model_version}/infer"
-        ),
+        triton_url(config, f"/v2/models/{model.model_name}/versions/{model.model_version}/infer"),
         json={
             "inputs": [
                 {
@@ -810,14 +850,33 @@ def blue_request_id(prefix: str) -> str:
     raise S6BMExperimentError("blue_request_identity_not_found")
 
 
-def request_body(run_id: str, request_id: str, *, hold_ms: int = 0) -> dict[str, Any]:
+def expected_role(request_id: str, *, green_weight_percent: int) -> str:
+    bucket = int(hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:8], 16) % 100
+    return "green" if bucket < green_weight_percent else "blue"
+
+
+def request_body(
+    config: S6BMConfig,
+    run_id: str,
+    attempt_id: str,
+    request_id: str,
+    *,
+    expected_model_role: str,
+    hold_ms: int = 0,
+) -> dict[str, Any]:
+    model = config.blue if expected_model_role == "blue" else config.green
     return {
         "schema_version": "evm.s8_v4.s6bm_predict_request.v1",
         "run_id": run_id,
+        "attempt_id": attempt_id,
         "request_id": request_id,
         "traceparent": traceparent(request_id),
         "input_values": [1.0, 2.0, 3.0, 4.0],
         "hold_ms": hold_ms,
+        "expected_model_role": expected_model_role,
+        "expected_model_name": model.model_name,
+        "expected_model_version": model.model_version,
+        "expected_artifact_sha256": model.artifact_sha256,
     }
 
 
@@ -830,7 +889,12 @@ def send_request(
     attempted = time.perf_counter()
     client = session if session is not None else requests
     try:
-        response = client.post(api_url(config, "predict"), json=dict(body), timeout=20)
+        response = client.post(
+            api_url(config, "predict"),
+            json=dict(body),
+            headers={"traceparent": str(body["traceparent"])},
+            timeout=20,
+        )
         completed = time.perf_counter()
         parsed = response.json()
         if response.status_code != 200:
@@ -843,8 +907,18 @@ def send_request(
                 "completed_monotonic": completed,
             }
         return {
+            "run_id": parsed["run_id"],
+            "attempt_id": parsed["attempt_id"],
             "request_id": parsed["request_id"],
             "trace_id": parsed["trace_id"],
+            "effect_id": parsed["effect_id"],
+            "offered_traceparent": body["traceparent"],
+            "offered_identity": {
+                "model_role": body["expected_model_role"],
+                "model_name": body["expected_model_name"],
+                "model_version": body["expected_model_version"],
+                "artifact_sha256": body["expected_artifact_sha256"],
+            },
             "status_code": response.status_code,
             "outcome": "completed",
             "model_role": parsed["model_role"],
@@ -872,11 +946,29 @@ def send_request(
 def send_batch(
     config: S6BMConfig,
     run_id: str,
+    attempt_id: str,
     prefix: str,
     count: int,
     concurrency: int,
+    *,
+    expected_model_role: str | None = None,
+    green_weight_percent: int = 0,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    bodies = [request_body(run_id, f"{prefix}-{index:05d}") for index in range(count)]
+    bodies = []
+    for index in range(count):
+        request_id = f"{prefix}-{index:05d}"
+        role = expected_model_role or expected_role(
+            request_id, green_weight_percent=green_weight_percent
+        )
+        bodies.append(
+            request_body(
+                config,
+                run_id,
+                attempt_id,
+                request_id,
+                expected_model_role=role,
+            )
+        )
     local = threading.local()
     sessions: list[requests.Session] = []
     sessions_lock = threading.Lock()
@@ -940,7 +1032,9 @@ def owner_sample(lease: GpuLease) -> dict[str, Any]:
         "owner_exact": exact,
         "gpu_process_count": len([line for line in processes if line.strip()]),
         "gpu_process_projection": [
-            hashlib.sha256(line.strip().encode("utf-8")).hexdigest() for line in processes if line.strip()
+            hashlib.sha256(line.strip().encode("utf-8")).hexdigest()
+            for line in processes
+            if line.strip()
         ],
     }
 
@@ -1004,9 +1098,7 @@ def identities(config: S6BMConfig, lease: GpuLease) -> dict[str, Any]:
         "lease": {
             "run_id": lease.run_id,
             "lease_id_sha256": hashlib.sha256(lease.lease_id.encode("utf-8")).hexdigest(),
-            "fencing_token_sha256": hashlib.sha256(
-                lease.fencing_token.encode("utf-8")
-            ).hexdigest(),
+            "fencing_token_sha256": hashlib.sha256(lease.fencing_token.encode("utf-8")).hexdigest(),
             "scenario_id": lease.scenario_id,
             "model_family": lease.model_family,
             "purpose": lease.lease_purpose,
@@ -1034,8 +1126,7 @@ def request_projection(records: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     completed = sum(item.get("outcome") == "completed" for item in records)
     request_ids = [str(item.get("request_id", "")) for item in records]
     wrong_version = sum(
-        item.get("outcome") == "completed"
-        and item.get("model_role") not in {"blue", "green"}
+        item.get("outcome") == "completed" and item.get("model_role") not in {"blue", "green"}
         for item in records
     )
     return {
@@ -1051,11 +1142,11 @@ def request_projection(records: Sequence[Mapping[str, Any]]) -> dict[str, int]:
 
 
 def latency_projection(records: Sequence[Mapping[str, Any]]) -> dict[str, float]:
-    values = sorted(float(item["elapsed_ms"]) for item in records if item.get("outcome") == "completed")
+    values = sorted(
+        float(item["elapsed_ms"]) for item in records if item.get("outcome") == "completed"
+    )
     completed = sorted(
-        float(item["completed_monotonic"])
-        for item in records
-        if item.get("outcome") == "completed"
+        float(item["completed_monotonic"]) for item in records if item.get("outcome") == "completed"
     )
     if not values:
         raise S6BMExperimentError("latency_projection_empty")
@@ -1078,6 +1169,291 @@ def latency_projection(records: Sequence[Mapping[str, Any]]) -> dict[str, float]
     }
 
 
+def prometheus_query_response(query: str) -> dict[str, Any]:
+    response = requests.get(
+        f"{PROMETHEUS_URL}/api/v1/query",
+        params={"query": query},
+        timeout=10,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise S6BMExperimentError("prometheus_query_object_required")
+    return payload
+
+
+def metric_queries(config: S6BMConfig, attempt_id: str) -> dict[str, str]:
+    identity = f'scenario="s8-v4-s6bm",attempt_id="{attempt_id}"'
+    queries: dict[str, str] = {}
+    for role in ("blue", "green"):
+        model = config.blue if role == "blue" else config.green
+        model_labels = (
+            f'model_role="{role}",model_name="{model.model_name}",'
+            f'model_version="{model.model_version}"'
+        )
+        queries[f"api_{role}_completed"] = (
+            f'evm_s6bm_requests_total{{{identity},{model_labels},outcome="completed"}}'
+        )
+        queries[f"api_{role}_effect"] = (
+            f'evm_s6bm_terminal_effects_total{{{identity},{model_labels},outcome="committed"}}'
+        )
+        queries[f"triton_{role}_success"] = (
+            f'nv_inference_request_success{{{identity},model="{model.model_name}",'
+            f'version="{model.model_version}"}}'
+        )
+    return queries
+
+
+def prometheus_attempt_snapshot(
+    config: S6BMConfig,
+    *,
+    suite_id: str,
+    attempt_id: str,
+    run_id: str,
+) -> dict[str, Any]:
+    targets = prometheus_targets()
+    jobs = {
+        str(config.telemetry["prometheus_job_api"]),
+        str(config.telemetry["prometheus_job_triton"]),
+    }
+    selected = [item for item in targets if str(dict(item.get("labels", {})).get("job")) in jobs]
+    target_labels = [dict(item.get("labels", {})) for item in selected]
+    if len(selected) != 2 or any(
+        item.get("health") != "up"
+        or dict(item.get("labels", {})).get("attempt_id") != attempt_id
+        or dict(item.get("labels", {})).get("suite_id") != suite_id
+        for item in selected
+    ):
+        raise S6BMExperimentError("prometheus_attempt_target_identity")
+    return {
+        "schema_version": "evm.s8_v4.s6bm_prometheus_snapshot.v1",
+        "captured_at": utc_now(),
+        "attempt_id": attempt_id,
+        "run_id": run_id,
+        "target_identity": {
+            "suite_id": suite_id,
+            "attempt_id": attempt_id,
+            "api_up": any(
+                labels.get("job") == config.telemetry["prometheus_job_api"]
+                for labels in target_labels
+            ),
+            "triton_up": any(
+                labels.get("job") == config.telemetry["prometheus_job_triton"]
+                for labels in target_labels
+            ),
+            "labels": target_labels,
+        },
+        "queries": {
+            key: {"query": query, "response": prometheus_query_response(query)}
+            for key, query in metric_queries(config, attempt_id).items()
+        },
+    }
+
+
+def direct_metrics(config: S6BMConfig) -> tuple[str, str]:
+    api = requests.get(f"http://127.0.0.1:{config.ports['api']}/metrics", timeout=10)
+    triton = requests.get(f"http://127.0.0.1:{config.ports['triton_metrics']}/metrics", timeout=10)
+    api.raise_for_status()
+    triton.raise_for_status()
+    return api.text, triton.text
+
+
+def _prometheus_matches_direct(
+    config: S6BMConfig,
+    snapshot: Mapping[str, Any],
+    api_text: str,
+    triton_text: str,
+    attempt_id: str,
+) -> bool:
+    common = {"scenario": "s8-v4-s6bm", "attempt_id": attempt_id}
+    try:
+        for role in ("blue", "green"):
+            model = config.blue if role == "blue" else config.green
+            api_labels = {
+                "model_role": role,
+                "model_name": model.model_name,
+                "model_version": model.model_version,
+                "outcome": "completed",
+            }
+            effect_labels = {**api_labels, "outcome": "committed"}
+            triton_labels = {"model": model.model_name, "version": model.model_version}
+            pairs = (
+                (
+                    f"api_{role}_completed",
+                    direct_metric_value(api_text, "evm_s6bm_requests_total", api_labels),
+                    {**common, **api_labels},
+                ),
+                (
+                    f"api_{role}_effect",
+                    direct_metric_value(api_text, "evm_s6bm_terminal_effects_total", effect_labels),
+                    {**common, **effect_labels},
+                ),
+                (
+                    f"triton_{role}_success",
+                    direct_metric_value(triton_text, "nv_inference_request_success", triton_labels),
+                    {**common, **triton_labels},
+                ),
+            )
+            for key, direct_value, expected_labels in pairs:
+                if prometheus_value(snapshot, key, expected_labels) != direct_value:
+                    return False
+    except (ValueError, RuntimeError):
+        return False
+    return True
+
+
+def capture_metric_checkpoint(
+    config: S6BMConfig,
+    *,
+    suite_id: str,
+    attempt_id: str,
+    run_id: str,
+    timeout: float = 15,
+) -> tuple[str, str, dict[str, Any]]:
+    deadline = time.monotonic() + timeout
+    last: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        api_text, triton_text = direct_metrics(config)
+        try:
+            last = prometheus_attempt_snapshot(
+                config,
+                suite_id=suite_id,
+                attempt_id=attempt_id,
+                run_id=run_id,
+            )
+            if _prometheus_matches_direct(config, last, api_text, triton_text, attempt_id):
+                return api_text, triton_text, last
+        except (requests.RequestException, S6BMExperimentError):
+            pass
+        time.sleep(float(config.telemetry["prometheus_scrape_seconds"]))
+    raise S6BMExperimentError(f"prometheus_metric_convergence:{attempt_id}:{last}")
+
+
+def artifact_reference(root: Path, path: Path) -> dict[str, Any]:
+    return {
+        "path": path.relative_to(root).as_posix(),
+        "sha256": sha256_file(path),
+        "bytes": path.stat().st_size,
+    }
+
+
+def begin_attempt_observability(
+    config: S6BMConfig,
+    *,
+    suite_root: Path,
+    suite_id: str,
+    attempt_id: str,
+    run_id: str,
+) -> dict[str, Any]:
+    bind_prometheus_attempt(
+        config,
+        suite_id=suite_id,
+        attempt_id=attempt_id,
+    )
+    api_text, triton_text, prometheus = capture_metric_checkpoint(
+        config,
+        suite_id=suite_id,
+        attempt_id=attempt_id,
+        run_id=run_id,
+    )
+    root = suite_root / "observability" / attempt_id
+    root.mkdir(parents=True, exist_ok=False)
+    api_path = root / "api-metrics-before.txt"
+    triton_path = root / "triton-metrics-before.txt"
+    prometheus_path = root / "prometheus-before.json"
+    api_path.write_text(api_text, encoding="utf-8", newline="\n")
+    triton_path.write_text(triton_text, encoding="utf-8", newline="\n")
+    canonical_write(prometheus_path, prometheus)
+    return {
+        "root": root,
+        "trace_start_offset": OTEL_TRACE_FILE.stat().st_size,
+        "artifacts": {
+            "api_metrics_before": artifact_reference(suite_root, api_path),
+            "triton_metrics_before": artifact_reference(suite_root, triton_path),
+            "prometheus_before": artifact_reference(suite_root, prometheus_path),
+        },
+    }
+
+
+def finish_attempt_observability(
+    config: S6BMConfig,
+    *,
+    suite_root: Path,
+    suite_id: str,
+    attempt: dict[str, Any],
+    checkpoint: Mapping[str, Any],
+) -> dict[str, Any]:
+    attempt_id = str(attempt["attempt_id"])
+    run_id = str(dict(attempt["identities"])["lease"]["run_id"])
+    api_text, triton_text, prometheus = capture_metric_checkpoint(
+        config,
+        suite_id=suite_id,
+        attempt_id=attempt_id,
+        run_id=run_id,
+    )
+    root = Path(checkpoint["root"])
+    api_path = root / "api-metrics-after.txt"
+    triton_path = root / "triton-metrics-after.txt"
+    prometheus_path = root / "prometheus-after.json"
+    api_path.write_text(api_text, encoding="utf-8", newline="\n")
+    triton_path.write_text(triton_text, encoding="utf-8", newline="\n")
+    canonical_write(prometheus_path, prometheus)
+
+    expected = len(attempt["request_records"])
+    deadline = time.monotonic() + 30
+    controller_spans = 0
+    inference_spans = 0
+    trace_start_offset = int(checkpoint["trace_start_offset"])
+    while time.monotonic() < deadline:
+        controller_spans = attempt_span_count(
+            OTEL_TRACE_FILE,
+            attempt_id,
+            stage="s6bm_controller",
+            start_offset=trace_start_offset,
+        )
+        inference_spans = attempt_span_count(
+            OTEL_TRACE_FILE,
+            attempt_id,
+            stage="triton_inference",
+            start_offset=trace_start_offset,
+        )
+        if controller_spans == expected and inference_spans == expected:
+            break
+        time.sleep(1)
+    if controller_spans != expected or inference_spans != expected:
+        raise S6BMExperimentError(
+            f"otlp_trace_convergence:{attempt_id}:{controller_spans}:{inference_spans}"
+        )
+    trace_export = collect_attempt_trace_export(
+        OTEL_TRACE_FILE, attempt_id, start_offset=trace_start_offset
+    )
+    trace_path = root / "raw-otlp-spans.json"
+    canonical_write(trace_path, trace_export)
+
+    artifacts = dict(checkpoint["artifacts"])
+    artifacts.update(
+        {
+            "api_metrics_after": artifact_reference(suite_root, api_path),
+            "triton_metrics_after": artifact_reference(suite_root, triton_path),
+            "prometheus_after": artifact_reference(suite_root, prometheus_path),
+            "trace_export": artifact_reference(suite_root, trace_path),
+        }
+    )
+    attempt["observability"] = {"artifacts": artifacts}
+    summary = validate_observability_bundle(
+        suite_root,
+        attempt,
+        config,
+        compare_projection=False,
+    )
+    report_path = root / "join-recompute-report.json"
+    canonical_write(report_path, summary)
+    artifacts["join_report"] = artifact_reference(suite_root, report_path)
+    attempt["observability"] = {"artifacts": artifacts, "summary": summary}
+    validate_observability_bundle(suite_root, attempt, config)
+    return summary
+
+
 def telemetry_snapshot(config: S6BMConfig) -> dict[str, Any]:
     jobs = {
         str(dict(item.get("labels", {})).get("job")): item.get("health")
@@ -1094,7 +1470,6 @@ def telemetry_snapshot(config: S6BMConfig) -> dict[str, Any]:
         ),
         "api_request_metric_total": prometheus_query("sum(evm_s6bm_requests_total)"),
         "direct_metrics_present": "nv_inference_request_success" in metrics,
-        "trace_correlation_complete": True,
     }
 
 
@@ -1104,21 +1479,27 @@ def run_baseline(
     source: Mapping[str, str],
     repetition: int,
     api: ApiProcess,
+    *,
+    suite_id: str,
 ) -> dict[str, Any]:
+    attempt_id = f"s6bm-baseline-{repetition}-{uuid4().hex[:10]}"
+    bind_prometheus_attempt(config, suite_id=suite_id, attempt_id=attempt_id)
     initialize_controller(config, lease, source)
     records, _ = send_batch(
         config,
         lease.run_id,
-        f"baseline-r{repetition}",
+        attempt_id,
+        f"{attempt_id}-request",
         int(config.procedure["baseline_requests"]),
         int(config.procedure["request_concurrency"]),
+        expected_model_role="blue",
     )
     summary = request_projection(records)
     if summary["lost"] != 0 or any(item.get("model_role") != "blue" for item in records):
         raise S6BMExperimentError(f"baseline_failed:{repetition}:{summary}")
     result = {
         "schema_version": "evm.s8_v4.s6bm_baseline_private.v1",
-        "attempt_id": f"s6bm-baseline-{repetition}-{uuid4().hex[:10]}",
+        "attempt_id": attempt_id,
         "profile": "baseline",
         "repetition": repetition,
         "credit": "non_credit",
@@ -1141,8 +1522,12 @@ def run_success(
     source: Mapping[str, str],
     repetition: int,
     api: ApiProcess,
+    *,
+    suite_root: Path,
+    suite_id: str,
 ) -> dict[str, Any]:
     started_at = utc_now()
+    attempt_id = f"s6bm-success-{repetition}-{uuid4().hex[:10]}"
     initialize_controller(config, lease, source)
     timeline = [phase_entry(config, "blue_only")]
     owner_samples = [owner_sample(lease)]
@@ -1153,6 +1538,13 @@ def run_success(
         apply_control(config, lease, "green_loaded")
         physical["green_loaded_ready"] = model_ready(config, "green")
         timeline.append(phase_entry(config, "green_warmup"))
+        observability_checkpoint = begin_attempt_observability(
+            config,
+            suite_root=suite_root,
+            suite_id=suite_id,
+            attempt_id=attempt_id,
+            run_id=lease.run_id,
+        )
         for _ in range(int(config.procedure["warmup_requests"])):
             direct_infer(config, "green")
         apply_control(config, lease, "canary_started")
@@ -1160,9 +1552,11 @@ def run_success(
         canary_records, canary_bodies = send_batch(
             config,
             lease.run_id,
-            f"success-r{repetition}-canary",
+            attempt_id,
+            f"{attempt_id}-canary",
             int(config.procedure["canary_requests"]),
             int(config.procedure["request_concurrency"]),
+            green_weight_percent=int(config.procedure["canary_weight_percent"]),
         )
         records.extend(canary_records)
         replay_body = canary_bodies[0]
@@ -1171,8 +1565,11 @@ def run_success(
         replay_after = int(controller_state(config)["accepted_unique"])
 
         hold_body = request_body(
+            config,
             lease.run_id,
-            blue_request_id(f"success-r{repetition}-hold"),
+            attempt_id,
+            blue_request_id(f"{attempt_id}-hold"),
+            expected_model_role="blue",
             hold_ms=int(config.procedure["long_in_flight_hold_ms"]),
         )
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
@@ -1190,9 +1587,11 @@ def run_success(
             green_records, _ = send_batch(
                 config,
                 lease.run_id,
-                f"success-r{repetition}-green",
+                attempt_id,
+                f"{attempt_id}-green",
                 remaining,
                 int(config.procedure["request_concurrency"]),
+                expected_model_role="green",
             )
             records.extend(green_records)
             records.append(hold_future.result(timeout=20))
@@ -1234,7 +1633,7 @@ def run_success(
     )
     result = {
         "schema_version": "evm.s8_v4.s6bm_success_private.v1",
-        "attempt_id": f"s6bm-success-{repetition}-{uuid4().hex[:10]}",
+        "attempt_id": attempt_id,
         "profile": "successful_transition",
         "repetition": repetition,
         "credit": "credit",
@@ -1275,10 +1674,22 @@ def run_success(
             "queue_zero": queue_counts()["active"] == 0,
             "lease_owner_exact": owner_sample(lease)["owner_exact"],
             "controller_in_flight_zero": not any(state["in_flight"].values()),
-            "prometheus_targets_up": telemetry["api_target_up"]
-            and telemetry["triton_target_up"],
+            "prometheus_targets_up": telemetry["api_target_up"] and telemetry["triton_target_up"],
         },
     }
+    observability = finish_attempt_observability(
+        config,
+        suite_root=suite_root,
+        suite_id=suite_id,
+        attempt=result,
+        checkpoint=observability_checkpoint,
+    )
+    result["telemetry"].update(
+        {
+            "trace_correlation_complete": observability["trace_correlation_complete"],
+            "metric_delta_complete": observability["metric_delta_complete"],
+        }
+    )
     reset_controller(config, lease)
     return result
 
@@ -1297,7 +1708,11 @@ def run_fault(
     model_root: Path,
     profile: str,
     repetition: int,
+    *,
+    suite_id: str,
 ) -> dict[str, Any]:
+    attempt_id = f"s6bm-{profile}-{repetition}-{uuid4().hex[:10]}"
+    bind_prometheus_attempt(config, suite_id=suite_id, attempt_id=attempt_id)
     ensure_green_unloaded(config)
     initialize_controller(config, lease, source)
     before = controller_state(config)
@@ -1307,18 +1722,14 @@ def run_fault(
     rejection: dict[str, Any]
     try:
         if profile == "wrong_digest":
-            rejection = rejected_control(
-                config, lease, "green_loaded", green_digest="0" * 64
-            )
+            rejection = rejected_control(config, lease, "green_loaded", green_digest="0" * 64)
         elif profile == "green_load_failure":
             disabled = model_root / f".{config.green.model_name}.disabled"
             green_root.rename(disabled)
             rejection = rejected_control(config, lease, "green_loaded")
         elif profile == "green_readiness_failure":
             observation["green_ready_before"] = model_ready(config, "green")
-            rejection = rejected_control(
-                config, lease, "green_loaded", readiness_passed=False
-            )
+            rejection = rejected_control(config, lease, "green_loaded", readiness_passed=False)
         elif profile == "green_canary_failure":
             apply_control(config, lease, "green_loaded")
             observed = direct_infer(config, "green")["output"]
@@ -1329,9 +1740,7 @@ def run_fault(
                     "canary_mismatch": True,
                 }
             )
-            rejection = rejected_control(
-                config, lease, "canary_started", canary_passed=False
-            )
+            rejection = rejected_control(config, lease, "canary_started", canary_passed=False)
             apply_control(config, lease, "green_aborted")
         elif profile == "vram_preflight_rejection":
             gpu = capture_gpu()
@@ -1342,9 +1751,7 @@ def run_fault(
                     + float(config.procedure["vram_headroom_mib"]),
                 }
             )
-            rejection = rejected_control(
-                config, lease, "green_loaded", preflight_vram_passed=False
-            )
+            rejection = rejected_control(config, lease, "green_loaded", preflight_vram_passed=False)
         else:
             raise S6BMExperimentError(f"unknown_fault_profile:{profile}")
     finally:
@@ -1358,7 +1765,7 @@ def run_fault(
     telemetry = telemetry_snapshot(config)
     result = {
         "schema_version": "evm.s8_v4.s6bm_fault_private.v1",
-        "attempt_id": f"s6bm-{profile}-{repetition}-{uuid4().hex[:10]}",
+        "attempt_id": attempt_id,
         "profile": profile,
         "repetition": repetition,
         "credit": "acceptance_fault_probe",
@@ -1436,12 +1843,8 @@ def prior_zero_credit_attempts(base: Path, current: Path) -> list[dict[str, Any]
                 "classification": classification,
                 "error_type": str(payload.get("error_type", "unknown")),
                 "evidence_sha256": sha256_file(path),
-                "acceptance_credit_requests": int(
-                    payload.get("acceptance_credit_requests", 0)
-                ),
-                "executed_logical_requests": int(
-                    payload.get("executed_logical_requests", 0)
-                ),
+                "acceptance_credit_requests": int(payload.get("acceptance_credit_requests", 0)),
+                "executed_logical_requests": int(payload.get("executed_logical_requests", 0)),
             }
         )
     return attempts
@@ -1569,21 +1972,37 @@ def main() -> int:
         write_prometheus_targets(config, suite_id)
         target_written = True
         start_triton(config, model_root, triton_log)
-        api = start_api(config, suite_root)
+        api = start_api(
+            config,
+            suite_root,
+            source_revision=source["revision"],
+            suite_id=suite_id,
+        )
         wait_runtime(config, api)
         wait_prometheus_jobs(config, present=True)
 
         for repetition in range(1, int(config.procedure["baseline_repetitions"]) + 1):
-            baseline = run_baseline(config, lease, source, repetition, api)
-            baselines.append(baseline)
-            canonical_write(
-                suite_root / "baseline" / f"repetition-{repetition:02d}.json", baseline
+            baseline = run_baseline(
+                config,
+                lease,
+                source,
+                repetition,
+                api,
+                suite_id=suite_id,
             )
+            baselines.append(baseline)
+            canonical_write(suite_root / "baseline" / f"repetition-{repetition:02d}.json", baseline)
 
-        for repetition in range(
-            1, int(config.procedure["successful_transition_repetitions"]) + 1
-        ):
-            attempt = run_success(config, lease, source, repetition, api)
+        for repetition in range(1, int(config.procedure["successful_transition_repetitions"]) + 1):
+            attempt = run_success(
+                config,
+                lease,
+                source,
+                repetition,
+                api,
+                suite_root=suite_root,
+                suite_id=suite_id,
+            )
             attempts.append(attempt)
             canonical_write(
                 suite_root / "successful-transition" / f"repetition-{repetition:02d}.json",
@@ -1598,11 +2017,15 @@ def main() -> int:
             "vram_preflight_rejection",
         )
         for profile in profiles:
-            for repetition in range(
-                1, int(config.procedure["negative_profile_repetitions"]) + 1
-            ):
+            for repetition in range(1, int(config.procedure["negative_profile_repetitions"]) + 1):
                 attempt = run_fault(
-                    config, lease, source, model_root, profile, repetition
+                    config,
+                    lease,
+                    source,
+                    model_root,
+                    profile,
+                    repetition,
+                    suite_id=suite_id,
                 )
                 attempts.append(attempt)
                 canonical_write(
@@ -1655,15 +2078,17 @@ def main() -> int:
                 )
             )
         if holder_scaled:
-            cleanup_actions.append(
-                ("b0_holder", lambda: scale_holder(holder, holder.replicas))
-            )
+            cleanup_actions.append(("b0_holder", lambda: scale_holder(holder, holder.replicas)))
         for name, action in cleanup_actions:
             try:
                 action()
             except Exception as cleanup_exc:  # noqa: BLE001 - preserve every cleanup failure
                 cleanup_errors.append(
-                    {"action": name, "error_type": type(cleanup_exc).__name__, "error": str(cleanup_exc)}
+                    {
+                        "action": name,
+                        "error_type": type(cleanup_exc).__name__,
+                        "error": str(cleanup_exc),
+                    }
                 )
         if cleanup_errors:
             canonical_write(suite_root / "cleanup-errors.json", cleanup_errors)
@@ -1744,9 +2169,7 @@ def main() -> int:
         },
         "environment": {
             "gpu_name": gpu_before["name"],
-            "gpu_uuid_sha256": hashlib.sha256(
-                str(gpu_before["uuid"]).encode("utf-8")
-            ).hexdigest(),
+            "gpu_uuid_sha256": hashlib.sha256(str(gpu_before["uuid"]).encode("utf-8")).hexdigest(),
             "triton_image_digest": config.image_digest,
             "model_repository_sha256": config.repository_sha256,
             "single_physical_node": True,
@@ -1783,7 +2206,15 @@ def main() -> int:
         "next_action": "source-local independent review; do not start X1",
     }
     canonical_write(args.public_output, public)
-    print(canonical({"public_output": str(args.public_output), "private_root": str(suite_root), "result": public}))
+    print(
+        canonical(
+            {
+                "public_output": str(args.public_output),
+                "private_root": str(suite_root),
+                "result": public,
+            }
+        )
+    )
     return 0
 
 

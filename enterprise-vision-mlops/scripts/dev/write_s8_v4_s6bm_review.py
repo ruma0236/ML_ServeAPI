@@ -35,6 +35,7 @@ REQUIRED_CLEANUP = (
 )
 RUNTIME_PATHS = (
     "enterprise-vision-mlops/src/evm/model_runtime/triton_blue_green.py",
+    "enterprise-vision-mlops/src/evm/scale_validation/s6bm_observability.py",
     "enterprise-vision-mlops/src/evm/scale_validation/s6bm_runtime.py",
     "enterprise-vision-mlops/scripts/dev/run_s8_v4_s6bm_experiment.py",
     "enterprise-vision-mlops/configs/s8_v4_s6bm_blue_green_v1.toml",
@@ -50,12 +51,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--experiment",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment-v2.json",
     )
     parser.add_argument(
         "--mutation",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-mutation-validation.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-mutation-validation-v2.json",
     )
     parser.add_argument(
         "--config",
@@ -69,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-review-handoff.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-review-handoff-v2.json",
     )
     return parser.parse_args()
 
@@ -231,8 +232,8 @@ def main() -> int:
     if (
         mutation.get("passed") is not True
         or int(mutation.get("positive", 0)) != 1
-        or int(mutation.get("negative", 0)) != 15
-        or int(mutation.get("negative_rejected", 0)) != 15
+        or int(mutation.get("negative", 0)) != 24
+        or int(mutation.get("negative_rejected", 0)) != 24
         or any(item.get("rejected") is not True for item in mutation.get("cases", []))
     ):
         raise S6BMReviewError("mutation_result")

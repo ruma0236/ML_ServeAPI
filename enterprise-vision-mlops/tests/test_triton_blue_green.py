@@ -91,9 +91,7 @@ def test_s6bm_transition_contract_and_fail_closed_guards(
     assert manager.snapshot() == initial
 
     with pytest.raises(TritonBlueGreenError) as vram:
-        manager.control(
-            control_request(manager, "green_loaded", preflight_vram_passed=False)
-        )
+        manager.control(control_request(manager, "green_loaded", preflight_vram_passed=False))
     assert vram.value.code == "vram_preflight_rejected"
     assert manager.snapshot() == initial
 
@@ -125,6 +123,8 @@ def test_s6bm_external_effect_is_idempotent_and_drain_blocks_in_flight(
     manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class Response:
+        status_code = 200
+
         def raise_for_status(self) -> None:
             return None
 
@@ -149,6 +149,7 @@ def test_s6bm_external_effect_is_idempotent_and_drain_blocks_in_flight(
         input_values=[1, 2, 3, 4],
         hold_ms=100,
     )
+
     async def scenario() -> None:
         task = asyncio.create_task(manager.predict(request))
         await asyncio.sleep(0.02)

@@ -116,11 +116,13 @@ def main() -> int:
                     "tests/test_s8_evidence.py",
                     "tests/test_s8_closure.py",
                     "src/evm/model_runtime/triton_blue_green.py",
+                    "src/evm/scale_validation/s6bm_observability.py",
                     "src/evm/scale_validation/s6bm_runtime.py",
                     "scripts/dev/run_s8_v4_s6bm_experiment.py",
                     "scripts/dev/validate_s8_v4_s6bm.py",
                     "scripts/dev/write_s8_v4_s6bm_review.py",
                     "tests/test_s6bm_experiment_runner.py",
+                    "tests/test_s6bm_observability.py",
                     "tests/test_s6bm_runtime.py",
                     "tests/test_triton_blue_green.py",
                 )
@@ -135,6 +137,7 @@ def main() -> int:
                     "pytest",
                     "-q",
                     "tests/test_s6bm_experiment_runner.py",
+                    "tests/test_s6bm_observability.py",
                     "tests/test_s6bm_runtime.py",
                     "tests/test_triton_blue_green.py",
                     "tests/test_v4_progress_ledger.py",
@@ -205,10 +208,15 @@ def main() -> int:
         (
             "control_panel",
             [
-                python_command("-m", "pytest", "-q", *[
-                    str(path.relative_to(ROOT))
-                    for path in sorted((ROOT / "tests").glob("test_control_panel*.py"))
-                ]),
+                python_command(
+                    "-m",
+                    "pytest",
+                    "-q",
+                    *[
+                        str(path.relative_to(ROOT))
+                        for path in sorted((ROOT / "tests").glob("test_control_panel*.py"))
+                    ],
+                ),
                 [npm, "--prefix", "apps/control-panel", "run", "test", "--", "--run"],
             ],
             "python -m pytest -q tests/test_control_panel*.py && npm --prefix apps/control-panel run test -- --run",

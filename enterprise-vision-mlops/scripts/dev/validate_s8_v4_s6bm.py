@@ -4,8 +4,10 @@ import argparse
 import copy
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -24,6 +26,10 @@ from evm.scale_validation.s6bm_runtime import (  # noqa: E402
     project_success_attempt,
     sha256_file,
 )
+from evm.scale_validation.s6bm_observability import (  # noqa: E402
+    S6BMObservabilityError,
+    validate_observability_bundle,
+)
 
 
 class S6BMValidationError(RuntimeError):
@@ -35,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--experiment",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment-v2.json",
     )
     parser.add_argument(
         "--config",
@@ -114,10 +120,7 @@ def private_index(root: Path) -> dict[str, Any]:
 
 def load_attempts(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     baselines = [read_json(path) for path in sorted((root / "baseline").glob("*.json"))]
-    accepted = [
-        read_json(path)
-        for path in sorted((root / "successful-transition").glob("*.json"))
-    ]
+    accepted = [read_json(path) for path in sorted((root / "successful-transition").glob("*.json"))]
     accepted.extend(read_json(path) for path in sorted((root / "faults").rglob("*.json")))
     return baselines, accepted
 
@@ -168,9 +171,7 @@ def validate_cleanup(cleanup: Mapping[str, Any]) -> None:
         raise S6BMValidationError("final_cleanup")
 
 
-def validate(
-    experiment_path: Path, config_path: Path, private_root: Path
-) -> dict[str, Any]:
+def validate(experiment_path: Path, config_path: Path, private_root: Path) -> dict[str, Any]:
     experiment = read_json(experiment_path)
     config = S6BMConfig.from_path(config_path)
     if (
@@ -187,9 +188,12 @@ def validate(
         raise S6BMValidationError("source_revision")
     if git_text("rev-parse", f"{revision}^{{tree}}") != source.get("tree_sha"):
         raise S6BMValidationError("source_tree")
-    if subprocess.run(
-        ["git", "merge-base", "--is-ancestor", revision, "HEAD"], cwd=ROOT
-    ).returncode != 0:
+    if (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", revision, "HEAD"], cwd=ROOT
+        ).returncode
+        != 0
+    ):
         raise S6BMValidationError("source_ancestry")
     config_git_sha = hashlib.sha256(git_bytes(revision, config_path)).hexdigest()
     contract = dict(experiment.get("contract", {}))
@@ -216,6 +220,19 @@ def validate(
     validate_baselines(baselines, config, revision)
     if any(item.get("source_revision") != revision for item in attempts):
         raise S6BMValidationError("attempt_source_revision")
+    success_attempts = [item for item in attempts if item.get("profile") == "successful_transition"]
+    for attempt in success_attempts:
+        try:
+            observability = validate_observability_bundle(private_root, attempt, config)
+        except S6BMObservabilityError as exc:
+            raise S6BMValidationError(f"observability:{exc}") from exc
+        if (
+            observability["accepted_requests"]
+            != int(config.procedure["logical_requests_per_transition"])
+            or observability["trace_correlation_complete"] is not True
+            or observability["metric_delta_complete"] is not True
+        ):
+            raise S6BMValidationError("observability_acceptance_projection")
     analysis = analyze_attempts(attempts, config)
     if analysis != experiment.get("analysis") or not analysis["evidence_ready"]:
         raise S6BMValidationError("analysis_projection")
@@ -276,12 +293,115 @@ def mutation_result(
     return {"mutation": name, "rejected": False, "reason": "validator_fail_open"}
 
 
+def analysis_mutation_result(
+    name: str,
+    attempts: list[Mapping[str, Any]],
+    mutate: Callable[[list[dict[str, Any]]], None],
+    config: S6BMConfig,
+) -> dict[str, Any]:
+    candidate = copy.deepcopy([dict(item) for item in attempts])
+    mutate(candidate)
+    try:
+        analyze_attempts(candidate, config)
+    except (S6BMRuntimeError, KeyError, TypeError, ValueError) as exc:
+        return {"mutation": name, "rejected": True, "reason": str(exc)}
+    return {"mutation": name, "rejected": False, "reason": "validator_fail_open"}
+
+
+def _copy_observability_artifacts(
+    source_root: Path, target_root: Path, attempt: Mapping[str, Any]
+) -> None:
+    artifacts = dict(dict(attempt.get("observability", {})).get("artifacts", {}))
+    for reference in artifacts.values():
+        relative = Path(str(dict(reference).get("path", "")))
+        source = source_root / relative
+        target = target_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+
+
+def _rewrite_json_artifact(
+    root: Path,
+    attempt: dict[str, Any],
+    key: str,
+    mutate: Callable[[dict[str, Any]], None],
+) -> None:
+    reference = dict(attempt["observability"]["artifacts"][key])
+    path = root / str(reference["path"])
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mutate(payload)
+    canonical_write(path, payload)
+    attempt["observability"]["artifacts"][key].update(
+        sha256=sha256_file(path), bytes=path.stat().st_size
+    )
+
+
+def observability_mutation_result(
+    name: str,
+    attempt: Mapping[str, Any],
+    private_root: Path,
+    config: S6BMConfig,
+    mutate: Callable[[Path, dict[str, Any]], None],
+) -> dict[str, Any]:
+    candidate = copy.deepcopy(dict(attempt))
+    with tempfile.TemporaryDirectory(prefix="s6bm-observability-mutation-") as raw_root:
+        root = Path(raw_root)
+        _copy_observability_artifacts(private_root, root, candidate)
+        mutate(root, candidate)
+        try:
+            validate_observability_bundle(root, candidate, config)
+        except (S6BMObservabilityError, KeyError, TypeError, ValueError) as exc:
+            return {"mutation": name, "rejected": True, "reason": str(exc)}
+    return {"mutation": name, "rejected": False, "reason": "validator_fail_open"}
+
+
+def _remove_direct_metrics(root: Path, attempt: dict[str, Any]) -> None:
+    reference = dict(attempt["observability"]["artifacts"]["api_metrics_after"])
+    (root / str(reference["path"])).unlink()
+
+
+def _zero_prometheus_count(root: Path, attempt: dict[str, Any]) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        result = payload["queries"]["api_blue_completed"]["response"]["data"]["result"]
+        result[0]["value"][1] = "0"
+
+    _rewrite_json_artifact(root, attempt, "prometheus_after", mutate)
+
+
+def _substitute_trace_attribute(root: Path, attempt: dict[str, Any], key: str, value: str) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        for entry in payload["entries"]:
+            attributes = entry["span"].get("attributes", [])
+            for attribute in attributes:
+                if attribute.get("key") == key:
+                    attribute["value"] = {"stringValue": value}
+                    return
+        raise S6BMValidationError(f"trace_attribute_not_found:{key}")
+
+    _rewrite_json_artifact(root, attempt, "trace_export", mutate)
+
+
+def _remove_trace_artifact(root: Path, attempt: dict[str, Any]) -> None:
+    reference = dict(attempt["observability"]["artifacts"]["trace_export"])
+    (root / str(reference["path"])).unlink()
+
+
+def _substitute_metric_label(root: Path, attempt: dict[str, Any]) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        result = payload["queries"]["api_blue_completed"]["response"]["data"]["result"]
+        result[0]["metric"]["model_name"] = "substituted-model"
+
+    _rewrite_json_artifact(root, attempt, "prometheus_after", mutate)
+
+
 def run_mutations(private_root: Path, config: S6BMConfig) -> dict[str, Any]:
     _baselines, attempts = load_attempts(private_root)
     success = next(item for item in attempts if item["profile"] == "successful_transition")
     wrong = next(item for item in attempts if item["profile"] == "wrong_digest")
     canary = next(item for item in attempts if item["profile"] == "green_canary_failure")
     vram = next(item for item in attempts if item["profile"] == "vram_preflight_rejection")
+    validate_observability_bundle(private_root, success, config)
+    analyze_attempts(attempts, config)
     cases = [
         mutation_result(
             "loss",
@@ -342,9 +462,7 @@ def run_mutations(private_root: Path, config: S6BMConfig) -> dict[str, Any]:
         mutation_result(
             "physical_model_residue",
             success,
-            lambda item: item["physical_model_state"].update(
-                green_unloaded_not_ready=False
-            ),
+            lambda item: item["physical_model_state"].update(green_unloaded_not_ready=False),
             config,
         ),
         mutation_result(
@@ -376,6 +494,72 @@ def run_mutations(private_root: Path, config: S6BMConfig) -> dict[str, Any]:
             vram,
             lambda item: item["fault_observation"].update(required_vram_mib=1.0),
             config,
+        ),
+        observability_mutation_result(
+            "direct_metrics_absent",
+            success,
+            private_root,
+            config,
+            _remove_direct_metrics,
+        ),
+        observability_mutation_result(
+            "prometheus_counts_zero",
+            success,
+            private_root,
+            config,
+            _zero_prometheus_count,
+        ),
+        analysis_mutation_result(
+            "duplicate_repetition_full_analysis",
+            attempts,
+            lambda items: items[1].update(repetition=items[0]["repetition"]),
+            config,
+        ),
+        analysis_mutation_result(
+            "repetition_out_of_contract",
+            attempts,
+            lambda items: items[0].update(repetition=4),
+            config,
+        ),
+        mutation_result(
+            "offered_identity_substitution",
+            success,
+            lambda item: item["request_records"][0]["offered_identity"].update(
+                model_name="substituted-model"
+            ),
+            config,
+        ),
+        observability_mutation_result(
+            "unbound_trace_id",
+            success,
+            private_root,
+            config,
+            lambda root, item: _substitute_trace_attribute(
+                root, item, "evm.request.id", "unbound-request-id"
+            ),
+        ),
+        observability_mutation_result(
+            "trace_artifact_absent",
+            success,
+            private_root,
+            config,
+            _remove_trace_artifact,
+        ),
+        observability_mutation_result(
+            "metric_label_substitution",
+            success,
+            private_root,
+            config,
+            _substitute_metric_label,
+        ),
+        observability_mutation_result(
+            "attempt_mix",
+            success,
+            private_root,
+            config,
+            lambda root, item: _substitute_trace_attribute(
+                root, item, "evm.attempt.id", "s6bm-mixed-attempt"
+            ),
         ),
     ]
     return {

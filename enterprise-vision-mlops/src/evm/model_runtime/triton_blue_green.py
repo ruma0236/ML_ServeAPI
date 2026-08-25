@@ -12,10 +12,11 @@ from typing import Any, Literal
 
 import httpx
 from prometheus_client import Counter, Gauge, Histogram
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from evm.control_panel.scenario_workloads import assert_scale_validation_gpu_lease_owner
 from evm.control_panel.schemas import ContractModel
+from evm.observability.otel import trace_span
 
 
 ModelRole = Literal["blue", "green"]
@@ -39,17 +40,22 @@ _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 REQUESTS = Counter(
     "evm_s6bm_requests_total",
     "S6B-M routed request outcomes.",
-    ("model_role", "outcome"),
+    ("model_role", "model_name", "model_version", "outcome"),
+)
+TERMINAL_EFFECTS = Counter(
+    "evm_s6bm_terminal_effects_total",
+    "S6B-M unique terminal inference effects.",
+    ("model_role", "model_name", "model_version", "outcome"),
 )
 IN_FLIGHT = Gauge(
     "evm_s6bm_in_flight",
     "S6B-M in-flight requests by governed model role.",
-    ("model_role",),
+    ("model_role", "model_name", "model_version"),
 )
 LATENCY = Histogram(
     "evm_s6bm_request_latency_seconds",
     "S6B-M end-to-end routed request latency.",
-    ("model_role",),
+    ("model_role", "model_name", "model_version"),
     buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
 )
 TRANSITIONS = Counter(
@@ -130,9 +136,19 @@ class TritonBlueGreenPredictRequest(ContractModel):
     )
     run_id: str = Field(pattern=r"^s8-v4-s6bm-[a-z0-9-]+$")
     request_id: str = Field(min_length=8, max_length=128, pattern=r"^[a-zA-Z0-9._:-]+$")
+    attempt_id: str = Field(
+        default="legacy-unbound",
+        min_length=8,
+        max_length=128,
+        pattern=r"^[a-zA-Z0-9._:-]+$",
+    )
     traceparent: str
     input_values: list[float] = Field(min_length=4, max_length=4)
     hold_ms: int = Field(default=0, ge=0, le=2500)
+    expected_model_role: ModelRole | None = None
+    expected_model_name: str | None = Field(default=None, pattern=r"^[a-z0-9_-]+$")
+    expected_model_version: str | None = Field(default=None, pattern=r"^[0-9]+$")
+    expected_artifact_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
     @field_validator("traceparent")
     @classmethod
@@ -141,13 +157,25 @@ class TritonBlueGreenPredictRequest(ContractModel):
             raise ValueError("invalid W3C traceparent")
         return value
 
+    @model_validator(mode="after")
+    def validate_expected_identity(self) -> "TritonBlueGreenPredictRequest":
+        values = (
+            self.expected_model_role,
+            self.expected_model_name,
+            self.expected_model_version,
+            self.expected_artifact_sha256,
+        )
+        if any(value is not None for value in values) and not all(
+            value is not None for value in values
+        ):
+            raise ValueError("expected model identity must be complete")
+        return self
+
 
 class TritonBlueGreenResetRequest(ContractModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["evm.s8_v4.s6bm_reset_request.v1"] = (
-        "evm.s8_v4.s6bm_reset_request.v1"
-    )
+    schema_version: Literal["evm.s8_v4.s6bm_reset_request.v1"] = "evm.s8_v4.s6bm_reset_request.v1"
     run_id: str = Field(pattern=r"^s8-v4-s6bm-[a-z0-9-]+$")
     lease_id: str = Field(min_length=1, max_length=128)
     fencing_token: str = Field(min_length=1, max_length=128)
@@ -160,8 +188,10 @@ class TritonBlueGreenPredictResponse(ContractModel):
         "evm.s8_v4.s6bm_predict_response.v1"
     )
     run_id: str
+    attempt_id: str
     request_id: str
     trace_id: str
+    effect_id: str
     route_generation: int
     model_role: ModelRole
     model_name: str
@@ -230,8 +260,21 @@ def action_digest(request: TritonBlueGreenControlRequest) -> str:
 
 
 def _request_digest(request: TritonBlueGreenPredictRequest) -> str:
+    return hashlib.sha256(canonical(request.model_dump(mode="json")).encode("ascii")).hexdigest()
+
+
+def _effect_id(request: TritonBlueGreenPredictRequest, identity: TritonModelIdentity) -> str:
     return hashlib.sha256(
-        canonical(request.model_dump(mode="json")).encode("ascii")
+        canonical(
+            {
+                "run_id": request.run_id,
+                "attempt_id": request.attempt_id,
+                "request_id": request.request_id,
+                "model_name": identity.model_name,
+                "model_version": identity.model_version,
+                "artifact_sha256": identity.artifact_sha256,
+            }
+        ).encode("ascii")
     ).hexdigest()
 
 
@@ -252,9 +295,7 @@ class TritonBlueGreenManager:
         self._lock = threading.RLock()
         self._state: _State | None = None
 
-    def initialize(
-        self, request: TritonBlueGreenInitializeRequest
-    ) -> TritonBlueGreenStateResponse:
+    def initialize(self, request: TritonBlueGreenInitializeRequest) -> TritonBlueGreenStateResponse:
         if os.getenv("EVM_S6BM_ENABLED", "0").strip().lower() not in {"1", "true", "yes"}:
             raise TritonBlueGreenError("s6bm_disabled", "S6B-M route is disabled", status_code=503)
         if request.blue.role != "blue" or request.green.role != "green":
@@ -270,6 +311,22 @@ class TritonBlueGreenManager:
                     return self.snapshot()
                 raise TritonBlueGreenError("controller_already_initialized", request.run_id)
             self._state = _State(request=request)
+            for identity in (request.blue, request.green):
+                for outcome in ("completed", "failed"):
+                    REQUESTS.labels(
+                        identity.role,
+                        identity.model_name,
+                        identity.model_version,
+                        outcome,
+                    )
+                TERMINAL_EFFECTS.labels(
+                    identity.role,
+                    identity.model_name,
+                    identity.model_version,
+                    "committed",
+                )
+                IN_FLIGHT.labels(identity.role, identity.model_name, identity.model_version).set(0)
+                LATENCY.labels(identity.role, identity.model_name, identity.model_version)
             return self.snapshot()
 
     def control(self, request: TritonBlueGreenControlRequest) -> TritonBlueGreenStateResponse:
@@ -322,68 +379,126 @@ class TritonBlueGreenManager:
             if role not in state.loaded:
                 raise TritonBlueGreenError("route_target_not_loaded", role, status_code=503)
             identity = state.request.blue if role == "blue" else state.request.green
+            offered = (
+                request.expected_model_role,
+                request.expected_model_name,
+                request.expected_model_version,
+                request.expected_artifact_sha256,
+            )
+            served = (
+                role,
+                identity.model_name,
+                identity.model_version,
+                identity.artifact_sha256,
+            )
+            if any(value is not None for value in offered) and offered != served:
+                raise TritonBlueGreenError(
+                    "offered_served_identity_mismatch",
+                    request.request_id,
+                    status_code=409,
+                )
             state.in_flight[role] += 1
-            IN_FLIGHT.labels(role).set(state.in_flight[role])
+            IN_FLIGHT.labels(role, identity.model_name, identity.model_version).set(
+                state.in_flight[role]
+            )
             generation = state.generation
             triton_url = state.request.triton_http_url
 
         started = time.perf_counter()
+        effect_id = _effect_id(request, identity)
+        span_attributes: dict[str, str | int] = {
+            "evm.stage": "s6bm_controller",
+            "evm.scenario.id": "S6B-M",
+            "evm.run.id": request.run_id,
+            "evm.attempt.id": request.attempt_id,
+            "evm.request.id": request.request_id,
+            "evm.model.role": role,
+            "evm.model.name": identity.model_name,
+            "evm.model.version": identity.model_version,
+            "evm.model.artifact.sha256": identity.artifact_sha256,
+            "evm.route.generation": generation,
+            "evm.effect.id": effect_id,
+        }
         try:
-            payload = {
-                "inputs": [
-                    {
-                        "name": "INPUT__0",
-                        "shape": [1, 4],
-                        "datatype": "FP32",
-                        "data": request.input_values,
-                    }
-                ],
-                "outputs": [{"name": "OUTPUT__0"}],
-            }
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.post(
-                    f"{triton_url}/v2/models/{identity.model_name}/versions/"
-                    f"{identity.model_version}/infer",
-                    json=payload,
+            with trace_span(
+                "s6bm.controller.predict",
+                kind="internal",
+                attributes=span_attributes,
+            ) as controller_span:
+                payload = {
+                    "inputs": [
+                        {
+                            "name": "INPUT__0",
+                            "shape": [1, 4],
+                            "datatype": "FP32",
+                            "data": request.input_values,
+                        }
+                    ],
+                    "outputs": [{"name": "OUTPUT__0"}],
+                }
+                with trace_span(
+                    "s6bm.triton.infer",
+                    kind="client",
+                    attributes={**span_attributes, "evm.stage": "triton_inference"},
+                ) as inference_span:
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        response = await client.post(
+                            f"{triton_url}/v2/models/{identity.model_name}/versions/"
+                            f"{identity.model_version}/infer",
+                            json=payload,
+                        )
+                    inference_span.set_attribute("http.response.status_code", response.status_code)
+                    response.raise_for_status()
+                    inference_span.set_attribute("evm.terminal.outcome", "completed")
+                body = response.json()
+                outputs = list(body.get("outputs", []))
+                if len(outputs) != 1:
+                    raise TritonBlueGreenError("triton_output_ambiguous", request.request_id)
+                values = [float(value) for value in outputs[0].get("data", [])]
+                if len(values) != 4:
+                    raise TritonBlueGreenError("triton_output_shape", request.request_id)
+                if request.hold_ms:
+                    await asyncio.sleep(request.hold_ms / 1000)
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                result = TritonBlueGreenPredictResponse(
+                    run_id=request.run_id,
+                    attempt_id=request.attempt_id,
+                    request_id=request.request_id,
+                    trace_id=_trace_id(request.traceparent),
+                    effect_id=effect_id,
+                    route_generation=generation,
+                    model_role=role,
+                    model_name=identity.model_name,
+                    model_version=identity.model_version,
+                    artifact_sha256=identity.artifact_sha256,
+                    output=values,
+                    elapsed_ms=elapsed_ms,
                 )
-            response.raise_for_status()
-            body = response.json()
-            outputs = list(body.get("outputs", []))
-            if len(outputs) != 1:
-                raise TritonBlueGreenError("triton_output_ambiguous", request.request_id)
-            values = [float(value) for value in outputs[0].get("data", [])]
-            if len(values) != 4:
-                raise TritonBlueGreenError("triton_output_shape", request.request_id)
-            if request.hold_ms:
-                await asyncio.sleep(request.hold_ms / 1000)
-            elapsed_ms = (time.perf_counter() - started) * 1000
-            result = TritonBlueGreenPredictResponse(
-                run_id=request.run_id,
-                request_id=request.request_id,
-                trace_id=_trace_id(request.traceparent),
-                route_generation=generation,
-                model_role=role,
-                model_name=identity.model_name,
-                model_version=identity.model_version,
-                artifact_sha256=identity.artifact_sha256,
-                output=values,
-                elapsed_ms=elapsed_ms,
-            )
-            with self._lock:
-                current = self._require_state(request.run_id)
-                current.responses[request.request_id] = (digest, result)
-            REQUESTS.labels(role, "completed").inc()
-            LATENCY.labels(role).observe(elapsed_ms / 1000)
-            return result
+                with self._lock:
+                    current = self._require_state(request.run_id)
+                    current.responses[request.request_id] = (digest, result)
+                REQUESTS.labels(
+                    role, identity.model_name, identity.model_version, "completed"
+                ).inc()
+                TERMINAL_EFFECTS.labels(
+                    role, identity.model_name, identity.model_version, "committed"
+                ).inc()
+                LATENCY.labels(role, identity.model_name, identity.model_version).observe(
+                    elapsed_ms / 1000
+                )
+                controller_span.set_attribute("evm.terminal.outcome", "completed")
+                return result
         except Exception:
-            REQUESTS.labels(role, "failed").inc()
+            REQUESTS.labels(role, identity.model_name, identity.model_version, "failed").inc()
             raise
         finally:
             with self._lock:
                 current = self._state
                 if current is not None and current.request.run_id == request.run_id:
                     current.in_flight[role] = max(0, current.in_flight[role] - 1)
-                    IN_FLIGHT.labels(role).set(current.in_flight[role])
+                    IN_FLIGHT.labels(role, identity.model_name, identity.model_version).set(
+                        current.in_flight[role]
+                    )
 
     def snapshot(self) -> TritonBlueGreenStateResponse:
         with self._lock:
@@ -465,15 +580,13 @@ class TritonBlueGreenManager:
             ("rolled_back", "closed"),
         }
         if (state.phase, action) not in legal:
-            raise TritonBlueGreenError(
-                "illegal_blue_green_transition", f"{state.phase}:{action}"
-            )
+            raise TritonBlueGreenError("illegal_blue_green_transition", f"{state.phase}:{action}")
         if action == "blue_unloaded" and state.in_flight["blue"] != 0:
-            raise TritonBlueGreenError(
-                "blue_drain_incomplete", str(state.in_flight["blue"])
-            )
+            raise TritonBlueGreenError("blue_drain_incomplete", str(state.in_flight["blue"]))
         if action in {"green_unloaded", "green_aborted"} and state.in_flight["green"] != 0:
-            code = "green_drain_incomplete" if action == "green_unloaded" else "green_abort_in_flight"
+            code = (
+                "green_drain_incomplete" if action == "green_unloaded" else "green_abort_in_flight"
+            )
             raise TritonBlueGreenError(code, str(state.in_flight["green"]))
 
     @staticmethod
@@ -513,9 +626,7 @@ class TritonBlueGreenManager:
                     "triton_model_not_ready", f"{identity.model_name}:{ready.status_code}"
                 )
             if operation == "unload" and ready.status_code == 200:
-                raise TritonBlueGreenError(
-                    "triton_model_still_ready", identity.model_name
-                )
+                raise TritonBlueGreenError("triton_model_still_ready", identity.model_name)
         except TritonBlueGreenError:
             TRANSITIONS.labels(action, "triton_effect_failed").inc()
             raise
