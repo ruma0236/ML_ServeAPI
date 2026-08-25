@@ -1596,6 +1596,8 @@ def run_success(
     owner_samples = [owner_sample(lease)]
     physical: dict[str, bool] = {}
     records: list[dict[str, Any]] = []
+    observability_attempt: dict[str, Any] | None = None
+    observability: dict[str, Any] | None = None
     with ResourceSampler(api.process.pid) as resources:
         transition_started = time.perf_counter()
         apply_control(config, lease, "green_loaded")
@@ -1677,12 +1679,25 @@ def run_success(
         timeline.append(phase_entry(config, "green_draining"))
         wait_in_flight(config, "green", 0, float(config.procedure["drain_timeout_seconds"]))
         green_before_unload = int(controller_state(config)["in_flight"]["green"])
+        direct_infer(config, "blue")
+        observability_attempt = {
+            "attempt_id": attempt_id,
+            "source_revision": source["revision"],
+            "identities": identities(config, lease),
+            "request_records": records,
+        }
+        observability = finish_attempt_observability(
+            config,
+            suite_root=suite_root,
+            suite_id=suite_id,
+            attempt=observability_attempt,
+            checkpoint=observability_checkpoint,
+        )
         apply_control(config, lease, "green_unloaded")
         physical["green_unloaded_not_ready"] = not model_ready(config, "green")
         timeline.append(phase_entry(config, "rolled_back"))
         physical["blue_final_ready"] = model_ready(config, "blue")
         rollback_seconds = time.perf_counter() - rollback_started
-        direct_infer(config, "blue")
         owner_samples.append(owner_sample(lease))
 
     summary = request_projection(records)
@@ -1740,13 +1755,9 @@ def run_success(
             "prometheus_targets_up": telemetry["api_target_up"] and telemetry["triton_target_up"],
         },
     }
-    observability = finish_attempt_observability(
-        config,
-        suite_root=suite_root,
-        suite_id=suite_id,
-        attempt=result,
-        checkpoint=observability_checkpoint,
-    )
+    if observability is None or observability_attempt is None:
+        raise S6BMExperimentError("observability_after_checkpoint_missing")
+    result["observability"] = observability_attempt["observability"]
     result["telemetry"].update(
         {
             "trace_correlation_complete": observability["trace_correlation_complete"],
