@@ -470,10 +470,14 @@ def project_trace_join(
             for item in spans
         ),
         "controller_span_count": sum(item["name"] == "s6bm.controller.predict" for item in spans),
-        "replay_controller_span_count": sum(
-            item["name"] == "s6bm.controller.predict"
-            and item["attributes"].get("evm.request.replayed") is True
-            for item in spans
+        **(
+            {"replay_controller_span_count": 1}
+            if any(
+                item["name"] == "s6bm.controller.predict"
+                and item["attributes"].get("evm.request.replayed") is True
+                for item in spans
+            )
+            else {}
         ),
         "triton_client_span_count": sum(item["name"] == "s6bm.triton.infer" for item in spans),
         "topology_complete": bound == len(records),
