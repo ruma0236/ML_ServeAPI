@@ -97,6 +97,16 @@ def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
         "green_canary_failure",
         "vram_preflight_rejection",
     }
+    assert config.run_set == {
+        "contract": "exact_frozen_matrix_set_v1",
+        "baseline": [1, 2, 3],
+        "successful_transition": [1, 2, 3],
+        "wrong_digest": [1, 2, 3],
+        "green_load_failure": [1, 2, 3],
+        "green_readiness_failure": [1, 2, 3],
+        "green_canary_failure": [1, 2, 3],
+        "vram_preflight_rejection": [1, 2, 3],
+    }
 
 
 def test_s6bm_v4_database_clock_anchor_is_independent_and_fail_closed() -> None:

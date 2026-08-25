@@ -131,6 +131,11 @@ def _anchor_projection(
     timeline = [dict(item) for item in raw.get("phase_timeline", [])]
     anchors = [dict(item.get("clock_anchor", {})) for item in timeline]
     receipt = dict(proof.get("triton_start_receipt", {}))
+    adjudicated_request_nonces = {
+        str(item.get("request_nonce", ""))
+        for item in raw.get("request_records", [])
+        if str(item.get("request_nonce", ""))
+    }
     anchors.sort(key=lambda item: int(item.get("sequence", 0)))
     if not anchors or [int(item.get("sequence", 0)) for item in anchors] != list(
         range(1, len(anchors) + 1)
@@ -167,6 +172,8 @@ def _anchor_projection(
         nonce = str(anchor.get("anchor_nonce", ""))
         if len(nonce) != 32 or any(character not in "0123456789abcdef" for character in nonce):
             raise S6BMCausalError("s6bm_v4_clock_anchor_nonce")
+        if nonce in adjudicated_request_nonces:
+            raise S6BMCausalError("s6bm_v4_clock_anchor_self_reference")
         if anchor_nonce is None:
             anchor_nonce = nonce
         if nonce != anchor_nonce or anchor.get("source_identity") != expected_source_prefix + nonce:
@@ -215,6 +222,7 @@ def _anchor_projection(
     if (
         len(collector_nonce) != 32
         or any(character not in "0123456789abcdef" for character in collector_nonce)
+        or collector_nonce in adjudicated_request_nonces
         or collector_nonce == anchor_nonce
         or collector.get("source_identity") != collector_source
         or collector_process <= 0
@@ -813,6 +821,20 @@ def validate_causal_bundle(
     hold = by_request[hold_id]
     attempted_ns = int(_finite(hold.get("attempted_monotonic"), "s6bm_v4_hold_start") * 1e9)
     completion_ns = int(_finite(hold.get("completed_monotonic"), "s6bm_v4_hold_completion") * 1e9)
+    pre_switch_blue = [
+        item
+        for item in records
+        if item.get("model_role") == "blue"
+        and int(float(item.get("attempted_monotonic", math.inf)) * 1e9) < switch_lower
+    ]
+    stale_blue = [
+        item
+        for item in records
+        if item.get("model_role") == "blue"
+        and int(float(item.get("attempted_monotonic", 0)) * 1e9) >= switch_upper
+    ]
+    if stale_blue:
+        raise S6BMCausalError("s6bm_v4_stale_blue_admission")
     receipt = dict(hold.get("durable_effect", {}))
     commit_ack = int(receipt.get("commit_ack_monotonic_ns", 0))
     readback_end = int(receipt.get("readback_finished_monotonic_ns", 0))
@@ -849,20 +871,6 @@ def validate_causal_bundle(
     if completion_ns - attempted_ns < int(float(config.procedure["long_in_flight_hold_ms"]) * 1e6):
         raise S6BMCausalError("s6bm_v4_hold_duration")
 
-    pre_switch_blue = [
-        item
-        for item in records
-        if item.get("model_role") == "blue"
-        and int(float(item.get("attempted_monotonic", math.inf)) * 1e9) < switch_lower
-    ]
-    stale_blue = [
-        item
-        for item in records
-        if item.get("model_role") == "blue"
-        and int(float(item.get("attempted_monotonic", 0)) * 1e9) >= switch_upper
-    ]
-    if stale_blue:
-        raise S6BMCausalError("s6bm_v4_stale_blue_admission")
     if any(
         int(float(item["completed_monotonic"]) * 1e9) >= unload_lower
         or int(dict(item.get("durable_effect", {})).get("readback_finished_monotonic_ns", 0))
