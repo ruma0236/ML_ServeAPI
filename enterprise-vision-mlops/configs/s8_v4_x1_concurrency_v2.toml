@@ -1,0 +1,64 @@
+schema_version = "evm.s8_v4.x1_runtime_config.v2"
+method_contract_version = "v2"
+
+[[models]]
+model_id = "higgs_logistic_regression"
+display_name = "HIGGS LogisticRegression"
+dataset = "HIGGS"
+algorithm = "binary_logistic_regression"
+cuda_activity_required = true
+cpu_fallback_allowed = false
+
+[[models]]
+model_id = "higgs_gaussian_nb"
+display_name = "HIGGS GaussianNB"
+dataset = "HIGGS"
+algorithm = "gaussian_naive_bayes"
+cuda_activity_required = true
+cpu_fallback_allowed = false
+
+[[models]]
+model_id = "higgs_tiny_mlp"
+display_name = "HIGGS TinyMLP"
+dataset = "HIGGS"
+algorithm = "tiny_multilayer_perceptron"
+cuda_activity_required = true
+cpu_fallback_allowed = false
+
+[[models]]
+model_id = "criteo_dlrm_lite"
+display_name = "Criteo DLRM-lite"
+dataset = "Criteo Display Advertising Challenge"
+algorithm = "dlrm_lite"
+cuda_activity_required = true
+cpu_fallback_allowed = false
+
+[execution]
+accepted_phase_counts = { P2 = 3, P3 = 3, P4 = 3, P5 = 30 }
+p5_repetitions_per_point = 3
+p5_point_ids = [
+  "x1-p5-cell-01",
+  "x1-p5-cell-02",
+  "x1-p5-cell-03",
+  "x1-p5-cell-04",
+  "x1-p5-cell-05",
+  "x1-p5-cell-06",
+  "x1-p5-cell-07",
+  "x1-p5-cell-08",
+  "x1-p5-cell-09",
+  "x1-p5-cell-10",
+]
+
+[non_credit]
+phases = ["Q0", "P0", "P1", "CANDIDATE", "PROFILER", "HOT_GUARD"]
+successful_phase_counts = { Q0 = 4, P0 = 12, P1 = 3, CANDIDATE = 1, PROFILER = 3, HOT_GUARD = 1 }
+p0_repetitions_per_model = 3
+p0_total_runs = 12
+p1_total_runs = 3
+profiler_total_runs = 3
+
+[dependency]
+work_item = "S6B-M"
+required_status = "verified"
+required_acceptance_credit = true
+tuple_frozen = false
