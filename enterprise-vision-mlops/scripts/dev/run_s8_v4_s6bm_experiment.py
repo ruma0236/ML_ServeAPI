@@ -156,6 +156,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment-v2.json",
     )
+    parser.add_argument(
+        "--qualification-only",
+        action="store_true",
+        help="Run one non-credit causal receipt/trace qualification and stop before acceptance.",
+    )
     return parser.parse_args()
 
 
@@ -2051,6 +2056,189 @@ def run_success(
     return result
 
 
+def run_causal_qualification(
+    config: S6BMConfig,
+    lease: GpuLease,
+    source: Mapping[str, str],
+    api: ApiProcess,
+    *,
+    suite_root: Path,
+    suite_id: str,
+    execution_progress: dict[str, Any],
+) -> dict[str, Any]:
+    """Exercise the causal fence once without granting acceptance credit."""
+    attempt_id = f"s6bm-causal-qualification-{uuid4().hex[:10]}"
+    clock_chain = DualClockAnchorChain(
+        source_identity=f"runner:{source['revision']}:{suite_id}:{attempt_id}"
+    )
+    initialize_controller(config, lease, source)
+    timeline = [phase_entry(config, "blue_only", clock_chain=clock_chain)]
+    physical: dict[str, bool] = {}
+    transition_started = time.perf_counter()
+    apply_control(config, lease, "green_loaded")
+    physical["green_loaded_ready"] = model_ready(config, "green")
+    timeline.append(phase_entry(config, "green_warmup", clock_chain=clock_chain))
+    checkpoint = begin_attempt_observability(
+        config,
+        suite_root=suite_root,
+        suite_id=suite_id,
+        attempt_id=attempt_id,
+        run_id=lease.run_id,
+    )
+    for _ in range(int(config.procedure["warmup_requests"])):
+        direct_infer(config, "green")
+    apply_control(config, lease, "canary_started")
+    timeline.append(phase_entry(config, "canary", clock_chain=clock_chain))
+
+    hold_generation = int(controller_state(config)["generation"])
+    hold_body = request_body(
+        config,
+        lease.run_id,
+        attempt_id,
+        blue_request_id(f"{attempt_id}-hold"),
+        expected_model_role="blue",
+        hold_ms=int(config.procedure["long_in_flight_hold_ms"]),
+        expected_route_generation=hold_generation,
+        causal_crossover=True,
+    )
+    hold_identity = expected_causal_identity_for_request(
+        TritonBlueGreenPredictRequest.model_validate(hold_body)
+    ).model_dump(mode="json")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        hold_future = pool.submit(send_request, config, hold_body)
+        wait_in_flight(config, "blue", 1, 5)
+        triton_start_receipt = wait_and_register_triton_start_receipt(
+            config,
+            suite_root=suite_root,
+            checkpoint=checkpoint,
+            body=hold_body,
+            clock_chain=clock_chain,
+        )
+        apply_control(
+            config,
+            lease,
+            "green_switched",
+            causal_crossover=hold_identity,
+        )
+        timeline.append(phase_entry(config, "green_active", clock_chain=clock_chain))
+        apply_control(config, lease, "blue_drain_started")
+        timeline.append(phase_entry(config, "blue_draining", clock_chain=clock_chain))
+        hold_record = hold_future.result(timeout=20)
+        execution_progress.update(
+            {"attempt_id": attempt_id, "requests": request_projection([hold_record])}
+        )
+    wait_in_flight(config, "blue", 0, float(config.procedure["drain_timeout_seconds"]))
+    blue_before_unload = int(controller_state(config)["in_flight"]["blue"])
+    capture_transition_observability(
+        config,
+        suite_root=suite_root,
+        suite_id=suite_id,
+        attempt_id=attempt_id,
+        run_id=lease.run_id,
+        checkpoint=checkpoint,
+    )
+    apply_control(
+        config,
+        lease,
+        "blue_unloaded",
+        causal_crossover=hold_identity,
+    )
+    physical["blue_unloaded_not_ready"] = not model_ready(config, "blue")
+    timeline.append(phase_entry(config, "green_only", clock_chain=clock_chain))
+    transition_seconds = time.perf_counter() - transition_started
+
+    rollback_started = time.perf_counter()
+    apply_control(config, lease, "blue_loaded")
+    physical["blue_reloaded_ready"] = model_ready(config, "blue")
+    timeline.append(phase_entry(config, "rollback_warmup", clock_chain=clock_chain))
+    for _ in range(int(config.procedure["warmup_requests"])):
+        direct_infer(config, "blue")
+    apply_control(config, lease, "blue_switched")
+    timeline.append(phase_entry(config, "blue_active_rollback", clock_chain=clock_chain))
+    apply_control(config, lease, "green_drain_started")
+    timeline.append(phase_entry(config, "green_draining", clock_chain=clock_chain))
+    wait_in_flight(config, "green", 0, float(config.procedure["drain_timeout_seconds"]))
+    direct_infer(config, "blue")
+    observability_attempt = {
+        "attempt_id": attempt_id,
+        "source_revision": source["revision"],
+        "identities": identities(config, lease),
+        "request_records": [hold_record],
+    }
+    observability = finish_attempt_observability(
+        config,
+        suite_root=suite_root,
+        suite_id=suite_id,
+        attempt=observability_attempt,
+        checkpoint=checkpoint,
+    )
+    apply_control(config, lease, "green_unloaded")
+    physical["green_unloaded_not_ready"] = not model_ready(config, "green")
+    timeline.append(phase_entry(config, "rolled_back", clock_chain=clock_chain))
+    physical["blue_final_ready"] = model_ready(config, "blue")
+    rollback_seconds = time.perf_counter() - rollback_started
+
+    causal_root = suite_root / "causal" / attempt_id
+    effects_response = requests.get(api_url(config, f"effects/{attempt_id}"), timeout=30)
+    effects_response.raise_for_status()
+    events_response = requests.get(api_url(config, f"causal-events/{attempt_id}"), timeout=30)
+    events_response.raise_for_status()
+    effects = effects_response.json()
+    events = events_response.json()
+    effects_path = causal_root / "durable-effects.json"
+    events_path = causal_root / "causal-events.json"
+    canonical_write(effects_path, effects)
+    canonical_write(events_path, events)
+    expected_events = [
+        "api_server_handler_entry",
+        "controller_entry",
+        "triton_backend_compute_entry",
+        "blue_to_green_switch_commit",
+        "durable_terminal_effect_commit",
+        "blue_unload_intent",
+    ]
+    observed_events = [str(item.get("event_type")) for item in events.get("events", [])]
+    if int(effects.get("effect_count", -1)) != 1 or observed_events != expected_events:
+        raise S6BMExperimentError(
+            f"causal_qualification_sequence:{effects.get('effect_count')}:{observed_events}"
+        )
+    sequences = [int(item["causal_sequence"]) for item in events["events"]]
+    if sequences != sorted(sequences) or len(set(sequences)) != len(sequences):
+        raise S6BMExperimentError(f"causal_qualification_sequence_order:{sequences}")
+    final_state = controller_state(config)
+    result = {
+        "schema_version": "evm.s8_v4.s6bm_causal_qualification.v1",
+        "attempt_id": attempt_id,
+        "profile": "causal_receipt_preflight",
+        "credit": "non_credit",
+        "acceptance_credit": False,
+        "source_revision": source["revision"],
+        "identities": identities(config, lease),
+        "phase_timeline": timeline,
+        "request_records": [hold_record],
+        "requests": request_projection([hold_record]),
+        "latency": latency_projection([hold_record]),
+        "transition_seconds": transition_seconds,
+        "rollback_seconds": rollback_seconds,
+        "blue_in_flight_before_unload": blue_before_unload,
+        "triton_start_receipt": triton_start_receipt,
+        "durable_effect_export": artifact_reference(suite_root, effects_path),
+        "causal_event_export": artifact_reference(suite_root, events_path),
+        "causal_event_types": observed_events,
+        "causal_sequences": sequences,
+        "observability": observability_attempt["observability"],
+        "observability_projection": observability,
+        "physical_model_state": physical,
+        "rollback_exact_blue": (
+            final_state["phase"] == "rolled_back"
+            and final_state["route_weights"] == {"blue": 100, "green": 0}
+            and final_state["loaded_roles"] == ["blue"]
+        ),
+    }
+    reset_controller(config, lease)
+    return result
+
+
 def ensure_green_unloaded(config: S6BMConfig) -> None:
     requests.post(
         triton_url(config, f"/v2/repository/models/{config.green.model_name}/unload"),
@@ -2309,6 +2497,7 @@ def main() -> int:
     attempts: list[dict[str, Any]] = []
     baselines: list[dict[str, Any]] = []
     active_success_progress: dict[str, Any] = {}
+    qualification_result: dict[str, Any] | None = None
     failure: dict[str, Any] | None = None
     caught_exception: Exception | None = None
     triton_log = suite_root / "runtime" / "triton.log"
@@ -2345,64 +2534,82 @@ def main() -> int:
         )
         wait_runtime(config, api)
         wait_prometheus_jobs(config, present=True)
-
-        for repetition in range(1, int(config.procedure["baseline_repetitions"]) + 1):
-            baseline = run_baseline(
+        if args.qualification_only:
+            qualification_result = run_causal_qualification(
                 config,
                 lease,
                 source,
-                repetition,
-                api,
-                suite_id=suite_id,
-            )
-            baselines.append(baseline)
-            canonical_write(suite_root / "baseline" / f"repetition-{repetition:02d}.json", baseline)
-
-        for repetition in range(1, int(config.procedure["successful_transition_repetitions"]) + 1):
-            active_success_progress = {}
-            attempt = run_success(
-                config,
-                lease,
-                source,
-                repetition,
                 api,
                 suite_root=suite_root,
                 suite_id=suite_id,
                 execution_progress=active_success_progress,
             )
-            attempts.append(attempt)
-            canonical_write(
-                suite_root / "successful-transition" / f"repetition-{repetition:02d}.json",
-                attempt,
-            )
-            active_success_progress = {}
-
-        profiles = (
-            "wrong_digest",
-            "green_load_failure",
-            "green_readiness_failure",
-            "green_canary_failure",
-            "vram_preflight_rejection",
-        )
-        for profile in profiles:
-            for repetition in range(1, int(config.procedure["negative_profile_repetitions"]) + 1):
-                attempt = run_fault(
+            canonical_write(suite_root / "causal-qualification.json", qualification_result)
+        else:
+            for repetition in range(1, int(config.procedure["baseline_repetitions"]) + 1):
+                baseline = run_baseline(
                     config,
                     lease,
                     source,
-                    model_root,
-                    profile,
                     repetition,
+                    api,
                     suite_id=suite_id,
+                )
+                baselines.append(baseline)
+                canonical_write(
+                    suite_root / "baseline" / f"repetition-{repetition:02d}.json",
+                    baseline,
+                )
+
+            for repetition in range(
+                1, int(config.procedure["successful_transition_repetitions"]) + 1
+            ):
+                active_success_progress = {}
+                attempt = run_success(
+                    config,
+                    lease,
+                    source,
+                    repetition,
+                    api,
+                    suite_root=suite_root,
+                    suite_id=suite_id,
+                    execution_progress=active_success_progress,
                 )
                 attempts.append(attempt)
                 canonical_write(
-                    suite_root / "faults" / profile / f"repetition-{repetition:02d}.json",
+                    suite_root / "successful-transition" / f"repetition-{repetition:02d}.json",
                     attempt,
                 )
-        analysis = analyze_attempts(attempts, config)
-        if not analysis["evidence_ready"]:
-            raise S6BMExperimentError(f"acceptance_not_ready:{analysis}")
+                active_success_progress = {}
+
+            profiles = (
+                "wrong_digest",
+                "green_load_failure",
+                "green_readiness_failure",
+                "green_canary_failure",
+                "vram_preflight_rejection",
+            )
+            for profile in profiles:
+                for repetition in range(
+                    1, int(config.procedure["negative_profile_repetitions"]) + 1
+                ):
+                    attempt = run_fault(
+                        config,
+                        lease,
+                        source,
+                        model_root,
+                        profile,
+                        repetition,
+                        suite_id=suite_id,
+                    )
+                    attempts.append(attempt)
+                    canonical_write(
+                        suite_root / "faults" / profile / f"repetition-{repetition:02d}.json",
+                        attempt,
+                    )
+            analysis = analyze_attempts(attempts, config)
+            if not analysis["evidence_ready"]:
+                raise S6BMExperimentError(f"acceptance_not_ready:{analysis}")
     except Exception as exc:
         caught_exception = exc
         failure = {
@@ -2530,6 +2737,32 @@ def main() -> int:
         raise S6BMExperimentError(
             f"controlled_execution_failed:{type(caught_exception).__name__}:{caught_exception}"
         ) from caught_exception
+
+    if args.qualification_only:
+        if qualification_result is None:
+            raise S6BMExperimentError("causal_qualification_result_absent")
+        qualification_result["cleanup"] = {
+            key: value for key, value in cleanup.items() if key != "gpu_after"
+        }
+        qualification_path = suite_root / "causal-qualification.json"
+        canonical_write(qualification_path, qualification_result)
+        qualification_index = private_index(suite_root)
+        qualification_index_path = suite_root / "private-evidence-index.json"
+        canonical_write(qualification_index_path, qualification_index)
+        print(
+            canonical(
+                {
+                    "mode": "qualification_only",
+                    "credit": "non_credit",
+                    "acceptance_credit": False,
+                    "private_root": str(suite_root),
+                    "qualification": artifact_reference(suite_root, qualification_path),
+                    "private_index_sha256": sha256_file(qualification_index_path),
+                    "private_aggregate_sha256": qualification_index["aggregate_sha256"],
+                }
+            )
+        )
+        return 0
 
     index = private_index(suite_root)
     index_path = suite_root / "private-evidence-index.json"
