@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import concurrent.futures
+import hashlib
 import os
 import threading
 import time
@@ -278,6 +280,84 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
         "durable_terminal_effect_commit",
         "blue_unload_intent",
     ]
+
+
+def test_s6bm_cold_store_commits_frozen_concurrency_without_pool_starvation(
+    postgres_dsn: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api import control_panel_workloads as api
+    from evm.model_runtime.triton_blue_green import (
+        TritonBlueGreenPredictRequest,
+        TritonBlueGreenPredictResponse,
+    )
+
+    schema = f"evm_s6bm_cold_test_{uuid4().hex[:12]}"
+    api.shutdown_s6bm_terminal_store()
+    monkeypatch.setenv("EVM_S6BM_DATABASE_URL", postgres_dsn)
+    monkeypatch.setenv("EVM_S6BM_DATABASE_SCHEMA", schema)
+    monkeypatch.setenv("EVM_CONTROL_PLANE_AUTO_MIGRATE", "true")
+    artifact_sha256 = "4" * 64
+    barrier = threading.Barrier(16)
+
+    def commit(index: int) -> dict[str, object]:
+        request_id = f"s6bm-frozen-concurrency-{index:02d}"
+        trace_id = hashlib.sha256(request_id.encode("ascii")).hexdigest()[:32]
+        request = TritonBlueGreenPredictRequest(
+            run_id="s8-v4-s6bm-cold-concurrency",
+            attempt_id="s6bm-frozen-concurrency",
+            request_id=request_id,
+            request_nonce=f"nonce-{index:08d}",
+            traceparent=f"00-{trace_id}-0123456789abcdef-01",
+            input_values=[1.0, 2.0, 3.0, 4.0],
+            expected_model_role="blue",
+            expected_model_name="s6bm_blue",
+            expected_model_version="1",
+            expected_artifact_sha256=artifact_sha256,
+        )
+        response = TritonBlueGreenPredictResponse(
+            run_id=request.run_id,
+            attempt_id=request.attempt_id,
+            request_id=request.request_id,
+            trace_id=trace_id,
+            effect_id=hashlib.sha256(f"{request_id}:effect".encode("ascii")).hexdigest(),
+            route_generation=1,
+            model_role="blue",
+            model_name="s6bm_blue",
+            model_version="1",
+            artifact_sha256=artifact_sha256,
+            route_phase="blue_only",
+            output=[3.0, 5.0, 7.0, 9.0],
+            result_sha256=hashlib.sha256(f"{request_id}:result".encode("ascii")).hexdigest(),
+            elapsed_ms=1.0,
+        )
+        barrier.wait(timeout=5)
+        return api._commit_s6bm_terminal_effect_sync(request, response)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+            receipts = list(pool.map(commit, range(16)))
+        store = api.initialize_s6bm_terminal_store()
+        assert len(receipts) == 16
+        assert len({receipt["entity_id"] for receipt in receipts}) == 16
+        assert len({receipt["transaction_id"] for receipt in receipts}) == 16
+        assert all(receipt["readback_visible"] is True for receipt in receipts)
+        assert all(
+            receipt["write_backend_pid"] != receipt["commit_timestamp_backend_pid"]
+            for receipt in receipts
+        )
+        assert len(store.list_entities("s6bm_terminal_effect")) == 16
+        assert store.telemetry().timeouts == 0
+        pool_stats = store._pool.get_stats()
+        assert pool_stats["pool_max"] == 8
+        assert pool_stats["requests_waiting"] == 0
+        assert pool_stats["pool_available"] == pool_stats["pool_size"]
+    finally:
+        api.shutdown_s6bm_terminal_store()
+        import psycopg
+
+        with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+            connection.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
 
 
 def test_s6bm_causal_fence_rejects_missing_receipt_and_early_effect(

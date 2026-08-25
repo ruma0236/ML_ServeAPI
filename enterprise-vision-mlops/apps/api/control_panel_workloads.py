@@ -5,7 +5,7 @@ import atexit
 import hashlib
 import json
 import os
-from functools import lru_cache
+import threading
 from pathlib import Path
 from typing import Any, Literal
 
@@ -86,8 +86,27 @@ from evm.control_panel.scenario_workload_production import (
 router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-workloads"])
 
 
-@lru_cache(maxsize=1)
-def _s6bm_terminal_store() -> TransactionalControlPlaneStore:
+_S6BM_TERMINAL_STORE_INIT_LOCK = threading.Lock()
+_S6BM_TERMINAL_STORE: TransactionalControlPlaneStore | None = None
+
+
+def initialize_s6bm_terminal_store() -> TransactionalControlPlaneStore:
+    """Create the S6B-M store once before concurrent request handling begins."""
+
+    global _S6BM_TERMINAL_STORE
+    observed = _S6BM_TERMINAL_STORE
+    if observed is not None:
+        return observed
+    with _S6BM_TERMINAL_STORE_INIT_LOCK:
+        observed = _S6BM_TERMINAL_STORE
+        if observed is not None:
+            return observed
+        observed = _build_s6bm_terminal_store()
+        _S6BM_TERMINAL_STORE = observed
+        return observed
+
+
+def _build_s6bm_terminal_store() -> TransactionalControlPlaneStore:
     dsn = os.getenv("EVM_S6BM_DATABASE_URL", "").strip()
     schema = os.getenv("EVM_S6BM_DATABASE_SCHEMA", "").strip()
     if not dsn or not schema:
@@ -110,8 +129,23 @@ def _s6bm_terminal_store() -> TransactionalControlPlaneStore:
             ),
         )
     )
-    atexit.register(store.close)
     return store
+
+
+def shutdown_s6bm_terminal_store() -> None:
+    global _S6BM_TERMINAL_STORE
+    with _S6BM_TERMINAL_STORE_INIT_LOCK:
+        store = _S6BM_TERMINAL_STORE
+        _S6BM_TERMINAL_STORE = None
+    if store is not None:
+        store.close()
+
+
+def _s6bm_terminal_store() -> TransactionalControlPlaneStore:
+    return initialize_s6bm_terminal_store()
+
+
+atexit.register(shutdown_s6bm_terminal_store)
 
 
 def _commit_s6bm_terminal_effect_sync(
