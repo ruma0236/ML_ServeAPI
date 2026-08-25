@@ -11,7 +11,6 @@ import subprocess
 import sys
 import threading
 import time
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -44,6 +43,7 @@ from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
     canonical_write,
     deterministic_model_schedule,
     generate_report,
+    request_interval_overlap,
     sha256_file,
     summarize_requests,
     triton_trace_compute_counts,
@@ -691,31 +691,6 @@ def run_q0(
     return q0
 
 
-def cross_model_request_overlap(records: list[dict[str, Any]]) -> dict[str, Any]:
-    events: list[tuple[int, int, str]] = []
-    for item in records:
-        if item.get("outcome") != "completed":
-            continue
-        # Starts sort before ends at the same timestamp; both represent in-flight boundaries.
-        events.append((int(item["started_ns"]), 0, str(item["model_id"])))
-        events.append((int(item["finished_ns"]), 1, str(item["model_id"])))
-    active = Counter()
-    pairs: set[tuple[str, str]] = set()
-    for _timestamp, kind, model_id in sorted(events):
-        if kind == 0:
-            for other, count in active.items():
-                if count > 0 and other != model_id:
-                    pairs.add(tuple(sorted((model_id, other))))
-            active[model_id] += 1
-        else:
-            active[model_id] -= 1
-    return {
-        "observed": bool(pairs),
-        "distinct_model_pairs": [list(pair) for pair in sorted(pairs)],
-        "scope": "client request intervals overlap; not CUDA kernel-overlap evidence",
-    }
-
-
 def run_cell(
     config: X1ResumeConfig,
     cell: CellSpec,
@@ -912,7 +887,7 @@ def run_cell(
     )
     if not triton_execution:
         raise X1ResumeTestbedError(f"x1_resume_cell_triton_execution:{cell.cell_id}:{repetition}")
-    request_overlap = cross_model_request_overlap(records)
+    request_overlap = request_interval_overlap(records)
     overlap_required = cell.client_workers > 1 and len(active_models) > 1
     if overlap_required and request_overlap["observed"] is not True:
         raise X1ResumeTestbedError(
@@ -941,6 +916,11 @@ def run_cell(
             "start_ns": measurement_start_ns,
             "end_ns": measurement_end_ns,
             "seconds": config.measurement_seconds,
+        },
+        "admission": {
+            "offered": offered,
+            "admitted": admitted,
+            "local_admission_rejected": rejected,
         },
         "drain_seconds": drain_seconds,
         "metrics": metrics,
@@ -973,6 +953,8 @@ def run_cell(
         "model_mix": dict(cell.model_mix),
         "load_contract": {
             "target_offered_rps": config.offered_rps,
+            "minimum_offered_rate_attainment": config.minimum_offered_rate_attainment,
+            "matched_load_relative_tolerance": config.matched_load_relative_tolerance,
             "warmup_seconds": config.warmup_seconds,
             "measurement_seconds": config.measurement_seconds,
         },
@@ -1254,7 +1236,8 @@ def main() -> int:
         == EXPECTED_PROMETHEUS_JOBS,
         "errors": cleanup_errors,
     }
-    canonical_write(suite_root / "cleanup.json", {"cleanup": cleanup, "final_checks": final_checks})
+    cleanup_path = suite_root / "cleanup.json"
+    canonical_write(cleanup_path, {"cleanup": cleanup, "final_checks": final_checks})
     if (
         execution_error is not None
         or cleanup_errors
@@ -1334,6 +1317,12 @@ def main() -> int:
             "claim": "No kernel-overlap claim; a direct CUDA profiler is a follow-up gate.",
         },
         "cleanup": cleanup,
+        "cleanup_evidence": {
+            "path": cleanup_path.relative_to(suite_root).as_posix(),
+            "bytes": cleanup_path.stat().st_size,
+            "sha256": sha256_file(cleanup_path),
+            "final_checks_sha256": canonical_sha256(final_checks),
+        },
         "claim_boundary": config.claim_boundary,
     }
     validate_evidence(

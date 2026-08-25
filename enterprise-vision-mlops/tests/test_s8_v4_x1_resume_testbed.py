@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import Counter
 from itertools import groupby
 from pathlib import Path
@@ -19,7 +20,7 @@ from evm.scale_validation.x1_resume_testbed import (
     canonical_write,
     deterministic_model_schedule,
     generate_report,
-    jain_fairness,
+    request_interval_overlap,
     sha256_file,
     summarize_requests,
     triton_trace_compute_counts,
@@ -38,46 +39,36 @@ def config() -> X1ResumeConfig:
     return X1ResumeConfig.from_path(CONFIG)
 
 
+def synthetic_records(model_mix: dict[str, float]) -> list[dict[str, object]]:
+    return [
+        {
+            "request_id": f"synthetic-{model_id}",
+            "model_id": model_id,
+            "outcome": "completed",
+            "status": 200,
+            "started_ns": 10,
+            "finished_ns": 20,
+            "latency_ms": 1.0,
+            "queue_wait_ms": 0.1,
+        }
+        for model_id, fraction in model_mix.items()
+        if fraction > 0
+    ]
+
+
 def metric_payload(model_mix: dict[str, float] | None = None) -> dict[str, object]:
     model_mix = model_mix or {model: 0.25 for model in EXPECTED_MODELS}
-    per_model = {
-        model: {
-            "window_completed": 1,
-            "admitted_cohort_completed": 1,
-            "throughput_rps": 1 / 30,
-            "p99_ms": 1.0,
-        }
-        for model in EXPECTED_MODELS
-    }
-    return {
-        "offered": 4,
-        "admitted": 4,
-        "local_admission_rejected": 0,
-        "window_completed": 4,
-        "window_http_5xx": 0,
-        "window_other_errors": 0,
-        "admitted_cohort_completed": 4,
-        "admitted_cohort_http_5xx": 0,
-        "admitted_cohort_other_errors": 0,
-        "tail_completed": 0,
-        "loss": 0,
-        "duplicates": 0,
-        "throughput_rps": 4 / 30,
-        "actual_offered_rps": 4 / 30,
-        "drain_seconds": 0.1,
-        "latency_ms": {"p50": 1.0, "p95": 1.0, "p99": 1.0},
-        "queue_wait_ms": {"p50": 0.1, "p95": 0.1, "p99": 0.1},
-        "per_model": per_model,
-        "fairness_target_basis": "model_mix * actual_window_offered_rps",
-        "raw_throughput_jain_fairness": 1.0,
-        "normalized_attainment_jain_fairness": jain_fairness(
-            [
-                (1 / 30) / (fraction * (4 / 30))
-                for model, fraction in model_mix.items()
-                if model in EXPECTED_MODELS and fraction > 0
-            ]
-        ),
-    }
+    records = synthetic_records(model_mix)
+    return summarize_requests(
+        offered=24_000,
+        admitted=len(records),
+        local_admission_rejected=24_000 - len(records),
+        records=records,
+        measurement_seconds=30,
+        measurement_end_ns=1_000,
+        drain_seconds=0.1,
+        model_mix=model_mix,
+    )
 
 
 def complete_payload() -> dict[str, object]:
@@ -101,6 +92,9 @@ def complete_payload() -> dict[str, object]:
     runs = []
     for cell in cfg.cells:
         for repetition in range(1, cell.repetitions + 1):
+            records = synthetic_records(dict(cell.model_mix))
+            active_count = len(records)
+            formed_batch = cell.cell_id == "balanced-concurrent-batch-on"
             runs.append(
                 {
                     "attempt_id": f"{cell.cell_id}-{repetition}",
@@ -114,6 +108,8 @@ def complete_payload() -> dict[str, object]:
                     },
                     "load_contract": {
                         "target_offered_rps": cfg.offered_rps,
+                        "minimum_offered_rate_attainment": cfg.minimum_offered_rate_attainment,
+                        "matched_load_relative_tolerance": cfg.matched_load_relative_tolerance,
                         "warmup_seconds": cfg.warmup_seconds,
                         "measurement_seconds": cfg.measurement_seconds,
                     },
@@ -122,15 +118,12 @@ def complete_payload() -> dict[str, object]:
                     "cpu_fallback_observed": False,
                     "cross_model_request_overlap_required": cell.client_workers > 1
                     and len(cell.model_mix) > 1,
-                    "cross_model_request_overlap": {
-                        "observed": cell.client_workers > 1 and len(cell.model_mix) > 1,
-                        "distinct_model_pairs": [["criteo_dlrm_lite", "higgs_tiny_mlp"]],
-                    },
+                    "cross_model_request_overlap": request_interval_overlap(records),
                     "batching_proof": {
-                        "formed_batch_observed": cell.cell_id == "balanced-concurrent-batch-on",
-                        "formed_mean_batch_size": 2.0
-                        if cell.cell_id == "balanced-concurrent-batch-on"
-                        else 1.0,
+                        "inference_count_delta": float(active_count * (2 if formed_batch else 1)),
+                        "execution_count_delta": float(active_count),
+                        "formed_batch_observed": formed_batch,
+                        "formed_mean_batch_size": 2.0 if formed_batch else 1.0,
                     },
                 }
             )
@@ -158,6 +151,12 @@ def complete_payload() -> dict[str, object]:
             "prometheus_5_of_5": True,
             "prometheus_exact_jobs_restored": True,
             "errors": [],
+        },
+        "cleanup_evidence": {
+            "path": "cleanup.json",
+            "bytes": 1,
+            "sha256": "c" * 64,
+            "final_checks_sha256": "d" * 64,
         },
         "profiler": {"kernel_overlap_proved": False},
         "claim_boundary": cfg.claim_boundary,
@@ -296,6 +295,25 @@ def test_metric_recomputation_and_resume_success_errors_fail_closed() -> None:
     with pytest.raises(
         X1ResumeTestbedError, match="window_metric_recompute|resume_success_errors_or_loss"
     ):
+        validate_evidence(payload, config())
+
+
+def test_low_offered_load_and_unmatched_comparison_load_fail_closed() -> None:
+    payload = complete_payload()
+    balanced = next(item for item in payload["runs"] if item["cell_id"] == "balanced-serial")
+    balanced["metrics"]["offered"] = 4
+    balanced["metrics"]["local_admission_rejected"] = 3
+    balanced["metrics"]["actual_offered_rps"] = 4 / 30
+    with pytest.raises(X1ResumeTestbedError, match="offered_load_attainment"):
+        validate_evidence(payload, config())
+
+    payload = complete_payload()
+    for item in payload["runs"]:
+        if item["cell_id"] == "balanced-serial":
+            item["metrics"]["offered"] = 21_600
+            item["metrics"]["local_admission_rejected"] = 21_599
+            item["metrics"]["actual_offered_rps"] = 720.0
+    with pytest.raises(X1ResumeTestbedError, match="matched_load_median_tolerance"):
         validate_evidence(payload, config())
 
 
@@ -439,16 +457,63 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(tmp_path
     attempts_root = suite_root / "attempts"
     attempts_root.mkdir()
     for item in payload["runs"]:
-        item["triton_metric_deltas"] = {}
+        active_models = {
+            model_id for model_id, fraction in item["model_mix"].items() if fraction > 0
+        }
+        formed_batch = item["cell_id"] == "balanced-concurrent-batch-on"
+        before_lines = []
+        after_lines = []
+        deltas = {}
+        for model_id in EXPECTED_MODELS:
+            inference_count = (
+                2.0
+                if formed_batch and model_id in active_models
+                else float(model_id in active_models)
+            )
+            execution_count = float(model_id in active_models)
+            values = {
+                "success": float(model_id in active_models),
+                "compute_us": float(model_id in active_models),
+                "inference_count": inference_count,
+                "execution_count": execution_count,
+            }
+            metric_names = {
+                "success": "nv_inference_request_success",
+                "compute_us": "nv_inference_compute_infer_duration_us",
+                "inference_count": "nv_inference_count",
+                "execution_count": "nv_inference_exec_count",
+            }
+            for field, metric_name in metric_names.items():
+                before_lines.append(f'{metric_name}{{model="{model_id}"}} 0')
+                after_lines.append(f'{metric_name}{{model="{model_id}"}} {values[field]}')
+            deltas[model_id] = values
+        metrics_before = "\n".join(before_lines) + "\n"
+        metrics_after = "\n".join(after_lines) + "\n"
+        item["triton_metric_deltas"] = deltas
         raw_path = attempts_root / f"{item['attempt_id']}.json"
         canonical_write(
             raw_path,
             {
                 "attempt_id": item["attempt_id"],
+                "cell": {
+                    "cell_id": item["cell_id"],
+                    "model_mix": item["model_mix"],
+                },
+                "repetition": item["repetition"],
+                "records": synthetic_records(item["model_mix"]),
+                "measurement_window": {"start_ns": 0, "end_ns": 1_000, "seconds": 30},
+                "admission": {
+                    "offered": 24_000,
+                    "admitted": len(active_models),
+                    "local_admission_rejected": 24_000 - len(active_models),
+                },
+                "drain_seconds": 0.1,
                 "metrics": item["metrics"],
-                "triton_metric_deltas": {},
+                "triton_metric_deltas": deltas,
                 "cross_model_request_overlap": item["cross_model_request_overlap"],
                 "batching_proof": item["batching_proof"],
+                "metrics_before": metrics_before,
+                "metrics_after": metrics_after,
             },
         )
         item["private_raw"] = {
@@ -456,6 +521,19 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(tmp_path
             "bytes": raw_path.stat().st_size,
             "sha256": sha256_file(raw_path),
         }
+
+    final_checks = {"holder": {"uid": "synthetic"}, "queues": {"active": 0}}
+    cleanup_path = suite_root / "cleanup.json"
+    canonical_write(
+        cleanup_path,
+        {"cleanup": payload["cleanup"], "final_checks": final_checks},
+    )
+    payload["cleanup_evidence"] = {
+        "path": cleanup_path.relative_to(suite_root).as_posix(),
+        "bytes": cleanup_path.stat().st_size,
+        "sha256": sha256_file(cleanup_path),
+        "final_checks_sha256": canonical_sha256(final_checks),
+    }
 
     result = validate_evidence(
         payload,
@@ -479,9 +557,57 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(tmp_path
     assert "n=3 median" in bullet
     assert "no training-quality or model-accuracy claim" in bullet
     assert report["measured"]["topology_comparison_scope"].startswith("compound client-driver")
-    tampered = attempts_root / f"{payload['runs'][0]['attempt_id']}.json"
-    tampered.write_text("{}\n", encoding="utf-8")
-    with pytest.raises(X1ResumeTestbedError, match="private_digest"):
+    public_attempt = payload["runs"][0]
+    tampered = attempts_root / f"{public_attempt['attempt_id']}.json"
+    original_raw = json.loads(tampered.read_bytes())
+
+    def rewrite_attempt(raw_payload: dict[str, object]) -> None:
+        canonical_write(tampered, raw_payload)
+        public_attempt["private_raw"].update(
+            {"bytes": tampered.stat().st_size, "sha256": sha256_file(tampered)}
+        )
+
+    records_tampered = json.loads(json.dumps(original_raw))
+    records_tampered["records"] = []
+    rewrite_attempt(records_tampered)
+    with pytest.raises(X1ResumeTestbedError, match="private_attempt"):
+        validate_evidence(
+            payload,
+            config(),
+            private_suite_root=suite_root,
+            model_repository_root=repository_root,
+            source_root=source_root,
+        )
+    summary_tampered = json.loads(json.dumps(original_raw))
+    summary_tampered["metrics"]["throughput_rps"] = 999.0
+    rewrite_attempt(summary_tampered)
+    with pytest.raises(X1ResumeTestbedError, match="private_attempt"):
+        validate_evidence(
+            payload,
+            config(),
+            private_suite_root=suite_root,
+            model_repository_root=repository_root,
+            source_root=source_root,
+        )
+    deltas_tampered = json.loads(json.dumps(original_raw))
+    deltas_tampered["triton_metric_deltas"][EXPECTED_MODELS[0]]["success"] = 9.0
+    rewrite_attempt(deltas_tampered)
+    with pytest.raises(X1ResumeTestbedError, match="private_attempt"):
+        validate_evidence(
+            payload,
+            config(),
+            private_suite_root=suite_root,
+            model_repository_root=repository_root,
+            source_root=source_root,
+        )
+    rewrite_attempt(original_raw)
+    cleanup_tampered = json.loads(cleanup_path.read_bytes())
+    cleanup_tampered["cleanup"]["container_absent"] = False
+    canonical_write(cleanup_path, cleanup_tampered)
+    payload["cleanup_evidence"].update(
+        {"bytes": cleanup_path.stat().st_size, "sha256": sha256_file(cleanup_path)}
+    )
+    with pytest.raises(X1ResumeTestbedError, match="private_cleanup"):
         validate_evidence(
             payload,
             config(),

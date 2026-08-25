@@ -28,6 +28,11 @@ The direct driver offers 800 requests/second through a deterministic smooth
 weighted schedule. The controlled batching pair uses the same L1W8 load and
 topology with batching off/on; the on profile must prove
 `nv_inference_count / nv_inference_exec_count > 1` in every repetition.
+Every completed run must attain at least 90% of the 800 RPS offered-load
+target and may not overshoot it by more than 5%. Serial, concurrent batch-off,
+and concurrent batch-on achieved offered rates must remain within 5% across
+repetitions and across their three-run medians; otherwise report generation is
+blocked.
 The minimum timed window is 14 minutes 40 seconds. Allow 25–50 minutes for
 preparation, source hash checks, two Triton starts, Q0, queue drains, and exact
 cleanup on the current host.
@@ -96,6 +101,13 @@ latency and queue-wait percentiles, per-model progress, raw throughput fairness,
 mix-normalized attainment fairness, GPU utilization/VRAM, topology identifiers,
 and raw artifact hashes. Hot-mix evidence is invalid if any non-hot model makes
 no progress.
+
+The independent validator reopens every private attempt and recomputes summary
+counts, fixed-window throughput, percentiles, per-model fairness, request
+interval overlap, and formed-batch ratio from raw records, measurement bounds,
+admission counters, and before/after Triton metrics. It also binds the immutable
+`cleanup.json` contents and final-check digest to the public evidence. Cached
+summary copies alone cannot authorize the resume report.
 
 The built-in Triton timestamp trace is not a CUDA-kernel profiler. Therefore
 the generated report always says `kernel_overlap_proved=false`; kernel overlap

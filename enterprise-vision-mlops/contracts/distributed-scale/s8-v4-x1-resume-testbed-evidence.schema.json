@@ -16,6 +16,7 @@
     "q0",
     "runs",
     "cleanup",
+    "cleanup_evidence",
     "claim_boundary"
   ],
   "properties": {
@@ -59,6 +60,7 @@
               "tail_completed",
               "loss",
               "throughput_rps",
+              "actual_offered_rps",
               "drain_seconds",
               "per_model"
             ],
@@ -72,6 +74,10 @@
         }
       }
     },
-    "cleanup": {"type": "object"}
+    "cleanup": {"type": "object"},
+    "cleanup_evidence": {
+      "type": "object",
+      "required": ["path", "bytes", "sha256", "final_checks_sha256"]
+    }
   }
 }

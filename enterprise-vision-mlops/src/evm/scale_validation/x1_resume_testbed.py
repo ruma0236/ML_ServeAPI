@@ -97,6 +97,8 @@ class X1ResumeConfig:
     warmup_seconds: int
     measurement_seconds: int
     offered_rps: int
+    minimum_offered_rate_attainment: float
+    matched_load_relative_tolerance: float
     queue_depth_per_api: int
     request_timeout_seconds: int
     sample_gpu_interval_ms: int
@@ -137,6 +139,8 @@ class X1ResumeConfig:
             warmup_seconds=int(load.get("warmup_seconds", 0)),
             measurement_seconds=int(load.get("measurement_seconds", 0)),
             offered_rps=int(load.get("offered_requests_per_second", 0)),
+            minimum_offered_rate_attainment=float(load.get("minimum_offered_rate_attainment", 0)),
+            matched_load_relative_tolerance=float(load.get("matched_load_relative_tolerance", 0)),
             queue_depth_per_api=int(load.get("queue_depth_per_api", 0)),
             request_timeout_seconds=int(load.get("request_timeout_seconds", 0)),
             sample_gpu_interval_ms=int(load.get("sample_gpu_interval_ms", 0)),
@@ -185,6 +189,10 @@ class X1ResumeConfig:
             raise X1ResumeTestbedError("x1_resume_gpu_uuid")
         if len({self.http_port, self.grpc_port, self.metrics_port}) != 3:
             raise X1ResumeTestbedError("x1_resume_ports")
+        if not 0 < self.minimum_offered_rate_attainment <= 1:
+            raise X1ResumeTestbedError("x1_resume_minimum_offered_rate_attainment")
+        if not 0 < self.matched_load_relative_tolerance <= 0.10:
+            raise X1ResumeTestbedError("x1_resume_matched_load_relative_tolerance")
         if (
             min(
                 self.seed,
@@ -268,6 +276,30 @@ def deterministic_model_schedule(model_mix: Mapping[str, float]) -> tuple[str, .
     if Counter(slots) != Counter(weights):
         raise X1ResumeTestbedError("x1_resume_mix_schedule_counts")
     return tuple(slots)
+
+
+def request_interval_overlap(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    events: list[tuple[int, int, str]] = []
+    for item in records:
+        if item.get("outcome") != "completed":
+            continue
+        events.append((int(item["started_ns"]), 0, str(item["model_id"])))
+        events.append((int(item["finished_ns"]), 1, str(item["model_id"])))
+    active: Counter[str] = Counter()
+    pairs: set[tuple[str, str]] = set()
+    for _timestamp, kind, model_id in sorted(events):
+        if kind == 0:
+            for other, count in active.items():
+                if count > 0 and other != model_id:
+                    pairs.add(tuple(sorted((model_id, other))))
+            active[model_id] += 1
+        else:
+            active[model_id] -= 1
+    return {
+        "observed": bool(pairs),
+        "distinct_model_pairs": [list(pair) for pair in sorted(pairs)],
+        "scope": "client request intervals overlap; not CUDA kernel-overlap evidence",
+    }
 
 
 def triton_trace_compute_counts(path: Path) -> dict[str, int]:
@@ -449,6 +481,8 @@ def _triton_metrics_for_model(text: str, model_id: str) -> dict[str, float]:
     fields = {
         "nv_inference_request_success": "success",
         "nv_inference_compute_infer_duration_us": "compute_us",
+        "nv_inference_count": "inference_count",
+        "nv_inference_exec_count": "execution_count",
     }
     result = {field: 0.0 for field in fields.values()}
     for line in text.splitlines():
@@ -597,14 +631,72 @@ def validate_private_evidence(
     for item in payload.get("runs", []):
         raw_path = _bound_file(private_suite_root, dict(item.get("private_raw", {})), "attempt")
         raw = json.loads(raw_path.read_bytes())
+        raw_cell = dict(raw.get("cell", {}))
+        raw_mix = {
+            str(key): float(value) for key, value in dict(raw_cell.get("model_mix", {})).items()
+        }
+        window = dict(raw.get("measurement_window", {}))
+        admission = dict(raw.get("admission", {}))
+        records = list(raw.get("records", []))
+        recomputed_metrics = summarize_requests(
+            offered=int(admission.get("offered", -1)),
+            admitted=int(admission.get("admitted", -1)),
+            local_admission_rejected=int(admission.get("local_admission_rejected", -1)),
+            records=records,
+            measurement_seconds=float(window.get("seconds", 0)),
+            measurement_end_ns=int(window.get("end_ns", -1)),
+            drain_seconds=float(raw.get("drain_seconds", float("nan"))),
+            model_mix=raw_mix,
+        )
+        before_text = str(raw.get("metrics_before", ""))
+        after_text = str(raw.get("metrics_after", ""))
+        recomputed_deltas = {}
+        for model_id in EXPECTED_MODELS:
+            before = _triton_metrics_for_model(before_text, model_id)
+            after = _triton_metrics_for_model(after_text, model_id)
+            recomputed_deltas[model_id] = {
+                key: after[key] - before[key]
+                for key in ("success", "compute_us", "inference_count", "execution_count")
+            }
+        active_models = {model_id for model_id, fraction in raw_mix.items() if fraction > 0}
+        inference_count = sum(
+            recomputed_deltas[model_id]["inference_count"] for model_id in active_models
+        )
+        execution_count = sum(
+            recomputed_deltas[model_id]["execution_count"] for model_id in active_models
+        )
+        formed_batch_size = inference_count / execution_count if execution_count > 0 else 0.0
+        recomputed_batching = {
+            "inference_count_delta": inference_count,
+            "execution_count_delta": execution_count,
+            "formed_mean_batch_size": formed_batch_size,
+            "formed_batch_observed": formed_batch_size > 1.0,
+        }
+        recomputed_overlap = request_interval_overlap(records)
         if (
             raw.get("attempt_id") != item.get("attempt_id")
+            or raw_cell.get("cell_id") != item.get("cell_id")
+            or int(raw.get("repetition", -1)) != int(item.get("repetition", -2))
+            or raw_mix != item.get("model_mix")
+            or float(window.get("seconds", 0)) <= 0
+            or recomputed_metrics != item.get("metrics")
+            or recomputed_deltas != item.get("triton_metric_deltas")
+            or recomputed_overlap != item.get("cross_model_request_overlap")
+            or recomputed_batching != item.get("batching_proof")
             or raw.get("metrics") != item.get("metrics")
             or raw.get("triton_metric_deltas") != item.get("triton_metric_deltas")
             or raw.get("cross_model_request_overlap") != item.get("cross_model_request_overlap")
             or raw.get("batching_proof") != item.get("batching_proof")
         ):
             raise X1ResumeTestbedError(f"x1_resume_private_attempt:{item.get('attempt_id')}")
+    cleanup_path = _bound_file(
+        private_suite_root, dict(payload.get("cleanup_evidence", {})), "cleanup"
+    )
+    cleanup_raw = json.loads(cleanup_path.read_bytes())
+    if cleanup_raw.get("cleanup") != payload.get("cleanup") or canonical_sha256(
+        cleanup_raw.get("final_checks", {})
+    ) != dict(payload.get("cleanup_evidence", {})).get("final_checks_sha256"):
+        raise X1ResumeTestbedError("x1_resume_private_cleanup")
     return {
         "private_artifacts_valid": True,
         "private_attempt_count": len(payload.get("runs", [])),
@@ -757,6 +849,13 @@ def validate_evidence(
                 or not 0 <= drain_seconds <= config.cleanup_timeout_seconds
             ):
                 errors.append("window_metric_recompute")
+            offered_rate_attainment = actual_offered_rps / max(config.offered_rps, 1e-9)
+            if (
+                not math.isfinite(offered_rate_attainment)
+                or offered_rate_attainment < config.minimum_offered_rate_attainment
+                or offered_rate_attainment > 1 + config.matched_load_relative_tolerance
+            ):
+                errors.append("offered_load_attainment")
             for percentile_key in ("latency_ms", "queue_wait_ms"):
                 percentiles = dict(metrics.get(percentile_key, {}))
                 values = [
@@ -793,6 +892,8 @@ def validate_evidence(
                     or load_contract
                     != {
                         "target_offered_rps": config.offered_rps,
+                        "minimum_offered_rate_attainment": config.minimum_offered_rate_attainment,
+                        "matched_load_relative_tolerance": config.matched_load_relative_tolerance,
                         "warmup_seconds": config.warmup_seconds,
                         "measurement_seconds": config.measurement_seconds,
                     }
@@ -843,6 +944,31 @@ def validate_evidence(
                     for model_id in EXPECTED_MODELS[:-1]
                 ):
                     errors.append("hot_non_hot_progress")
+        comparison_cells = (
+            "balanced-serial",
+            "balanced-concurrent-batch-off",
+            "balanced-concurrent-batch-on",
+        )
+        comparison_rates = {
+            cell_id: [
+                float(dict(run.get("metrics", {})).get("actual_offered_rps", float("nan")))
+                for run in runs
+                if run.get("cell_id") == cell_id
+            ]
+            for cell_id in comparison_cells
+        }
+        tolerance_rps = config.offered_rps * config.matched_load_relative_tolerance
+        if any(
+            not rates
+            or not all(math.isfinite(rate) for rate in rates)
+            or max(rates) - min(rates) > tolerance_rps
+            for rates in comparison_rates.values()
+        ):
+            errors.append("matched_load_repetition_tolerance")
+        if all(comparison_rates.values()):
+            comparison_medians = [statistics.median(rates) for rates in comparison_rates.values()]
+            if max(comparison_medians) - min(comparison_medians) > tolerance_rps:
+                errors.append("matched_load_median_tolerance")
     cleanup = payload.get("cleanup", {})
     if status == "complete":
         required_cleanup_true = (
@@ -864,6 +990,16 @@ def validate_evidence(
             or cleanup.get("errors") != []
         ):
             errors.append("cleanup")
+        cleanup_evidence = dict(payload.get("cleanup_evidence", {}))
+        if (
+            not cleanup_evidence.get("path")
+            or int(cleanup_evidence.get("bytes", 0)) <= 0
+            or not re.fullmatch(r"[0-9a-f]{64}", str(cleanup_evidence.get("sha256") or ""))
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", str(cleanup_evidence.get("final_checks_sha256") or "")
+            )
+        ):
+            errors.append("cleanup_evidence")
         profiler = payload.get("profiler", {})
         if not isinstance(profiler, Mapping) or profiler.get("kernel_overlap_proved") is not False:
             errors.append("profiler_claim_boundary")
@@ -929,6 +1065,14 @@ def generate_report(
     serial_distribution = distribution_for("balanced-serial", "throughput_rps")
     concurrent_distribution = distribution_for("balanced-concurrent-batch-off", "throughput_rps")
     batch_on_distribution = distribution_for("balanced-concurrent-batch-on", "throughput_rps")
+    offered_load_distributions = {
+        cell_id: distribution_for(cell_id, "actual_offered_rps")
+        for cell_id in (
+            "balanced-serial",
+            "balanced-concurrent-batch-off",
+            "balanced-concurrent-batch-on",
+        )
+    }
     serial = float(serial_distribution["median"])
     concurrent = float(concurrent_distribution["median"])
     batch_on = float(batch_on_distribution["median"])
@@ -976,6 +1120,12 @@ def generate_report(
         "measured": {
             "physical_runs": len(runs),
             "throughput_scope": "fixed 30-second measurement-window completions",
+            "offered_load_contract": {
+                "target_rps": config.offered_rps,
+                "minimum_attainment": config.minimum_offered_rate_attainment,
+                "matched_relative_tolerance": config.matched_load_relative_tolerance,
+                "comparison_distributions": offered_load_distributions,
+            },
             "serial_throughput_rps": serial_distribution,
             "concurrent_throughput_rps": concurrent_distribution,
             "concurrent_vs_serial_percent": concurrent_delta,
