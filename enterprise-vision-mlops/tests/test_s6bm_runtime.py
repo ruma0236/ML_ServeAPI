@@ -20,6 +20,7 @@ from evm.scale_validation.s6bm_runtime import (
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
 V3_CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v3.toml"
+V4_CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml"
 
 
 def identities() -> dict[str, object]:
@@ -63,6 +64,34 @@ def test_s6bm_v3_contract_freezes_causal_receipt_and_effect_boundaries() -> None
     assert config.triton_actor_receipt["required_activity"] == "COMPUTE_START"
     assert config.triton_actor_receipt["missing_or_ambiguous_trace_fails"] is True
     assert config.durable_effect["same_transaction_causal_receipt"] is True
+
+
+def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+
+    assert config.schema_version == "evm.s8_v4.s6bm_runtime_config.v4"
+    assert config.clock["independent_nonce_anchor_required"] is True
+    assert config.clock["adjudicated_request_anchor_forbidden"] is True
+    assert config.causal_fence[
+        "same_transaction_entity_idempotency_effect_event_and_sequence"
+    ] is True
+    assert config.triton_actor_receipt["registration_actor"] == (
+        "dedicated_collector_process"
+    )
+    assert config.triton_actor_receipt["runner_synthesized_receipt_forbidden"] is True
+    assert config.durable_effect["commit_timestamp_tracking_required"] is True
+    assert config.durable_effect["commit_timestamp_separate_connection_required"] is True
+    assert config.trace["exact_parent_span_required"] is True
+    assert set(config.run_set) == {
+        "contract",
+        "baseline",
+        "successful_transition",
+        "wrong_digest",
+        "green_load_failure",
+        "green_readiness_failure",
+        "green_canary_failure",
+        "vram_preflight_rejection",
+    }
 
 
 def success_attempt(repetition: int = 1) -> dict[str, object]:

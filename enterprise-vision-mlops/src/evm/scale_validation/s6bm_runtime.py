@@ -103,6 +103,8 @@ class S6BMConfig:
     causal_fence: Mapping[str, Any]
     triton_actor_receipt: Mapping[str, Any]
     durable_effect: Mapping[str, Any]
+    trace: Mapping[str, Any]
+    run_set: Mapping[str, Any]
     ports: Mapping[str, int]
     telemetry: Mapping[str, str | int]
     claim_boundary: str
@@ -118,6 +120,8 @@ class S6BMConfig:
         causal_fence = dict(raw.get("causal_fence", {}))
         triton_actor_receipt = dict(raw.get("triton_actor_receipt", {}))
         durable_effect = dict(raw.get("durable_effect", {}))
+        trace = dict(raw.get("trace", {}))
+        run_set = dict(raw.get("run_set", {}))
         config = cls(
             schema_version=str(raw["schema_version"]),
             image=str(identity["triton_image"]),
@@ -132,6 +136,8 @@ class S6BMConfig:
             causal_fence=causal_fence,
             triton_actor_receipt=triton_actor_receipt,
             durable_effect=durable_effect,
+            trace=trace,
+            run_set=run_set,
             ports=ports,
             telemetry=telemetry,
             claim_boundary=str(dict(raw["claim_boundary"])["scope"]),
@@ -144,6 +150,7 @@ class S6BMConfig:
             "evm.s8_v4.s6bm_runtime_config.v1",
             "evm.s8_v4.s6bm_runtime_config.v2",
             "evm.s8_v4.s6bm_runtime_config.v3",
+            "evm.s8_v4.s6bm_runtime_config.v4",
         }:
             raise S6BMRuntimeError("s6bm_config_schema")
         if not self.image_digest.startswith("sha256:") or len(self.image_digest) != 71:
@@ -250,6 +257,100 @@ class S6BMConfig:
                 for key, value in required_effect.items()
             ):
                 raise S6BMRuntimeError("s6bm_durable_effect_contract_v3")
+        if self.schema_version.endswith(".v4"):
+            required_clock = {
+                "contract": "independent_dual_clock_anchor_chain_v3",
+                "max_anchor_width_ns": 1_000_000,
+                "max_anchor_gap_seconds": 30,
+                "max_offset_spread_ns": 2_000_000,
+                "max_phase_interval_ns": 250_000_000,
+                "per_request_offset_forbidden": True,
+                "overlapping_causal_intervals_fail": True,
+                "source_identity_required": True,
+                "independent_nonce_anchor_required": True,
+                "adjudicated_request_anchor_forbidden": True,
+            }
+            if any(self.clock.get(key) != value for key, value in required_clock.items()):
+                raise S6BMRuntimeError("s6bm_clock_contract_v4")
+            required_fence = {
+                "contract": "existing_transactional_store_causal_sequence_v2",
+                "sequence_kind": "postgresql_bigserial",
+                "receipt_commit_readback_required": True,
+                "route_switch_requires_all_start_receipts": True,
+                "stale_blue_admission_forbidden": True,
+                "unload_requires_all_pre_switch_blue_terminal_effects": True,
+                "same_transaction_effect_event_and_sequence": True,
+                "same_transaction_entity_idempotency_effect_event_and_sequence": True,
+                "exact_commit_instant_claimed": False,
+            }
+            if any(
+                self.causal_fence.get(key) != value for key, value in required_fence.items()
+            ):
+                raise S6BMRuntimeError("s6bm_causal_fence_contract_v4")
+            if self.causal_fence.get("required_start_receipts") != [
+                "api_server_handler_entry",
+                "controller_entry",
+                "triton_backend_compute_entry",
+            ]:
+                raise S6BMRuntimeError("s6bm_causal_receipt_stages_v4")
+            required_actor = {
+                "contract": "official_triton_timestamp_trace_collector_v2",
+                "required_activity": "COMPUTE_START",
+                "raw_trace_required": True,
+                "request_nonce_binding_required": True,
+                "model_version_artifact_binding_required": True,
+                "collector_commit_readback_required": True,
+                "missing_or_ambiguous_trace_fails": True,
+                "registration_actor": "dedicated_collector_process",
+                "runner_synthesized_receipt_forbidden": True,
+            }
+            if any(
+                self.triton_actor_receipt.get(key) != value
+                for key, value in required_actor.items()
+            ):
+                raise S6BMRuntimeError("s6bm_triton_actor_receipt_contract_v4")
+            required_effect = {
+                "contract": "existing_control_plane_entities_idempotency_causal_v3",
+                "synchronous_commit": "on",
+                "commit_readback_required": True,
+                "commit_timestamp_tracking_required": True,
+                "commit_timestamp_separate_connection_required": True,
+                "entity_kind": "s6bm_terminal_effect",
+                "same_transaction_causal_receipt": True,
+            }
+            if any(
+                self.durable_effect.get(key) != value
+                for key, value in required_effect.items()
+            ):
+                raise S6BMRuntimeError("s6bm_durable_effect_contract_v4")
+            if self.trace != {
+                "contract": "w3c_parent_chain_to_triton_backend_v1",
+                "required_chain": [
+                    "api_server",
+                    "controller",
+                    "triton_client",
+                    "triton_infer_request",
+                    "triton_model",
+                    "triton_compute",
+                    "durable_effect",
+                ],
+                "exact_parent_span_required": True,
+                "request_trace_effect_model_generation_backend_join_required": True,
+            }:
+                raise S6BMRuntimeError("s6bm_trace_contract_v4")
+            expected_repetitions = [1, 2, 3]
+            expected_profiles = {
+                "contract": "exact_frozen_matrix_set_v1",
+                "baseline": expected_repetitions,
+                "successful_transition": expected_repetitions,
+                "wrong_digest": expected_repetitions,
+                "green_load_failure": expected_repetitions,
+                "green_readiness_failure": expected_repetitions,
+                "green_canary_failure": expected_repetitions,
+                "vram_preflight_rejection": expected_repetitions,
+            }
+            if self.run_set != expected_profiles:
+                raise S6BMRuntimeError("s6bm_run_set_contract_v4")
 
     def public_snapshot(self) -> dict[str, Any]:
         return {
@@ -270,11 +371,13 @@ class S6BMConfig:
             "causal_fence": dict(self.causal_fence),
             "triton_actor_receipt": dict(self.triton_actor_receipt),
             "durable_effect": dict(self.durable_effect),
+            "trace": dict(self.trace),
+            "run_set": dict(self.run_set),
             "ports": dict(self.ports),
             "telemetry": dict(self.telemetry),
             "claim_boundary": (
                 STRICT_V4_CLAIM_BOUNDARY
-                if self.schema_version.endswith((".v2", ".v3"))
+                if self.schema_version.endswith((".v2", ".v3", ".v4"))
                 else CLAIM_BOUNDARY
             ),
         }

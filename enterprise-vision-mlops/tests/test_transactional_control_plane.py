@@ -218,6 +218,14 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
     )
     assert replayed is False
     assert stored["durable_commit"]["causal_sequence"] == effect["causal_sequence"]
+    assert stored["durable_commit"]["schema_version"] == "evm.s6bm.durable_commit.v2"
+    assert stored["durable_commit"]["transaction_id"] == effect["transaction_id"]
+    assert stored["durable_commit"]["write_backend_pid"] == effect["write_backend_pid"]
+    assert effect["schema_version"] == "evm.s6bm.durable_effect_receipt.v2"
+    assert effect["commit_timestamp_tracking"] == "on"
+    assert effect["commit_timestamp_visible"] is True
+    assert effect["separate_connection_readback"] is True
+    assert effect["commit_timestamp_backend_pid"] != effect["write_backend_pid"]
     assert switch["causal_sequence"] < effect["causal_sequence"]
     replayed_stored, replayed, replayed_effect = (
         store.commit_idempotent_terminal_entity_with_receipt(

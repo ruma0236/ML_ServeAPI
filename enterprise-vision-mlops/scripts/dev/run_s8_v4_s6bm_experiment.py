@@ -5,13 +5,14 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import socket
 import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -46,13 +47,13 @@ from evm.scale_validation.s6bm_runtime import (  # noqa: E402
     canonical_sha256,
     sha256_file,
 )
+from evm.scale_validation.s6bm_causal import validate_causal_bundle  # noqa: E402
 from evm.scale_validation.s6bm_observability import (  # noqa: E402
     attempt_span_count,
     collect_attempt_trace_export,
     direct_metric_aggregate,
     direct_metric_optional_aggregate,
     direct_metric_value,
-    find_triton_compute_start,
     prometheus_optional_value,
     prometheus_value,
     validate_observability_bundle,
@@ -103,8 +104,21 @@ class ApiProcess:
 
 
 @dataclass
+class TraceCollectorProcess:
+    process: subprocess.Popen[str]
+    spec_path: Path
+    result_path: Path
+    raw_trace_path: Path
+    stdout_handle: Any
+    stderr_handle: Any
+    stdout_path: Path
+    stderr_path: Path
+
+
+@dataclass
 class DualClockAnchorChain:
     source_identity: str
+    anchor_nonce: str = field(default_factory=lambda: secrets.token_hex(16))
     sequence: int = 0
     previous_anchor_hash: str | None = None
 
@@ -114,13 +128,14 @@ class DualClockAnchorChain:
         monotonic_after_ns = time.perf_counter_ns()
         self.sequence += 1
         payload = {
-            "schema_version": "evm.s8_v4.s6bm_dual_clock_anchor.v2",
+            "schema_version": "evm.s8_v4.s6bm_dual_clock_anchor.v3",
             "sequence": self.sequence,
             "phase": phase,
+            "anchor_nonce": self.anchor_nonce,
             "monotonic_before_ns": monotonic_before_ns,
             "unix_ns": unix_ns,
             "monotonic_after_ns": monotonic_after_ns,
-            "source_identity": self.source_identity,
+            "source_identity": f"{self.source_identity}:{self.anchor_nonce}",
             "process_id": os.getpid(),
             "host_identity": socket.gethostname(),
             "previous_anchor_hash": self.previous_anchor_hash,
@@ -135,7 +150,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=ROOT / "configs/s8_v4_s6bm_blue_green_v3.toml",
+        default=ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml",
     )
     parser.add_argument(
         "--model-repository",
@@ -156,7 +171,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--public-output",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment-v2.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment-v4.json",
     )
     parser.add_argument(
         "--qualification-only",
@@ -968,15 +983,16 @@ def request_body(
     }
 
 
-def wait_and_register_triton_start_receipt(
+def start_triton_start_receipt_collector(
     config: S6BMConfig,
     *,
     suite_root: Path,
     checkpoint: Mapping[str, Any],
     body: Mapping[str, Any],
-    clock_chain: DualClockAnchorChain,
+    source_revision: str,
+    suite_id: str,
     timeout: float | None = None,
-) -> dict[str, Any]:
+) -> TraceCollectorProcess:
     request = TritonBlueGreenPredictRequest.model_validate(dict(body))
     identity = expected_causal_identity_for_request(request)
     wait_seconds = (
@@ -986,61 +1002,111 @@ def wait_and_register_triton_start_receipt(
     )
     if wait_seconds <= 0:
         raise S6BMExperimentError("triton_compute_start_trace_timeout_bound")
-    deadline = time.monotonic() + wait_seconds
-    observed: dict[str, Any] | None = None
-    while time.monotonic() < deadline:
-        observed = find_triton_compute_start(
-            OTEL_TRACE_FILE,
-            request_nonce=request.request_nonce,
-            trace_id=identity.trace_id,
-            model_name=identity.model_name,
-            model_version=identity.model_version,
-            start_offset=int(checkpoint["trace_start_offset"]),
-        )
-        if observed is not None:
-            break
-        time.sleep(0.01)
-    if observed is None:
-        raise S6BMExperimentError("triton_compute_start_trace_timeout")
     root = suite_root / "causal" / identity.attempt_id
-    path = root / "triton-compute-start.json"
-    canonical_write(path, observed)
-    artifact_sha256 = sha256_file(path)
+    spec_path = root / "collector-spec.json"
+    result_path = root / "collector-result.json"
+    raw_trace_path = root / "triton-compute-start.json"
+    stdout_path = root / "collector.stdout.log"
+    stderr_path = root / "collector.stderr.log"
     container_id = run(
         ["docker", "inspect", "--format", "{{.Id}}", CONTAINER_NAME],
         timeout=10,
     ).stdout.strip()
-    collector_observation = clock_chain.capture("triton_compute_receipt_collected")
-    payload = {
-        "schema_version": "evm.s8_v4.s6bm_triton_start_receipt.v1",
+    spec = {
+        "schema_version": "evm.s8_v4.s6bm_trace_collector_spec.v1",
+        "source_revision": source_revision,
+        "suite_id": suite_id,
+        "attempt_id": identity.attempt_id,
+        "run_id": identity.run_id,
+        "request_id": identity.request_id,
+        "request_nonce": identity.request_nonce,
+        "trace_id": identity.trace_id,
+        "model_name": identity.model_name,
+        "model_version": identity.model_version,
         "causal_identity": identity.model_dump(mode="json"),
-        "trace_event_name": "COMPUTE_START",
-        "actor_start_unix_ns": int(observed["compute_start_unix_ns"]),
-        "raw_trace_artifact_sha256": artifact_sha256,
-        "raw_trace_record_sha256": canonical_sha256(observed),
-        "raw_trace_span_id": observed["span_id"],
-        "triton_container_id": container_id,
-        "triton_image_digest": config.image_digest,
-        "gpu_uuid": capture_gpu()["uuid"],
-        "collector_observation": collector_observation,
+        "runner_process_id": os.getpid(),
+        "trace_start_offset": int(checkpoint["trace_start_offset"]),
+        "otel_trace_path": str(OTEL_TRACE_FILE.resolve()),
+        "raw_trace_output_path": str(raw_trace_path.resolve()),
+        "result_output_path": str(result_path.resolve()),
+        "receipt_url": api_url(config, "causal-receipts/triton"),
+        "container_name": CONTAINER_NAME,
+        "expected_container_id": container_id,
+        "image_digest": config.image_digest,
+        "expected_gpu_uuid": capture_gpu()["uuid"],
+        "timeout_seconds": wait_seconds,
     }
-    response = requests.post(
-        api_url(config, "causal-receipts/triton"),
-        json=payload,
-        timeout=5,
+    canonical_write(spec_path, spec)
+    stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    stdout_handle = stdout_path.open("w", encoding="utf-8", newline="\n")
+    stderr_handle = stderr_path.open("w", encoding="utf-8", newline="\n")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(ROOT / "src"), str(ROOT), env.get("PYTHONPATH", "")]
     )
-    if response.status_code != 200:
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "evm.scale_validation.s6bm_trace_receipt_collector",
+            "--spec",
+            str(spec_path.resolve()),
+        ],
+        cwd=ROOT,
+        env=env,
+        stdout=stdout_handle,
+        stderr=stderr_handle,
+        text=True,
+    )
+    return TraceCollectorProcess(
+        process=process,
+        spec_path=spec_path,
+        result_path=result_path,
+        raw_trace_path=raw_trace_path,
+        stdout_handle=stdout_handle,
+        stderr_handle=stderr_handle,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+    )
+
+
+def wait_triton_start_receipt_collector(
+    collector: TraceCollectorProcess,
+    *,
+    suite_root: Path,
+    timeout: float,
+) -> dict[str, Any]:
+    try:
+        return_code = collector.process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        collector.process.kill()
+        collector.process.wait(timeout=5)
+        raise S6BMExperimentError("triton_compute_start_trace_timeout") from exc
+    finally:
+        collector.stdout_handle.close()
+        collector.stderr_handle.close()
+    if return_code != 0 or not collector.result_path.is_file():
+        error_path = collector.spec_path.with_name("collector-error.json")
+        detail = error_path.read_text(encoding="utf-8") if error_path.is_file() else ""
         raise S6BMExperimentError(
-            f"triton_start_receipt_rejected:{response.status_code}:{response.text[:1000]}"
+            f"triton_start_receipt_collector_failed:{return_code}:{detail[:1000]}"
         )
-    receipt = response.json()
-    if receipt.get("readback_visible") is not True:
-        raise S6BMExperimentError("triton_start_receipt_not_visible")
+    result = json.loads(collector.result_path.read_text(encoding="utf-8"))
+    if (
+        result.get("collector_process_id") != collector.process.pid
+        or result.get("collector_parent_process_id") != os.getpid()
+        or result.get("collector_spec_sha256") != sha256_file(collector.spec_path)
+        or result.get("raw_trace_sha256") != sha256_file(collector.raw_trace_path)
+        or dict(result.get("receipt", {})).get("readback_visible") is not True
+    ):
+        raise S6BMExperimentError("triton_start_receipt_collector_identity")
     return {
-        "raw_trace": artifact_reference(suite_root, path),
-        "raw_record_sha256": canonical_sha256(observed),
-        "receipt": receipt,
-        "collector_observation": collector_observation,
+        **result,
+        "spec": artifact_reference(suite_root, collector.spec_path),
+        "result": artifact_reference(suite_root, collector.result_path),
+        "raw_trace": artifact_reference(suite_root, collector.raw_trace_path),
+        "stdout": artifact_reference(suite_root, collector.stdout_path),
+        "stderr": artifact_reference(suite_root, collector.stderr_path),
     }
 
 
@@ -1968,15 +2034,21 @@ def run_success(
         hold_identity = expected_causal_identity_for_request(
             TritonBlueGreenPredictRequest.model_validate(hold_body)
         ).model_dump(mode="json")
+        collector = start_triton_start_receipt_collector(
+            config,
+            suite_root=suite_root,
+            checkpoint=observability_checkpoint,
+            body=hold_body,
+            source_revision=source["revision"],
+            suite_id=suite_id,
+        )
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             hold_future = pool.submit(send_request, config, hold_body)
             wait_in_flight(config, "blue", 1, 5)
-            triton_start_receipt = wait_and_register_triton_start_receipt(
-                config,
+            triton_start_receipt = wait_triton_start_receipt_collector(
+                collector,
                 suite_root=suite_root,
-                checkpoint=observability_checkpoint,
-                body=hold_body,
-                clock_chain=clock_chain,
+                timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
             )
             apply_control(
                 config,
@@ -2143,6 +2215,12 @@ def run_success(
             "metric_delta_complete": observability["metric_delta_complete"],
         }
     )
+    result["causal_projection"] = validate_causal_bundle(
+        suite_root,
+        result,
+        config,
+        compare_projection=False,
+    )
     reset_controller(config, lease)
     return result
 
@@ -2195,15 +2273,21 @@ def run_causal_qualification(
     hold_identity = expected_causal_identity_for_request(
         TritonBlueGreenPredictRequest.model_validate(hold_body)
     ).model_dump(mode="json")
+    collector = start_triton_start_receipt_collector(
+        config,
+        suite_root=suite_root,
+        checkpoint=checkpoint,
+        body=hold_body,
+        source_revision=source["revision"],
+        suite_id=suite_id,
+    )
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         hold_future = pool.submit(send_request, config, hold_body)
         wait_in_flight(config, "blue", 1, 5)
-        triton_start_receipt = wait_and_register_triton_start_receipt(
-            config,
+        triton_start_receipt = wait_triton_start_receipt_collector(
+            collector,
             suite_root=suite_root,
-            checkpoint=checkpoint,
-            body=hold_body,
-            clock_chain=clock_chain,
+            timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
         )
         apply_control(
             config,
@@ -2334,6 +2418,12 @@ def run_causal_qualification(
             and final_state["loaded_roles"] == ["blue"]
         ),
     }
+    result["causal_projection"] = validate_causal_bundle(
+        suite_root,
+        result,
+        config,
+        compare_projection=False,
+    )
     reset_controller(config, lease)
     return result
 

@@ -17,6 +17,11 @@ from evm.model_runtime.triton_blue_green import (
     action_digest,
     expected_causal_identity_for_request,
 )
+from evm.observability.trace_context import (
+    W3CTraceContext,
+    bind_trace_context,
+    reset_trace_context,
+)
 
 
 def initialize_request() -> TritonBlueGreenInitializeRequest:
@@ -188,6 +193,8 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
         def json(self) -> dict[str, object]:
             return {"outputs": [{"name": "OUTPUT__0", "data": [3, 5, 7, 9]}]}
 
+    observed_headers: list[dict[str, str]] = []
+
     class Client:
         async def __aenter__(self) -> "Client":
             return self
@@ -195,7 +202,8 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def post(self, *_args: object, **_kwargs: object) -> Response:
+        async def post(self, *_args: object, **kwargs: object) -> Response:
+            observed_headers.append(dict(kwargs.get("headers", {})))
             return Response()
 
     monkeypatch.setenv("EVM_S6BM_REQUIRE_CAUSAL_FENCE", "1")
@@ -235,7 +243,7 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
         response: module.TritonBlueGreenPredictResponse,
     ) -> dict[str, object]:
         return {
-            "schema_version": "evm.s6bm.durable_effect_receipt.v1",
+            "schema_version": "evm.s6bm.durable_effect_receipt.v2",
             "entity_kind": "s6bm_terminal_effect",
             "entity_id": response.effect_id,
             "request_sha256": "3" * 64,
@@ -245,8 +253,17 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
             "idempotency_created_at": "2026-08-25T00:00:00Z",
             "readback_at": "2026-08-25T00:00:00.001Z",
             "transaction_id": "101",
+            "write_backend_pid": 101,
             "synchronous_commit": "on",
             "commit_ack_monotonic_ns": 1,
+            "commit_timestamp": "2026-08-25T00:00:00.0001Z",
+            "commit_timestamp_observed_at": "2026-08-25T00:00:00.0002Z",
+            "commit_timestamp_backend_pid": 102,
+            "commit_timestamp_tracking": "on",
+            "commit_timestamp_visible": True,
+            "separate_connection_readback": True,
+            "commit_timestamp_started_monotonic_ns": 1,
+            "commit_timestamp_finished_monotonic_ns": 2,
             "readback_started_monotonic_ns": 2,
             "readback_finished_monotonic_ns": 3,
             "readback_visible": True,
@@ -267,13 +284,17 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
         return {"readback_visible": True}
 
     async def scenario() -> None:
-        task = asyncio.create_task(
-            manager.predict(
-                request,
-                terminal_effect_committer=terminal_committer,
-                start_receipt_committer=start_committer,
+        token = bind_trace_context(W3CTraceContext.parse(request.traceparent))
+        try:
+            task = asyncio.create_task(
+                manager.predict(
+                    request,
+                    terminal_effect_committer=terminal_committer,
+                    start_receipt_committer=start_committer,
+                )
             )
-        )
+        finally:
+            reset_trace_context(token)
         await asyncio.sleep(0.01)
         manager.control(
             control_request(
@@ -286,6 +307,10 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
         manager.control(control_request(manager, "blue_drain_started"))
         result = await task
         assert result.effect_id == identity.effect_id
+        assert len(observed_headers) == 1
+        propagated = observed_headers[0]["traceparent"]
+        assert propagated.split("-")[1] == request.traceparent.split("-")[1]
+        assert propagated.split("-")[2] != request.traceparent.split("-")[2]
         manager.control(
             control_request(
                 manager,

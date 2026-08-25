@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from opentelemetry import trace as otel_trace
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from evm.control_panel.scenario_workloads import (
     CapacityProbeCatalog,
@@ -247,7 +247,10 @@ class WorkloadReleaseGateSummary(BaseModel):
 
 
 class S6BMTritonStartReceiptRequest(BaseModel):
-    schema_version: Literal["evm.s8_v4.s6bm_triton_start_receipt.v1"]
+    schema_version: Literal[
+        "evm.s8_v4.s6bm_triton_start_receipt.v1",
+        "evm.s8_v4.s6bm_triton_start_receipt.v2",
+    ]
     causal_identity: TritonBlueGreenCausalIdentity
     trace_event_name: Literal["COMPUTE_START"]
     actor_start_unix_ns: int = Field(gt=0)
@@ -258,6 +261,28 @@ class S6BMTritonStartReceiptRequest(BaseModel):
     triton_image_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
     gpu_uuid: str = Field(min_length=8, max_length=128)
     collector_observation: dict[str, Any]
+    collector_process_id: int | None = Field(default=None, gt=0)
+    collector_parent_process_id: int | None = Field(default=None, gt=0)
+    collector_nonce: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    collector_source_identity: str | None = Field(default=None, min_length=1, max_length=512)
+    collector_spec_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    backend_identity: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_v2_collector_identity(self) -> "S6BMTritonStartReceiptRequest":
+        if self.schema_version.endswith(".v2") and any(
+            value is None
+            for value in (
+                self.collector_process_id,
+                self.collector_parent_process_id,
+                self.collector_nonce,
+                self.collector_source_identity,
+                self.collector_spec_sha256,
+                self.backend_identity,
+            )
+        ):
+            raise ValueError("strict v2 Triton receipt requires collector identity")
+        return self
 
 
 class WorkloadEvaluationSummary(BaseModel):
@@ -560,6 +585,12 @@ def record_triton_blue_green_start_receipt(
         "triton_image_digest": request.triton_image_digest,
         "gpu_uuid": request.gpu_uuid,
         "collector_observation": request.collector_observation,
+        "collector_process_id": request.collector_process_id,
+        "collector_parent_process_id": request.collector_parent_process_id,
+        "collector_nonce": request.collector_nonce,
+        "collector_source_identity": request.collector_source_identity,
+        "collector_spec_sha256": request.collector_spec_sha256,
+        "backend_identity": request.backend_identity,
     }
     return _s6bm_terminal_store().commit_s6bm_start_receipt(
         event_type="triton_backend_compute_entry",

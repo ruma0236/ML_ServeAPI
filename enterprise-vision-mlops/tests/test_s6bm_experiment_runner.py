@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
+import os
 import subprocess
 import sys
 import threading
@@ -10,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from evm.scale_validation import s6bm_trace_receipt_collector as trace_collector
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -356,43 +360,43 @@ def test_prometheus_direct_comparison_accepts_only_explicit_unloaded_blue() -> N
 
 
 def test_triton_receipt_wait_uses_frozen_drain_bound(monkeypatch, tmp_path: Path) -> None:
-    runner = load_runner()
-    config = SimpleNamespace(procedure={"drain_timeout_seconds": 15})
-    body = {
-        "schema_version": "evm.s8_v4.s6bm_predict_request.v1",
-        "run_id": "s8-v4-s6bm-run-unit",
+    spec = {
+        "schema_version": "evm.s8_v4.s6bm_trace_collector_spec.v1",
+        "runner_process_id": os.getppid(),
+        "timeout_seconds": 15,
+        "otel_trace_path": str(tmp_path / "traces.json"),
+        "trace_start_offset": 0,
+        "source_revision": "a" * 40,
+        "suite_id": "suite-unit",
         "attempt_id": "s6bm-success-1-unit",
         "request_id": "request-unit",
         "request_nonce": "nonce-unit-00000001",
-        "traceparent": "00-" + "1" * 32 + "-" + "2" * 16 + "-01",
-        "input_values": [1.0, 2.0, 3.0, 4.0],
-        "hold_ms": 1,
-        "expected_model_role": "blue",
-        "expected_model_name": "s6bm_blue",
-        "expected_model_version": "1",
-        "expected_artifact_sha256": "a" * 64,
-        "expected_route_generation": 1,
-        "causal_crossover": True,
+        "trace_id": "1" * 32,
+        "model_name": "s6bm_blue",
+        "model_version": "1",
     }
+    spec_path = tmp_path / "collector-spec.json"
+    spec_path.write_text(
+        json.dumps(spec, ensure_ascii=True, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     observed_deadlines: list[float] = []
 
     monotonic_values = iter((100.0, 114.99, 115.01))
-    monkeypatch.setattr(runner.time, "monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(trace_collector.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(trace_collector.time, "sleep", lambda _seconds: None)
     monkeypatch.setattr(
-        runner,
+        trace_collector,
         "find_triton_compute_start",
         lambda *_args, **_kwargs: observed_deadlines.append(1.0) or None,
     )
 
-    with pytest.raises(runner.S6BMExperimentError, match="triton_compute_start_trace_timeout"):
-        runner.wait_and_register_triton_start_receipt(
-            config,
-            suite_root=tmp_path,
-            checkpoint={"trace_start_offset": 0},
-            body=body,
-            clock_chain=SimpleNamespace(),
-        )
+    with pytest.raises(
+        trace_collector.S6BMTraceCollectorError,
+        match="triton_compute_start_trace_timeout",
+    ):
+        trace_collector.collect(spec_path)
 
     assert len(observed_deadlines) == 1
 

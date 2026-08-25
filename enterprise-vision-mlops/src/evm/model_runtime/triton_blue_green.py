@@ -276,7 +276,10 @@ class TritonBlueGreenPredictResponse(ContractModel):
 class TritonBlueGreenDurableEffectReceipt(ContractModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["evm.s6bm.durable_effect_receipt.v1"] = (
+    schema_version: Literal[
+        "evm.s6bm.durable_effect_receipt.v1",
+        "evm.s6bm.durable_effect_receipt.v2",
+    ] = (
         "evm.s6bm.durable_effect_receipt.v1"
     )
     entity_kind: Literal["s6bm_terminal_effect"]
@@ -296,6 +299,15 @@ class TritonBlueGreenDurableEffectReceipt(ContractModel):
     replayed: bool
     causal_sequence: int | None = Field(default=None, ge=1)
     causal_payload_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    write_backend_pid: int | None = Field(default=None, gt=0)
+    commit_timestamp: str | None = None
+    commit_timestamp_observed_at: str | None = None
+    commit_timestamp_backend_pid: int | None = Field(default=None, gt=0)
+    commit_timestamp_tracking: Literal["on"] | None = None
+    commit_timestamp_visible: bool | None = None
+    separate_connection_readback: bool | None = None
+    commit_timestamp_started_monotonic_ns: int | None = Field(default=None, gt=0)
+    commit_timestamp_finished_monotonic_ns: int | None = Field(default=None, gt=0)
 
 
 TerminalEffectCommitter = Callable[
@@ -810,7 +822,7 @@ class TritonBlueGreenManager:
                             f"{triton_url}/v2/models/{identity.model_name}/versions/"
                             f"{identity.model_version}/infer",
                             json=payload,
-                            headers={"traceparent": request.traceparent},
+                            headers=inference_span.context.headers(),
                         )
                     inference_span.set_attribute("http.response.status_code", response.status_code)
                     response.raise_for_status()
@@ -977,8 +989,16 @@ class TritonBlueGreenManager:
                 or (
                     _strict_causal_required()
                     and (
-                        receipt.causal_sequence is None
+                        receipt.schema_version != "evm.s6bm.durable_effect_receipt.v2"
+                        or receipt.causal_sequence is None
                         or receipt.causal_payload_sha256 is None
+                        or receipt.write_backend_pid is None
+                        or receipt.commit_timestamp is None
+                        or receipt.commit_timestamp_observed_at is None
+                        or receipt.commit_timestamp_backend_pid is None
+                        or receipt.commit_timestamp_tracking != "on"
+                        or receipt.commit_timestamp_visible is not True
+                        or receipt.separate_connection_readback is not True
                     )
                 )
             ):
@@ -989,6 +1009,12 @@ class TritonBlueGreenManager:
                 )
             for key, value in {
                 "evm.effect.transaction.id": receipt.transaction_id,
+                "evm.effect.causal.sequence": receipt.causal_sequence or 0,
+                "evm.effect.commit.timestamp": receipt.commit_timestamp or "unavailable",
+                "evm.effect.write.backend_pid": receipt.write_backend_pid or 0,
+                "evm.effect.readback.backend_pid": (
+                    receipt.commit_timestamp_backend_pid or 0
+                ),
                 "evm.effect.readback.visible": receipt.readback_visible,
                 "evm.effect.replayed": receipt.replayed,
                 "evm.terminal.outcome": "completed",

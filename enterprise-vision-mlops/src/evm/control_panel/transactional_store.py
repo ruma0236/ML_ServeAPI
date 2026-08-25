@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import threading
 import time
@@ -1453,7 +1454,8 @@ class TransactionalControlPlaneStore:
                 write_identity = connection.execute(
                     """
                     SELECT clock_timestamp() AS database_recorded_at,
-                           txid_current()::text AS transaction_id,
+                           pg_current_xact_id()::text AS transaction_id,
+                           pg_backend_pid() AS backend_pid,
                            current_setting('synchronous_commit') AS synchronous_commit
                     """
                 ).fetchone()
@@ -1498,11 +1500,12 @@ class TransactionalControlPlaneStore:
                 stored = {
                     **dict(response_payload),
                     "durable_commit": {
-                        "schema_version": "evm.s6bm.durable_commit.v1",
+                        "schema_version": "evm.s6bm.durable_commit.v2",
                         "database_recorded_at": _utc_iso(
                             write_identity["database_recorded_at"]
                         ),
                         "transaction_id": str(write_identity["transaction_id"]),
+                        "write_backend_pid": int(write_identity["backend_pid"]),
                         "synchronous_commit": str(write_identity["synchronous_commit"]),
                         "causal_sequence": (
                             causal_event["causal_sequence"] if causal_event is not None else None
@@ -1538,6 +1541,63 @@ class TransactionalControlPlaneStore:
                 )
 
         commit_ack_monotonic_ns = time.perf_counter_ns()
+        durable_commit = dict(stored.get("durable_commit", {}))
+        transaction_id = str(durable_commit.get("transaction_id", ""))
+        write_backend_pid = int(durable_commit.get("write_backend_pid", 0))
+        if causal_payload is not None and (not transaction_id or write_backend_pid <= 0):
+            raise ControlPlaneParityError(
+                "terminal effect lacks its write transaction or backend identity"
+            )
+
+        commit_timestamp_started_monotonic_ns = time.perf_counter_ns()
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+
+            if not self.configuration.dsn:
+                raise ControlPlaneStoreUnavailable(
+                    "terminal effect commit timestamp requires a PostgreSQL DSN"
+                )
+            with psycopg.connect(
+                self.configuration.dsn,
+                autocommit=True,
+                row_factory=dict_row,
+                connect_timeout=max(
+                    1, int(math.ceil(self.configuration.acquire_timeout_seconds))
+                ),
+            ) as commit_timestamp_connection:
+                commit_timestamp_row = commit_timestamp_connection.execute(
+                    """
+                    SELECT pg_xact_commit_timestamp(%s::xid) AS commit_timestamp,
+                           clock_timestamp() AS observed_at,
+                           pg_backend_pid() AS backend_pid,
+                           current_setting('track_commit_timestamp') AS tracking
+                    """,
+                    (transaction_id,),
+                ).fetchone()
+        except (ControlPlaneStoreError, ImportError):
+            raise
+        except Exception as exc:
+            raise ControlPlaneParityError(
+                "terminal effect commit timestamp readback failed"
+            ) from exc
+        commit_timestamp_finished_monotonic_ns = time.perf_counter_ns()
+        if commit_timestamp_row is None:
+            raise ControlPlaneParityError("terminal effect commit timestamp is absent")
+        if str(commit_timestamp_row["tracking"]) != "on":
+            raise ControlPlaneParityError(
+                "PostgreSQL track_commit_timestamp is not enabled"
+            )
+        if commit_timestamp_row["commit_timestamp"] is None:
+            raise ControlPlaneParityError("terminal effect commit timestamp is not visible")
+        commit_timestamp_backend_pid = int(commit_timestamp_row["backend_pid"])
+        if commit_timestamp_backend_pid <= 0 or (
+            write_backend_pid > 0 and commit_timestamp_backend_pid == write_backend_pid
+        ):
+            raise ControlPlaneParityError(
+                "terminal effect commit timestamp was not read on a separate connection"
+            )
+
         readback_started_monotonic_ns = time.perf_counter_ns()
         with self.transaction("terminal_effect_readback") as connection:
             row = connection.execute(
@@ -1581,7 +1641,6 @@ class TransactionalControlPlaneStore:
             or row["request_sha256"] != request_sha256
         ):
             raise ControlPlaneParityError("terminal effect readback parity failed")
-        durable_commit = dict(stored.get("durable_commit", {}))
         if durable_commit.get("synchronous_commit") != "on":
             raise ControlPlaneParityError("terminal effect did not use synchronous_commit=on")
         database_recorded_at = _parse_datetime(
@@ -1602,7 +1661,7 @@ class TransactionalControlPlaneStore:
             ):
                 raise ControlPlaneParityError("terminal causal event transaction parity failed")
         receipt = {
-            "schema_version": "evm.s6bm.durable_effect_receipt.v1",
+            "schema_version": "evm.s6bm.durable_effect_receipt.v2",
             "entity_kind": entity_kind,
             "entity_id": entity_id,
             "request_sha256": request_sha256,
@@ -1611,9 +1670,24 @@ class TransactionalControlPlaneStore:
             "entity_created_at": _utc_iso(row["entity_created_at"]),
             "idempotency_created_at": _utc_iso(row["idempotency_created_at"]),
             "readback_at": _utc_iso(row["readback_at"]),
-            "transaction_id": str(durable_commit.get("transaction_id", "")),
+            "transaction_id": transaction_id,
+            "write_backend_pid": write_backend_pid,
             "synchronous_commit": "on",
             "commit_ack_monotonic_ns": commit_ack_monotonic_ns,
+            "commit_timestamp": _utc_iso(commit_timestamp_row["commit_timestamp"]),
+            "commit_timestamp_observed_at": _utc_iso(
+                commit_timestamp_row["observed_at"]
+            ),
+            "commit_timestamp_backend_pid": commit_timestamp_backend_pid,
+            "commit_timestamp_tracking": "on",
+            "commit_timestamp_visible": True,
+            "separate_connection_readback": True,
+            "commit_timestamp_started_monotonic_ns": (
+                commit_timestamp_started_monotonic_ns
+            ),
+            "commit_timestamp_finished_monotonic_ns": (
+                commit_timestamp_finished_monotonic_ns
+            ),
             "readback_started_monotonic_ns": readback_started_monotonic_ns,
             "readback_finished_monotonic_ns": readback_finished_monotonic_ns,
             "readback_visible": True,
