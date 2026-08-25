@@ -1588,6 +1588,7 @@ def run_success(
     *,
     suite_root: Path,
     suite_id: str,
+    execution_progress: dict[str, Any],
 ) -> dict[str, Any]:
     started_at = utc_now()
     attempt_id = f"s6bm-success-{repetition}-{uuid4().hex[:10]}"
@@ -1624,6 +1625,9 @@ def run_success(
             green_weight_percent=int(config.procedure["canary_weight_percent"]),
         )
         records.extend(canary_records)
+        execution_progress.update(
+            {"attempt_id": attempt_id, "requests": request_projection(records)}
+        )
         replay_body = canary_bodies[0]
         replay_before = int(controller_state(config)["accepted_unique"])
         replay = send_request(config, replay_body)
@@ -1660,6 +1664,9 @@ def run_success(
             )
             records.extend(green_records)
             records.append(hold_future.result(timeout=20))
+            execution_progress.update(
+                {"attempt_id": attempt_id, "requests": request_projection(records)}
+            )
         wait_in_flight(config, "blue", 0, float(config.procedure["drain_timeout_seconds"]))
         blue_before_unload = int(controller_state(config)["in_flight"]["blue"])
         apply_control(config, lease, "blue_unloaded")
@@ -2019,6 +2026,7 @@ def main() -> int:
     holder_scaled = False
     attempts: list[dict[str, Any]] = []
     baselines: list[dict[str, Any]] = []
+    active_success_progress: dict[str, Any] = {}
     failure: dict[str, Any] | None = None
     caught_exception: Exception | None = None
     triton_log = suite_root / "runtime" / "triton.log"
@@ -2068,6 +2076,7 @@ def main() -> int:
             canonical_write(suite_root / "baseline" / f"repetition-{repetition:02d}.json", baseline)
 
         for repetition in range(1, int(config.procedure["successful_transition_repetitions"]) + 1):
+            active_success_progress = {}
             attempt = run_success(
                 config,
                 lease,
@@ -2076,12 +2085,14 @@ def main() -> int:
                 api,
                 suite_root=suite_root,
                 suite_id=suite_id,
+                execution_progress=active_success_progress,
             )
             attempts.append(attempt)
             canonical_write(
                 suite_root / "successful-transition" / f"repetition-{repetition:02d}.json",
                 attempt,
             )
+            active_success_progress = {}
 
         profiles = (
             "wrong_digest",
@@ -2177,7 +2188,9 @@ def main() -> int:
                     int(item.get("requests", {}).get("logical", 0))
                     for item in attempts
                     if item.get("profile") == "successful_transition"
-                ),
+                )
+                + int(dict(active_success_progress.get("requests", {})).get("logical", 0)),
+                "partial_success_attempt": active_success_progress or None,
                 "cleanup": {key: value for key, value in cleanup.items() if key != "gpu_after"},
             }
         )
@@ -2215,7 +2228,8 @@ def main() -> int:
                     int(item.get("requests", {}).get("logical", 0))
                     for item in attempts
                     if item.get("profile") == "successful_transition"
-                ),
+                )
+                + int(dict(active_success_progress.get("requests", {})).get("logical", 0)),
                 "cleanup": cleanup,
                 "rca": "Final cleanup did not satisfy every frozen postcondition.",
             },
