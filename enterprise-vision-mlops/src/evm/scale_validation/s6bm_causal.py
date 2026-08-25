@@ -306,6 +306,44 @@ def _project_unix(unix_ns: int, envelope: tuple[int, int]) -> tuple[int, int]:
     return unix_ns - offset_high, unix_ns - offset_low
 
 
+def _validate_hold_effect_span_order(
+    *,
+    effect_start_interval: Sequence[int],
+    commit_interval: Sequence[int],
+    effect_end_interval: Sequence[int],
+    effect_span: Mapping[str, Any],
+    controller_span: Mapping[str, Any],
+    server_span: Mapping[str, Any],
+    server_end_interval: Sequence[int],
+    client_completion_monotonic_ns: int,
+) -> None:
+    # PostgreSQL and OTLP timestamps cross clock domains, so their intervals must not overlap.
+    if not (
+        effect_start_interval[1]
+        <= commit_interval[0]
+        <= commit_interval[1]
+        <= effect_end_interval[0]
+    ):
+        raise S6BMCausalError("s6bm_v4_effect_span_commit_order")
+
+    # Nested OTLP spans share one clock source. Equal closure timestamps are valid.
+    if not (
+        int(controller_span["start_unix_ns"])
+        <= int(effect_span["start_unix_ns"])
+        <= int(effect_span["end_unix_ns"])
+        <= int(controller_span["end_unix_ns"])
+    ):
+        raise S6BMCausalError("s6bm_v4_controller_effect_span_order")
+    if not (
+        int(server_span["start_unix_ns"])
+        <= int(controller_span["start_unix_ns"])
+        and int(controller_span["end_unix_ns"]) <= int(server_span["end_unix_ns"])
+    ):
+        raise S6BMCausalError("s6bm_v4_server_controller_span_order")
+    if server_end_interval[1] > client_completion_monotonic_ns:
+        raise S6BMCausalError("s6bm_v4_server_client_completion_order")
+
+
 def _database_clock_envelope(
     receipt: Mapping[str, Any], config: S6BMConfig
 ) -> tuple[tuple[int, int], dict[str, Any]]:
@@ -890,17 +928,17 @@ def validate_causal_bundle(
         raise S6BMCausalError("s6bm_v4_hold_commit_interval_order")
     effect_start_interval = _project_unix(effect_span["start_unix_ns"], envelope)
     effect_end_interval = _project_unix(effect_span["end_unix_ns"], envelope)
-    controller_end_interval = _project_unix(controller["end_unix_ns"], envelope)
     server_end_interval = _project_unix(server["end_unix_ns"], envelope)
-    if not (
-        effect_start_interval[1]
-        <= commit_interval[0]
-        <= commit_interval[1]
-        <= effect_end_interval[0]
-        and effect_end_interval[1] <= controller_end_interval[0]
-        and controller_end_interval[1] <= server_end_interval[0]
-    ):
-        raise S6BMCausalError("s6bm_v4_hold_effect_span_order")
+    _validate_hold_effect_span_order(
+        effect_start_interval=effect_start_interval,
+        commit_interval=commit_interval,
+        effect_end_interval=effect_end_interval,
+        effect_span=effect_span,
+        controller_span=controller,
+        server_span=server,
+        server_end_interval=server_end_interval,
+        client_completion_monotonic_ns=completion_ns,
+    )
     if completion_ns >= unload_lower:
         raise S6BMCausalError("s6bm_v4_unload_before_hold_completion")
     if completion_ns - attempted_ns < int(float(config.procedure["long_in_flight_hold_ms"]) * 1e6):

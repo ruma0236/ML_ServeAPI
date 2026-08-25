@@ -442,6 +442,60 @@ def _trace_parent_mismatch(root: Path, raw: dict[str, Any]) -> None:
     _rewrite_trace(root, raw, mutate)
 
 
+def _effect_end_before_commit(root: Path, raw: dict[str, Any]) -> None:
+    commit_unix_ns = int(
+        datetime.fromisoformat(
+            str(_effect_receipt(raw)["commit_timestamp"]).replace("Z", "+00:00")
+        ).timestamp()
+        * 1_000_000_000
+    )
+
+    def mutate(payload: dict[str, Any]) -> None:
+        span = next(
+            entry["span"]
+            for entry in payload["entries"]
+            if entry["span"].get("name") == "s6bm.terminal_effect.commit"
+        )
+        span["endTimeUnixNano"] = str(commit_unix_ns - 1_000_000)
+
+    _rewrite_trace(root, raw, mutate)
+
+
+def _controller_end_before_effect_end(root: Path, raw: dict[str, Any]) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        effect = next(
+            entry["span"]
+            for entry in payload["entries"]
+            if entry["span"].get("name") == "s6bm.terminal_effect.commit"
+        )
+        controller = next(
+            entry["span"]
+            for entry in payload["entries"]
+            if entry["span"].get("name") == "s6bm.controller.predict"
+        )
+        controller["endTimeUnixNano"] = str(int(effect["endTimeUnixNano"]) - 1)
+
+    _rewrite_trace(root, raw, mutate)
+
+
+def _server_end_before_controller_end(root: Path, raw: dict[str, Any]) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        controller = next(
+            entry["span"]
+            for entry in payload["entries"]
+            if entry["span"].get("name") == "s6bm.controller.predict"
+        )
+        server = next(
+            entry["span"]
+            for entry in payload["entries"]
+            if entry["span"].get("name")
+            == "POST /control-panel/v1/scenario-workloads/triton-blue-green/predict"
+        )
+        server["endTimeUnixNano"] = str(int(controller["endTimeUnixNano"]) - 1)
+
+    _rewrite_trace(root, raw, mutate)
+
+
 def _metrics_missing_series(root: Path, raw: dict[str, Any]) -> None:
     reference = raw["observability"]["artifacts"]["prometheus_after"]
 
@@ -699,6 +753,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             _unload_before_last_effect,
         ),
         ("stale_blue_admission", "s6bm_v4_stale_blue_admission", _stale_blue_admission),
+        (
+            "effect_end_before_commit",
+            "s6bm_v4_effect_span_commit_order",
+            _effect_end_before_commit,
+        ),
+        (
+            "controller_end_before_effect_end",
+            "s6bm_v4_controller_effect_span_order",
+            _controller_end_before_effect_end,
+        ),
+        (
+            "server_end_before_controller_end",
+            "s6bm_v4_server_controller_span_order",
+            _server_end_before_controller_end,
+        ),
         ("parent_span_chain_mismatch", "s6bm_v4_trace_topology", _trace_parent_mismatch),
     ]
     results = [

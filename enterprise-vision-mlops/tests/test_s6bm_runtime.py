@@ -20,6 +20,7 @@ from evm.scale_validation.s6bm_causal import (
     S6BMCausalError,
     _database_clock_envelope,
     _unix_nano,
+    _validate_hold_effect_span_order,
 )
 
 
@@ -27,6 +28,57 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
 V3_CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v3.toml"
 V4_CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml"
+
+
+def test_s6bm_v4_same_clock_nested_span_closures_allow_equality() -> None:
+    effect = {"start_unix_ns": 200, "end_unix_ns": 400}
+    controller = {"start_unix_ns": 100, "end_unix_ns": 400}
+    server = {"start_unix_ns": 50, "end_unix_ns": 400}
+
+    _validate_hold_effect_span_order(
+        effect_start_interval=(1000, 1100),
+        commit_interval=(1200, 1300),
+        effect_end_interval=(1400, 1500),
+        effect_span=effect,
+        controller_span=controller,
+        server_span=server,
+        server_end_interval=(2000, 2100),
+        client_completion_monotonic_ns=2200,
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ("effect_commit", "s6bm_v4_effect_span_commit_order"),
+        ("controller_end", "s6bm_v4_controller_effect_span_order"),
+        ("server_end", "s6bm_v4_server_controller_span_order"),
+    ],
+)
+def test_s6bm_v4_same_clock_span_order_fails_closed(mutation: str, reason: str) -> None:
+    effect = {"start_unix_ns": 200, "end_unix_ns": 400}
+    controller = {"start_unix_ns": 100, "end_unix_ns": 400}
+    server = {"start_unix_ns": 50, "end_unix_ns": 400}
+    commit_interval = (1200, 1300)
+    effect_end_interval = (1400, 1500)
+    if mutation == "effect_commit":
+        effect_end_interval = (1250, 1350)
+    elif mutation == "controller_end":
+        controller["end_unix_ns"] = 399
+    else:
+        server["end_unix_ns"] = 399
+
+    with pytest.raises(S6BMCausalError, match=reason):
+        _validate_hold_effect_span_order(
+            effect_start_interval=(1000, 1100),
+            commit_interval=commit_interval,
+            effect_end_interval=effect_end_interval,
+            effect_span=effect,
+            controller_span=controller,
+            server_span=server,
+            server_end_interval=(2000, 2100),
+            client_completion_monotonic_ns=2200,
+        )
 
 
 def identities() -> dict[str, object]:
