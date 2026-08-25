@@ -30,6 +30,10 @@ REQUIRED_ARTIFACTS = {
     "prometheus_after",
     "join_report",
 }
+STRICT_V4_REQUIRED_ARTIFACTS = REQUIRED_ARTIFACTS | {
+    "triton_metrics_after_blue_unload",
+    "prometheus_after_blue_unload",
+}
 
 
 class S6BMObservabilityError(RuntimeError):
@@ -672,19 +676,31 @@ def model_lifecycle_counter_delta(
     *,
     before: float,
     before_unload: float,
+    after_unload: float | None = None,
     after: float,
     code: str,
 ) -> float:
-    if any(not math.isfinite(value) or value < 0 for value in (before, before_unload, after)):
+    values = (before, before_unload, after_unload, after)
+    if any(
+        value is None or not math.isfinite(value) or value < 0
+        for value in values
+    ):
         raise S6BMObservabilityError(f"{code}_counter_value")
+    assert after_unload is not None
     if before_unload < before:
         raise S6BMObservabilityError(f"{code}_counter_regressed_before_unload")
     if role == "blue":
-        if after >= before_unload:
-            raise S6BMObservabilityError(f"{code}_blue_counter_reset_missing")
+        if not math.isclose(after_unload, before_unload, rel_tol=0.0, abs_tol=1e-9):
+            raise S6BMObservabilityError(f"{code}_blue_counter_changed_during_unload")
+        # Triton resets a model's counter generation on reload. The post-rollback
+        # counter may exceed the pre-unload generation after warmup, so compare
+        # the two generations independently instead of relying on after < before_unload.
         return before_unload - before + after
     if role == "green":
-        if not math.isclose(before_unload, after, rel_tol=0.0, abs_tol=1e-9):
+        if not (
+            math.isclose(before_unload, after_unload, rel_tol=0.0, abs_tol=1e-9)
+            and math.isclose(after_unload, after, rel_tol=0.0, abs_tol=1e-9)
+        ):
             raise S6BMObservabilityError(f"{code}_green_counter_changed_after_drain")
         return after - before
     raise S6BMObservabilityError(f"{code}_model_role")
@@ -724,8 +740,13 @@ def validate_observability_bundle(
 ) -> dict[str, Any]:
     evidence = dict(raw.get("observability", {}))
     artifacts = dict(evidence.get("artifacts", {}))
+    required_artifacts = (
+        STRICT_V4_REQUIRED_ARTIFACTS
+        if str(config.schema_version).endswith(".v3")
+        else REQUIRED_ARTIFACTS
+    )
     expected_artifacts = (
-        REQUIRED_ARTIFACTS if compare_projection else REQUIRED_ARTIFACTS - {"join_report"}
+        required_artifacts if compare_projection else required_artifacts - {"join_report"}
     )
     if set(artifacts) != expected_artifacts:
         raise S6BMObservabilityError("s6bm_observability_artifact_set")
@@ -754,12 +775,27 @@ def validate_observability_bundle(
     triton_before_blue_unload = paths["triton_metrics_before_blue_unload"].read_text(
         encoding="utf-8"
     )
+    triton_after_blue_unload = (
+        paths["triton_metrics_after_blue_unload"].read_text(encoding="utf-8")
+        if "triton_metrics_after_blue_unload" in paths
+        else triton_before_blue_unload
+    )
     triton_after = paths["triton_metrics_after"].read_text(encoding="utf-8")
     prom_before = _read_json(paths["prometheus_before"])
     prom_before_blue_unload = _read_json(paths["prometheus_before_blue_unload"])
+    prom_after_blue_unload = (
+        _read_json(paths["prometheus_after_blue_unload"])
+        if "prometheus_after_blue_unload" in paths
+        else prom_before_blue_unload
+    )
     prom_after = _read_json(paths["prometheus_after"])
     target_suite_ids: set[str] = set()
-    for snapshot in (prom_before, prom_before_blue_unload, prom_after):
+    for snapshot in (
+        prom_before,
+        prom_before_blue_unload,
+        prom_after_blue_unload,
+        prom_after,
+    ):
         if snapshot.get("attempt_id") != attempt_id or snapshot.get("run_id") != run_id:
             raise S6BMObservabilityError("s6bm_prometheus_attempt_identity")
         target = dict(snapshot.get("target_identity", {}))
@@ -838,6 +874,11 @@ def validate_observability_bundle(
             "nv_inference_request_success",
             triton_labels,
         )
+        triton_after_blue_unload_aggregate = direct_metric_aggregate(
+            triton_after_blue_unload,
+            "nv_inference_request_success",
+            triton_labels,
+        )
         triton_after_aggregate = direct_metric_aggregate(
             triton_after, "nv_inference_request_success", triton_labels
         )
@@ -863,11 +904,13 @@ def validate_observability_bundle(
         effect_delta = float(effect_after_sample["value"]) - float(effect_before_sample["value"])
         triton_before_value = float(triton_before_aggregate["value"])
         triton_transition_value = float(triton_before_blue_unload_aggregate["value"])
+        triton_after_unload_value = float(triton_after_blue_unload_aggregate["value"])
         triton_after_value = float(triton_after_aggregate["value"])
         triton_delta = model_lifecycle_counter_delta(
             role,
             before=triton_before_value,
             before_unload=triton_transition_value,
+            after_unload=triton_after_unload_value,
             after=triton_after_value,
             code="s6bm_triton",
         )
@@ -884,9 +927,11 @@ def validate_observability_bundle(
         triton_series[role] = {
             "before_count": int(triton_before_aggregate["series_count"]),
             "before_blue_unload_count": int(triton_before_blue_unload_aggregate["series_count"]),
+            "after_blue_unload_count": int(triton_after_blue_unload_aggregate["series_count"]),
             "after_count": int(triton_after_aggregate["series_count"]),
             "before_labels": triton_before_aggregate["series_labels"],
             "before_blue_unload_labels": triton_before_blue_unload_aggregate["series_labels"],
+            "after_blue_unload_labels": triton_after_blue_unload_aggregate["series_labels"],
             "after_labels": triton_after_aggregate["series_labels"],
         }
 
@@ -937,10 +982,17 @@ def validate_observability_bundle(
             {**prom_identity, **triton_labels},
             expected_series_count=None,
         )
+        prom_triton_after_blue_unload = prometheus_value(
+            prom_after_blue_unload,
+            triton_key,
+            {**prom_identity, **triton_labels},
+            expected_series_count=None,
+        )
         prom_triton_delta = model_lifecycle_counter_delta(
             role,
             before=prom_triton_before,
             before_unload=prom_triton_before_blue_unload,
+            after_unload=prom_triton_after_blue_unload,
             after=prom_triton_after,
             code="s6bm_prometheus",
         )

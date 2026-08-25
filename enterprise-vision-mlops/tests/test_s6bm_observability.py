@@ -535,16 +535,58 @@ def test_prometheus_value_rejects_mixed_identity_series() -> None:
 
 def test_model_lifecycle_counter_delta_accounts_for_blue_reload_only() -> None:
     assert (
-        model_lifecycle_counter_delta("blue", before=750, before_unload=845, after=21, code="unit")
+        model_lifecycle_counter_delta(
+            "blue",
+            before=750,
+            before_unload=845,
+            after_unload=845,
+            after=21,
+            code="unit",
+        )
         == 116
     )
     assert (
-        model_lifecycle_counter_delta("green", before=0, before_unload=920, after=920, code="unit")
+        model_lifecycle_counter_delta(
+            "green",
+            before=0,
+            before_unload=920,
+            after_unload=920,
+            after=920,
+            code="unit",
+        )
         == 920
     )
+    assert (
+        model_lifecycle_counter_delta(
+            "blue",
+            before=0,
+            before_unload=1,
+            after_unload=1,
+            after=21,
+            code="unit",
+        )
+        == 22
+    )
 
-    with pytest.raises(S6BMObservabilityError, match="unit_blue_counter_reset_missing"):
-        model_lifecycle_counter_delta("blue", before=750, before_unload=845, after=900, code="unit")
+    with pytest.raises(
+        S6BMObservabilityError,
+        match="unit_blue_counter_changed_during_unload",
+    ):
+        model_lifecycle_counter_delta(
+            "blue",
+            before=750,
+            before_unload=845,
+            after_unload=846,
+            after=21,
+            code="unit",
+        )
 
     with pytest.raises(S6BMObservabilityError, match="unit_green_counter_changed_after_drain"):
-        model_lifecycle_counter_delta("green", before=0, before_unload=920, after=921, code="unit")
+        model_lifecycle_counter_delta(
+            "green",
+            before=0,
+            before_unload=920,
+            after_unload=921,
+            after=921,
+            code="unit",
+        )
