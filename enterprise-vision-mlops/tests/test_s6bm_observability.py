@@ -21,10 +21,16 @@ ATTEMPT_ID = "s6bm-success-1-unit"
 RUN_ID = "s8-v4-s6bm-unit"
 
 
-def _attributes(values: dict[str, str | int]) -> list[dict[str, object]]:
+def _attributes(values: dict[str, str | int | bool]) -> list[dict[str, object]]:
     result = []
     for key, value in values.items():
-        kind = "intValue" if isinstance(value, int) else "stringValue"
+        kind = (
+            "boolValue"
+            if isinstance(value, bool)
+            else "intValue"
+            if isinstance(value, int)
+            else "stringValue"
+        )
         result.append({"key": key, "value": {kind: value}})
     return result
 
@@ -37,7 +43,7 @@ def _entry(
     name: str,
     start: int,
     end: int,
-    attributes: dict[str, str | int],
+    attributes: dict[str, str | int | bool],
 ) -> dict[str, object]:
     return {
         "resource": {
@@ -97,7 +103,12 @@ def _record_and_export() -> tuple[dict[str, object], dict[str, object]]:
             name="POST /control-panel/v1/scenario-workloads/triton-blue-green/predict",
             start=100,
             end=600,
-            attributes={"evm.stage": "api", "http.response.status_code": 200},
+            attributes={
+                **bound,
+                "evm.stage": "api",
+                "evm.request.replayed": False,
+                "http.response.status_code": 200,
+            },
         ),
         _entry(
             trace_id=trace_id,
@@ -141,6 +152,31 @@ def test_trace_join_recomputes_request_effect_and_topology() -> None:
     assert result["request_trace_effect_bound"] == 1
     assert result["unique_effect_count"] == 1
     assert result["topology_complete"] is True
+
+
+def test_trace_join_distinguishes_idempotent_replay_attempt_from_effect() -> None:
+    record, export = _record_and_export()
+    replay = copy.deepcopy(export["entries"][0])  # type: ignore[index]
+    replay["span"]["spanId"] = "6" * 16  # type: ignore[index]
+    for attribute in replay["span"]["attributes"]:  # type: ignore[index]
+        if attribute["key"] == "evm.request.replayed":
+            attribute["value"] = {"boolValue": True}
+    export["entries"].append(replay)  # type: ignore[union-attr]
+    export["span_count"] = 4
+    replay_record = {**record, "replayed": True}
+
+    result = project_trace_join(
+        export,
+        [record],
+        attempt_id=ATTEMPT_ID,
+        run_id=RUN_ID,
+        source_revision=REVISION,
+        replay_record=replay_record,
+    )
+
+    assert result["request_trace_effect_bound"] == 1
+    assert result["server_span_count"] == 2
+    assert result["replay_server_span_count"] == 1
 
 
 @pytest.mark.parametrize(

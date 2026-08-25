@@ -146,6 +146,7 @@ def project_trace_join(
     attempt_id: str,
     run_id: str,
     source_revision: str,
+    replay_record: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if (
         trace_export.get("schema_version") != "evm.s8_v4.s6bm_raw_otlp_export.v1"
@@ -165,6 +166,32 @@ def project_trace_join(
         by_trace[span["trace_id"]].append(span)
 
     effect_ids: set[str] = set()
+    records_by_request = {str(item.get("request_id", "")): item for item in records}
+    if len(records_by_request) != len(records):
+        raise S6BMObservabilityError("s6bm_trace_request_identity")
+    replay_trace_id: str | None = None
+    if replay_record:
+        replay_request_id = str(replay_record.get("request_id", ""))
+        original = records_by_request.get(replay_request_id)
+        if (
+            original is None
+            or replay_record.get("replayed") is not True
+            or any(
+                replay_record.get(key) != original.get(key)
+                for key in (
+                    "run_id",
+                    "attempt_id",
+                    "trace_id",
+                    "effect_id",
+                    "model_role",
+                    "model_name",
+                    "model_version",
+                    "artifact_sha256",
+                )
+            )
+        ):
+            raise S6BMObservabilityError("s6bm_trace_replay_identity")
+        replay_trace_id = str(replay_record.get("trace_id", ""))
     bound = 0
     for record in records:
         if record.get("attempt_id") != attempt_id or record.get("run_id") != run_id:
@@ -175,14 +202,23 @@ def project_trace_join(
         if len(parts) != 4 or parts[1] != trace_id or SPAN_ID.fullmatch(parts[2]) is None:
             raise S6BMObservabilityError("s6bm_traceparent_binding")
         candidates = by_trace.get(trace_id, [])
+        servers = [
+            item
+            for item in candidates
+            if item["name"] == PREDICT_ROUTE and item["attributes"].get("evm.stage") == "api"
+        ]
+        expected_server_count = 2 if trace_id == replay_trace_id else 1
+        if len(servers) != expected_server_count:
+            raise S6BMObservabilityError(f"s6bm_trace_server_span:{len(servers)}")
         server = _require_one(
-            [
-                item
-                for item in candidates
-                if item["name"] == PREDICT_ROUTE and item["attributes"].get("evm.stage") == "api"
-            ],
-            "s6bm_trace_server_span",
+            [item for item in servers if item["attributes"].get("evm.request.replayed") is False],
+            "s6bm_trace_original_server_span",
         )
+        replay_servers = [
+            item for item in servers if item["attributes"].get("evm.request.replayed") is True
+        ]
+        if len(replay_servers) != (1 if trace_id == replay_trace_id else 0):
+            raise S6BMObservabilityError(f"s6bm_trace_replay_server_span:{len(replay_servers)}")
         controller = _require_one(
             [
                 item
@@ -239,11 +275,28 @@ def project_trace_join(
             "evm.effect.id": record.get("effect_id"),
             "evm.terminal.outcome": "completed",
         }
+        server_expected = {**expected, "evm.request.replayed": False}
+        if any(server["attributes"].get(key) != value for key, value in server_expected.items()):
+            raise S6BMObservabilityError("s6bm_trace_server_attribute_binding")
+        if replay_servers:
+            replay_server = replay_servers[0]
+            replay_expected = {**expected, "evm.request.replayed": True}
+            if (
+                replay_server["parent_span_id"] != parts[2]
+                or int(replay_server["attributes"].get("http.response.status_code", 0)) != 200
+                or any(
+                    replay_server["attributes"].get(key) != value
+                    for key, value in replay_expected.items()
+                )
+            ):
+                raise S6BMObservabilityError("s6bm_trace_replay_binding")
         for span in (controller, inference):
             if any(span["attributes"].get(key) != value for key, value in expected.items()):
                 raise S6BMObservabilityError("s6bm_trace_attribute_binding")
             if span["resource"].get("service.version") != source_revision:
                 raise S6BMObservabilityError("s6bm_trace_source_revision")
+        if server["resource"].get("service.version") != source_revision:
+            raise S6BMObservabilityError("s6bm_trace_source_revision")
         effect_id = str(record.get("effect_id", ""))
         if not effect_id or effect_id in effect_ids:
             raise S6BMObservabilityError("s6bm_trace_effect_identity")
@@ -259,6 +312,10 @@ def project_trace_join(
         "request_trace_effect_bound": bound,
         "unique_effect_count": len(effect_ids),
         "server_span_count": sum(item["name"] == PREDICT_ROUTE for item in spans),
+        "replay_server_span_count": sum(
+            item["name"] == PREDICT_ROUTE and item["attributes"].get("evm.request.replayed") is True
+            for item in spans
+        ),
         "controller_span_count": sum(item["name"] == "s6bm.controller.predict" for item in spans),
         "triton_client_span_count": sum(item["name"] == "s6bm.triton.infer" for item in spans),
         "topology_complete": bound == len(records),
@@ -401,6 +458,7 @@ def validate_observability_bundle(
         attempt_id=attempt_id,
         run_id=run_id,
         source_revision=source_revision,
+        replay_record=dict(dict(raw.get("idempotent_replay", {})).get("record", {})) or None,
     )
 
     api_before = paths["api_metrics_before"].read_text(encoding="utf-8")

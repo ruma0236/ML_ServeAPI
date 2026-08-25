@@ -1632,6 +1632,13 @@ def run_success(
         replay_before = int(controller_state(config)["accepted_unique"])
         replay = send_request(config, replay_body)
         replay_after = int(controller_state(config)["accepted_unique"])
+        replay_evidence = {
+            "request_id": replay["request_id"],
+            "replayed": replay.get("replayed") is True,
+            "unique_count_before": replay_before,
+            "unique_count_after": replay_after,
+            "record": replay,
+        }
 
         hold_body = request_body(
             config,
@@ -1692,6 +1699,7 @@ def run_success(
             "source_revision": source["revision"],
             "identities": identities(config, lease),
             "request_records": records,
+            "idempotent_replay": replay_evidence,
         }
         observability = finish_attempt_observability(
             config,
@@ -1729,13 +1737,7 @@ def run_success(
         "phase_timeline": timeline,
         "request_records": records,
         "requests": summary,
-        "idempotent_replay": {
-            "request_id": replay["request_id"],
-            "replayed": replay.get("replayed") is True,
-            "unique_count_before": replay_before,
-            "unique_count_after": replay_after,
-            "record": replay,
-        },
+        "idempotent_replay": replay_evidence,
         "illegal_owner_overlap": sum(not item["owner_exact"] for item in owner_samples),
         "owner_samples": owner_samples,
         "trace_complete": sum(bool(item.get("trace_id")) for item in records),

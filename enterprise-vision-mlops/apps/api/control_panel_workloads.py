@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
+from opentelemetry import trace as otel_trace
 from pydantic import BaseModel, Field
 
 from evm.control_panel.scenario_workloads import (
@@ -311,7 +312,23 @@ async def predict_triton_blue_green(
     request: TritonBlueGreenPredictRequest,
 ) -> TritonBlueGreenPredictResponse:
     try:
-        return await triton_blue_green_manager.predict(request)
+        response = await triton_blue_green_manager.predict(request)
+        span = otel_trace.get_current_span()
+        span.set_attributes(
+            {
+                "evm.run.id": response.run_id,
+                "evm.attempt.id": response.attempt_id,
+                "evm.request.id": response.request_id,
+                "evm.model.role": response.model_role,
+                "evm.model.name": response.model_name,
+                "evm.model.version": response.model_version,
+                "evm.model.artifact.sha256": response.artifact_sha256,
+                "evm.effect.id": response.effect_id,
+                "evm.terminal.outcome": "completed",
+                "evm.request.replayed": response.replayed,
+            }
+        )
+        return response
     except TritonBlueGreenError as exc:
         raise HTTPException(
             status_code=exc.status_code,
