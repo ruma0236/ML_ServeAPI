@@ -3,9 +3,9 @@
   "status": "verified",
   "verdict": "passed",
   "acceptance_credit": false,
-  "suite_id": "20260824T040239Z-45f381ea",
+  "suite_id": "20260825T031437Z-f08184ec",
   "source_identity": {
-    "revision": "45f381ea17876d6b543eee3fe02c80c9079b946e",
+    "revision": "f08184ec522d02c0ad158ac40e544e4a081ee334",
     "branch": "codex/distributed-scale-validation-plan",
     "config_sha256": "44f057932a402787becc9476c598a2dd00d05cbb8915df7f3fa6eac143f79d93",
     "git_blobs": {
@@ -16,23 +16,23 @@
       },
       "runtime": {
         "path": "enterprise-vision-mlops/src/evm/scale_validation/s7_runtime.py",
-        "blob_oid": "ecc2f8f980cd7934ac4013898b3403bdce79a041",
-        "sha256": "705e66938acd83e9a3679f20a65ec6ee465b7540d2b07e7b45b925d08a7d2757"
+        "blob_oid": "d1b482f1b8363bc4d1b8b7fe1243b086a7322b96",
+        "sha256": "95776898979a290a8af98faf6520b6d04e1012c28696d815f1e9b394f6c2eb45"
       },
       "evidence": {
         "path": "enterprise-vision-mlops/src/evm/scale_validation/s7_evidence.py",
-        "blob_oid": "3537f35bc724737d3d5d128dfa2b6aeab31a3a60",
-        "sha256": "5e0f02c9d3e50102b7be8761cc9648c5535dd28a08787e7eb018643967f1c9cc"
+        "blob_oid": "4fa371a5ac0509d100d14ce19d37ead90800c196",
+        "sha256": "7e10249ce4388dbf45629c5f0e5c6cec874640f2a30ec7ce8bf447cdaa8aaeb7"
       },
       "runner": {
         "path": "enterprise-vision-mlops/scripts/dev/run_s7_auxiliary_admission_experiment.py",
-        "blob_oid": "10992809798d1f79c7df14a6cb33f81762cb2f40",
-        "sha256": "e71d23c744e592844de741cc7238baf739dfdd3c1853016c89ad70557e340660"
+        "blob_oid": "b1da0020333148142ef8857178c44db0c1e2624c",
+        "sha256": "259dce70642411a732af1f8f7ac4d46f050149c2fe66813bd08158d0925faa18"
       },
       "validator": {
         "path": "enterprise-vision-mlops/scripts/dev/validate_s7_auxiliary_admission_evidence.py",
-        "blob_oid": "e22cedf2f2dbd33e2d93739d3f5deee21a6f846a",
-        "sha256": "c6f168bdfa62b8729e0ec025c26f84ef9e4776f0932fd5d268b17f4d7db2d594"
+        "blob_oid": "004e51a0c21ad65bf3e5d8ebd39b74d8df8f6395",
+        "sha256": "e950cc202785597310ca5efde36f413382da6c06fe46ea8c1a0d8a9d14cf47ba"
       },
       "admission": {
         "path": "enterprise-vision-mlops/src/evm/model_runtime/family_admission.py",
@@ -51,13 +51,13 @@
       },
       "gpu_lease": {
         "path": "enterprise-vision-mlops/src/evm/control_panel/scenario_workloads.py",
-        "blob_oid": "2d35c9f6ff20d9b17158f6bee5e4a4412470a4ea",
-        "sha256": "c5f9d0736cb02ef7a3e3ecce82a346b330ac570bcc71a1eda5bfa185dd92c332"
+        "blob_oid": "56deebcbb3928a234e3a392191779e23e3f0fe14",
+        "sha256": "ff35e2c394e5c293019226c889bb2cf7094d0af89d344353e3585ba8ebb022ff"
       },
       "prometheus": {
         "path": "enterprise-vision-mlops/monitoring/prometheus/prometheus.yml",
-        "blob_oid": "82c9eeab16d910db4ed33c3591b4652bd9c1b7ab",
-        "sha256": "508535bc75ce289bcb42e93b9658b49a58594e73dc7eb348375d7deb427a14d7"
+        "blob_oid": "4ae7d820f7e409c1c2083528eef0b261b1eed987",
+        "sha256": "9ab1cd6b14067cf5234aa4009c684256ee83c1bf2a260422a0c2c0c855fbdbfc"
       },
       "image_dataset_contract": {
         "path": "enterprise-vision-mlops/configs/scenarios/manufacturing-visual-inspection.json",
@@ -80,7 +80,7 @@
         "scope": "non_acceptance_current_revision_diagnostic_only",
         "reason": "curated_manifest_regenerated_after_accepted_matrix",
         "frozen_manifest_sha256": "33d37c40901026b9bd5ddd5ee41546864c86a03add507a2da78b937b12d01ff1",
-        "observed_manifest_sha256": "af778afa736749a10a332aca16df7fe5195dbaffc21a53b0f1eb269d8c1feb74",
+        "observed_manifest_sha256": "ef5aad5f18bbeff5795caf5ca1b24cc79f07491aa1d2d6cbe4701420c81e2969",
         "dataset_version": "visa-open-data-e35d93d5561f",
         "record_count": 4317,
         "acceptance_credit": false
@@ -104,12 +104,12 @@
       "expired": 0,
       "transport_failed": 0,
       "rejection_statuses": [],
-      "measurement_seconds": 0.2659999999741558,
-      "throughput_requests_per_second": 22.556390979635157,
-      "p50_seconds": 0.125,
-      "p95_seconds": 0.16824999999516876,
-      "p99_seconds": 0.17124999999214197,
-      "maximum_queue_wait_seconds": 0.125,
+      "measurement_seconds": 0.29699999996228144,
+      "throughput_requests_per_second": 20.20202020458583,
+      "p50_seconds": 0.13300000000162981,
+      "p95_seconds": 0.18399999997927807,
+      "p99_seconds": 0.18719999996828846,
+      "maximum_queue_wait_seconds": 0.141,
       "short_request_count": 6,
       "long_request_count": 0,
       "short_completed": 6,
@@ -120,9 +120,9 @@
       "admitted_starvation_count": 0,
       "long_request_noncompletion_count": 0,
       "oom_count": 0,
-      "peak_gpu_used_memory_bytes": 2881486848,
-      "gpu_utilization_percent_max": 22.0,
-      "gpu_temperature_celsius_max": 51.0,
+      "peak_gpu_used_memory_bytes": 3433037824,
+      "gpu_utilization_percent_max": 11.0,
+      "gpu_temperature_celsius_max": 39.0,
       "quality": {
         "binary_accuracy": 0.6666666666666666,
         "mean_confidence": 0.7407833333333333
@@ -161,12 +161,12 @@
       "expired": 0,
       "transport_failed": 0,
       "rejection_statuses": [],
-      "measurement_seconds": 4.062000000005355,
-      "throughput_requests_per_second": 1.4771048744441384,
-      "p50_seconds": 2.2965000000112923,
-      "p95_seconds": 2.7965000000040163,
-      "p99_seconds": 2.8089000000050874,
-      "maximum_queue_wait_seconds": 2.078,
+      "measurement_seconds": 5.546999999962281,
+      "throughput_requests_per_second": 1.081665765285884,
+      "p50_seconds": 3.3514999999897555,
+      "p95_seconds": 3.9259999999776483,
+      "p99_seconds": 3.960399999981746,
+      "maximum_queue_wait_seconds": 3.016,
       "short_request_count": 6,
       "long_request_count": 0,
       "short_completed": 6,
@@ -177,9 +177,9 @@
       "admitted_starvation_count": 0,
       "long_request_noncompletion_count": 0,
       "oom_count": 0,
-      "peak_gpu_used_memory_bytes": 6958350336,
+      "peak_gpu_used_memory_bytes": 7492075520,
       "gpu_utilization_percent_max": 100.0,
-      "gpu_temperature_celsius_max": 64.0,
+      "gpu_temperature_celsius_max": 44.0,
       "quality": {
         "accuracy": 0.8333333333333334,
         "parse_rate": 1.0
@@ -220,9 +220,9 @@
       "cleanup_passed": true,
       "generation": {
         "generated_tokens_total": 20,
-        "tokens_per_second_mean": 9.308230499999999,
-        "ttft_p95_seconds": 0.26918025,
-        "tpot_p95_seconds": 0.0554525,
+        "tokens_per_second_mean": 5.9330165,
+        "ttft_p95_seconds": 0.54506975,
+        "tpot_p95_seconds": 0.10137775,
         "termination_reasons": {
           "eos_or_model_stop": 6
         }
@@ -239,12 +239,12 @@
       "expired": 0,
       "transport_failed": 0,
       "rejection_statuses": [],
-      "measurement_seconds": 3.3429999999934807,
-      "throughput_requests_per_second": 1.7947950942302424,
-      "p50_seconds": 1.9059999999881256,
-      "p95_seconds": 2.253999999993539,
-      "p99_seconds": 2.288399999991816,
-      "maximum_queue_wait_seconds": 1.735,
+      "measurement_seconds": 3.1869999999762513,
+      "throughput_requests_per_second": 1.8826482585643898,
+      "p50_seconds": 1.8355000000155997,
+      "p95_seconds": 2.1632499999686843,
+      "p99_seconds": 2.16944999997213,
+      "maximum_queue_wait_seconds": 1.625,
       "short_request_count": 6,
       "long_request_count": 0,
       "short_completed": 6,
@@ -255,9 +255,9 @@
       "admitted_starvation_count": 0,
       "long_request_noncompletion_count": 0,
       "oom_count": 0,
-      "peak_gpu_used_memory_bytes": 3601858560,
-      "gpu_utilization_percent_max": 41.0,
-      "gpu_temperature_celsius_max": 48.0,
+      "peak_gpu_used_memory_bytes": 4141875200,
+      "gpu_utilization_percent_max": 61.0,
+      "gpu_temperature_celsius_max": 39.0,
       "quality": {
         "mean_token_f1": 0.1059482808881641,
         "nonempty_rate": 1.0
@@ -295,9 +295,9 @@
       "cleanup_passed": true,
       "generation": {
         "generated_tokens_total": 47,
-        "tokens_per_second_mean": 14.462107000000001,
-        "ttft_p95_seconds": 0.10314075,
-        "tpot_p95_seconds": 0.07945,
+        "tokens_per_second_mean": 15.139046833333333,
+        "ttft_p95_seconds": 0.08924425,
+        "tpot_p95_seconds": 0.06814724999999999,
         "termination_reasons": {
           "max_new_tokens": 5,
           "eos_or_model_stop": 1
@@ -325,7 +325,7 @@
       "model_artifact_sha256": "9135f9045b92f2bb5914818e47d168187c327307b2ff2826a4d319b78cb6534b",
       "data_identity_sha256": "8bce3a7ad9c60599100ba59d1e538ce29d08434f98b7e9521d2b212427bed7a1",
       "model_source_commit": "d6444b542d183bbd51a7782c561cbc962ec0d6b3",
-      "runtime_source_commit": "45f381ea17876d6b543eee3fe02c80c9079b946e",
+      "runtime_source_commit": "f08184ec522d02c0ad158ac40e544e4a081ee334",
       "quantization_requested": "none",
       "quantization_observed": "none",
       "loaded_in_4bit": false,
@@ -344,7 +344,7 @@
       "model_artifact_sha256": "326f95c3cba5cf29a02fb7798be0c282083da303359d350d27ddbd9861a85d58",
       "data_identity_sha256": "15b54c61c6ff2f1141c1c8f1b8edd27a6817afb3ae0f02008c53659b1b8a8557",
       "model_source_commit": "d6444b542d183bbd51a7782c561cbc962ec0d6b3",
-      "runtime_source_commit": "45f381ea17876d6b543eee3fe02c80c9079b946e",
+      "runtime_source_commit": "f08184ec522d02c0ad158ac40e544e4a081ee334",
       "quantization_requested": "int4_nf4",
       "quantization_observed": "int4_nf4",
       "loaded_in_4bit": true,
@@ -369,7 +369,7 @@
         "license_url": "https://creativecommons.org/licenses/by/4.0/",
         "usage_policy": "portfolio-and-commercial-use-with-attribution"
       },
-      "runtime_manifest_sha256": "af778afa736749a10a332aca16df7fe5195dbaffc21a53b0f1eb269d8c1feb74",
+      "runtime_manifest_sha256": "ef5aad5f18bbeff5795caf5ca1b24cc79f07491aa1d2d6cbe4701420c81e2969",
       "model": {
         "repository": "effnet-b0-img224-expedited-adamw",
         "revision": "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f",
@@ -462,11 +462,11 @@
   },
   "private_evidence": {
     "artifact_count": 24,
-    "total_bytes": 184282,
-    "aggregate_sha256": "4515dc5218af3470dde92f8e7bd6209f5ad11f835af9bb99714584e7f4b869d0",
-    "index_sha256": "d07fc86b662baea65279ca6964a742960cf5731aa6a850ea338ffe9839284a13",
+    "total_bytes": 185627,
+    "aggregate_sha256": "54b9506ec2d9f29195adc8b642b27ee59d717c948a65645fd2af109a28313e7f",
+    "index_sha256": "1b353f3a5289e96d43ec1c1a72d2fd38b934a4ec57906381d2d79d2f68d270a1",
     "location": "outside_git_private_evidence_root"
   },
   "claim_boundary": "Current-revision external-HTTP CUDA identity smoke for image, VLM, and LLM on one local physical node and one consumer GPU. ScienceQA is non-commercial research/portfolio-only. This is not production, SLA, HA, multi-GPU, or broad model-quality evidence.",
-  "generated_at": "2026-08-24T04:05:09.352909Z"
+  "generated_at": "2026-08-25T03:17:34.783588Z"
 }
