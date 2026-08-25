@@ -1727,12 +1727,17 @@ def begin_attempt_observability(
 def expected_attempt_trace_counts(attempt: Mapping[str, Any]) -> dict[str, int]:
     records = [dict(item) for item in attempt.get("request_records", [])]
     replay = dict(attempt.get("idempotent_replay", {}))
-    replay_record = dict(replay.get("record", {}))
     request_ids = {str(item.get("request_id", "")) for item in records}
+    if not records or "" in request_ids or len(request_ids) != len(records):
+        raise S6BMExperimentError(f"otlp_replay_identity:{str(attempt.get('attempt_id', ''))}")
+    if not replay:
+        return {
+            "controller": len(records),
+            "inference": len(records),
+        }
+    replay_record = dict(replay.get("record", {}))
     if (
-        not records
-        or len(request_ids) != len(records)
-        or replay_record.get("replayed") is not True
+        replay_record.get("replayed") is not True
         or str(replay_record.get("request_id", "")) not in request_ids
         or int(replay.get("unique_count_before", -1)) != int(replay.get("unique_count_after", -2))
     ):

@@ -177,6 +177,23 @@ def test_expected_attempt_trace_counts_include_exact_controller_only_replay() ->
         runner.expected_attempt_trace_counts(attempt)
 
 
+def test_expected_attempt_trace_counts_support_non_replay_qualification() -> None:
+    runner = load_runner()
+    attempt = {
+        "attempt_id": "s6bm-causal-qualification-unit",
+        "request_records": [{"request_id": "request-0001"}],
+    }
+
+    assert runner.expected_attempt_trace_counts(attempt) == {
+        "controller": 1,
+        "inference": 1,
+    }
+
+    attempt["request_records"].append({"request_id": "request-0001"})
+    with pytest.raises(runner.S6BMExperimentError, match="otlp_replay_identity"):
+        runner.expected_attempt_trace_counts(attempt)
+
+
 def test_prometheus_direct_comparison_reports_exact_series_failure() -> None:
     runner = load_runner()
     config = SimpleNamespace(
@@ -333,9 +350,7 @@ def test_prometheus_direct_comparison_accepts_only_explicit_unloaded_blue() -> N
                 },
                 1,
             ),
-            "triton_blue_success": {
-                "response": {"status": "success", "data": {"result": []}}
-            },
+            "triton_blue_success": {"response": {"status": "success", "data": {"result": []}}},
             "api_green_completed": query(
                 {
                     "model_name": "s6bm_green",
