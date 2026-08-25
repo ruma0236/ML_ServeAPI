@@ -121,11 +121,15 @@ def _build_s6bm_terminal_store() -> TransactionalControlPlaneStore:
             acquire_timeout_seconds=float(
                 os.getenv("EVM_S6BM_DATABASE_ACQUIRE_TIMEOUT_SECONDS", "2")
             ),
-            lock_timeout_seconds=float(
-                os.getenv("EVM_S6BM_DATABASE_LOCK_TIMEOUT_SECONDS", "2")
-            ),
+            lock_timeout_seconds=float(os.getenv("EVM_S6BM_DATABASE_LOCK_TIMEOUT_SECONDS", "2")),
             statement_timeout_seconds=float(
                 os.getenv("EVM_S6BM_DATABASE_STATEMENT_TIMEOUT_SECONDS", "10")
+            ),
+            commit_timestamp_readback_max_concurrency=int(
+                os.getenv("EVM_S6BM_COMMIT_READBACK_MAX_CONCURRENCY", "2")
+            ),
+            commit_timestamp_readback_acquire_timeout_seconds=float(
+                os.getenv("EVM_S6BM_COMMIT_READBACK_ACQUIRE_TIMEOUT_SECONDS", "2")
             ),
         )
     )
@@ -208,11 +212,7 @@ def _commit_s6bm_terminal_effect_sync(
             causal_payload=causal_payload,
         )
     )
-    expected = {
-        key: effect_payload[key]
-        for key in effect_payload
-        if key != "durable_commit"
-    }
+    expected = {key: effect_payload[key] for key in effect_payload if key != "durable_commit"}
     if any(stored.get(key) != value for key, value in expected.items()):
         raise RuntimeError("S6B-M durable terminal-effect payload parity failed")
     if bool(receipt["replayed"]) is not replayed:
@@ -263,9 +263,7 @@ def _commit_s6bm_transition_fence(
         raise RuntimeError("S6B-M causal crossover identity is absent")
     identity = request.causal_crossover.model_dump(mode="json")
     if request.action == "green_switched":
-        return _s6bm_terminal_store().commit_s6bm_route_switch_fence(
-            crossover_identity=identity
-        )
+        return _s6bm_terminal_store().commit_s6bm_route_switch_fence(crossover_identity=identity)
     if request.action == "blue_unloaded":
         return _s6bm_terminal_store().commit_s6bm_unload_intent(
             crossover_identity=identity,

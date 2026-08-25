@@ -226,6 +226,11 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
     assert effect["commit_timestamp_tracking"] == "on"
     assert effect["commit_timestamp_visible"] is True
     assert effect["separate_connection_readback"] is True
+    assert effect["commit_timestamp_readback_lane"] == "bounded_parallel_post_commit_v1"
+    assert effect["commit_timestamp_readback_concurrency_limit"] == 2
+    assert 1 <= effect["commit_timestamp_readback_in_flight_at_acquire"] <= 2
+    assert 1 <= effect["commit_timestamp_readback_max_in_flight_observed"] <= 2
+    assert effect["commit_timestamp_readback_wait_seconds"] < 2.0
     assert effect["commit_timestamp_backend_pid"] != effect["write_backend_pid"]
     database_anchor = effect["database_clock_anchor"]
     assert database_anchor["schema_version"] == "evm.s6bm.database_clock_anchor.v2"
@@ -297,6 +302,9 @@ def test_s6bm_cold_store_commits_frozen_concurrency_without_pool_starvation(
     monkeypatch.setenv("EVM_S6BM_DATABASE_URL", postgres_dsn)
     monkeypatch.setenv("EVM_S6BM_DATABASE_SCHEMA", schema)
     monkeypatch.setenv("EVM_CONTROL_PLANE_AUTO_MIGRATE", "true")
+    monkeypatch.setenv("EVM_S6BM_DATABASE_POOL_MAX_SIZE", "8")
+    monkeypatch.setenv("EVM_S6BM_COMMIT_READBACK_MAX_CONCURRENCY", "2")
+    monkeypatch.setenv("EVM_S6BM_COMMIT_READBACK_ACQUIRE_TIMEOUT_SECONDS", "2")
     artifact_sha256 = "4" * 64
     barrier = threading.Barrier(16)
 
@@ -346,8 +354,23 @@ def test_s6bm_cold_store_commits_frozen_concurrency_without_pool_starvation(
             receipt["write_backend_pid"] != receipt["commit_timestamp_backend_pid"]
             for receipt in receipts
         )
+        assert all(
+            receipt["commit_timestamp_readback_concurrency_limit"] == 2 for receipt in receipts
+        )
+        assert all(receipt["commit_timestamp_readback_wait_seconds"] < 2.0 for receipt in receipts)
+        selected_widths = [
+            receipt["database_clock_anchor"]["monotonic_after_ns"]
+            - receipt["database_clock_anchor"]["monotonic_before_ns"]
+            for receipt in receipts
+        ]
+        assert max(selected_widths) <= 1_000_000
         assert len(store.list_entities("s6bm_terminal_effect")) == 16
         assert store.telemetry().timeouts == 0
+        readback = store.commit_timestamp_readback_telemetry()
+        assert readback.acquisitions == 16
+        assert readback.timeouts == 0
+        assert readback.in_flight == 0
+        assert readback.max_in_flight == 2
         pool_stats = store._pool.get_stats()
         assert pool_stats["pool_max"] == 8
         assert pool_stats["requests_waiting"] == 0

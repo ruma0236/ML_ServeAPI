@@ -503,6 +503,16 @@ def _validate_effects(
             or receipt.get("commit_timestamp_tracking") != "on"
             or receipt.get("commit_timestamp_visible") is not True
             or receipt.get("separate_connection_readback") is not True
+            or receipt.get("commit_timestamp_readback_lane")
+            != config.durable_effect["commit_timestamp_readback_lane"]
+            or int(receipt.get("commit_timestamp_readback_concurrency_limit", 0))
+            != int(config.durable_effect["commit_timestamp_readback_max_concurrency"])
+            or not 1
+            <= int(receipt.get("commit_timestamp_readback_in_flight_at_acquire", 0))
+            <= int(config.durable_effect["commit_timestamp_readback_max_concurrency"])
+            or not 1
+            <= int(receipt.get("commit_timestamp_readback_max_in_flight_observed", 0))
+            <= int(config.durable_effect["commit_timestamp_readback_max_concurrency"])
             or int(receipt.get("commit_timestamp_backend_pid", 0)) <= 0
             or int(receipt.get("commit_timestamp_backend_pid", 0))
             == int(receipt.get("write_backend_pid", 0))
@@ -510,13 +520,34 @@ def _validate_effects(
         ):
             raise S6BMCausalError("s6bm_v4_effect_receipt_binding")
         ack = int(receipt.get("commit_ack_monotonic_ns", 0))
+        lane_wait_start = int(receipt.get("commit_timestamp_readback_wait_started_monotonic_ns", 0))
+        lane_acquired = int(receipt.get("commit_timestamp_readback_acquired_monotonic_ns", 0))
+        lane_wait_seconds = _finite(
+            receipt.get("commit_timestamp_readback_wait_seconds"),
+            "s6bm_v4_effect_readback_lane_wait",
+        )
         timestamp_start = int(receipt.get("commit_timestamp_started_monotonic_ns", 0))
         timestamp_end = int(receipt.get("commit_timestamp_finished_monotonic_ns", 0))
         read_start = int(receipt.get("readback_started_monotonic_ns", 0))
         read_end = int(receipt.get("readback_finished_monotonic_ns", 0))
         completion = int(_finite(record.get("completed_monotonic"), "s6bm_v4_completion") * 1e9)
-        if not 0 < ack <= timestamp_start <= timestamp_end <= read_start <= read_end <= completion:
+        if not (
+            0
+            < ack
+            <= lane_wait_start
+            <= lane_acquired
+            <= timestamp_start
+            <= timestamp_end
+            <= read_start
+            <= read_end
+            <= completion
+        ):
             raise S6BMCausalError("s6bm_v4_effect_commit_readback_order")
+        observed_lane_wait = (lane_acquired - lane_wait_start) / 1_000_000_000
+        if abs(lane_wait_seconds - observed_lane_wait) > 1e-9 or lane_wait_seconds > float(
+            config.durable_effect["commit_timestamp_readback_acquire_timeout_seconds"]
+        ):
+            raise S6BMCausalError("s6bm_v4_effect_readback_lane_wait")
         for field in ("database_recorded_at", "entity_created_at", "idempotency_created_at"):
             _unix_nano(receipt.get(field), f"s6bm_v4_effect_{field}")
         commit_unix = _unix_nano(receipt.get("commit_timestamp"), "s6bm_v4_effect_commit_timestamp")

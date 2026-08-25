@@ -86,6 +86,12 @@ def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
     assert config.durable_effect["commit_timestamp_tracking_required"] is True
     assert config.durable_effect["commit_timestamp_separate_connection_required"] is True
     assert config.durable_effect["database_clock_anchor_required"] is True
+    assert config.durable_effect["commit_timestamp_readback_lane"] == (
+        "bounded_parallel_post_commit_v1"
+    )
+    assert config.durable_effect["commit_timestamp_readback_max_concurrency"] == 2
+    assert config.durable_effect["write_pool_size_change_forbidden"] is True
+    assert config.durable_effect["whole_request_serialization_forbidden"] is True
     assert config.trace["exact_parent_span_required"] is True
     assert set(config.run_set) == {
         "contract",

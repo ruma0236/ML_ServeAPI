@@ -60,6 +60,18 @@ CONTROL_PLANE_DB_POOL_WAITING = Gauge(
     "evm_control_plane_db_pool_waiting",
     "Requests currently waiting for a dedicated control-plane connection.",
 )
+S6BM_COMMIT_TIMESTAMP_READBACK_WAIT_SECONDS = Histogram(
+    "evm_s6bm_commit_timestamp_readback_wait_seconds",
+    "Seconds spent waiting for the bounded post-commit timestamp readback lane.",
+)
+S6BM_COMMIT_TIMESTAMP_READBACK_TIMEOUTS = Counter(
+    "evm_s6bm_commit_timestamp_readback_timeouts_total",
+    "Bounded S6B-M post-commit timestamp readback lane timeouts.",
+)
+S6BM_COMMIT_TIMESTAMP_READBACK_IN_FLIGHT = Gauge(
+    "evm_s6bm_commit_timestamp_readback_in_flight",
+    "Current S6B-M post-commit timestamp readbacks in flight.",
+)
 CONTROL_PLANE_DB_VERSION_CONFLICTS = Counter(
     "evm_control_plane_db_version_conflicts_total",
     "Optimistic control-plane state version conflicts.",
@@ -143,6 +155,8 @@ class StoreConfiguration:
     acquire_timeout_seconds: float
     lock_timeout_seconds: float = 2.0
     statement_timeout_seconds: float = 10.0
+    commit_timestamp_readback_max_concurrency: int = 2
+    commit_timestamp_readback_acquire_timeout_seconds: float = 2.0
 
     @property
     def enabled(self) -> bool:
@@ -166,6 +180,12 @@ class StoreConfiguration:
             statement_timeout_seconds=float(
                 os.getenv("EVM_CONTROL_PLANE_STATEMENT_TIMEOUT_SECONDS", "10")
             ),
+            commit_timestamp_readback_max_concurrency=int(
+                os.getenv("EVM_CONTROL_PLANE_COMMIT_READBACK_MAX_CONCURRENCY", "2")
+            ),
+            commit_timestamp_readback_acquire_timeout_seconds=float(
+                os.getenv("EVM_CONTROL_PLANE_COMMIT_READBACK_ACQUIRE_TIMEOUT_SECONDS", "2")
+            ),
         )
 
 
@@ -175,6 +195,16 @@ class PoolTelemetrySnapshot:
     timeouts: int
     wait_seconds_total: float
     wait_seconds_max: float
+
+
+@dataclass(frozen=True)
+class CommitTimestampReadbackTelemetrySnapshot:
+    acquisitions: int
+    timeouts: int
+    wait_seconds_total: float
+    wait_seconds_max: float
+    in_flight: int
+    max_in_flight: int
 
 
 @dataclass(frozen=True)
@@ -333,6 +363,16 @@ class TransactionalControlPlaneStore:
         self._timeouts = 0
         self._wait_seconds_total = 0.0
         self._wait_seconds_max = 0.0
+        self._commit_timestamp_readback_slots = threading.BoundedSemaphore(
+            max(1, self.configuration.commit_timestamp_readback_max_concurrency)
+        )
+        self._commit_timestamp_readback_lock = threading.Lock()
+        self._commit_timestamp_readback_acquisitions = 0
+        self._commit_timestamp_readback_timeouts = 0
+        self._commit_timestamp_readback_wait_seconds_total = 0.0
+        self._commit_timestamp_readback_wait_seconds_max = 0.0
+        self._commit_timestamp_readback_in_flight = 0
+        self._commit_timestamp_readback_max_in_flight = 0
         if self.configuration.enabled:
             self._open()
 
@@ -361,6 +401,14 @@ class TransactionalControlPlaneStore:
             raise ControlPlaneStoreUnavailable("lock timeout must be positive")
         if self.configuration.statement_timeout_seconds <= 0:
             raise ControlPlaneStoreUnavailable("statement timeout must be positive")
+        if self.configuration.commit_timestamp_readback_max_concurrency < 2:
+            raise ControlPlaneStoreUnavailable(
+                "commit timestamp readback concurrency must preserve parallel progress"
+            )
+        if self.configuration.commit_timestamp_readback_acquire_timeout_seconds <= 0:
+            raise ControlPlaneStoreUnavailable(
+                "commit timestamp readback acquire timeout must be positive"
+            )
         try:
             from psycopg.errors import LockNotAvailable, QueryCanceled
             from psycopg.rows import dict_row
@@ -408,6 +456,70 @@ class TransactionalControlPlaneStore:
                 wait_seconds_total=self._wait_seconds_total,
                 wait_seconds_max=self._wait_seconds_max,
             )
+
+    def commit_timestamp_readback_telemetry(
+        self,
+    ) -> CommitTimestampReadbackTelemetrySnapshot:
+        with self._commit_timestamp_readback_lock:
+            return CommitTimestampReadbackTelemetrySnapshot(
+                acquisitions=self._commit_timestamp_readback_acquisitions,
+                timeouts=self._commit_timestamp_readback_timeouts,
+                wait_seconds_total=self._commit_timestamp_readback_wait_seconds_total,
+                wait_seconds_max=self._commit_timestamp_readback_wait_seconds_max,
+                in_flight=self._commit_timestamp_readback_in_flight,
+                max_in_flight=self._commit_timestamp_readback_max_in_flight,
+            )
+
+    @contextmanager
+    def _commit_timestamp_readback_slot(self) -> Iterator[dict[str, int | float]]:
+        wait_started_monotonic_ns = time.perf_counter_ns()
+        acquired = self._commit_timestamp_readback_slots.acquire(
+            timeout=self.configuration.commit_timestamp_readback_acquire_timeout_seconds
+        )
+        acquired_monotonic_ns = time.perf_counter_ns()
+        wait_seconds = (acquired_monotonic_ns - wait_started_monotonic_ns) / 1_000_000_000
+        S6BM_COMMIT_TIMESTAMP_READBACK_WAIT_SECONDS.observe(wait_seconds)
+        if not acquired:
+            with self._commit_timestamp_readback_lock:
+                self._commit_timestamp_readback_timeouts += 1
+                self._commit_timestamp_readback_wait_seconds_total += wait_seconds
+                self._commit_timestamp_readback_wait_seconds_max = max(
+                    self._commit_timestamp_readback_wait_seconds_max,
+                    wait_seconds,
+                )
+            S6BM_COMMIT_TIMESTAMP_READBACK_TIMEOUTS.inc()
+            raise ControlPlanePoolTimeout(
+                "S6B-M commit timestamp readback lane acquisition timed out"
+            )
+        with self._commit_timestamp_readback_lock:
+            self._commit_timestamp_readback_acquisitions += 1
+            self._commit_timestamp_readback_wait_seconds_total += wait_seconds
+            self._commit_timestamp_readback_wait_seconds_max = max(
+                self._commit_timestamp_readback_wait_seconds_max,
+                wait_seconds,
+            )
+            self._commit_timestamp_readback_in_flight += 1
+            self._commit_timestamp_readback_max_in_flight = max(
+                self._commit_timestamp_readback_max_in_flight,
+                self._commit_timestamp_readback_in_flight,
+            )
+            in_flight_at_acquire = self._commit_timestamp_readback_in_flight
+            max_in_flight_observed = self._commit_timestamp_readback_max_in_flight
+        S6BM_COMMIT_TIMESTAMP_READBACK_IN_FLIGHT.set(in_flight_at_acquire)
+        try:
+            yield {
+                "wait_started_monotonic_ns": wait_started_monotonic_ns,
+                "acquired_monotonic_ns": acquired_monotonic_ns,
+                "wait_seconds": wait_seconds,
+                "in_flight_at_acquire": in_flight_at_acquire,
+                "max_in_flight_observed": max_in_flight_observed,
+            }
+        finally:
+            with self._commit_timestamp_readback_lock:
+                self._commit_timestamp_readback_in_flight -= 1
+                current_in_flight = self._commit_timestamp_readback_in_flight
+            S6BM_COMMIT_TIMESTAMP_READBACK_IN_FLIGHT.set(current_in_flight)
+            self._commit_timestamp_readback_slots.release()
 
     def _observe_pool_stats(self) -> None:
         if self._pool is None:
@@ -1338,6 +1450,135 @@ class TransactionalControlPlaneStore:
             )
             return stored, False
 
+    def _collect_s6bm_commit_timestamp_receipt(
+        self,
+        *,
+        transaction_id: str,
+        write_backend_pid: int,
+        schema: str,
+    ) -> dict[str, Any]:
+        """Read a committed XID on a bounded, distinct post-commit connection."""
+        with self._commit_timestamp_readback_slot() as lane:
+            commit_timestamp_started_monotonic_ns = time.perf_counter_ns()
+            database_clock_candidate_rows: list[dict[str, Any]] = []
+            try:
+                import psycopg
+                from psycopg.rows import dict_row
+
+                if not self.configuration.dsn:
+                    raise ControlPlaneStoreUnavailable(
+                        "terminal effect commit timestamp requires a PostgreSQL DSN"
+                    )
+                with psycopg.connect(
+                    self.configuration.dsn,
+                    autocommit=True,
+                    row_factory=dict_row,
+                    connect_timeout=max(
+                        1,
+                        int(math.ceil(self.configuration.acquire_timeout_seconds)),
+                    ),
+                ) as commit_timestamp_connection:
+                    # Connection setup and path warm-up are outside every frozen bracket.
+                    commit_timestamp_connection.execute("SELECT 1").fetchone()
+                    for sequence in range(1, 9):
+                        nonce = uuid4().hex
+                        before_ns = time.perf_counter_ns()
+                        row = commit_timestamp_connection.execute(
+                            """
+                            WITH observed AS (
+                                SELECT clock_timestamp() AS observed_at
+                            )
+                            SELECT pg_xact_commit_timestamp(%s::xid) AS commit_timestamp,
+                                   observed_at,
+                                   ((EXTRACT(EPOCH FROM observed_at) * 1000000000)::numeric(30,0))::text
+                                       AS observed_unix_ns,
+                                   pg_backend_pid() AS backend_pid,
+                                   current_setting('track_commit_timestamp') AS tracking
+                            FROM observed
+                            """,
+                            (transaction_id,),
+                        ).fetchone()
+                        after_ns = time.perf_counter_ns()
+                        database_clock_candidate_rows.append(
+                            {
+                                "sequence": sequence,
+                                "nonce": nonce,
+                                "monotonic_before_ns": before_ns,
+                                "monotonic_after_ns": after_ns,
+                                "row": row,
+                            }
+                        )
+            except (ControlPlaneStoreError, ImportError):
+                raise
+            except Exception as exc:
+                raise ControlPlaneParityError(
+                    "terminal effect commit timestamp readback failed"
+                ) from exc
+            commit_timestamp_finished_monotonic_ns = time.perf_counter_ns()
+
+        if len(database_clock_candidate_rows) != 8 or any(
+            item["row"] is None for item in database_clock_candidate_rows
+        ):
+            raise ControlPlaneParityError("terminal effect database clock samples are incomplete")
+        candidate_backend_pids = {
+            int(item["row"]["backend_pid"]) for item in database_clock_candidate_rows
+        }
+        candidate_commit_timestamps = {
+            item["row"]["commit_timestamp"] for item in database_clock_candidate_rows
+        }
+        if any(str(item["row"]["tracking"]) != "on" for item in database_clock_candidate_rows):
+            raise ControlPlaneParityError("PostgreSQL track_commit_timestamp is not enabled")
+        if None in candidate_commit_timestamps or len(candidate_commit_timestamps) != 1:
+            raise ControlPlaneParityError("terminal effect commit timestamp is not stable")
+        if len(candidate_backend_pids) != 1:
+            raise ControlPlaneParityError("database clock samples changed connection identity")
+        commit_timestamp_backend_pid = next(iter(candidate_backend_pids))
+        if commit_timestamp_backend_pid <= 0 or commit_timestamp_backend_pid == write_backend_pid:
+            raise ControlPlaneParityError(
+                "terminal effect commit timestamp was not read on a separate connection"
+            )
+        database_clock_anchor_candidates = []
+        for candidate in database_clock_candidate_rows:
+            candidate_row = candidate["row"]
+            anchor = {
+                "schema_version": "evm.s6bm.database_clock_anchor.v2",
+                "sequence": candidate["sequence"],
+                "anchor_nonce": candidate["nonce"],
+                "clock_source": "postgresql_clock_timestamp",
+                "schema_name": schema,
+                "source_identity": (
+                    f"postgresql:{schema}:{transaction_id}:"
+                    f"{commit_timestamp_backend_pid}:{candidate['nonce']}"
+                ),
+                "transaction_id": transaction_id,
+                "backend_pid": commit_timestamp_backend_pid,
+                "monotonic_before_ns": candidate["monotonic_before_ns"],
+                "monotonic_after_ns": candidate["monotonic_after_ns"],
+                "database_clock_timestamp": _utc_iso(candidate_row["observed_at"]),
+                "database_unix_ns": int(candidate_row["observed_unix_ns"]),
+            }
+            anchor["anchor_hash"] = canonical_digest(anchor)
+            database_clock_anchor_candidates.append(anchor)
+        database_clock_anchor = min(
+            database_clock_anchor_candidates,
+            key=lambda item: (
+                int(item["monotonic_after_ns"]) - int(item["monotonic_before_ns"]),
+                int(item["sequence"]),
+            ),
+        )
+        selected_sequence = int(database_clock_anchor["sequence"])
+        commit_timestamp_row = database_clock_candidate_rows[selected_sequence - 1]["row"]
+        return {
+            "commit_timestamp_started_monotonic_ns": commit_timestamp_started_monotonic_ns,
+            "commit_timestamp_finished_monotonic_ns": commit_timestamp_finished_monotonic_ns,
+            "commit_timestamp_backend_pid": commit_timestamp_backend_pid,
+            "commit_timestamp_row": commit_timestamp_row,
+            "database_clock_anchor": database_clock_anchor,
+            "database_clock_anchor_candidates": database_clock_anchor_candidates,
+            "selected_sequence": selected_sequence,
+            "readback_lane": dict(lane),
+        }
+
     def commit_idempotent_terminal_entity_with_receipt(
         self,
         *,
@@ -1527,113 +1768,25 @@ class TransactionalControlPlaneStore:
                 "terminal effect lacks its write transaction or backend identity"
             )
 
-        commit_timestamp_started_monotonic_ns = time.perf_counter_ns()
-        database_clock_candidate_rows: list[dict[str, Any]] = []
-        try:
-            import psycopg
-            from psycopg.rows import dict_row
-
-            if not self.configuration.dsn:
-                raise ControlPlaneStoreUnavailable(
-                    "terminal effect commit timestamp requires a PostgreSQL DSN"
-                )
-            with psycopg.connect(
-                self.configuration.dsn,
-                autocommit=True,
-                row_factory=dict_row,
-                connect_timeout=max(1, int(math.ceil(self.configuration.acquire_timeout_seconds))),
-            ) as commit_timestamp_connection:
-                # Keep connection/query-path warm-up outside the frozen clock bracket.
-                commit_timestamp_connection.execute("SELECT 1").fetchone()
-                for sequence in range(1, 9):
-                    nonce = uuid4().hex
-                    before_ns = time.perf_counter_ns()
-                    row = commit_timestamp_connection.execute(
-                        """
-                        WITH observed AS (
-                            SELECT clock_timestamp() AS observed_at
-                        )
-                        SELECT pg_xact_commit_timestamp(%s::xid) AS commit_timestamp,
-                               observed_at,
-                               ((EXTRACT(EPOCH FROM observed_at) * 1000000000)::numeric(30,0))::text
-                                   AS observed_unix_ns,
-                               pg_backend_pid() AS backend_pid,
-                               current_setting('track_commit_timestamp') AS tracking
-                        FROM observed
-                        """,
-                        (transaction_id,),
-                    ).fetchone()
-                    after_ns = time.perf_counter_ns()
-                    database_clock_candidate_rows.append(
-                        {
-                            "sequence": sequence,
-                            "nonce": nonce,
-                            "monotonic_before_ns": before_ns,
-                            "monotonic_after_ns": after_ns,
-                            "row": row,
-                        }
-                    )
-        except (ControlPlaneStoreError, ImportError):
-            raise
-        except Exception as exc:
-            raise ControlPlaneParityError(
-                "terminal effect commit timestamp readback failed"
-            ) from exc
-        commit_timestamp_finished_monotonic_ns = time.perf_counter_ns()
-        if len(database_clock_candidate_rows) != 8 or any(
-            item["row"] is None for item in database_clock_candidate_rows
-        ):
-            raise ControlPlaneParityError("terminal effect database clock samples are incomplete")
-        candidate_backend_pids = {
-            int(item["row"]["backend_pid"]) for item in database_clock_candidate_rows
-        }
-        candidate_commit_timestamps = {
-            item["row"]["commit_timestamp"] for item in database_clock_candidate_rows
-        }
-        if any(str(item["row"]["tracking"]) != "on" for item in database_clock_candidate_rows):
-            raise ControlPlaneParityError("PostgreSQL track_commit_timestamp is not enabled")
-        if None in candidate_commit_timestamps or len(candidate_commit_timestamps) != 1:
-            raise ControlPlaneParityError("terminal effect commit timestamp is not stable")
-        if len(candidate_backend_pids) != 1:
-            raise ControlPlaneParityError("database clock samples changed connection identity")
-        commit_timestamp_backend_pid = next(iter(candidate_backend_pids))
-        if commit_timestamp_backend_pid <= 0 or (
-            write_backend_pid > 0 and commit_timestamp_backend_pid == write_backend_pid
-        ):
-            raise ControlPlaneParityError(
-                "terminal effect commit timestamp was not read on a separate connection"
-            )
-        database_clock_anchor_candidates = []
-        for candidate in database_clock_candidate_rows:
-            candidate_row = candidate["row"]
-            anchor = {
-                "schema_version": "evm.s6bm.database_clock_anchor.v2",
-                "sequence": candidate["sequence"],
-                "anchor_nonce": candidate["nonce"],
-                "clock_source": "postgresql_clock_timestamp",
-                "schema_name": schema,
-                "source_identity": (
-                    f"postgresql:{schema}:{transaction_id}:"
-                    f"{commit_timestamp_backend_pid}:{candidate['nonce']}"
-                ),
-                "transaction_id": transaction_id,
-                "backend_pid": commit_timestamp_backend_pid,
-                "monotonic_before_ns": candidate["monotonic_before_ns"],
-                "monotonic_after_ns": candidate["monotonic_after_ns"],
-                "database_clock_timestamp": _utc_iso(candidate_row["observed_at"]),
-                "database_unix_ns": int(candidate_row["observed_unix_ns"]),
-            }
-            anchor["anchor_hash"] = canonical_digest(anchor)
-            database_clock_anchor_candidates.append(anchor)
-        database_clock_anchor = min(
-            database_clock_anchor_candidates,
-            key=lambda item: (
-                int(item["monotonic_after_ns"]) - int(item["monotonic_before_ns"]),
-                int(item["sequence"]),
-            ),
+        commit_timestamp_receipt = self._collect_s6bm_commit_timestamp_receipt(
+            transaction_id=transaction_id,
+            write_backend_pid=write_backend_pid,
+            schema=schema,
         )
-        selected_sequence = int(database_clock_anchor["sequence"])
-        commit_timestamp_row = database_clock_candidate_rows[selected_sequence - 1]["row"]
+        commit_timestamp_started_monotonic_ns = int(
+            commit_timestamp_receipt["commit_timestamp_started_monotonic_ns"]
+        )
+        commit_timestamp_finished_monotonic_ns = int(
+            commit_timestamp_receipt["commit_timestamp_finished_monotonic_ns"]
+        )
+        commit_timestamp_backend_pid = int(commit_timestamp_receipt["commit_timestamp_backend_pid"])
+        commit_timestamp_row = dict(commit_timestamp_receipt["commit_timestamp_row"])
+        database_clock_anchor = dict(commit_timestamp_receipt["database_clock_anchor"])
+        database_clock_anchor_candidates = list(
+            commit_timestamp_receipt["database_clock_anchor_candidates"]
+        )
+        selected_sequence = int(commit_timestamp_receipt["selected_sequence"])
+        readback_lane = dict(commit_timestamp_receipt["readback_lane"])
 
         readback_started_monotonic_ns = time.perf_counter_ns()
         with self.transaction("terminal_effect_readback") as connection:
@@ -1715,6 +1868,23 @@ class TransactionalControlPlaneStore:
             "commit_timestamp_tracking": "on",
             "commit_timestamp_visible": True,
             "separate_connection_readback": True,
+            "commit_timestamp_readback_lane": "bounded_parallel_post_commit_v1",
+            "commit_timestamp_readback_concurrency_limit": (
+                self.configuration.commit_timestamp_readback_max_concurrency
+            ),
+            "commit_timestamp_readback_wait_started_monotonic_ns": int(
+                readback_lane["wait_started_monotonic_ns"]
+            ),
+            "commit_timestamp_readback_acquired_monotonic_ns": int(
+                readback_lane["acquired_monotonic_ns"]
+            ),
+            "commit_timestamp_readback_wait_seconds": float(readback_lane["wait_seconds"]),
+            "commit_timestamp_readback_in_flight_at_acquire": int(
+                readback_lane["in_flight_at_acquire"]
+            ),
+            "commit_timestamp_readback_max_in_flight_observed": int(
+                readback_lane["max_in_flight_observed"]
+            ),
             "commit_timestamp_started_monotonic_ns": (commit_timestamp_started_monotonic_ns),
             "commit_timestamp_finished_monotonic_ns": (commit_timestamp_finished_monotonic_ns),
             "database_clock_anchor": database_clock_anchor,

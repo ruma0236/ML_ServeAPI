@@ -309,6 +309,13 @@ class TritonBlueGreenDurableEffectReceipt(ContractModel):
     commit_timestamp_tracking: Literal["on"] | None = None
     commit_timestamp_visible: bool | None = None
     separate_connection_readback: bool | None = None
+    commit_timestamp_readback_lane: str | None = None
+    commit_timestamp_readback_concurrency_limit: int | None = Field(default=None, ge=2)
+    commit_timestamp_readback_wait_started_monotonic_ns: int | None = Field(default=None, gt=0)
+    commit_timestamp_readback_acquired_monotonic_ns: int | None = Field(default=None, gt=0)
+    commit_timestamp_readback_wait_seconds: float | None = Field(default=None, ge=0)
+    commit_timestamp_readback_in_flight_at_acquire: int | None = Field(default=None, ge=1)
+    commit_timestamp_readback_max_in_flight_observed: int | None = Field(default=None, ge=1)
     commit_timestamp_started_monotonic_ns: int | None = Field(default=None, gt=0)
     commit_timestamp_finished_monotonic_ns: int | None = Field(default=None, gt=0)
     database_clock_anchor: dict[str, object] | None = None

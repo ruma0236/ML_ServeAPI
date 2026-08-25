@@ -193,10 +193,7 @@ class S6BMConfig:
                 "commit_readback_required": True,
                 "entity_kind": "s6bm_terminal_effect",
             }
-            if any(
-                self.durable_effect.get(key) != value
-                for key, value in required_effect.items()
-            ):
+            if any(self.durable_effect.get(key) != value for key, value in required_effect.items()):
                 raise S6BMRuntimeError("s6bm_durable_effect_contract")
         if self.schema_version.endswith(".v3"):
             required_clock = {
@@ -220,10 +217,7 @@ class S6BMConfig:
                 "unload_requires_all_pre_switch_blue_terminal_effects": True,
                 "exact_commit_instant_claimed": False,
             }
-            if any(
-                self.causal_fence.get(key) != value
-                for key, value in required_fence.items()
-            ):
+            if any(self.causal_fence.get(key) != value for key, value in required_fence.items()):
                 raise S6BMRuntimeError("s6bm_causal_fence_contract")
             if self.causal_fence.get("required_start_receipts") != [
                 "api_server_handler_entry",
@@ -241,8 +235,7 @@ class S6BMConfig:
                 "missing_or_ambiguous_trace_fails": True,
             }
             if any(
-                self.triton_actor_receipt.get(key) != value
-                for key, value in required_actor.items()
+                self.triton_actor_receipt.get(key) != value for key, value in required_actor.items()
             ):
                 raise S6BMRuntimeError("s6bm_triton_actor_receipt_contract")
             required_effect = {
@@ -252,10 +245,7 @@ class S6BMConfig:
                 "entity_kind": "s6bm_terminal_effect",
                 "same_transaction_causal_receipt": True,
             }
-            if any(
-                self.durable_effect.get(key) != value
-                for key, value in required_effect.items()
-            ):
+            if any(self.durable_effect.get(key) != value for key, value in required_effect.items()):
                 raise S6BMRuntimeError("s6bm_durable_effect_contract_v3")
         if self.schema_version.endswith(".v4"):
             required_clock = {
@@ -283,9 +273,7 @@ class S6BMConfig:
                 "same_transaction_entity_idempotency_effect_event_and_sequence": True,
                 "exact_commit_instant_claimed": False,
             }
-            if any(
-                self.causal_fence.get(key) != value for key, value in required_fence.items()
-            ):
+            if any(self.causal_fence.get(key) != value for key, value in required_fence.items()):
                 raise S6BMRuntimeError("s6bm_causal_fence_contract_v4")
             if self.causal_fence.get("required_start_receipts") != [
                 "api_server_handler_entry",
@@ -305,8 +293,7 @@ class S6BMConfig:
                 "runner_synthesized_receipt_forbidden": True,
             }
             if any(
-                self.triton_actor_receipt.get(key) != value
-                for key, value in required_actor.items()
+                self.triton_actor_receipt.get(key) != value for key, value in required_actor.items()
             ):
                 raise S6BMRuntimeError("s6bm_triton_actor_receipt_contract_v4")
             required_effect = {
@@ -315,13 +302,15 @@ class S6BMConfig:
                 "commit_readback_required": True,
                 "commit_timestamp_tracking_required": True,
                 "commit_timestamp_separate_connection_required": True,
+                "commit_timestamp_readback_lane": "bounded_parallel_post_commit_v1",
+                "commit_timestamp_readback_max_concurrency": 2,
+                "commit_timestamp_readback_acquire_timeout_seconds": 2.0,
+                "write_pool_size_change_forbidden": True,
+                "whole_request_serialization_forbidden": True,
                 "entity_kind": "s6bm_terminal_effect",
                 "same_transaction_causal_receipt": True,
             }
-            if any(
-                self.durable_effect.get(key) != value
-                for key, value in required_effect.items()
-            ):
+            if any(self.durable_effect.get(key) != value for key, value in required_effect.items()):
                 raise S6BMRuntimeError("s6bm_durable_effect_contract_v4")
             if self.trace != {
                 "contract": "w3c_parent_chain_to_triton_backend_v1",
@@ -452,9 +441,7 @@ def _validate_model_identities(raw: Mapping[str, Any], config: S6BMConfig) -> No
         raise S6BMRuntimeError("s6bm_identity_lease")
 
 
-def project_raw_drain_timeline(
-    raw: Mapping[str, Any], config: S6BMConfig
-) -> dict[str, Any]:
+def project_raw_drain_timeline(raw: Mapping[str, Any], config: S6BMConfig) -> dict[str, Any]:
     """Recompute the Blue drain invariant from immutable request and phase records."""
     timeline = [dict(item) for item in raw.get("phase_timeline", [])]
     phases = {

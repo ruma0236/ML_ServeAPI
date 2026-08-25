@@ -682,6 +682,17 @@ def start_api(
             ),
             "EVM_S6BM_DATABASE_URL": CONTROL_PLANE_DATABASE_URL,
             "EVM_S6BM_DATABASE_SCHEMA": database_schema,
+            "EVM_S6BM_DATABASE_POOL_MIN_SIZE": str(config.durable_effect["pool_min_size"]),
+            "EVM_S6BM_DATABASE_POOL_MAX_SIZE": str(config.durable_effect["pool_max_size"]),
+            "EVM_S6BM_DATABASE_ACQUIRE_TIMEOUT_SECONDS": str(
+                config.durable_effect["acquire_timeout_seconds"]
+            ),
+            "EVM_S6BM_COMMIT_READBACK_MAX_CONCURRENCY": str(
+                config.durable_effect["commit_timestamp_readback_max_concurrency"]
+            ),
+            "EVM_S6BM_COMMIT_READBACK_ACQUIRE_TIMEOUT_SECONDS": str(
+                config.durable_effect["commit_timestamp_readback_acquire_timeout_seconds"]
+            ),
             "EVM_CONTROL_PLANE_AUTO_MIGRATE": "true",
         }
     )
@@ -996,9 +1007,7 @@ def start_triton_start_receipt_collector(
     request = TritonBlueGreenPredictRequest.model_validate(dict(body))
     identity = expected_causal_identity_for_request(request)
     wait_seconds = (
-        float(config.procedure["drain_timeout_seconds"])
-        if timeout is None
-        else float(timeout)
+        float(config.procedure["drain_timeout_seconds"]) if timeout is None else float(timeout)
     )
     if wait_seconds <= 0:
         raise S6BMExperimentError("triton_compute_start_trace_timeout_bound")
@@ -1041,9 +1050,7 @@ def start_triton_start_receipt_collector(
     stdout_handle = stdout_path.open("w", encoding="utf-8", newline="\n")
     stderr_handle = stderr_path.open("w", encoding="utf-8", newline="\n")
     env = os.environ.copy()
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(ROOT / "src"), str(ROOT), env.get("PYTHONPATH", "")]
-    )
+    env["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), str(ROOT), env.get("PYTHONPATH", "")])
     process = subprocess.Popen(
         [
             sys.executable,
@@ -1727,12 +1734,9 @@ def expected_attempt_trace_counts(attempt: Mapping[str, Any]) -> dict[str, int]:
         or len(request_ids) != len(records)
         or replay_record.get("replayed") is not True
         or str(replay_record.get("request_id", "")) not in request_ids
-        or int(replay.get("unique_count_before", -1))
-        != int(replay.get("unique_count_after", -2))
+        or int(replay.get("unique_count_before", -1)) != int(replay.get("unique_count_after", -2))
     ):
-        raise S6BMExperimentError(
-            f"otlp_replay_identity:{str(attempt.get('attempt_id', ''))}"
-        )
+        raise S6BMExperimentError(f"otlp_replay_identity:{str(attempt.get('attempt_id', ''))}")
     return {
         "controller": len(records) + 1,
         "inference": len(records),
@@ -1789,10 +1793,7 @@ def finish_attempt_observability(
         ):
             break
         time.sleep(1)
-    if (
-        controller_spans != expected_controller_spans
-        or inference_spans != expected_inference_spans
-    ):
+    if controller_spans != expected_controller_spans or inference_spans != expected_inference_spans:
         raise S6BMExperimentError(
             f"otlp_trace_convergence:{attempt_id}:"
             f"controller={controller_spans}/{expected_controller_spans}:"
@@ -1882,12 +1883,8 @@ def capture_post_unload_observability(
     canonical_write(prometheus_path, prometheus)
     checkpoint["artifacts"].update(
         {
-            "triton_metrics_after_blue_unload": artifact_reference(
-                suite_root, triton_path
-            ),
-            "prometheus_after_blue_unload": artifact_reference(
-                suite_root, prometheus_path
-            ),
+            "triton_metrics_after_blue_unload": artifact_reference(suite_root, triton_path),
+            "prometheus_after_blue_unload": artifact_reference(suite_root, prometheus_path),
         }
     )
 
@@ -2145,9 +2142,7 @@ def run_success(
         for _ in range(int(config.procedure["warmup_requests"])):
             direct_infer(config, "blue")
         apply_control(config, lease, "blue_switched")
-        timeline.append(
-            phase_entry(config, "blue_active_rollback", clock_chain=clock_chain)
-        )
+        timeline.append(phase_entry(config, "blue_active_rollback", clock_chain=clock_chain))
         apply_control(config, lease, "green_drain_started")
         timeline.append(phase_entry(config, "green_draining", clock_chain=clock_chain))
         wait_in_flight(config, "green", 0, float(config.procedure["drain_timeout_seconds"]))
@@ -2245,6 +2240,15 @@ def run_success(
         {
             "trace_correlation_complete": observability["trace_correlation_complete"],
             "metric_delta_complete": observability["metric_delta_complete"],
+        }
+    )
+    prevalidation_path = suite_root / "prevalidation" / f"{attempt_id}-raw-receipt-bundle.json"
+    canonical_write(prevalidation_path, result)
+    execution_progress.update(
+        {
+            "attempt_id": attempt_id,
+            "requests": summary,
+            "prevalidation_artifact": artifact_reference(suite_root, prevalidation_path),
         }
     )
     result["causal_projection"] = validate_causal_bundle(
@@ -2705,9 +2709,7 @@ def main() -> int:
             "manifest_sha256": sha256_file(model_root / "model-repository-manifest.json"),
             "repository_sha256": manifest["repository_sha256"],
         },
-        "control_plane_schema_sha256": hashlib.sha256(
-            database_schema.encode("ascii")
-        ).hexdigest(),
+        "control_plane_schema_sha256": hashlib.sha256(database_schema.encode("ascii")).hexdigest(),
     }
     canonical_write(suite_root / "environment-preflight.json", environment)
 
