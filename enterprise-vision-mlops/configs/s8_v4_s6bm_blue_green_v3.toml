@@ -1,0 +1,107 @@
+schema_version = "evm.s8_v4.s6bm_runtime_config.v3"
+
+[identity]
+triton_image = "nvcr.io/nvidia/tritonserver:25.08-py3"
+triton_image_digest = "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0687a4d2ac9f7a5"
+expected_gpu_name = "NVIDIA GeForce RTX 4080 SUPER"
+model_repository_sha256 = "5f27136b5f53522b2e8b21a9e2ba6dc25c63b7a6e862c839f704c6b2437efbed"
+seed = 20260825
+
+[blue]
+model_name = "s6bm_blue"
+model_version = "1"
+artifact_sha256 = "4ba059b79a9c8b91017dd415395cddc53395d593360131598fec303a210771f8"
+config_sha256 = "ca9c4846c17b2c3a1ff8fe48cf6bc5b66bab7aa58037eb84366875e4cfc4490b"
+expected_output = [3.0, 5.0, 7.0, 9.0]
+
+[green]
+model_name = "s6bm_green"
+model_version = "1"
+artifact_sha256 = "194a45c3f82d95ef3a21da16f533ba959fd1c76afa9088a6a795256c50fd2146"
+config_sha256 = "b3b33e38e4bd6ae82a8f2dbbc53a9dd1ef1db54be679615eca1352858e003499"
+expected_output = [4.0, 6.0, 8.0, 10.0]
+
+[procedure]
+baseline_repetitions = 3
+successful_transition_repetitions = 3
+wrong_digest_repetitions = 3
+negative_profile_repetitions = 3
+logical_requests_per_transition = 1000
+baseline_requests = 250
+canary_requests = 100
+warmup_requests = 20
+request_concurrency = 16
+long_in_flight_hold_ms = 1200
+readiness_timeout_seconds = 30
+drain_timeout_seconds = 15
+cleanup_timeout_seconds = 120
+vram_headroom_mib = 512
+max_transition_p99_ms = 250.0
+max_inter_completion_gap_ms = 2500.0
+max_transition_5xx = 0
+canary_weight_percent = 10
+
+[clock]
+contract = "independent_dual_clock_anchor_chain_v2"
+max_anchor_width_ns = 1000000
+max_anchor_gap_seconds = 30
+max_offset_spread_ns = 2000000
+max_phase_interval_ns = 250000000
+per_request_offset_forbidden = true
+overlapping_causal_intervals_fail = true
+source_identity_required = true
+required_phase_anchors = ["blue_only", "green_active", "blue_draining", "green_only", "blue_active_rollback", "rolled_back"]
+
+[causal_fence]
+contract = "existing_transactional_store_causal_sequence_v1"
+event_table = "s6bm_causal_events"
+sequence_kind = "postgresql_bigserial"
+crossover_request_selection = "predetermined_blue_hold_request_before_dispatch"
+required_start_receipts = ["api_server_handler_entry", "controller_entry", "triton_backend_compute_entry"]
+receipt_commit_readback_required = true
+receipt_identity_fields = ["attempt_id", "run_id", "request_id", "request_nonce", "trace_id", "effect_id", "model_role", "model_name", "model_version", "artifact_sha256", "route_generation", "actor_identity"]
+route_switch_requires_all_start_receipts = true
+route_switch_event = "blue_to_green_switch_commit"
+stale_blue_admission_forbidden = true
+terminal_effect_event = "durable_terminal_effect_commit"
+unload_intent_event = "blue_unload_intent"
+unload_requires_all_pre_switch_blue_terminal_effects = true
+exact_commit_instant_claimed = false
+
+[triton_actor_receipt]
+contract = "official_triton_timestamp_trace_collector_v1"
+required_activity = "COMPUTE_START"
+raw_trace_required = true
+request_nonce_binding_required = true
+model_version_artifact_binding_required = true
+collector_commit_readback_required = true
+missing_or_ambiguous_trace_fails = true
+
+[durable_effect]
+contract = "existing_control_plane_entities_idempotency_causal_v2"
+synchronous_commit = "on"
+commit_readback_required = true
+entity_kind = "s6bm_terminal_effect"
+scope_prefix = "s6bm.terminal-effect"
+same_transaction_causal_receipt = true
+schema_prefix = "evm_s6bm_v4"
+pool_min_size = 1
+pool_max_size = 8
+acquire_timeout_seconds = 2.0
+lock_timeout_seconds = 2.0
+statement_timeout_seconds = 10.0
+
+[ports]
+triton_http = 18100
+triton_grpc = 18101
+triton_metrics = 18102
+api = 18110
+
+[telemetry]
+prometheus_job_triton = "evm-s8-v4-s6bm-triton"
+prometheus_job_api = "evm-s8-v4-s6bm-api"
+prometheus_scrape_seconds = 1
+
+[claim_boundary]
+scope = "one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, one local PostgreSQL control-plane instance, controlled traffic"
+excluded = ["production SLA", "database HA/DR durability", "physical HA", "node failover", "multi-node", "multi-GPU", "MIG", "MPS", "zero-interruption guarantee", "exact PostgreSQL commit timestamp"]
