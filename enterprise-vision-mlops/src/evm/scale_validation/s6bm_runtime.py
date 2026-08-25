@@ -15,6 +15,12 @@ CLAIM_BOUNDARY = (
     "controlled traffic; not production SLA, physical HA, node failover, multi-node, "
     "multi-GPU, MIG, MPS, or a zero-interruption guarantee"
 )
+STRICT_V4_CLAIM_BOUNDARY = (
+    "one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, "
+    "one local PostgreSQL control-plane instance, controlled traffic; not production SLA, "
+    "database HA/DR durability, physical HA, node failover, multi-node, multi-GPU, MIG, "
+    "MPS, or a zero-interruption guarantee"
+)
 SUCCESS_PHASES = [
     "blue_only",
     "green_warmup",
@@ -93,6 +99,8 @@ class S6BMConfig:
     blue: S6BMModel
     green: S6BMModel
     procedure: Mapping[str, int | float]
+    clock: Mapping[str, Any]
+    durable_effect: Mapping[str, Any]
     ports: Mapping[str, int]
     telemetry: Mapping[str, str | int]
     claim_boundary: str
@@ -104,6 +112,8 @@ class S6BMConfig:
         procedure = dict(raw["procedure"])
         ports = {str(key): int(value) for key, value in dict(raw["ports"]).items()}
         telemetry = dict(raw["telemetry"])
+        clock = dict(raw.get("clock", {}))
+        durable_effect = dict(raw.get("durable_effect", {}))
         config = cls(
             schema_version=str(raw["schema_version"]),
             image=str(identity["triton_image"]),
@@ -114,6 +124,8 @@ class S6BMConfig:
             blue=S6BMModel.from_mapping("blue", dict(raw["blue"])),
             green=S6BMModel.from_mapping("green", dict(raw["green"])),
             procedure=procedure,
+            clock=clock,
+            durable_effect=durable_effect,
             ports=ports,
             telemetry=telemetry,
             claim_boundary=str(dict(raw["claim_boundary"])["scope"]),
@@ -122,7 +134,10 @@ class S6BMConfig:
         return config
 
     def validate(self) -> None:
-        if self.schema_version != "evm.s8_v4.s6bm_runtime_config.v1":
+        if self.schema_version not in {
+            "evm.s8_v4.s6bm_runtime_config.v1",
+            "evm.s8_v4.s6bm_runtime_config.v2",
+        }:
             raise S6BMRuntimeError("s6bm_config_schema")
         if not self.image_digest.startswith("sha256:") or len(self.image_digest) != 71:
             raise S6BMRuntimeError("s6bm_image_digest")
@@ -148,6 +163,27 @@ class S6BMConfig:
             raise S6BMRuntimeError("s6bm_gap_guardrail")
         if len(set(self.ports.values())) != len(self.ports):
             raise S6BMRuntimeError("s6bm_port_collision")
+        if self.schema_version.endswith(".v2"):
+            required_clock = {
+                "contract": "independent_dual_clock_anchor_chain_v1",
+                "max_anchor_width_ns": 1_000_000,
+                "max_anchor_gap_seconds": 30,
+                "max_offset_spread_ns": 2_000_000,
+                "max_phase_interval_ns": 250_000_000,
+            }
+            if any(self.clock.get(key) != value for key, value in required_clock.items()):
+                raise S6BMRuntimeError("s6bm_clock_contract")
+            required_effect = {
+                "contract": "existing_control_plane_entities_idempotency_v1",
+                "synchronous_commit": "on",
+                "commit_readback_required": True,
+                "entity_kind": "s6bm_terminal_effect",
+            }
+            if any(
+                self.durable_effect.get(key) != value
+                for key, value in required_effect.items()
+            ):
+                raise S6BMRuntimeError("s6bm_durable_effect_contract")
 
     def public_snapshot(self) -> dict[str, Any]:
         return {
@@ -164,9 +200,15 @@ class S6BMConfig:
                 "green": self.green.__dict__,
             },
             "procedure": dict(self.procedure),
+            "clock": dict(self.clock),
+            "durable_effect": dict(self.durable_effect),
             "ports": dict(self.ports),
             "telemetry": dict(self.telemetry),
-            "claim_boundary": CLAIM_BOUNDARY,
+            "claim_boundary": (
+                STRICT_V4_CLAIM_BOUNDARY
+                if self.schema_version.endswith(".v2")
+                else CLAIM_BOUNDARY
+            ),
         }
 
 
