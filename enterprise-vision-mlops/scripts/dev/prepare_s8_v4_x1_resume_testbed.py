@@ -17,12 +17,15 @@ if str(SRC) not in sys.path:
 
 from evm.model_runtime.tiny_mlp import build_tiny_mlp  # noqa: E402
 from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
+    DEFAULT_CONFIG_RELATIVE_PATH,
     MANIFEST_SCHEMA_VERSION,
+    REQUIRED_SOURCE_BLOB_PATHS,
     X1ResumeConfig,
     X1ResumeTestbedError,
     canonical,
     canonical_sha256,
     canonical_write,
+    require_default_config_path,
     sha256_file,
 )
 
@@ -34,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=ROOT / "configs/s8_v4_x1_resume_testbed_v1.toml",
+        default=ROOT / DEFAULT_CONFIG_RELATIVE_PATH,
     )
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -57,6 +60,21 @@ def read_json(path: Path, label: str) -> dict[str, Any]:
     return payload
 
 
+def governed_manifest_file(manifest_path: Path, raw_path: Any, label: str) -> Path:
+    if not isinstance(raw_path, str) or not raw_path:
+        raise X1ResumeTestbedError(f"x1_resume_s5_shard_path:{label}")
+    relative = Path(raw_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise X1ResumeTestbedError(f"x1_resume_s5_shard_path:{label}")
+    root = manifest_path.parent.resolve()
+    path = (root / relative).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise X1ResumeTestbedError(f"x1_resume_s5_shard_containment:{label}") from exc
+    return require_file(path, label)
+
+
 def resolve_registry_artifact(registry_path: Path, entry: dict[str, Any], label: str) -> Path:
     relative = Path(str(entry.get("artifact_uri") or ""))
     if relative.is_absolute() or ".." in relative.parts:
@@ -75,7 +93,7 @@ def stable_bucket(value: object, buckets: int) -> int:
 
 
 def load_criteo_samples(
-    manifest_path: Path, rows: int, buckets: int
+    manifest_path: Path, rows: int, buckets: int, *, data_root: Path
 ) -> tuple[list[list[float]], dict[str, Any]]:
     try:
         import pyarrow.parquet as pq
@@ -89,15 +107,11 @@ def load_criteo_samples(
         raise X1ResumeTestbedError("x1_resume_s5_shards_absent")
     for item in shards:
         shard = dict(item)
-        governed = require_file(
-            manifest_path.parent / str(shard.get("governed_path") or ""), "s5_shard"
-        )
+        governed = governed_manifest_file(manifest_path, shard.get("governed_path"), "s5_shard")
         if sha256_file(governed) != shard.get("governed_sha256"):
             raise X1ResumeTestbedError("x1_resume_s5_shard_digest")
     first = dict(shards[0])
-    shard_path = require_file(
-        manifest_path.parent / str(first.get("governed_path") or ""), "s5_shard"
-    )
+    shard_path = governed_manifest_file(manifest_path, first.get("governed_path"), "s5_shard")
     if sha256_file(shard_path) != first.get("governed_sha256"):
         raise X1ResumeTestbedError("x1_resume_s5_shard_digest")
     names = (
@@ -125,11 +139,14 @@ def load_criteo_samples(
         ]
         samples.append(dense + categorical)
     return samples, {
+        "manifest_path": manifest_path.relative_to(data_root).as_posix(),
         "manifest_sha256": sha256_file(manifest_path),
+        "manifest_bytes": manifest_path.stat().st_size,
         "dataset_version": manifest.get("dataset_version"),
         "source_revision": manifest.get("source_revision"),
         "shard_path": str(first.get("governed_path")),
         "shard_sha256": sha256_file(shard_path),
+        "shard_bytes": shard_path.stat().st_size,
         "sample_rows": rows,
         "categorical_hash": "sha256-first-u64-mod-4096",
         "dense_transform": "log1p(max(value,0))",
@@ -273,9 +290,12 @@ def build_models(
         raise X1ResumeTestbedError("x1_resume_higgs_replay_shape")
     higgs_samples = np.asarray(replay, dtype="float32").tolist()
     higgs_replay_binding = {
+        "registry_path": registry_path.relative_to(data_root).as_posix(),
         "registry_sha256": sha256_file(registry_path),
+        "registry_bytes": registry_path.stat().st_size,
         "replay_path": replay_path.relative_to(data_root).as_posix(),
         "replay_sha256": sha256_file(replay_path),
+        "replay_bytes": replay_path.stat().st_size,
         "replay_shape": [int(value) for value in np.load(replay_path, mmap_mode="r").shape],
         "sample_shape": [int(value) for value in replay.shape],
         "dataset_identity_sha256": registry.get("dataset_identity_sha256"),
@@ -292,7 +312,10 @@ def build_models(
 
     buckets = 4096
     criteo_samples, criteo_binding = load_criteo_samples(
-        data_root / config.input_paths["s5_manifest"], config.sample_rows_per_dataset, buckets
+        data_root / config.input_paths["s5_manifest"],
+        config.sample_rows_per_dataset,
+        buckets,
+        data_root=data_root,
     )
     torch.manual_seed(config.seed)
     modules = {
@@ -308,6 +331,7 @@ def build_models(
             "source_schema": logistic_artifact.get("schema_version"),
             "source_path": logistic_path.relative_to(data_root).as_posix(),
             "source_sha256": sha256_file(logistic_path),
+            "source_bytes": logistic_path.stat().st_size,
             "dataset_identity_sha256": logistic_artifact.get("dataset_identity_sha256"),
             "replay": higgs_replay_binding,
         },
@@ -315,6 +339,7 @@ def build_models(
             "source_schema": gaussian_artifact.get("schema_version"),
             "source_path": gaussian_path.relative_to(data_root).as_posix(),
             "source_sha256": sha256_file(gaussian_path),
+            "source_bytes": gaussian_path.stat().st_size,
             "dataset_identity_sha256": gaussian_artifact.get("dataset_identity_sha256"),
             "replay": higgs_replay_binding,
         },
@@ -322,9 +347,14 @@ def build_models(
             "source_schema": s4_registry.get("schema_version"),
             "source_path": s4_artifact_path.relative_to(data_root).as_posix(),
             "source_sha256": sha256_file(s4_artifact_path),
+            "source_bytes": s4_artifact_path.stat().st_size,
             "model_identity_sha256": s4_registry.get("model_identity_sha256"),
             "registry_sha256": sha256_file(s4_registry_path),
+            "registry_path": s4_registry_path.relative_to(data_root).as_posix(),
+            "registry_bytes": s4_registry_path.stat().st_size,
             "preprocessing_sha256": s4_registry.get("preprocessing_sha256"),
+            "dataset_identity_sha256": s4_registry.get("dataset_identity_sha256"),
+            "split_manifest_sha256": s4_registry.get("split_manifest_sha256"),
             "replay": higgs_replay_binding,
         },
         "criteo_dlrm_lite": {
@@ -361,25 +391,32 @@ def git(*args: str) -> str:
     ).stdout.strip()
 
 
-def committed_blob(relative: str) -> dict[str, str]:
+def committed_blob(relative: str, revision: str) -> dict[str, str]:
     path = ROOT / relative
     repository_root = Path(git("rev-parse", "--show-toplevel"))
     repository_relative = path.resolve().relative_to(repository_root.resolve()).as_posix()
-    blob = git("rev-parse", f"HEAD:{repository_relative}")
+    blob = git("rev-parse", f"{revision}:{repository_relative}")
     committed = subprocess.run(
-        ["git", "show", f"HEAD:{repository_relative}"],
+        ["git", "show", f"{revision}:{repository_relative}"],
         cwd=ROOT,
         check=True,
         capture_output=True,
     ).stdout
     if path.read_bytes() != committed:
         raise X1ResumeTestbedError(f"x1_resume_source_blob_mismatch:{relative}")
-    return {"path": relative, "blob_oid": blob, "sha256": hashlib.sha256(committed).hexdigest()}
+    return {
+        "path": relative,
+        "source_revision": revision,
+        "blob_oid": blob,
+        "sha256": hashlib.sha256(committed).hexdigest(),
+        "working_sha256": sha256_file(path),
+    }
 
 
 def main() -> int:
     args = parse_args()
-    config = X1ResumeConfig.from_path(args.config)
+    config_path = require_default_config_path(args.config, ROOT)
+    config = X1ResumeConfig.from_path(config_path)
     if git("status", "--porcelain"):
         raise X1ResumeTestbedError("x1_resume_prepare_requires_clean_committed_worktree")
     if args.output.exists():
@@ -457,21 +494,17 @@ def main() -> int:
                 "artifact_sha256": artifact["sha256"],
                 "config_sha256": model_config["sha256"],
             }
+    source_revision = git("rev-parse", "HEAD")
+    source_tree_sha = git("rev-parse", "HEAD^{tree}")
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "claim_class": "preliminary_controlled_testbed",
         "credit": "non_credit",
         "config_sha256": config.sha256,
-        "source_revision": git("rev-parse", "HEAD"),
-        "source_tree_sha": git("rev-parse", "HEAD^{tree}"),
+        "source_revision": source_revision,
+        "source_tree_sha": source_tree_sha,
         "source_blobs": [
-            committed_blob(".gitattributes"),
-            committed_blob("configs/s8_v4_x1_resume_testbed_v1.toml"),
-            committed_blob("src/evm/control_panel/scenario_workloads.py"),
-            committed_blob("src/evm/scale_validation/x1_resume_testbed.py"),
-            committed_blob("scripts/dev/prepare_s8_v4_x1_resume_testbed.py"),
-            committed_blob("scripts/dev/run_s8_v4_x1_resume_testbed.py"),
-            committed_blob("scripts/dev/validate_s8_v4_x1_resume_testbed.py"),
+            committed_blob(relative, source_revision) for relative in REQUIRED_SOURCE_BLOB_PATHS
         ],
         "triton_image": config.immutable_image,
         "backend": "pytorch",

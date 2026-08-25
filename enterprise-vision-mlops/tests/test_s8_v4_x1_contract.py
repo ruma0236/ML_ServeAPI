@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,25 @@ AMENDMENT = ROOT / "docs/status/evidence/s8-v4-x1-method-contract-amendment.json
 
 def _config() -> X1RuntimeConfig:
     return X1RuntimeConfig.from_path(CONFIG)
+
+
+def _git_blob_bytes(path: Path) -> bytes:
+    repository_root = Path(
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    )
+    relative = path.resolve().relative_to(repository_root.resolve()).as_posix()
+    return subprocess.run(
+        ["git", "show", f"HEAD:{relative}"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
 
 
 def _planned_payload() -> dict[str, object]:
@@ -67,9 +87,8 @@ def _install_verified_dependency(tmp_path: Path) -> tuple[Path, dict[str, object
             "handoff_tree_sha": tree,
         },
     }
-    closure_path.write_text(
-        json.dumps(closure, sort_keys=True, separators=(",", ":")) + "\n",
-        encoding="ascii",
+    closure_path.write_bytes(
+        (json.dumps(closure, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
     )
     closure_sha = hashlib.sha256(closure_path.read_bytes()).hexdigest()
     event = append_event(
@@ -173,6 +192,7 @@ def _noncredit_gate_runs() -> list[dict[str, object]]:
 
 def test_method_amendment_preserves_plan_and_freezes_exact_arithmetic() -> None:
     config = _config()
+    plan_bytes = _git_blob_bytes(PLAN)
     amendment_bytes = AMENDMENT.read_bytes()
     amendment = json.loads(amendment_bytes)
     assert amendment_bytes == (
@@ -181,8 +201,8 @@ def test_method_amendment_preserves_plan_and_freezes_exact_arithmetic() -> None:
         )
         + "\n"
     ).encode("ascii")
-    assert hashlib.sha256(PLAN.read_bytes()).hexdigest() == amendment["amends"]["preserved_sha256"]
-    assert PLAN.stat().st_size == amendment["amends"]["preserved_byte_length"]
+    assert hashlib.sha256(plan_bytes).hexdigest() == amendment["amends"]["preserved_sha256"]
+    assert len(plan_bytes) == amendment["amends"]["preserved_byte_length"]
     assert tuple(item["model_id"] for item in amendment["model_set"]) == EXPECTED_MODELS
     assert config.accepted_phase_counts == ACCEPTED_PHASE_COUNTS
     assert config.accepted_total_runs == 39

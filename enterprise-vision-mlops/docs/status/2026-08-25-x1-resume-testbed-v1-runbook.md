@@ -6,8 +6,10 @@ claim completion of S8-V4.
 
 ## Purpose and fixed matrix
 
-The testbed packages four governed HIGGS/Criteo-derived model paths into the
-pinned Triton PyTorch GPU backend:
+The testbed packages four named, deterministically seeded CUDA test-model paths
+that use governed HIGGS/Criteo inputs into the pinned Triton PyTorch GPU backend.
+It does not independently reconstruct every prepared TorchScript parameter from
+the source artifacts, so it does not claim trained-model lineage or quality:
 
 - HIGGS LogisticRegression from the S3 JSON artifact;
 - HIGGS GaussianNB from the S3 JSON artifact;
@@ -64,6 +66,7 @@ $Report = "docs\status\evidence\s8-v4-x1-resume-testbed-report-$Revision-$Stamp.
 & $Python scripts\dev\run_s8_v4_x1_resume_testbed.py `
   --config configs\s8_v4_x1_resume_testbed_v1.toml `
   --model-repository-root $ModelRepo `
+  --data-root $DataRoot `
   --private-base $PrivateBase `
   --output $Evidence `
   --report-output $Report `
@@ -71,12 +74,37 @@ $Report = "docs\status\evidence\s8-v4-x1-resume-testbed-report-$Revision-$Stamp.
 
 $SuiteId = (Get-Content $Evidence -Raw | ConvertFrom-Json).suite_id
 $SuiteRoot = Join-Path $PrivateBase $SuiteId
+$RevalidatedReport = "$Report.revalidated.json"
 
 & $Python scripts\dev\validate_s8_v4_x1_resume_testbed.py `
   --config configs\s8_v4_x1_resume_testbed_v1.toml `
   --evidence $Evidence `
   --private-suite-root $SuiteRoot `
-  --model-repository-root $ModelRepo
+  --model-repository-root $ModelRepo `
+  --data-root $DataRoot `
+  --report $Report `
+  --report-output $RevalidatedReport
+
+if ((Get-FileHash $Report -Algorithm SHA256).Hash -ne `
+    (Get-FileHash $RevalidatedReport -Algorithm SHA256).Hash) {
+  throw 'X1 resume report regeneration mismatch'
+}
+Remove-Item -LiteralPath $RevalidatedReport
+
+# Commit the immutable evidence and report, then bind their actual Git blobs to
+# a descendant of the frozen source revision. Do not use this gate before commit.
+git add -- $Evidence $Report
+git commit -m 'docs(x1): record resume testbed evidence'
+
+& $Python scripts\dev\validate_s8_v4_x1_resume_testbed.py `
+  --config configs\s8_v4_x1_resume_testbed_v1.toml `
+  --evidence $Evidence `
+  --private-suite-root $SuiteRoot `
+  --model-repository-root $ModelRepo `
+  --data-root $DataRoot `
+  --report $Report `
+  --require-git-binding `
+  --result-revision HEAD
 ```
 
 Both preparation and execution require a clean committed worktree. Preparation

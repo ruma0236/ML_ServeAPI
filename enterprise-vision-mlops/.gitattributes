@@ -17,6 +17,7 @@ src/evm/control_panel/scenario_workloads.py text eol=lf
 scripts/dev/prepare_s8_v4_x1_resume_testbed.py text eol=lf
 scripts/dev/run_s8_v4_x1_resume_testbed.py text eol=lf
 scripts/dev/validate_s8_v4_x1_resume_testbed.py text eol=lf
+docs/status/2026-08-25-x1-resume-testbed-v1-runbook.md text eol=lf
 tests/test_s8_v4_x1_resume_testbed.py text eol=lf
 monitoring/prometheus/prometheus.yml text eol=lf
 infra/postgres/control-plane/*.sql text eol=lf

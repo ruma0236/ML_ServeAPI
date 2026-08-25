@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -29,27 +31,41 @@ if str(SRC) not in sys.path:
 from evm.control_panel.scenario_workloads import (  # noqa: E402
     acquire_scale_validation_gpu_lease,
     assert_scale_validation_gpu_lease_owner,
+    gpu_lease_root,
     read_active_gpu_lease,
     release_scale_validation_gpu_lease,
 )
 from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
+    DEFAULT_CONFIG_RELATIVE_PATH,
     EXPECTED_MODELS,
     EXPECTED_PROMETHEUS_JOBS,
     MANIFEST_SCHEMA_VERSION,
+    REQUIRED_SOURCE_BLOB_PATHS,
     CellSpec,
     X1ResumeConfig,
     X1ResumeTestbedError,
+    _triton_metric_deltas,
+    _triton_metrics_for_model,
     canonical,
     canonical_sha256,
     canonical_write,
+    canonical_write_once,
     deterministic_model_schedule,
+    ensure_distinct_output_targets,
     generate_report,
+    load_canonical_json,
     prometheus_baseline_ready,
+    require_default_config_path,
     request_interval_overlap,
     sha256_file,
     summarize_requests,
     triton_trace_compute_counts,
+    triton_gpu_instance_exact,
     validate_evidence,
+    validate_governed_source_bindings,
+    validate_gpu_samples,
+    validate_repository_entries,
+    validate_sample_payload,
     wait_for_prometheus_baseline,
 )
 
@@ -57,14 +73,17 @@ from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
 CONTAINER_PREFIX = "evm-x1-resume-"
 SERVING_URL = "http://127.0.0.1:30800"
 SAMPLE_IMAGE_URI = "/mnt/evm-data/data/raw/industrial/visa/candle/Data/Images/Anomaly/000.JPG"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run X1 Resume Testbed v1 on the Windows host.")
     parser.add_argument(
         "--config",
         type=Path,
-        default=ROOT / "configs/s8_v4_x1_resume_testbed_v1.toml",
+        default=ROOT / DEFAULT_CONFIG_RELATIVE_PATH,
     )
     parser.add_argument("--model-repository-root", type=Path, required=True)
+    parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--private-base", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--report-output", type=Path, required=True)
@@ -117,49 +136,74 @@ def source_identity() -> dict[str, str]:
     }
 
 
-def git_blob_identity(relative: str) -> dict[str, str]:
+def git_blob_identity(relative: str, revision: str) -> dict[str, str]:
     repository_root = Path(run(["git", "rev-parse", "--show-toplevel"]).stdout.strip())
-    repository_relative = (
-        (ROOT / relative).resolve().relative_to(repository_root.resolve()).as_posix()
-    )
-    blob = run(["git", "rev-parse", f"HEAD:{repository_relative}"]).stdout.strip()
-    raw = run(["git", "show", f"HEAD:{repository_relative}"]).stdout.encode("utf-8")
-    import hashlib
-
-    return {"path": relative, "blob_oid": blob, "sha256": hashlib.sha256(raw).hexdigest()}
+    path = (ROOT / relative).resolve()
+    repository_relative = path.relative_to(repository_root.resolve()).as_posix()
+    blob = run(["git", "rev-parse", f"{revision}:{repository_relative}"]).stdout.strip()
+    raw = subprocess.run(
+        ["git", "show", f"{revision}:{repository_relative}"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+    return {
+        "path": relative,
+        "source_revision": revision,
+        "blob_oid": blob,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "working_sha256": sha256_file(path),
+    }
 
 
 def load_and_validate_repository(
-    root: Path, config: X1ResumeConfig
+    root: Path, config: X1ResumeConfig, data_root: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     manifest_path = root / "model-repository-manifest.json"
     samples_path = root / "testbed-samples.json"
     try:
-        manifest = json.loads(manifest_path.read_bytes())
-        samples = json.loads(samples_path.read_bytes())
-    except (OSError, json.JSONDecodeError) as exc:
+        manifest = load_canonical_json(manifest_path, label="model_repository_manifest")
+        samples = validate_sample_payload(samples_path, config)
+    except (OSError, X1ResumeTestbedError) as exc:
         raise X1ResumeTestbedError("x1_resume_repository_manifest_missing") from exc
+    required_manifest_keys = {
+        "schema_version",
+        "claim_class",
+        "credit",
+        "config_sha256",
+        "source_revision",
+        "source_tree_sha",
+        "source_blobs",
+        "triton_image",
+        "backend",
+        "instance_kind",
+        "cpu_fallback_allowed",
+        "model_ids",
+        "source_bindings",
+        "framework",
+        "samples_sha256",
+        "profile_identities",
+        "model_identities",
+        "entries",
+        "repository_sha256",
+        "claim_boundary",
+    }
     if (
-        manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION
+        set(manifest) != required_manifest_keys
+        or manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION
+        or manifest.get("claim_class") != "preliminary_controlled_testbed"
+        or manifest.get("credit") != "non_credit"
         or manifest.get("config_sha256") != config.sha256
         or manifest.get("triton_image") != config.immutable_image
+        or manifest.get("backend") != "pytorch"
         or manifest.get("instance_kind") != "KIND_GPU"
         or manifest.get("cpu_fallback_allowed") is not False
         or tuple(manifest.get("model_ids", [])) != EXPECTED_MODELS
+        or manifest.get("claim_boundary") != config.claim_boundary
     ):
         raise X1ResumeTestbedError("x1_resume_repository_manifest_contract")
-    entries = list(manifest.get("entries", []))
-    for item in entries:
-        relative = Path(str(item.get("path") or ""))
-        if relative.is_absolute() or ".." in relative.parts:
-            raise X1ResumeTestbedError("x1_resume_repository_entry_path")
-        path = root / relative
-        if (
-            not path.is_file()
-            or path.stat().st_size != item.get("bytes")
-            or sha256_file(path) != item.get("sha256")
-        ):
-            raise X1ResumeTestbedError(f"x1_resume_repository_entry_digest:{relative}")
+    validate_governed_source_bindings(manifest, data_root=data_root, config=config)
+    entries = validate_repository_entries(manifest, root)
     if canonical_sha256(entries) != manifest.get("repository_sha256"):
         raise X1ResumeTestbedError("x1_resume_repository_aggregate")
     for profile in config.batching:
@@ -256,11 +300,7 @@ def prometheus_health(*, timeout: float = 10.0) -> dict[str, Any]:
 
 
 def assert_prometheus_preflight(snapshot: dict[str, Any]) -> None:
-    if (
-        set(snapshot.get("jobs", [])) != set(EXPECTED_PROMETHEUS_JOBS)
-        or snapshot.get("total") != len(EXPECTED_PROMETHEUS_JOBS)
-        or snapshot.get("up") != len(EXPECTED_PROMETHEUS_JOBS)
-    ):
+    if not prometheus_baseline_ready(snapshot, EXPECTED_PROMETHEUS_JOBS):
         raise X1ResumeTestbedError(f"x1_resume_prometheus_preflight:{snapshot}")
 
 
@@ -388,13 +428,31 @@ def container_exists(name: str) -> bool:
     return run(["docker", "inspect", name], check=False, timeout=10).returncode == 0
 
 
-def ports_absent(config: X1ResumeConfig) -> bool:
-    for port in (config.http_port, config.grpc_port, config.metrics_port):
+def capture_container_state(names: list[str]) -> dict[str, Any]:
+    return {
+        "expected_names": names,
+        "present_names": [name for name in names if container_exists(name)],
+    }
+
+
+def capture_port_state(config: X1ResumeConfig) -> dict[str, Any]:
+    expected_ports = [config.http_port, config.grpc_port, config.metrics_port]
+    listening_ports = []
+    for port in expected_ports:
         with socket.socket() as probe:
             probe.settimeout(0.2)
             if probe.connect_ex(("127.0.0.1", port)) == 0:
-                return False
-    return True
+                listening_ports.append(port)
+    return {"expected_ports": expected_ports, "listening_ports": listening_ports}
+
+
+def capture_gpu_lease_state() -> dict[str, Any]:
+    lease = read_active_gpu_lease()
+    return {"active": lease.model_dump(mode="json") if lease is not None else None}
+
+
+def ports_absent(config: X1ResumeConfig) -> bool:
+    return capture_port_state(config)["listening_ports"] == []
 
 
 def stop_container(name: str) -> None:
@@ -486,44 +544,23 @@ def wait_ready(config: X1ResumeConfig, name: str) -> None:
 
 
 def metric_values(config: X1ResumeConfig) -> tuple[str, dict[str, dict[str, float]]]:
-    text = requests.get(f"http://127.0.0.1:{config.metrics_port}/metrics", timeout=10).text
-    values = {
-        model: {
-            "success": 0.0,
-            "compute_us": 0.0,
-            "inference_count": 0.0,
-            "execution_count": 0.0,
-        }
-        for model in EXPECTED_MODELS
-    }
-    names = {
-        "nv_inference_request_success": "success",
-        "nv_inference_compute_infer_duration_us": "compute_us",
-        "nv_inference_count": "inference_count",
-        "nv_inference_exec_count": "execution_count",
-    }
-    for line in text.splitlines():
-        for metric, field in names.items():
-            if not line.startswith(metric):
-                continue
-            for model in EXPECTED_MODELS:
-                if f'model="{model}"' in line:
-                    try:
-                        values[model][field] += float(line.rsplit(" ", 1)[1])
-                    except (IndexError, ValueError):
-                        pass
-    return text, values
+    response = requests.get(f"http://127.0.0.1:{config.metrics_port}/metrics", timeout=10)
+    response.raise_for_status()
+    text = response.text
+    return text, {model: _triton_metrics_for_model(text, model) for model in EXPECTED_MODELS}
 
 
 def verify_model_configs(config: X1ResumeConfig, profile: str) -> dict[str, Any]:
     result = {}
     for model_id in EXPECTED_MODELS:
         payload = request_json(f"http://127.0.0.1:{config.http_port}/v2/models/{model_id}/config")
-        groups = list(payload.get("instance_group", []))
-        gpu_exact = (
-            len(groups) == 1
-            and groups[0].get("kind") == "KIND_GPU"
-            and list(groups[0].get("gpus", [])) in ([0], [])
+        gpu_exact = triton_gpu_instance_exact(
+            payload,
+            model_id=model_id,
+            input_width=next(
+                model.input_width for model in config.models if model.model_id == model_id
+            ),
+            dynamic_batching_enabled=profile == "on",
         )
         dynamic_present = bool(payload.get("dynamic_batching"))
         if not gpu_exact or dynamic_present != (profile == "on"):
@@ -641,9 +678,12 @@ def run_q0(
                 futures = [pool.submit(exercise, worker) for worker in range(config.q0_workers)]
                 q0_request_count = sum(future.result() for future in futures)
         after_text, after = metric_values(config)
-        compute_delta = after[model_id]["compute_us"] - before[model_id]["compute_us"]
-        success_delta = after[model_id]["success"] - before[model_id]["success"]
-        busy = [item for item in sampler.samples if float(item.get("utilization_percent", 0)) > 0]
+        metric_deltas = _triton_metric_deltas(before[model_id], after[model_id], model_id=model_id)
+        compute_delta = metric_deltas["compute_us"]
+        success_delta = metric_deltas["success"]
+        inference_count_delta = metric_deltas["inference_count"]
+        execution_count_delta = metric_deltas["execution_count"]
+        gpu_summary = validate_gpu_samples(sampler.samples, config, label=f"q0:{model_id}")
         log_text = (
             log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
         )
@@ -656,14 +696,17 @@ def run_q0(
         model_config = entries[f"batch-off/{model_id}/config.pbtxt"]
         proof = (
             compute_delta > 0
-            and success_delta > 0
-            and bool(busy)
+            and success_delta == q0_request_count
+            and inference_count_delta == q0_request_count * config.q0_request_batch_size
+            and execution_count_delta == q0_request_count
+            and gpu_summary["busy_sample_count"] > 0
             and model_configs[model_id]["gpu_instance_exact"] is True
             and bool(gpu_lines)
         )
         if not proof:
             raise X1ResumeTestbedError(
-                f"x1_resume_q0_cuda_attribution:{model_id}:{compute_delta}:{len(busy)}:{len(gpu_lines)}"
+                f"x1_resume_q0_cuda_attribution:{model_id}:{compute_delta}:"
+                f"{gpu_summary['busy_sample_count']}:{len(gpu_lines)}"
             )
         q0_item = {
             "model_id": model_id,
@@ -673,8 +716,10 @@ def run_q0(
             "triton_gpu_instance_proof": True,
             "triton_success_delta": success_delta,
             "triton_compute_delta": compute_delta,
-            "isolated_gpu_sample_count": len(sampler.samples),
-            "isolated_gpu_busy_samples": len(busy),
+            "triton_inference_count_delta": inference_count_delta,
+            "triton_execution_count_delta": execution_count_delta,
+            "isolated_gpu_sample_count": gpu_summary["sample_count"],
+            "isolated_gpu_busy_samples": gpu_summary["busy_sample_count"],
             "isolated_request_count": q0_request_count,
             "request_batch_size": config.q0_request_batch_size,
             "gpu_log_line_sha256": [canonical_sha256(line) for line in gpu_lines],
@@ -714,10 +759,13 @@ def run_cell(
     repetition: int,
     samples: dict[str, Any],
     attempt_root: Path,
+    suite_id: str,
 ) -> dict[str, Any]:
-    attempt_id = f"{cell.cell_id}-r{repetition}-{uuid4().hex[:8]}"
+    attempt_id = f"{suite_id}-{cell.cell_id}-r{repetition}-{uuid4().hex[:8]}"
     queues = [queue.Queue(maxsize=config.queue_depth_per_api) for _ in range(cell.client_lanes)]
     records: list[dict[str, Any]] = []
+    terminal_records: list[dict[str, Any]] = []
+    admission_ledger: list[dict[str, Any]] = []
     offered = admitted = rejected = 0
     lock = threading.Lock()
     abort_event = threading.Event()
@@ -735,7 +783,14 @@ def run_cell(
                     return
                 if abort_event.is_set():
                     continue
-                request_id, model_id, sample_index, enqueued_ns, measured = item
+                (
+                    request_id,
+                    model_id,
+                    sample_index,
+                    enqueued_ns,
+                    phase,
+                    global_sequence,
+                ) = item
                 started_ns = time.perf_counter_ns()
                 outcome = "error"
                 status = 0
@@ -773,21 +828,28 @@ def run_cell(
                 except Exception:
                     outcome = "5xx" if status >= 500 else "error"
                 finished_ns = time.perf_counter_ns()
-                if measured:
-                    with lock:
-                        records.append(
-                            {
-                                "request_id": request_id,
-                                "model_id": model_id,
-                                "worker_id": worker_id,
-                                "outcome": outcome,
-                                "status": status,
-                                "started_ns": started_ns,
-                                "finished_ns": finished_ns,
-                                "queue_wait_ms": (started_ns - enqueued_ns) / 1e6,
-                                "latency_ms": (finished_ns - enqueued_ns) / 1e6,
-                            }
-                        )
+                projected = {
+                    "request_id": request_id,
+                    "model_id": model_id,
+                    "worker_id": worker_id,
+                    "outcome": outcome,
+                    "status": status,
+                    "enqueued_ns": enqueued_ns,
+                    "started_ns": started_ns,
+                    "finished_ns": finished_ns,
+                    "queue_wait_ms": (started_ns - enqueued_ns) / 1e6,
+                    "latency_ms": (finished_ns - started_ns) / 1e6,
+                }
+                with lock:
+                    terminal_records.append(
+                        {
+                            **projected,
+                            "global_sequence": global_sequence,
+                            "phase": phase,
+                        }
+                    )
+                    if phase == "measured":
+                        records.append(projected)
             finally:
                 assigned.task_done()
 
@@ -797,10 +859,11 @@ def run_cell(
     ]
     for thread in workers:
         thread.start()
-    started = time.perf_counter()
+    started_ns = time.perf_counter_ns()
+    started = started_ns / 1e9
     total_seconds = config.warmup_seconds + config.measurement_seconds
-    measurement_start_ns = int((started + config.warmup_seconds) * 1e9)
-    measurement_end_ns = int((started + total_seconds) * 1e9)
+    measurement_start_ns = started_ns + config.warmup_seconds * 1_000_000_000
+    measurement_end_ns = measurement_start_ns + config.measurement_seconds * 1_000_000_000
     burst_size = cell.client_workers if cell.client_workers > 1 else 1
     cycle_period = burst_size / config.offered_rps
     next_cycle = started
@@ -816,29 +879,50 @@ def run_cell(
             elapsed = time.perf_counter() - started
             if elapsed >= total_seconds:
                 break
-            measured = elapsed >= config.warmup_seconds
             for _ in range(burst_size):
+                enqueued_ns = time.perf_counter_ns()
+                if enqueued_ns >= measurement_end_ns:
+                    break
+                phase = "measured" if measurement_start_ns <= enqueued_ns else "warmup"
                 model_id = model_schedule[sequence % len(model_schedule)]
                 sample_index = sequence % int(samples["oracle"][model_id]["sample_count"])
                 request_id = f"{attempt_id}-{sequence}"
                 target = queues[sequence % len(queues)]
-                if measured:
+                if phase == "measured":
                     offered += 1
+                decision_ns = time.perf_counter_ns()
                 try:
                     target.put_nowait(
                         (
                             request_id,
                             model_id,
                             sample_index,
-                            time.perf_counter_ns(),
-                            measured,
+                            enqueued_ns,
+                            phase,
+                            sequence,
                         )
                     )
-                    if measured:
+                    decision = "accepted"
+                    reason = "local_queue_capacity"
+                    if phase == "measured":
                         admitted += 1
                 except queue.Full:
-                    if measured:
+                    decision = "rejected"
+                    reason = "local_queue_full"
+                    if phase == "measured":
                         rejected += 1
+                admission_ledger.append(
+                    {
+                        "global_sequence": sequence,
+                        "request_id": request_id,
+                        "model_id": model_id,
+                        "phase": phase,
+                        "enqueued_ns": enqueued_ns,
+                        "decision_ns": decision_ns,
+                        "decision": decision,
+                        "reason": reason,
+                    }
+                )
                 sequence += 1
             next_cycle += cycle_period
             if next_cycle < time.perf_counter():
@@ -879,6 +963,7 @@ def run_cell(
         raise X1ResumeTestbedError(
             f"x1_resume_bounded_drain:{cell.cell_id}:{repetition}:{drain_failure}"
         )
+    gpu_summary = validate_gpu_samples(sampler.samples, config, label=f"attempt:{attempt_id}")
     after_text, after_metrics = metric_values(config)
     metrics = summarize_requests(
         offered=offered,
@@ -886,17 +971,34 @@ def run_cell(
         local_admission_rejected=rejected,
         records=records,
         measurement_seconds=config.measurement_seconds,
+        measurement_start_ns=measurement_start_ns,
         measurement_end_ns=measurement_end_ns,
         drain_seconds=drain_seconds,
         model_mix=cell.model_mix,
     )
     deltas = {
-        model_id: {
-            key: after_metrics[model_id][key] - before_metrics[model_id][key]
-            for key in ("success", "compute_us", "inference_count", "execution_count")
-        }
+        model_id: _triton_metric_deltas(
+            before_metrics[model_id], after_metrics[model_id], model_id=model_id
+        )
         for model_id in EXPECTED_MODELS
     }
+    completed_by_model = Counter(
+        str(item["model_id"]) for item in terminal_records if item["outcome"] == "completed"
+    )
+    for model_id in EXPECTED_MODELS:
+        completed = completed_by_model[model_id]
+        values = deltas[model_id]
+        if (
+            values["success"] != completed
+            or values["inference_count"] != completed
+            or values["execution_count"] > values["inference_count"]
+            or (completed > 0 and values["execution_count"] <= 0)
+            or (completed > 0 and values["compute_us"] <= 0)
+            or (completed == 0 and any(value != 0 for value in values.values()))
+        ):
+            raise X1ResumeTestbedError(
+                f"x1_resume_cell_triton_arithmetic:{cell.cell_id}:{repetition}:{model_id}"
+            )
     active_models = {model_id for model_id, fraction in cell.model_mix.items() if fraction > 0}
     triton_execution = all(
         deltas[model_id]["success"] > 0 and deltas[model_id]["compute_us"] > 0
@@ -904,7 +1006,11 @@ def run_cell(
     )
     if not triton_execution:
         raise X1ResumeTestbedError(f"x1_resume_cell_triton_execution:{cell.cell_id}:{repetition}")
-    request_overlap = request_interval_overlap(records)
+    request_overlap = request_interval_overlap(
+        records,
+        measurement_start_ns=measurement_start_ns,
+        measurement_end_ns=measurement_end_ns,
+    )
     overlap_required = cell.client_workers > 1 and len(active_models) > 1
     if overlap_required and request_overlap["observed"] is not True:
         raise X1ResumeTestbedError(
@@ -913,6 +1019,8 @@ def run_cell(
     inference_count = sum(deltas[model_id]["inference_count"] for model_id in active_models)
     execution_count = sum(deltas[model_id]["execution_count"] for model_id in active_models)
     formed_batch_size = inference_count / execution_count if execution_count > 0 else 0.0
+    if not 0 < formed_batch_size <= 32:
+        raise X1ResumeTestbedError(f"x1_resume_cell_batch_arithmetic:{cell.cell_id}:{repetition}")
     batching_proof = {
         "inference_count_delta": inference_count,
         "execution_count_delta": execution_count,
@@ -923,12 +1031,42 @@ def run_cell(
         raise X1ResumeTestbedError(
             f"x1_resume_batch_not_formed:{cell.cell_id}:{repetition}:{formed_batch_size}"
         )
+    measured_ledger = [item for item in admission_ledger if item["phase"] == "measured"]
+    admission_proof = {
+        "issued_count": len(admission_ledger),
+        "warmup_offered": sum(item["phase"] == "warmup" for item in admission_ledger),
+        "measured_offered": len(measured_ledger),
+        "measured_accepted": admitted,
+        "measured_rejected": rejected,
+        "measured_offered_by_model": {
+            model_id: sum(item["model_id"] == model_id for item in measured_ledger)
+            for model_id in EXPECTED_MODELS
+        },
+        "measured_accepted_by_model": {
+            model_id: sum(
+                item["model_id"] == model_id and item["decision"] == "accepted"
+                for item in measured_ledger
+            )
+            for model_id in EXPECTED_MODELS
+        },
+        "measured_rejected_by_model": {
+            model_id: sum(
+                item["model_id"] == model_id and item["decision"] == "rejected"
+                for item in measured_ledger
+            )
+            for model_id in EXPECTED_MODELS
+        },
+        "ledger_sha256": canonical_sha256(admission_ledger),
+        "terminal_records_sha256": canonical_sha256(terminal_records),
+    }
     raw = {
         "schema_version": "evm.s8_v4.x1_resume_attempt_raw.v1",
         "attempt_id": attempt_id,
         "cell": asdict(cell),
         "repetition": repetition,
         "records": records,
+        "terminal_records": terminal_records,
+        "admission_ledger": admission_ledger,
         "measurement_window": {
             "start_ns": measurement_start_ns,
             "end_ns": measurement_end_ns,
@@ -939,6 +1077,7 @@ def run_cell(
             "admitted": admitted,
             "local_admission_rejected": rejected,
         },
+        "admission_proof": admission_proof,
         "drain_seconds": drain_seconds,
         "metrics": metrics,
         "triton_metric_deltas": deltas,
@@ -952,7 +1091,6 @@ def run_cell(
     if raw_path.exists():
         raise X1ResumeTestbedError(f"x1_resume_attempt_raw_exists:{raw_path}")
     canonical_write(raw_path, raw)
-    valid_gpu = [item for item in sampler.samples if "error" not in item]
     return {
         "attempt_id": attempt_id,
         "cell_id": cell.cell_id,
@@ -976,6 +1114,7 @@ def run_cell(
             "measurement_seconds": config.measurement_seconds,
         },
         "metrics": metrics,
+        "admission_proof": admission_proof,
         "triton_metric_deltas": deltas,
         "triton_execution_proved": True,
         "cross_model_request_overlap": request_overlap,
@@ -983,13 +1122,9 @@ def run_cell(
         "batching_proof": batching_proof,
         "cpu_fallback_observed": False,
         "gpu": {
-            "sample_count": len(valid_gpu),
-            "utilization_max_percent": max(
-                (float(item["utilization_percent"]) for item in valid_gpu), default=0.0
-            ),
-            "vram_max_mib": max(
-                (float(item["memory_used_mib"]) for item in valid_gpu), default=0.0
-            ),
+            "sample_count": gpu_summary["sample_count"],
+            "utilization_max_percent": gpu_summary["utilization_max_percent"],
+            "vram_max_mib": gpu_summary["vram_max_mib"],
         },
         "private_raw": {
             "path": raw_path.relative_to(attempt_root.parent).as_posix(),
@@ -1015,16 +1150,25 @@ def main() -> int:
     args = parse_args()
     if not args.maintenance_approved:
         raise X1ResumeTestbedError("x1_resume_maintenance_approval_required")
-    if args.output == args.report_output:
-        raise X1ResumeTestbedError("x1_resume_public_output_collision")
+    ensure_distinct_output_targets(args.output, args.report_output)
     for public_output in (args.output, args.report_output):
         if public_output.exists():
             raise X1ResumeTestbedError(f"x1_resume_public_output_exists:{public_output}")
-    config = X1ResumeConfig.from_path(args.config)
+    config_path = require_default_config_path(args.config, ROOT)
+    config = X1ResumeConfig.from_path(config_path)
     source = source_identity()
-    manifest, samples = load_and_validate_repository(args.model_repository_root, config)
-    if manifest.get("source_revision") != source["revision"]:
-        raise X1ResumeTestbedError("x1_resume_repository_source_revision")
+    source_blobs = [
+        git_blob_identity(relative, source["revision"]) for relative in REQUIRED_SOURCE_BLOB_PATHS
+    ]
+    manifest, samples = load_and_validate_repository(
+        args.model_repository_root, config, args.data_root
+    )
+    if (
+        manifest.get("source_revision") != source["revision"]
+        or manifest.get("source_tree_sha") != source["tree_sha"]
+        or manifest.get("source_blobs") != source_blobs
+    ):
+        raise X1ResumeTestbedError("x1_resume_repository_source_binding")
     image = json.loads(run(["docker", "image", "inspect", config.immutable_image]).stdout)
     if len(image) != 1:
         raise X1ResumeTestbedError("x1_resume_triton_image_identity")
@@ -1069,6 +1213,8 @@ def main() -> int:
     profile_evidence: dict[str, Any] = {}
     execution_error: Exception | None = None
     cleanup_errors: list[str] = []
+    released_lease_evidence: dict[str, Any] | None = None
+    released_lease_archive_evidence: dict[str, Any] | None = None
     restore_required = False
     try:
         # Cleanup state is installed before the first mutation (B0 scale-down).
@@ -1168,7 +1314,16 @@ def main() -> int:
                         scenario_id="X1-RESUME",
                         model_family="tabular",
                     )
-                    summaries.append(run_cell(config, cell, repetition, samples, attempt_root))
+                    summaries.append(
+                        run_cell(
+                            config,
+                            cell,
+                            repetition,
+                            samples,
+                            attempt_root,
+                            suite_id,
+                        )
+                    )
             stop_container(name)
             active_containers.discard(name)
             log_path = profile_root / "triton.log"
@@ -1195,12 +1350,35 @@ def main() -> int:
                 cleanup_errors.append(f"container:{name}:{type(exc).__name__}:{exc}")
         if lease is not None:
             try:
-                release_scale_validation_gpu_lease(
+                released = release_scale_validation_gpu_lease(
                     run_id=lease.run_id,
                     lease_id=lease.lease_id,
                     fencing_token=lease.fencing_token,
                     reason=f"{suite_id} finished",
                 )
+                released_payload = released.model_dump(mode="json")
+                archive_path = gpu_lease_root() / "history" / f"{lease.lease_id}.json"
+                archive_raw = archive_path.read_bytes()
+                if json.loads(archive_raw) != released_payload:
+                    raise X1ResumeTestbedError("x1_resume_gpu_lease_archive_binding")
+                released_path = suite_root / "gpu-lease-released.json"
+                canonical_write(released_path, released_payload)
+                archive_copy = suite_root / "gpu-lease-history-raw.json"
+                archive_copy.write_bytes(archive_raw)
+                released_lease_evidence = {
+                    "path": released_path.relative_to(suite_root).as_posix(),
+                    "bytes": released_path.stat().st_size,
+                    "sha256": sha256_file(released_path),
+                    "lease_id": released.lease_id,
+                    "run_id": released.run_id,
+                    "state": released.state,
+                    "release_reason": released.release_reason,
+                }
+                released_lease_archive_evidence = {
+                    "path": archive_copy.relative_to(suite_root).as_posix(),
+                    "bytes": archive_copy.stat().st_size,
+                    "sha256": sha256_file(archive_copy),
+                }
             except Exception as exc:
                 cleanup_errors.append(f"lease:{type(exc).__name__}:{exc}")
         if restore_required:
@@ -1216,6 +1394,9 @@ def main() -> int:
         "queues": queue_counts,
         "gpu": capture_gpu,
         "triton_processes": capture_triton_processes,
+        "containers": lambda: capture_container_state(expected_container_names),
+        "ports": lambda: capture_port_state(config),
+        "gpu_lease": capture_gpu_lease_state,
     }
     for key, operation in checks.items():
         try:
@@ -1234,9 +1415,7 @@ def main() -> int:
         final_checks["prometheus_restore_seconds"] = prometheus_restore_seconds
         final_checks["prometheus_restore_samples"] = prometheus_restore_samples
         final_checks["prometheus_restore_ready"] = prometheus_restore_ready
-        final_checks["prometheus_restore_terminal_reason"] = (
-            prometheus_restore_terminal_reason
-        )
+        final_checks["prometheus_restore_terminal_reason"] = prometheus_restore_terminal_reason
     except Exception as exc:
         cleanup_errors.append(f"check:prometheus:{type(exc).__name__}:{exc}")
     try:
@@ -1245,10 +1424,12 @@ def main() -> int:
         final_checks["vram_restore_seconds"] = vram_seconds
     except Exception as exc:
         cleanup_errors.append(f"check:vram:{type(exc).__name__}:{exc}")
+    gpu_after = dict(final_checks.get("gpu_after_vram_wait", {}))
+    vram_tolerance_mib = max(256.0, float(gpu_before["memory_total_mib"]) * 0.05)
     cleanup = {
-        "container_absent": all(not container_exists(name) for name in expected_container_names),
-        "ports_absent": ports_absent(config),
-        "gpu_lease_absent": read_active_gpu_lease() is None,
+        "container_absent": dict(final_checks.get("containers", {})).get("present_names") == [],
+        "ports_absent": dict(final_checks.get("ports", {})).get("listening_ports") == [],
+        "gpu_lease_absent": dict(final_checks.get("gpu_lease", {})).get("active") is None,
         "triton_gpu_process_residue": final_checks.get("triton_processes", []),
         "b0_identity_restored": final_checks.get("holder") == holder,
         "b0_cuda_restored": dict(final_checks.get("b0_cuda", {})).get("passed") is True,
@@ -1256,14 +1437,21 @@ def main() -> int:
         "queue_leased_zero": dict(final_checks.get("queues", {})).get("leased") == 0,
         "queue_outcome_unknown_zero": dict(final_checks.get("queues", {})).get("outcome_unknown")
         == 0,
+        "gpu_identity_restored": (gpu_after.get("uuid"), gpu_after.get("name"))
+        == (config.expected_gpu_uuid, config.expected_gpu_name),
+        "gpu_vram_restored": bool(gpu_after)
+        and abs(
+            float(gpu_after.get("memory_used_mib", float("inf")))
+            - float(gpu_before["memory_used_mib"])
+        )
+        <= vram_tolerance_mib,
         "prometheus_5_of_5": final_checks.get("prometheus_restore_ready") is True
         and prometheus_baseline_ready(
             dict(final_checks.get("prometheus", {})), EXPECTED_PROMETHEUS_JOBS
         ),
-        "prometheus_exact_jobs_restored": set(
-            dict(final_checks.get("prometheus", {})).get("jobs", [])
-        )
-        == set(EXPECTED_PROMETHEUS_JOBS),
+        "prometheus_exact_jobs_restored": prometheus_baseline_ready(
+            dict(final_checks.get("prometheus", {})), EXPECTED_PROMETHEUS_JOBS
+        ),
         "errors": cleanup_errors,
     }
     cleanup_path = suite_root / "cleanup.json"
@@ -1282,6 +1470,8 @@ def main() -> int:
                 "queue_active_zero",
                 "queue_leased_zero",
                 "queue_outcome_unknown_zero",
+                "gpu_identity_restored",
+                "gpu_vram_restored",
                 "prometheus_5_of_5",
                 "prometheus_exact_jobs_restored",
             )
@@ -1311,15 +1501,7 @@ def main() -> int:
         "acceptance_credit": False,
         "config_sha256": config.sha256,
         "source_identity": source,
-        "source_blobs": [
-            git_blob_identity(".gitattributes"),
-            git_blob_identity("configs/s8_v4_x1_resume_testbed_v1.toml"),
-            git_blob_identity("src/evm/control_panel/scenario_workloads.py"),
-            git_blob_identity("src/evm/scale_validation/x1_resume_testbed.py"),
-            git_blob_identity("scripts/dev/prepare_s8_v4_x1_resume_testbed.py"),
-            git_blob_identity("scripts/dev/run_s8_v4_x1_resume_testbed.py"),
-            git_blob_identity("scripts/dev/validate_s8_v4_x1_resume_testbed.py"),
-        ],
+        "source_blobs": source_blobs,
         "environment": {
             "gpu_before": gpu_before,
             "triton_processes_before": triton_processes_before,
@@ -1333,6 +1515,7 @@ def main() -> int:
                 "lease_id": lease.lease_id,
                 "run_id": lease.run_id,
                 "scenario_id": lease.scenario_id,
+                "model_family": lease.model_family,
                 "purpose": lease.lease_purpose,
                 "source_commit": lease.source_commit,
                 "fencing_token_sha256": canonical_sha256(lease.fencing_token),
@@ -1352,6 +1535,8 @@ def main() -> int:
             "bytes": cleanup_path.stat().st_size,
             "sha256": sha256_file(cleanup_path),
             "final_checks_sha256": canonical_sha256(final_checks),
+            "released_gpu_lease": released_lease_evidence,
+            "released_gpu_lease_archive": released_lease_archive_evidence,
         },
         "claim_boundary": config.claim_boundary,
     }
@@ -1361,16 +1546,19 @@ def main() -> int:
         private_suite_root=suite_root,
         model_repository_root=args.model_repository_root,
         source_root=ROOT,
+        data_root=args.data_root,
     )
+    canonical_write_once(args.output, public)
     report = generate_report(
         public,
         config,
+        evidence_path=args.output,
         private_suite_root=suite_root,
         model_repository_root=args.model_repository_root,
         source_root=ROOT,
+        data_root=args.data_root,
     )
-    canonical_write(args.output, public)
-    canonical_write(args.report_output, report)
+    canonical_write_once(args.report_output, report)
     print(
         canonical(
             {
