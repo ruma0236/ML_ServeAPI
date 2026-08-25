@@ -11,6 +11,7 @@ from evm.scale_validation.s6bm_runtime import (
     S6BMRuntimeError,
     SUCCESS_PHASES,
     analyze_attempts,
+    canonical_sha256,
     project_fault_attempt,
     project_raw_drain_timeline,
     project_success_attempt,
@@ -100,69 +101,113 @@ def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
 
 def test_s6bm_v4_database_clock_anchor_is_independent_and_fail_closed() -> None:
     config = S6BMConfig.from_path(V4_CONFIG)
-    observed_at = "2026-08-25T00:00:00.000200Z"
     transaction_id = "101"
     backend_pid = 202
-    nonce = "a" * 32
     schema_name = f"{config.durable_effect['schema_prefix']}_unit"
-    anchor = {
-        "schema_version": "evm.s6bm.database_clock_anchor.v1",
-        "anchor_nonce": nonce,
-        "clock_source": "postgresql_clock_timestamp",
-        "schema_name": schema_name,
-        "source_identity": (f"postgresql:{schema_name}:{transaction_id}:{backend_pid}:{nonce}"),
-        "transaction_id": transaction_id,
-        "backend_pid": backend_pid,
-        "monotonic_before_ns": 100,
-        "monotonic_after_ns": 200,
-        "database_clock_timestamp": observed_at,
-        "database_unix_ns": _unix_nano(observed_at, "test"),
-    }
-    from evm.scale_validation.s6bm_runtime import canonical_sha256
-
-    anchor["anchor_hash"] = canonical_sha256(anchor)
+    candidates = []
+    for sequence, width in enumerate((900, 800, 700, 600, 500, 400, 300, 200), 1):
+        nonce = f"{sequence:032x}"
+        observed_at = f"2026-08-25T00:00:00.00020{sequence}Z"
+        before = sequence * 10_000
+        anchor = {
+            "schema_version": "evm.s6bm.database_clock_anchor.v2",
+            "sequence": sequence,
+            "anchor_nonce": nonce,
+            "clock_source": "postgresql_clock_timestamp",
+            "schema_name": schema_name,
+            "source_identity": (f"postgresql:{schema_name}:{transaction_id}:{backend_pid}:{nonce}"),
+            "transaction_id": transaction_id,
+            "backend_pid": backend_pid,
+            "monotonic_before_ns": before,
+            "monotonic_after_ns": before + width,
+            "database_clock_timestamp": observed_at,
+            "database_unix_ns": _unix_nano(observed_at, "test"),
+        }
+        anchor["anchor_hash"] = canonical_sha256(anchor)
+        candidates.append(anchor)
+    selected = candidates[-1]
     receipt = {
-        "schema_version": "evm.s6bm.durable_effect_receipt.v3",
+        "schema_version": "evm.s6bm.durable_effect_receipt.v4",
         "transaction_id": transaction_id,
         "commit_timestamp_backend_pid": backend_pid,
-        "commit_timestamp_observed_at": observed_at,
-        "commit_timestamp_started_monotonic_ns": 90,
-        "commit_timestamp_finished_monotonic_ns": 210,
-        "database_clock_anchor": anchor,
+        "commit_timestamp_observed_at": selected["database_clock_timestamp"],
+        "commit_timestamp_started_monotonic_ns": 1,
+        "commit_timestamp_finished_monotonic_ns": 100_000,
+        "database_clock_anchor": selected,
+        "database_clock_anchor_candidates": candidates,
+        "database_clock_anchor_selection": {
+            "strategy": "minimum_width_then_sequence",
+            "candidate_count": 8,
+            "selected_sequence": 8,
+        },
     }
     envelope, projection = _database_clock_envelope(receipt, config)
     assert envelope[0] <= envelope[1]
-    assert projection["width_ns"] == 100
+    assert projection["width_ns"] == 200
+    assert projection["candidate_count"] == 8
+    assert projection["selected_sequence"] == 8
 
-    for mutate, code in (
-        (lambda value: value["database_clock_anchor"].update(anchor_hash="f" * 64), "binding"),
-        (
-            lambda value: value["database_clock_anchor"].update(monotonic_after_ns=2_000_000),
-            "interval",
-        ),
-        (
-            lambda value: value["database_clock_anchor"].update(
-                source_identity="postgresql:substituted"
-            ),
-            "binding",
-        ),
-    ):
-        candidate = copy.deepcopy(receipt)
-        mutate(candidate)
-        candidate["database_clock_anchor"]["anchor_hash"] = canonical_sha256(
-            {
-                key: value
-                for key, value in candidate["database_clock_anchor"].items()
-                if key != "anchor_hash"
-            }
+    def rehash(anchor: dict[str, object]) -> None:
+        anchor["anchor_hash"] = canonical_sha256(
+            {key: value for key, value in anchor.items() if key != "anchor_hash"}
         )
-        if (
-            code == "binding"
-            and candidate["database_clock_anchor"].get("source_identity")
-            != "postgresql:substituted"
-        ):
-            candidate["database_clock_anchor"]["anchor_hash"] = "f" * 64
-        with pytest.raises(S6BMCausalError, match=f"database_clock_anchor_{code}"):
+
+    tie = copy.deepcopy(receipt)
+    tie_candidate = tie["database_clock_anchor_candidates"][6]
+    tie_candidate["monotonic_after_ns"] = tie_candidate["monotonic_before_ns"] + 200
+    rehash(tie_candidate)
+    tie["database_clock_anchor"] = tie_candidate
+    tie["database_clock_anchor_selection"]["selected_sequence"] = 7
+    tie["commit_timestamp_observed_at"] = tie_candidate["database_clock_timestamp"]
+    _, tie_projection = _database_clock_envelope(tie, config)
+    assert tie_projection["selected_sequence"] == 7
+
+    mutations = []
+    missing = copy.deepcopy(receipt)
+    missing["database_clock_anchor_candidates"].pop()
+    mutations.append((missing, "candidate_set"))
+    duplicate = copy.deepcopy(receipt)
+    duplicate["database_clock_anchor_candidates"][1]["anchor_nonce"] = duplicate[
+        "database_clock_anchor_candidates"
+    ][0]["anchor_nonce"]
+    duplicate["database_clock_anchor_candidates"][1]["source_identity"] = duplicate[
+        "database_clock_anchor_candidates"
+    ][0]["source_identity"]
+    rehash(duplicate["database_clock_anchor_candidates"][1])
+    mutations.append((duplicate, "candidate_duplicate"))
+    reordered = copy.deepcopy(receipt)
+    reordered["database_clock_anchor_candidates"][0:2] = reversed(
+        reordered["database_clock_anchor_candidates"][0:2]
+    )
+    mutations.append((reordered, "candidate_set"))
+    wrong_index = copy.deepcopy(receipt)
+    wrong_index["database_clock_anchor_selection"]["selected_sequence"] = 7
+    mutations.append((wrong_index, "selection"))
+    nonminimum = copy.deepcopy(receipt)
+    nonminimum["database_clock_anchor"] = nonminimum["database_clock_anchor_candidates"][6]
+    nonminimum["database_clock_anchor_selection"]["selected_sequence"] = 7
+    nonminimum["commit_timestamp_observed_at"] = nonminimum["database_clock_anchor"][
+        "database_clock_timestamp"
+    ]
+    mutations.append((nonminimum, "selection"))
+    hash_drift = copy.deepcopy(receipt)
+    hash_drift["database_clock_anchor_candidates"][3]["anchor_hash"] = "f" * 64
+    mutations.append((hash_drift, "candidate_hash"))
+    all_over = copy.deepcopy(receipt)
+    for candidate in all_over["database_clock_anchor_candidates"]:
+        candidate["monotonic_before_ns"] = candidate["sequence"] * 2_000_000
+        candidate["monotonic_after_ns"] = candidate["monotonic_before_ns"] + 1_000_001
+        rehash(candidate)
+    all_over["database_clock_anchor"] = all_over["database_clock_anchor_candidates"][0]
+    all_over["database_clock_anchor_selection"]["selected_sequence"] = 1
+    all_over["commit_timestamp_observed_at"] = all_over["database_clock_anchor"][
+        "database_clock_timestamp"
+    ]
+    all_over["commit_timestamp_finished_monotonic_ns"] = 20_000_000
+    mutations.append((all_over, "all_candidates_over_bound"))
+
+    for candidate, code in mutations:
+        with pytest.raises(S6BMCausalError, match=f"database_clock_{code}"):
             _database_clock_envelope(candidate, config)
 
 

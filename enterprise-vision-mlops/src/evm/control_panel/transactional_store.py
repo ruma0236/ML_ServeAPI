@@ -1528,9 +1528,7 @@ class TransactionalControlPlaneStore:
             )
 
         commit_timestamp_started_monotonic_ns = time.perf_counter_ns()
-        database_clock_anchor_nonce = uuid4().hex
-        database_clock_anchor_before_ns = 0
-        database_clock_anchor_after_ns = 0
+        database_clock_candidate_rows: list[dict[str, Any]] = []
         try:
             import psycopg
             from psycopg.rows import dict_row
@@ -1547,23 +1545,34 @@ class TransactionalControlPlaneStore:
             ) as commit_timestamp_connection:
                 # Keep connection/query-path warm-up outside the frozen clock bracket.
                 commit_timestamp_connection.execute("SELECT 1").fetchone()
-                database_clock_anchor_before_ns = time.perf_counter_ns()
-                commit_timestamp_row = commit_timestamp_connection.execute(
-                    """
-                    WITH observed AS (
-                        SELECT clock_timestamp() AS observed_at
+                for sequence in range(1, 9):
+                    nonce = uuid4().hex
+                    before_ns = time.perf_counter_ns()
+                    row = commit_timestamp_connection.execute(
+                        """
+                        WITH observed AS (
+                            SELECT clock_timestamp() AS observed_at
+                        )
+                        SELECT pg_xact_commit_timestamp(%s::xid) AS commit_timestamp,
+                               observed_at,
+                               ((EXTRACT(EPOCH FROM observed_at) * 1000000000)::numeric(30,0))::text
+                                   AS observed_unix_ns,
+                               pg_backend_pid() AS backend_pid,
+                               current_setting('track_commit_timestamp') AS tracking
+                        FROM observed
+                        """,
+                        (transaction_id,),
+                    ).fetchone()
+                    after_ns = time.perf_counter_ns()
+                    database_clock_candidate_rows.append(
+                        {
+                            "sequence": sequence,
+                            "nonce": nonce,
+                            "monotonic_before_ns": before_ns,
+                            "monotonic_after_ns": after_ns,
+                            "row": row,
+                        }
                     )
-                    SELECT pg_xact_commit_timestamp(%s::xid) AS commit_timestamp,
-                           observed_at,
-                           ((EXTRACT(EPOCH FROM observed_at) * 1000000000)::numeric(30,0))::text
-                               AS observed_unix_ns,
-                           pg_backend_pid() AS backend_pid,
-                           current_setting('track_commit_timestamp') AS tracking
-                    FROM observed
-                    """,
-                    (transaction_id,),
-                ).fetchone()
-                database_clock_anchor_after_ns = time.perf_counter_ns()
         except (ControlPlaneStoreError, ImportError):
             raise
         except Exception as exc:
@@ -1571,36 +1580,60 @@ class TransactionalControlPlaneStore:
                 "terminal effect commit timestamp readback failed"
             ) from exc
         commit_timestamp_finished_monotonic_ns = time.perf_counter_ns()
-        if commit_timestamp_row is None:
-            raise ControlPlaneParityError("terminal effect commit timestamp is absent")
-        if str(commit_timestamp_row["tracking"]) != "on":
+        if len(database_clock_candidate_rows) != 8 or any(
+            item["row"] is None for item in database_clock_candidate_rows
+        ):
+            raise ControlPlaneParityError("terminal effect database clock samples are incomplete")
+        candidate_backend_pids = {
+            int(item["row"]["backend_pid"]) for item in database_clock_candidate_rows
+        }
+        candidate_commit_timestamps = {
+            item["row"]["commit_timestamp"] for item in database_clock_candidate_rows
+        }
+        if any(str(item["row"]["tracking"]) != "on" for item in database_clock_candidate_rows):
             raise ControlPlaneParityError("PostgreSQL track_commit_timestamp is not enabled")
-        if commit_timestamp_row["commit_timestamp"] is None:
-            raise ControlPlaneParityError("terminal effect commit timestamp is not visible")
-        commit_timestamp_backend_pid = int(commit_timestamp_row["backend_pid"])
+        if None in candidate_commit_timestamps or len(candidate_commit_timestamps) != 1:
+            raise ControlPlaneParityError("terminal effect commit timestamp is not stable")
+        if len(candidate_backend_pids) != 1:
+            raise ControlPlaneParityError("database clock samples changed connection identity")
+        commit_timestamp_backend_pid = next(iter(candidate_backend_pids))
         if commit_timestamp_backend_pid <= 0 or (
             write_backend_pid > 0 and commit_timestamp_backend_pid == write_backend_pid
         ):
             raise ControlPlaneParityError(
                 "terminal effect commit timestamp was not read on a separate connection"
             )
-        database_clock_anchor = {
-            "schema_version": "evm.s6bm.database_clock_anchor.v1",
-            "anchor_nonce": database_clock_anchor_nonce,
-            "clock_source": "postgresql_clock_timestamp",
-            "schema_name": schema,
-            "source_identity": (
-                f"postgresql:{schema}:{transaction_id}:"
-                f"{commit_timestamp_backend_pid}:{database_clock_anchor_nonce}"
+        database_clock_anchor_candidates = []
+        for candidate in database_clock_candidate_rows:
+            candidate_row = candidate["row"]
+            anchor = {
+                "schema_version": "evm.s6bm.database_clock_anchor.v2",
+                "sequence": candidate["sequence"],
+                "anchor_nonce": candidate["nonce"],
+                "clock_source": "postgresql_clock_timestamp",
+                "schema_name": schema,
+                "source_identity": (
+                    f"postgresql:{schema}:{transaction_id}:"
+                    f"{commit_timestamp_backend_pid}:{candidate['nonce']}"
+                ),
+                "transaction_id": transaction_id,
+                "backend_pid": commit_timestamp_backend_pid,
+                "monotonic_before_ns": candidate["monotonic_before_ns"],
+                "monotonic_after_ns": candidate["monotonic_after_ns"],
+                "database_clock_timestamp": _utc_iso(candidate_row["observed_at"]),
+                "database_unix_ns": int(candidate_row["observed_unix_ns"]),
+            }
+            anchor["anchor_hash"] = canonical_digest(anchor)
+            database_clock_anchor_candidates.append(anchor)
+        database_clock_anchor = min(
+            database_clock_anchor_candidates,
+            key=lambda item: (
+                int(item["monotonic_after_ns"]) - int(item["monotonic_before_ns"]),
+                int(item["sequence"]),
             ),
-            "transaction_id": transaction_id,
-            "backend_pid": commit_timestamp_backend_pid,
-            "monotonic_before_ns": database_clock_anchor_before_ns,
-            "monotonic_after_ns": database_clock_anchor_after_ns,
-            "database_clock_timestamp": _utc_iso(commit_timestamp_row["observed_at"]),
-            "database_unix_ns": int(commit_timestamp_row["observed_unix_ns"]),
-        }
-        database_clock_anchor["anchor_hash"] = canonical_digest(database_clock_anchor)
+        )
+        selected_sequence = int(database_clock_anchor["sequence"])
+        commit_timestamp_row = database_clock_candidate_rows[selected_sequence - 1]["row"]
 
         readback_started_monotonic_ns = time.perf_counter_ns()
         with self.transaction("terminal_effect_readback") as connection:
@@ -1663,7 +1696,7 @@ class TransactionalControlPlaneStore:
             ):
                 raise ControlPlaneParityError("terminal causal event transaction parity failed")
         receipt = {
-            "schema_version": "evm.s6bm.durable_effect_receipt.v3",
+            "schema_version": "evm.s6bm.durable_effect_receipt.v4",
             "entity_kind": entity_kind,
             "entity_id": entity_id,
             "request_sha256": request_sha256,
@@ -1685,6 +1718,12 @@ class TransactionalControlPlaneStore:
             "commit_timestamp_started_monotonic_ns": (commit_timestamp_started_monotonic_ns),
             "commit_timestamp_finished_monotonic_ns": (commit_timestamp_finished_monotonic_ns),
             "database_clock_anchor": database_clock_anchor,
+            "database_clock_anchor_candidates": database_clock_anchor_candidates,
+            "database_clock_anchor_selection": {
+                "strategy": "minimum_width_then_sequence",
+                "candidate_count": 8,
+                "selected_sequence": selected_sequence,
+            },
             "readback_started_monotonic_ns": readback_started_monotonic_ns,
             "readback_finished_monotonic_ns": readback_finished_monotonic_ns,
             "readback_visible": True,

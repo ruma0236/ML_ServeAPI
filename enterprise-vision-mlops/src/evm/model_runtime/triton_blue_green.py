@@ -283,6 +283,7 @@ class TritonBlueGreenDurableEffectReceipt(ContractModel):
         "evm.s6bm.durable_effect_receipt.v1",
         "evm.s6bm.durable_effect_receipt.v2",
         "evm.s6bm.durable_effect_receipt.v3",
+        "evm.s6bm.durable_effect_receipt.v4",
     ] = "evm.s6bm.durable_effect_receipt.v1"
     entity_kind: Literal["s6bm_terminal_effect"]
     entity_id: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -311,6 +312,8 @@ class TritonBlueGreenDurableEffectReceipt(ContractModel):
     commit_timestamp_started_monotonic_ns: int | None = Field(default=None, gt=0)
     commit_timestamp_finished_monotonic_ns: int | None = Field(default=None, gt=0)
     database_clock_anchor: dict[str, object] | None = None
+    database_clock_anchor_candidates: list[dict[str, object]] | None = None
+    database_clock_anchor_selection: dict[str, object] | None = None
 
 
 TerminalEffectCommitter = Callable[
@@ -988,7 +991,7 @@ class TritonBlueGreenManager:
                 or (
                     _strict_causal_required()
                     and (
-                        receipt.schema_version != "evm.s6bm.durable_effect_receipt.v3"
+                        receipt.schema_version != "evm.s6bm.durable_effect_receipt.v4"
                         or receipt.causal_sequence is None
                         or receipt.causal_payload_sha256 is None
                         or receipt.write_backend_pid is None
@@ -999,6 +1002,8 @@ class TritonBlueGreenManager:
                         or receipt.commit_timestamp_visible is not True
                         or receipt.separate_connection_readback is not True
                         or receipt.database_clock_anchor is None
+                        or receipt.database_clock_anchor_candidates is None
+                        or receipt.database_clock_anchor_selection is None
                     )
                 )
             ):
@@ -1036,6 +1041,22 @@ class TritonBlueGreenManager:
                     "evm.effect.database_clock.anchor_width_ns",
                     int(database_anchor.get("monotonic_after_ns", 0))
                     - int(database_anchor.get("monotonic_before_ns", 0)),
+                )
+                candidates = list(receipt.database_clock_anchor_candidates or [])
+                effect_span.set_attribute(
+                    "evm.effect.database_clock.candidate_count", len(candidates)
+                )
+                effect_span.set_attribute(
+                    "evm.effect.database_clock.candidates_sha256",
+                    hashlib.sha256(canonical(candidates).encode("ascii")).hexdigest(),
+                )
+                effect_span.set_attribute(
+                    "evm.effect.database_clock.selected_sequence",
+                    int(
+                        dict(receipt.database_clock_anchor_selection or {}).get(
+                            "selected_sequence", 0
+                        )
+                    ),
                 )
             return receipt
 

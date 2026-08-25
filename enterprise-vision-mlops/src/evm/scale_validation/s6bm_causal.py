@@ -301,50 +301,93 @@ def _project_unix(unix_ns: int, envelope: tuple[int, int]) -> tuple[int, int]:
 def _database_clock_envelope(
     receipt: Mapping[str, Any], config: S6BMConfig
 ) -> tuple[tuple[int, int], dict[str, Any]]:
-    anchor = dict(receipt.get("database_clock_anchor", {}))
-    observed_at = str(receipt.get("commit_timestamp_observed_at", ""))
+    candidates = [dict(item) for item in receipt.get("database_clock_anchor_candidates", [])]
+    expected_sequences = list(config.durable_effect["database_clock_anchor_sequence"])
+    if (
+        receipt.get("schema_version") != "evm.s6bm.durable_effect_receipt.v4"
+        or len(candidates) != int(config.durable_effect["database_clock_anchor_samples"])
+        or [int(item.get("sequence", 0)) for item in candidates] != expected_sequences
+    ):
+        raise S6BMCausalError("s6bm_v4_database_clock_candidate_set")
+    nonces = [str(item.get("anchor_nonce", "")) for item in candidates]
+    if len(set(nonces)) != len(nonces):
+        raise S6BMCausalError("s6bm_v4_database_clock_candidate_duplicate")
     transaction_id = str(receipt.get("transaction_id", ""))
     backend_pid = int(receipt.get("commit_timestamp_backend_pid", 0))
-    nonce = str(anchor.get("anchor_nonce", ""))
-    schema_name = str(anchor.get("schema_name", ""))
-    expected_source = f"postgresql:{schema_name}:{transaction_id}:{backend_pid}:{nonce}"
-    observed_hash = str(anchor.get("anchor_hash", ""))
-    expected_hash = canonical_sha256(
-        {key: value for key, value in anchor.items() if key != "anchor_hash"}
-    )
-    if (
-        receipt.get("schema_version") != "evm.s6bm.durable_effect_receipt.v3"
-        or anchor.get("schema_version") != "evm.s6bm.database_clock_anchor.v1"
-        or observed_hash != expected_hash
-        or len(nonce) != 32
-        or any(character not in "0123456789abcdef" for character in nonce)
-        or anchor.get("clock_source") != "postgresql_clock_timestamp"
-        or not schema_name.startswith(str(config.durable_effect["schema_prefix"]))
-        or anchor.get("source_identity") != expected_source
-        or str(anchor.get("transaction_id", "")) != transaction_id
-        or int(anchor.get("backend_pid", 0)) != backend_pid
-        or anchor.get("database_clock_timestamp") != observed_at
-    ):
-        raise S6BMCausalError("s6bm_v4_database_clock_anchor_binding")
-    before = int(anchor.get("monotonic_before_ns", 0))
-    after = int(anchor.get("monotonic_after_ns", 0))
     timestamp_start = int(receipt.get("commit_timestamp_started_monotonic_ns", 0))
     timestamp_end = int(receipt.get("commit_timestamp_finished_monotonic_ns", 0))
-    database_unix_ns = int(anchor.get("database_unix_ns", 0))
+    previous_after = 0
+    for candidate in candidates:
+        nonce = str(candidate.get("anchor_nonce", ""))
+        schema_name = str(candidate.get("schema_name", ""))
+        expected_source = f"postgresql:{schema_name}:{transaction_id}:{backend_pid}:{nonce}"
+        observed_hash = str(candidate.get("anchor_hash", ""))
+        expected_hash = canonical_sha256(
+            {key: value for key, value in candidate.items() if key != "anchor_hash"}
+        )
+        observed_at = str(candidate.get("database_clock_timestamp", ""))
+        before = int(candidate.get("monotonic_before_ns", 0))
+        after = int(candidate.get("monotonic_after_ns", 0))
+        database_unix_ns = int(candidate.get("database_unix_ns", 0))
+        if observed_hash != expected_hash:
+            raise S6BMCausalError("s6bm_v4_database_clock_candidate_hash")
+        if (
+            candidate.get("schema_version") != "evm.s6bm.database_clock_anchor.v2"
+            or len(nonce) != 32
+            or any(character not in "0123456789abcdef" for character in nonce)
+            or candidate.get("clock_source") != "postgresql_clock_timestamp"
+            or not schema_name.startswith(str(config.durable_effect["schema_prefix"]))
+            or candidate.get("source_identity") != expected_source
+            or str(candidate.get("transaction_id", "")) != transaction_id
+            or int(candidate.get("backend_pid", 0)) != backend_pid
+        ):
+            raise S6BMCausalError("s6bm_v4_database_clock_candidate_binding")
+        if (
+            before <= 0
+            or not timestamp_start <= before <= after <= timestamp_end
+            or before < previous_after
+            or database_unix_ns != _unix_nano(observed_at, "s6bm_v4_database_clock_time")
+        ):
+            raise S6BMCausalError("s6bm_v4_database_clock_candidate_interval")
+        previous_after = after
+
+    selected = min(
+        candidates,
+        key=lambda item: (
+            int(item["monotonic_after_ns"]) - int(item["monotonic_before_ns"]),
+            int(item["sequence"]),
+        ),
+    )
+    selection = dict(receipt.get("database_clock_anchor_selection", {}))
     if (
-        before <= 0
-        or not timestamp_start <= before <= after <= timestamp_end
-        or after - before > int(config.clock["max_anchor_width_ns"])
-        or database_unix_ns != _unix_nano(observed_at, "s6bm_v4_database_clock_time")
+        config.durable_effect["database_clock_anchor_selection"] != "minimum_width_then_sequence"
+        or receipt.get("database_clock_anchor") != selected
+        or selection
+        != {
+            "strategy": "minimum_width_then_sequence",
+            "candidate_count": len(expected_sequences),
+            "selected_sequence": int(selected["sequence"]),
+        }
     ):
-        raise S6BMCausalError("s6bm_v4_database_clock_anchor_interval")
+        raise S6BMCausalError("s6bm_v4_database_clock_selection")
+    before = int(selected["monotonic_before_ns"])
+    after = int(selected["monotonic_after_ns"])
+    if after - before > int(config.clock["max_anchor_width_ns"]):
+        raise S6BMCausalError("s6bm_v4_database_clock_all_candidates_over_bound")
+    observed_at = str(selected["database_clock_timestamp"])
+    if observed_at != str(receipt.get("commit_timestamp_observed_at", "")):
+        raise S6BMCausalError("s6bm_v4_database_clock_selection_timestamp")
+    database_unix_ns = int(selected["database_unix_ns"])
     envelope = (database_unix_ns - after, database_unix_ns - before)
     return envelope, {
-        "anchor_hash": observed_hash,
-        "anchor_nonce": nonce,
+        "anchor_hash": selected["anchor_hash"],
+        "anchor_nonce": selected["anchor_nonce"],
         "backend_pid": backend_pid,
         "width_ns": after - before,
         "offset_envelope_ns": list(envelope),
+        "candidate_count": len(candidates),
+        "candidate_set_sha256": canonical_sha256(candidates),
+        "selected_sequence": int(selected["sequence"]),
     }
 
 
@@ -439,7 +482,7 @@ def _validate_effects(
         ):
             raise S6BMCausalError("s6bm_v4_effect_transaction_binding")
         if (
-            receipt.get("schema_version") != "evm.s6bm.durable_effect_receipt.v3"
+            receipt.get("schema_version") != "evm.s6bm.durable_effect_receipt.v4"
             or receipt.get("entity_id") != record.get("effect_id")
             or receipt.get("causal_sequence") != event.get("causal_sequence")
             or receipt.get("causal_payload_sha256") != event.get("payload_sha256")

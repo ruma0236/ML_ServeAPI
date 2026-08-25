@@ -220,18 +220,28 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
     assert stored["durable_commit"]["schema_version"] == "evm.s6bm.durable_commit.v2"
     assert stored["durable_commit"]["transaction_id"] == effect["transaction_id"]
     assert stored["durable_commit"]["write_backend_pid"] == effect["write_backend_pid"]
-    assert effect["schema_version"] == "evm.s6bm.durable_effect_receipt.v3"
+    assert effect["schema_version"] == "evm.s6bm.durable_effect_receipt.v4"
     assert effect["commit_timestamp_tracking"] == "on"
     assert effect["commit_timestamp_visible"] is True
     assert effect["separate_connection_readback"] is True
     assert effect["commit_timestamp_backend_pid"] != effect["write_backend_pid"]
     database_anchor = effect["database_clock_anchor"]
-    assert database_anchor["schema_version"] == "evm.s6bm.database_clock_anchor.v1"
+    assert database_anchor["schema_version"] == "evm.s6bm.database_clock_anchor.v2"
     assert database_anchor["backend_pid"] == effect["commit_timestamp_backend_pid"]
     assert database_anchor["database_clock_timestamp"] == effect["commit_timestamp_observed_at"]
     assert database_anchor["monotonic_before_ns"] <= database_anchor["monotonic_after_ns"]
     assert database_anchor["anchor_hash"] == canonical_digest(
         {key: value for key, value in database_anchor.items() if key != "anchor_hash"}
+    )
+    candidates = effect["database_clock_anchor_candidates"]
+    assert [candidate["sequence"] for candidate in candidates] == list(range(1, 9))
+    assert len({candidate["anchor_nonce"] for candidate in candidates}) == 8
+    assert database_anchor == min(
+        candidates,
+        key=lambda candidate: (
+            candidate["monotonic_after_ns"] - candidate["monotonic_before_ns"],
+            candidate["sequence"],
+        ),
     )
     assert switch["causal_sequence"] < effect["causal_sequence"]
     replayed_stored, replayed, replayed_effect = (
