@@ -19,6 +19,7 @@ from evm.model_runtime.tiny_mlp import build_tiny_mlp  # noqa: E402
 from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
     DEFAULT_CONFIG_RELATIVE_PATH,
     MANIFEST_SCHEMA_VERSION,
+    MODEL_CLAIM_CONTRACT,
     REQUIRED_SOURCE_BLOB_PATHS,
     X1ResumeConfig,
     X1ResumeTestbedError,
@@ -518,6 +519,8 @@ def main() -> int:
         "model_identities": model_identities,
         "entries": entries,
         "repository_sha256": canonical_sha256(entries),
+        "model_claim_contract": dict(MODEL_CLAIM_CONTRACT),
+        "model_claim_contract_sha256": canonical_sha256(MODEL_CLAIM_CONTRACT),
         "claim_boundary": config.claim_boundary,
     }
     canonical_write(args.output / "model-repository-manifest.json", manifest)

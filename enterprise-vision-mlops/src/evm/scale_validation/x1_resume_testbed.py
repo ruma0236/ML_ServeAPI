@@ -16,14 +16,26 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
+from evm.control_panel.scenario_workloads import GpuLease
+
 
 CONFIG_SCHEMA_VERSION = "evm.s8_v4.x1_resume_testbed_config.v1"
 EVIDENCE_SCHEMA_VERSION = "evm.s8_v4.x1_resume_testbed.v1"
 MANIFEST_SCHEMA_VERSION = "evm.s8_v4.x1_resume_model_repository.v1"
 CLAIM_CLASS = "preliminary_controlled_testbed"
 CREDIT = "non_credit"
+MODEL_DESCRIPTION = "four named seeded CUDA test models using governed HIGGS/Criteo inputs"
+MODEL_CLAIM_CONTRACT = {
+    "model_description": MODEL_DESCRIPTION,
+    "model_derivation_claim": False,
+    "prepared_model_equivalence_claim": False,
+    "model_accuracy_claim": False,
+    "dlrm_training_quality_claim": False,
+}
 DEFAULT_CONFIG_RELATIVE_PATH = "configs/s8_v4_x1_resume_testbed_v1.toml"
-EXPECTED_CONFIG_SHA256 = "7333ca51b4ad8dc84c370bd80a5c9050f1d29e2c5b46a326ab6b854e47f6b030"
+EXPECTED_CONFIG_SHA256 = "c7133025a4e8a38d17a2426ff2a862a6d8e049f8a7ed85a0ddb99e09b95f8394"
 EXPECTED_MODELS = (
     "higgs_logistic_regression",
     "higgs_gaussian_nb",
@@ -687,6 +699,7 @@ class X1ResumeConfig:
     cells: tuple[CellSpec, ...]
     batching: Mapping[str, Mapping[str, Any]]
     profiler: Mapping[str, Any]
+    model_claim_contract: Mapping[str, Any]
     claim_boundary: str
 
     @classmethod
@@ -697,6 +710,7 @@ class X1ResumeConfig:
         inputs = dict(payload.get("inputs", {}))
         load = dict(payload.get("load", {}))
         q0 = dict(payload.get("q0", {}))
+        claim = dict(payload.get("claim", {}))
         config = cls(
             path=path,
             sha256=hashlib.sha256(raw).hexdigest(),
@@ -745,7 +759,8 @@ class X1ResumeConfig:
             ),
             batching={key: dict(value) for key, value in dict(payload.get("batching", {})).items()},
             profiler=dict(payload.get("profiler", {})),
-            claim_boundary=str(dict(payload.get("claim", {})).get("boundary") or ""),
+            model_claim_contract={key: value for key, value in claim.items() if key != "boundary"},
+            claim_boundary=str(claim.get("boundary") or ""),
         )
         config.validate(payload)
         return config
@@ -913,9 +928,20 @@ class X1ResumeConfig:
             "claim_kernel_overlap_only_when_directly_observed": True,
         }:
             raise X1ResumeTestbedError("x1_resume_profiler_contract")
+        claim = dict(raw.get("claim", {})) if raw is not None else {}
+        if (raw is not None and set(claim) != {"boundary", *MODEL_CLAIM_CONTRACT}) or dict(
+            self.model_claim_contract
+        ) != MODEL_CLAIM_CONTRACT:
+            raise X1ResumeTestbedError("x1_resume_model_claim_contract")
         if (
             CLAIM_CLASS not in self.claim_boundary.lower()
             or "non-credit" not in self.claim_boundary.lower()
+            or MODEL_DESCRIPTION not in self.claim_boundary
+            or any(
+                f"{key}=false" not in self.claim_boundary
+                for key in MODEL_CLAIM_CONTRACT
+                if key != "model_description"
+            )
         ):
             raise X1ResumeTestbedError("x1_resume_claim_boundary")
 
@@ -1545,6 +1571,8 @@ def _validate_manifest_contract(manifest: Any, config: X1ResumeConfig) -> None:
         "model_identities",
         "entries",
         "repository_sha256",
+        "model_claim_contract",
+        "model_claim_contract_sha256",
         "claim_boundary",
     }
     if (
@@ -1559,6 +1587,8 @@ def _validate_manifest_contract(manifest: Any, config: X1ResumeConfig) -> None:
         or manifest.get("instance_kind") != "KIND_GPU"
         or manifest.get("cpu_fallback_allowed") is not False
         or tuple(manifest.get("model_ids", [])) != EXPECTED_MODELS
+        or manifest.get("model_claim_contract") != MODEL_CLAIM_CONTRACT
+        or manifest.get("model_claim_contract_sha256") != canonical_sha256(MODEL_CLAIM_CONTRACT)
         or manifest.get("claim_boundary") != config.claim_boundary
     ):
         raise X1ResumeTestbedError("x1_resume_private_manifest_contract")
@@ -1642,21 +1672,27 @@ def _validate_released_lease(
     }
     suite_id = str(payload.get("suite_id") or "")
     timestamps: dict[str, datetime] = {}
+    validated_lease: dict[str, Any] | None = None
     if isinstance(released, Mapping):
         try:
             for key in ("acquired_at", "expires_at", "released_at"):
                 value = released.get(key)
-                if type(value) is not str or not value.endswith("Z"):
+                if type(value) is not str or not re.fullmatch(
+                    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value
+                ):
                     raise ValueError(key)
-                parsed = datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
-                if parsed.tzinfo is None:
+                parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+                if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != value:
                     raise ValueError(key)
-                timestamps[key] = parsed.astimezone(UTC)
-        except (TypeError, ValueError):
+                timestamps[key] = parsed
+            validated_lease = GpuLease.model_validate(dict(released)).model_dump(mode="json")
+        except (TypeError, ValueError, ValidationError):
             timestamps = {}
+            validated_lease = None
     if (
         not isinstance(released, Mapping)
         or set(released) != required
+        or validated_lease != dict(released)
         or released.get("schema_version") != "evm.scenario_gpu_lease.v1"
         or not re.fullmatch(r"gpu-lease-[0-9a-f]{32}", str(released.get("lease_id") or ""))
         or released.get("lease_id") != active_identity.get("lease_id")
@@ -1760,6 +1796,21 @@ def _attempt_id_pattern(suite_id: str, cell_id: str, repetition: int) -> re.Patt
     return re.compile(rf"^{re.escape(suite_id)}-{re.escape(cell_id)}-r{repetition}-[0-9a-f]{{8}}$")
 
 
+def _warmup_offered_bounds(
+    *,
+    warmup_seconds: int,
+    offered_rps: int,
+    minimum_offered_rate_attainment: float,
+    matched_load_relative_tolerance: float,
+) -> tuple[int, int, int]:
+    expected = warmup_seconds * offered_rps
+    lower = math.ceil(expected * minimum_offered_rate_attainment)
+    upper = math.floor(expected * (1.0 + matched_load_relative_tolerance))
+    if expected <= 0 or lower <= 0 or upper < lower:
+        raise X1ResumeTestbedError("x1_resume_private_warmup_contract")
+    return expected, lower, upper
+
+
 def _validate_attempt_records(
     records: Any,
     terminal_records: Any,
@@ -1768,6 +1819,9 @@ def _validate_attempt_records(
     attempt_id: str,
     model_mix: Mapping[str, float],
     warmup_seconds: int,
+    offered_rps: int,
+    minimum_offered_rate_attainment: float,
+    matched_load_relative_tolerance: float,
     measurement_start_ns: int,
     measurement_end_ns: int,
     admission: Mapping[str, Any],
@@ -1790,6 +1844,9 @@ def _validate_attempt_records(
         "finished_ns",
         "queue_wait_ms",
         "latency_ms",
+        "oracle_valid",
+        "expected_output",
+        "observed_output",
     }
     terminal_fields = required_fields | {"global_sequence", "phase"}
     ledger_fields = {
@@ -1810,6 +1867,9 @@ def _validate_attempt_records(
     measured_offered_by_model: Counter[str] = Counter()
     measured_accepted_by_model: Counter[str] = Counter()
     measured_rejected_by_model: Counter[str] = Counter()
+    warmup_offered_by_model: Counter[str] = Counter()
+    warmup_accepted_by_model: Counter[str] = Counter()
+    warmup_rejected_by_model: Counter[str] = Counter()
     for expected_sequence, ledger_item in enumerate(admission_ledger):
         if not isinstance(ledger_item, Mapping) or set(ledger_item) != ledger_fields:
             raise X1ResumeTestbedError("x1_resume_private_admission_ledger_schema")
@@ -1844,6 +1904,32 @@ def _validate_attempt_records(
                 measured_accepted_by_model[str(model_id)] += 1
             else:
                 measured_rejected_by_model[str(model_id)] += 1
+        else:
+            warmup_offered_by_model[str(model_id)] += 1
+            if decision == "accepted":
+                warmup_accepted_by_model[str(model_id)] += 1
+            else:
+                warmup_rejected_by_model[str(model_id)] += 1
+
+    warmup_ledger = [item for item in ledger_by_id.values() if item["phase"] == "warmup"]
+    warmup_expected, warmup_minimum, warmup_maximum = _warmup_offered_bounds(
+        warmup_seconds=warmup_seconds,
+        offered_rps=offered_rps,
+        minimum_offered_rate_attainment=minimum_offered_rate_attainment,
+        matched_load_relative_tolerance=matched_load_relative_tolerance,
+    )
+    warmup_first_ns = min((int(item["enqueued_ns"]) for item in warmup_ledger), default=0)
+    warmup_last_ns = max((int(item["enqueued_ns"]) for item in warmup_ledger), default=0)
+    edge_slack_ns = math.ceil(
+        warmup_seconds * (1.0 - minimum_offered_rate_attainment) * 1_000_000_000
+    )
+    if (
+        not warmup_minimum <= len(warmup_ledger) <= warmup_maximum
+        or sum(warmup_accepted_by_model.values()) <= 0
+        or warmup_first_ns > attempt_start_ns + edge_slack_ns
+        or warmup_last_ns < measurement_start_ns - edge_slack_ns
+    ):
+        raise X1ResumeTestbedError("x1_resume_private_warmup_offered")
 
     terminal_by_id: dict[str, dict[str, Any]] = {}
     all_completed: Counter[str] = Counter()
@@ -1861,6 +1947,20 @@ def _validate_attempt_records(
         finished_ns = terminal.get("finished_ns")
         queue_wait_ms = terminal.get("queue_wait_ms")
         latency_ms = terminal.get("latency_ms")
+        oracle_valid = terminal.get("oracle_valid")
+        expected_output = terminal.get("expected_output")
+        observed_output = terminal.get("observed_output")
+        recomputed_oracle_valid = (
+            isinstance(expected_output, (int, float))
+            and not isinstance(expected_output, bool)
+            and isinstance(observed_output, (int, float))
+            and not isinstance(observed_output, bool)
+            and math.isfinite(float(expected_output))
+            and math.isfinite(float(observed_output))
+            and math.isclose(
+                float(observed_output), float(expected_output), rel_tol=1e-4, abs_tol=1e-4
+            )
+        )
         if (
             ledger_item is None
             or ledger_item["decision"] != "accepted"
@@ -1884,6 +1984,8 @@ def _validate_attempt_records(
             or not math.isfinite(float(queue_wait_ms))
             or not math.isfinite(float(latency_ms))
             or float(latency_ms) <= 0
+            or type(oracle_valid) is not bool
+            or oracle_valid is not recomputed_oracle_valid
             or not math.isclose(
                 float(queue_wait_ms),
                 (int(started_ns) - int(enqueued_ns)) / 1e6,
@@ -1897,10 +1999,15 @@ def _validate_attempt_records(
                 abs_tol=1e-9,
             )
             or (outcome == "completed" and status != 200)
+            or (outcome == "completed") != oracle_valid
             or (outcome == "5xx" and int(status) < 500)
             or (outcome == "error" and (status == 200 or int(status) >= 500))
         ):
             raise X1ResumeTestbedError("x1_resume_private_terminal_record_binding")
+        if terminal.get("phase") == "warmup" and (
+            outcome != "completed" or status != 200 or oracle_valid is not True
+        ):
+            raise X1ResumeTestbedError("x1_resume_private_warmup_terminal")
         terminal_by_id[request_id] = dict(terminal)
         if terminal.get("outcome") == "completed":
             all_completed[str(terminal.get("model_id"))] += 1
@@ -1939,6 +2046,20 @@ def _validate_attempt_records(
         enqueued_ns, started_ns, finished_ns = (int(value) for value in timestamps)
         queue_wait_ms = record.get("queue_wait_ms")
         latency_ms = record.get("latency_ms")
+        oracle_valid = record.get("oracle_valid")
+        expected_output = record.get("expected_output")
+        observed_output = record.get("observed_output")
+        recomputed_oracle_valid = (
+            isinstance(expected_output, (int, float))
+            and not isinstance(expected_output, bool)
+            and isinstance(observed_output, (int, float))
+            and not isinstance(observed_output, bool)
+            and math.isfinite(float(expected_output))
+            and math.isfinite(float(observed_output))
+            and math.isclose(
+                float(observed_output), float(expected_output), rel_tol=1e-4, abs_tol=1e-4
+            )
+        )
         if (
             not measurement_start_ns <= enqueued_ns < measurement_end_ns
             or started_ns < enqueued_ns
@@ -1950,6 +2071,8 @@ def _validate_attempt_records(
             or not math.isfinite(float(queue_wait_ms))
             or not math.isfinite(float(latency_ms))
             or float(latency_ms) <= 0
+            or type(oracle_valid) is not bool
+            or oracle_valid is not recomputed_oracle_valid
             or not math.isclose(
                 float(queue_wait_ms),
                 (started_ns - enqueued_ns) / 1e6,
@@ -1963,6 +2086,7 @@ def _validate_attempt_records(
                 abs_tol=1e-9,
             )
             or (outcome == "completed" and status != 200)
+            or (outcome == "completed") != oracle_valid
             or (outcome == "5xx" and status < 500)
             or (outcome == "error" and (status == 200 or status >= 500))
         ):
@@ -1977,6 +2101,13 @@ def _validate_attempt_records(
     admitted = admission.get("admitted")
     rejected = admission.get("local_admission_rejected")
     measured_ledger = [item for item in ledger_by_id.values() if item["phase"] == "measured"]
+    warmup_completed_by_model = Counter(
+        str(item["model_id"])
+        for item in terminal_by_id.values()
+        if item["phase"] == "warmup" and item["outcome"] == "completed"
+    )
+    if warmup_completed_by_model != warmup_accepted_by_model:
+        raise X1ResumeTestbedError("x1_resume_private_warmup_terminal")
     if (
         any(type(value) is not int for value in (offered, admitted, rejected))
         or min(int(offered), int(admitted), int(rejected)) < 0
@@ -1989,7 +2120,32 @@ def _validate_attempt_records(
         raise X1ResumeTestbedError("x1_resume_private_attempt_admission")
     admission_proof = {
         "issued_count": len(admission_ledger),
-        "warmup_offered": sum(item["phase"] == "warmup" for item in ledger_by_id.values()),
+        "warmup_expected_offered": warmup_expected,
+        "warmup_min_offered": warmup_minimum,
+        "warmup_max_offered": warmup_maximum,
+        "warmup_offered": len(warmup_ledger),
+        "warmup_accepted": sum(warmup_accepted_by_model.values()),
+        "warmup_rejected": sum(warmup_rejected_by_model.values()),
+        "warmup_completed": sum(warmup_completed_by_model.values()),
+        "warmup_http_5xx": 0,
+        "warmup_other_errors": 0,
+        "warmup_loss": 0,
+        "warmup_duplicates": 0,
+        "warmup_first_enqueued_ns": warmup_first_ns,
+        "warmup_last_enqueued_ns": warmup_last_ns,
+        "warmup_observed_span_ns": warmup_last_ns - warmup_first_ns,
+        "warmup_offered_by_model": {
+            model_id: warmup_offered_by_model[model_id] for model_id in EXPECTED_MODELS
+        },
+        "warmup_accepted_by_model": {
+            model_id: warmup_accepted_by_model[model_id] for model_id in EXPECTED_MODELS
+        },
+        "warmup_rejected_by_model": {
+            model_id: warmup_rejected_by_model[model_id] for model_id in EXPECTED_MODELS
+        },
+        "warmup_completed_by_model": {
+            model_id: warmup_completed_by_model[model_id] for model_id in EXPECTED_MODELS
+        },
         "measured_offered": len(measured_ledger),
         "measured_accepted": int(admitted),
         "measured_rejected": int(rejected),
@@ -2355,6 +2511,9 @@ def validate_private_evidence(
             attempt_id=attempt_id,
             model_mix=raw_mix,
             warmup_seconds=config.warmup_seconds,
+            offered_rps=config.offered_rps,
+            minimum_offered_rate_attainment=config.minimum_offered_rate_attainment,
+            matched_load_relative_tolerance=config.matched_load_relative_tolerance,
             measurement_start_ns=int(window["start_ns"]),
             measurement_end_ns=int(window["end_ns"]),
             admission=admission,
@@ -2897,6 +3056,7 @@ def generate_report(
         "source_revision": source_identity.get("revision"),
         "source_tree_sha": source_identity.get("tree_sha"),
     }
+    model_claim_contract = dict(config.model_claim_contract)
 
     def summarize_distribution(values: Sequence[float]) -> dict[str, Any]:
         return {
@@ -2946,8 +3106,8 @@ def generate_report(
     )
     admission_rejections = sum(int(item["metrics"]["local_admission_rejected"]) for item in runs)
     bullet = (
-        "Built and measured a preliminary single-node Triton/RTX 4080 testbed for four "
-        "named seeded CUDA test models using governed HIGGS/Criteo inputs across "
+        "Built and measured a preliminary single-node Triton/RTX 4080 testbed for "
+        f"{MODEL_DESCRIPTION} across "
         f"{len(runs)} physical runs; fixed-window balanced concurrent throughput was n=3 median "
         f"{concurrent:.2f} req/s "
         f"[{concurrent_distribution['min']:.2f}, {concurrent_distribution['max']:.2f}] "
@@ -2956,7 +3116,8 @@ def generate_report(
         f"{batch_on_distribution['max']:.2f}] ({batching_delta:+.1f}% vs batch-off) and formed "
         f"mean batch size median {batch_on_mean_size:.2f} "
         f"[{batch_size_distribution['min']:.2f}, {batch_size_distribution['max']:.2f}]; "
-        f"and the 70% hot-model mix observed n=3 median normalized-attainment Jain fairness "
+        f"and the 70% offered hot-model mix observed n=3 median normalized-attainment Jain "
+        "fairness "
         f"{hot_fairness:.3f} [{hot_fairness_distribution['min']:.3f}, "
         f"{hot_fairness_distribution['max']:.3f}]; "
         f"service errors/loss={service_errors}, local admission rejections={admission_rejections}. "
@@ -2978,6 +3139,8 @@ def generate_report(
             "cleanup_evidence_sha256": cleanup_evidence.get("sha256"),
             "private_validation": private_marker,
             "private_validation_marker_sha256": canonical_sha256(private_marker),
+            "model_claim_contract": model_claim_contract,
+            "model_claim_contract_sha256": canonical_sha256(model_claim_contract),
         },
         "measured": {
             "physical_runs": len(runs),
@@ -2998,11 +3161,14 @@ def generate_report(
             "service_errors_or_loss": service_errors,
             "local_admission_rejections": admission_rejections,
             "criteo_dlrm_lite_parameter_origin": "deterministic_seeded_testbed_initialization",
-            "model_accuracy_claim": False,
+            "model_claim_contract": model_claim_contract,
             "topology_comparison_scope": "compound client-driver L1W1-to-L2W4 topology; not deployed API replica or service-worker causality",
         },
         "resume_bullets": [bullet],
-        "mandatory_disclosure": config.claim_boundary,
+        "mandatory_disclosure": {
+            **model_claim_contract,
+            "boundary": config.claim_boundary,
+        },
     }
 
 

@@ -6,6 +6,7 @@ import os
 import runpy
 import subprocess
 from collections import Counter
+from dataclasses import replace
 from itertools import groupby
 from pathlib import Path
 
@@ -22,6 +23,8 @@ from evm.scale_validation.x1_resume_testbed import (
     DEFAULT_CONFIG_RELATIVE_PATH,
     EXPECTED_MODELS,
     EXPECTED_PROMETHEUS_JOBS,
+    MODEL_CLAIM_CONTRACT,
+    MODEL_DESCRIPTION,
     REQUIRED_SOURCE_BLOB_PATHS,
     X1ResumeConfig,
     X1ResumeTestbedError,
@@ -306,7 +309,8 @@ def synthetic_attempt_bundle(attempt_id: str, model_mix: dict[str, float]) -> di
     admission_ledger: list[dict[str, object]] = []
     terminal_records: list[dict[str, object]] = []
     measured_records: list[dict[str, object]] = []
-    warmup_count = 100
+    warmup_count = 7_200
+    warmup_accepted = 4
     measured_offered = 24_000
     measured_accepted = 400
     total = warmup_count + measured_offered
@@ -314,11 +318,15 @@ def synthetic_attempt_bundle(attempt_id: str, model_mix: dict[str, float]) -> di
         phase = "warmup" if sequence < warmup_count else "measured"
         measured_sequence = sequence - warmup_count
         enqueued_ns = (
-            10_000_000_000 + sequence * 1_000_000
+            10_000_000_000 + sequence * (10_000_000_000 // warmup_count)
             if phase == "warmup"
             else measurement_start_ns + measured_sequence * 1_250_000
         )
-        accepted = phase == "warmup" or measured_sequence < measured_accepted
+        accepted = (
+            sequence < warmup_accepted
+            if phase == "warmup"
+            else measured_sequence < measured_accepted
+        )
         model_id = schedule[sequence % len(schedule)]
         request_id = f"{attempt_id}-{sequence}"
         admission_ledger.append(
@@ -348,6 +356,9 @@ def synthetic_attempt_bundle(attempt_id: str, model_mix: dict[str, float]) -> di
             "finished_ns": finished_ns,
             "latency_ms": 2.0,
             "queue_wait_ms": 0.1,
+            "oracle_valid": True,
+            "expected_output": 0.5,
+            "observed_output": 0.5,
             "global_sequence": sequence,
             "phase": phase,
         }
@@ -361,9 +372,48 @@ def synthetic_attempt_bundle(attempt_id: str, model_mix: dict[str, float]) -> di
                 }
             )
     measured_ledger = [item for item in admission_ledger if item["phase"] == "measured"]
+    warmup_ledger = [item for item in admission_ledger if item["phase"] == "warmup"]
+    warmup_terminals = [item for item in terminal_records if item["phase"] == "warmup"]
     admission_proof = {
         "issued_count": len(admission_ledger),
+        "warmup_expected_offered": 8_000,
+        "warmup_min_offered": 7_200,
+        "warmup_max_offered": 8_400,
         "warmup_offered": warmup_count,
+        "warmup_accepted": warmup_accepted,
+        "warmup_rejected": warmup_count - warmup_accepted,
+        "warmup_completed": warmup_accepted,
+        "warmup_http_5xx": 0,
+        "warmup_other_errors": 0,
+        "warmup_loss": 0,
+        "warmup_duplicates": 0,
+        "warmup_first_enqueued_ns": warmup_ledger[0]["enqueued_ns"],
+        "warmup_last_enqueued_ns": warmup_ledger[-1]["enqueued_ns"],
+        "warmup_observed_span_ns": (
+            int(warmup_ledger[-1]["enqueued_ns"]) - int(warmup_ledger[0]["enqueued_ns"])
+        ),
+        "warmup_offered_by_model": {
+            model_id: sum(item["model_id"] == model_id for item in warmup_ledger)
+            for model_id in EXPECTED_MODELS
+        },
+        "warmup_accepted_by_model": {
+            model_id: sum(
+                item["model_id"] == model_id and item["decision"] == "accepted"
+                for item in warmup_ledger
+            )
+            for model_id in EXPECTED_MODELS
+        },
+        "warmup_rejected_by_model": {
+            model_id: sum(
+                item["model_id"] == model_id and item["decision"] == "rejected"
+                for item in warmup_ledger
+            )
+            for model_id in EXPECTED_MODELS
+        },
+        "warmup_completed_by_model": {
+            model_id: sum(item["model_id"] == model_id for item in warmup_terminals)
+            for model_id in EXPECTED_MODELS
+        },
         "measured_offered": measured_offered,
         "measured_accepted": measured_accepted,
         "measured_rejected": measured_offered - measured_accepted,
@@ -531,6 +581,11 @@ def test_config_freezes_non_credit_matrix_and_honest_driver_scope() -> None:
     cfg = config()
     assert cfg.expected_physical_runs == 22
     assert len(cfg.cells) == 10
+    assert cfg.model_claim_contract == MODEL_CLAIM_CONTRACT
+    assert MODEL_DESCRIPTION in cfg.claim_boundary
+    for key in MODEL_CLAIM_CONTRACT:
+        if key != "model_description":
+            assert f"{key}=false" in cfg.claim_boundary
     assert "not deployed API replicas" in cfg.claim_boundary
     assert "kernel-overlap evidence unless a profiler directly proves overlap" in cfg.claim_boundary
     runner = (ROOT / "scripts/dev/run_s8_v4_x1_resume_testbed.py").read_text(encoding="utf-8")
@@ -538,6 +593,11 @@ def test_config_freezes_non_credit_matrix_and_honest_driver_scope() -> None:
     assert "--trace-config=triton,file=/evidence/triton-trace.json" in runner
     assert "--trace-config=rate=64" in runner
     assert "trace_enabled=False" in runner
+
+    mutated_claims = dict(cfg.model_claim_contract)
+    mutated_claims["prepared_model_equivalence_claim"] = True
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_model_claim_contract"):
+        replace(cfg, model_claim_contract=mutated_claims).validate()
 
 
 def test_prometheus_cleanup_waits_for_the_exact_restored_baseline() -> None:
@@ -1186,6 +1246,8 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
         "samples_sha256": sha256_file(sample_path),
         "entries": entries,
         "repository_sha256": canonical_sha256(entries),
+        "model_claim_contract": dict(MODEL_CLAIM_CONTRACT),
+        "model_claim_contract_sha256": canonical_sha256(MODEL_CLAIM_CONTRACT),
         "profile_identities": profile_identities,
         "model_identities": model_identities,
         "claim_boundary": cfg.claim_boundary,
@@ -1571,7 +1633,13 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
     assert "n=3 median" in bullet
     assert "named seeded CUDA test models using governed HIGGS/Criteo inputs" in bullet
     assert "HIGGS/Criteo-derived CUDA models" not in bullet
+    assert "70% offered hot-model mix" in bullet
     assert "no training-quality or model-accuracy claim" in bullet
+    assert report["mandatory_disclosure"] == {
+        **MODEL_CLAIM_CONTRACT,
+        "boundary": cfg.claim_boundary,
+    }
+    assert report["measured"]["model_claim_contract"] == MODEL_CLAIM_CONTRACT
     assert report["measured"]["topology_comparison_scope"].startswith("compound client-driver")
     assert report["provenance"] == {
         "evidence_canonical_payload_sha256": canonical_sha256(payload),
@@ -1597,6 +1665,8 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
                 "source_tree_sha": source_tree_sha,
             }
         ),
+        "model_claim_contract": dict(MODEL_CLAIM_CONTRACT),
+        "model_claim_contract_sha256": canonical_sha256(MODEL_CLAIM_CONTRACT),
     }
     validate_report_binding(
         report,
@@ -1616,6 +1686,23 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
     with pytest.raises(X1ResumeTestbedError, match="x1_resume_report_binding"):
         validate_report_binding(
             swapped_report,
+            payload,
+            cfg,
+            evidence_path=evidence_path,
+            private_suite_root=suite_root,
+            model_repository_root=repository_root,
+            source_root=source_root,
+            data_root=data_root,
+        )
+    claim_tampered = json.loads(json.dumps(report))
+    claim_tampered["mandatory_disclosure"]["model_accuracy_claim"] = True
+    claim_tampered["provenance"]["model_claim_contract"]["model_accuracy_claim"] = True
+    claim_tampered["provenance"]["model_claim_contract_sha256"] = canonical_sha256(
+        claim_tampered["provenance"]["model_claim_contract"]
+    )
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_report_binding"):
+        validate_report_binding(
+            claim_tampered,
             payload,
             cfg,
             evidence_path=evidence_path,
@@ -2227,6 +2314,9 @@ def test_raw_admission_terminal_partition_and_schedule_fail_closed() -> None:
             "finished_ns": finished_ns,
             "queue_wait_ms": (started_ns - int(source["enqueued_ns"])) / 1e6,
             "latency_ms": 1.0,
+            "oracle_valid": True,
+            "expected_output": 0.5,
+            "observed_output": 0.5,
             "global_sequence": source["global_sequence"],
             "phase": source["phase"],
         }
@@ -2252,6 +2342,9 @@ def test_raw_admission_terminal_partition_and_schedule_fail_closed() -> None:
         attempt_id=attempt_id,
         model_mix=model_mix,
         warmup_seconds=1,
+        offered_rps=1,
+        minimum_offered_rate_attainment=0.5,
+        matched_load_relative_tolerance=0.1,
         measurement_start_ns=measurement_start_ns,
         measurement_end_ns=measurement_end_ns,
         admission=admission,
@@ -2274,6 +2367,9 @@ def test_raw_admission_terminal_partition_and_schedule_fail_closed() -> None:
                 attempt_id=attempt_id,
                 model_mix=model_mix,
                 warmup_seconds=1,
+                offered_rps=1,
+                minimum_offered_rate_attainment=0.5,
+                matched_load_relative_tolerance=0.1,
                 measurement_start_ns=measurement_start_ns,
                 measurement_end_ns=measurement_end_ns,
                 admission=admission,
@@ -2291,12 +2387,71 @@ def test_raw_admission_terminal_partition_and_schedule_fail_closed() -> None:
     warmup_timing[0]["latency_ms"] = 2.0
     rejected(records, warmup_timing, ledger, "private_terminal_record_binding")
 
+    warmup_error = json.loads(json.dumps(terminals))
+    warmup_error[0].update(
+        {"outcome": "error", "status": 0, "oracle_valid": False, "observed_output": None}
+    )
+    rejected(records, warmup_error, ledger, "private_warmup_terminal")
+
+    warmup_5xx = json.loads(json.dumps(terminals))
+    warmup_5xx[0].update(
+        {"outcome": "5xx", "status": 503, "oracle_valid": False, "observed_output": None}
+    )
+    rejected(records, warmup_5xx, ledger, "private_warmup_terminal")
+
+    warmup_oracle_missing = json.loads(json.dumps(terminals))
+    warmup_oracle_missing[0]["oracle_valid"] = False
+    rejected(records, warmup_oracle_missing, ledger, "private_terminal_record_binding")
+
+    warmup_oracle_forged = json.loads(json.dumps(terminals))
+    warmup_oracle_forged[0]["observed_output"] = 0.75
+    rejected(records, warmup_oracle_forged, ledger, "private_terminal_record_binding")
+
     missing_terminal = json.loads(json.dumps(terminals[1:]))
     rejected(records, missing_terminal, ledger, "private_terminal_identity_set")
+
+    duplicate_warmup = json.loads(json.dumps(terminals))
+    duplicate_warmup.append(json.loads(json.dumps(terminals[0])))
+    rejected(records, duplicate_warmup, ledger, "private_terminal_record_binding")
 
     rejected_terminal = json.loads(json.dumps(terminals))
     rejected_terminal.append(terminal(ledger[2]))
     rejected(records, rejected_terminal, ledger, "private_terminal_record_binding")
+
+    no_warmup_ledger = json.loads(json.dumps(ledger[1:]))
+    for sequence, item in enumerate(no_warmup_ledger):
+        item["global_sequence"] = sequence
+        item["request_id"] = f"{attempt_id}-{sequence}"
+    no_warmup_terminals = [terminal(no_warmup_ledger[0])]
+    no_warmup_records = [
+        {
+            key: value
+            for key, value in no_warmup_terminals[0].items()
+            if key not in {"global_sequence", "phase"}
+        }
+    ]
+    rejected(
+        no_warmup_records,
+        no_warmup_terminals,
+        no_warmup_ledger,
+        "private_warmup_offered",
+    )
+
+    with pytest.raises(X1ResumeTestbedError, match="private_warmup_offered"):
+        x1_resume_module._validate_attempt_records(
+            records,
+            terminals,
+            ledger,
+            attempt_id=attempt_id,
+            model_mix=model_mix,
+            warmup_seconds=1,
+            offered_rps=2,
+            minimum_offered_rate_attainment=1.0,
+            matched_load_relative_tolerance=0.0,
+            measurement_start_ns=measurement_start_ns,
+            measurement_end_ns=measurement_end_ns,
+            admission=admission,
+        )
 
 
 def test_result_commit_binds_evidence_and_report_git_blobs(tmp_path: Path) -> None:
@@ -2359,6 +2514,14 @@ def test_runbook_revalidates_committed_report_and_private_roots() -> None:
     assert "--require-git-binding" in runbook
     assert "--result-revision HEAD" in runbook
     assert "Remove-Item -LiteralPath $RevalidatedReport" in runbook
+    assert MODEL_DESCRIPTION in runbook
+    for key in MODEL_CLAIM_CONTRACT:
+        if key != "model_description":
+            assert f"`{key}=false`" in runbook
+
+    runner = (ROOT / "scripts/dev/run_s8_v4_x1_resume_testbed.py").read_text(encoding="utf-8")
+    assert "_validate_attempt_records(" in runner
+    assert '"oracle_valid": oracle_valid' in runner
 
 
 def test_public_attempt_identity_and_run_set_are_exact() -> None:
@@ -2493,10 +2656,15 @@ def test_released_gpu_lease_is_bound_to_the_exact_suite_and_archive() -> None:
 
     for field, value in (
         ("released_at", "not-a-timestamp"),
+        ("released_at", "2026-08-25T00:30:00.000000Z"),
+        ("released_at", "2026-08-25T00:30:00+00:00"),
+        ("acquired_at", "2026-08-25T00:00:00.000000Z"),
         ("released_at", "2026-08-24T23:59:59Z"),
         ("released_at", "2026-08-25T02:00:01Z"),
+        ("expires_at", "2026-08-24T23:59:59Z"),
         ("fencing_token", "not-a-fencing-token"),
         ("source_commit", "c" * 40),
+        ("owner_pid", "1234"),
         ("state", "active"),
         ("release_reason", "coherent-but-wrong"),
     ):

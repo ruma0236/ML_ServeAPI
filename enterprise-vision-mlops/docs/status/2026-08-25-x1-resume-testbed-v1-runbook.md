@@ -6,10 +6,12 @@ claim completion of S8-V4.
 
 ## Purpose and fixed matrix
 
-The testbed packages four named, deterministically seeded CUDA test-model paths
-that use governed HIGGS/Criteo inputs into the pinned Triton PyTorch GPU backend.
+The testbed packages four named seeded CUDA test models using governed HIGGS/Criteo inputs
+into the pinned Triton PyTorch GPU backend.
 It does not independently reconstruct every prepared TorchScript parameter from
-the source artifacts, so it does not claim trained-model lineage or quality:
+the source artifacts. The exact claim contract is
+`model_derivation_claim=false`, `prepared_model_equivalence_claim=false`,
+`model_accuracy_claim=false`, and `dlrm_training_quality_claim=false`:
 
 - HIGGS LogisticRegression from the S3 JSON artifact;
 - HIGGS GaussianNB from the S3 JSON artifact;
@@ -19,7 +21,7 @@ the source artifacts, so it does not claim trained-model lineage or quality:
 
 It runs four isolated Q0 CUDA diagnostics and 22 unique physical measurement
 runs: four solo diagnostics plus serial, concurrent/batching-off,
-concurrent/batching-on, L1W1 client-driver, L2W4 client-driver, and 70% DLRM-hot
+concurrent/batching-on, L1W1 client-driver, L2W4 client-driver, and 70% offered DLRM-hot
 cells. Each repeated cell runs three times. L1W1/L2W4 mean local client
 admission lanes and load-driver workers; they are not deployed API replicas or
 service worker processes. The actual API replica/worker topology is a follow-up

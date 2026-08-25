@@ -12,7 +12,6 @@ import subprocess
 import sys
 import threading
 import time
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -44,6 +43,7 @@ from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
     CellSpec,
     X1ResumeConfig,
     X1ResumeTestbedError,
+    _validate_attempt_records,
     _triton_metric_deltas,
     _triton_metrics_for_model,
     canonical,
@@ -794,9 +794,12 @@ def run_cell(
                 started_ns = time.perf_counter_ns()
                 outcome = "error"
                 status = 0
+                oracle_valid = False
+                expected_output: float | None = None
+                observed_output: float | None = None
                 try:
                     values = list(samples["samples"][model_id][sample_index])
-                    expected = float(samples["oracle"][model_id]["outputs"][sample_index])
+                    expected_output = float(samples["oracle"][model_id]["outputs"][sample_index])
                     payload = {
                         "id": request_id,
                         "inputs": [
@@ -817,11 +820,15 @@ def run_cell(
                     status = response.status_code
                     if status == 200:
                         body = response.json()
-                        output = float(list(body["outputs"])[0]["data"][0])
-                        if not math.isfinite(output) or not math.isclose(
-                            output, expected, rel_tol=1e-4, abs_tol=1e-4
+                        observed_output = float(list(body["outputs"])[0]["data"][0])
+                        if not math.isfinite(observed_output) or not math.isclose(
+                            observed_output,
+                            expected_output,
+                            rel_tol=1e-4,
+                            abs_tol=1e-4,
                         ):
                             raise ValueError("oracle_mismatch")
+                        oracle_valid = True
                         outcome = "completed"
                     elif status >= 500:
                         outcome = "5xx"
@@ -839,6 +846,9 @@ def run_cell(
                     "finished_ns": finished_ns,
                     "queue_wait_ms": (started_ns - enqueued_ns) / 1e6,
                     "latency_ms": (finished_ns - started_ns) / 1e6,
+                    "oracle_valid": oracle_valid,
+                    "expected_output": expected_output,
+                    "observed_output": observed_output,
                 }
                 with lock:
                     terminal_records.append(
@@ -982,8 +992,28 @@ def run_cell(
         )
         for model_id in EXPECTED_MODELS
     }
-    completed_by_model = Counter(
-        str(item["model_id"]) for item in terminal_records if item["outcome"] == "completed"
+    (
+        _measured_completed_by_model,
+        completed_by_model,
+        _request_ids,
+        admission_proof,
+    ) = _validate_attempt_records(
+        records,
+        terminal_records,
+        admission_ledger,
+        attempt_id=attempt_id,
+        model_mix=cell.model_mix,
+        warmup_seconds=config.warmup_seconds,
+        offered_rps=config.offered_rps,
+        minimum_offered_rate_attainment=config.minimum_offered_rate_attainment,
+        matched_load_relative_tolerance=config.matched_load_relative_tolerance,
+        measurement_start_ns=measurement_start_ns,
+        measurement_end_ns=measurement_end_ns,
+        admission={
+            "offered": offered,
+            "admitted": admitted,
+            "local_admission_rejected": rejected,
+        },
     )
     for model_id in EXPECTED_MODELS:
         completed = completed_by_model[model_id]
@@ -1031,34 +1061,6 @@ def run_cell(
         raise X1ResumeTestbedError(
             f"x1_resume_batch_not_formed:{cell.cell_id}:{repetition}:{formed_batch_size}"
         )
-    measured_ledger = [item for item in admission_ledger if item["phase"] == "measured"]
-    admission_proof = {
-        "issued_count": len(admission_ledger),
-        "warmup_offered": sum(item["phase"] == "warmup" for item in admission_ledger),
-        "measured_offered": len(measured_ledger),
-        "measured_accepted": admitted,
-        "measured_rejected": rejected,
-        "measured_offered_by_model": {
-            model_id: sum(item["model_id"] == model_id for item in measured_ledger)
-            for model_id in EXPECTED_MODELS
-        },
-        "measured_accepted_by_model": {
-            model_id: sum(
-                item["model_id"] == model_id and item["decision"] == "accepted"
-                for item in measured_ledger
-            )
-            for model_id in EXPECTED_MODELS
-        },
-        "measured_rejected_by_model": {
-            model_id: sum(
-                item["model_id"] == model_id and item["decision"] == "rejected"
-                for item in measured_ledger
-            )
-            for model_id in EXPECTED_MODELS
-        },
-        "ledger_sha256": canonical_sha256(admission_ledger),
-        "terminal_records_sha256": canonical_sha256(terminal_records),
-    }
     raw = {
         "schema_version": "evm.s8_v4.x1_resume_attempt_raw.v1",
         "attempt_id": attempt_id,

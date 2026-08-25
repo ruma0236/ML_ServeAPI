@@ -176,4 +176,9 @@ capture_seconds = 10
 claim_kernel_overlap_only_when_directly_observed = true
 
 [claim]
-boundary = "claim_class=preliminary_controlled_testbed on one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, governed HIGGS/Criteo-derived inputs, and direct local load. L1W1/L2W4 denote client admission lanes and load-driver workers, not deployed API replicas or service CPU workers. It is non-credit and is not canonical X1, production capacity, an SLA, HA/DR, tenant isolation, multi-node, multi-GPU, MPS, MIG, or kernel-overlap evidence unless a profiler directly proves overlap."
+model_description = "four named seeded CUDA test models using governed HIGGS/Criteo inputs"
+model_derivation_claim = false
+prepared_model_equivalence_claim = false
+model_accuracy_claim = false
+dlrm_training_quality_claim = false
+boundary = "claim_class=preliminary_controlled_testbed on one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, four named seeded CUDA test models using governed HIGGS/Criteo inputs, and direct local load. model_derivation_claim=false, prepared_model_equivalence_claim=false, model_accuracy_claim=false, and dlrm_training_quality_claim=false. L1W1/L2W4 denote client admission lanes and load-driver workers, not deployed API replicas or service CPU workers. It is non-credit and is not canonical X1, production capacity, an SLA, HA/DR, tenant isolation, multi-node, multi-GPU, MPS, MIG, or kernel-overlap evidence unless a profiler directly proves overlap."
