@@ -210,18 +210,10 @@ def _rewrite_observed_transition(
     changed = copy.deepcopy(receipt["observed_transition"])
     mutate(changed)
     receipt["observed_transition"] = copy.deepcopy(changed)
-
-    effect_payload: dict[str, Any] = {}
-
-    def mutate_effects(payload: dict[str, Any]) -> None:
-        nonlocal effect_payload
-        effect_payload = payload["effects"][0]["payload"]
-        effect_payload["observed_transition"] = copy.deepcopy(changed)
-        effect_payload["durable_commit"]["observed_transition"] = copy.deepcopy(changed)
-
-    _rewrite_reference(root, _proof(raw)["durable_effect_export"], mutate_effects)
+    effect_event_sha256 = ""
 
     def mutate_events(payload: dict[str, Any]) -> None:
+        nonlocal effect_event_sha256
         event = next(
             item
             for item in payload["events"]
@@ -229,10 +221,53 @@ def _rewrite_observed_transition(
         )
         event["payload"]["observed_transition"] = copy.deepcopy(changed)
         _rehash_event(event)
-        receipt["causal_payload_sha256"] = event["payload_sha256"]
+        effect_event_sha256 = str(event["payload_sha256"])
 
     _rewrite_events(root, raw, mutate_events)
+    receipt["causal_payload_sha256"] = effect_event_sha256
+    effect_payload: dict[str, Any] = {}
+
+    def mutate_effects(payload: dict[str, Any]) -> None:
+        nonlocal effect_payload
+        effect_payload = payload["effects"][0]["payload"]
+        effect_payload["observed_transition"] = copy.deepcopy(changed)
+        effect_payload["durable_commit"]["observed_transition"] = copy.deepcopy(changed)
+        effect_payload["durable_commit"]["causal_payload_sha256"] = effect_event_sha256
+
+    _rewrite_reference(root, _proof(raw)["durable_effect_export"], mutate_effects)
     receipt["stored_payload_sha256"] = canonical_sha256(effect_payload)
+
+
+def _sync_switch_dependencies(root: Path, raw: dict[str, Any]) -> None:
+    events = read_json(_reference_path(root, _proof(raw)["causal_event_export"]))
+    switch = next(
+        item for item in events["events"] if item["event_type"] == "blue_to_green_switch_commit"
+    )
+    route = _route_transition_receipt(raw)
+    fence = route["fence_receipt"]
+    fence["payload"] = copy.deepcopy(switch["payload"])
+    fence["payload_sha256"] = switch["payload_sha256"]
+    fence["fence_payload_sha256"] = switch["payload_sha256"]
+    route["fence_payload_sha256"] = switch["payload_sha256"]
+    route["fence_receipt_sha256"] = canonical_sha256(fence)
+    expected = {
+        "schema_version": "evm.s6bm.observed_transition.v1",
+        "transition_id": switch["payload"]["transition_id"],
+        "fence_id": switch["payload"]["fence_id"],
+        "fence_sequence": switch["causal_sequence"],
+        "fence_transaction_id": switch["transaction_id"],
+        "fence_payload_sha256": switch["payload_sha256"],
+        "attempt_id": switch["attempt_id"],
+        "run_id": switch["run_id"],
+        "request_id": switch["request_id"],
+        "old_route_generation": switch["payload"]["old_route_generation"],
+        "new_route_generation": switch["payload"]["new_route_generation"],
+        "source_payload_sha256": switch["payload"]["source_payload_sha256"],
+        "cell_id": switch["payload"]["cell_id"],
+        "replica_id": switch["payload"]["replica_id"],
+        "database_recorded_at": switch["database_recorded_at"],
+    }
+    _rewrite_observed_transition(root, raw, lambda value: value.update(expected))
 
 
 def _rewrite_trace(
@@ -277,12 +312,15 @@ def _rewrite_start_event(
         _rehash_event(switch)
 
     _rewrite_events(root, raw, mutate)
+    _sync_switch_dependencies(root, raw)
     return selected
 
 
 def _switch_unix_ns(raw: dict[str, Any]) -> int:
     return int(
-        _proof(raw)["route_transition_receipt"]["route_applied_actor"]["unix_ns"]
+        _proof(raw)["route_transition_receipt"]["route_applied_actor"][
+            "actor_start_unix_ns"
+        ]
     )
 
 
@@ -316,6 +354,50 @@ def _server_start_after_switch(root: Path, raw: dict[str, Any]) -> None:
 
 def _controller_start_after_switch(root: Path, raw: dict[str, Any]) -> None:
     _set_span_start_after_switch(root, raw, "s6bm.controller.predict", 2)
+
+
+def _actor_and_span_start_after_switch(
+    root: Path,
+    raw: dict[str, Any],
+    *,
+    stage: str,
+    span_name: str,
+    offset_ms: int,
+) -> None:
+    _set_span_start_after_switch(root, raw, span_name, offset_ms)
+    switch_monotonic = int(_route_transition_receipt(raw)["route_applied_monotonic_ns"])
+    start_unix = _switch_unix_ns(raw) + offset_ms * 1_000_000
+    local_start = switch_monotonic + offset_ms * 1_000_000
+    _rewrite_start_event(
+        root,
+        raw,
+        stage,
+        lambda payload: payload.update(
+            actor_start_unix_ns=start_unix,
+            monotonic_before_ns=local_start,
+            monotonic_after_ns=local_start + 500,
+        ),
+    )
+
+
+def _server_actor_and_span_after_switch(root: Path, raw: dict[str, Any]) -> None:
+    _actor_and_span_start_after_switch(
+        root,
+        raw,
+        stage="api_server_handler_entry",
+        span_name="POST /control-panel/v1/scenario-workloads/triton-blue-green/predict",
+        offset_ms=1,
+    )
+
+
+def _controller_actor_and_span_after_switch(root: Path, raw: dict[str, Any]) -> None:
+    _actor_and_span_start_after_switch(
+        root,
+        raw,
+        stage="controller_entry",
+        span_name="s6bm.controller.predict",
+        offset_ms=2,
+    )
 
 
 def _model_start_after_switch(root: Path, raw: dict[str, Any]) -> None:
@@ -361,6 +443,58 @@ def _model_start_after_switch(root: Path, raw: dict[str, Any]) -> None:
     receipt["receipt"]["payload"] = copy.deepcopy(event["payload"])
     receipt["receipt"]["payload_sha256"] = event["payload_sha256"]
 
+    projected = {
+        key: value
+        for key, value in receipt.items()
+        if key not in {"spec", "result", "raw_trace", "stdout", "stderr"}
+    }
+    result_path = _reference_path(root, receipt["result"])
+    canonical_write(result_path, projected)
+    _refresh(receipt["result"], result_path)
+
+
+def _model_actor_and_spans_after_switch(root: Path, raw: dict[str, Any]) -> None:
+    trace_id = raw["request_records"][0]["trace_id"]
+    model_name = raw["request_records"][0]["model_name"]
+    _set_span_start_after_switch(root, raw, model_name, 3)
+    _set_span_start_after_switch(root, raw, "compute", 4)
+    trace_reference = raw["observability"]["artifacts"]["trace_export"]
+    trace = read_json(_reference_path(root, trace_reference))
+    model_entry = next(
+        entry
+        for entry in trace["entries"]
+        if entry["span"].get("traceId") == trace_id
+        and entry["span"].get("name") == model_name
+    )
+    compute_entry = next(
+        entry
+        for entry in trace["entries"]
+        if entry["span"].get("traceId") == trace_id
+        and entry["span"].get("name") == "compute"
+    )
+    receipt = _proof(raw)["triton_start_receipt"]
+
+    def mutate_triton(payload: dict[str, Any]) -> None:
+        payload["raw_model_entry"] = copy.deepcopy(model_entry)
+        payload["raw_compute_entry"] = copy.deepcopy(compute_entry)
+        payload["compute_start_unix_ns"] = int(compute_entry["span"]["startTimeUnixNano"])
+
+    triton_trace = _rewrite_reference(root, receipt["raw_trace"], mutate_triton)
+    receipt["raw_trace_sha256"] = receipt["raw_trace"]["sha256"]
+    receipt["raw_record_sha256"] = canonical_sha256(triton_trace)
+    compute_start = int(compute_entry["span"]["startTimeUnixNano"])
+    event = _rewrite_start_event(
+        root,
+        raw,
+        "triton_backend_compute_entry",
+        lambda payload: payload.update(
+            actor_start_unix_ns=compute_start,
+            raw_trace_artifact_sha256=receipt["raw_trace"]["sha256"],
+            raw_trace_record_sha256=canonical_sha256(triton_trace),
+        ),
+    )
+    receipt["receipt"]["payload"] = copy.deepcopy(event["payload"])
+    receipt["receipt"]["payload_sha256"] = event["payload_sha256"]
     projected = {
         key: value
         for key, value in receipt.items()
@@ -471,6 +605,14 @@ def _wrong_fence_sequence(root: Path, raw: dict[str, Any]) -> None:
         root,
         raw,
         lambda value: value.update(fence_sequence=int(value["fence_sequence"]) + 1),
+    )
+
+
+def _reused_fence_identity(root: Path, raw: dict[str, Any]) -> None:
+    _rewrite_observed_transition(
+        root,
+        raw,
+        lambda value: value.update(fence_id="e" * 64),
     )
 
 
@@ -629,7 +771,8 @@ def _effect_end_before_commit(root: Path, raw: dict[str, Any]) -> None:
             for entry in payload["entries"]
             if entry["span"].get("name") == "s6bm.terminal_effect.commit"
         )
-        span["endTimeUnixNano"] = str(commit_unix_ns - 1_000_000)
+        span["startTimeUnixNano"] = str(commit_unix_ns - 2_000_000)
+        span["endTimeUnixNano"] = str(commit_unix_ns - 1)
 
     _rewrite_trace(root, raw, mutate)
 
@@ -873,6 +1016,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             _model_start_after_switch,
         ),
         (
+            "server_actor_receipt_and_span_start_after_switch",
+            "s6bm_v4_api_server_handler_entry_after_switch",
+            _server_actor_and_span_after_switch,
+        ),
+        (
+            "controller_actor_receipt_and_span_start_after_switch",
+            "s6bm_v4_controller_entry_after_switch",
+            _controller_actor_and_span_after_switch,
+        ),
+        (
+            "triton_actor_receipt_and_spans_start_after_switch",
+            "s6bm_v4_triton_backend_compute_entry_after_switch",
+            _model_actor_and_spans_after_switch,
+        ),
+        (
             "per_request_clock_anchor_self_reference",
             "s6bm_v4_clock_anchor_self_reference",
             _clock_self_reference,
@@ -968,6 +1126,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "effect_observed_fence_sequence_wrong",
             "s6bm_v4_effect_fence_happens_before",
             _wrong_fence_sequence,
+        ),
+        (
+            "effect_reused_fence_identity",
+            "s6bm_v4_effect_fence_happens_before",
+            _reused_fence_identity,
         ),
         (
             "effect_cross_attempt_transition_join",
