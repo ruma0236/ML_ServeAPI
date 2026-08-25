@@ -1,0 +1,17 @@
+{
+  "acceptance_credit": false,
+  "amends": {
+    "ledger_event_hash": "5af9e1076dcb8ecb187c69f5f7fe9406efd2de85b2d9f1b4d6d33e618f84ca22",
+    "ledger_event_id": "s8-v4-0067",
+    "original_path": "docs/status/evidence/s8-v4-s6bm-independent-review-failure.json",
+    "original_sha256": "cdd64a91617fad303cee1aaad86d1a139dd7712edff570558450f4c671915014"
+  },
+  "claim_boundary": "one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, controlled traffic; no production SLA, physical HA, node failover, multi-node, multi-GPU, MIG, MPS, or zero-interruption guarantee",
+  "correction": "The failed validator invocation was diagnostic-only and receives non_credit. The historical runtime suite remains zero_credit and immutable.",
+  "credit": "non_credit",
+  "occurred_at": "2026-08-25T03:24:41.7362369Z",
+  "review_verdict": "FAIL",
+  "schema_version": "evm.s8_v4.s6bm_independent_review_failure_amendment.v1",
+  "status": "remediation_required",
+  "work_item": "S6B-M"
+}
