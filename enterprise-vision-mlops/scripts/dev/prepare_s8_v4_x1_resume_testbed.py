@@ -18,14 +18,17 @@ if str(SRC) not in sys.path:
 from evm.model_runtime.tiny_mlp import build_tiny_mlp  # noqa: E402
 from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
     DEFAULT_CONFIG_RELATIVE_PATH,
+    EXPECTED_REPOSITORY_ENTRY_PATHS,
     MANIFEST_SCHEMA_VERSION,
     MODEL_CLAIM_CONTRACT,
     REQUIRED_SOURCE_BLOB_PATHS,
     X1ResumeConfig,
     X1ResumeTestbedError,
+    _validate_repository_physical_tree,
     canonical,
     canonical_sha256,
     canonical_write,
+    render_triton_model_config,
     require_default_config_path,
     sha256_file,
 )
@@ -152,45 +155,6 @@ def load_criteo_samples(
         "categorical_hash": "sha256-first-u64-mod-4096",
         "dense_transform": "log1p(max(value,0))",
     }
-
-
-def config_pbtxt(model_id: str, width: int, *, batching: dict[str, Any]) -> str:
-    dynamic = ""
-    if batching.get("enabled") is True:
-        sizes = ", ".join(str(int(value)) for value in batching["preferred_batch_sizes"])
-        dynamic = (
-            "dynamic_batching {\n"
-            f"  preferred_batch_size: [ {sizes} ]\n"
-            f"  max_queue_delay_microseconds: {int(batching['max_queue_delay_microseconds'])}\n"
-            "}\n"
-        )
-    return (
-        f'name: "{model_id}"\n'
-        'backend: "pytorch"\n'
-        "max_batch_size: 32\n"
-        "input [\n"
-        "  {\n"
-        '    name: "FEATURES__0"\n'
-        "    data_type: TYPE_FP32\n"
-        f"    dims: [ {width} ]\n"
-        "  }\n"
-        "]\n"
-        "output [\n"
-        "  {\n"
-        '    name: "SCORE__0"\n'
-        "    data_type: TYPE_FP32\n"
-        "    dims: [ 1 ]\n"
-        "  }\n"
-        "]\n"
-        "instance_group [\n"
-        "  {\n"
-        "    count: 1\n"
-        "    kind: KIND_GPU\n"
-        "    gpus: [ 0 ]\n"
-        "  }\n"
-        "]\n"
-        f"{dynamic}"
-    )
 
 
 def build_models(
@@ -431,10 +395,10 @@ def main() -> int:
                 version_root = repository / model.model_id / "1"
                 version_root.mkdir(parents=True)
                 built["modules"][model.model_id].save(str(version_root / "model.pt"))
-                (version_root.parent / "config.pbtxt").write_text(
-                    config_pbtxt(model.model_id, model.input_width, batching=dict(batching)),
-                    encoding="utf-8",
-                    newline="\n",
+                (version_root.parent / "config.pbtxt").write_bytes(
+                    render_triton_model_config(
+                        model.model_id, model.input_width, batching=dict(batching)
+                    ).encode("ascii")
                 )
         oracle: dict[str, Any] = {}
         for model in config.models:
@@ -462,13 +426,15 @@ def main() -> int:
             "oracle": oracle,
         },
     )
+    _validate_repository_physical_tree(args.output, manifest_present=False)
     entries = [
         {
-            "path": path.relative_to(args.output).as_posix(),
+            "path": relative,
             "bytes": path.stat().st_size,
             "sha256": sha256_file(path),
         }
-        for path in sorted(item for item in args.output.rglob("*") if item.is_file())
+        for relative in EXPECTED_REPOSITORY_ENTRY_PATHS
+        for path in (args.output / relative,)
     ]
     profile_identities = {}
     model_identities = {}
@@ -521,6 +487,7 @@ def main() -> int:
         "claim_boundary": config.claim_boundary,
     }
     canonical_write(args.output / "model-repository-manifest.json", manifest)
+    _validate_repository_physical_tree(args.output)
     print(canonical(manifest))
     return 0
 

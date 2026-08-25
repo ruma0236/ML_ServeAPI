@@ -9,6 +9,7 @@ from collections import Counter
 from dataclasses import replace
 from itertools import groupby
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -36,6 +37,7 @@ from evm.scale_validation.x1_resume_testbed import (
     deterministic_model_schedule,
     generate_report,
     prometheus_baseline_ready,
+    render_triton_server_command,
     require_default_config_path,
     request_interval_overlap,
     sha256_file,
@@ -47,10 +49,6 @@ from evm.scale_validation.x1_resume_testbed import (
     validate_report_binding,
     wait_for_prometheus_baseline,
 )
-
-# Importing the host runner is intentionally avoided; assert the frozen Triton
-# 25.08 token form directly from its committed source.
-
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs/s8_v4_x1_resume_testbed_v1.toml"
@@ -263,15 +261,65 @@ def governed_fixture(
     return data_root, bindings
 
 
-def triton_config_readback(model_id: str, cfg: X1ResumeConfig) -> dict[str, object]:
+def triton_config_readback(
+    model_id: str, cfg: X1ResumeConfig, *, dynamic_batching: bool = False
+) -> dict[str, object]:
     input_width = next(model.input_width for model in cfg.models if model.model_id == model_id)
-    return {
+    result: dict[str, object] = {
         "name": model_id,
         "backend": "pytorch",
         "max_batch_size": "32",
+        "version_policy": {"specific": {"versions": ["1"]}},
         "input": [{"name": "FEATURES__0", "data_type": "TYPE_FP32", "dims": [str(input_width)]}],
         "output": [{"name": "SCORE__0", "data_type": "TYPE_FP32", "dims": ["1"]}],
         "instance_group": [{"kind": "KIND_GPU", "count": "1", "gpus": ["0"]}],
+    }
+    if dynamic_batching:
+        result["dynamic_batching"] = {
+            "preferred_batch_size": ["4", "8", "16", "32"],
+            "max_queue_delay_microseconds": "5000",
+        }
+    return result
+
+
+def triton_runtime_readiness(cfg: X1ResumeConfig) -> dict[str, object]:
+    ready_index = [
+        {"name": model_id, "version": "1", "state": "READY", "reason": ""}
+        for model_id in EXPECTED_MODELS
+    ]
+    return {
+        "server_health": {
+            "live": {"endpoint": "/v2/health/live", "status": 200},
+            "ready": {"endpoint": "/v2/health/ready", "status": 200},
+        },
+        "repository_index_full": json.loads(json.dumps(ready_index)),
+        "repository_index_ready": ready_index,
+        "model_ready": {
+            model_id: {
+                "endpoint": f"/v2/models/{model_id}/versions/1/ready",
+                "status": 200,
+            }
+            for model_id in EXPECTED_MODELS
+        },
+        "model_metadata": {
+            model.model_id: {
+                "endpoint": f"/v2/models/{model.model_id}/versions/1",
+                "payload": {
+                    "name": model.model_id,
+                    "versions": ["1"],
+                    "platform": "pytorch_libtorch",
+                    "inputs": [
+                        {
+                            "name": "FEATURES__0",
+                            "datatype": "FP32",
+                            "shape": [-1, model.input_width],
+                        }
+                    ],
+                    "outputs": [{"name": "SCORE__0", "datatype": "FP32", "shape": [-1, 1]}],
+                },
+            }
+            for model in cfg.models
+        },
     }
 
 
@@ -590,10 +638,11 @@ def test_config_freezes_non_credit_matrix_and_honest_driver_scope() -> None:
             assert f"{key}=false" in cfg.claim_boundary
     assert "not deployed API replicas" in cfg.claim_boundary
     assert "kernel-overlap evidence unless a profiler directly proves overlap" in cfg.claim_boundary
+    command = render_triton_server_command(trace_enabled=True)
+    assert "--trace-config=mode=triton" in command
+    assert "--trace-config=triton,file=/evidence/triton-trace.json" in command
+    assert "--trace-config=rate=64" in command
     runner = (ROOT / "scripts/dev/run_s8_v4_x1_resume_testbed.py").read_text(encoding="utf-8")
-    assert "--trace-config=mode=triton" in runner
-    assert "--trace-config=triton,file=/evidence/triton-trace.json" in runner
-    assert "--trace-config=rate=64" in runner
     assert "trace_enabled=False" in runner
 
     mutated_claims = dict(cfg.model_claim_contract)
@@ -881,12 +930,137 @@ def test_runner_loader_accepts_actual_prepare_manifest(
     assert manifest["model_claim_contract"] == MODEL_CLAIM_CONTRACT
     assert manifest["model_claim_contract_sha256"] == canonical_sha256(MODEL_CLAIM_CONTRACT)
     assert "framework" not in manifest
+    assert len(manifest["entries"]) == 17
+    assert {
+        path.relative_to(repository_root).as_posix()
+        for path in repository_root.rglob("*")
+        if path.is_file()
+    } == {
+        *x1_resume_module.EXPECTED_REPOSITORY_ENTRY_PATHS,
+        x1_resume_module.MODEL_REPOSITORY_MANIFEST_NAME,
+    }
+    assert {
+        path.relative_to(repository_root).as_posix()
+        for path in repository_root.rglob("*")
+        if path.is_dir()
+    } == set(x1_resume_module.EXPECTED_REPOSITORY_DIRECTORY_PATHS)
     assert set(samples["samples"]) == set(EXPECTED_MODELS)
+
+
+def test_triton_server_command_is_explicit_exact_model_set() -> None:
+    command = x1_resume_module.render_triton_server_command(trace_enabled=False)
+    assert "--model-control-mode=explicit" in command
+    assert command.count("--load-model=") == len(EXPECTED_MODELS)
+    assert {
+        token.removeprefix("--load-model=")
+        for token in command.split()
+        if token.startswith("--load-model=")
+    } == set(EXPECTED_MODELS)
+    assert "--load-model=*" not in command
+
+
+def test_triton_mount_contract_is_exact_and_structured(tmp_path: Path) -> None:
+    repository = tmp_path / "batch-off"
+    evidence_root = tmp_path / "evidence"
+    repository.mkdir()
+    evidence_root.mkdir()
+    positive = [
+        {
+            "Type": "bind",
+            "Source": str(repository),
+            "Destination": "/models",
+            "Mode": "ro",
+            "RW": False,
+            "Propagation": "rprivate",
+        },
+        {
+            "Type": "bind",
+            "Source": str(evidence_root),
+            "Destination": "/evidence",
+            "Mode": "",
+            "RW": True,
+            "Propagation": "rprivate",
+        },
+    ]
+    assert (
+        x1_resume_module.validate_triton_container_mounts(
+            positive, repository=repository, evidence_root=evidence_root
+        )
+        == positive
+    )
+    mutations = []
+    for destination, field, value in (
+        ("/models", "RW", True),
+        ("/models", "Type", "volume"),
+        ("/models", "Source", str(tmp_path / "wrong")),
+        ("/evidence", "RW", False),
+    ):
+        mutated = json.loads(json.dumps(positive))
+        next(item for item in mutated if item["Destination"] == destination)[field] = value
+        mutations.append(mutated)
+    mutations.append([*json.loads(json.dumps(positive)), dict(positive[0])])
+    for mutated in mutations:
+        with pytest.raises(X1ResumeTestbedError, match="x1_resume_container_mount"):
+            x1_resume_module.validate_triton_container_mounts(
+                mutated, repository=repository, evidence_root=evidence_root
+            )
+
+
+def test_triton_repository_and_version_metadata_are_exact() -> None:
+    cfg = config()
+    positive = triton_runtime_readiness(cfg)
+    assert x1_resume_module.triton_runtime_readiness_exact(positive, config=cfg)
+    mutations = []
+    for collection in ("repository_index_full", "repository_index_ready"):
+        wrong_version = json.loads(json.dumps(positive))
+        wrong_version[collection][0]["version"] = "2"
+        mutations.append(wrong_version)
+        extra = json.loads(json.dumps(positive))
+        extra[collection].append({"name": "extra", "version": "1", "state": "READY", "reason": ""})
+        mutations.append(extra)
+    not_ready = json.loads(json.dumps(positive))
+    not_ready["repository_index_ready"][0]["state"] = "LOADING"
+    mutations.append(not_ready)
+    metadata_version = json.loads(json.dumps(positive))
+    metadata_version["model_metadata"][EXPECTED_MODELS[0]]["payload"]["versions"] = ["2"]
+    mutations.append(metadata_version)
+    metadata_platform = json.loads(json.dumps(positive))
+    metadata_platform["model_metadata"][EXPECTED_MODELS[0]]["payload"]["platform"] = "python"
+    mutations.append(metadata_platform)
+    metadata_shape = json.loads(json.dumps(positive))
+    metadata_shape["model_metadata"][EXPECTED_MODELS[0]]["payload"]["inputs"][0]["shape"][1] = 999
+    mutations.append(metadata_shape)
+    metadata_extra = json.loads(json.dumps(positive))
+    metadata_extra["model_metadata"][EXPECTED_MODELS[0]]["payload"]["extra"] = True
+    mutations.append(metadata_extra)
+    server_not_ready = json.loads(json.dumps(positive))
+    server_not_ready["server_health"]["ready"]["status"] = 503
+    mutations.append(server_not_ready)
+    server_status_float = json.loads(json.dumps(positive))
+    server_status_float["server_health"]["ready"]["status"] = 200.0
+    mutations.append(server_status_float)
+    model_not_ready = json.loads(json.dumps(positive))
+    model_not_ready["model_ready"][EXPECTED_MODELS[0]]["status"] = 503
+    mutations.append(model_not_ready)
+    model_ready_unversioned = json.loads(json.dumps(positive))
+    model_ready_unversioned["model_ready"][EXPECTED_MODELS[0]]["endpoint"] = (
+        f"/v2/models/{EXPECTED_MODELS[0]}/ready"
+    )
+    mutations.append(model_ready_unversioned)
+    assert all(
+        not x1_resume_module.triton_runtime_readiness_exact(item, config=cfg) for item in mutations
+    )
 
 
 @pytest.mark.parametrize(
     "case",
-    ["claim-missing", "bool-recomputed-sha", "sha-only", "claim-extra"],
+    [
+        "claim-missing",
+        "bool-recomputed-sha",
+        "integer-zero-recomputed-sha",
+        "sha-only",
+        "claim-extra",
+    ],
 )
 def test_runner_loader_rejects_prepare_manifest_claim_mutation(
     prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
@@ -899,6 +1073,9 @@ def test_runner_loader_rejects_prepare_manifest_claim_mutation(
         manifest.pop("model_claim_contract")
     elif case == "bool-recomputed-sha":
         manifest["model_claim_contract"]["model_accuracy_claim"] = True
+        manifest["model_claim_contract_sha256"] = canonical_sha256(manifest["model_claim_contract"])
+    elif case == "integer-zero-recomputed-sha":
+        manifest["model_claim_contract"]["model_accuracy_claim"] = 0
         manifest["model_claim_contract_sha256"] = canonical_sha256(manifest["model_claim_contract"])
     elif case == "sha-only":
         manifest["model_claim_contract_sha256"] = "f" * 64
@@ -960,6 +1137,271 @@ def test_runner_loader_rejects_non_integer_repository_bytes(
         runner["load_and_validate_repository"](repository_root, cfg, data_root)
     with pytest.raises(X1ResumeTestbedError, match="x1_resume_private_manifest_contract"):
         x1_resume_module._validate_manifest_contract(manifest, cfg)
+
+
+@pytest.mark.parametrize("entry_count", [8.0, "8", True], ids=["float", "string", "boolean"])
+def test_runner_loader_rejects_non_integer_profile_entry_count(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    entry_count: object,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    manifest_path = repository_root / "model-repository-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["profile_identities"]["off"]["entry_count"] = entry_count
+    canonical_write(manifest_path, manifest)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_repository_manifest_contract"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_private_manifest_contract"):
+        x1_resume_module._validate_manifest_contract(manifest, cfg)
+
+
+@pytest.mark.parametrize("case", ["extra", "wrong-order", "non-string"])
+def test_runner_loader_rejects_model_id_contract_drift(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    case: str,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    manifest_path = repository_root / "model-repository-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    if case == "extra":
+        manifest["model_ids"].append("unexpected")
+    elif case == "wrong-order":
+        manifest["model_ids"][0], manifest["model_ids"][1] = (
+            manifest["model_ids"][1],
+            manifest["model_ids"][0],
+        )
+    else:
+        manifest["model_ids"][0] = 0
+    canonical_write(manifest_path, manifest)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_repository_manifest_contract"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+@pytest.mark.parametrize(
+    "field,case",
+    [
+        ("profile_identities", "extra-nested"),
+        ("profile_identities", "non-string-sha"),
+        ("model_identities", "extra-nested"),
+        ("model_identities", "missing-nested"),
+        ("model_identities", "non-string-sha"),
+    ],
+)
+def test_runner_loader_rejects_nested_identity_schema_drift(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    field: str,
+    case: str,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    manifest_path = repository_root / "model-repository-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    identity = next(iter(manifest[field].values()))
+    if case == "extra-nested":
+        identity["unexpected"] = "x"
+    elif case == "missing-nested":
+        identity.pop("artifact_sha256")
+    else:
+        sha_field = "repository_sha256" if field == "profile_identities" else "artifact_sha256"
+        identity[sha_field] = 0
+    canonical_write(manifest_path, manifest)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_repository_manifest_contract"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "undeclared.bin",
+        ".hidden",
+        "batch-off/higgs_logistic_regression/2/model.pt",
+        "batch-off/extra_model/1/model.pt",
+    ],
+    ids=["root-extra", "hidden-file", "version-2", "extra-model"],
+)
+def test_runner_loader_rejects_undeclared_repository_file(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    relative_path: str,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    unexpected = repository_root / relative_path
+    unexpected.parent.mkdir(parents=True, exist_ok=True)
+    unexpected.write_bytes(b"undeclared")
+    with pytest.raises(
+        X1ResumeTestbedError, match="x1_resume_private_repository_physical_file_set"
+    ):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+def test_runner_loader_rejects_missing_repository_file(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    (repository_root / "batch-off/higgs_logistic_regression/1/model.pt").unlink()
+    with pytest.raises(
+        X1ResumeTestbedError, match="x1_resume_private_repository_physical_file_set"
+    ):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+def test_runner_loader_rejects_unexpected_empty_repository_directory(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    (repository_root / "batch-on/empty-model").mkdir()
+    with pytest.raises(
+        X1ResumeTestbedError, match="x1_resume_private_repository_physical_directory_set"
+    ):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "batch-off/higgs_logistic_regression/1/model.pt",
+        "batch-off/higgs_logistic_regression/1",
+    ],
+    ids=["file-link", "directory-link"],
+)
+def test_runner_loader_rejects_repository_symlink_alias(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    relative_path: str,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    target = repository_root / relative_path
+    original_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda path: path == target or original_is_symlink(path),
+    )
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_private_repository_node_type"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+def test_runner_loader_rejects_repository_root_alias(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    original_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda path: path == repository_root or original_is_symlink(path),
+    )
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_private_repository_root"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+def test_runner_loader_rejects_repository_root_reparse_point(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    original_lstat = Path.lstat
+    root_stat = original_lstat(repository_root)
+
+    def lstat(path: Path) -> object:
+        if path == repository_root:
+            return SimpleNamespace(
+                st_mode=root_stat.st_mode,
+                st_file_attributes=getattr(
+                    x1_resume_module.stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400
+                ),
+            )
+        return original_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", lstat)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_private_repository_root"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+def test_runner_loader_rejects_nonregular_repository_node(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    monkeypatch.setattr(x1_resume_module.stat, "S_ISREG", lambda _mode: False)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_private_repository_node_type"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+@pytest.mark.parametrize(
+    "appended",
+    [
+        "optimization { }\n",
+        'model_warmup [ { name: "warm" batch_size: 1 } ]\n',
+        "response_cache { enable: true }\n",
+        'rate_limiter { resources [ { name: "gpu" count: 1 } ] }\n',
+        "version_policy { latest { num_versions: 2 } }\n",
+    ],
+    ids=["optimization", "warmup", "cache", "rate-limit", "version-policy"],
+)
+def test_runner_loader_rejects_coherently_rehashed_config_bytes(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    appended: str,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    manifest_path = repository_root / "model-repository-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    relative = "batch-off/higgs_logistic_regression/config.pbtxt"
+    config_path = repository_root / relative
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8") + appended,
+        encoding="utf-8",
+        newline="\n",
+    )
+    entry = next(item for item in manifest["entries"] if item["path"] == relative)
+    entry.update({"bytes": config_path.stat().st_size, "sha256": sha256_file(config_path)})
+    selected = [item for item in manifest["entries"] if item["path"].startswith("batch-off/")]
+    manifest["profile_identities"]["off"] = {
+        "entry_count": len(selected),
+        "repository_sha256": canonical_sha256(selected),
+    }
+    manifest["model_identities"]["off:higgs_logistic_regression"]["config_sha256"] = entry["sha256"]
+    manifest["repository_sha256"] = canonical_sha256(manifest["entries"])
+    canonical_write(manifest_path, manifest)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_private_repository_config_bytes"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+@pytest.mark.parametrize(
+    "case,reason",
+    [
+        ("source-bytes-float", "x1_resume_governed_s3_binding"),
+        ("replay-bytes-float", "x1_resume_governed_s3_binding"),
+        ("replay-shape-float", "x1_resume_governed_s3_binding"),
+        ("replay-list-pairs", "x1_resume_governed_s3_binding"),
+        ("false-as-zero", "x1_resume_governed_s5_binding"),
+        ("seed-float", "x1_resume_governed_s5_binding"),
+    ],
+)
+def test_runner_loader_rejects_typed_source_binding_aliases(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    case: str,
+    reason: str,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    manifest_path = repository_root / "model-repository-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    s3 = manifest["source_bindings"]["higgs_logistic_regression"]
+    s5 = manifest["source_bindings"]["criteo_dlrm_lite"]
+    if case == "source-bytes-float":
+        s3["source_bytes"] = float(s3["source_bytes"])
+    elif case == "replay-bytes-float":
+        s3["replay"]["replay_bytes"] = float(s3["replay"]["replay_bytes"])
+    elif case == "replay-shape-float":
+        s3["replay"]["replay_shape"][0] = float(s3["replay"]["replay_shape"][0])
+    elif case == "replay-list-pairs":
+        s3["replay"] = list(s3["replay"].items())
+    elif case == "false-as-zero":
+        s5["training_or_quality_claim"] = 0
+    else:
+        s5["seed"] = float(s5["seed"])
+    canonical_write(manifest_path, manifest)
+    with pytest.raises(X1ResumeTestbedError, match=reason):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
 
 
 def test_default_config_path_and_frozen_matrix_fail_closed(tmp_path: Path) -> None:
@@ -1108,6 +1550,15 @@ def test_triton_model_config_readback_is_exact_gpu_only() -> None:
     mixed = json.loads(json.dumps(positive))
     mixed["instance_group"].append({"kind": "KIND_CPU", "count": "1", "gpus": ["0"]})
     mutations.append(mixed)
+    missing_version = json.loads(json.dumps(positive))
+    missing_version.pop("version_policy")
+    mutations.append(missing_version)
+    wrong_version = json.loads(json.dumps(positive))
+    wrong_version["version_policy"]["specific"]["versions"] = ["2"]
+    mutations.append(wrong_version)
+    extra_version = json.loads(json.dumps(positive))
+    extra_version["version_policy"]["specific"]["versions"] = ["1", "2"]
+    mutations.append(extra_version)
     for field, value in (("backend", "python"), ("max_batch_size", "8")):
         mutated = json.loads(json.dumps(positive))
         mutated[field] = value
@@ -1124,7 +1575,7 @@ def test_triton_model_config_readback_is_exact_gpu_only() -> None:
         mutated[collection][0][field] = value
         mutations.append(mutated)
 
-    assert len(mutations) == 15
+    assert len(mutations) == 18
     assert all(
         not triton_gpu_instance_exact(
             mutated,
@@ -1373,7 +1824,16 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
             model_config = repository_root / f"batch-{profile}/{model_id}/config.pbtxt"
             artifact.parent.mkdir(parents=True)
             artifact.write_bytes(f"artifact:{profile}:{model_id}".encode())
-            model_config.write_text("instance_group { kind: KIND_GPU }\n", encoding="utf-8")
+            model_spec = next(model for model in cfg.models if model.model_id == model_id)
+            model_config.write_text(
+                x1_resume_module.render_triton_model_config(
+                    model_id,
+                    model_spec.input_width,
+                    batching=cfg.batching[profile],
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
             for path in (artifact, model_config):
                 entries.append(
                     {
@@ -1551,8 +2011,53 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
     log_path.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
     trace_path = q0_root / "triton-trace.json"
     canonical_write(trace_path, trace_values)
+
+    def runtime_contract(profile: str, batching: str, evidence_root: Path) -> dict[str, object]:
+        runtime_path = evidence_root / "runtime-contract.json"
+        canonical_write(
+            runtime_path,
+            {
+                "schema_version": "evm.s8_v4.x1_resume_runtime_contract.v1",
+                "profile": profile,
+                "batching": batching,
+                "server_command": x1_resume_module.render_triton_server_command(
+                    trace_enabled=profile == "q0_isolated"
+                ),
+                "mounts": [
+                    {
+                        "Type": "bind",
+                        "Source": str(repository_root / f"batch-{batching}"),
+                        "Destination": "/models",
+                        "RW": False,
+                    },
+                    {
+                        "Type": "bind",
+                        "Source": str(evidence_root),
+                        "Destination": "/evidence",
+                        "RW": True,
+                    },
+                ],
+                "runtime_readiness": triton_runtime_readiness(cfg),
+                "model_configs": {
+                    model_id: {
+                        "endpoint": f"/v2/models/{model_id}/versions/1/config",
+                        "payload": triton_config_readback(
+                            model_id, cfg, dynamic_batching=batching == "on"
+                        ),
+                    }
+                    for model_id in EXPECTED_MODELS
+                },
+            },
+        )
+        return {
+            "path": runtime_path.relative_to(suite_root).as_posix(),
+            "bytes": runtime_path.stat().st_size,
+            "sha256": sha256_file(runtime_path),
+        }
+
     payload["profile_evidence"] = {
         "q0_isolated": {
+            "runtime_contract": runtime_contract("q0_isolated", "off", q0_root),
             "trace": {
                 "path": trace_path.relative_to(suite_root).as_posix(),
                 "bytes": trace_path.stat().st_size,
@@ -1572,11 +2077,12 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
         profile_log = profile_root / "triton.log"
         profile_log.write_text(f"batch-{profile}\n", encoding="utf-8")
         payload["profile_evidence"][profile] = {
+            "runtime_contract": runtime_contract(profile, profile, profile_root),
             "log": {
                 "path": profile_log.relative_to(suite_root).as_posix(),
                 "bytes": profile_log.stat().st_size,
                 "sha256": sha256_file(profile_log),
-            }
+            },
         }
     attempts_root = suite_root / "attempts"
     attempts_root.mkdir()
@@ -1997,6 +2503,105 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
     rewrite_manifest(coherent_claim_drift)
     assert_source_rejected("x1_resume_private_manifest_contract")
     assert_report_rejected("x1_resume_private_manifest_contract")
+
+    coherent_false_zero = json.loads(json.dumps(original_manifest))
+    coherent_false_zero["model_claim_contract"]["model_accuracy_claim"] = 0
+    coherent_false_zero["model_claim_contract_sha256"] = canonical_sha256(
+        coherent_false_zero["model_claim_contract"]
+    )
+    rewrite_manifest(coherent_false_zero)
+    assert_source_rejected("x1_resume_private_manifest_contract")
+    assert_report_rejected("x1_resume_private_manifest_contract")
+
+    coherent_binding_zero = json.loads(json.dumps(original_manifest))
+    coherent_binding_zero["source_bindings"]["criteo_dlrm_lite"]["training_or_quality_claim"] = 0
+    rewrite_manifest(coherent_binding_zero)
+    assert_source_rejected("x1_resume_governed_s5_binding")
+    assert_report_rejected("x1_resume_governed_s5_binding")
+
+    config_relative = "batch-off/higgs_logistic_regression/config.pbtxt"
+    config_path = repository_root / config_relative
+    original_config_bytes = config_path.read_bytes()
+    config_path.write_bytes(original_config_bytes + b"response_cache { enable: true }\n")
+    coherent_config_drift = json.loads(json.dumps(original_manifest))
+    config_entry = next(
+        item for item in coherent_config_drift["entries"] if item["path"] == config_relative
+    )
+    config_entry.update({"bytes": config_path.stat().st_size, "sha256": sha256_file(config_path)})
+    off_entries = [
+        item for item in coherent_config_drift["entries"] if item["path"].startswith("batch-off/")
+    ]
+    coherent_config_drift["profile_identities"]["off"] = {
+        "entry_count": len(off_entries),
+        "repository_sha256": canonical_sha256(off_entries),
+    }
+    coherent_config_drift["model_identities"]["off:higgs_logistic_regression"]["config_sha256"] = (
+        config_entry["sha256"]
+    )
+    coherent_config_drift["repository_sha256"] = canonical_sha256(coherent_config_drift["entries"])
+    rewrite_manifest(coherent_config_drift)
+    payload["environment"]["repository_sha256"] = coherent_config_drift["repository_sha256"]
+    assert_source_rejected("x1_resume_private_repository_config_bytes")
+    assert_report_rejected("x1_resume_private_repository_config_bytes")
+    config_path.write_bytes(original_config_bytes)
+    payload["environment"]["repository_sha256"] = original_manifest["repository_sha256"]
+    rewrite_manifest(original_manifest)
+
+    q0_runtime_identity = payload["profile_evidence"]["q0_isolated"]["runtime_contract"]
+    q0_runtime_path = suite_root / q0_runtime_identity["path"]
+    original_runtime_contract = json.loads(q0_runtime_path.read_bytes())
+
+    def rewrite_runtime_contract(raw_contract: dict[str, object]) -> None:
+        canonical_write(q0_runtime_path, raw_contract)
+        q0_runtime_identity.update(
+            {"bytes": q0_runtime_path.stat().st_size, "sha256": sha256_file(q0_runtime_path)}
+        )
+
+    for case, pattern in (
+        ("wildcard-command", "x1_resume_private_runtime_contract"),
+        ("writable-model-mount", "x1_resume_container_mount"),
+        ("extra-repository-model", "x1_resume_private_runtime_contract"),
+        ("unversioned-metadata", "x1_resume_private_runtime_contract"),
+        ("config-version-two", "x1_resume_private_runtime_configs"),
+    ):
+        mutated_runtime = json.loads(json.dumps(original_runtime_contract))
+        if case == "wildcard-command":
+            mutated_runtime["server_command"] = mutated_runtime["server_command"].replace(
+                f"--load-model={EXPECTED_MODELS[0]}", "--load-model=*"
+            )
+        elif case == "writable-model-mount":
+            next(item for item in mutated_runtime["mounts"] if item["Destination"] == "/models")[
+                "RW"
+            ] = True
+        elif case == "extra-repository-model":
+            extra_index = {
+                "name": "extra-model",
+                "version": "1",
+                "state": "READY",
+                "reason": "",
+            }
+            mutated_runtime["runtime_readiness"]["repository_index_full"].append(extra_index)
+            mutated_runtime["runtime_readiness"]["repository_index_ready"].append(extra_index)
+        elif case == "unversioned-metadata":
+            mutated_runtime["runtime_readiness"]["model_metadata"][EXPECTED_MODELS[0]][
+                "endpoint"
+            ] = f"/v2/models/{EXPECTED_MODELS[0]}"
+        else:
+            mutated_runtime["model_configs"][EXPECTED_MODELS[0]]["payload"]["version_policy"][
+                "specific"
+            ]["versions"] = ["2"]
+        rewrite_runtime_contract(mutated_runtime)
+        assert_source_rejected(pattern)
+        assert_report_rejected(pattern)
+    rewrite_runtime_contract(original_runtime_contract)
+
+    undeclared_version = repository_root / "batch-off/higgs_logistic_regression/2/model.pt"
+    undeclared_version.parent.mkdir()
+    undeclared_version.write_bytes(b"undeclared-version")
+    assert_source_rejected("x1_resume_private_repository_physical_file_set")
+    assert_report_rejected("x1_resume_private_repository_physical_file_set")
+    undeclared_version.unlink()
+    undeclared_version.parent.rmdir()
 
     manifest_missing_sample = json.loads(json.dumps(original_manifest))
     manifest_missing_sample["entries"] = [

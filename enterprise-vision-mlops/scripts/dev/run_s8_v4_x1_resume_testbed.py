@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -55,17 +56,22 @@ from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
     generate_report,
     load_canonical_json,
     prometheus_baseline_ready,
+    render_triton_server_command,
     require_default_config_path,
     request_interval_overlap,
     sha256_file,
     summarize_requests,
     triton_trace_compute_counts,
     triton_gpu_instance_exact,
+    triton_model_metadata_version_exact,
+    triton_repository_index_exact,
+    triton_repository_index_full,
     validate_evidence,
     validate_governed_source_bindings,
     validate_gpu_samples,
     validate_repository_entries,
     validate_sample_payload,
+    validate_triton_container_mounts,
     wait_for_prometheus_baseline,
 )
 
@@ -173,7 +179,7 @@ def load_and_validate_repository(
     profile_identities = dict(manifest["profile_identities"])
     model_identities = dict(manifest["model_identities"])
     validate_governed_source_bindings(manifest, data_root=data_root, config=config)
-    entries = validate_repository_entries(manifest, root)
+    entries = validate_repository_entries(manifest, root, config=config)
     if canonical_sha256(entries) != manifest.get("repository_sha256"):
         raise X1ResumeTestbedError("x1_resume_repository_aggregate")
     for profile in config.batching:
@@ -434,21 +440,6 @@ def stop_container(name: str) -> None:
         run(["docker", "rm", "-f", name], check=False, timeout=30)
 
 
-def triton_server_command(*, trace_enabled: bool) -> str:
-    base = (
-        "exec tritonserver --model-repository=/models --strict-readiness=true "
-        "--allow-gpu-metrics=true --metrics-interval-ms=200 --log-format=ISO8601 "
-        "--log-file=/evidence/triton.log"
-    )
-    if not trace_enabled:
-        return base
-    return (
-        base + " --trace-config=mode=triton "
-        "--trace-config=triton,file=/evidence/triton-trace.json "
-        "--trace-config=level=TIMESTAMPS --trace-config=rate=64 --trace-config=count=-1"
-    )
-
-
 def start_triton(
     config: X1ResumeConfig,
     repository: Path,
@@ -456,8 +447,8 @@ def start_triton(
     name: str,
     *,
     trace_enabled: bool,
-) -> None:
-    command = triton_server_command(trace_enabled=trace_enabled)
+) -> dict[str, Any]:
+    command = render_triton_server_command(trace_enabled=trace_enabled)
     run(
         [
             "docker",
@@ -488,27 +479,104 @@ def start_triton(
         ],
         timeout=90,
     )
+    inspected = json.loads(run(["docker", "inspect", name], timeout=30).stdout)
+    if (
+        not isinstance(inspected, list)
+        or len(inspected) != 1
+        or not isinstance(inspected[0], Mapping)
+    ):
+        raise X1ResumeTestbedError("x1_resume_container_inspect")
+    mounts = validate_triton_container_mounts(
+        inspected[0].get("Mounts"), repository=repository, evidence_root=evidence_root
+    )
+    return {"server_command": command, "mounts": mounts}
 
 
-def wait_ready(config: X1ResumeConfig, name: str) -> None:
+def fetch_repository_index(config: X1ResumeConfig, *, timeout: float = 1.0) -> Any:
+    response = requests.post(
+        f"http://127.0.0.1:{config.http_port}/v2/repository/index",
+        json={},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def wait_ready(config: X1ResumeConfig, name: str) -> dict[str, Any]:
     deadline = time.monotonic() + config.readiness_timeout_seconds
-    urls = [
-        f"http://127.0.0.1:{config.http_port}/v2/health/live",
-        f"http://127.0.0.1:{config.http_port}/v2/health/ready",
-        *[
-            f"http://127.0.0.1:{config.http_port}/v2/models/{model_id}/ready"
-            for model_id in EXPECTED_MODELS
-        ],
-    ]
+    last_index: Any = None
+    first_full_index: list[dict[str, Any]] | None = None
+    last_metadata: dict[str, Any] = {}
     while time.monotonic() < deadline:
         try:
-            if all(requests.get(url, timeout=1).status_code == 200 for url in urls):
-                return
+            live = requests.get(f"http://127.0.0.1:{config.http_port}/v2/health/live", timeout=1)
+            if live.status_code == 200:
+                last_index = fetch_repository_index(config)
+                if triton_repository_index_full(last_index):
+                    if first_full_index is None:
+                        first_full_index = [dict(item) for item in last_index]
+                if triton_repository_index_exact(last_index):
+                    last_metadata = {
+                        model.model_id: {
+                            "endpoint": f"/v2/models/{model.model_id}/versions/1",
+                            "payload": request_json(
+                                f"http://127.0.0.1:{config.http_port}/v2/models/"
+                                f"{model.model_id}/versions/1",
+                                timeout=1,
+                            ),
+                        }
+                        for model in config.models
+                    }
+                    server_ready = requests.get(
+                        f"http://127.0.0.1:{config.http_port}/v2/health/ready",
+                        timeout=1,
+                    )
+                    model_ready = {
+                        model_id: requests.get(
+                            f"http://127.0.0.1:{config.http_port}/v2/models/"
+                            f"{model_id}/versions/1/ready",
+                            timeout=1,
+                        )
+                        for model_id in EXPECTED_MODELS
+                    }
+                    if (
+                        all(
+                            triton_model_metadata_version_exact(
+                                last_metadata[model.model_id]["payload"],
+                                model_id=model.model_id,
+                                input_width=model.input_width,
+                            )
+                            for model in config.models
+                        )
+                        and server_ready.status_code == 200
+                        and all(response.status_code == 200 for response in model_ready.values())
+                    ):
+                        return {
+                            "server_health": {
+                                "live": {"endpoint": "/v2/health/live", "status": 200},
+                                "ready": {
+                                    "endpoint": "/v2/health/ready",
+                                    "status": server_ready.status_code,
+                                },
+                            },
+                            "repository_index_full": first_full_index,
+                            "repository_index_ready": [dict(item) for item in last_index],
+                            "model_ready": {
+                                model_id: {
+                                    "endpoint": f"/v2/models/{model_id}/versions/1/ready",
+                                    "status": response.status_code,
+                                }
+                                for model_id, response in model_ready.items()
+                            },
+                            "model_metadata": last_metadata,
+                        }
         except requests.RequestException:
             pass
         time.sleep(0.25)
     logs = run(["docker", "logs", "--tail", "200", name], check=False).stdout
-    raise X1ResumeTestbedError(f"x1_resume_triton_readiness:{logs[-1000:]}")
+    raise X1ResumeTestbedError(
+        f"x1_resume_triton_readiness:{last_index}:{last_metadata}:{logs[-1000:]}"
+    )
 
 
 def metric_values(config: X1ResumeConfig) -> tuple[str, dict[str, dict[str, float]]]:
@@ -521,7 +589,9 @@ def metric_values(config: X1ResumeConfig) -> tuple[str, dict[str, dict[str, floa
 def verify_model_configs(config: X1ResumeConfig, profile: str) -> dict[str, Any]:
     result = {}
     for model_id in EXPECTED_MODELS:
-        payload = request_json(f"http://127.0.0.1:{config.http_port}/v2/models/{model_id}/config")
+        payload = request_json(
+            f"http://127.0.0.1:{config.http_port}/v2/models/{model_id}/versions/1/config"
+        )
         gpu_exact = triton_gpu_instance_exact(
             payload,
             model_id=model_id,
@@ -539,6 +609,39 @@ def verify_model_configs(config: X1ResumeConfig, profile: str) -> dict[str, Any]
             "cpu_instance_present": False,
         }
     return result
+
+
+def write_runtime_contract(
+    *,
+    path: Path,
+    suite_root: Path,
+    profile: str,
+    batching: str,
+    start_evidence: Mapping[str, Any],
+    readiness: Mapping[str, Any],
+    model_configs: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload = {
+        "schema_version": "evm.s8_v4.x1_resume_runtime_contract.v1",
+        "profile": profile,
+        "batching": batching,
+        "server_command": start_evidence["server_command"],
+        "mounts": start_evidence["mounts"],
+        "runtime_readiness": readiness,
+        "model_configs": {
+            model_id: {
+                "endpoint": f"/v2/models/{model_id}/versions/1/config",
+                "payload": item["config"],
+            }
+            for model_id, item in model_configs.items()
+        },
+    }
+    canonical_write_once(path, payload)
+    return {
+        "path": path.relative_to(suite_root).as_posix(),
+        "sha256": sha256_file(path),
+        "bytes": path.stat().st_size,
+    }
 
 
 class GpuSampler:
@@ -585,7 +688,7 @@ def infer_once(
         "outputs": [{"name": "SCORE__0"}],
     }
     response = requests.post(
-        f"http://127.0.0.1:{config.http_port}/v2/models/{model_id}/infer",
+        f"http://127.0.0.1:{config.http_port}/v2/models/{model_id}/versions/1/infer",
         json=payload,
         timeout=config.request_timeout_seconds,
     )
@@ -781,7 +884,7 @@ def run_cell(
                         "outputs": [{"name": "SCORE__0"}],
                     }
                     response = session.post(
-                        f"http://127.0.0.1:{config.http_port}/v2/models/{model_id}/infer",
+                        f"http://127.0.0.1:{config.http_port}/v2/models/{model_id}/versions/1/infer",
                         json=payload,
                         timeout=config.request_timeout_seconds,
                     )
@@ -1210,16 +1313,26 @@ def main() -> int:
         q0_root = suite_root / "q0-isolated"
         q0_root.mkdir()
         q0_name = f"{CONTAINER_PREFIX}q0"
+        validate_repository_entries(manifest, args.model_repository_root, config=config)
         active_containers.add(q0_name)
-        start_triton(
+        q0_start = start_triton(
             config,
             args.model_repository_root / "batch-off",
             q0_root,
             q0_name,
             trace_enabled=True,
         )
-        wait_ready(config, q0_name)
+        q0_readiness = wait_ready(config, q0_name)
         q0_configs = verify_model_configs(config, "off")
+        q0_runtime_contract = write_runtime_contract(
+            path=q0_root / "runtime-contract.json",
+            suite_root=suite_root,
+            profile="q0_isolated",
+            batching="off",
+            start_evidence=q0_start,
+            readiness=q0_readiness,
+            model_configs=q0_configs,
+        )
         q0 = run_q0(
             config,
             samples,
@@ -1234,6 +1347,7 @@ def main() -> int:
         q0_counts = triton_trace_compute_counts(q0_trace)
         q0_log = q0_root / "triton.log"
         profile_evidence["q0_isolated"] = {
+            "runtime_contract": q0_runtime_contract,
             "trace": {
                 "path": q0_trace.relative_to(suite_root).as_posix(),
                 "sha256": sha256_file(q0_trace),
@@ -1264,16 +1378,26 @@ def main() -> int:
             profile_root = suite_root / f"batch-{profile}"
             profile_root.mkdir()
             name = f"{CONTAINER_PREFIX}{profile}"
+            validate_repository_entries(manifest, args.model_repository_root, config=config)
             active_containers.add(name)
-            start_triton(
+            profile_start = start_triton(
                 config,
                 args.model_repository_root / f"batch-{profile}",
                 profile_root,
                 name,
                 trace_enabled=False,
             )
-            wait_ready(config, name)
-            verify_model_configs(config, profile)
+            profile_readiness = wait_ready(config, name)
+            profile_configs = verify_model_configs(config, profile)
+            profile_runtime_contract = write_runtime_contract(
+                path=profile_root / "runtime-contract.json",
+                suite_root=suite_root,
+                profile=profile,
+                batching=profile,
+                start_evidence=profile_start,
+                readiness=profile_readiness,
+                model_configs=profile_configs,
+            )
             for cell in [item for item in config.cells if item.batching == profile]:
                 for repetition in range(1, cell.repetitions + 1):
                     assert_scale_validation_gpu_lease_owner(
@@ -1298,6 +1422,7 @@ def main() -> int:
             active_containers.discard(name)
             log_path = profile_root / "triton.log"
             profile_evidence[profile] = {
+                "runtime_contract": profile_runtime_contract,
                 "log": {
                     "path": log_path.relative_to(suite_root).as_posix(),
                     "sha256": sha256_file(log_path),

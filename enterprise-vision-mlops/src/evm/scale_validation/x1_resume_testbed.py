@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import stat
 import statistics
 import subprocess
 import tempfile
@@ -34,6 +35,24 @@ MODEL_CLAIM_CONTRACT = {
     "model_accuracy_claim": False,
     "dlrm_training_quality_claim": False,
 }
+
+
+def _model_claim_contract_exact(value: Any) -> bool:
+    boolean_keys = {
+        "model_derivation_claim",
+        "prepared_model_equivalence_claim",
+        "model_accuracy_claim",
+        "dlrm_training_quality_claim",
+    }
+    return (
+        isinstance(value, Mapping)
+        and set(value) == set(MODEL_CLAIM_CONTRACT)
+        and type(value.get("model_description")) is str
+        and value["model_description"] == MODEL_DESCRIPTION
+        and all(type(value.get(key)) is bool and value[key] is False for key in boolean_keys)
+    )
+
+
 DEFAULT_CONFIG_RELATIVE_PATH = "configs/s8_v4_x1_resume_testbed_v1.toml"
 EXPECTED_CONFIG_SHA256 = "c7133025a4e8a38d17a2426ff2a862a6d8e049f8a7ed85a0ddb99e09b95f8394"
 EXPECTED_MODELS = (
@@ -56,6 +75,21 @@ EXPECTED_REPOSITORY_ENTRY_PATHS = tuple(
         ]
     )
 )
+EXPECTED_REPOSITORY_DIRECTORY_PATHS = tuple(
+    sorted(
+        {
+            path
+            for profile in ("off", "on")
+            for model_id in EXPECTED_MODELS
+            for path in (
+                f"batch-{profile}",
+                f"batch-{profile}/{model_id}",
+                f"batch-{profile}/{model_id}/1",
+            )
+        }
+    )
+)
+MODEL_REPOSITORY_MANIFEST_NAME = "model-repository-manifest.json"
 EXPECTED_PROMETHEUS_JOBS = (
     "evm-api",
     "evm-b0-production",
@@ -623,6 +657,103 @@ def ensure_distinct_output_targets(*paths: Path) -> None:
         raise X1ResumeTestbedError("x1_resume_public_output_collision")
 
 
+def render_triton_model_config(
+    model_id: str, input_width: int, *, batching: Mapping[str, Any]
+) -> str:
+    dynamic = ""
+    if batching.get("enabled") is True:
+        sizes = ", ".join(str(int(value)) for value in batching["preferred_batch_sizes"])
+        dynamic = (
+            "dynamic_batching {\n"
+            f"  preferred_batch_size: [ {sizes} ]\n"
+            f"  max_queue_delay_microseconds: {int(batching['max_queue_delay_microseconds'])}\n"
+            "}\n"
+        )
+    return (
+        f'name: "{model_id}"\n'
+        'backend: "pytorch"\n'
+        "max_batch_size: 32\n"
+        "version_policy {\n"
+        "  specific {\n"
+        "    versions: 1\n"
+        "  }\n"
+        "}\n"
+        "input [\n"
+        "  {\n"
+        '    name: "FEATURES__0"\n'
+        "    data_type: TYPE_FP32\n"
+        f"    dims: [ {input_width} ]\n"
+        "  }\n"
+        "]\n"
+        "output [\n"
+        "  {\n"
+        '    name: "SCORE__0"\n'
+        "    data_type: TYPE_FP32\n"
+        "    dims: [ 1 ]\n"
+        "  }\n"
+        "]\n"
+        "instance_group [\n"
+        "  {\n"
+        "    count: 1\n"
+        "    kind: KIND_GPU\n"
+        "    gpus: [ 0 ]\n"
+        "  }\n"
+        "]\n"
+        f"{dynamic}"
+    )
+
+
+def render_triton_server_command(*, trace_enabled: bool) -> str:
+    explicit_models = " ".join(f"--load-model={model_id}" for model_id in EXPECTED_MODELS)
+    base = (
+        "exec tritonserver --model-repository=/models --strict-readiness=true "
+        f"--model-control-mode=explicit {explicit_models} "
+        "--allow-gpu-metrics=true --metrics-interval-ms=200 --log-format=ISO8601 "
+        "--log-file=/evidence/triton.log"
+    )
+    if not trace_enabled:
+        return base
+    return (
+        base + " --trace-config=mode=triton "
+        "--trace-config=triton,file=/evidence/triton-trace.json "
+        "--trace-config=level=TIMESTAMPS --trace-config=rate=64 --trace-config=count=-1"
+    )
+
+
+def host_mount_identity(value: str | Path) -> str:
+    raw = str(value)
+    translated = re.fullmatch(r"/(?:run/desktop/mnt/host|host_mnt|mnt/host)/([A-Za-z])/(.*)", raw)
+    if translated:
+        suffix = translated.group(2).replace("/", os.sep)
+        raw = f"{translated.group(1)}:{os.sep}{suffix}"
+    return os.path.normcase(str(Path(raw).resolve(strict=False)))
+
+
+def validate_triton_container_mounts(
+    mounts: Any, *, repository: Path, evidence_root: Path
+) -> list[dict[str, Any]]:
+    if not isinstance(mounts, list) or len(mounts) != 2:
+        raise X1ResumeTestbedError("x1_resume_container_mount_set")
+    by_destination = {item.get("Destination"): item for item in mounts if isinstance(item, Mapping)}
+    if set(by_destination) != {"/models", "/evidence"}:
+        raise X1ResumeTestbedError("x1_resume_container_mount_set")
+    expected = {
+        "/models": (repository, False),
+        "/evidence": (evidence_root, True),
+    }
+    for destination, (source, writable) in expected.items():
+        item = by_destination[destination]
+        if (
+            item.get("Type") != "bind"
+            or type(item.get("RW")) is not bool
+            or item["RW"] is not writable
+            or type(item.get("Source")) is not str
+            or host_mount_identity(item["Source"]) != host_mount_identity(source)
+        ):
+            raise X1ResumeTestbedError(f"x1_resume_container_mount:{destination}")
+    return [dict(by_destination[destination]) for destination in ("/models", "/evidence")]
+
+
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -930,9 +1061,9 @@ class X1ResumeConfig:
         }:
             raise X1ResumeTestbedError("x1_resume_profiler_contract")
         claim = dict(raw.get("claim", {})) if raw is not None else {}
-        if (raw is not None and set(claim) != {"boundary", *MODEL_CLAIM_CONTRACT}) or dict(
-            self.model_claim_contract
-        ) != MODEL_CLAIM_CONTRACT:
+        if (raw is not None and set(claim) != {"boundary", *MODEL_CLAIM_CONTRACT}) or not (
+            _model_claim_contract_exact(self.model_claim_contract)
+        ):
             raise X1ResumeTestbedError("x1_resume_model_claim_contract")
         if (
             CLAIM_CLASS not in self.claim_boundary.lower()
@@ -1222,8 +1353,65 @@ def _bound_file(root: Path, identity: Mapping[str, Any], label: str) -> Path:
     return path
 
 
+def _validate_repository_physical_tree(
+    model_repository_root: Path, *, manifest_present: bool = True
+) -> None:
+    try:
+        root_stat = model_repository_root.lstat()
+    except OSError as exc:
+        raise X1ResumeTestbedError("x1_resume_private_repository_root") from exc
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if (
+        not stat.S_ISDIR(root_stat.st_mode)
+        or model_repository_root.is_symlink()
+        or bool(getattr(root_stat, "st_file_attributes", 0) & reparse_flag)
+    ):
+        raise X1ResumeTestbedError("x1_resume_private_repository_root")
+
+    regular_files: set[str] = set()
+    directories: set[str] = set()
+
+    def scan(directory: Path, relative_root: Path) -> None:
+        try:
+            with os.scandir(directory) as iterator:
+                children = sorted(iterator, key=lambda item: item.name)
+        except OSError as exc:
+            raise X1ResumeTestbedError("x1_resume_private_repository_tree") from exc
+        for child in children:
+            relative_path = relative_root / child.name
+            relative = relative_path.as_posix()
+            try:
+                node_stat = child.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise X1ResumeTestbedError("x1_resume_private_repository_tree") from exc
+            child_path = Path(child.path)
+            if (
+                child.is_symlink()
+                or child_path.is_symlink()
+                or bool(getattr(node_stat, "st_file_attributes", 0) & reparse_flag)
+            ):
+                raise X1ResumeTestbedError(f"x1_resume_private_repository_node_type:{relative}")
+            if stat.S_ISDIR(node_stat.st_mode):
+                directories.add(relative)
+                scan(child_path, relative_path)
+            elif stat.S_ISREG(node_stat.st_mode):
+                regular_files.add(relative)
+            else:
+                raise X1ResumeTestbedError(f"x1_resume_private_repository_node_type:{relative}")
+
+    scan(model_repository_root, Path())
+
+    expected_regular_files = set(EXPECTED_REPOSITORY_ENTRY_PATHS)
+    if manifest_present:
+        expected_regular_files.add(MODEL_REPOSITORY_MANIFEST_NAME)
+    if regular_files != expected_regular_files:
+        raise X1ResumeTestbedError("x1_resume_private_repository_physical_file_set")
+    if directories != set(EXPECTED_REPOSITORY_DIRECTORY_PATHS):
+        raise X1ResumeTestbedError("x1_resume_private_repository_physical_directory_set")
+
+
 def validate_repository_entries(
-    manifest: Mapping[str, Any], model_repository_root: Path
+    manifest: Mapping[str, Any], model_repository_root: Path, *, config: X1ResumeConfig
 ) -> list[dict[str, Any]]:
     raw_entries = manifest.get("entries")
     if not isinstance(raw_entries, list) or len(raw_entries) != len(
@@ -1232,17 +1420,39 @@ def validate_repository_entries(
         raise X1ResumeTestbedError("x1_resume_private_repository_entry_set")
     entries: list[dict[str, Any]] = []
     for raw_entry in raw_entries:
-        if not isinstance(raw_entry, Mapping) or set(raw_entry) != {
-            "path",
-            "bytes",
-            "sha256",
-        }:
+        if (
+            not isinstance(raw_entry, Mapping)
+            or set(raw_entry)
+            != {
+                "path",
+                "bytes",
+                "sha256",
+            }
+            or (
+                type(raw_entry.get("path")) is not str
+                or type(raw_entry.get("sha256")) is not str
+                or re.fullmatch(r"[0-9a-f]{64}", raw_entry["sha256"]) is None
+                or type(raw_entry.get("bytes")) is not int
+                or raw_entry["bytes"] < 0
+            )
+        ):
             raise X1ResumeTestbedError("x1_resume_private_repository_entry_schema")
         entries.append(dict(raw_entry))
     if tuple(str(item.get("path") or "") for item in entries) != (EXPECTED_REPOSITORY_ENTRY_PATHS):
         raise X1ResumeTestbedError("x1_resume_private_repository_entry_set")
+    _validate_repository_physical_tree(model_repository_root)
     for item in entries:
         _bound_file(model_repository_root, item, "repository_entry")
+    for profile, batching in config.batching.items():
+        for model in config.models:
+            config_path = model_repository_root / f"batch-{profile}/{model.model_id}/config.pbtxt"
+            expected = render_triton_model_config(
+                model.model_id, model.input_width, batching=batching
+            ).encode("ascii")
+            if config_path.read_bytes() != expected:
+                raise X1ResumeTestbedError(
+                    f"x1_resume_private_repository_config_bytes:{profile}:{model.model_id}"
+                )
     sample_entry = next(item for item in entries if item["path"] == "testbed-samples.json")
     sample_path = _bound_file(model_repository_root, sample_entry, "testbed_samples")
     if (
@@ -1277,6 +1487,24 @@ def _governed_json(data_root: Path, identity: Mapping[str, Any], *, label: str) 
     if not isinstance(payload, dict):
         raise X1ResumeTestbedError(f"x1_resume_governed_json:{label}")
     return payload
+
+
+def _typed_canonical_equal(actual: Any, expected: Any) -> bool:
+    if isinstance(expected, Mapping):
+        return (
+            isinstance(actual, Mapping)
+            and set(actual) == set(expected)
+            and all(_typed_canonical_equal(actual[key], expected[key]) for key in expected)
+            and canonical(actual) == canonical(expected)
+            and canonical_sha256(actual) == canonical_sha256(expected)
+        )
+    if isinstance(expected, list):
+        return (
+            isinstance(actual, list)
+            and len(actual) == len(expected)
+            and all(_typed_canonical_equal(left, right) for left, right in zip(actual, expected))
+        )
+    return type(actual) is type(expected) and actual == expected
 
 
 def validate_governed_source_bindings(
@@ -1324,7 +1552,7 @@ def validate_governed_source_bindings(
             "replay": shared_replay,
         }
         if (
-            dict(bindings.get(model_id, {})) != expected
+            not _typed_canonical_equal(bindings.get(model_id), expected)
             or source.get("schema_version") != source_identity["schema_version"]
             or source.get("dataset_identity_sha256")
             != s3_registry_identity["dataset_identity_sha256"]
@@ -1353,7 +1581,7 @@ def validate_governed_source_bindings(
         "replay": shared_replay,
     }
     if (
-        dict(bindings.get("higgs_tiny_mlp", {})) != expected_s4
+        not _typed_canonical_equal(bindings.get("higgs_tiny_mlp"), expected_s4)
         or s4_registry.get("schema_version") != s4_registry_identity["schema_version"]
         or s4_registry.get("artifact_sha256") != s4_artifact_identity["sha256"]
         or s4_registry.get("model_identity_sha256") != s4_registry_identity["model_identity_sha256"]
@@ -1392,7 +1620,7 @@ def validate_governed_source_bindings(
         raise X1ResumeTestbedError("x1_resume_governed_s5_binding")
     first_shard = dict(shards[0])
     if (
-        dict(bindings.get("criteo_dlrm_lite", {})) != expected_s5
+        not _typed_canonical_equal(bindings.get("criteo_dlrm_lite"), expected_s5)
         or s5_manifest.get("schema_version") != s5_identity["schema_version"]
         or s5_manifest.get("dataset_version") != s5_identity["dataset_version"]
         or s5_manifest.get("source_revision") != s5_identity["source_revision"]
@@ -1513,6 +1741,11 @@ def triton_gpu_instance_exact(
     gpus = group.get("gpus")
     inputs = config_readback.get("input")
     outputs = config_readback.get("output")
+    version_policy = config_readback.get("version_policy")
+    specific_policy = (
+        version_policy.get("specific") if isinstance(version_policy, Mapping) else None
+    )
+    versions = specific_policy.get("versions") if isinstance(specific_policy, Mapping) else None
     if (
         group.get("kind") != "KIND_GPU"
         or not _protobuf_integer_exact(group.get("count"), 1)
@@ -1522,6 +1755,13 @@ def triton_gpu_instance_exact(
         or config_readback.get("name") != model_id
         or config_readback.get("backend") != "pytorch"
         or not _protobuf_integer_exact(config_readback.get("max_batch_size"), 32)
+        or not isinstance(version_policy, Mapping)
+        or set(version_policy) != {"specific"}
+        or not isinstance(specific_policy, Mapping)
+        or set(specific_policy) != {"versions"}
+        or not isinstance(versions, list)
+        or len(versions) != 1
+        or not _protobuf_integer_exact(versions[0], 1)
         or bool(config_readback.get("dynamic_batching")) != dynamic_batching_enabled
         or not isinstance(inputs, list)
         or len(inputs) != 1
@@ -1542,6 +1782,120 @@ def triton_gpu_instance_exact(
     ):
         return False
     return True
+
+
+def triton_repository_index_full(payload: Any) -> bool:
+    if not isinstance(payload, list) or len(payload) != len(EXPECTED_MODELS):
+        return False
+    observed: list[tuple[str, str]] = []
+    for item in payload:
+        if not isinstance(item, Mapping) or set(item) != {"name", "version", "state", "reason"}:
+            return False
+        values = tuple(item[key] for key in ("name", "version", "state", "reason"))
+        if any(type(value) is not str for value in values) or not item["state"]:
+            return False
+        observed.append((item["name"], item["version"]))
+    return sorted(observed) == sorted((model_id, "1") for model_id in EXPECTED_MODELS)
+
+
+def triton_repository_index_exact(payload: Any) -> bool:
+    if not triton_repository_index_full(payload):
+        return False
+    observed = [
+        tuple(item[key] for key in ("name", "version", "state", "reason")) for item in payload
+    ]
+    expected = sorted((model_id, "1", "READY", "") for model_id in EXPECTED_MODELS)
+    return sorted(observed) == expected
+
+
+def triton_model_metadata_version_exact(payload: Any, *, model_id: str, input_width: int) -> bool:
+    if not isinstance(payload, Mapping) or set(payload) != {
+        "name",
+        "versions",
+        "platform",
+        "inputs",
+        "outputs",
+    }:
+        return False
+    inputs = payload.get("inputs")
+    outputs = payload.get("outputs")
+    return (
+        payload.get("name") == model_id
+        and payload.get("versions") == ["1"]
+        and payload.get("platform") == "pytorch_libtorch"
+        and isinstance(inputs, list)
+        and len(inputs) == 1
+        and isinstance(inputs[0], Mapping)
+        and set(inputs[0]) == {"name", "datatype", "shape"}
+        and inputs[0].get("name") == "FEATURES__0"
+        and inputs[0].get("datatype") == "FP32"
+        and isinstance(inputs[0].get("shape"), list)
+        and len(inputs[0]["shape"]) == 2
+        and _protobuf_integer_exact(inputs[0]["shape"][0], -1)
+        and _protobuf_integer_exact(inputs[0]["shape"][1], input_width)
+        and isinstance(outputs, list)
+        and len(outputs) == 1
+        and isinstance(outputs[0], Mapping)
+        and set(outputs[0]) == {"name", "datatype", "shape"}
+        and outputs[0].get("name") == "SCORE__0"
+        and outputs[0].get("datatype") == "FP32"
+        and isinstance(outputs[0].get("shape"), list)
+        and len(outputs[0]["shape"]) == 2
+        and _protobuf_integer_exact(outputs[0]["shape"][0], -1)
+        and _protobuf_integer_exact(outputs[0]["shape"][1], 1)
+    )
+
+
+def triton_runtime_readiness_exact(payload: Any, *, config: X1ResumeConfig) -> bool:
+    if not isinstance(payload, Mapping) or set(payload) != {
+        "server_health",
+        "repository_index_full",
+        "repository_index_ready",
+        "model_ready",
+        "model_metadata",
+    }:
+        return False
+    server_health = payload["server_health"]
+    model_ready = payload["model_ready"]
+    metadata = payload["model_metadata"]
+    return (
+        isinstance(server_health, Mapping)
+        and set(server_health) == {"live", "ready"}
+        and _typed_canonical_equal(
+            server_health,
+            {
+                "live": {"endpoint": "/v2/health/live", "status": 200},
+                "ready": {"endpoint": "/v2/health/ready", "status": 200},
+            },
+        )
+        and triton_repository_index_full(payload["repository_index_full"])
+        and triton_repository_index_exact(payload["repository_index_ready"])
+        and isinstance(model_ready, Mapping)
+        and set(model_ready) == set(EXPECTED_MODELS)
+        and all(
+            _typed_canonical_equal(
+                model_ready[model_id],
+                {
+                    "endpoint": f"/v2/models/{model_id}/versions/1/ready",
+                    "status": 200,
+                },
+            )
+            for model_id in EXPECTED_MODELS
+        )
+        and isinstance(metadata, Mapping)
+        and set(metadata) == set(EXPECTED_MODELS)
+        and all(
+            isinstance(metadata[model.model_id], Mapping)
+            and set(metadata[model.model_id]) == {"endpoint", "payload"}
+            and metadata[model.model_id]["endpoint"] == f"/v2/models/{model.model_id}/versions/1"
+            and triton_model_metadata_version_exact(
+                metadata[model.model_id]["payload"],
+                model_id=model.model_id,
+                input_width=model.input_width,
+            )
+            for model in config.models
+        )
+    )
 
 
 def _validate_manifest_contract(manifest: Any, config: X1ResumeConfig) -> None:
@@ -1572,10 +1926,14 @@ def _validate_manifest_contract(manifest: Any, config: X1ResumeConfig) -> None:
         raise X1ResumeTestbedError("x1_resume_private_manifest_contract")
     profile_identities = manifest.get("profile_identities")
     model_identities = manifest.get("model_identities")
+    model_ids = manifest.get("model_ids")
+    source_bindings = manifest.get("source_bindings")
     entries = manifest.get("entries")
+    model_claim_contract = manifest.get("model_claim_contract")
     expected_model_identity_keys = {
         f"{profile}:{model_id}" for profile in ("off", "on") for model_id in EXPECTED_MODELS
     }
+    expected_profile_entry_count = 2 * len(EXPECTED_MODELS)
     if (
         set(manifest) != required_keys
         or manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION
@@ -1586,13 +1944,38 @@ def _validate_manifest_contract(manifest: Any, config: X1ResumeConfig) -> None:
         or manifest.get("backend") != "pytorch"
         or manifest.get("instance_kind") != "KIND_GPU"
         or manifest.get("cpu_fallback_allowed") is not False
-        or tuple(manifest.get("model_ids", [])) != EXPECTED_MODELS
-        or manifest.get("model_claim_contract") != MODEL_CLAIM_CONTRACT
+        or not isinstance(model_ids, list)
+        or any(type(model_id) is not str for model_id in model_ids)
+        or model_ids != list(EXPECTED_MODELS)
+        or not isinstance(source_bindings, Mapping)
+        or set(source_bindings) != set(EXPECTED_MODELS)
+        or any(not isinstance(binding, Mapping) for binding in source_bindings.values())
+        or not _model_claim_contract_exact(model_claim_contract)
+        or manifest.get("model_claim_contract_sha256") != canonical_sha256(model_claim_contract)
         or manifest.get("model_claim_contract_sha256") != canonical_sha256(MODEL_CLAIM_CONTRACT)
         or not isinstance(profile_identities, Mapping)
         or set(profile_identities) != {"off", "on"}
+        or any(
+            not isinstance(identity, Mapping)
+            or set(identity) != {"entry_count", "repository_sha256"}
+            or type(identity.get("entry_count")) is not int
+            or identity["entry_count"] != expected_profile_entry_count
+            or type(identity.get("repository_sha256")) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", identity["repository_sha256"]) is None
+            for identity in profile_identities.values()
+        )
         or not isinstance(model_identities, Mapping)
         or set(model_identities) != expected_model_identity_keys
+        or any(
+            not isinstance(identity, Mapping)
+            or set(identity) != {"artifact_sha256", "config_sha256"}
+            or any(
+                type(identity.get(key)) is not str
+                or re.fullmatch(r"[0-9a-f]{64}", identity[key]) is None
+                for key in ("artifact_sha256", "config_sha256")
+            )
+            for identity in model_identities.values()
+        )
         or not isinstance(entries, list)
         or any(
             not isinstance(entry, Mapping)
@@ -2331,6 +2714,66 @@ def _validate_source_provenance(
         raise X1ResumeTestbedError("x1_resume_source_config_binding")
 
 
+def _validate_runtime_contract_artifact(
+    *,
+    private_suite_root: Path,
+    identity: Mapping[str, Any],
+    model_repository_root: Path,
+    config: X1ResumeConfig,
+    profile: str,
+    batching: str,
+) -> None:
+    path = _bound_file(private_suite_root, identity, f"runtime_contract:{profile}")
+    payload = load_canonical_json(path, label=f"runtime_contract:{profile}")
+    required_keys = {
+        "schema_version",
+        "profile",
+        "batching",
+        "server_command",
+        "mounts",
+        "runtime_readiness",
+        "model_configs",
+    }
+    if (
+        not isinstance(payload, Mapping)
+        or set(payload) != required_keys
+        or payload.get("schema_version") != "evm.s8_v4.x1_resume_runtime_contract.v1"
+        or payload.get("profile") != profile
+        or payload.get("batching") != batching
+        or payload.get("server_command")
+        != render_triton_server_command(trace_enabled=profile == "q0_isolated")
+        or not triton_runtime_readiness_exact(payload.get("runtime_readiness"), config=config)
+    ):
+        raise X1ResumeTestbedError(f"x1_resume_private_runtime_contract:{profile}")
+    evidence_root = private_suite_root / (
+        "q0-isolated" if profile == "q0_isolated" else f"batch-{profile}"
+    )
+    validate_triton_container_mounts(
+        payload.get("mounts"),
+        repository=model_repository_root / f"batch-{batching}",
+        evidence_root=evidence_root,
+    )
+    model_configs = payload.get("model_configs")
+    if (
+        not isinstance(model_configs, Mapping)
+        or set(model_configs) != set(EXPECTED_MODELS)
+        or any(
+            not isinstance(model_configs[model.model_id], Mapping)
+            or set(model_configs[model.model_id]) != {"endpoint", "payload"}
+            or model_configs[model.model_id]["endpoint"]
+            != f"/v2/models/{model.model_id}/versions/1/config"
+            or not triton_gpu_instance_exact(
+                model_configs[model.model_id]["payload"],
+                model_id=model.model_id,
+                input_width=model.input_width,
+                dynamic_batching_enabled=batching == "on",
+            )
+            for model in config.models
+        )
+    ):
+        raise X1ResumeTestbedError(f"x1_resume_private_runtime_configs:{profile}")
+
+
 def validate_private_evidence(
     payload: Mapping[str, Any],
     *,
@@ -2354,7 +2797,7 @@ def validate_private_evidence(
     _validate_source_provenance(payload, manifest, source_root, config=config)
     revision = str(dict(payload.get("source_identity", {})).get("revision") or "")
     _validate_environment_contract(payload, config=config, revision=revision)
-    entries = validate_repository_entries(manifest, model_repository_root)
+    entries = validate_repository_entries(manifest, model_repository_root, config=config)
     validate_sample_payload(model_repository_root / "testbed-samples.json", config)
     if manifest.get("repository_sha256") != environment.get(
         "repository_sha256"
@@ -2383,6 +2826,14 @@ def validate_private_evidence(
             } or not all((artifact, model_config)):
                 raise X1ResumeTestbedError(f"x1_resume_private_profile_model:{profile}:{model_id}")
     q0_evidence = dict(dict(payload.get("profile_evidence", {})).get("q0_isolated", {}))
+    _validate_runtime_contract_artifact(
+        private_suite_root=private_suite_root,
+        identity=dict(q0_evidence.get("runtime_contract", {})),
+        model_repository_root=model_repository_root,
+        config=config,
+        profile="q0_isolated",
+        batching="off",
+    )
     trace_path = _bound_file(private_suite_root, dict(q0_evidence.get("trace", {})), "q0_trace")
     log_path = _bound_file(private_suite_root, dict(q0_evidence.get("log", {})), "q0_log")
     log_text = log_path.read_text(encoding="utf-8", errors="strict")
@@ -2461,6 +2912,14 @@ def validate_private_evidence(
 
     for profile in ("off", "on"):
         profile_evidence = dict(dict(payload.get("profile_evidence", {})).get(profile, {}))
+        _validate_runtime_contract_artifact(
+            private_suite_root=private_suite_root,
+            identity=dict(profile_evidence.get("runtime_contract", {})),
+            model_repository_root=model_repository_root,
+            config=config,
+            profile=profile,
+            batching=profile,
+        )
         _bound_file(
             private_suite_root,
             dict(profile_evidence.get("log", {})),
