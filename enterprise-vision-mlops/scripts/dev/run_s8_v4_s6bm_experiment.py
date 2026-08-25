@@ -975,11 +975,18 @@ def wait_and_register_triton_start_receipt(
     checkpoint: Mapping[str, Any],
     body: Mapping[str, Any],
     clock_chain: DualClockAnchorChain,
-    timeout: float = 5.0,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     request = TritonBlueGreenPredictRequest.model_validate(dict(body))
     identity = expected_causal_identity_for_request(request)
-    deadline = time.monotonic() + timeout
+    wait_seconds = (
+        float(config.procedure["drain_timeout_seconds"])
+        if timeout is None
+        else float(timeout)
+    )
+    if wait_seconds <= 0:
+        raise S6BMExperimentError("triton_compute_start_trace_timeout_bound")
+    deadline = time.monotonic() + wait_seconds
     observed: dict[str, Any] | None = None
     while time.monotonic() < deadline:
         observed = find_triton_compute_start(
