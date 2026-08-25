@@ -774,7 +774,7 @@ def validate_observability_bundle(
     artifacts = dict(evidence.get("artifacts", {}))
     required_artifacts = (
         STRICT_V4_REQUIRED_ARTIFACTS
-        if str(config.schema_version).endswith(".v3")
+        if str(config.schema_version).endswith((".v3", ".v4"))
         else REQUIRED_ARTIFACTS
     )
     expected_artifacts = (
@@ -911,7 +911,7 @@ def validate_observability_bundle(
             "nv_inference_request_success",
             triton_labels,
         )
-        if str(config.schema_version).endswith(".v3"):
+        if str(config.schema_version).endswith((".v3", ".v4")):
             if role == "blue" and triton_after_blue_unload_aggregate is not None:
                 raise S6BMObservabilityError("s6bm_triton_blue_present_after_unload")
             if role == "green" and triton_after_blue_unload_aggregate is None:
@@ -1039,7 +1039,7 @@ def validate_observability_bundle(
             {**prom_identity, **triton_labels},
             expected_series_count=None,
         )
-        if str(config.schema_version).endswith(".v3"):
+        if str(config.schema_version).endswith((".v3", ".v4")):
             if role == "blue" and prom_triton_after_blue_unload is not None:
                 raise S6BMObservabilityError("s6bm_prometheus_blue_present_after_unload")
             if role == "green" and prom_triton_after_blue_unload is None:
