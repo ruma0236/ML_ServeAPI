@@ -301,6 +301,8 @@
           "evidence_ready": false,
           "acceptance_credit": false,
           "failure_class": "remediation_in_progress",
+          "strict_projection_passed": true,
+          "mutation_negative_rejected": 28,
           "history_amendment": "docs/status/evidence/s8-v4-s6bm-historical-partial-run-amendment-v3.json",
           "history_amendment_sha256": "9fb5a8890c3c86a3057a921eeb49e18ca80e7f50f23b42c313f1398fb1c7a070"
         }
@@ -316,6 +318,11 @@
         "review_handoff_sha256": "1c8d2915277b5d283d9c7ac706c7b80cfbf5147ca2989b52ebc0837086dc0294",
         "review_failure_amendment_path": "docs/status/evidence/s8-v4-s6bm-independent-review-failure-amendment.json",
         "review_failure_amendment_sha256": "aef36d4a7aedeed880e1118629ebeadf6ee06c9ae2034d6f19cad3cadaab8cc7",
+        "strict_v3_validation_path": "docs/status/evidence/s8-v4-s6bm-strict-validation-v3.json",
+        "strict_v3_validation_sha256": "74014d617378730129671519ee4edc84234d89cb44c362cbdd983c65d13c333d",
+        "strict_v3_mutation_path": "docs/status/evidence/s8-v4-s6bm-mutation-validation-v3.json",
+        "strict_v3_mutation_sha256": "9ae31c2012e276cebcbfe32e58481df57162519f02fb42e1ea48dbd88e348e8d",
+        "strict_v3_validation_revision": "348a86daf398934b8f988869c32feb361551aa64",
         "private_artifacts": 66,
         "private_total_bytes": 21293776,
         "private_index_sha256": "2eed1ef6ae6a41fde7c54dd954d9af4263bbedaf5b55d5bdfd4d96b397b4fac8",
