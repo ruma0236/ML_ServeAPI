@@ -1046,9 +1046,7 @@ def request_bodies_from_plan(
                 str(item["request_id"]),
                 expected_model_role=str(item["expected_model_role"]),
                 hold_ms=int(item["hold_ms"]),
-                expected_route_generation=(
-                    route_generation if causal_crossover or start_receipt_required else 0
-                ),
+                expected_route_generation=route_generation,
                 start_receipt_required=start_receipt_required,
                 causal_crossover=causal_crossover,
             )

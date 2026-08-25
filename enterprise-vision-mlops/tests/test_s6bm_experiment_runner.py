@@ -59,6 +59,22 @@ def test_continuity_mutation_contract_is_exact_and_frozen() -> None:
     )
 
 
+def test_all_bridge_requests_are_pinned_to_the_observed_blue_generation() -> None:
+    runner = load_runner()
+    config = runner.S6BMConfig.from_path(ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml")
+    plan = runner.build_continuity_plan(config, "s6bm-success-generation-unit")
+    bodies = runner.request_bodies_from_plan(
+        config,
+        "s6bm-run-generation-unit",
+        "s6bm-success-generation-unit",
+        plan["roles"]["bridge"],
+        route_generation=7,
+    )
+
+    assert len(bodies) == 40
+    assert {body["expected_route_generation"] for body in bodies} == {7}
+
+
 def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: Path) -> None:
     validator = load_continuity_validator()
     request_id = "bridge-0001"

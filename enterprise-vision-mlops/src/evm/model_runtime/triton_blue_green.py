@@ -975,21 +975,22 @@ class TritonBlueGreenManager:
                         request.request_id,
                         status_code=409,
                     )
-                state.in_flight[role] += 1
-                IN_FLIGHT.labels(role, identity.model_name, identity.model_version).set(
-                    state.in_flight[role]
-                )
                 generation = state.generation
                 phase = state.phase
-                triton_url = state.request.triton_http_url
                 if (
-                    request.causal_crossover or request.start_receipt_required
-                ) and request.expected_route_generation != generation:
+                    request.expected_route_generation > 0
+                    and request.expected_route_generation != generation
+                ):
                     raise TritonBlueGreenError(
                         "causal_route_generation_mismatch",
                         request.request_id,
                         status_code=409,
                     )
+                state.in_flight[role] += 1
+                IN_FLIGHT.labels(role, identity.model_name, identity.model_version).set(
+                    state.in_flight[role]
+                )
+                triton_url = state.request.triton_http_url
                 if request.causal_crossover:
                     switch_event = threading.Event()
                     state.crossover_switch_events[request.request_id] = switch_event

@@ -126,6 +126,30 @@ def test_s6bm_approval_is_bound_and_single_use(manager: TritonBlueGreenManager) 
     assert manager.snapshot().phase == "green_warmup"
 
 
+def test_generation_pinned_request_rejects_before_in_flight_accounting(
+    manager: TritonBlueGreenManager,
+) -> None:
+    request = TritonBlueGreenPredictRequest(
+        run_id="s8-v4-s6bm-test",
+        attempt_id="s6bm-success-generation-test",
+        request_id="request-blue-generation-0001",
+        request_nonce="nonce-blue-generation-0001",
+        traceparent="00-" + "1" * 32 + "-" + "2" * 16 + "-01",
+        input_values=[1, 2, 3, 4],
+        expected_model_role="blue",
+        expected_model_name="s6bm_blue",
+        expected_model_version="1",
+        expected_artifact_sha256="c" * 64,
+        expected_route_generation=manager.snapshot().generation + 1,
+    )
+
+    with pytest.raises(TritonBlueGreenError) as mismatch:
+        asyncio.run(manager.predict(request))
+
+    assert mismatch.value.code == "causal_route_generation_mismatch"
+    assert manager.snapshot().in_flight == {"blue": 0, "green": 0}
+
+
 def test_s6bm_external_effect_is_idempotent_and_drain_blocks_in_flight(
     manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
