@@ -263,7 +263,43 @@ def _commit_s6bm_transition_fence(
         raise RuntimeError("S6B-M causal crossover identity is absent")
     identity = request.causal_crossover.model_dump(mode="json")
     if request.action == "green_switched":
-        return _s6bm_terminal_store().commit_s6bm_route_switch_fence(crossover_identity=identity)
+        source_payload = request.model_dump(mode="json")
+        source_payload_sha256 = canonical_digest(source_payload)
+        actor = causal_start_observation("api-control-plane-route-switch")
+        transition_core = {
+            "attempt_id": identity["attempt_id"],
+            "run_id": identity["run_id"],
+            "request_id": identity["request_id"],
+            "action": request.action,
+            "old_route_generation": request.expected_generation,
+            "new_route_generation": request.expected_generation + 1,
+            "source_payload_sha256": source_payload_sha256,
+            "source_revision": actor["source_revision"],
+            "cell_id": identity["attempt_id"],
+            "replica_id": actor["service_instance_id"],
+        }
+        transition_id = canonical_digest(
+            {"schema_version": "evm.s6bm.route_transition_identity.v1", **transition_core}
+        )
+        transition_context = {
+            "schema_version": "evm.s6bm.route_transition_context.v1",
+            **transition_core,
+            "transition_id": transition_id,
+            "fence_id": canonical_digest(
+                {
+                    "schema_version": "evm.s6bm.route_fence_identity.v1",
+                    "transition_id": transition_id,
+                    "attempt_id": identity["attempt_id"],
+                    "request_id": identity["request_id"],
+                }
+            ),
+            "source_payload": source_payload,
+            "actor": actor,
+        }
+        return _s6bm_terminal_store().commit_s6bm_route_switch_fence(
+            crossover_identity=identity,
+            transition_context=transition_context,
+        )
     if request.action == "blue_unloaded":
         return _s6bm_terminal_store().commit_s6bm_unload_intent(
             crossover_identity=identity,

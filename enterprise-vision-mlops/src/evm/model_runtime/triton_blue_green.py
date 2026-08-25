@@ -302,6 +302,8 @@ class TritonBlueGreenDurableEffectReceipt(ContractModel):
     replayed: bool
     causal_sequence: int | None = Field(default=None, ge=1)
     causal_payload_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    observed_transition: dict[str, object] | None = None
+    transition_readback_visible: bool | None = None
     write_backend_pid: int | None = Field(default=None, gt=0)
     commit_timestamp: str | None = None
     commit_timestamp_observed_at: str | None = None
@@ -354,6 +356,7 @@ class TritonBlueGreenStateResponse(ContractModel):
     terminal_unique: int = 0
     duplicate_replays: int = 0
     used_approvals: int = 0
+    transition_receipt: dict[str, Any] | None = None
 
 
 @dataclass
@@ -368,6 +371,7 @@ class _State:
     crossover_switch_events: dict[str, threading.Event] = field(default_factory=dict)
     used_approvals: set[str] = field(default_factory=set)
     duplicate_replays: int = 0
+    last_transition_receipt: dict[str, Any] | None = None
 
 
 def canonical(value: Any) -> str:
@@ -586,6 +590,7 @@ class TritonBlueGreenManager:
             self._validate_guard_signals(request)
             self._validate_transition(state, request.action)
             fence_context: dict[str, Any] = {}
+            fence_receipt: dict[str, Any] | None = None
             crossover: TritonBlueGreenCausalIdentity | None = None
             if request.action in {"green_switched", "blue_unloaded"} and (
                 request.causal_crossover is not None or _strict_causal_required()
@@ -613,7 +618,7 @@ class TritonBlueGreenManager:
                         )
                 else:
                     try:
-                        receipt = transition_fence_committer(request, fence_context)
+                        fence_receipt = dict(transition_fence_committer(request, fence_context))
                     except TritonBlueGreenError:
                         raise
                     except Exception as exc:
@@ -622,17 +627,108 @@ class TritonBlueGreenManager:
                             request.action,
                             status_code=503,
                         ) from exc
-                    if receipt.get("readback_visible") is not True:
+                    if fence_receipt.get("readback_visible") is not True:
                         raise TritonBlueGreenError(
                             "causal_transition_receipt_mismatch",
                             request.action,
                             status_code=503,
                         )
+                    if request.action == "green_switched" and (
+                        fence_receipt.get("schema_version")
+                        != "evm.s6bm.route_switch_receipt.v2"
+                        or fence_receipt.get("attempt_id") != crossover.attempt_id
+                        or fence_receipt.get("run_id") != crossover.run_id
+                        or fence_receipt.get("request_id") != crossover.request_id
+                        or int(fence_receipt.get("old_route_generation", 0))
+                        != request.expected_generation
+                        or int(fence_receipt.get("new_route_generation", 0))
+                        != request.expected_generation + 1
+                        or int(fence_receipt.get("actor_process_id", 0)) != os.getpid()
+                        or int(fence_receipt.get("actor_thread_id", 0))
+                        != threading.get_ident()
+                    ):
+                        raise TritonBlueGreenError(
+                            "causal_transition_receipt_mismatch",
+                            request.action,
+                            status_code=503,
+                        )
+            state.last_transition_receipt = None
             self._apply_model_control(state, request.action)
             self._transition(state, request.action)
             state.used_approvals.add(request.approval_id)
             state.generation += 1
             if request.action == "green_switched" and crossover is not None:
+                if fence_receipt is None:
+                    raise TritonBlueGreenError(
+                        "causal_transition_receipt_mismatch",
+                        request.action,
+                        status_code=503,
+                    )
+                route_applied_monotonic_ns = time.perf_counter_ns()
+                route_applied_actor = causal_start_observation(
+                    "api-control-plane-route-switch-applied"
+                )
+                if (
+                    int(route_applied_actor["process_id"])
+                    != int(fence_receipt["actor_process_id"])
+                    or int(route_applied_actor["thread_id"])
+                    != int(fence_receipt["actor_thread_id"])
+                    or int(fence_receipt["commit_ack_monotonic_ns"])
+                    > int(fence_receipt["readback_started_monotonic_ns"])
+                    or int(fence_receipt["readback_started_monotonic_ns"])
+                    > int(fence_receipt["readback_finished_monotonic_ns"])
+                    or int(fence_receipt["readback_finished_monotonic_ns"])
+                    > route_applied_monotonic_ns
+                    or state.generation != request.expected_generation + 1
+                    or state.phase != "green_active"
+                    or state.weights != {"blue": 0, "green": 100}
+                ):
+                    raise TritonBlueGreenError(
+                        "causal_transition_actor_state_mismatch",
+                        request.action,
+                        status_code=503,
+                    )
+                state.last_transition_receipt = {
+                    "schema_version": "evm.s6bm.route_transition_receipt.v1",
+                    "transition_id": fence_receipt["transition_id"],
+                    "fence_id": fence_receipt["fence_id"],
+                    "attempt_id": crossover.attempt_id,
+                    "run_id": crossover.run_id,
+                    "request_id": crossover.request_id,
+                    "cell_id": fence_receipt["cell_id"],
+                    "replica_id": fence_receipt["replica_id"],
+                    "source_revision": fence_receipt["source_revision"],
+                    "source_payload_sha256": fence_receipt["source_payload_sha256"],
+                    "old_route_generation": request.expected_generation,
+                    "new_route_generation": state.generation,
+                    "fence_sequence": fence_receipt["fence_sequence"],
+                    "fence_transaction_id": fence_receipt["fence_transaction_id"],
+                    "fence_payload_sha256": fence_receipt["fence_payload_sha256"],
+                    "actor_identity": fence_receipt["actor_identity"],
+                    "actor_process_id": fence_receipt["actor_process_id"],
+                    "actor_thread_id": fence_receipt["actor_thread_id"],
+                    "actor_commit_ack_monotonic_ns": fence_receipt[
+                        "commit_ack_monotonic_ns"
+                    ],
+                    "fence_readback_started_monotonic_ns": fence_receipt[
+                        "readback_started_monotonic_ns"
+                    ],
+                    "fence_readback_finished_monotonic_ns": fence_receipt[
+                        "readback_finished_monotonic_ns"
+                    ],
+                    "route_applied_monotonic_ns": route_applied_monotonic_ns,
+                    "route_applied_actor": route_applied_actor,
+                    "state_readback": {
+                        "generation": state.generation,
+                        "phase": state.phase,
+                        "route_weights": dict(state.weights),
+                        "loaded_roles": sorted(state.loaded),
+                    },
+                    "fence_receipt_sha256": hashlib.sha256(
+                        canonical(fence_receipt).encode("ascii")
+                    ).hexdigest(),
+                    "fence_receipt": fence_receipt,
+                }
                 state.crossover_switch_events[crossover.request_id].set()
             TRANSITIONS.labels(request.action, "applied").inc()
             return self.snapshot()
@@ -1084,6 +1180,11 @@ class TritonBlueGreenManager:
                 terminal_unique=len(state.responses),
                 duplicate_replays=state.duplicate_replays,
                 used_approvals=len(state.used_approvals),
+                transition_receipt=(
+                    dict(state.last_transition_receipt)
+                    if state.last_transition_receipt is not None
+                    else None
+                ),
             )
 
     def reset(self, run_id: str, lease_id: str, fencing_token: str) -> None:

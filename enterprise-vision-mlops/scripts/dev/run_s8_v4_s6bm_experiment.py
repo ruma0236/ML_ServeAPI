@@ -2084,12 +2084,15 @@ def run_success(
                 suite_root=suite_root,
                 timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
             )
-            apply_control(
+            switch_state = apply_control(
                 config,
                 lease,
                 "green_switched",
                 causal_crossover=hold_identity,
             )
+            transition_receipt = dict(switch_state.get("transition_receipt") or {})
+            if not transition_receipt:
+                raise S6BMExperimentError("route_transition_receipt_absent")
             timeline.append(phase_entry(config, "green_active", clock_chain=clock_chain))
             apply_control(config, lease, "blue_drain_started")
             timeline.append(phase_entry(config, "blue_draining", clock_chain=clock_chain))
@@ -2206,6 +2209,7 @@ def run_success(
         "causal_proof": {
             "crossover_identity": hold_identity,
             "triton_start_receipt": triton_start_receipt,
+            "route_transition_receipt": transition_receipt,
             "durable_effect_export": artifact_reference(suite_root, effects_path),
             "causal_event_export": artifact_reference(suite_root, causal_path),
         },
@@ -2330,12 +2334,15 @@ def run_causal_qualification(
             suite_root=suite_root,
             timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
         )
-        apply_control(
+        switch_state = apply_control(
             config,
             lease,
             "green_switched",
             causal_crossover=hold_identity,
         )
+        transition_receipt = dict(switch_state.get("transition_receipt") or {})
+        if not transition_receipt:
+            raise S6BMExperimentError("route_transition_receipt_absent")
         timeline.append(phase_entry(config, "green_active", clock_chain=clock_chain))
         apply_control(config, lease, "blue_drain_started")
         timeline.append(phase_entry(config, "blue_draining", clock_chain=clock_chain))
@@ -2446,6 +2453,7 @@ def run_causal_qualification(
         "rollback_seconds": rollback_seconds,
         "blue_in_flight_before_unload": blue_before_unload,
         "triton_start_receipt": triton_start_receipt,
+        "route_transition_receipt": transition_receipt,
         "durable_effect_export": artifact_reference(suite_root, effects_path),
         "causal_event_export": artifact_reference(suite_root, events_path),
         "causal_event_types": observed_events,

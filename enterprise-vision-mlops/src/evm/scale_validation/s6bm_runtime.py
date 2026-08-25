@@ -254,6 +254,14 @@ class S6BMConfig:
                 "max_anchor_gap_seconds": 30,
                 "max_offset_spread_ns": 2_000_000,
                 "max_phase_interval_ns": 250_000_000,
+                "affine_model": "centered_ols_fraction_all_points_v1",
+                "affine_max_drift_ppm": 100,
+                "affine_max_residual_ns": 1_000_000,
+                "affine_max_step_ns": 2_000_000,
+                "affine_required_outlier_count": 0,
+                "affine_projection_uncertainty": (
+                    "ceil_max_abs_residual_plus_ceil_anchor_half_width_plus_1ns"
+                ),
                 "per_request_offset_forbidden": True,
                 "overlapping_causal_intervals_fail": True,
                 "source_identity_required": True,

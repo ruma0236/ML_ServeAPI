@@ -290,7 +290,32 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
             assert context["pre_switch_blue_effects"] == [
                 {"request_id": request.request_id, "effect_id": identity.effect_id}
             ]
-        return {"readback_visible": True}
+            return {"readback_visible": True}
+        now = module.time.perf_counter_ns()
+        return {
+            "schema_version": "evm.s6bm.route_switch_receipt.v2",
+            "readback_visible": True,
+            "attempt_id": identity.attempt_id,
+            "run_id": identity.run_id,
+            "request_id": identity.request_id,
+            "transition_id": "1" * 64,
+            "fence_id": "2" * 64,
+            "cell_id": identity.attempt_id,
+            "replica_id": "test-replica",
+            "source_revision": "a" * 40,
+            "source_payload_sha256": "3" * 64,
+            "old_route_generation": control.expected_generation,
+            "new_route_generation": control.expected_generation + 1,
+            "fence_sequence": 4,
+            "fence_transaction_id": "100",
+            "fence_payload_sha256": "4" * 64,
+            "actor_identity": "api-control-plane-route-switch",
+            "actor_process_id": module.os.getpid(),
+            "actor_thread_id": module.threading.get_ident(),
+            "commit_ack_monotonic_ns": now,
+            "readback_started_monotonic_ns": now + 1,
+            "readback_finished_monotonic_ns": now + 2,
+        }
 
     async def scenario() -> None:
         token = bind_trace_context(W3CTraceContext.parse(request.traceparent))
@@ -305,7 +330,7 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
         finally:
             reset_trace_context(token)
         await asyncio.sleep(0.01)
-        manager.control(
+        switched = manager.control(
             control_request(
                 manager,
                 "green_switched",
@@ -313,6 +338,16 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
             ),
             transition_fence_committer=fence_committer,
         )
+        assert switched.transition_receipt is not None
+        assert switched.transition_receipt["transition_id"] == "1" * 64
+        assert switched.transition_receipt["old_route_generation"] == 3
+        assert switched.transition_receipt["new_route_generation"] == 4
+        assert switched.transition_receipt["state_readback"] == {
+            "generation": 4,
+            "phase": "green_active",
+            "route_weights": {"blue": 0, "green": 100},
+            "loaded_roles": ["blue", "green"],
+        }
         manager.control(control_request(manager, "blue_drain_started"))
         result = await task
         assert result.effect_id == identity.effect_id

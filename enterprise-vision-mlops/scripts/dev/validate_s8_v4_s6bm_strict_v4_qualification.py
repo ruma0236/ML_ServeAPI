@@ -171,6 +171,70 @@ def _rehash_runner_anchor_chain(raw: dict[str, Any]) -> None:
         previous = anchor["anchor_hash"]
 
 
+def _sync_collector_observation(root: Path, raw: dict[str, Any]) -> None:
+    receipt = _proof(raw)["triton_start_receipt"]
+    observation = copy.deepcopy(receipt.get("collector_observation", {}))
+    event = _rewrite_start_event(
+        root,
+        raw,
+        "triton_backend_compute_entry",
+        lambda payload: payload.update(
+            collector_observation=observation,
+            collector_nonce=str(observation.get("anchor_nonce", "")),
+            collector_source_identity=str(observation.get("source_identity", "")),
+        ),
+    )
+    receipt["receipt"]["payload"] = copy.deepcopy(event["payload"])
+    receipt["receipt"]["payload_sha256"] = event["payload_sha256"]
+    projected = {
+        key: value
+        for key, value in receipt.items()
+        if key not in {"spec", "result", "raw_trace", "stdout", "stderr"}
+    }
+    result_path = _reference_path(root, receipt["result"])
+    canonical_write(result_path, projected)
+    _refresh(receipt["result"], result_path)
+
+
+def _route_transition_receipt(raw: dict[str, Any]) -> dict[str, Any]:
+    return _proof(raw)["route_transition_receipt"]
+
+
+def _rewrite_observed_transition(
+    root: Path,
+    raw: dict[str, Any],
+    mutate: Callable[[dict[str, Any]], None],
+) -> None:
+    record = raw["request_records"][0]
+    receipt = record["durable_effect"]
+    changed = copy.deepcopy(receipt["observed_transition"])
+    mutate(changed)
+    receipt["observed_transition"] = copy.deepcopy(changed)
+
+    effect_payload: dict[str, Any] = {}
+
+    def mutate_effects(payload: dict[str, Any]) -> None:
+        nonlocal effect_payload
+        effect_payload = payload["effects"][0]["payload"]
+        effect_payload["observed_transition"] = copy.deepcopy(changed)
+        effect_payload["durable_commit"]["observed_transition"] = copy.deepcopy(changed)
+
+    _rewrite_reference(root, _proof(raw)["durable_effect_export"], mutate_effects)
+
+    def mutate_events(payload: dict[str, Any]) -> None:
+        event = next(
+            item
+            for item in payload["events"]
+            if item["event_type"] == "durable_terminal_effect_commit"
+        )
+        event["payload"]["observed_transition"] = copy.deepcopy(changed)
+        _rehash_event(event)
+        receipt["causal_payload_sha256"] = event["payload_sha256"]
+
+    _rewrite_events(root, raw, mutate_events)
+    receipt["stored_payload_sha256"] = canonical_sha256(effect_payload)
+
+
 def _rewrite_trace(
     root: Path,
     raw: dict[str, Any],
@@ -217,7 +281,9 @@ def _rewrite_start_event(
 
 
 def _switch_unix_ns(raw: dict[str, Any]) -> int:
-    return int(_phase(raw, "green_active")["clock_anchor"]["unix_ns"])
+    return int(
+        _proof(raw)["route_transition_receipt"]["route_applied_actor"]["unix_ns"]
+    )
 
 
 def _set_span_start_after_switch(
@@ -315,9 +381,39 @@ def _clock_self_reference(_root: Path, raw: dict[str, Any]) -> None:
     _rehash_runner_anchor_chain(raw)
 
 
-def _clock_drift(_root: Path, raw: dict[str, Any]) -> None:
-    _phase(raw, "canary")["clock_anchor"]["unix_ns"] += 3_000_000
+def _clock_drift(root: Path, raw: dict[str, Any]) -> None:
+    runner = [item["clock_anchor"] for item in raw["phase_timeline"]]
+    collector = _proof(raw)["triton_start_receipt"]["collector_observation"]
+    points = [*runner, collector]
+    origin = min(
+        (int(item["monotonic_before_ns"]) + int(item["monotonic_after_ns"])) // 2
+        for item in points
+    )
+    for item in points:
+        midpoint = (
+            int(item["monotonic_before_ns"]) + int(item["monotonic_after_ns"])
+        ) // 2
+        item["unix_ns"] = int(item["unix_ns"]) + ((midpoint - origin) * 101) // 1_000_000
     _rehash_runner_anchor_chain(raw)
+    _rehash_anchor(collector)
+    _sync_collector_observation(root, raw)
+
+
+def _clock_residual_over_bound(_root: Path, raw: dict[str, Any]) -> None:
+    _phase(raw, "canary")["clock_anchor"]["unix_ns"] += 1_500_000
+    _rehash_runner_anchor_chain(raw)
+
+
+def _clock_step_over_bound(_root: Path, raw: dict[str, Any]) -> None:
+    for item in raw["phase_timeline"]:
+        if int(item["clock_anchor"]["sequence"]) >= 6:
+            item["clock_anchor"]["unix_ns"] += 3_000_000
+    _rehash_runner_anchor_chain(raw)
+
+
+def _collector_anchor_missing(root: Path, raw: dict[str, Any]) -> None:
+    _proof(raw)["triton_start_receipt"]["collector_observation"] = {}
+    _sync_collector_observation(root, raw)
 
 
 def _clock_envelope_disjoint(_root: Path, raw: dict[str, Any]) -> None:
@@ -333,6 +429,83 @@ def _clock_source_substitution(_root: Path, raw: dict[str, Any]) -> None:
 
 def _phase_clock_mismatch(_root: Path, raw: dict[str, Any]) -> None:
     _phase(raw, "green_active")["monotonic_seconds"] -= 1.0
+
+
+def _transition_receipt_absent(_root: Path, raw: dict[str, Any]) -> None:
+    _proof(raw).pop("route_transition_receipt", None)
+
+
+def _transition_source_substitution(_root: Path, raw: dict[str, Any]) -> None:
+    _route_transition_receipt(raw)["source_revision"] = "f" * 40
+
+
+def _transition_id_mismatch(_root: Path, raw: dict[str, Any]) -> None:
+    _route_transition_receipt(raw)["transition_id"] = "f" * 64
+
+
+def _transition_generation_mismatch(_root: Path, raw: dict[str, Any]) -> None:
+    _route_transition_receipt(raw)["state_readback"]["generation"] += 1
+
+
+def _transition_fence_mismatch(_root: Path, raw: dict[str, Any]) -> None:
+    _route_transition_receipt(raw)["fence_sequence"] += 1
+
+
+def _transition_timestamp_inversion(_root: Path, raw: dict[str, Any]) -> None:
+    receipt = _route_transition_receipt(raw)
+    receipt["route_applied_monotonic_ns"] = (
+        int(receipt["fence_readback_finished_monotonic_ns"]) - 1
+    )
+
+
+def _transition_readback_absent(_root: Path, raw: dict[str, Any]) -> None:
+    _route_transition_receipt(raw)["fence_receipt"]["readback_visible"] = False
+
+
+def _effect_transition_readback_absent(_root: Path, raw: dict[str, Any]) -> None:
+    _effect_receipt(raw)["transition_readback_visible"] = False
+
+
+def _wrong_fence_sequence(root: Path, raw: dict[str, Any]) -> None:
+    _rewrite_observed_transition(
+        root,
+        raw,
+        lambda value: value.update(fence_sequence=int(value["fence_sequence"]) + 1),
+    )
+
+
+def _cross_attempt_transition_join(root: Path, raw: dict[str, Any]) -> None:
+    _rewrite_observed_transition(
+        root,
+        raw,
+        lambda value: value.update(attempt_id="s6bm-cross-attempt-substitution"),
+    )
+
+
+def _effect_database_precedes_switch_ack_delayed(root: Path, raw: dict[str, Any]) -> None:
+    events = read_json(_reference_path(root, _proof(raw)["causal_event_export"]))
+    switch = next(
+        item for item in events["events"] if item["event_type"] == "blue_to_green_switch_commit"
+    )
+    switch_time = datetime.fromisoformat(
+        str(switch["database_recorded_at"]).replace("Z", "+00:00")
+    )
+    earlier = (
+        datetime.fromtimestamp(switch_time.timestamp() - 0.001, UTC)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    record = raw["request_records"][0]
+    record["durable_effect"]["database_recorded_at"] = earlier
+    effect_payload: dict[str, Any] = {}
+
+    def mutate_effects(payload: dict[str, Any]) -> None:
+        nonlocal effect_payload
+        effect_payload = payload["effects"][0]["payload"]
+        effect_payload["durable_commit"]["database_recorded_at"] = earlier
+
+    _rewrite_reference(root, _proof(raw)["durable_effect_export"], mutate_effects)
+    record["durable_effect"]["stored_payload_sha256"] = canonical_sha256(effect_payload)
 
 
 def _terminal_effect_before_switch(root: Path, raw: dict[str, Any]) -> None:
@@ -426,7 +599,7 @@ def _unload_before_last_effect(_root: Path, raw: dict[str, Any]) -> None:
 
 
 def _stale_blue_admission(_root: Path, raw: dict[str, Any]) -> None:
-    switch = float(_phase(raw, "green_active")["monotonic_seconds"])
+    switch = float(_route_transition_receipt(raw)["route_applied_monotonic_ns"]) / 1e9
     raw["request_records"][0]["attempted_monotonic"] = switch + 0.001
 
 
@@ -704,11 +877,30 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "s6bm_v4_clock_anchor_self_reference",
             _clock_self_reference,
         ),
-        ("run_clock_anchor_drift", "s6bm_v4_clock_drift", _clock_drift),
+        (
+            "run_clock_affine_drift_100ppm_plus_1",
+            "s6bm_v4_clock_affine_drift",
+            _clock_drift,
+        ),
+        (
+            "run_clock_affine_residual_over_1ms",
+            "s6bm_v4_clock_affine_residual",
+            _clock_residual_over_bound,
+        ),
+        (
+            "run_clock_affine_step_2ms_plus_1",
+            "s6bm_v4_clock_affine_step",
+            _clock_step_over_bound,
+        ),
         (
             "run_clock_anchor_out_of_envelope",
             "s6bm_v4_clock_envelope_disjoint",
             _clock_envelope_disjoint,
+        ),
+        (
+            "collector_anchor_missing",
+            "s6bm_v4_collector_anchor_integrity",
+            _collector_anchor_missing,
         ),
         (
             "run_clock_anchor_source_substitution",
@@ -716,6 +908,41 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             _clock_source_substitution,
         ),
         ("phase_unix_monotonic_mismatch", "s6bm_v4_phase_anchor_interval", _phase_clock_mismatch),
+        (
+            "route_transition_receipt_absent",
+            "s6bm_v4_transition_fence_receipt",
+            _transition_receipt_absent,
+        ),
+        (
+            "route_transition_source_substitution",
+            "s6bm_v4_transition_receipt_binding",
+            _transition_source_substitution,
+        ),
+        (
+            "route_transition_id_mismatch",
+            "s6bm_v4_transition_receipt_binding",
+            _transition_id_mismatch,
+        ),
+        (
+            "route_transition_generation_mismatch",
+            "s6bm_v4_transition_state_readback",
+            _transition_generation_mismatch,
+        ),
+        (
+            "route_transition_fence_mismatch",
+            "s6bm_v4_transition_receipt_binding",
+            _transition_fence_mismatch,
+        ),
+        (
+            "route_transition_timestamp_inversion",
+            "s6bm_v4_transition_timestamp_order",
+            _transition_timestamp_inversion,
+        ),
+        (
+            "route_transition_readback_absent",
+            "s6bm_v4_transition_fence_receipt",
+            _transition_readback_absent,
+        ),
         (
             "terminal_effect_before_switch_outer_completion_after",
             "s6bm_v4_hold_commit_interval_order",
@@ -731,6 +958,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "effect_commit_readback_absent",
             "s6bm_v4_effect_receipt_binding",
             _effect_readback_absent,
+        ),
+        (
+            "effect_transition_readback_absent",
+            "s6bm_v4_effect_fence_happens_before",
+            _effect_transition_readback_absent,
+        ),
+        (
+            "effect_observed_fence_sequence_wrong",
+            "s6bm_v4_effect_fence_happens_before",
+            _wrong_fence_sequence,
+        ),
+        (
+            "effect_cross_attempt_transition_join",
+            "s6bm_v4_effect_fence_happens_before",
+            _cross_attempt_transition_join,
+        ),
+        (
+            "effect_database_precedes_switch_ack_delayed",
+            "s6bm_v4_effect_fence_happens_before",
+            _effect_database_precedes_switch_ack_delayed,
         ),
         (
             "duplicate_effect_row_idempotency_violation",

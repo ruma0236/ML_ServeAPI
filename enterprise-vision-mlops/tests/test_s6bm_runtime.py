@@ -19,6 +19,7 @@ from evm.scale_validation.s6bm_runtime import (
 from evm.scale_validation.s6bm_causal import (
     S6BMCausalError,
     _database_clock_envelope,
+    _fit_affine_clock_model,
     _unix_nano,
     _validate_hold_effect_span_order,
 )
@@ -28,6 +29,44 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
 V3_CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v3.toml"
 V4_CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml"
+
+
+def affine_points(residuals: list[int], *, drift_ppm: int = 0) -> list[dict[str, object]]:
+    origin = 1_000_000_000
+    points: list[dict[str, object]] = []
+    for index, residual in enumerate(residuals, start=1):
+        monotonic_ns = origin + index * 1_000_000
+        drift_ns = ((monotonic_ns - origin) * drift_ppm) // 1_000_000
+        points.append(
+            {
+                "source": "unit",
+                "source_sequence": index,
+                "monotonic_before_ns": monotonic_ns,
+                "monotonic_after_ns": monotonic_ns,
+                "unix_ns": 2_000_000_000 + monotonic_ns + drift_ns + residual,
+            }
+        )
+    return points
+
+
+def test_s6bm_v4_affine_clock_exact_boundaries() -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    _, at_bound = _fit_affine_clock_model(affine_points([0] * 5, drift_ppm=100), config)
+    assert at_bound["outlier_count"] == 0
+
+    with pytest.raises(S6BMCausalError, match="s6bm_v4_clock_affine_drift"):
+        _fit_affine_clock_model(affine_points([0] * 5, drift_ppm=101), config)
+
+    _fit_affine_clock_model(affine_points([-500_000, 0, 1_000_000, 0, -500_000]), config)
+    with pytest.raises(S6BMCausalError, match="s6bm_v4_clock_affine_residual"):
+        _fit_affine_clock_model(
+            affine_points([-500_000, 0, 1_000_001, -2, -499_999]), config
+        )
+
+    with pytest.raises(S6BMCausalError, match="s6bm_v4_clock_affine_step"):
+        _fit_affine_clock_model(
+            affine_points([-333_334, 1_000_001, -1_000_000, 333_333]), config
+        )
 
 
 def test_s6bm_v4_same_clock_nested_span_closures_allow_equality() -> None:
@@ -42,8 +81,6 @@ def test_s6bm_v4_same_clock_nested_span_closures_allow_equality() -> None:
         effect_span=effect,
         controller_span=controller,
         server_span=server,
-        server_end_interval=(2000, 2100),
-        client_completion_monotonic_ns=2200,
     )
 
 
@@ -76,8 +113,6 @@ def test_s6bm_v4_same_clock_span_order_fails_closed(mutation: str, reason: str) 
             effect_span=effect,
             controller_span=controller,
             server_span=server,
-            server_end_interval=(2000, 2100),
-            client_completion_monotonic_ns=2200,
         )
 
 
@@ -130,6 +165,11 @@ def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
     assert config.schema_version == "evm.s8_v4.s6bm_runtime_config.v4"
     assert config.clock["independent_nonce_anchor_required"] is True
     assert config.clock["adjudicated_request_anchor_forbidden"] is True
+    assert config.clock["affine_model"] == "centered_ols_fraction_all_points_v1"
+    assert config.clock["affine_max_drift_ppm"] == 100
+    assert config.clock["affine_max_residual_ns"] == 1_000_000
+    assert config.clock["affine_max_step_ns"] == 2_000_000
+    assert config.clock["affine_required_outlier_count"] == 0
     assert (
         config.causal_fence["same_transaction_entity_idempotency_effect_event_and_sequence"] is True
     )

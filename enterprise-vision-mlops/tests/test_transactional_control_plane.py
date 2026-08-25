@@ -66,6 +66,52 @@ def store(postgres_dsn: str):
             connection.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
 
 
+def s6bm_transition_context(identity: dict[str, object]) -> dict[str, object]:
+    source_payload = {
+        "run_id": identity["run_id"],
+        "action": "green_switched",
+        "expected_generation": identity["route_generation"],
+        "causal_crossover": identity,
+    }
+    source_payload_sha256 = canonical_digest(source_payload)
+    core = {
+        "attempt_id": identity["attempt_id"],
+        "run_id": identity["run_id"],
+        "request_id": identity["request_id"],
+        "action": "green_switched",
+        "old_route_generation": identity["route_generation"],
+        "new_route_generation": int(identity["route_generation"]) + 1,
+        "source_payload_sha256": source_payload_sha256,
+        "source_revision": "a" * 40,
+        "cell_id": identity["attempt_id"],
+        "replica_id": "s6bm-test-replica",
+    }
+    transition_id = canonical_digest(
+        {"schema_version": "evm.s6bm.route_transition_identity.v1", **core}
+    )
+    return {
+        "schema_version": "evm.s6bm.route_transition_context.v1",
+        **core,
+        "transition_id": transition_id,
+        "fence_id": canonical_digest(
+            {
+                "schema_version": "evm.s6bm.route_fence_identity.v1",
+                "transition_id": transition_id,
+                "attempt_id": identity["attempt_id"],
+                "request_id": identity["request_id"],
+            }
+        ),
+        "source_payload": source_payload,
+        "actor": {
+            "actor_identity": "api-control-plane-route-switch",
+            "process_id": os.getpid(),
+            "thread_id": threading.get_ident(),
+            "source_revision": "a" * 40,
+            "service_instance_id": "s6bm-test-replica",
+        },
+    }
+
+
 def test_entity_optimistic_version_and_idempotency(store: TransactionalControlPlaneStore):
     original = {"run_id": "run-1", "version": 1, "state": "queued"}
     store.insert_entity(
@@ -198,8 +244,21 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
         )
         assert receipt["readback_visible"] is True
 
-    switch = store.commit_s6bm_route_switch_fence(crossover_identity=identity)
+    switch = store.commit_s6bm_route_switch_fence(
+        crossover_identity=identity,
+        transition_context=s6bm_transition_context(identity),
+    )
     assert switch["event_type"] == "blue_to_green_switch_commit"
+    assert switch["schema_version"] == "evm.s6bm.route_switch_receipt.v2"
+    assert switch["old_route_generation"] == 3
+    assert switch["new_route_generation"] == 4
+    assert switch["actor_process_id"] == os.getpid()
+    assert switch["actor_thread_id"] == threading.get_ident()
+    assert (
+        switch["commit_ack_monotonic_ns"]
+        <= switch["readback_started_monotonic_ns"]
+        <= switch["readback_finished_monotonic_ns"]
+    )
     effect_payload = {
         **identity,
         "schema_version": "evm.s8_v4.s6bm_terminal_causal_event.v1",
@@ -219,7 +278,7 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
     )
     assert replayed is False
     assert stored["durable_commit"]["causal_sequence"] == effect["causal_sequence"]
-    assert stored["durable_commit"]["schema_version"] == "evm.s6bm.durable_commit.v2"
+    assert stored["durable_commit"]["schema_version"] == "evm.s6bm.durable_commit.v3"
     assert stored["durable_commit"]["transaction_id"] == effect["transaction_id"]
     assert stored["durable_commit"]["write_backend_pid"] == effect["write_backend_pid"]
     assert effect["schema_version"] == "evm.s6bm.durable_effect_receipt.v4"
@@ -254,6 +313,9 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
         database_anchor["monotonic_after_ns"] - database_anchor["monotonic_before_ns"] <= 1_000_000
     )
     assert switch["causal_sequence"] < effect["causal_sequence"]
+    assert stored["observed_transition"] == effect["observed_transition"]
+    assert stored["durable_commit"]["observed_transition"] == effect["observed_transition"]
+    assert effect["transition_readback_visible"] is True
     replayed_stored, replayed, replayed_effect = (
         store.commit_idempotent_terminal_entity_with_receipt(
             scope=f"s6bm.terminal-effect.{identity['attempt_id']}",
@@ -285,6 +347,17 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
         "durable_terminal_effect_commit",
         "blue_unload_intent",
     ]
+    switch_event = events[3]
+    effect_event = events[4]
+    observed = stored["observed_transition"]
+    assert observed["transition_id"] == switch_event["payload"]["transition_id"]
+    assert observed["fence_id"] == switch_event["payload"]["fence_id"]
+    assert observed["fence_sequence"] == switch_event["causal_sequence"]
+    assert observed["fence_transaction_id"] == switch_event["transaction_id"]
+    assert observed["fence_payload_sha256"] == switch_event["payload_sha256"]
+    assert effect_event["payload"]["observed_transition"] == observed
+    assert effect_event["transaction_id"] == stored["durable_commit"]["transaction_id"]
+    assert effect_event["transaction_id"] != switch_event["transaction_id"]
 
 
 def test_s6bm_cold_store_commits_frozen_concurrency_without_pool_starvation(
@@ -413,7 +486,10 @@ def test_s6bm_causal_fence_rejects_missing_receipt_and_early_effect(
             actor_identity=stage,
         )
     with pytest.raises(ControlPlaneParityError, match="start receipts are incomplete"):
-        store.commit_s6bm_route_switch_fence(crossover_identity=identity)
+        store.commit_s6bm_route_switch_fence(
+            crossover_identity=identity,
+            transition_context=s6bm_transition_context(identity),
+        )
     with pytest.raises(ControlPlaneParityError, match="preceded route switch"):
         store.commit_idempotent_terminal_entity_with_receipt(
             scope=f"s6bm.terminal-effect.{identity['attempt_id']}",

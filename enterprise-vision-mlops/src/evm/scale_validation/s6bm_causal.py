@@ -3,9 +3,14 @@ from __future__ import annotations
 import json
 import math
 from datetime import UTC, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from evm.model_runtime.triton_blue_green import (
+    TritonBlueGreenControlRequest,
+    action_digest,
+)
 from evm.scale_validation.s6bm_runtime import (
     S6BMConfig,
     canonical_sha256,
@@ -125,6 +130,98 @@ def _proof(raw: Mapping[str, Any]) -> dict[str, Any]:
     return dict(raw.get("causal_proof", raw))
 
 
+def _fraction_payload(value: Fraction) -> dict[str, int]:
+    return {"numerator": value.numerator, "denominator": value.denominator}
+
+
+def _fit_affine_clock_model(
+    points: Sequence[Mapping[str, Any]], config: S6BMConfig
+) -> tuple[tuple[int, int], dict[str, Any]]:
+    if len(points) < 3:
+        raise S6BMCausalError("s6bm_v4_clock_affine_point_count")
+    samples: list[tuple[Fraction, Fraction, Mapping[str, Any]]] = []
+    for point in points:
+        before = int(point.get("monotonic_before_ns", 0))
+        after = int(point.get("monotonic_after_ns", 0))
+        unix_ns = int(point.get("unix_ns", 0))
+        if before <= 0 or not before <= after or unix_ns <= 0:
+            raise S6BMCausalError("s6bm_v4_clock_affine_point")
+        samples.append((Fraction(before + after, 2), Fraction(unix_ns), point))
+
+    count = len(samples)
+    x_mean = sum((item[0] for item in samples), Fraction(0)) / count
+    y_mean = sum((item[1] for item in samples), Fraction(0)) / count
+    denominator = sum(((x - x_mean) ** 2 for x, _, _ in samples), Fraction(0))
+    if denominator == 0:
+        raise S6BMCausalError("s6bm_v4_clock_affine_degenerate")
+    slope = (
+        sum(((x - x_mean) * (y - y_mean) for x, y, _ in samples), Fraction(0))
+        / denominator
+    )
+    intercept = y_mean - slope * x_mean
+    drift_ppm = abs(slope - 1) * 1_000_000
+    residuals = [y - (intercept + slope * x) for x, y, _ in samples]
+    ordered = sorted(zip(samples, residuals, strict=True), key=lambda item: item[0][0])
+    steps = [
+        abs(right_residual - left_residual)
+        for (_, left_residual), (_, right_residual) in zip(ordered, ordered[1:], strict=False)
+    ]
+    max_step = max(steps, default=Fraction(0))
+    if max_step > int(config.clock["affine_max_step_ns"]):
+        raise S6BMCausalError("s6bm_v4_clock_affine_step")
+    if drift_ppm > int(config.clock["affine_max_drift_ppm"]):
+        raise S6BMCausalError("s6bm_v4_clock_affine_drift")
+    max_residual = max((abs(value) for value in residuals), default=Fraction(0))
+    if max_residual > int(config.clock["affine_max_residual_ns"]):
+        raise S6BMCausalError("s6bm_v4_clock_affine_residual")
+    outlier_count = sum(
+        abs(value) > int(config.clock["affine_max_residual_ns"]) for value in residuals
+    )
+    if outlier_count != int(config.clock["affine_required_outlier_count"]):
+        raise S6BMCausalError("s6bm_v4_clock_affine_outlier")
+
+    max_anchor_half_width = max(
+        (
+            Fraction(
+                int(point["monotonic_after_ns"]) - int(point["monotonic_before_ns"]),
+                2,
+            )
+            for _, _, point in samples
+        ),
+        default=Fraction(0),
+    )
+    uncertainty_ns = math.ceil(max_residual) + math.ceil(max_anchor_half_width) + 1
+    offset_predictions = [intercept + (slope - 1) * x for x, _, _ in samples]
+    envelope = (
+        math.floor(min(offset_predictions) - uncertainty_ns),
+        math.ceil(max(offset_predictions) + uncertainty_ns),
+    )
+    residual_payload = [
+        {
+            "source": str(point.get("source", "")),
+            "sequence": int(point.get("source_sequence", 0)),
+            "residual_ns": _fraction_payload(residual),
+        }
+        for (_, _, point), residual in zip(samples, residuals, strict=True)
+    ]
+    return envelope, {
+        "contract": "centered_ols_fraction_all_points_v1",
+        "point_count": count,
+        "slope": _fraction_payload(slope),
+        "intercept": _fraction_payload(intercept),
+        "drift_ppm": _fraction_payload(drift_ppm),
+        "max_absolute_residual_ns": _fraction_payload(max_residual),
+        "max_absolute_residual_ns_ceil": math.ceil(max_residual),
+        "max_consecutive_residual_step_ns": _fraction_payload(max_step),
+        "max_consecutive_residual_step_ns_ceil": math.ceil(max_step),
+        "max_anchor_half_width_ns_ceil": math.ceil(max_anchor_half_width),
+        "projection_uncertainty_ns": uncertainty_ns,
+        "projection_offset_envelope_ns": list(envelope),
+        "outlier_count": outlier_count,
+        "residuals": residual_payload,
+    }
+
+
 def _anchor_projection(
     raw: Mapping[str, Any], proof: Mapping[str, Any], config: S6BMConfig
 ) -> tuple[dict[str, tuple[int, int]], tuple[int, int], dict[str, Any]]:
@@ -151,6 +248,7 @@ def _anchor_projection(
     offsets_low: list[int] = []
     offsets_high: list[int] = []
     midpoint_offsets: list[int] = []
+    affine_points: list[dict[str, Any]] = []
     host: str | None = None
     process: int | None = None
     anchor_nonce: str | None = None
@@ -189,8 +287,15 @@ def _anchor_projection(
         offsets_low.append(unix_ns - after)
         offsets_high.append(unix_ns - before)
         midpoint_offsets.append(unix_ns - ((before + after) // 2))
-    if max(midpoint_offsets) - min(midpoint_offsets) > int(config.clock["max_offset_spread_ns"]):
-        raise S6BMCausalError("s6bm_v4_clock_drift")
+        affine_points.append(
+            {
+                "source": "runner",
+                "source_sequence": int(anchor["sequence"]),
+                "monotonic_before_ns": before,
+                "monotonic_after_ns": after,
+                "unix_ns": unix_ns,
+            }
+        )
     for left, right in zip(anchors, anchors[1:], strict=False):
         gap = int(right["monotonic_before_ns"]) - int(left["monotonic_after_ns"])
         if gap < 0 or gap > int(float(config.clock["max_anchor_gap_seconds"]) * 1e9):
@@ -245,17 +350,24 @@ def _anchor_projection(
         collector_unix - collector_after,
         collector_unix - collector_before,
     )
-    envelope = (
+    exact_intersection = (
         max(runner_envelope[0], collector_envelope[0]),
         min(runner_envelope[1], collector_envelope[1]),
     )
-    if envelope[0] > envelope[1]:
+    exact_envelope_gap_ns = max(0, exact_intersection[0] - exact_intersection[1])
+    if exact_envelope_gap_ns > int(config.clock["affine_max_step_ns"]):
         raise S6BMCausalError("s6bm_v4_clock_envelope_disjoint")
     collector_midpoint_offset = collector_unix - ((collector_before + collector_after) // 2)
-    if max([*midpoint_offsets, collector_midpoint_offset]) - min(
-        [*midpoint_offsets, collector_midpoint_offset]
-    ) > int(config.clock["max_offset_spread_ns"]):
-        raise S6BMCausalError("s6bm_v4_collector_clock_drift")
+    affine_points.append(
+        {
+            "source": "collector",
+            "source_sequence": 1,
+            "monotonic_before_ns": collector_before,
+            "monotonic_after_ns": collector_after,
+            "unix_ns": collector_unix,
+        }
+    )
+    envelope, affine_model = _fit_affine_clock_model(affine_points, config)
 
     phase_bounds: dict[str, tuple[int, int]] = {}
     by_phase = {str(item.get("phase", "")): item for item in timeline}
@@ -296,6 +408,8 @@ def _anchor_projection(
             ),
             "offset_spread_ns": max([*midpoint_offsets, collector_midpoint_offset])
             - min([*midpoint_offsets, collector_midpoint_offset]),
+            "exact_envelope_gap_ns": exact_envelope_gap_ns,
+            "affine_model": affine_model,
             "combined_offset_envelope_ns": list(envelope),
         },
     )
@@ -314,8 +428,6 @@ def _validate_hold_effect_span_order(
     effect_span: Mapping[str, Any],
     controller_span: Mapping[str, Any],
     server_span: Mapping[str, Any],
-    server_end_interval: Sequence[int],
-    client_completion_monotonic_ns: int,
 ) -> None:
     # PostgreSQL and OTLP timestamps cross clock domains, so their intervals must not overlap.
     if not (
@@ -340,8 +452,177 @@ def _validate_hold_effect_span_order(
         and int(controller_span["end_unix_ns"]) <= int(server_span["end_unix_ns"])
     ):
         raise S6BMCausalError("s6bm_v4_server_controller_span_order")
-    if server_end_interval[1] > client_completion_monotonic_ns:
-        raise S6BMCausalError("s6bm_v4_server_client_completion_order")
+
+
+def _validate_route_transition_receipt(
+    *,
+    receipt: Mapping[str, Any],
+    switch_event: Mapping[str, Any],
+    crossover: Mapping[str, Any],
+    raw: Mapping[str, Any],
+) -> tuple[int, dict[str, Any]]:
+    transition = dict(receipt)
+    fence_receipt = dict(transition.get("fence_receipt", {}))
+    switch_payload = dict(switch_event.get("payload", {}))
+    source_payload = dict(switch_payload.get("source_payload", {}))
+    actor = dict(switch_payload.get("actor", {}))
+    route_actor = dict(transition.get("route_applied_actor", {}))
+    state = dict(transition.get("state_readback", {}))
+    try:
+        control = TritonBlueGreenControlRequest.model_validate(source_payload)
+    except (TypeError, ValueError) as exc:
+        raise S6BMCausalError("s6bm_v4_transition_source_payload") from exc
+    transition_core = {
+        "attempt_id": crossover["attempt_id"],
+        "run_id": crossover["run_id"],
+        "request_id": crossover["request_id"],
+        "action": "green_switched",
+        "old_route_generation": int(crossover["route_generation"]),
+        "new_route_generation": int(crossover["route_generation"]) + 1,
+        "source_payload_sha256": canonical_sha256(source_payload),
+        "source_revision": str(raw.get("source_revision", "")),
+        "cell_id": crossover["attempt_id"],
+        "replica_id": str(actor.get("service_instance_id", "")),
+    }
+    expected_transition_id = canonical_sha256(
+        {"schema_version": "evm.s6bm.route_transition_identity.v1", **transition_core}
+    )
+    expected_fence_id = canonical_sha256(
+        {
+            "schema_version": "evm.s6bm.route_fence_identity.v1",
+            "transition_id": expected_transition_id,
+            "attempt_id": crossover["attempt_id"],
+            "request_id": crossover["request_id"],
+        }
+    )
+    expected_reference = _transition_reference(switch_event)
+    if (
+        switch_payload.get("schema_version") != "evm.s6bm.route_switch_fence.v2"
+        or action_digest(control) != control.action_digest
+        or control.run_id != crossover["run_id"]
+        or control.action != "green_switched"
+        or control.expected_generation != int(crossover["route_generation"])
+        or control.causal_crossover is None
+        or control.causal_crossover.model_dump(mode="json") != dict(crossover)
+        or any(switch_payload.get(key) != value for key, value in transition_core.items())
+        or switch_payload.get("transition_id") != expected_transition_id
+        or switch_payload.get("fence_id") != expected_fence_id
+        or actor.get("actor_identity") != "api-control-plane-route-switch"
+        or int(actor.get("process_id", 0)) <= 0
+        or int(actor.get("thread_id", 0)) <= 0
+        or actor.get("source_revision") != raw.get("source_revision")
+        or actor.get("service_instance_id") != transition_core["replica_id"]
+    ):
+        raise S6BMCausalError("s6bm_v4_transition_source_binding")
+    if (
+        fence_receipt.get("schema_version") != "evm.s6bm.route_switch_receipt.v2"
+        or fence_receipt.get("payload") != switch_payload
+        or fence_receipt.get("payload_sha256") != switch_event.get("payload_sha256")
+        or fence_receipt.get("transaction_id") != switch_event.get("transaction_id")
+        or int(fence_receipt.get("causal_sequence", 0))
+        != int(switch_event.get("causal_sequence", 0))
+        or fence_receipt.get("transition_id") != expected_transition_id
+        or fence_receipt.get("fence_id") != expected_fence_id
+        or int(fence_receipt.get("fence_sequence", 0))
+        != int(switch_event.get("causal_sequence", 0))
+        or str(fence_receipt.get("fence_transaction_id", ""))
+        != str(switch_event.get("transaction_id", ""))
+        or fence_receipt.get("fence_payload_sha256") != switch_event.get("payload_sha256")
+        or fence_receipt.get("readback_visible") is not True
+        or any(
+            fence_receipt.get(key) != expected_reference[key]
+            for key in (
+                "transition_id",
+                "fence_id",
+                "old_route_generation",
+                "new_route_generation",
+                "source_payload_sha256",
+                "cell_id",
+                "replica_id",
+            )
+        )
+    ):
+        raise S6BMCausalError("s6bm_v4_transition_fence_receipt")
+    if (
+        transition.get("schema_version") != "evm.s6bm.route_transition_receipt.v1"
+        or transition.get("transition_id") != expected_transition_id
+        or transition.get("fence_id") != expected_fence_id
+        or transition.get("fence_receipt_sha256") != canonical_sha256(fence_receipt)
+        or any(
+            transition.get(key) != expected_reference[key]
+            for key in (
+                "transition_id",
+                "fence_id",
+                "old_route_generation",
+                "new_route_generation",
+                "source_payload_sha256",
+                "cell_id",
+                "replica_id",
+            )
+        )
+        or transition.get("attempt_id") != crossover["attempt_id"]
+        or transition.get("run_id") != crossover["run_id"]
+        or transition.get("request_id") != crossover["request_id"]
+        or transition.get("source_revision") != raw.get("source_revision")
+        or int(transition.get("fence_sequence", 0))
+        != int(switch_event.get("causal_sequence", 0))
+        or str(transition.get("fence_transaction_id", ""))
+        != str(switch_event.get("transaction_id", ""))
+        or transition.get("fence_payload_sha256") != switch_event.get("payload_sha256")
+        or transition.get("actor_identity") != fence_receipt.get("actor_identity")
+        or int(transition.get("actor_process_id", 0))
+        != int(fence_receipt.get("actor_process_id", 0))
+        or int(transition.get("actor_thread_id", 0))
+        != int(fence_receipt.get("actor_thread_id", 0))
+        or int(transition.get("actor_commit_ack_monotonic_ns", 0))
+        != int(fence_receipt.get("commit_ack_monotonic_ns", 0))
+        or int(transition.get("fence_readback_started_monotonic_ns", 0))
+        != int(fence_receipt.get("readback_started_monotonic_ns", 0))
+        or int(transition.get("fence_readback_finished_monotonic_ns", 0))
+        != int(fence_receipt.get("readback_finished_monotonic_ns", 0))
+    ):
+        raise S6BMCausalError("s6bm_v4_transition_receipt_binding")
+    commit_ack = int(transition.get("actor_commit_ack_monotonic_ns", 0))
+    readback_start = int(transition.get("fence_readback_started_monotonic_ns", 0))
+    readback_end = int(transition.get("fence_readback_finished_monotonic_ns", 0))
+    route_applied = int(transition.get("route_applied_monotonic_ns", 0))
+    if not 0 < commit_ack <= readback_start <= readback_end <= route_applied:
+        raise S6BMCausalError("s6bm_v4_transition_timestamp_order")
+    if (
+        int(transition.get("actor_process_id", 0)) != int(actor["process_id"])
+        or int(transition.get("actor_thread_id", 0)) != int(actor["thread_id"])
+        or int(route_actor.get("process_id", 0)) != int(actor["process_id"])
+        or int(route_actor.get("thread_id", 0)) != int(actor["thread_id"])
+        or route_actor.get("actor_identity")
+        != "api-control-plane-route-switch-applied"
+        or route_actor.get("source_revision") != raw.get("source_revision")
+        or route_actor.get("service_instance_id") != transition_core["replica_id"]
+        or not route_applied
+        <= int(route_actor.get("monotonic_before_ns", 0))
+        <= int(route_actor.get("monotonic_after_ns", 0))
+    ):
+        raise S6BMCausalError("s6bm_v4_transition_actor_identity")
+    if state != {
+        "generation": int(crossover["route_generation"]) + 1,
+        "phase": "green_active",
+        "route_weights": {"blue": 0, "green": 100},
+        "loaded_roles": ["blue", "green"],
+    }:
+        raise S6BMCausalError("s6bm_v4_transition_state_readback")
+    return route_applied, {
+        "transition_id": expected_transition_id,
+        "fence_id": expected_fence_id,
+        "fence_sequence": int(switch_event["causal_sequence"]),
+        "fence_transaction_id": str(switch_event["transaction_id"]),
+        "actor_process_id": int(actor["process_id"]),
+        "actor_thread_id": int(actor["thread_id"]),
+        "commit_ack_monotonic_ns": commit_ack,
+        "readback_finished_monotonic_ns": readback_end,
+        "route_applied_monotonic_ns": route_applied,
+        "source_payload_sha256": transition_core["source_payload_sha256"],
+        "cell_id": transition_core["cell_id"],
+        "replica_id": transition_core["replica_id"],
+    }
 
 
 def _database_clock_envelope(
@@ -476,10 +757,32 @@ def _record_identity(record: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _transition_reference(event: Mapping[str, Any]) -> dict[str, Any]:
+    payload = dict(event.get("payload", {}))
+    return {
+        "schema_version": "evm.s6bm.observed_transition.v1",
+        "transition_id": str(payload.get("transition_id", "")),
+        "fence_id": str(payload.get("fence_id", "")),
+        "fence_sequence": int(event.get("causal_sequence", 0)),
+        "fence_transaction_id": str(event.get("transaction_id", "")),
+        "fence_payload_sha256": str(event.get("payload_sha256", "")),
+        "attempt_id": str(event.get("attempt_id", "")),
+        "run_id": str(event.get("run_id", "")),
+        "request_id": str(event.get("request_id", "")),
+        "old_route_generation": int(payload.get("old_route_generation", 0)),
+        "new_route_generation": int(payload.get("new_route_generation", 0)),
+        "source_payload_sha256": str(payload.get("source_payload_sha256", "")),
+        "cell_id": str(payload.get("cell_id", "")),
+        "replica_id": str(payload.get("replica_id", "")),
+        "database_recorded_at": str(event.get("database_recorded_at", "")),
+    }
+
+
 def _validate_effects(
     records: Sequence[Mapping[str, Any]],
     effects_export: Mapping[str, Any],
     effect_events: Sequence[Mapping[str, Any]],
+    switch_event: Mapping[str, Any],
     config: S6BMConfig,
 ) -> tuple[
     dict[str, dict[str, Any]],
@@ -499,6 +802,7 @@ def _validate_effects(
         raise S6BMCausalError("s6bm_v4_durable_effect_identity_set")
     if len(exported) != len(effects) or len(event_by_request) != len(effect_events):
         raise S6BMCausalError("s6bm_v4_durable_effect_duplicate")
+    expected_transition = _transition_reference(switch_event)
     for request_id, record in by_request.items():
         effect = exported[request_id]
         event = event_by_request[request_id]
@@ -527,10 +831,58 @@ def _validate_effects(
             or durable_commit.get("causal_payload_sha256") != event.get("payload_sha256")
             or str(durable_commit.get("transaction_id")) != str(event.get("transaction_id"))
             or durable_commit.get("synchronous_commit") != "on"
-            or durable_commit.get("schema_version") != "evm.s6bm.durable_commit.v2"
+            or durable_commit.get("schema_version") != "evm.s6bm.durable_commit.v3"
             or int(durable_commit.get("write_backend_pid", 0)) <= 0
+            or _unix_nano(
+                durable_commit.get("database_recorded_at"),
+                "s6bm_v4_effect_database_time",
+            )
+            > _unix_nano(
+                event.get("database_recorded_at"),
+                "s6bm_v4_effect_event_database_time",
+            )
         ):
             raise S6BMCausalError("s6bm_v4_effect_transaction_binding")
+        requires_switch = event.get("payload", {}).get("requires_switch_before_effect") is True
+        if requires_switch:
+            observed_values = (
+                payload.get("observed_transition"),
+                dict(event.get("payload", {})).get("observed_transition"),
+                durable_commit.get("observed_transition"),
+                receipt.get("observed_transition"),
+            )
+            if (
+                any(value != expected_transition for value in observed_values)
+                or receipt.get("transition_readback_visible") is not True
+                or expected_transition["attempt_id"] != record.get("attempt_id")
+                or expected_transition["run_id"] != record.get("run_id")
+                or expected_transition["request_id"] != request_id
+                or expected_transition["old_route_generation"]
+                != int(record.get("route_generation", 0))
+                or expected_transition["new_route_generation"]
+                != expected_transition["old_route_generation"] + 1
+                or str(event.get("transaction_id"))
+                == expected_transition["fence_transaction_id"]
+                or _unix_nano(
+                    expected_transition["database_recorded_at"],
+                    "s6bm_v4_transition_database_time",
+                )
+                > _unix_nano(
+                    durable_commit.get("database_recorded_at"),
+                    "s6bm_v4_effect_database_time",
+                )
+            ):
+                raise S6BMCausalError("s6bm_v4_effect_fence_happens_before")
+        elif any(
+            value is not None
+            for value in (
+                payload.get("observed_transition"),
+                dict(event.get("payload", {})).get("observed_transition"),
+                durable_commit.get("observed_transition"),
+                receipt.get("observed_transition"),
+            )
+        ):
+            raise S6BMCausalError("s6bm_v4_effect_fence_unexpected")
         if (
             receipt.get("schema_version") != "evm.s6bm.durable_effect_receipt.v4"
             or receipt.get("entity_id") != record.get("effect_id")
@@ -707,7 +1059,7 @@ def validate_causal_bundle(
     if set(by_type) != allowed_types or len(events) != len(records) + 5:
         raise S6BMCausalError("s6bm_v4_event_type_set")
     by_request, event_by_request, database_envelopes, database_anchors = _validate_effects(
-        records, effects_export, effect_events, config
+        records, effects_export, effect_events, switch, config
     )
 
     crossover = _event_identity(starts[START_STAGES[0]])
@@ -734,10 +1086,21 @@ def validate_causal_bundle(
     if not int(switch["causal_sequence"]) < int(hold_effect["causal_sequence"]):
         raise S6BMCausalError("s6bm_v4_effect_before_switch")
 
+    route_switch_ns, transition_projection = _validate_route_transition_receipt(
+        receipt=dict(proof.get("route_transition_receipt", {})),
+        switch_event=switch,
+        crossover=crossover,
+        raw=raw,
+    )
+
     phase_bounds, envelope, clock_projection = _anchor_projection(raw, proof, config)
     if "green_active" not in phase_bounds or "green_only" not in phase_bounds:
         raise S6BMCausalError("s6bm_v4_transition_phase_anchor")
-    switch_lower, switch_upper = phase_bounds["green_active"]
+    observed_green_lower, observed_green_upper = phase_bounds["green_active"]
+    if route_switch_ns > observed_green_lower:
+        raise S6BMCausalError("s6bm_v4_transition_runner_observation_order")
+    switch_lower = route_switch_ns
+    switch_upper = route_switch_ns
     unload_lower, _unload_upper = phase_bounds["green_only"]
 
     spans = _spans(trace_export)
@@ -928,7 +1291,6 @@ def validate_causal_bundle(
         raise S6BMCausalError("s6bm_v4_hold_commit_interval_order")
     effect_start_interval = _project_unix(effect_span["start_unix_ns"], envelope)
     effect_end_interval = _project_unix(effect_span["end_unix_ns"], envelope)
-    server_end_interval = _project_unix(server["end_unix_ns"], envelope)
     _validate_hold_effect_span_order(
         effect_start_interval=effect_start_interval,
         commit_interval=commit_interval,
@@ -936,8 +1298,6 @@ def validate_causal_bundle(
         effect_span=effect_span,
         controller_span=controller,
         server_span=server,
-        server_end_interval=server_end_interval,
-        client_completion_monotonic_ns=completion_ns,
     )
     if completion_ns >= unload_lower:
         raise S6BMCausalError("s6bm_v4_unload_before_hold_completion")
@@ -989,6 +1349,11 @@ def validate_causal_bundle(
             "unload_sequence": int(unload["causal_sequence"]),
             "actor_start_monotonic_intervals_ns": actor_intervals,
             "switch_monotonic_interval_ns": [switch_lower, switch_upper],
+            "runner_green_active_observation_interval_ns": [
+                observed_green_lower,
+                observed_green_upper,
+            ],
+            "route_transition_receipt": transition_projection,
             "effect_commit_ack_monotonic_ns": commit_ack,
             "effect_commit_monotonic_interval_ns": list(commit_interval),
             "database_clock_anchor": database_anchors[hold_id],
@@ -1001,6 +1366,7 @@ def validate_causal_bundle(
             "sequence_order_proven": True,
             "synchronous_commit": "on",
             "independent_readback": True,
+            "effect_observed_committed_switch_fence": True,
             "exact_postgresql_commit_instant_claimed": False,
             "controller_span_is_commit_timestamp": False,
         },

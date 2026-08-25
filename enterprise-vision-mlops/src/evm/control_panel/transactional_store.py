@@ -35,6 +35,7 @@ SCHEMA_VERSIONS = (
     "004_task_entity_storage",
     "005_task_queue_operational_safety",
     "006_s6bm_causal_receipts",
+    "007_s6bm_transition_fence_identity",
 )
 CONTROL_PLANE_DB_POOL_ACQUIRE_SECONDS = Histogram(
     "evm_control_plane_db_pool_acquire_seconds",
@@ -1022,6 +1023,65 @@ class TransactionalControlPlaneStore:
             "database_recorded_at": _utc_iso(row["database_recorded_at"]),
         }
 
+    @staticmethod
+    def _s6bm_transition_reference(event: Mapping[str, Any]) -> dict[str, Any]:
+        payload = dict(event.get("payload", {}))
+        return {
+            "schema_version": "evm.s6bm.observed_transition.v1",
+            "transition_id": str(payload.get("transition_id", "")),
+            "fence_id": str(payload.get("fence_id", "")),
+            "fence_sequence": int(event.get("causal_sequence", 0)),
+            "fence_transaction_id": str(event.get("transaction_id", "")),
+            "fence_payload_sha256": str(event.get("payload_sha256", "")),
+            "attempt_id": str(event.get("attempt_id", "")),
+            "run_id": str(event.get("run_id", "")),
+            "request_id": str(event.get("request_id", "")),
+            "old_route_generation": int(payload.get("old_route_generation", 0)),
+            "new_route_generation": int(payload.get("new_route_generation", 0)),
+            "source_payload_sha256": str(payload.get("source_payload_sha256", "")),
+            "cell_id": str(payload.get("cell_id", "")),
+            "replica_id": str(payload.get("replica_id", "")),
+            "database_recorded_at": str(event.get("database_recorded_at", "")),
+        }
+
+    def _lock_s6bm_committed_transition(
+        self,
+        connection: Any,
+        *,
+        identity: Mapping[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        schema = _safe_identifier(self.configuration.schema)
+        row = connection.execute(
+            f"""
+            SELECT * FROM {schema}.s6bm_causal_events
+            WHERE attempt_id=%s AND request_id=%s
+              AND event_type='blue_to_green_switch_commit'
+            FOR SHARE
+            """,
+            (identity["attempt_id"], identity["request_id"]),
+        ).fetchone()
+        if row is None:
+            raise ControlPlaneParityError("S6B-M crossover effect preceded route switch")
+        event = self._s6bm_causal_row(row)
+        payload = dict(event["payload"])
+        reference = self._s6bm_transition_reference(event)
+        if (
+            payload.get("schema_version") != "evm.s6bm.route_switch_fence.v2"
+            or not reference["transition_id"]
+            or not reference["fence_id"]
+            or reference["attempt_id"] != identity["attempt_id"]
+            or reference["run_id"] != identity["run_id"]
+            or reference["request_id"] != identity["request_id"]
+            or reference["old_route_generation"] != int(identity["route_generation"])
+            or reference["new_route_generation"]
+            != reference["old_route_generation"] + 1
+            or reference["fence_sequence"] <= 0
+            or not reference["fence_transaction_id"]
+            or len(reference["fence_payload_sha256"]) != 64
+        ):
+            raise ControlPlaneParityError("S6B-M committed transition fence is invalid")
+        return event, reference
+
     def _insert_s6bm_causal_event(
         self,
         connection: Any,
@@ -1157,11 +1217,65 @@ class TransactionalControlPlaneStore:
         self,
         *,
         crossover_identity: Mapping[str, Any],
+        transition_context: Mapping[str, Any],
     ) -> dict[str, Any]:
         """Append route switch only after all three actor receipts are visible."""
         if not self.enabled:
             raise ControlPlaneStoreUnavailable("S6B-M route fence requires PostgreSQL")
         identity = _validate_s6bm_causal_identity(crossover_identity)
+        context = dict(transition_context)
+        source_payload = dict(context.get("source_payload", {}))
+        actor = dict(context.get("actor", {}))
+        transition_core = {
+            "attempt_id": str(context.get("attempt_id", "")),
+            "run_id": str(context.get("run_id", "")),
+            "request_id": str(context.get("request_id", "")),
+            "action": str(context.get("action", "")),
+            "old_route_generation": int(context.get("old_route_generation", 0)),
+            "new_route_generation": int(context.get("new_route_generation", 0)),
+            "source_payload_sha256": str(context.get("source_payload_sha256", "")),
+            "source_revision": str(context.get("source_revision", "")),
+            "cell_id": str(context.get("cell_id", "")),
+            "replica_id": str(context.get("replica_id", "")),
+        }
+        expected_transition_id = canonical_digest(
+            {"schema_version": "evm.s6bm.route_transition_identity.v1", **transition_core}
+        )
+        expected_fence_id = canonical_digest(
+            {
+                "schema_version": "evm.s6bm.route_fence_identity.v1",
+                "transition_id": expected_transition_id,
+                "attempt_id": identity["attempt_id"],
+                "request_id": identity["request_id"],
+            }
+        )
+        if (
+            context.get("schema_version") != "evm.s6bm.route_transition_context.v1"
+            or transition_core["attempt_id"] != identity["attempt_id"]
+            or transition_core["run_id"] != identity["run_id"]
+            or transition_core["request_id"] != identity["request_id"]
+            or transition_core["action"] != "green_switched"
+            or transition_core["old_route_generation"] != int(identity["route_generation"])
+            or transition_core["new_route_generation"]
+            != transition_core["old_route_generation"] + 1
+            or transition_core["source_payload_sha256"] != canonical_digest(source_payload)
+            or source_payload.get("run_id") != identity["run_id"]
+            or source_payload.get("action") != "green_switched"
+            or int(source_payload.get("expected_generation", 0))
+            != transition_core["old_route_generation"]
+            or source_payload.get("causal_crossover") != dict(identity)
+            or context.get("transition_id") != expected_transition_id
+            or context.get("fence_id") != expected_fence_id
+            or transition_core["cell_id"] != identity["attempt_id"]
+            or len(transition_core["source_revision"]) != 40
+            or not transition_core["replica_id"]
+            or actor.get("actor_identity") != "api-control-plane-route-switch"
+            or int(actor.get("process_id", 0)) != os.getpid()
+            or int(actor.get("thread_id", 0)) != threading.get_ident()
+            or actor.get("source_revision") != transition_core["source_revision"]
+            or actor.get("service_instance_id") != transition_core["replica_id"]
+        ):
+            raise ControlPlaneParityError("S6B-M route transition context mismatch")
         required = {
             "api_server_handler_entry",
             "controller_entry",
@@ -1206,7 +1320,12 @@ class TransactionalControlPlaneStore:
                     raise ControlPlaneParityError("S6B-M actor clock anchor is invalid")
             switch_payload = {
                 **identity,
-                "schema_version": "evm.s6bm.route_switch_fence.v1",
+                "schema_version": "evm.s6bm.route_switch_fence.v2",
+                **transition_core,
+                "transition_id": expected_transition_id,
+                "fence_id": expected_fence_id,
+                "source_payload": source_payload,
+                "actor": actor,
                 "receipt_sequences": {
                     event["event_type"]: event["causal_sequence"] for event in events
                 },
@@ -1229,15 +1348,44 @@ class TransactionalControlPlaneStore:
             ):
                 raise ControlPlaneParityError("S6B-M route switch causal sequence regressed")
         commit_ack_monotonic_ns = time.perf_counter_ns()
+        if os.getpid() != int(actor["process_id"]) or threading.get_ident() != int(
+            actor["thread_id"]
+        ):
+            raise ControlPlaneParityError("S6B-M route switch commit ACK actor changed")
+        readback_started_monotonic_ns = time.perf_counter_ns()
         readback = self._readback_s6bm_causal_event(
             attempt_id=str(identity["attempt_id"]),
             request_id=str(identity["request_id"]),
             event_type="blue_to_green_switch_commit",
         )
+        readback_finished_monotonic_ns = time.perf_counter_ns()
+        if (
+            readback["payload"] != switch_payload
+            or readback["payload_sha256"] != switch["payload_sha256"]
+            or readback["transaction_id"] != switch["transaction_id"]
+            or readback["causal_sequence"] != switch["causal_sequence"]
+        ):
+            raise ControlPlaneParityError("S6B-M route switch readback changed")
         return {
             **readback,
-            "schema_version": "evm.s6bm.route_switch_receipt.v1",
+            "schema_version": "evm.s6bm.route_switch_receipt.v2",
+            "transition_id": expected_transition_id,
+            "fence_id": expected_fence_id,
+            "fence_sequence": switch["causal_sequence"],
+            "fence_transaction_id": switch["transaction_id"],
+            "fence_payload_sha256": switch["payload_sha256"],
+            "old_route_generation": transition_core["old_route_generation"],
+            "new_route_generation": transition_core["new_route_generation"],
+            "source_payload_sha256": transition_core["source_payload_sha256"],
+            "source_revision": transition_core["source_revision"],
+            "cell_id": transition_core["cell_id"],
+            "replica_id": transition_core["replica_id"],
+            "actor_identity": actor["actor_identity"],
+            "actor_process_id": actor["process_id"],
+            "actor_thread_id": actor["thread_id"],
             "commit_ack_monotonic_ns": commit_ack_monotonic_ns,
+            "readback_started_monotonic_ns": readback_started_monotonic_ns,
+            "readback_finished_monotonic_ns": readback_finished_monotonic_ns,
             "replayed": replayed,
         }
 
@@ -1608,6 +1756,9 @@ class TransactionalControlPlaneStore:
         request_sha256 = canonical_digest(request_payload)
         replayed = False
         causal_event: dict[str, Any] | None = None
+        observed_transition: dict[str, Any] | None = None
+        effective_causal_payload = dict(causal_payload) if causal_payload is not None else None
+        effective_response_payload = dict(response_payload)
         with self.serialized(f"idempotent-terminal:{scope}:{idempotency_key}") as connection:
             connection.execute("SELECT set_config('synchronous_commit', 'on', true)")
             existing = connection.execute(
@@ -1633,26 +1784,24 @@ class TransactionalControlPlaneStore:
                 if causal_payload is not None:
                     causal_identity = _validate_s6bm_causal_identity(causal_payload)
                     if causal_payload.get("requires_switch_before_effect") is True:
-                        switch = connection.execute(
-                            f"""
-                            SELECT causal_sequence FROM {schema}.s6bm_causal_events
-                            WHERE attempt_id=%s AND request_id=%s
-                              AND event_type='blue_to_green_switch_commit'
-                            FOR UPDATE
-                            """,
-                            (
-                                causal_identity["attempt_id"],
-                                causal_identity["request_id"],
-                            ),
-                        ).fetchone()
-                        if switch is None:
+                        _switch_event, observed_transition = (
+                            self._lock_s6bm_committed_transition(
+                                connection,
+                                identity=causal_identity,
+                            )
+                        )
+                        effective_causal_payload = {
+                            **dict(causal_payload),
+                            "observed_transition": observed_transition,
+                        }
+                        if stored.get("observed_transition") != observed_transition:
                             raise ControlPlaneParityError(
-                                "S6B-M crossover effect preceded route switch"
+                                "S6B-M replayed effect transition reference changed"
                             )
                     causal_event, causal_replayed = self._insert_s6bm_causal_event(
                         connection,
                         event_type="durable_terminal_effect_commit",
-                        payload=causal_payload,
+                        payload=effective_causal_payload,
                         actor_identity="control-plane-terminal-effect",
                     )
                     if causal_replayed is not True:
@@ -1682,29 +1831,26 @@ class TransactionalControlPlaneStore:
                 ).fetchone()
                 if causal_payload is not None:
                     causal_identity = _validate_s6bm_causal_identity(causal_payload)
-                    switch_sequence: int | None = None
+                    switch_event: dict[str, Any] | None = None
                     if causal_payload.get("requires_switch_before_effect") is True:
-                        switch = connection.execute(
-                            f"""
-                            SELECT causal_sequence FROM {schema}.s6bm_causal_events
-                            WHERE attempt_id=%s AND request_id=%s
-                              AND event_type='blue_to_green_switch_commit'
-                            FOR UPDATE
-                            """,
-                            (
-                                causal_identity["attempt_id"],
-                                causal_identity["request_id"],
-                            ),
-                        ).fetchone()
-                        if switch is None:
-                            raise ControlPlaneParityError(
-                                "S6B-M crossover effect preceded route switch"
+                        switch_event, observed_transition = (
+                            self._lock_s6bm_committed_transition(
+                                connection,
+                                identity=causal_identity,
                             )
-                        switch_sequence = int(switch["causal_sequence"])
+                        )
+                        effective_causal_payload = {
+                            **dict(causal_payload),
+                            "observed_transition": observed_transition,
+                        }
+                        effective_response_payload = {
+                            **dict(response_payload),
+                            "observed_transition": observed_transition,
+                        }
                     causal_event, causal_replayed = self._insert_s6bm_causal_event(
                         connection,
                         event_type="durable_terminal_effect_commit",
-                        payload=causal_payload,
+                        payload=effective_causal_payload,
                         actor_identity="control-plane-terminal-effect",
                     )
                     if causal_replayed:
@@ -1712,16 +1858,17 @@ class TransactionalControlPlaneStore:
                             "S6B-M new terminal entity found an existing causal event"
                         )
                     if (
-                        switch_sequence is not None
-                        and causal_event["causal_sequence"] <= switch_sequence
+                        switch_event is not None
+                        and causal_event["causal_sequence"]
+                        <= int(switch_event["causal_sequence"])
                     ):
                         raise ControlPlaneParityError(
                             "S6B-M crossover effect causal sequence preceded switch"
                         )
                 stored = {
-                    **dict(response_payload),
+                    **effective_response_payload,
                     "durable_commit": {
-                        "schema_version": "evm.s6bm.durable_commit.v2",
+                        "schema_version": "evm.s6bm.durable_commit.v3",
                         "database_recorded_at": _utc_iso(write_identity["database_recorded_at"]),
                         "transaction_id": str(write_identity["transaction_id"]),
                         "write_backend_pid": int(write_identity["backend_pid"]),
@@ -1732,6 +1879,7 @@ class TransactionalControlPlaneStore:
                         "causal_payload_sha256": (
                             causal_event["payload_sha256"] if causal_event is not None else None
                         ),
+                        "observed_transition": observed_transition,
                     },
                 }
                 connection.execute(
@@ -1809,6 +1957,7 @@ class TransactionalControlPlaneStore:
                 (entity_kind, entity_id, scope, idempotency_key),
             ).fetchone()
             causal_row = None
+            transition_row = None
             if causal_payload is not None:
                 identity = _validate_s6bm_causal_identity(causal_payload)
                 causal_row = connection.execute(
@@ -1819,6 +1968,15 @@ class TransactionalControlPlaneStore:
                     """,
                     (identity["attempt_id"], identity["request_id"]),
                 ).fetchone()
+                if causal_payload.get("requires_switch_before_effect") is True:
+                    transition_row = connection.execute(
+                        f"""
+                        SELECT * FROM {schema}.s6bm_causal_events
+                        WHERE attempt_id=%s AND request_id=%s
+                          AND event_type='blue_to_green_switch_commit'
+                        """,
+                        (identity["attempt_id"], identity["request_id"]),
+                    ).fetchone()
         readback_finished_monotonic_ns = time.perf_counter_ns()
         if row is None:
             raise ControlPlaneParityError("terminal effect was not visible after commit ACK")
@@ -1837,17 +1995,36 @@ class TransactionalControlPlaneStore:
         if row["readback_at"] < database_recorded_at:
             raise ControlPlaneParityError("terminal effect readback clock regressed")
         causal_readback = self._s6bm_causal_row(causal_row) if causal_row is not None else None
+        transition_readback = (
+            self._s6bm_causal_row(transition_row) if transition_row is not None else None
+        )
         if causal_payload is not None:
             if causal_readback is None:
                 raise ControlPlaneParityError("terminal causal event was not visible after commit")
             if (
-                causal_readback["payload"] != dict(causal_payload)
+                causal_readback["payload"] != effective_causal_payload
                 or causal_readback["causal_sequence"]
                 != int(durable_commit.get("causal_sequence", -1))
                 or causal_readback["transaction_id"]
                 != str(durable_commit.get("transaction_id", ""))
             ):
                 raise ControlPlaneParityError("terminal causal event transaction parity failed")
+            if causal_payload.get("requires_switch_before_effect") is True:
+                if transition_readback is None:
+                    raise ControlPlaneParityError(
+                        "terminal effect transition fence was absent on readback"
+                    )
+                expected_transition = self._s6bm_transition_reference(transition_readback)
+                if (
+                    observed_transition != expected_transition
+                    or stored.get("observed_transition") != expected_transition
+                    or durable_commit.get("observed_transition") != expected_transition
+                    or dict(causal_readback["payload"]).get("observed_transition")
+                    != expected_transition
+                ):
+                    raise ControlPlaneParityError(
+                        "terminal effect transition readback parity failed"
+                    )
         receipt = {
             "schema_version": "evm.s6bm.durable_effect_receipt.v4",
             "entity_kind": entity_kind,
@@ -1903,6 +2080,10 @@ class TransactionalControlPlaneStore:
             ),
             "causal_payload_sha256": (
                 causal_readback["payload_sha256"] if causal_readback is not None else None
+            ),
+            "observed_transition": observed_transition,
+            "transition_readback_visible": (
+                transition_readback is not None if observed_transition is not None else None
             ),
         }
         return stored, replayed, receipt
@@ -5051,6 +5232,11 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
         f"""
         CREATE INDEX IF NOT EXISTS s6bm_causal_attempt_type_idx
         ON {schema}.s6bm_causal_events(attempt_id, event_type, model_role)
+        """,
+        f"""
+        CREATE UNIQUE INDEX IF NOT EXISTS s6bm_route_transition_identity_idx
+        ON {schema}.s6bm_causal_events((payload->>'transition_id'))
+        WHERE event_type='blue_to_green_switch_commit'
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {schema}.lifecycle_claims (
