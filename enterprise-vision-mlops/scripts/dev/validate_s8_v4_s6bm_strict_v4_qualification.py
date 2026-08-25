@@ -638,9 +638,44 @@ def _clock_residual_over_bound(_root: Path, raw: dict[str, Any]) -> None:
 
 
 def _clock_step_over_bound(_root: Path, raw: dict[str, Any]) -> None:
-    for item in raw["phase_timeline"]:
-        if int(item["clock_anchor"]["sequence"]) >= 6:
-            item["clock_anchor"]["unix_ns"] += 3_000_000
+    step_bound = Fraction(2_000_000)
+    candidates: list[tuple[Fraction, int, int]] = []
+    anchors = [item["clock_anchor"] for item in raw["phase_timeline"]]
+    for anchor_index in range(len(anchors)):
+        for direction in (1, -1):
+            low = 0
+            high = 32_000_000
+            high_metrics = _affine_mutation_metrics(
+                raw,
+                anchor_index=anchor_index,
+                unix_delta_ns=direction * high,
+            )
+            if high_metrics[1] <= step_bound:
+                continue
+            while low + 1 < high:
+                midpoint = (low + high) // 2
+                metrics = _affine_mutation_metrics(
+                    raw,
+                    anchor_index=anchor_index,
+                    unix_delta_ns=direction * midpoint,
+                )
+                if metrics[1] > step_bound:
+                    high = midpoint
+                else:
+                    low = midpoint
+            _, step, _ = _affine_mutation_metrics(
+                raw,
+                anchor_index=anchor_index,
+                unix_delta_ns=direction * high,
+            )
+            candidates.append((step, anchor_index, direction * high))
+    if not candidates:
+        raise StrictV4QualificationError("clock_step_mutation_not_constructible")
+    _, selected_index, selected_delta = min(
+        candidates,
+        key=lambda item: (item[0], item[1], item[2]),
+    )
+    anchors[selected_index]["unix_ns"] += selected_delta
     _rehash_runner_anchor_chain(raw)
 
 
