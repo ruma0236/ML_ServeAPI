@@ -680,6 +680,7 @@ def infer_once(
     model_id: str,
     values: list[float],
     request_id: str,
+    session: requests.Session,
     batch_size: int = 1,
 ) -> tuple[int, list[float]]:
     payload = {
@@ -694,7 +695,7 @@ def infer_once(
         ],
         "outputs": [{"name": "SCORE__0"}],
     }
-    response = requests.post(
+    response = session.post(
         f"http://127.0.0.1:{config.http_port}/v2/models/{model_id}/versions/1/infer",
         json=payload,
         timeout=config.request_timeout_seconds,
@@ -737,19 +738,23 @@ def run_q0(
                 target_deadline: float = q0_deadline,
             ) -> int:
                 index = 0
-                while time.monotonic() < target_deadline:
-                    status, output = infer_once(
-                        config,
-                        target_model,
-                        target_values,
-                        f"q0-{target_model}-{worker}-{index}-{uuid4().hex[:6]}",
-                        batch_size=config.q0_request_batch_size,
-                    )
-                    if status != 200 or not math.isclose(
-                        output[0], target_expected, rel_tol=1e-4, abs_tol=1e-4
-                    ):
-                        raise X1ResumeTestbedError(f"x1_resume_q0_oracle:{target_model}:{status}")
-                    index += 1
+                with requests.Session() as session:
+                    while time.monotonic() < target_deadline:
+                        status, output = infer_once(
+                            config,
+                            target_model,
+                            target_values,
+                            f"q0-{target_model}-{worker}-{index}-{uuid4().hex[:6]}",
+                            session,
+                            batch_size=config.q0_request_batch_size,
+                        )
+                        if status != 200 or not math.isclose(
+                            output[0], target_expected, rel_tol=1e-4, abs_tol=1e-4
+                        ):
+                            raise X1ResumeTestbedError(
+                                f"x1_resume_q0_oracle:{target_model}:{status}"
+                            )
+                        index += 1
                 return index
 
             with ThreadPoolExecutor(max_workers=config.q0_workers) as pool:
@@ -858,6 +863,7 @@ def run_cell(
             item = assigned.get()
             try:
                 if item is None:
+                    session.close()
                     return
                 if abort_event.is_set():
                     continue

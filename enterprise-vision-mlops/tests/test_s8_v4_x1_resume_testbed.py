@@ -909,6 +909,44 @@ def test_runner_preserves_nonempty_repository_reason(
     assert not x1_resume_module.triton_repository_index_exact(observed)
 
 
+def test_runner_inference_uses_supplied_persistent_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = runpy.run_path(
+        str(ROOT / "scripts/dev/run_s8_v4_x1_resume_testbed.py"),
+        run_name="x1_resume_runner_session_test",
+    )
+    calls: list[dict[str, object]] = []
+
+    class Response:
+        status_code = 200
+
+        def json(self) -> dict[str, object]:
+            return {"outputs": [{"data": [0.25]}]}
+
+    class Session:
+        def post(self, url: str, **kwargs: object) -> Response:
+            calls.append({"url": url, **kwargs})
+            return Response()
+
+    monkeypatch.setattr(
+        runner["requests"],
+        "post",
+        lambda *args, **kwargs: pytest.fail("module-level requests.post must not be used"),
+    )
+    status, output = runner["infer_once"](
+        config(),
+        EXPECTED_MODELS[0],
+        [0.0] * 28,
+        "q0-persistent-session",
+        Session(),
+    )
+
+    assert status == 200
+    assert output == [0.25]
+    assert len(calls) == 1
+
+
 @pytest.fixture
 def prepared_runner_repository(
     tmp_path: Path,
