@@ -210,6 +210,7 @@ class TritonBlueGreenPredictRequest(ContractModel):
     expected_model_version: str | None = Field(default=None, pattern=r"^[0-9]+$")
     expected_artifact_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     expected_route_generation: int = Field(default=0, ge=0)
+    start_receipt_required: bool = False
     causal_crossover: bool = False
 
     @field_validator("traceparent")
@@ -231,15 +232,16 @@ class TritonBlueGreenPredictRequest(ContractModel):
             value is not None for value in values
         ):
             raise ValueError("expected model identity must be complete")
-        if self.causal_crossover and (
+        if (self.causal_crossover or self.start_receipt_required) and (
             self.request_nonce == "legacy-unbound"
             or self.expected_route_generation < 1
             or self.expected_model_role != "blue"
-            or self.hold_ms <= 0
         ):
             raise ValueError(
-                "crossover request requires Blue identity, nonce, generation, and hold"
+                "start receipt requires Blue identity, nonce, and route generation"
             )
+        if self.causal_crossover and self.hold_ms <= 0:
+            raise ValueError("crossover request requires a positive hold")
         return self
 
 
@@ -828,7 +830,9 @@ class TritonBlueGreenManager:
                 generation = state.generation
                 phase = state.phase
                 triton_url = state.request.triton_http_url
-                if request.causal_crossover and request.expected_route_generation != generation:
+                if (
+                    request.causal_crossover or request.start_receipt_required
+                ) and request.expected_route_generation != generation:
                     raise TritonBlueGreenError(
                         "causal_route_generation_mismatch",
                         request.request_id,
@@ -856,7 +860,7 @@ class TritonBlueGreenManager:
         }
         counted_in_flight = cached_result is None
         try:
-            if request.causal_crossover and cached_result is None:
+            if (request.causal_crossover or request.start_receipt_required) and cached_result is None:
                 if start_receipt_committer is None:
                     raise TritonBlueGreenError(
                         "causal_start_store_unavailable",

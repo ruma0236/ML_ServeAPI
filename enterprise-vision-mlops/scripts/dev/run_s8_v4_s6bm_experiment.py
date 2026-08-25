@@ -174,10 +174,19 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment-v4.json",
     )
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--qualification-only",
         action="store_true",
         help="Run one non-credit causal receipt/trace qualification and stop before acceptance.",
+    )
+    modes.add_argument(
+        "--continuity-qualification-only",
+        action="store_true",
+        help=(
+            "Run one exact-1000 non-credit continuity qualification and stop before "
+            "acceptance."
+        ),
     )
     return parser.parse_args()
 
@@ -972,6 +981,7 @@ def request_body(
     expected_model_role: str,
     hold_ms: int = 0,
     expected_route_generation: int = 0,
+    start_receipt_required: bool = False,
     causal_crossover: bool = False,
 ) -> dict[str, Any]:
     model = config.blue if expected_model_role == "blue" else config.green
@@ -991,6 +1001,7 @@ def request_body(
         "expected_model_version": model.model_version,
         "expected_artifact_sha256": model.artifact_sha256,
         "expected_route_generation": expected_route_generation,
+        "start_receipt_required": start_receipt_required,
         "causal_crossover": causal_crossover,
     }
 
@@ -1007,6 +1018,7 @@ def request_bodies_from_plan(
     for item in items:
         traffic_role = str(item["traffic_role"])
         causal = traffic_role == "causal_hold"
+        start_receipt_required = bool(item.get("actor_receipt_required", False))
         bodies.append(
             request_body(
                 config,
@@ -1015,7 +1027,10 @@ def request_bodies_from_plan(
                 str(item["request_id"]),
                 expected_model_role=str(item["expected_model_role"]),
                 hold_ms=int(item["hold_ms"]),
-                expected_route_generation=route_generation if causal else 0,
+                expected_route_generation=(
+                    route_generation if causal or start_receipt_required else 0
+                ),
+                start_receipt_required=start_receipt_required,
                 causal_crossover=causal,
             )
         )
@@ -1031,6 +1046,7 @@ def start_triton_start_receipt_collector(
     source_revision: str,
     suite_id: str,
     timeout: float | None = None,
+    artifact_scope: str | None = None,
 ) -> TraceCollectorProcess:
     request = TritonBlueGreenPredictRequest.model_validate(dict(body))
     identity = expected_causal_identity_for_request(request)
@@ -1040,6 +1056,8 @@ def start_triton_start_receipt_collector(
     if wait_seconds <= 0:
         raise S6BMExperimentError("triton_compute_start_trace_timeout_bound")
     root = suite_root / "causal" / identity.attempt_id
+    if artifact_scope is not None:
+        root = root / artifact_scope
     spec_path = root / "collector-spec.json"
     result_path = root / "collector-result.json"
     raw_trace_path = root / "triton-compute-start.json"
@@ -1142,6 +1160,143 @@ def wait_triton_start_receipt_collector(
         "raw_trace": artifact_reference(suite_root, collector.raw_trace_path),
         "stdout": artifact_reference(suite_root, collector.stdout_path),
         "stderr": artifact_reference(suite_root, collector.stderr_path),
+    }
+
+
+def stop_trace_collectors(collectors: Sequence[TraceCollectorProcess]) -> None:
+    for collector in collectors:
+        if collector.process.poll() is None:
+            collector.process.kill()
+            collector.process.wait(timeout=5)
+        if not collector.stdout_handle.closed:
+            collector.stdout_handle.close()
+        if not collector.stderr_handle.closed:
+            collector.stderr_handle.close()
+
+
+def read_required_bridge_start_receipts(
+    config: S6BMConfig,
+    *,
+    suite_root: Path,
+    attempt_id: str,
+    required_request_ids: Sequence[str],
+    route_generation: int,
+) -> dict[str, Any]:
+    response = requests.get(api_url(config, f"causal-events/{attempt_id}"), timeout=30)
+    response.raise_for_status()
+    payload = response.json()
+    readback_path = (
+        suite_root
+        / "causal"
+        / attempt_id
+        / "bridge-start-receipts-pre-switch.json"
+    )
+    canonical_write(readback_path, payload)
+    required_stages = {
+        "api_server_handler_entry",
+        "controller_entry",
+        "triton_backend_compute_entry",
+    }
+    rows = [dict(item) for item in payload.get("events", [])]
+    if (
+        payload.get("schema_version") != "evm.s8_v4.s6bm_causal_event_export.v1"
+        or payload.get("attempt_id") != attempt_id
+        or int(payload.get("event_count", -1)) != len(rows)
+    ):
+        raise S6BMExperimentError("continuity_actor_receipt_export_identity")
+    selected: list[dict[str, Any]] = []
+    observed_sequences: list[int] = []
+    for request_id in required_request_ids:
+        matches = [
+            item
+            for item in rows
+            if item.get("request_id") == request_id
+            and item.get("event_type") in required_stages
+        ]
+        if len(matches) != len(required_stages) or {
+            str(item.get("event_type", "")) for item in matches
+        } != required_stages:
+            raise S6BMExperimentError(f"continuity_actor_receipt_incomplete:{request_id}")
+        for item in matches:
+            event_payload = dict(item.get("payload", {}))
+            if (
+                event_payload.get("request_id") != request_id
+                or event_payload.get("attempt_id") != attempt_id
+                or event_payload.get("model_role") != "blue"
+                or int(event_payload.get("route_generation", 0)) != route_generation
+                or int(item.get("causal_sequence", 0)) <= 0
+                or not str(item.get("transaction_id", ""))
+                or any(
+                    item.get(key) != event_payload.get(key)
+                    for key in (
+                        "attempt_id",
+                        "run_id",
+                        "request_id",
+                        "request_nonce",
+                        "trace_id",
+                        "effect_id",
+                        "model_role",
+                        "model_name",
+                        "model_version",
+                        "artifact_sha256",
+                        "route_generation",
+                    )
+                )
+                or item.get("payload_sha256") != canonical_sha256(event_payload)
+                or not str(item.get("database_recorded_at", ""))
+                or not str(item.get("captured_at", ""))
+            ):
+                raise S6BMExperimentError(
+                    f"continuity_actor_receipt_identity:{request_id}"
+                )
+            observed_sequences.append(int(item["causal_sequence"]))
+        selected.extend(matches)
+    if len(set(required_request_ids)) != len(required_request_ids):
+        raise S6BMExperimentError("continuity_actor_receipt_request_duplicate")
+    if len(set(observed_sequences)) != len(observed_sequences):
+        raise S6BMExperimentError("continuity_actor_receipt_sequence_duplicate")
+    gate_events = sorted(
+        (
+            {
+                "causal_sequence": item["causal_sequence"],
+                "event_type": item["event_type"],
+                "attempt_id": item["attempt_id"],
+                "run_id": item["run_id"],
+                "request_id": item["request_id"],
+                "request_nonce": item["request_nonce"],
+                "trace_id": item["trace_id"],
+                "effect_id": item["effect_id"],
+                "model_role": item["model_role"],
+                "model_name": item["model_name"],
+                "model_version": item["model_version"],
+                "artifact_sha256": item["artifact_sha256"],
+                "route_generation": item["route_generation"],
+                "actor_identity": item["actor_identity"],
+                "transaction_id": item["transaction_id"],
+                "payload_sha256": item["payload_sha256"],
+                "database_recorded_at": item["database_recorded_at"],
+                "readback_at": item["captured_at"],
+                "readback_visible": True,
+                "readback_source": "postgresql_attempt_export",
+            }
+            for item in selected
+        ),
+        key=lambda item: (item["request_id"], item["event_type"]),
+    )
+    return {
+        "schema_version": "evm.s8_v4.s6bm_bridge_actor_receipt_gate.v1",
+        "attempt_id": attempt_id,
+        "route_generation": route_generation,
+        "required_request_ids": list(required_request_ids),
+        "required_request_set_sha256": canonical_sha256(list(required_request_ids)),
+        "required_stage_count": len(required_stages),
+        "expected_event_count": len(required_request_ids) * len(required_stages),
+        "visible_event_count": len(selected),
+        "maximum_visible_causal_sequence": max(observed_sequences, default=0),
+        "raw_readback_export": artifact_reference(suite_root, readback_path),
+        "raw_readback_event_count": len(rows),
+        "selected_event_set_sha256": canonical_sha256(gate_events),
+        "events": gate_events,
     }
 
 
@@ -1286,9 +1441,9 @@ def run_fixed_bridge_producer(
     config: S6BMConfig,
     bodies: Sequence[Mapping[str, Any]],
     schedule: Sequence[Mapping[str, Any]],
-    on_all_submitted: Callable[[], dict[str, Any]],
+    on_required_actor_receipts: Callable[[], dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
-    """Offer the frozen bridge schedule without feedback-driven pacing or rewindowing."""
+    """Offer the frozen bridge schedule while an independent causal gate waits."""
     if len(bodies) != len(schedule):
         raise S6BMExperimentError("continuity_schedule_cardinality")
     workers = int(config.continuity["producer_workers"])
@@ -1310,6 +1465,7 @@ def run_fixed_bridge_producer(
     futures: list[concurrent.futures.Future[dict[str, Any]]] = []
     dispatch_meta: list[dict[str, Any]] = []
     producer_started = time.perf_counter()
+    causal_gate_started = time.perf_counter()
 
     def dispatch(body: Mapping[str, Any]) -> dict[str, Any]:
         session = getattr(local, "session", None)
@@ -1336,48 +1492,62 @@ def run_fixed_bridge_producer(
         slots.release()
 
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-            for body, planned in zip(bodies, schedule, strict=True):
-                target = producer_started + int(planned["scheduled_offset_ms"]) / 1000.0
-                remaining = target - time.perf_counter()
-                if remaining > 0:
-                    time.sleep(remaining)
-                wait_started = time.perf_counter()
-                if not slots.acquire(timeout=20):
-                    raise S6BMExperimentError("continuity_capacity_wait_timeout")
-                wait_finished = time.perf_counter()
-                payload_bytes = len(canonical(dict(body)).encode("ascii"))
-                if payload_bytes > payload_cap:
-                    slots.release()
-                    raise S6BMExperimentError("continuity_payload_too_large")
-                with capacity_lock:
-                    reserved_count += 1
-                    reserved_bytes += payload_bytes
-                    max_reserved_count = max(max_reserved_count, reserved_count)
-                    max_reserved_bytes = max(max_reserved_bytes, reserved_bytes)
-                    if reserved_count > capacity or reserved_bytes > bytes_cap:
-                        reserved_count -= 1
-                        reserved_bytes -= payload_bytes
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as gate_pool:
+            gate_future = gate_pool.submit(on_required_actor_receipts)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+                for body, planned in zip(bodies, schedule, strict=True):
+                    target = producer_started + int(planned["scheduled_offset_ms"]) / 1000.0
+                    remaining = target - time.perf_counter()
+                    if remaining > 0:
+                        time.sleep(remaining)
+                    wait_started = time.perf_counter()
+                    if not slots.acquire(timeout=20):
+                        raise S6BMExperimentError("continuity_capacity_wait_timeout")
+                    wait_finished = time.perf_counter()
+                    payload_bytes = len(canonical(dict(body)).encode("ascii"))
+                    if payload_bytes > payload_cap:
                         slots.release()
-                        raise S6BMExperimentError("continuity_capacity_bound")
-                future = pool.submit(dispatch, body)
-                future.add_done_callback(lambda _future, size=payload_bytes: release_slot(size))
-                futures.append(future)
-                dispatch_meta.append(
-                    {
-                        "request_id": str(body["request_id"]),
-                        "scheduled_offset_ms": int(planned["scheduled_offset_ms"]),
-                        "hold_ms": int(body["hold_ms"]),
-                        "payload_bytes": payload_bytes,
-                        "payload_sha256": canonical_sha256(dict(body)),
-                        "capacity_wait_ms": (wait_finished - wait_started) * 1000.0,
-                    }
+                        raise S6BMExperimentError("continuity_payload_too_large")
+                    with capacity_lock:
+                        reserved_count += 1
+                        reserved_bytes += payload_bytes
+                        max_reserved_count = max(max_reserved_count, reserved_count)
+                        max_reserved_bytes = max(max_reserved_bytes, reserved_bytes)
+                        if reserved_count > capacity or reserved_bytes > bytes_cap:
+                            reserved_count -= 1
+                            reserved_bytes -= payload_bytes
+                            slots.release()
+                            raise S6BMExperimentError("continuity_capacity_bound")
+                    future = pool.submit(dispatch, body)
+                    future.add_done_callback(
+                        lambda _future, size=payload_bytes: release_slot(size)
+                    )
+                    futures.append(future)
+                    dispatch_meta.append(
+                        {
+                            "request_id": str(body["request_id"]),
+                            "scheduled_offset_ms": int(planned["scheduled_offset_ms"]),
+                            "hold_ms": int(body["hold_ms"]),
+                            "actor_receipt_required": bool(
+                                planned.get("actor_receipt_required", False)
+                            ),
+                            "payload_bytes": payload_bytes,
+                            "payload_sha256": canonical_sha256(dict(body)),
+                            "capacity_wait_ms": (wait_finished - wait_started) * 1000.0,
+                        }
+                    )
+                all_submitted = time.perf_counter()
+                gate_timeout = max(
+                    30.0,
+                    float(getattr(config, "procedure", {}).get("drain_timeout_seconds", 15))
+                    + 10.0,
                 )
-            all_submitted = time.perf_counter()
-            transition = on_all_submitted()
-            receipt_observed = float(transition["transition_receipt_observed_monotonic"])
-            records = [future.result(timeout=25) for future in futures]
-            producer_finished = time.perf_counter()
+                transition = gate_future.result(timeout=gate_timeout)
+                receipt_observed = float(
+                    transition["transition_receipt_observed_monotonic"]
+                )
+                records = [future.result(timeout=25) for future in futures]
+                producer_finished = time.perf_counter()
     finally:
         for session in sessions:
             session.close()
@@ -1391,10 +1561,12 @@ def run_fixed_bridge_producer(
         meta["status_code"] = int(record.get("status_code", 0))
     evidence = {
         "producer_started_monotonic": producer_started,
+        "causal_gate_started_monotonic": causal_gate_started,
         "all_submitted_monotonic": all_submitted,
         "transition_receipt_observed_monotonic": receipt_observed,
         "producer_finished_monotonic": producer_finished,
         "adaptive_pacing": False,
+        "switch_gate_basis": "required_actor_receipts_and_db_readback",
         "dispatches": dispatch_meta,
         "max_reserved_requests_observed": max_reserved_count,
         "max_reserved_payload_bytes_observed": max_reserved_bytes,
@@ -2258,6 +2430,7 @@ def run_success(
     suite_root: Path,
     suite_id: str,
     execution_progress: dict[str, Any],
+    credit: str = "credit",
 ) -> dict[str, Any]:
     started_at = utc_now()
     attempt_id = f"s6bm-success-{repetition}-{uuid4().hex[:10]}"
@@ -2346,7 +2519,34 @@ def run_success(
                 lease.run_id,
                 attempt_id,
                 traffic_plan["roles"]["bridge"],
+                route_generation=hold_generation,
             )
+            required_bridge_items = [
+                dict(item)
+                for item in traffic_plan["roles"]["bridge"]
+                if item.get("actor_receipt_required") is True
+            ]
+            required_bridge_ids = [str(item["request_id"]) for item in required_bridge_items]
+            bridge_bodies_by_id = {
+                str(body["request_id"]): body for body in bridge_bodies
+            }
+            bridge_collectors: list[TraceCollectorProcess] = []
+            try:
+                for request_id in required_bridge_ids:
+                    bridge_collectors.append(
+                        start_triton_start_receipt_collector(
+                            config,
+                            suite_root=suite_root,
+                            checkpoint=observability_checkpoint,
+                            body=bridge_bodies_by_id[request_id],
+                            source_revision=source["revision"],
+                            suite_id=suite_id,
+                            artifact_scope=f"bridge-receipts/{request_id}",
+                        )
+                    )
+            except Exception:
+                stop_trace_collectors(bridge_collectors)
+                raise
 
             def switch_after_fixed_schedule() -> dict[str, Any]:
                 triton_receipt = wait_triton_start_receipt_collector(
@@ -2354,6 +2554,28 @@ def run_success(
                     suite_root=suite_root,
                     timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
                 )
+                bridge_triton_receipts = [
+                    wait_triton_start_receipt_collector(
+                        item,
+                        suite_root=suite_root,
+                        timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
+                    )
+                    for item in bridge_collectors
+                ]
+                bridge_receipt_gate = read_required_bridge_start_receipts(
+                    config,
+                    suite_root=suite_root,
+                    attempt_id=attempt_id,
+                    required_request_ids=required_bridge_ids,
+                    route_generation=hold_generation,
+                )
+                bridge_receipt_gate["collector_request_ids"] = [
+                    str(item["request_id"]) for item in bridge_triton_receipts
+                ]
+                bridge_receipt_gate["collector_request_set_sha256"] = canonical_sha256(
+                    bridge_receipt_gate["collector_request_ids"]
+                )
+                bridge_receipt_gate["gate_satisfied_monotonic"] = time.perf_counter()
                 pre_switch = wait_in_flight_at_least(
                     config,
                     "blue",
@@ -2380,14 +2602,19 @@ def run_success(
                     "switch_invoked_monotonic": switch_invoked,
                     "transition_receipt_observed_monotonic": receipt_observed,
                     "blue_in_flight_before_switch": int(pre_switch["in_flight"]["blue"]),
+                    "bridge_triton_start_receipts": bridge_triton_receipts,
+                    "bridge_actor_receipt_gate": bridge_receipt_gate,
                 }
 
-            bridge_records, continuity_execution, transition = run_fixed_bridge_producer(
-                config,
-                bridge_bodies,
-                traffic_plan["roles"]["bridge"],
-                switch_after_fixed_schedule,
-            )
+            try:
+                bridge_records, continuity_execution, transition = run_fixed_bridge_producer(
+                    config,
+                    bridge_bodies,
+                    traffic_plan["roles"]["bridge"],
+                    switch_after_fixed_schedule,
+                )
+            finally:
+                stop_trace_collectors(bridge_collectors)
             continuity_execution.update(
                 {
                     "plan_sha256": traffic_plan["plan_sha256"],
@@ -2396,6 +2623,12 @@ def run_success(
                     "switch_invoked_monotonic": transition["switch_invoked_monotonic"],
                     "blue_in_flight_before_switch": transition[
                         "blue_in_flight_before_switch"
+                    ],
+                    "bridge_triton_start_receipts": transition[
+                        "bridge_triton_start_receipts"
+                    ],
+                    "bridge_actor_receipt_gate": transition[
+                        "bridge_actor_receipt_gate"
                     ],
                 }
             )
@@ -2510,7 +2743,8 @@ def run_success(
         "attempt_id": attempt_id,
         "profile": "successful_transition",
         "repetition": repetition,
-        "credit": "credit",
+        "credit": credit,
+        "acceptance_credit": credit == "credit",
         "started_at": started_at,
         "finished_at": utc_now(),
         "source_revision": source["revision"],
@@ -3059,6 +3293,7 @@ def main() -> int:
     baselines: list[dict[str, Any]] = []
     active_success_progress: dict[str, Any] = {}
     qualification_result: dict[str, Any] | None = None
+    continuity_qualification_result: dict[str, Any] | None = None
     failure: dict[str, Any] | None = None
     caught_exception: Exception | None = None
     triton_log = suite_root / "runtime" / "triton.log"
@@ -3106,6 +3341,25 @@ def main() -> int:
                 execution_progress=active_success_progress,
             )
             canonical_write(suite_root / "causal-qualification.json", qualification_result)
+        elif args.continuity_qualification_only:
+            continuity_qualification_result = run_success(
+                config,
+                lease,
+                source,
+                0,
+                api,
+                suite_root=suite_root,
+                suite_id=suite_id,
+                execution_progress=active_success_progress,
+                credit="non_credit",
+            )
+            continuity_qualification_result["qualification_scope"] = (
+                "exact_1000_bridge_actor_receipt_and_continuity"
+            )
+            canonical_write(
+                suite_root / "continuity-qualification.json",
+                continuity_qualification_result,
+            )
         else:
             for repetition in range(1, int(config.procedure["baseline_repetitions"]) + 1):
                 baseline = run_baseline(
@@ -3299,21 +3553,34 @@ def main() -> int:
             f"controlled_execution_failed:{type(caught_exception).__name__}:{caught_exception}"
         ) from caught_exception
 
-    if args.qualification_only:
-        if qualification_result is None:
+    if args.qualification_only or args.continuity_qualification_only:
+        qualification_payload = (
+            qualification_result
+            if args.qualification_only
+            else continuity_qualification_result
+        )
+        if qualification_payload is None:
             raise S6BMExperimentError("causal_qualification_result_absent")
-        qualification_result["cleanup"] = {
+        qualification_payload["cleanup"] = {
             key: value for key, value in cleanup.items() if key != "gpu_after"
         }
-        qualification_path = suite_root / "causal-qualification.json"
-        canonical_write(qualification_path, qualification_result)
+        qualification_path = suite_root / (
+            "causal-qualification.json"
+            if args.qualification_only
+            else "continuity-qualification.json"
+        )
+        canonical_write(qualification_path, qualification_payload)
         qualification_index = private_index(suite_root)
         qualification_index_path = suite_root / "private-evidence-index.json"
         canonical_write(qualification_index_path, qualification_index)
         print(
             canonical(
                 {
-                    "mode": "qualification_only",
+                    "mode": (
+                        "qualification_only"
+                        if args.qualification_only
+                        else "continuity_qualification_only"
+                    ),
                     "credit": "non_credit",
                     "acceptance_credit": False,
                     "private_root": str(suite_root),

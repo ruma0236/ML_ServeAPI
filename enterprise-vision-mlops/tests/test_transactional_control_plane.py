@@ -360,6 +360,97 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
     assert effect_event["transaction_id"] != switch_event["transaction_id"]
 
 
+def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
+    store: TransactionalControlPlaneStore,
+) -> None:
+    attempt_id = "s6bm-success-bridge-gate"
+    run_id = "s8-v4-s6bm-bridge-gate"
+    stages = (
+        "api_server_handler_entry",
+        "controller_entry",
+        "triton_backend_compute_entry",
+    )
+
+    def identity(request_id: str, ordinal: int) -> dict[str, object]:
+        return {
+            "attempt_id": attempt_id,
+            "run_id": run_id,
+            "request_id": request_id,
+            "request_nonce": f"nonce-{ordinal:04d}",
+            "trace_id": f"{ordinal + 1:032x}",
+            "effect_id": f"{ordinal + 1:064x}",
+            "model_role": "blue",
+            "model_name": "s6bm_blue",
+            "model_version": "1",
+            "artifact_sha256": "3" * 64,
+            "route_generation": 3,
+        }
+
+    hold = identity("s6bm-hold", 0)
+    bridge_ids = [f"s6bm-bridge-{index}" for index in range(4)]
+    bridge_receipts: list[dict[str, object]] = []
+    for ordinal, current in enumerate(
+        [hold, *(identity(request_id, index + 1) for index, request_id in enumerate(bridge_ids))]
+    ):
+        for stage in stages:
+            before = time.perf_counter_ns()
+            receipt = store.commit_s6bm_start_receipt(
+                event_type=stage,
+                payload={
+                    **current,
+                    "actor_start_unix_ns": time.time_ns(),
+                    **(
+                        {
+                            "collector_observation": {
+                                "monotonic_before_ns": before,
+                                "monotonic_after_ns": time.perf_counter_ns(),
+                            }
+                        }
+                        if stage == "triton_backend_compute_entry"
+                        else {
+                            "monotonic_before_ns": before,
+                            "monotonic_after_ns": time.perf_counter_ns(),
+                        }
+                    ),
+                    "actor_ordinal": ordinal,
+                },
+                actor_identity=f"bridge-actor-{ordinal}-{stage}",
+            )
+            assert receipt["readback_visible"] is True
+            if current["request_id"] in bridge_ids:
+                bridge_receipts.append(receipt)
+
+    switch = store.commit_s6bm_route_switch_fence(
+        crossover_identity=hold,
+        transition_context=s6bm_transition_context(hold),
+    )
+    switch_recorded = datetime.fromisoformat(
+        str(switch["database_recorded_at"]).replace("Z", "+00:00")
+    )
+    assert len(bridge_receipts) == 12
+    assert len({receipt["transaction_id"] for receipt in bridge_receipts}) == 12
+    assert all(
+        receipt["causal_sequence"] < switch["causal_sequence"]
+        and receipt["readback_visible"] is True
+        and receipt["replayed"] is False
+        and int(receipt["commit_ack_monotonic_ns"]) > 0
+        and receipt["payload_sha256"] == canonical_digest(receipt["payload"])
+        and receipt["attempt_id"] == attempt_id
+        and receipt["run_id"] == run_id
+        and receipt["request_id"] in bridge_ids
+        and receipt["event_type"] in stages
+        and receipt["model_role"] == "blue"
+        and int(receipt["route_generation"]) == 3
+        and datetime.fromisoformat(
+            str(receipt["database_recorded_at"]).replace("Z", "+00:00")
+        )
+        < switch_recorded
+        and datetime.fromisoformat(str(receipt["readback_at"]).replace("Z", "+00:00"))
+        < switch_recorded
+        for receipt in bridge_receipts
+    )
+
+
 def test_s6bm_cold_store_commits_frozen_concurrency_without_pool_starvation(
     postgres_dsn: str,
     monkeypatch: pytest.MonkeyPatch,

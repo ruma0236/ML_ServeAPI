@@ -439,6 +439,65 @@ def test_s6bm_crossover_waits_for_switch_and_times_out_fail_closed(
     assert manager.snapshot().in_flight == {"blue": 0, "green": 0}
 
 
+def test_s6bm_bridge_start_receipt_does_not_wait_for_route_switch(
+    manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"outputs": [{"name": "OUTPUT__0", "data": [3, 5, 7, 9]}]}
+
+    class Client:
+        async def __aenter__(self) -> "Client":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, *_args: object, **_kwargs: object) -> Response:
+            return Response()
+
+    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    observed: list[tuple[str, int]] = []
+    generation = manager.snapshot().generation
+    request = TritonBlueGreenPredictRequest(
+        run_id="s8-v4-s6bm-test",
+        attempt_id="s6bm-success-bridge-receipt",
+        request_id="request-blue-bridge-receipt",
+        request_nonce="nonce-blue-bridge-receipt",
+        traceparent="00-" + "8" * 32 + "-" + "9" * 16 + "-01",
+        input_values=[1, 2, 3, 4],
+        hold_ms=1,
+        expected_model_role="blue",
+        expected_model_name="s6bm_blue",
+        expected_model_version="1",
+        expected_artifact_sha256="c" * 64,
+        expected_route_generation=generation,
+        start_receipt_required=True,
+    )
+
+    async def start_committer(
+        stage: str,
+        _request: TritonBlueGreenPredictRequest,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        observed.append((stage, int(payload["route_generation"])))
+        return {"readback_visible": True}
+
+    result = asyncio.run(
+        manager.predict(request, start_receipt_committer=start_committer)
+    )
+
+    assert result.model_role == "blue"
+    assert result.route_generation == generation
+    assert observed == [("controller_entry", generation)]
+    assert manager.snapshot().in_flight == {"blue": 0, "green": 0}
+
+
 def test_s6bm_rejects_readiness_and_canary_without_route_switch(
     manager: TritonBlueGreenManager,
 ) -> None:

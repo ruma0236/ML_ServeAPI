@@ -21,6 +21,9 @@ GIT_ROOT = ROOT.parent
 RUNNER = ROOT / "scripts/dev/run_s8_v4_s6bm_experiment.py"
 VALIDATOR = ROOT / "scripts/dev/validate_s8_v4_s6bm.py"
 REVIEW_WRITER = ROOT / "scripts/dev/write_s8_v4_s6bm_review.py"
+CONTINUITY_VALIDATOR = (
+    ROOT / "scripts/dev/validate_s8_v4_s6bm_continuity_qualification.py"
+)
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
 
 
@@ -31,6 +34,25 @@ def load_runner():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def load_continuity_validator():
+    spec = importlib.util.spec_from_file_location(
+        "s6bm_continuity_validator", CONTINUITY_VALIDATOR
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_continuity_mutation_contract_is_exact_and_frozen() -> None:
+    validator = load_continuity_validator()
+    assert len(validator.CASE_CONTRACT) == len(validator.MUTATIONS) == 9
+    assert len({case_id for case_id, _reason in validator.CASE_CONTRACT}) == 9
+    assert validator.canonical_sha256(validator.CASE_CONTRACT) == (
+        "c42a6245d1e48152d06c6f1bd31c7fca8de58f201129c99bb7c59abe9356d4d7"
+    )
 
 
 def load_validator():
@@ -152,6 +174,9 @@ def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
 
 def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypatch) -> None:
     runner = load_runner()
+    actor_receipts_ready = threading.Event()
+    observed_request_ids: set[str] = set()
+    observed_lock = threading.Lock()
 
     class FakeSession:
         def mount(self, _prefix: str, _adapter: object) -> None:
@@ -163,6 +188,10 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
     def fake_send(_config, body, *, session=None):
         assert session is not None
         attempted = time.perf_counter()
+        with observed_lock:
+            observed_request_ids.add(body["request_id"])
+            if len(observed_request_ids) == 3:
+                actor_receipts_ready.set()
         time.sleep(0.003)
         return {
             "request_id": body["request_id"],
@@ -192,8 +221,13 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
     ]
 
     def transition():
+        assert actor_receipts_ready.wait(timeout=2)
         observed = time.perf_counter()
-        return {"transition_receipt_observed_monotonic": observed, "receipt": "actor"}
+        return {
+            "transition_receipt_observed_monotonic": observed,
+            "receipt": "actor",
+            "observed_request_ids": sorted(observed_request_ids),
+        }
 
     records, evidence, receipt = runner.run_fixed_bridge_producer(
         config, bodies, schedule, transition
@@ -201,7 +235,9 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
 
     assert [item["request_id"] for item in records] == [item["request_id"] for item in schedule]
     assert receipt["receipt"] == "actor"
+    assert receipt["observed_request_ids"] == ["bridge-0", "bridge-1", "bridge-2"]
     assert evidence["adaptive_pacing"] is False
+    assert evidence["switch_gate_basis"] == "required_actor_receipts_and_db_readback"
     assert evidence["max_reserved_requests_observed"] <= 2
     assert evidence["max_reserved_payload_bytes_observed"] <= 8192
     assert evidence["reserved_requests_at_finish"] == 0
@@ -209,6 +245,81 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
     assert evidence["producer_finished_monotonic"] >= evidence[
         "transition_receipt_observed_monotonic"
     ]
+
+
+def test_bridge_receipt_gate_preserves_exact_pre_switch_readback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    runner = load_runner()
+    attempt_id = "s6bm-success-bridge-readback"
+    request_ids = [f"bridge-{index}" for index in range(4)]
+    stages = (
+        "api_server_handler_entry",
+        "controller_entry",
+        "triton_backend_compute_entry",
+    )
+    rows = []
+    for sequence, (request_id, stage) in enumerate(
+        ((request_id, stage) for request_id in request_ids for stage in stages),
+        start=1,
+    ):
+        payload = {
+            "attempt_id": attempt_id,
+            "run_id": "run-bridge-readback",
+            "request_id": request_id,
+            "request_nonce": hashlib.sha256(request_id.encode("ascii")).hexdigest()[:32],
+            "trace_id": f"{sequence:032x}",
+            "effect_id": f"{sequence:064x}",
+            "model_role": "blue",
+            "model_name": "s6bm_blue",
+            "model_version": "1",
+            "artifact_sha256": "a" * 64,
+            "route_generation": 2,
+        }
+        rows.append(
+            {
+                "causal_sequence": sequence,
+                "event_type": stage,
+                **payload,
+                "actor_identity": f"actor:{stage}",
+                "payload_sha256": runner.canonical_sha256(payload),
+                "payload": payload,
+                "transaction_id": str(10_000 + sequence),
+                "database_recorded_at": f"2026-08-25T00:00:00.{sequence:06d}Z",
+                "captured_at": "2026-08-25T00:00:01.000000Z",
+            }
+        )
+    export = {
+        "schema_version": "evm.s8_v4.s6bm_causal_event_export.v1",
+        "attempt_id": attempt_id,
+        "event_count": len(rows),
+        "events": rows,
+    }
+
+    class Response:
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return export
+
+    monkeypatch.setattr(runner.requests, "get", lambda *_args, **_kwargs: Response())
+    gate = runner.read_required_bridge_start_receipts(
+        SimpleNamespace(ports={"api": 1}),
+        suite_root=tmp_path,
+        attempt_id=attempt_id,
+        required_request_ids=request_ids,
+        route_generation=2,
+    )
+
+    readback_path = tmp_path / gate["raw_readback_export"]["path"]
+    assert json.loads(readback_path.read_text(encoding="utf-8")) == export
+    assert gate["visible_event_count"] == 12
+    assert gate["selected_event_set_sha256"] == runner.canonical_sha256(gate["events"])
+    assert all(item["readback_visible"] is True for item in gate["events"])
+    assert all(item["readback_at"] == rows[0]["captured_at"] for item in gate["events"])
 
 
 def test_expected_attempt_trace_counts_include_exact_controller_only_replay() -> None:

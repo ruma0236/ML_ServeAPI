@@ -421,6 +421,53 @@ def _project_unix(unix_ns: int, envelope: tuple[int, int]) -> tuple[int, int]:
     return unix_ns - offset_high, unix_ns - offset_low
 
 
+def project_run_clock_offset_envelope(
+    raw: Mapping[str, Any], config: S6BMConfig
+) -> dict[str, Any]:
+    """Return the same frozen run-clock projection used by causal adjudication."""
+    _phase_bounds, envelope, projection = _anchor_projection(
+        raw, _proof(raw), config
+    )
+    return {
+        "offset_envelope_ns": list(envelope),
+        "projection": projection,
+    }
+
+
+def project_switch_fence_commit_interval(
+    transition_receipt: Mapping[str, Any],
+    effect_receipt: Mapping[str, Any],
+    config: S6BMConfig,
+) -> dict[str, Any]:
+    """Project the durable switch fence separately from the later route-applied ACK."""
+    transition = dict(transition_receipt)
+    fence_receipt = dict(transition.get("fence_receipt", {}))
+    database_recorded_at = _unix_nano(
+        fence_receipt.get("database_recorded_at"),
+        "s6bm_v4_switch_fence_database_recorded_at",
+    )
+    database_envelope, database_anchor = _database_clock_envelope(effect_receipt, config)
+    write_interval = _project_unix(database_recorded_at, database_envelope)
+    commit_ack = int(transition.get("actor_commit_ack_monotonic_ns", 0))
+    readback_end = int(transition.get("fence_readback_finished_monotonic_ns", 0))
+    route_applied = int(transition.get("route_applied_monotonic_ns", 0))
+    if not 0 < commit_ack <= readback_end <= route_applied:
+        raise S6BMCausalError("s6bm_v4_transition_timestamp_order")
+    return {
+        "fence_commit_interval_ns": [
+            min(write_interval[0], commit_ack),
+            max(write_interval[1], commit_ack),
+        ],
+        "database_write_interval_ns": list(write_interval),
+        "database_offset_envelope_ns": list(database_envelope),
+        "database_clock_anchor": database_anchor,
+        "commit_ack_monotonic_ns": commit_ack,
+        "readback_finished_monotonic_ns": readback_end,
+        "route_applied_monotonic_ns": route_applied,
+        "exact_commit_instant_claimed": False,
+    }
+
+
 def _validate_hold_effect_span_order(
     *,
     effect_start_interval: Sequence[int],
@@ -520,6 +567,8 @@ def _validate_route_transition_receipt(
         or fence_receipt.get("payload") != switch_payload
         or fence_receipt.get("payload_sha256") != switch_event.get("payload_sha256")
         or fence_receipt.get("transaction_id") != switch_event.get("transaction_id")
+        or fence_receipt.get("database_recorded_at")
+        != switch_event.get("database_recorded_at")
         or int(fence_receipt.get("causal_sequence", 0))
         != int(switch_event.get("causal_sequence", 0))
         or fence_receipt.get("transition_id") != expected_transition_id
@@ -1052,26 +1101,79 @@ def validate_causal_bundle(
     by_type: dict[str, list[dict[str, Any]]] = {}
     for event in events:
         by_type.setdefault(str(event.get("event_type", "")), []).append(event)
-    starts = {stage: _one(by_type.get(stage, []), f"s6bm_v4_{stage}") for stage in START_STAGES}
     switch = _one(by_type.get(SWITCH_EVENT, []), "s6bm_v4_switch_event")
     unload = _one(by_type.get(UNLOAD_EVENT, []), "s6bm_v4_unload_event")
     effect_events = by_type.get(EFFECT_EVENT, [])
     allowed_types = {*START_STAGES, SWITCH_EVENT, EFFECT_EVENT, UNLOAD_EVENT}
-    if set(by_type) != allowed_types or len(events) != len(records) + 5:
+    if set(by_type) != allowed_types:
         raise S6BMCausalError("s6bm_v4_event_type_set")
     by_request, event_by_request, database_envelopes, database_anchors = _validate_effects(
         records, effects_export, effect_events, switch, config
     )
 
-    crossover = _event_identity(starts[START_STAGES[0]])
+    crossover = _event_identity(switch)
     hold_id = str(crossover["request_id"])
     if hold_id not in by_request or _record_identity(by_request[hold_id]) != crossover:
         raise S6BMCausalError("s6bm_v4_crossover_identity")
+    starts = {
+        stage: _one(
+            [
+                event
+                for event in by_type.get(stage, [])
+                if _event_identity(event) == crossover
+            ],
+            f"s6bm_v4_{stage}",
+        )
+        for stage in START_STAGES
+    }
     for stage, event in starts.items():
         if _event_identity(event) != crossover or event.get("event_type") != stage:
             raise S6BMCausalError("s6bm_v4_start_receipt_binding")
     if _event_identity(switch) != crossover or _event_identity(unload) != crossover:
         raise S6BMCausalError("s6bm_v4_fence_identity")
+
+    required_bridge_items: list[dict[str, Any]] = []
+    if raw.get("traffic_plan") is not None:
+        expected_plan = build_continuity_plan(config, attempt_id)
+        if dict(raw.get("traffic_plan", {})) != expected_plan:
+            raise S6BMCausalError("s6bm_v4_continuity_plan_binding")
+        required_bridge_items = [
+            dict(item)
+            for item in expected_plan["roles"]["bridge"]
+            if item.get("actor_receipt_required") is True
+        ]
+    required_bridge_start_events: dict[str, dict[str, dict[str, Any]]] = {}
+    for item in required_bridge_items:
+        request_id = str(item["request_id"])
+        record = by_request.get(request_id)
+        if record is None:
+            raise S6BMCausalError("s6bm_v4_continuity_request_missing")
+        expected_identity = _record_identity(record)
+        stage_events: dict[str, dict[str, Any]] = {}
+        for stage in START_STAGES:
+            event = _one(
+                [
+                    candidate
+                    for candidate in by_type.get(stage, [])
+                    if str(candidate.get("request_id", "")) == request_id
+                ],
+                f"s6bm_v4_continuity_{stage}",
+            )
+            if (
+                _event_identity(event) != expected_identity
+                or event.get("event_type") != stage
+                or int(event.get("causal_sequence", 0))
+                >= int(switch.get("causal_sequence", 0))
+            ):
+                raise S6BMCausalError("s6bm_v4_continuity_actor_receipt_fence")
+            stage_events[stage] = event
+        required_bridge_start_events[request_id] = stage_events
+    expected_event_count = len(records) + 5 + 3 * len(required_bridge_items)
+    if len(events) != expected_event_count or any(
+        len(by_type.get(stage, [])) != 1 + len(required_bridge_items)
+        for stage in START_STAGES
+    ):
+        raise S6BMCausalError("s6bm_v4_event_type_set")
     switch_payload = dict(switch.get("payload", {}))
     expected_sequences = {stage: int(starts[stage]["causal_sequence"]) for stage in START_STAGES}
     expected_hashes = {stage: starts[stage]["payload_sha256"] for stage in START_STAGES}
@@ -1100,9 +1202,17 @@ def validate_causal_bundle(
     observed_green_lower, observed_green_upper = phase_bounds["green_active"]
     if route_switch_ns > observed_green_lower:
         raise S6BMCausalError("s6bm_v4_transition_runner_observation_order")
-    switch_lower = route_switch_ns
-    switch_upper = route_switch_ns
+    route_applied_lower = route_switch_ns
+    route_applied_upper = route_switch_ns
     unload_lower, _unload_upper = phase_bounds["green_only"]
+    hold = by_request[hold_id]
+    receipt = dict(hold.get("durable_effect", {}))
+    switch_fence = project_switch_fence_commit_interval(
+        dict(proof.get("route_transition_receipt", {})), receipt, config
+    )
+    switch_fence_lower, switch_fence_upper = switch_fence[
+        "fence_commit_interval_ns"
+    ]
 
     spans = _spans(trace_export)
     trace_id = str(crossover["trace_id"])
@@ -1226,10 +1336,10 @@ def validate_causal_bundle(
         start_unix = int(payload.get("actor_start_unix_ns", 0))
         projected = _project_unix(start_unix, envelope)
         actor_intervals[stage] = [projected[0], projected[1]]
-        if projected[1] >= switch_lower:
+        if projected[1] >= switch_fence_lower:
             raise S6BMCausalError(f"s6bm_v4_{stage}_after_switch")
         span_interval = _project_unix(actor_spans[stage]["start_unix_ns"], envelope)
-        if span_interval[1] >= switch_lower:
+        if span_interval[1] >= switch_fence_lower:
             raise S6BMCausalError(f"s6bm_v4_{stage}_span_after_switch")
         if abs(actor_spans[stage]["start_unix_ns"] - start_unix) > int(
             config.clock["max_phase_interval_ns"]
@@ -1240,7 +1350,7 @@ def validate_causal_bundle(
             local_after = int(payload.get("monotonic_after_ns", 0))
             if (
                 local_before <= 0
-                or not local_before <= local_after < switch_lower
+                or not local_before <= local_after < switch_fence_lower
                 or local_after - local_before > int(config.clock["max_anchor_width_ns"])
                 or max(projected[0], local_before) - min(projected[1], local_after)
                 > int(config.clock["max_offset_spread_ns"])
@@ -1252,15 +1362,211 @@ def validate_causal_bundle(
         (model_span, "model"),
         (compute_span, "compute"),
     ):
-        if _project_unix(backend_span["start_unix_ns"], envelope)[1] >= switch_lower:
+        if _project_unix(backend_span["start_unix_ns"], envelope)[1] >= route_applied_lower:
             raise S6BMCausalError(f"s6bm_v4_triton_{code}_after_switch")
 
     bridge_actor_count = 0
+    required_bridge_ids: list[str] = []
+    gate_readback_intervals: list[dict[str, Any]] = []
+    gate_readback_reference: dict[str, Any] | None = None
     if raw.get("traffic_plan") is not None:
-        expected_plan = build_continuity_plan(config, attempt_id)
-        if dict(raw.get("traffic_plan", {})) != expected_plan:
-            raise S6BMCausalError("s6bm_v4_continuity_plan_binding")
         bridge_items = [dict(item) for item in expected_plan["roles"]["bridge"]]
+        required_bridge_ids = [str(item["request_id"]) for item in required_bridge_items]
+        required_request_set_sha = canonical_sha256(required_bridge_ids)
+        execution = dict(raw.get("continuity_execution", {}))
+        bridge_gate = dict(execution.get("bridge_actor_receipt_gate", {}))
+        gate_events = [dict(item) for item in bridge_gate.get("events", [])]
+        gate_readback_path = _resolve(
+            private_root,
+            dict(bridge_gate.get("raw_readback_export", {})),
+            "s6bm_v4_continuity_actor_receipt_readback_export",
+        )
+        gate_readback_export = _read_json(
+            gate_readback_path,
+            "s6bm_v4_continuity_actor_receipt_readback_export",
+        )
+        gate_readback_reference = dict(bridge_gate["raw_readback_export"])
+        gate_readback_rows = [
+            dict(item) for item in gate_readback_export.get("events", [])
+        ]
+        expected_gate_keys = {
+            (request_id, stage)
+            for request_id in required_bridge_ids
+            for stage in START_STAGES
+        }
+        selected_readback_rows = [
+            item
+            for item in gate_readback_rows
+            if (str(item.get("request_id", "")), str(item.get("event_type", "")))
+            in expected_gate_keys
+        ]
+        selected_readback_keys = [
+            (str(item.get("request_id", "")), str(item.get("event_type", "")))
+            for item in selected_readback_rows
+        ]
+        if (
+            gate_readback_export.get("schema_version")
+            != "evm.s8_v4.s6bm_causal_event_export.v1"
+            or gate_readback_export.get("attempt_id") != attempt_id
+            or int(gate_readback_export.get("event_count", -1))
+            != len(gate_readback_rows)
+            or int(bridge_gate.get("raw_readback_event_count", -1))
+            != len(gate_readback_rows)
+            or len(selected_readback_keys) != len(set(selected_readback_keys))
+            or set(selected_readback_keys) != expected_gate_keys
+        ):
+            raise S6BMCausalError(
+                "s6bm_v4_continuity_actor_receipt_readback_export"
+            )
+        stable_event_fields = (
+            "causal_sequence",
+            "event_type",
+            "attempt_id",
+            "run_id",
+            "request_id",
+            "request_nonce",
+            "trace_id",
+            "effect_id",
+            "model_role",
+            "model_name",
+            "model_version",
+            "artifact_sha256",
+            "route_generation",
+            "actor_identity",
+            "payload_sha256",
+            "payload",
+            "transaction_id",
+            "database_recorded_at",
+        )
+        for item in selected_readback_rows:
+            request_id = str(item["request_id"])
+            stage = str(item["event_type"])
+            final_event = required_bridge_start_events[request_id][stage]
+            if (
+                any(item.get(key) != final_event.get(key) for key in stable_event_fields)
+                or item.get("payload_sha256")
+                != canonical_sha256(item.get("payload", {}))
+                or not str(item.get("captured_at", ""))
+            ):
+                raise S6BMCausalError(
+                    "s6bm_v4_continuity_actor_receipt_readback_binding"
+                )
+        expected_gate_events = sorted(
+            (
+                {
+                    key: value
+                    for key, value in {
+                        **{
+                            field: event[field]
+                            for field in stable_event_fields
+                            if field != "payload"
+                        },
+                        "readback_at": event["captured_at"],
+                        "readback_visible": True,
+                        "readback_source": "postgresql_attempt_export",
+                    }.items()
+                }
+                for event in selected_readback_rows
+            ),
+            key=lambda item: (item["request_id"], item["event_type"]),
+        )
+        gate_satisfied_ns = int(
+            _finite(
+                bridge_gate.get("gate_satisfied_monotonic"),
+                "s6bm_v4_continuity_gate_satisfied",
+            )
+            * 1e9
+        )
+        switch_invoked_ns = int(
+            _finite(
+                execution.get("switch_invoked_monotonic"),
+                "s6bm_v4_continuity_switch_invoked",
+            )
+            * 1e9
+        )
+        gate_event_projection = [
+            {key: item.get(key) for key in expected_gate_events[0]}
+            for item in gate_events
+        ] if expected_gate_events else []
+        database_envelope = tuple(
+            int(item) for item in switch_fence["database_offset_envelope_ns"]
+        )
+        for item in gate_events:
+            database_interval = _project_unix(
+                _unix_nano(
+                    item.get("database_recorded_at"),
+                    "s6bm_v4_continuity_receipt_database_time",
+                ),
+                database_envelope,
+            )
+            readback_interval = _project_unix(
+                _unix_nano(
+                    item.get("readback_at"),
+                    "s6bm_v4_continuity_receipt_readback_time",
+                ),
+                database_envelope,
+            )
+            if (
+                item.get("readback_visible") is not True
+                or item.get("readback_source") != "postgresql_attempt_export"
+                or database_interval[1] >= switch_fence_lower
+                or readback_interval[1] >= switch_fence_lower
+                or database_interval[1] > readback_interval[0]
+            ):
+                raise S6BMCausalError(
+                    "s6bm_v4_continuity_actor_receipt_commit_readback"
+                )
+            gate_readback_intervals.append(
+                {
+                    "request_id": item.get("request_id"),
+                    "event_type": item.get("event_type"),
+                    "database_recorded_interval_ns": list(database_interval),
+                    "readback_interval_ns": list(readback_interval),
+                }
+            )
+        if any(
+            int(item["readback_interval_ns"][1]) > gate_satisfied_ns
+            for item in gate_readback_intervals
+        ):
+            raise S6BMCausalError(
+                "s6bm_v4_continuity_actor_receipt_commit_readback"
+            )
+        if (
+            bridge_gate.get("schema_version")
+            != "evm.s8_v4.s6bm_bridge_actor_receipt_gate.v1"
+            or bridge_gate.get("attempt_id") != attempt_id
+            or int(bridge_gate.get("route_generation", 0))
+            != int(transition_projection["old_route_generation"])
+            or bridge_gate.get("required_request_ids") != required_bridge_ids
+            or bridge_gate.get("required_request_set_sha256")
+            != required_request_set_sha
+            or int(bridge_gate.get("required_stage_count", 0)) != len(START_STAGES)
+            or int(bridge_gate.get("expected_event_count", -1))
+            != len(expected_gate_events)
+            or int(bridge_gate.get("visible_event_count", -1))
+            != len(expected_gate_events)
+            or gate_event_projection != expected_gate_events
+            or bridge_gate.get("selected_event_set_sha256")
+            != canonical_sha256(expected_gate_events)
+            or int(bridge_gate.get("maximum_visible_causal_sequence", 0))
+            != max((int(item["causal_sequence"]) for item in expected_gate_events), default=0)
+            or not 0 < gate_satisfied_ns < switch_invoked_ns
+        ):
+            raise S6BMCausalError("s6bm_v4_continuity_actor_receipt_gate")
+        bridge_collector_receipts = [
+            dict(item) for item in execution.get("bridge_triton_start_receipts", [])
+        ]
+        bridge_collectors_by_request = {
+            str(item.get("request_id", "")): item for item in bridge_collector_receipts
+        }
+        if (
+            len(bridge_collectors_by_request) != len(required_bridge_ids)
+            or set(bridge_collectors_by_request) != set(required_bridge_ids)
+            or bridge_gate.get("collector_request_ids") != required_bridge_ids
+            or bridge_gate.get("collector_request_set_sha256")
+            != required_request_set_sha
+        ):
+            raise S6BMCausalError("s6bm_v4_continuity_collector_set")
         for item in bridge_items:
             request_id = str(item["request_id"])
             bridge_record = by_request.get(request_id)
@@ -1337,7 +1643,10 @@ def validate_causal_bundle(
                 (bridge_model, "model"),
                 (bridge_compute, "compute"),
             ):
-                if _project_unix(actor_span["start_unix_ns"], envelope)[1] >= switch_lower:
+                if (
+                    _project_unix(actor_span["start_unix_ns"], envelope)[1]
+                    >= switch_fence_lower
+                ):
                     raise S6BMCausalError(f"s6bm_v4_continuity_{code}_after_switch")
             bridge_expected = {
                 "evm.attempt.id": attempt_id,
@@ -1371,42 +1680,121 @@ def validate_causal_bundle(
                 != int(dict(proof["route_transition_receipt"])["old_route_generation"])
             ):
                 raise S6BMCausalError("s6bm_v4_continuity_model_binding")
+            if request_id in required_bridge_start_events:
+                required_events = required_bridge_start_events[request_id]
+                stage_spans = {
+                    "api_server_handler_entry": bridge_server,
+                    "controller_entry": bridge_controller,
+                    "triton_backend_compute_entry": bridge_compute,
+                }
+                for stage, start_event in required_events.items():
+                    start_payload = dict(start_event.get("payload", {}))
+                    start_unix_ns = int(start_payload.get("actor_start_unix_ns", 0))
+                    if (
+                        start_unix_ns <= 0
+                        or _project_unix(start_unix_ns, envelope)[1]
+                        >= switch_fence_lower
+                        or abs(stage_spans[stage]["start_unix_ns"] - start_unix_ns)
+                        > int(config.clock["max_phase_interval_ns"])
+                        or start_payload.get("route_generation")
+                        != int(transition_projection["old_route_generation"])
+                    ):
+                        raise S6BMCausalError(
+                            "s6bm_v4_continuity_actor_receipt_order"
+                        )
+                collector = bridge_collectors_by_request[request_id]
+                collector_spec_path = _resolve(
+                    private_root,
+                    dict(collector.get("spec", {})),
+                    "s6bm_v4_continuity_collector_spec",
+                )
+                collector_result_path = _resolve(
+                    private_root,
+                    dict(collector.get("result", {})),
+                    "s6bm_v4_continuity_collector_result",
+                )
+                collector_trace_path = _resolve(
+                    private_root,
+                    dict(collector.get("raw_trace", {})),
+                    "s6bm_v4_continuity_collector_trace",
+                )
+                bridge_spec = _read_json(
+                    collector_spec_path, "s6bm_v4_continuity_collector_spec"
+                )
+                bridge_result = _read_json(
+                    collector_result_path, "s6bm_v4_continuity_collector_result"
+                )
+                bridge_trace = _read_json(
+                    collector_trace_path, "s6bm_v4_continuity_collector_trace"
+                )
+                projected_bridge_result = {
+                    key: value
+                    for key, value in collector.items()
+                    if key not in {"spec", "result", "raw_trace", "stdout", "stderr"}
+                }
+                triton_start_event = required_events["triton_backend_compute_entry"]
+                triton_start_payload = dict(triton_start_event.get("payload", {}))
+                result_receipt = dict(bridge_result.get("receipt", {}))
+                if (
+                    bridge_result != projected_bridge_result
+                    or bridge_spec.get("attempt_id") != attempt_id
+                    or bridge_spec.get("request_id") != request_id
+                    or bridge_spec.get("trace_id") != bridge_record.get("trace_id")
+                    or bridge_result.get("collector_spec_sha256")
+                    != sha256_file(collector_spec_path)
+                    or bridge_result.get("raw_trace_sha256")
+                    != sha256_file(collector_trace_path)
+                    or bridge_trace.get("request_nonce")
+                    != bridge_record.get("request_nonce")
+                    or bridge_trace.get("trace_id") != bridge_record.get("trace_id")
+                    or int(bridge_trace.get("compute_start_unix_ns", 0))
+                    != bridge_compute["start_unix_ns"]
+                    or result_receipt.get("causal_sequence")
+                    != triton_start_event.get("causal_sequence")
+                    or result_receipt.get("transaction_id")
+                    != triton_start_event.get("transaction_id")
+                    or result_receipt.get("payload_sha256")
+                    != triton_start_event.get("payload_sha256")
+                    or triton_start_payload.get("raw_trace_artifact_sha256")
+                    != sha256_file(collector_trace_path)
+                    or triton_start_payload.get("raw_trace_record_sha256")
+                    != canonical_sha256(bridge_trace)
+                ):
+                    raise S6BMCausalError(
+                        "s6bm_v4_continuity_collector_binding"
+                    )
             bridge_actor_count += 1
 
-    hold = by_request[hold_id]
     attempted_ns = int(_finite(hold.get("attempted_monotonic"), "s6bm_v4_hold_start") * 1e9)
     completion_ns = int(_finite(hold.get("completed_monotonic"), "s6bm_v4_hold_completion") * 1e9)
     pre_switch_blue = [
         item
         for item in records
         if item.get("model_role") == "blue"
-        and int(float(item.get("attempted_monotonic", math.inf)) * 1e9) < switch_lower
+        and int(float(item.get("attempted_monotonic", math.inf)) * 1e9)
+        < route_applied_lower
     ]
     stale_blue = [
         item
         for item in records
         if item.get("model_role") == "blue"
-        and int(float(item.get("attempted_monotonic", 0)) * 1e9) >= switch_upper
+        and int(float(item.get("attempted_monotonic", 0)) * 1e9)
+        >= route_applied_upper
     ]
     if stale_blue:
         raise S6BMCausalError("s6bm_v4_stale_blue_admission")
-    receipt = dict(hold.get("durable_effect", {}))
     commit_ack = int(receipt.get("commit_ack_monotonic_ns", 0))
     readback_end = int(receipt.get("readback_finished_monotonic_ns", 0))
     commit_interval = _project_unix(
         _unix_nano(receipt.get("commit_timestamp"), "s6bm_v4_hold_commit_timestamp"),
         database_envelopes[hold_id],
     )
-    if (
-        not attempted_ns
-        < switch_lower
-        <= switch_upper
-        < commit_ack
-        <= readback_end
-        <= completion_ns
+    if not (
+        attempted_ns < route_applied_lower <= route_applied_upper
+        and switch_fence_upper < commit_ack <= readback_end <= completion_ns
     ):
         raise S6BMCausalError("s6bm_v4_hold_switch_effect_order")
-    if not switch_upper < commit_interval[0] <= commit_interval[1] <= completion_ns:
+    if not switch_fence_upper < commit_interval[0] <= commit_interval[1] <= completion_ns:
         raise S6BMCausalError("s6bm_v4_hold_commit_interval_order")
     effect_start_interval = _project_unix(effect_span["start_unix_ns"], envelope)
     effect_end_interval = _project_unix(effect_span["end_unix_ns"], envelope)
@@ -1467,7 +1855,12 @@ def validate_causal_bundle(
             "effect_sequence": int(hold_effect["causal_sequence"]),
             "unload_sequence": int(unload["causal_sequence"]),
             "actor_start_monotonic_intervals_ns": actor_intervals,
-            "switch_monotonic_interval_ns": [switch_lower, switch_upper],
+            "switch_fence_commit_interval_ns": [switch_fence_lower, switch_fence_upper],
+            "switch_fence_projection": switch_fence,
+            "route_applied_monotonic_interval_ns": [
+                route_applied_lower,
+                route_applied_upper,
+            ],
             "runner_green_active_observation_interval_ns": [
                 observed_green_lower,
                 observed_green_upper,
@@ -1481,9 +1874,24 @@ def validate_causal_bundle(
             "blue_unload_monotonic_lower_ns": unload_lower,
             "pre_switch_blue_request_count": len(pre_switch_ids),
             "continuity_bridge_actor_bound_count": bridge_actor_count,
+            "required_bridge_actor_receipt_mode": (
+                "success_exact_set" if required_bridge_ids else "qualification_zero_set"
+            ),
+            "required_bridge_actor_receipt_count": len(required_bridge_ids),
+            "required_bridge_actor_request_set_sha256": canonical_sha256(
+                required_bridge_ids
+            ),
+            "required_bridge_actor_commit_readback_intervals": gate_readback_intervals,
+            "required_bridge_actor_raw_readback_export": gate_readback_reference,
         },
         "transaction_semantics": {
-            "sequence_order_proven": True,
+            "causal_sequence_is_auxiliary": True,
+            "required_bridge_receipt_contract": (
+                "success_exact_4x3" if required_bridge_ids else "qualification_exact_empty_set"
+            ),
+            "required_bridge_receipt_commit_readback_precedes_switch_fence": bool(
+                required_bridge_ids
+            ),
             "synchronous_commit": "on",
             "independent_readback": True,
             "effect_observed_committed_switch_fence": True,

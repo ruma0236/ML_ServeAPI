@@ -201,9 +201,10 @@ def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
         "max_request_payload_bytes": 4096,
         "max_in_flight_payload_bytes": 16384,
         "bridge_hold_count": 4,
-        "bridge_hold_ms": 400,
+        "bridge_hold_ms": 2000,
+        "required_actor_bridge_count": 4,
         "max_schedule_lateness_ms": 500,
-        "minimum_blue_in_flight_at_switch": 2,
+        "minimum_blue_in_flight_at_switch": 5,
         "minimum_bridge_cross_switch_completions": 1,
         "minimum_transition_terminal_completions": 8,
         "adaptive_pacing_forbidden": True,
@@ -492,7 +493,7 @@ def v4_continuity_attempt() -> dict[str, object]:
             bridge_index = ordinal - 101
             attempted = producer_started + bridge_index * 0.15 + 0.001
             terminal = (
-                93.02 + (bridge_index - 36) * 0.001
+                attempted + 2.01
                 if bridge_index >= 36
                 else attempted + 0.05
             )
@@ -561,6 +562,7 @@ def v4_continuity_attempt() -> dict[str, object]:
                 "request_id": item["request_id"],
                 "scheduled_offset_ms": item["scheduled_offset_ms"],
                 "hold_ms": item["hold_ms"],
+                "actor_receipt_required": item["actor_receipt_required"],
                 "payload_bytes": 500,
                 "payload_sha256": record["offered_payload_sha256"],
                 "capacity_wait_ms": 0.0,
@@ -576,6 +578,51 @@ def v4_continuity_attempt() -> dict[str, object]:
         )
     plan_artifact_sha = hashlib.sha256((canonical(plan) + "\n").encode("ascii")).hexdigest()
     role_counts = {role: len(plan["roles"][role]) for role in plan["role_order"]}
+    required_bridge_ids = [
+        item["request_id"]
+        for item in plan["roles"]["bridge"]
+        if item["actor_receipt_required"] is True
+    ]
+    bridge_gate_events = []
+    for sequence, (request_id, stage) in enumerate(
+        (
+            (request_id, stage)
+            for request_id in required_bridge_ids
+            for stage in (
+                "api_server_handler_entry",
+                "controller_entry",
+                "triton_backend_compute_entry",
+            )
+        ),
+        start=1,
+    ):
+        record = next(item for item in records if item["request_id"] == request_id)
+        bridge_gate_events.append(
+            {
+                "causal_sequence": sequence,
+                "event_type": stage,
+                "attempt_id": attempt_id,
+                "run_id": record["run_id"],
+                "request_id": request_id,
+                "request_nonce": record["request_nonce"],
+                "trace_id": record["trace_id"],
+                "effect_id": record["effect_id"],
+                "model_role": "blue",
+                "model_name": config.blue.model_name,
+                "model_version": config.blue.model_version,
+                "artifact_sha256": config.blue.artifact_sha256,
+                "route_generation": 2,
+                "actor_identity": f"actor:{stage}",
+                "transaction_id": str(10_000 + sequence),
+                "payload_sha256": hashlib.sha256(
+                    f"{request_id}:{stage}".encode("ascii")
+                ).hexdigest(),
+                "database_recorded_at": "2026-08-25T00:00:00Z",
+                "readback_at": "2026-08-25T00:00:00.001Z",
+                "readback_visible": True,
+                "readback_source": "postgresql_attempt_export",
+            }
+        )
     return {
         "attempt_id": attempt_id,
         "profile": "successful_transition",
@@ -600,12 +647,38 @@ def v4_continuity_attempt() -> dict[str, object]:
             "plan_frozen_monotonic": 79.0,
             "controller_initialized_monotonic": 80.0,
             "producer_started_monotonic": producer_started,
+            "causal_gate_started_monotonic": producer_started + 0.0001,
             "all_submitted_monotonic": 91.851,
             "switch_invoked_monotonic": 92.99,
             "transition_receipt_observed_monotonic": 93.005,
-            "producer_finished_monotonic": 93.03,
+            "producer_finished_monotonic": 94.0,
             "adaptive_pacing": False,
+            "switch_gate_basis": "required_actor_receipts_and_db_readback",
             "blue_in_flight_before_switch": 5,
+            "bridge_triton_start_receipts": [
+                {"request_id": request_id} for request_id in required_bridge_ids
+            ],
+            "bridge_actor_receipt_gate": {
+                "schema_version": "evm.s8_v4.s6bm_bridge_actor_receipt_gate.v1",
+                "attempt_id": attempt_id,
+                "route_generation": 2,
+                "required_request_ids": required_bridge_ids,
+                "required_request_set_sha256": canonical_sha256(required_bridge_ids),
+                "required_stage_count": 3,
+                "expected_event_count": 12,
+                "visible_event_count": 12,
+                "raw_readback_export": {
+                    "path": f"causal/{attempt_id}/bridge-start-receipts-pre-switch.json",
+                    "sha256": "a" * 64,
+                    "bytes": 1024,
+                },
+                "raw_readback_event_count": 15,
+                "selected_event_set_sha256": canonical_sha256(bridge_gate_events),
+                "events": bridge_gate_events,
+                "collector_request_ids": required_bridge_ids,
+                "collector_request_set_sha256": canonical_sha256(required_bridge_ids),
+                "gate_satisfied_monotonic": 92.98,
+            },
             "max_reserved_requests_observed": 4,
             "max_reserved_payload_bytes_observed": 2000,
             "reserved_requests_at_finish": 0,
@@ -713,6 +786,13 @@ def test_s6bm_v4_continuity_plan_is_exact_and_frozen() -> None:
     assert plan["request_id_set_sha256"] == canonical_sha256(ids)
     assert plan["adaptive_pacing"] is False
     assert plan["completion_windowing"] == "all_exact_logical_ids"
+    required_bridge = [
+        item
+        for item in plan["roles"]["bridge"]
+        if item["actor_receipt_required"] is True
+    ]
+    assert len(required_bridge) == 4
+    assert all(item["hold_ms"] == 2000 for item in required_bridge)
 
 
 def test_s6bm_v4_continuity_projection_uses_all_durable_terminal_completions() -> None:
@@ -739,6 +819,9 @@ def test_s6bm_v4_continuity_projection_uses_all_durable_terminal_completions() -
         ("synthetic_completion", "s6bm_durable_terminal_readback"),
         ("gap_window", "s6bm_continuity_post_hoc_window"),
         ("capacity", "s6bm_continuity_capacity_bound"),
+        ("actor_receipt_missing", "s6bm_continuity_actor_receipt_gate"),
+        ("callback_before_actor_start", "s6bm_continuity_actor_receipt_gate"),
+        ("normal_old_epoch", "s6bm_continuity_generation_binding"),
         ("premature_unload", "s6bm_drain_unload_before_blue_completion"),
     ],
 )
@@ -771,6 +854,17 @@ def test_s6bm_v4_continuity_mutations_fail_closed(mutation: str, reason: str) ->
         raw["completion_window"] = {"exclude": [bridge_id]}
     elif mutation == "capacity":
         raw["continuity_execution"]["max_reserved_requests_observed"] = 5
+    elif mutation == "actor_receipt_missing":
+        raw["continuity_execution"]["bridge_actor_receipt_gate"]["events"].pop()
+    elif mutation == "callback_before_actor_start":
+        raw["continuity_execution"]["bridge_actor_receipt_gate"][
+            "gate_satisfied_monotonic"
+        ] = 93.0
+    elif mutation == "normal_old_epoch":
+        normal_id = raw["traffic_plan"]["roles"]["normal"][0]["request_id"]
+        next(
+            item for item in raw["request_records"] if item["request_id"] == normal_id
+        )["route_generation"] = 2
     elif mutation == "premature_unload":
         next(
             item for item in raw["phase_timeline"] if item["phase"] == "green_only"

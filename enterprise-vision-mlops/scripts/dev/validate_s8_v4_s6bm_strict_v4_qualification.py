@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from evm.scale_validation.s6bm_causal import (  # noqa: E402
     S6BMCausalError,
+    project_switch_fence_commit_interval,
     validate_causal_bundle,
 )
 from evm.scale_validation.s6bm_observability import (  # noqa: E402
@@ -317,7 +318,7 @@ def _rewrite_start_event(
     return selected
 
 
-def _switch_unix_ns(raw: dict[str, Any]) -> int:
+def _route_applied_actor_unix_ns(raw: dict[str, Any]) -> int:
     return int(
         _proof(raw)["route_transition_receipt"]["route_applied_actor"][
             "actor_start_unix_ns"
@@ -329,7 +330,7 @@ def _set_span_start_after_switch(
     root: Path, raw: dict[str, Any], span_name: str, offset_ms: int
 ) -> None:
     trace_id = raw["request_records"][0]["trace_id"]
-    start = _switch_unix_ns(raw) + offset_ms * 1_000_000
+    start = _route_applied_actor_unix_ns(raw) + offset_ms * 1_000_000
 
     def mutate(payload: dict[str, Any]) -> None:
         span = next(
@@ -367,7 +368,7 @@ def _actor_and_span_start_after_switch(
 ) -> None:
     _set_span_start_after_switch(root, raw, span_name, offset_ms)
     switch_monotonic = int(_route_transition_receipt(raw)["route_applied_monotonic_ns"])
-    start_unix = _switch_unix_ns(raw) + offset_ms * 1_000_000
+    start_unix = _route_applied_actor_unix_ns(raw) + offset_ms * 1_000_000
     local_start = switch_monotonic + offset_ms * 1_000_000
     _rewrite_start_event(
         root,
@@ -404,7 +405,7 @@ def _controller_actor_and_span_after_switch(root: Path, raw: dict[str, Any]) -> 
 def _model_start_after_switch(root: Path, raw: dict[str, Any]) -> None:
     trace_id = raw["request_records"][0]["trace_id"]
     model_name = raw["request_records"][0]["model_name"]
-    start = _switch_unix_ns(raw) + 3_000_000
+    start = _route_applied_actor_unix_ns(raw) + 3_000_000
 
     def mutate_trace(payload: dict[str, Any]) -> None:
         model_entry = next(
@@ -784,13 +785,24 @@ def _effect_database_precedes_switch_ack_delayed(root: Path, raw: dict[str, Any]
     record["durable_effect"]["stored_payload_sha256"] = canonical_sha256(effect_payload)
 
 
-def _terminal_effect_before_switch(root: Path, raw: dict[str, Any]) -> None:
-    switch_unix = _switch_unix_ns(raw)
-    timestamp = (
-        datetime.fromtimestamp((switch_unix - 1_000_000) / 1_000_000_000, UTC)
+def _unix_ns_iso(value: int) -> str:
+    return (
+        datetime.fromtimestamp(value / 1_000_000_000, UTC)
         .isoformat(timespec="microseconds")
         .replace("+00:00", "Z")
     )
+
+
+def _terminal_effect_before_switch(
+    root: Path, raw: dict[str, Any], config: S6BMConfig
+) -> None:
+    receipt = _effect_receipt(raw)
+    switch = project_switch_fence_commit_interval(
+        _route_transition_receipt(raw), receipt, config
+    )
+    fence_lower = int(switch["fence_commit_interval_ns"][0])
+    offset_low = int(switch["database_offset_envelope_ns"][0])
+    timestamp = _unix_ns_iso(fence_lower + offset_low - 1_000_000)
     _effect_receipt(raw)["commit_timestamp"] = timestamp
 
     def mutate(payload: dict[str, Any]) -> None:
@@ -804,13 +816,16 @@ def _terminal_effect_before_switch(root: Path, raw: dict[str, Any]) -> None:
     _rewrite_trace(root, raw, mutate)
 
 
-def _terminal_effect_switch_overlap(root: Path, raw: dict[str, Any]) -> None:
-    switch_unix = _switch_unix_ns(raw)
-    timestamp = (
-        datetime.fromtimestamp(switch_unix / 1_000_000_000, UTC)
-        .isoformat(timespec="microseconds")
-        .replace("+00:00", "Z")
+def _terminal_effect_switch_overlap(
+    root: Path, raw: dict[str, Any], config: S6BMConfig
+) -> None:
+    receipt = _effect_receipt(raw)
+    switch = project_switch_fence_commit_interval(
+        _route_transition_receipt(raw), receipt, config
     )
+    fence_lower = int(switch["fence_commit_interval_ns"][0])
+    offset_low = int(switch["database_offset_envelope_ns"][0])
+    timestamp = _unix_ns_iso(fence_lower + offset_low)
     _effect_receipt(raw)["commit_timestamp"] = timestamp
 
     def mutate(payload: dict[str, Any]) -> None:
@@ -1238,12 +1253,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         (
             "terminal_effect_before_switch_outer_completion_after",
             "s6bm_v4_hold_commit_interval_order",
-            _terminal_effect_before_switch,
+            lambda root, candidate: _terminal_effect_before_switch(
+                root, candidate, config
+            ),
         ),
         (
             "database_commit_switch_interval_overlap",
             "s6bm_v4_hold_commit_interval_order",
-            _terminal_effect_switch_overlap,
+            lambda root, candidate: _terminal_effect_switch_overlap(
+                root, candidate, config
+            ),
         ),
         ("durable_effect_row_absent", "s6bm_v4_durable_effect_count", _durable_effect_absent),
         (

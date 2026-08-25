@@ -590,11 +590,15 @@ async def predict_triton_blue_green(
     request: TritonBlueGreenPredictRequest,
 ) -> TritonBlueGreenPredictResponse:
     try:
-        if request.causal_crossover:
+        if request.causal_crossover or request.start_receipt_required:
             server_payload = {
                 **expected_causal_identity_for_request(request).model_dump(mode="json"),
                 **causal_start_observation("fastapi-server-handler"),
-                "route_phase": "offered_blue_crossover",
+                "route_phase": (
+                    "offered_blue_crossover"
+                    if request.causal_crossover
+                    else "offered_blue_continuity_bridge"
+                ),
             }
             server_receipt = await _commit_s6bm_start_receipt(
                 "api_server_handler_entry",
