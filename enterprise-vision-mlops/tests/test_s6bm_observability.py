@@ -353,7 +353,7 @@ def _write_triton_compute_start(
                                 "traceId": trace_id,
                                 "spanId": "2" * 16,
                                 "parentSpanId": "3" * 16,
-                                "name": "InferRequest",
+                                "name": "s6bm_blue",
                                 "startTimeUnixNano": "1000000000",
                                 "endTimeUnixNano": "1002000000",
                                 "attributes": _attributes(
@@ -363,6 +363,14 @@ def _write_triton_compute_start(
                                         "model_version": "1",
                                     }
                                 ),
+                            },
+                            {
+                                "traceId": trace_id,
+                                "spanId": "4" * 16,
+                                "parentSpanId": "2" * 16,
+                                "name": "compute",
+                                "startTimeUnixNano": "1001000000",
+                                "endTimeUnixNano": "1001500000",
                                 "events": [
                                     {
                                         "name": "COMPUTE_START",
@@ -393,6 +401,8 @@ def test_triton_compute_start_requires_exact_actor_and_request_identity(tmp_path
 
     assert result is not None
     assert result["compute_start_unix_ns"] == 1_001_000_000
+    assert result["span_id"] == "4" * 16
+    assert result["model_request_span_id"] == "2" * 16
     assert result["resource"]["service.name"] == "triton-inference-server"
     assert (
         find_triton_compute_start(
