@@ -334,6 +334,65 @@ def _validate_s6bm_causal_identity(payload: Mapping[str, Any]) -> dict[str, Any]
     return identity
 
 
+def s6bm_terminal_fence_record(
+    entity: Mapping[str, Any],
+    event: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Project one durable terminal entity and causal event for the switch fence."""
+    payload = dict(entity.get("payload", {}))
+    served = dict(payload.get("served_identity", {}))
+    durable = dict(payload.get("durable_commit", {}))
+    event_payload = dict(event.get("payload", {}))
+    request_id = str(payload.get("request_id", ""))
+    effect_id = str(payload.get("effect_id", ""))
+    if (
+        payload.get("schema_version") != "evm.s8_v4.s6bm_terminal_effect.v1"
+        or entity.get("state") != "completed"
+        or entity.get("entity_id") != effect_id
+        or entity.get("idempotency_key") != request_id
+        or payload.get("terminal_outcome") != "completed"
+        or event.get("event_type") != "durable_terminal_effect_commit"
+        or event.get("request_id") != request_id
+        or event.get("effect_id") != effect_id
+        or event.get("attempt_id") != payload.get("attempt_id")
+        or event.get("run_id") != payload.get("run_id")
+        or event.get("trace_id") != payload.get("trace_id")
+        or any(
+            event.get(field) != served.get(field)
+            for field in ("model_role", "model_name", "model_version", "artifact_sha256")
+        )
+        or int(event.get("route_generation", 0)) != int(payload.get("route_generation", 0))
+        or event.get("payload_sha256") != canonical_digest(event_payload)
+        or int(event.get("causal_sequence", 0))
+        != int(durable.get("causal_sequence", -1))
+        or str(event.get("transaction_id", ""))
+        != str(durable.get("transaction_id", ""))
+        or not str(entity.get("request_sha256", ""))
+    ):
+        raise ControlPlaneParityError("S6B-M terminal fence record parity failed")
+    return {
+        "attempt_id": payload["attempt_id"],
+        "run_id": payload["run_id"],
+        "request_id": request_id,
+        "trace_id": payload["trace_id"],
+        "effect_id": effect_id,
+        "model_role": served["model_role"],
+        "model_name": served["model_name"],
+        "model_version": served["model_version"],
+        "artifact_sha256": served["artifact_sha256"],
+        "route_generation": int(payload["route_generation"]),
+        "result_sha256": payload["result_sha256"],
+        "terminal_outcome": payload["terminal_outcome"],
+        "entity_state": entity["state"],
+        "idempotency_key": entity["idempotency_key"],
+        "request_sha256": entity["request_sha256"],
+        "stored_payload_sha256": canonical_digest(payload),
+        "causal_sequence": int(event["causal_sequence"]),
+        "causal_transaction_id": str(event["transaction_id"]),
+        "causal_payload_sha256": event["payload_sha256"],
+    }
+
+
 def _advisory_key(scope: str) -> int:
     raw = int.from_bytes(hashlib.sha256(scope.encode("utf-8")).digest()[:8], "big")
     return raw if raw < 2**63 else raw - 2**64
@@ -1228,6 +1287,13 @@ class TransactionalControlPlaneStore:
         continuity_receipt_ids = list(source_payload.get("continuity_receipt_request_ids", []))
         continuity_crossover_ids = list(source_payload.get("continuity_crossover_request_ids", []))
         pending_crossover_ids = list(source_payload.get("pending_crossover_request_ids", []))
+        continuity_terminal_ids = list(source_payload.get("continuity_terminal_request_ids", []))
+        continuity_terminal_set_sha256 = str(
+            source_payload.get("continuity_terminal_request_set_sha256") or ""
+        )
+        continuity_terminal_records_sha256 = str(
+            source_payload.get("continuity_terminal_records_sha256") or ""
+        )
         transition_core = {
             "attempt_id": str(context.get("attempt_id", "")),
             "run_id": str(context.get("run_id", "")),
@@ -1279,6 +1345,7 @@ class TransactionalControlPlaneStore:
             or continuity_receipt_ids != sorted(set(continuity_receipt_ids))
             or continuity_crossover_ids != sorted(set(continuity_crossover_ids))
             or pending_crossover_ids != sorted(set(pending_crossover_ids))
+            or continuity_terminal_ids != sorted(set(continuity_terminal_ids))
             or (
                 bool(continuity_receipt_ids)
                 and (
@@ -1289,6 +1356,11 @@ class TransactionalControlPlaneStore:
                     or len(pending_crossover_ids) != 2
                     or pending_crossover_ids
                     != sorted([identity["request_id"], continuity_crossover_ids[0]])
+                    or len(continuity_terminal_ids) != 39
+                    or set(continuity_terminal_ids) & set(continuity_crossover_ids)
+                    or continuity_terminal_set_sha256
+                    != canonical_digest(continuity_terminal_ids)
+                    or len(continuity_terminal_records_sha256) != 64
                 )
             )
             or (
@@ -1296,6 +1368,9 @@ class TransactionalControlPlaneStore:
                 and (
                     bool(continuity_crossover_ids)
                     or pending_crossover_ids not in ([], [identity["request_id"]])
+                    or bool(continuity_terminal_ids)
+                    or bool(continuity_terminal_set_sha256)
+                    or bool(continuity_terminal_records_sha256)
                 )
             )
         ):
@@ -1402,6 +1477,93 @@ class TransactionalControlPlaneStore:
                 }
                 for request_id in continuity_receipt_ids
             }
+            terminal_records: list[dict[str, Any]] = []
+            if continuity_terminal_ids:
+                terminal_rows = connection.execute(
+                    f"""
+                    SELECT entity.entity_id, entity.state, entity.payload,
+                           identity.scope, identity.idempotency_key,
+                           identity.request_sha256
+                    FROM {schema}.entities entity
+                    JOIN {schema}.idempotency_keys identity
+                      ON identity.entity_kind=entity.entity_kind
+                     AND identity.entity_id=entity.entity_id
+                    WHERE entity.entity_kind='s6bm_terminal_effect'
+                      AND identity.scope=%s
+                      AND identity.idempotency_key=ANY(%s)
+                    ORDER BY identity.idempotency_key
+                    FOR UPDATE OF entity, identity
+                    """,
+                    (
+                        f"s6bm.terminal-effect.{identity['attempt_id']}",
+                        continuity_terminal_ids,
+                    ),
+                ).fetchall()
+                terminal_event_rows = connection.execute(
+                    f"""
+                    SELECT * FROM {schema}.s6bm_causal_events
+                    WHERE attempt_id=%s AND request_id=ANY(%s)
+                      AND event_type='durable_terminal_effect_commit'
+                    ORDER BY request_id
+                    FOR UPDATE
+                    """,
+                    (identity["attempt_id"], continuity_terminal_ids),
+                ).fetchall()
+                terminal_events = {
+                    str(event["request_id"]): event
+                    for event in (
+                        self._s6bm_causal_row(row) for row in terminal_event_rows
+                    )
+                }
+                if (
+                    len(terminal_rows) != len(continuity_terminal_ids)
+                    or len(terminal_events) != len(continuity_terminal_ids)
+                ):
+                    raise ControlPlaneParityError(
+                        "S6B-M continuity terminal set is incomplete"
+                    )
+                for row in terminal_rows:
+                    request_id = str(row["idempotency_key"])
+                    event = terminal_events.get(request_id)
+                    if event is None:
+                        raise ControlPlaneParityError(
+                            "S6B-M continuity terminal effect event is absent"
+                        )
+                    record = s6bm_terminal_fence_record(
+                        {
+                            "entity_id": row["entity_id"],
+                            "state": row["state"],
+                            "payload": dict(row["payload"]),
+                            "scope": row["scope"],
+                            "idempotency_key": row["idempotency_key"],
+                            "request_sha256": row["request_sha256"],
+                        },
+                        event,
+                    )
+                    if (
+                        record["attempt_id"] != identity["attempt_id"]
+                        or record["run_id"] != identity["run_id"]
+                        or record["model_role"] != "blue"
+                        or record["model_name"] != identity["model_name"]
+                        or record["model_version"] != identity["model_version"]
+                        or record["artifact_sha256"] != identity["artifact_sha256"]
+                        or record["route_generation"]
+                        != transition_core["old_route_generation"]
+                    ):
+                        raise ControlPlaneParityError(
+                            "S6B-M continuity terminal identity mismatch"
+                        )
+                    terminal_records.append(record)
+                terminal_records.sort(key=lambda item: item["request_id"])
+                if (
+                    [item["request_id"] for item in terminal_records]
+                    != continuity_terminal_ids
+                    or canonical_digest(terminal_records)
+                    != continuity_terminal_records_sha256
+                ):
+                    raise ControlPlaneParityError(
+                        "S6B-M continuity terminal record hash mismatch"
+                    )
             switch_payload = {
                 **identity,
                 "schema_version": "evm.s6bm.route_switch_fence.v2",
@@ -1427,6 +1589,17 @@ class TransactionalControlPlaneStore:
                 ),
                 "pending_crossover_request_ids": pending_crossover_ids,
                 "pending_crossover_request_set_sha256": canonical_digest(pending_crossover_ids),
+                "continuity_terminal_request_ids": continuity_terminal_ids,
+                "continuity_terminal_request_set_sha256": (
+                    continuity_terminal_set_sha256 or canonical_digest([])
+                ),
+                "continuity_terminal_records_sha256": (
+                    continuity_terminal_records_sha256 or canonical_digest([])
+                ),
+                "continuity_terminal_sequences": {
+                    item["request_id"]: item["causal_sequence"]
+                    for item in terminal_records
+                },
                 "continuity_receipt_sequences": {
                     request_id: {
                         event_type: bridge_by_request[request_id][event_type]["causal_sequence"]
@@ -1462,6 +1635,9 @@ class TransactionalControlPlaneStore:
                 int(sequence) >= switch["causal_sequence"]
                 for request_sequences in switch_payload["continuity_receipt_sequences"].values()
                 for sequence in request_sequences.values()
+            ) or any(
+                int(sequence) >= switch["causal_sequence"]
+                for sequence in switch_payload["continuity_terminal_sequences"].values()
             ):
                 raise ControlPlaneParityError("S6B-M route switch causal sequence regressed")
         commit_ack_monotonic_ns = time.perf_counter_ns()
@@ -1499,6 +1675,14 @@ class TransactionalControlPlaneStore:
             "continuity_crossover_count": len(continuity_crossover_ids),
             "pending_crossover_request_ids": pending_crossover_ids,
             "pending_crossover_count": len(pending_crossover_ids),
+            "continuity_terminal_request_ids": continuity_terminal_ids,
+            "continuity_terminal_request_count": len(continuity_terminal_ids),
+            "continuity_terminal_request_set_sha256": (
+                continuity_terminal_set_sha256 or canonical_digest([])
+            ),
+            "continuity_terminal_records_sha256": (
+                continuity_terminal_records_sha256 or canonical_digest([])
+            ),
             "source_payload_sha256": transition_core["source_payload_sha256"],
             "source_revision": transition_core["source_revision"],
             "cell_id": transition_core["cell_id"],

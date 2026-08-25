@@ -33,6 +33,10 @@ from evm.control_panel.scenario_workloads import (  # noqa: E402
     read_active_gpu_lease,
     release_scale_validation_gpu_lease,
 )
+from evm.control_panel.transactional_store import (  # noqa: E402
+    ControlPlaneParityError,
+    s6bm_terminal_fence_record,
+)
 from evm.model_runtime.triton_blue_green import (  # noqa: E402
     TritonBlueGreenControlRequest,
     TritonBlueGreenPredictRequest,
@@ -887,6 +891,9 @@ def control_payload(
     continuity_receipt_request_ids: Sequence[str] = (),
     continuity_crossover_request_ids: Sequence[str] = (),
     pending_crossover_request_ids: Sequence[str] = (),
+    continuity_terminal_request_ids: Sequence[str] = (),
+    continuity_terminal_request_set_sha256: str | None = None,
+    continuity_terminal_records_sha256: str | None = None,
 ) -> dict[str, Any]:
     state = controller_state(config)
     request = TritonBlueGreenControlRequest(
@@ -906,6 +913,9 @@ def control_payload(
         continuity_receipt_request_ids=list(continuity_receipt_request_ids),
         continuity_crossover_request_ids=list(continuity_crossover_request_ids),
         pending_crossover_request_ids=list(pending_crossover_request_ids),
+        continuity_terminal_request_ids=list(continuity_terminal_request_ids),
+        continuity_terminal_request_set_sha256=continuity_terminal_request_set_sha256,
+        continuity_terminal_records_sha256=continuity_terminal_records_sha256,
     )
     request = request.model_copy(update={"action_digest": action_digest(request)})
     return request.model_dump(mode="json")
@@ -914,10 +924,15 @@ def control_payload(
 def apply_control(
     config: S6BMConfig, lease: GpuLease, action: str, **signals: Any
 ) -> dict[str, Any]:
+    timeout = (
+        float(config.continuity["route_switch_barrier_timeout_seconds"])
+        if action == "green_switched" and config.schema_version.endswith(".v4")
+        else 30.0
+    )
     response = requests.post(
         api_url(config, "control"),
         json=control_payload(config, lease, action, **signals),
-        timeout=30,
+        timeout=timeout,
     )
     response.raise_for_status()
     return response.json()
@@ -1297,6 +1312,128 @@ def read_required_bridge_start_receipts(
     }
 
 
+def bind_pre_switch_terminal_gate(
+    config: S6BMConfig,
+    *,
+    suite_root: Path,
+    attempt_id: str,
+    expected_bodies: Mapping[str, Mapping[str, Any]],
+    response_records: Mapping[str, Mapping[str, Any]],
+    terminal_gate: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind online Blue responses to committed PG entity/event readback before switch."""
+    expected_ids = sorted(expected_bodies)
+    if (
+        len(expected_ids) != int(config.continuity["pre_switch_terminal_bridge_count"])
+        or sorted(response_records) != expected_ids
+    ):
+        raise S6BMExperimentError("continuity_pre_switch_terminal_exact_set")
+    effects_response = requests.get(api_url(config, f"effects/{attempt_id}"), timeout=30)
+    events_response = requests.get(api_url(config, f"causal-events/{attempt_id}"), timeout=30)
+    effects_response.raise_for_status()
+    events_response.raise_for_status()
+    effects_export = effects_response.json()
+    events_export = events_response.json()
+    evidence_root = suite_root / "causal" / attempt_id
+    effects_path = evidence_root / "bridge-terminal-effects-pre-switch.json"
+    events_path = evidence_root / "bridge-terminal-events-pre-switch.json"
+    canonical_write(effects_path, effects_export)
+    canonical_write(events_path, events_export)
+    effects = [dict(item) for item in effects_export.get("effects", [])]
+    events = [
+        dict(item)
+        for item in events_export.get("events", [])
+        if item.get("event_type") == "durable_terminal_effect_commit"
+    ]
+    if (
+        effects_export.get("schema_version")
+        != "evm.s8_v4.s6bm_terminal_effect_export.v1"
+        or effects_export.get("attempt_id") != attempt_id
+        or int(effects_export.get("effect_count", -1)) != len(effects)
+        or events_export.get("schema_version")
+        != "evm.s8_v4.s6bm_causal_event_export.v1"
+        or events_export.get("attempt_id") != attempt_id
+        or int(events_export.get("event_count", -1))
+        != len(events_export.get("events", []))
+    ):
+        raise S6BMExperimentError("continuity_pre_switch_terminal_export_identity")
+    effects_by_request = {
+        str(item.get("idempotency_key", "")): item for item in effects
+    }
+    events_by_request = {str(item.get("request_id", "")): item for item in events}
+    if (
+        not set(expected_ids).issubset(effects_by_request)
+        or not set(expected_ids).issubset(events_by_request)
+    ):
+        raise S6BMExperimentError("continuity_pre_switch_terminal_durable_missing")
+    projected: list[dict[str, Any]] = []
+    for request_id in expected_ids:
+        body = dict(expected_bodies[request_id])
+        response = dict(response_records[request_id])
+        durable = dict(response.get("durable_effect") or {})
+        if (
+            response.get("request_id") != request_id
+            or response.get("attempt_id") != attempt_id
+            or response.get("run_id") != body.get("run_id")
+            or response.get("trace_id") != str(body.get("traceparent", ""))[3:35]
+            or response.get("model_role") != "blue"
+            or response.get("model_name") != body.get("expected_model_name")
+            or str(response.get("model_version"))
+            != str(body.get("expected_model_version"))
+            or response.get("artifact_sha256") != body.get("expected_artifact_sha256")
+            or int(response.get("route_generation", 0))
+            != int(body.get("expected_route_generation", 0))
+            or response.get("outcome") != "completed"
+            or int(response.get("status_code", 0)) != 200
+            or durable.get("readback_visible") is not True
+            or durable.get("entity_id") != response.get("effect_id")
+        ):
+            raise S6BMExperimentError("continuity_pre_switch_terminal_online_identity")
+        try:
+            record = s6bm_terminal_fence_record(
+                effects_by_request[request_id], events_by_request[request_id]
+            )
+        except ControlPlaneParityError as exc:
+            raise S6BMExperimentError(
+                "continuity_pre_switch_terminal_durable_parity"
+            ) from exc
+        if (
+            record["request_id"] != request_id
+            or record["attempt_id"] != attempt_id
+            or record["run_id"] != response.get("run_id")
+            or record["trace_id"] != response.get("trace_id")
+            or record["effect_id"] != response.get("effect_id")
+            or record["model_role"] != response.get("model_role")
+            or record["model_name"] != response.get("model_name")
+            or record["model_version"] != response.get("model_version")
+            or record["artifact_sha256"] != response.get("artifact_sha256")
+            or record["route_generation"] != response.get("route_generation")
+            or record["result_sha256"] != response.get("result_sha256")
+            or record["request_sha256"] != durable.get("request_sha256")
+            or record["stored_payload_sha256"] != durable.get("stored_payload_sha256")
+            or record["causal_sequence"] != durable.get("causal_sequence")
+            or record["causal_payload_sha256"] != durable.get("causal_payload_sha256")
+        ):
+            raise S6BMExperimentError("continuity_pre_switch_terminal_readback_binding")
+        projected.append(record)
+    records_sha256 = canonical_sha256(projected)
+    terminal_gate.update(
+        {
+            "schema_version": "evm.s8_v4.s6bm_pre_switch_bridge_terminal_gate.v2",
+            "expected_terminal_request_set_sha256": canonical_sha256(expected_ids),
+            "observed_terminal_request_ids": expected_ids,
+            "observed_terminal_request_set_sha256": canonical_sha256(expected_ids),
+            "observed_terminal_count": len(expected_ids),
+            "terminal_records": projected,
+            "terminal_records_sha256": records_sha256,
+            "raw_effect_export": artifact_reference(suite_root, effects_path),
+            "raw_event_export": artifact_reference(suite_root, events_path),
+            "durable_readback_complete": True,
+        }
+    )
+    return terminal_gate
+
+
 def send_request(
     config: S6BMConfig,
     body: Mapping[str, Any],
@@ -1448,6 +1585,7 @@ def run_fixed_bridge_producer(
     capacity = int(config.continuity["max_in_flight_requests"])
     payload_cap = int(config.continuity["max_request_payload_bytes"])
     bytes_cap = int(config.continuity["max_in_flight_payload_bytes"])
+    barrier_timeout = float(config.continuity["route_switch_barrier_timeout_seconds"])
     if workers != capacity:
         raise S6BMExperimentError("continuity_worker_capacity_contract")
 
@@ -1506,7 +1644,7 @@ def run_fixed_bridge_producer(
                     if remaining > 0:
                         time.sleep(remaining)
                     wait_started = time.perf_counter()
-                    if not slots.acquire(timeout=20):
+                    if not slots.acquire(timeout=barrier_timeout):
                         raise S6BMExperimentError("continuity_capacity_wait_timeout")
                     wait_finished = time.perf_counter()
                     payload_bytes = len(canonical(dict(body)).encode("ascii"))
@@ -1542,30 +1680,54 @@ def run_fixed_bridge_producer(
                         }
                     )
                 all_submitted = time.perf_counter()
-                gate_timeout = max(
-                    30.0,
-                    float(getattr(config, "procedure", {}).get("drain_timeout_seconds", 15)) + 10.0,
-                )
-                receipt_proof = gate_future.result(timeout=gate_timeout)
+                barrier_deadline = all_submitted + barrier_timeout
+
+                def remaining_barrier_time() -> float:
+                    remaining = barrier_deadline - time.perf_counter()
+                    if remaining <= 0:
+                        raise S6BMExperimentError("continuity_route_switch_barrier_timeout")
+                    return remaining
+
+                receipt_proof = gate_future.result(timeout=remaining_barrier_time())
                 expected_terminal_ids = sorted(
                     request_id for request_id in futures_by_request if request_id != crossover_id
                 )
                 terminal_records = {
-                    request_id: futures_by_request[request_id].result(timeout=25)
+                    request_id: futures_by_request[request_id].result(
+                        timeout=remaining_barrier_time()
+                    )
                     for request_id in expected_terminal_ids
+                }
+                expected_bodies = {
+                    str(body["request_id"]): dict(body)
+                    for body in bodies
+                    if str(body["request_id"]) != crossover_id
                 }
                 if (
                     len(expected_terminal_ids) != len(bodies) - 1
                     or set(terminal_records) != set(expected_terminal_ids)
                     or any(
-                        record.get("outcome") != "completed"
-                        or int(record.get("status_code", 0)) != 200
+                        record.get("request_id") != request_id
+                        or record.get("attempt_id") != expected_bodies[request_id].get("attempt_id")
+                        or record.get("run_id") != expected_bodies[request_id].get("run_id")
                         or record.get("model_role") != "blue"
-                        for record in terminal_records.values()
+                        or record.get("model_name")
+                        != expected_bodies[request_id].get("expected_model_name")
+                        or str(record.get("model_version"))
+                        != str(expected_bodies[request_id].get("expected_model_version"))
+                        or record.get("artifact_sha256")
+                        != expected_bodies[request_id].get("expected_artifact_sha256")
+                        or int(record.get("route_generation", 0))
+                        != int(expected_bodies[request_id].get("expected_route_generation", 0))
+                        or record.get("outcome") != "completed"
+                        or int(record.get("status_code", 0)) != 200
+                        or dict(record.get("durable_effect") or {}).get("readback_visible")
+                        is not True
+                        for request_id, record in terminal_records.items()
                     )
                 ):
-                    raise S6BMExperimentError("continuity_pre_switch_terminal_set")
-                projected_terminal_records = [
+                    raise S6BMExperimentError("continuity_pre_switch_terminal_online_identity")
+                online_terminal_records = [
                     {
                         "request_id": request_id,
                         "attempt_id": terminal_records[request_id].get("attempt_id"),
@@ -1592,7 +1754,9 @@ def run_fixed_bridge_producer(
                     for request_id in expected_terminal_ids
                 ]
                 terminal_gate = {
-                    "schema_version": ("evm.s8_v4.s6bm_pre_switch_bridge_terminal_gate.v1"),
+                    "schema_version": (
+                        "evm.s8_v4.s6bm_pre_switch_bridge_terminal_online_gate.v1"
+                    ),
                     "crossover_request_id": crossover_id,
                     "expected_terminal_request_ids": expected_terminal_ids,
                     "expected_terminal_request_set_sha256": canonical_sha256(expected_terminal_ids),
@@ -1602,14 +1766,30 @@ def run_fixed_bridge_producer(
                         sorted(terminal_records)
                     ),
                     "observed_terminal_count": len(terminal_records),
-                    "terminal_records": projected_terminal_records,
-                    "terminal_records_sha256": canonical_sha256(projected_terminal_records),
+                    "online_terminal_records": online_terminal_records,
+                    "online_terminal_records_sha256": canonical_sha256(
+                        online_terminal_records
+                    ),
+                    "online_response_records": [
+                        terminal_records[request_id]
+                        for request_id in expected_terminal_ids
+                    ],
+                    "online_response_records_sha256": canonical_sha256(
+                        [
+                            terminal_records[request_id]
+                            for request_id in expected_terminal_ids
+                        ]
+                    ),
                     "all_submitted_monotonic": all_submitted,
                     "all_non_crossover_terminal_monotonic": time.perf_counter(),
                 }
                 transition = on_switch_ready(receipt_proof, terminal_gate)
+                if time.perf_counter() > barrier_deadline:
+                    raise S6BMExperimentError("continuity_route_switch_barrier_timeout")
                 receipt_observed = float(transition["transition_receipt_observed_monotonic"])
-                records = [future.result(timeout=25) for future in futures]
+                records = [
+                    future.result(timeout=remaining_barrier_time()) for future in futures
+                ]
                 producer_finished = time.perf_counter()
     finally:
         for session in sessions:
@@ -2660,6 +2840,22 @@ def run_success(
                 receipt_proof: dict[str, Any],
                 terminal_gate: dict[str, Any],
             ) -> dict[str, Any]:
+                expected_terminal_bodies = {
+                    request_id: body
+                    for request_id, body in bridge_bodies_by_id.items()
+                    if request_id != crossover_bridge_id
+                }
+                terminal_gate = bind_pre_switch_terminal_gate(
+                    config,
+                    suite_root=suite_root,
+                    attempt_id=attempt_id,
+                    expected_bodies=expected_terminal_bodies,
+                    response_records={
+                        str(item["request_id"]): item
+                        for item in terminal_gate.get("online_response_records", [])
+                    },
+                    terminal_gate=terminal_gate,
+                )
                 state_before_switch = controller_state(config)
                 if (
                     state_before_switch.get("pending_crossover_request_ids")
@@ -2688,6 +2884,15 @@ def run_success(
                     continuity_receipt_request_ids=sorted(required_bridge_ids),
                     continuity_crossover_request_ids=[crossover_bridge_id],
                     pending_crossover_request_ids=expected_pending_crossover_ids,
+                    continuity_terminal_request_ids=terminal_gate[
+                        "expected_terminal_request_ids"
+                    ],
+                    continuity_terminal_request_set_sha256=terminal_gate[
+                        "expected_terminal_request_set_sha256"
+                    ],
+                    continuity_terminal_records_sha256=terminal_gate[
+                        "terminal_records_sha256"
+                    ],
                 )
                 receipt_observed = time.perf_counter()
                 receipt = dict(switched.get("transition_receipt") or {})
@@ -2700,6 +2905,12 @@ def run_success(
                     != expected_pending_crossover_ids
                     or receipt.get("released_crossover_request_ids")
                     != expected_pending_crossover_ids
+                    or receipt.get("continuity_terminal_request_ids")
+                    != terminal_gate["expected_terminal_request_ids"]
+                    or receipt.get("continuity_terminal_request_set_sha256")
+                    != terminal_gate["expected_terminal_request_set_sha256"]
+                    or receipt.get("continuity_terminal_records_sha256")
+                    != terminal_gate["terminal_records_sha256"]
                     or receipt.get("crossover_release_basis")
                     != "fence_commit_readback_and_route_applied"
                 ):

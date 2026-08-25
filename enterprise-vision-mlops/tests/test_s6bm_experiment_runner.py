@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import copy
 import hashlib
 import importlib.util
 import json
@@ -45,13 +46,92 @@ def load_continuity_validator():
 
 def test_continuity_mutation_contract_is_exact_and_frozen() -> None:
     validator = load_continuity_validator()
-    assert len(validator.CASE_CONTRACT) == len(validator.MUTATIONS) == 19
-    assert len({case_id for case_id, _reason in validator.CASE_CONTRACT}) == 19
+    assert len(validator.CASE_CONTRACT) == len(validator.MUTATIONS) == 24
+    assert len({case_id for case_id, _reason in validator.CASE_CONTRACT}) == 24
     assert validator.canonical_sha256(validator.CASE_CONTRACT) == (
+        "d75b6bbc0e396151dc581b05b86fffc5f59ae4681f34a42b60e560f99c85d886"
+    )
+    assert validator.canonical_sha256(validator.PREVIOUS_CASE_CONTRACT) == (
         "230ff21035dace5eb498d649d69a1bb063c377c95808d8d9bcae5903edd13a6e"
     )
     assert validator.canonical_sha256(validator.HISTORICAL_CASE_CONTRACT) == (
         "c42a6245d1e48152d06c6f1bd31c7fca8de58f201129c99bb7c59abe9356d4d7"
+    )
+
+
+def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: Path) -> None:
+    validator = load_continuity_validator()
+    request_id = "bridge-0001"
+    stage = "api_server_handler_entry"
+    start_payload = {"actor_start_unix_ns": 100}
+    start_event = {
+        "event_type": stage,
+        "request_id": request_id,
+        "causal_sequence": 1,
+        "transaction_id": "1001",
+        "payload": start_payload,
+        "payload_sha256": validator.canonical_sha256(start_payload),
+    }
+    switch_payload = {
+        "continuity_receipt_sequences": {request_id: {stage: 1}},
+        "continuity_receipt_payload_sha256": {
+            request_id: {stage: start_event["payload_sha256"]}
+        },
+        "continuity_receipt_transaction_ids": {request_id: {stage: "1001"}},
+    }
+    switch_event = {
+        "event_type": "blue_to_green_switch_commit",
+        "causal_sequence": 2,
+        "transaction_id": "1002",
+        "payload": switch_payload,
+        "payload_sha256": validator.canonical_sha256(switch_payload),
+    }
+    causal_path = tmp_path / "causal-events.json"
+    validator.canonical_write(
+        causal_path,
+        {"event_count": 2, "events": [start_event, switch_event]},
+    )
+    causal_reference = {"path": causal_path.name}
+    validator.refresh(causal_reference, causal_path)
+    fence_receipt = {
+        "payload": copy.deepcopy(switch_payload),
+        "payload_sha256": switch_event["payload_sha256"],
+        "fence_payload_sha256": switch_event["payload_sha256"],
+    }
+    raw = {
+        "causal_proof": {
+            "causal_event_export": causal_reference,
+            "route_transition_receipt": {
+                "fence_receipt": fence_receipt,
+                "fence_receipt_sha256": validator.canonical_sha256(fence_receipt),
+                "fence_payload_sha256": switch_event["payload_sha256"],
+            },
+        }
+    }
+
+    mutated = validator.read_json(causal_path)
+    mutated_start = mutated["events"][0]
+    mutated_start["payload"]["actor_start_unix_ns"] = 200
+    mutated_start["payload_sha256"] = validator.canonical_sha256(mutated_start["payload"])
+    validator.canonical_write(causal_path, mutated)
+    validator.refresh(causal_reference, causal_path)
+    validator.refresh_switch_receipt_binding(
+        tmp_path,
+        raw,
+        request_id=request_id,
+        stage=stage,
+    )
+
+    rebound = validator.read_json(causal_path)
+    rebound_start, rebound_switch = rebound["events"]
+    transition = raw["causal_proof"]["route_transition_receipt"]
+    assert rebound_switch["payload"]["continuity_receipt_payload_sha256"][request_id][stage] == (
+        rebound_start["payload_sha256"]
+    )
+    assert transition["fence_receipt"]["payload"] == rebound_switch["payload"]
+    assert transition["fence_receipt"]["payload_sha256"] == rebound_switch["payload_sha256"]
+    assert transition["fence_receipt_sha256"] == validator.canonical_sha256(
+        transition["fence_receipt"]
     )
 
 
@@ -197,8 +277,15 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
             assert switch_released.wait(timeout=2)
         time.sleep(0.003)
         return {
+            "run_id": body["run_id"],
+            "attempt_id": body["attempt_id"],
             "request_id": body["request_id"],
             "model_role": "blue",
+            "model_name": body["expected_model_name"],
+            "model_version": body["expected_model_version"],
+            "artifact_sha256": body["expected_artifact_sha256"],
+            "route_generation": body["expected_route_generation"],
+            "durable_effect": {"readback_visible": True},
             "attempted_monotonic": attempted,
             "completed_monotonic": time.perf_counter(),
             "outcome": "completed",
@@ -213,6 +300,7 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
             "max_in_flight_requests": 2,
             "max_request_payload_bytes": 4096,
             "max_in_flight_payload_bytes": 8192,
+            "route_switch_barrier_timeout_seconds": 2,
         }
     )
     schedule = [
@@ -225,6 +313,12 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
             "hold_ms": 0,
             "value": index,
             "causal_crossover": index == 0,
+            "run_id": "run-fixed-bridge",
+            "attempt_id": "attempt-fixed-bridge",
+            "expected_model_name": "s6bm_blue",
+            "expected_model_version": "1",
+            "expected_artifact_sha256": "a" * 64,
+            "expected_route_generation": 2,
         }
         for index, item in enumerate(schedule)
     ]
@@ -298,8 +392,15 @@ def test_bridge_switch_waits_for_every_non_crossover_terminal_after_submission(
         if body.get("causal_crossover"):
             assert release_crossover.wait(timeout=2)
         return {
+            "run_id": body["run_id"],
+            "attempt_id": body["attempt_id"],
             "request_id": body["request_id"],
             "model_role": "blue",
+            "model_name": body["expected_model_name"],
+            "model_version": body["expected_model_version"],
+            "artifact_sha256": body["expected_artifact_sha256"],
+            "route_generation": body["expected_route_generation"],
+            "durable_effect": {"readback_visible": True},
             "attempted_monotonic": attempted,
             "completed_monotonic": time.perf_counter(),
             "outcome": "completed",
@@ -314,6 +415,7 @@ def test_bridge_switch_waits_for_every_non_crossover_terminal_after_submission(
             "max_in_flight_requests": 4,
             "max_request_payload_bytes": 4096,
             "max_in_flight_payload_bytes": 16384,
+            "route_switch_barrier_timeout_seconds": 2,
         }
     )
     schedule = [
@@ -325,6 +427,12 @@ def test_bridge_switch_waits_for_every_non_crossover_terminal_after_submission(
             "request_id": item["request_id"],
             "hold_ms": 0,
             "causal_crossover": index == 0,
+            "run_id": "run-exact-terminal",
+            "attempt_id": "attempt-exact-terminal",
+            "expected_model_name": "s6bm_blue",
+            "expected_model_version": "1",
+            "expected_artifact_sha256": "a" * 64,
+            "expected_route_generation": 2,
         }
         for index, item in enumerate(schedule)
     ]
@@ -429,8 +537,245 @@ def test_bridge_receipt_gate_preserves_exact_pre_switch_readback(
     assert json.loads(readback_path.read_text(encoding="utf-8")) == export
     assert gate["visible_event_count"] == 12
     assert gate["selected_event_set_sha256"] == runner.canonical_sha256(gate["events"])
-    assert all(item["readback_visible"] is True for item in gate["events"])
-    assert all(item["readback_at"] == rows[0]["captured_at"] for item in gate["events"])
+
+
+def _terminal_gate_fixture(runner, count: int = 2):
+    attempt_id = "s6bm-success-terminal-gate"
+    run_id = "run-terminal-gate"
+    bodies: dict[str, dict[str, object]] = {}
+    responses: dict[str, dict[str, object]] = {}
+    effects: list[dict[str, object]] = []
+    events: list[dict[str, object]] = []
+    for index in range(count):
+        request_id = f"bridge-terminal-{index:02d}"
+        trace_id = f"{index + 1:032x}"
+        effect_id = f"{index + 1:064x}"
+        result_sha = hashlib.sha256(f"result:{request_id}".encode("ascii")).hexdigest()
+        request_sha = hashlib.sha256(f"request:{request_id}".encode("ascii")).hexdigest()
+        causal_payload = {
+            "attempt_id": attempt_id,
+            "run_id": run_id,
+            "request_id": request_id,
+            "request_nonce": f"nonce-{index:02d}",
+            "trace_id": trace_id,
+            "effect_id": effect_id,
+            "model_role": "blue",
+            "model_name": "s6bm_blue",
+            "model_version": "1",
+            "artifact_sha256": "a" * 64,
+            "route_generation": 2,
+            "result_sha256": result_sha,
+            "requires_switch_before_effect": False,
+        }
+        causal_sha = runner.canonical_sha256(causal_payload)
+        payload = {
+            "schema_version": "evm.s8_v4.s6bm_terminal_effect.v1",
+            "run_id": run_id,
+            "attempt_id": attempt_id,
+            "request_id": request_id,
+            "trace_id": trace_id,
+            "effect_id": effect_id,
+            "served_identity": {
+                "model_role": "blue",
+                "model_name": "s6bm_blue",
+                "model_version": "1",
+                "artifact_sha256": "a" * 64,
+            },
+            "route_generation": 2,
+            "result_sha256": result_sha,
+            "terminal_outcome": "completed",
+            "durable_commit": {
+                "causal_sequence": 100 + index,
+                "transaction_id": str(200 + index),
+            },
+        }
+        stored_sha = runner.canonical_sha256(payload)
+        bodies[request_id] = {
+            "run_id": run_id,
+            "attempt_id": attempt_id,
+            "request_id": request_id,
+            "traceparent": f"00-{trace_id}-{index + 1:016x}-01",
+            "expected_model_name": "s6bm_blue",
+            "expected_model_version": "1",
+            "expected_artifact_sha256": "a" * 64,
+            "expected_route_generation": 2,
+        }
+        responses[request_id] = {
+            "run_id": run_id,
+            "attempt_id": attempt_id,
+            "request_id": request_id,
+            "trace_id": trace_id,
+            "effect_id": effect_id,
+            "model_role": "blue",
+            "model_name": "s6bm_blue",
+            "model_version": "1",
+            "artifact_sha256": "a" * 64,
+            "route_generation": 2,
+            "result_sha256": result_sha,
+            "outcome": "completed",
+            "status_code": 200,
+            "durable_effect": {
+                "entity_id": effect_id,
+                "request_sha256": request_sha,
+                "stored_payload_sha256": stored_sha,
+                "causal_sequence": 100 + index,
+                "causal_payload_sha256": causal_sha,
+                "transaction_id": str(200 + index),
+                "readback_visible": True,
+            },
+        }
+        effects.append(
+            {
+                "entity_id": effect_id,
+                "state": "completed",
+                "payload": payload,
+                "scope": f"s6bm.terminal-effect.{attempt_id}",
+                "idempotency_key": request_id,
+                "request_sha256": request_sha,
+            }
+        )
+        events.append(
+            {
+                "event_type": "durable_terminal_effect_commit",
+                **causal_payload,
+                "payload": causal_payload,
+                "payload_sha256": causal_sha,
+                "causal_sequence": 100 + index,
+                "transaction_id": str(200 + index),
+            }
+        )
+    return attempt_id, bodies, responses, effects, events
+
+
+def test_pre_switch_terminal_gate_binds_online_response_to_durable_exports(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    runner = load_runner()
+    attempt_id, bodies, responses, effects, events = _terminal_gate_fixture(runner)
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return self.payload
+
+    def fake_get(url: str, **_kwargs):
+        if "/effects/" in url:
+            return Response(
+                {
+                    "schema_version": "evm.s8_v4.s6bm_terminal_effect_export.v1",
+                    "attempt_id": attempt_id,
+                    "effect_count": len(effects),
+                    "effects": effects,
+                }
+            )
+        return Response(
+            {
+                "schema_version": "evm.s8_v4.s6bm_causal_event_export.v1",
+                "attempt_id": attempt_id,
+                "event_count": len(events),
+                "events": events,
+            }
+        )
+
+    monkeypatch.setattr(runner.requests, "get", fake_get)
+    ids = sorted(bodies)
+    gate = {
+        "crossover_request_id": "bridge-crossover",
+        "expected_terminal_request_ids": ids,
+        "expected_terminal_count": len(ids),
+    }
+    result = runner.bind_pre_switch_terminal_gate(
+        SimpleNamespace(
+            continuity={"pre_switch_terminal_bridge_count": len(ids)},
+            ports={"api": 1},
+        ),
+        suite_root=tmp_path,
+        attempt_id=attempt_id,
+        expected_bodies=bodies,
+        response_records=responses,
+        terminal_gate=gate,
+    )
+
+    assert result["schema_version"] == "evm.s8_v4.s6bm_pre_switch_bridge_terminal_gate.v2"
+    assert result["observed_terminal_request_ids"] == ids
+    assert result["durable_readback_complete"] is True
+    assert result["terminal_records_sha256"] == runner.canonical_sha256(
+        result["terminal_records"]
+    )
+    assert (tmp_path / result["raw_effect_export"]["path"]).is_file()
+    assert (tmp_path / result["raw_event_export"]["path"]).is_file()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("wrong_response_id", "stale_generation", "wrong_artifact", "missing_readback"),
+)
+def test_pre_switch_terminal_gate_rejects_online_identity_mutations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mutation: str
+) -> None:
+    runner = load_runner()
+    attempt_id, bodies, responses, effects, events = _terminal_gate_fixture(runner)
+    first = responses[sorted(responses)[0]]
+    if mutation == "wrong_response_id":
+        first["request_id"] = "attacker-request"
+    elif mutation == "stale_generation":
+        first["route_generation"] = 1
+    elif mutation == "wrong_artifact":
+        first["artifact_sha256"] = "f" * 64
+    else:
+        first["durable_effect"]["readback_visible"] = False
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return self.payload
+
+    monkeypatch.setattr(
+        runner.requests,
+        "get",
+        lambda url, **_kwargs: Response(
+            {
+                "schema_version": (
+                    "evm.s8_v4.s6bm_terminal_effect_export.v1"
+                    if "/effects/" in url
+                    else "evm.s8_v4.s6bm_causal_event_export.v1"
+                ),
+                "attempt_id": attempt_id,
+                **(
+                    {"effect_count": len(effects), "effects": effects}
+                    if "/effects/" in url
+                    else {"event_count": len(events), "events": events}
+                ),
+            }
+        ),
+    )
+    ids = sorted(bodies)
+    with pytest.raises(runner.S6BMExperimentError, match="online_identity"):
+        runner.bind_pre_switch_terminal_gate(
+            SimpleNamespace(
+                continuity={"pre_switch_terminal_bridge_count": len(ids)},
+                ports={"api": 1},
+            ),
+            suite_root=tmp_path,
+            attempt_id=attempt_id,
+            expected_bodies=bodies,
+            response_records=responses,
+            terminal_gate={
+                "crossover_request_id": "bridge-crossover",
+                "expected_terminal_request_ids": ids,
+                "expected_terminal_count": len(ids),
+            },
+        )
 
 
 def test_expected_attempt_trace_counts_include_exact_controller_only_replay() -> None:

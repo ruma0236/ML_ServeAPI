@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from typing import Any
 
 import httpx
@@ -576,6 +577,11 @@ def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
         [bridge_request.request_id, "receipt-bridge-1", "receipt-bridge-2", "receipt-bridge-3"]
     )
     pending_ids = sorted([hold_request.request_id, bridge_request.request_id])
+    terminal_ids = [f"terminal-bridge-{index:02d}" for index in range(39)]
+    terminal_set_sha = hashlib.sha256(
+        module.canonical(terminal_ids).encode("ascii")
+    ).hexdigest()
+    terminal_records_sha = "f" * 64
 
     async def start_committer(
         _stage: str,
@@ -608,6 +614,10 @@ def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
             "continuity_crossover_request_ids": [bridge_identity.request_id],
             "pending_crossover_request_ids": pending_ids,
             "pending_crossover_count": 2,
+            "continuity_terminal_request_ids": terminal_ids,
+            "continuity_terminal_request_count": 39,
+            "continuity_terminal_request_set_sha256": terminal_set_sha,
+            "continuity_terminal_records_sha256": terminal_records_sha,
             "fence_sequence": 13,
             "fence_transaction_id": "100",
             "fence_payload_sha256": "4" * 64,
@@ -636,6 +646,9 @@ def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
                 continuity_receipt_request_ids=receipt_ids,
                 continuity_crossover_request_ids=[bridge_identity.request_id],
                 pending_crossover_request_ids=pending_ids,
+                continuity_terminal_request_ids=terminal_ids,
+                continuity_terminal_request_set_sha256=terminal_set_sha,
+                continuity_terminal_records_sha256=terminal_records_sha,
             ),
             transition_fence_committer=fence_committer,
         )

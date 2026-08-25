@@ -32,6 +32,7 @@ from evm.control_panel.transactional_store import (
     TransactionalControlPlaneStore,
     canonical_digest,
     reset_transactional_store,
+    s6bm_terminal_fence_record,
 )
 
 
@@ -72,7 +73,10 @@ def s6bm_transition_context(
     continuity_receipt_request_ids: list[str] | None = None,
     continuity_crossover_request_ids: list[str] | None = None,
     pending_crossover_request_ids: list[str] | None = None,
+    continuity_terminal_request_ids: list[str] | None = None,
+    continuity_terminal_records_sha256: str | None = None,
 ) -> dict[str, object]:
+    terminal_ids = continuity_terminal_request_ids or []
     source_payload = {
         "run_id": identity["run_id"],
         "action": "green_switched",
@@ -81,6 +85,11 @@ def s6bm_transition_context(
         "continuity_receipt_request_ids": continuity_receipt_request_ids or [],
         "continuity_crossover_request_ids": continuity_crossover_request_ids or [],
         "pending_crossover_request_ids": pending_crossover_request_ids or [],
+        "continuity_terminal_request_ids": terminal_ids,
+        "continuity_terminal_request_set_sha256": (
+            canonical_digest(terminal_ids) if terminal_ids else None
+        ),
+        "continuity_terminal_records_sha256": continuity_terminal_records_sha256,
     }
     source_payload_sha256 = canonical_digest(source_payload)
     core = {
@@ -429,6 +438,109 @@ def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
             if current["request_id"] in bridge_ids:
                 bridge_receipts.append(receipt)
 
+    terminal_ids = [f"s6bm-bridge-terminal-{index:02d}" for index in range(39)]
+    for ordinal, request_id in enumerate(terminal_ids, start=100):
+        effect_id = hashlib.sha256(
+            f"{attempt_id}:{request_id}".encode("ascii")
+        ).hexdigest()
+        trace_id = f"{ordinal + 1:032x}"
+        result_sha256 = hashlib.sha256(
+            f"result:{request_id}".encode("ascii")
+        ).hexdigest()
+        effect_identity = {
+            "attempt_id": attempt_id,
+            "run_id": run_id,
+            "request_id": request_id,
+            "request_nonce": f"nonce-{ordinal:04d}",
+            "trace_id": trace_id,
+            "effect_id": effect_id,
+            "model_role": "blue",
+            "model_name": "s6bm_blue",
+            "model_version": "1",
+            "artifact_sha256": "3" * 64,
+            "route_generation": 3,
+        }
+        response_payload = {
+            "schema_version": "evm.s8_v4.s6bm_terminal_effect.v1",
+            "run_id": run_id,
+            "attempt_id": attempt_id,
+            "request_id": request_id,
+            "trace_id": trace_id,
+            "effect_id": effect_id,
+            "served_identity": {
+                "model_role": "blue",
+                "model_name": "s6bm_blue",
+                "model_version": "1",
+                "artifact_sha256": "3" * 64,
+            },
+            "route_generation": 3,
+            "result_sha256": result_sha256,
+            "terminal_outcome": "completed",
+        }
+        store.commit_idempotent_terminal_entity_with_receipt(
+            scope=f"s6bm.terminal-effect.{attempt_id}",
+            idempotency_key=request_id,
+            request_payload={"request_id": request_id, "ordinal": ordinal},
+            entity_kind="s6bm_terminal_effect",
+            entity_id=effect_id,
+            response_payload=response_payload,
+            state="completed",
+            causal_payload={
+                **effect_identity,
+                "schema_version": "evm.s8_v4.s6bm_terminal_causal_event.v1",
+                "result_sha256": result_sha256,
+                "requires_switch_before_effect": False,
+            },
+        )
+    terminal_entities = {
+        str(item["idempotency_key"]): item
+        for item in store.list_idempotent_terminal_entities(
+            entity_kind="s6bm_terminal_effect", attempt_id=attempt_id
+        )
+    }
+    terminal_events = {
+        str(item["request_id"]): item
+        for item in store.list_s6bm_causal_events(attempt_id=attempt_id)
+        if item["event_type"] == "durable_terminal_effect_commit"
+    }
+    terminal_records = [
+        s6bm_terminal_fence_record(
+            terminal_entities[request_id], terminal_events[request_id]
+        )
+        for request_id in terminal_ids
+    ]
+    terminal_records_sha256 = canonical_digest(terminal_records)
+
+    missing_terminal_ids = [*terminal_ids[:-1], "s6bm-bridge-terminal-missing"]
+    with pytest.raises(ControlPlaneParityError, match="terminal set is incomplete"):
+        store.commit_s6bm_route_switch_fence(
+            crossover_identity=hold,
+            transition_context=s6bm_transition_context(
+                hold,
+                continuity_receipt_request_ids=bridge_ids,
+                continuity_crossover_request_ids=[bridge_ids[0]],
+                pending_crossover_request_ids=sorted(
+                    [str(hold["request_id"]), bridge_ids[0]]
+                ),
+                continuity_terminal_request_ids=missing_terminal_ids,
+                continuity_terminal_records_sha256=terminal_records_sha256,
+            ),
+        )
+    with pytest.raises(ControlPlaneParityError, match="terminal record hash mismatch"):
+        store.commit_s6bm_route_switch_fence(
+            crossover_identity=hold,
+            transition_context=s6bm_transition_context(
+                hold,
+                continuity_receipt_request_ids=bridge_ids,
+                continuity_crossover_request_ids=[bridge_ids[0]],
+                pending_crossover_request_ids=sorted(
+                    [str(hold["request_id"]), bridge_ids[0]]
+                ),
+                continuity_terminal_request_ids=terminal_ids,
+                continuity_terminal_records_sha256="f" * 64,
+            ),
+        )
+
     switch = store.commit_s6bm_route_switch_fence(
         crossover_identity=hold,
         transition_context=s6bm_transition_context(
@@ -436,6 +548,8 @@ def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
             continuity_receipt_request_ids=bridge_ids,
             continuity_crossover_request_ids=[bridge_ids[0]],
             pending_crossover_request_ids=sorted([str(hold["request_id"]), bridge_ids[0]]),
+            continuity_terminal_request_ids=terminal_ids,
+            continuity_terminal_records_sha256=terminal_records_sha256,
         ),
     )
     switch_recorded = datetime.fromisoformat(
@@ -447,6 +561,9 @@ def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
     assert switch["pending_crossover_request_ids"] == sorted(
         [str(hold["request_id"]), bridge_ids[0]]
     )
+    assert switch["continuity_terminal_request_ids"] == terminal_ids
+    assert switch["continuity_terminal_request_set_sha256"] == canonical_digest(terminal_ids)
+    assert switch["continuity_terminal_records_sha256"] == terminal_records_sha256
     assert len({receipt["transaction_id"] for receipt in bridge_receipts}) == 12
     assert all(
         receipt["causal_sequence"] < switch["causal_sequence"]

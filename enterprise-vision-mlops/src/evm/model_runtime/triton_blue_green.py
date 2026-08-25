@@ -180,6 +180,13 @@ class TritonBlueGreenControlRequest(ContractModel):
         max_length=1,
     )
     pending_crossover_request_ids: list[str] = Field(default_factory=list, max_length=2)
+    continuity_terminal_request_ids: list[str] = Field(default_factory=list, max_length=39)
+    continuity_terminal_request_set_sha256: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    continuity_terminal_records_sha256: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
 
     @model_validator(mode="after")
     def validate_causal_action(self) -> "TritonBlueGreenControlRequest":
@@ -214,11 +221,24 @@ class TritonBlueGreenControlRequest(ContractModel):
                         self.continuity_crossover_request_ids[0],
                     ]
                 )
+                or len(self.continuity_terminal_request_ids) != 39
+                or self.continuity_terminal_request_ids
+                != sorted(set(self.continuity_terminal_request_ids))
+                or self.continuity_terminal_request_set_sha256
+                != hashlib.sha256(
+                    canonical(self.continuity_terminal_request_ids).encode("ascii")
+                ).hexdigest()
+                or self.continuity_terminal_records_sha256 is None
             ):
                 raise ValueError(
                     "continuity switch requires separate receipt, crossover, and pending sets"
                 )
-        elif self.pending_crossover_request_ids:
+        elif (
+            self.pending_crossover_request_ids
+            or self.continuity_terminal_request_ids
+            or self.continuity_terminal_request_set_sha256 is not None
+            or self.continuity_terminal_records_sha256 is not None
+        ):
             if (
                 self.action != "green_switched"
                 or self.causal_crossover is None
@@ -453,6 +473,9 @@ def action_digest(request: TritonBlueGreenControlRequest) -> str:
         "continuity_receipt_request_ids": list(request.continuity_receipt_request_ids),
         "continuity_crossover_request_ids": list(request.continuity_crossover_request_ids),
         "pending_crossover_request_ids": list(request.pending_crossover_request_ids),
+        "continuity_terminal_request_ids": list(request.continuity_terminal_request_ids),
+        "continuity_terminal_request_set_sha256": request.continuity_terminal_request_set_sha256,
+        "continuity_terminal_records_sha256": request.continuity_terminal_records_sha256,
     }
     return hashlib.sha256(canonical(payload).encode("ascii")).hexdigest()
 
@@ -720,6 +743,23 @@ class TritonBlueGreenManager:
                         != pending_crossover_ids
                         or int(fence_receipt.get("pending_crossover_count", -1))
                         != len(pending_crossover_ids)
+                        or fence_receipt.get("continuity_terminal_request_ids", [])
+                        != request.continuity_terminal_request_ids
+                        or int(fence_receipt.get("continuity_terminal_request_count", 0))
+                        != len(request.continuity_terminal_request_ids)
+                        or (
+                            bool(request.continuity_terminal_request_ids)
+                            and (
+                                fence_receipt.get(
+                                    "continuity_terminal_request_set_sha256"
+                                )
+                                != request.continuity_terminal_request_set_sha256
+                                or fence_receipt.get(
+                                    "continuity_terminal_records_sha256"
+                                )
+                                != request.continuity_terminal_records_sha256
+                            )
+                        )
                         or int(fence_receipt.get("actor_process_id", 0)) != os.getpid()
                         or int(fence_receipt.get("actor_thread_id", 0)) != threading.get_ident()
                     ):
@@ -816,6 +856,24 @@ class TritonBlueGreenManager:
                         canonical(pending_crossover_ids).encode("ascii")
                     ).hexdigest(),
                     "pending_crossover_count": len(pending_crossover_ids),
+                    "continuity_terminal_request_ids": list(
+                        request.continuity_terminal_request_ids
+                    ),
+                    "continuity_terminal_request_set_sha256": (
+                        fence_receipt.get(
+                            "continuity_terminal_request_set_sha256",
+                            hashlib.sha256(canonical([]).encode("ascii")).hexdigest(),
+                        )
+                    ),
+                    "continuity_terminal_records_sha256": (
+                        fence_receipt.get(
+                            "continuity_terminal_records_sha256",
+                            hashlib.sha256(canonical([]).encode("ascii")).hexdigest(),
+                        )
+                    ),
+                    "continuity_terminal_request_count": len(
+                        request.continuity_terminal_request_ids
+                    ),
                     "released_crossover_request_ids": pending_crossover_ids,
                     "crossover_release_monotonic_ns": (waiter_release_monotonic_ns),
                     "crossover_release_basis": ("fence_commit_readback_and_route_applied"),

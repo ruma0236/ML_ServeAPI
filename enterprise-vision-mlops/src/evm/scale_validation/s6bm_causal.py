@@ -11,6 +11,10 @@ from evm.model_runtime.triton_blue_green import (
     TritonBlueGreenControlRequest,
     action_digest,
 )
+from evm.control_panel.transactional_store import (  # noqa: E402
+    ControlPlaneParityError,
+    s6bm_terminal_fence_record,
+)
 from evm.scale_validation.s6bm_runtime import (
     S6BMConfig,
     build_continuity_plan,
@@ -675,6 +679,66 @@ def _validate_route_transition_receipt(
     }
 
 
+def _validate_continuity_receipt_switch_fence(
+    *,
+    switch_event: Mapping[str, Any],
+    transition_receipt: Mapping[str, Any],
+    required_start_events: Mapping[str, Mapping[str, Mapping[str, Any]]],
+) -> dict[str, Any]:
+    """Recompute the exact bridge receipt set bound by the switch transaction."""
+    switch_payload = dict(switch_event.get("payload", {}))
+    source_payload = dict(switch_payload.get("source_payload", {}))
+    request_ids = sorted(required_start_events)
+    request_set_sha256 = canonical_sha256(request_ids)
+    sequences = {
+        request_id: {
+            stage: int(required_start_events[request_id][stage]["causal_sequence"])
+            for stage in sorted(START_STAGES)
+        }
+        for request_id in request_ids
+    }
+    payload_sha256 = {
+        request_id: {
+            stage: required_start_events[request_id][stage]["payload_sha256"]
+            for stage in sorted(START_STAGES)
+        }
+        for request_id in request_ids
+    }
+    transaction_ids = {
+        request_id: {
+            stage: str(required_start_events[request_id][stage]["transaction_id"])
+            for stage in sorted(START_STAGES)
+        }
+        for request_id in request_ids
+    }
+    switch_sequence = int(switch_event.get("causal_sequence", 0))
+    if (
+        source_payload.get("continuity_receipt_request_ids") != request_ids
+        or switch_payload.get("continuity_receipt_request_ids") != request_ids
+        or switch_payload.get("continuity_receipt_request_set_sha256")
+        != request_set_sha256
+        or switch_payload.get("continuity_receipt_sequences") != sequences
+        or switch_payload.get("continuity_receipt_payload_sha256") != payload_sha256
+        or switch_payload.get("continuity_receipt_transaction_ids") != transaction_ids
+        or transition_receipt.get("continuity_receipt_request_ids") != request_ids
+        or transition_receipt.get("continuity_receipt_request_set_sha256")
+        != request_set_sha256
+        or any(
+            sequence >= switch_sequence
+            for request_sequences in sequences.values()
+            for sequence in request_sequences.values()
+        )
+    ):
+        raise S6BMCausalError("s6bm_v4_continuity_actor_receipt_fence")
+    return {
+        "request_ids": request_ids,
+        "request_set_sha256": request_set_sha256,
+        "sequences": sequences,
+        "payload_sha256": payload_sha256,
+        "transaction_ids": transaction_ids,
+    }
+
+
 def _database_clock_envelope(
     receipt: Mapping[str, Any], config: S6BMConfig
 ) -> tuple[tuple[int, int], dict[str, Any]]:
@@ -1069,6 +1133,17 @@ def validate_causal_bundle(
     records = [dict(item) for item in raw.get("request_records", [])]
     if not attempt_id or not records:
         raise S6BMCausalError("s6bm_v4_attempt_identity")
+    expected_plan: dict[str, Any] | None = None
+    required_bridge_items: list[dict[str, Any]] = []
+    if raw.get("traffic_plan") is not None:
+        expected_plan = build_continuity_plan(config, attempt_id)
+        if dict(raw.get("traffic_plan", {})) != expected_plan:
+            raise S6BMCausalError("s6bm_v4_continuity_plan_binding")
+        required_bridge_items = [
+            dict(item)
+            for item in expected_plan["roles"]["bridge"]
+            if item.get("actor_receipt_required") is True
+        ]
     if (
         collector_spec.get("attempt_id") != attempt_id
         or collector_spec.get("source_revision") != raw.get("source_revision")
@@ -1101,12 +1176,15 @@ def validate_causal_bundle(
     by_type: dict[str, list[dict[str, Any]]] = {}
     for event in events:
         by_type.setdefault(str(event.get("event_type", "")), []).append(event)
+    allowed_types = {*START_STAGES, SWITCH_EVENT, EFFECT_EVENT, UNLOAD_EVENT}
+    if set(by_type) != allowed_types or any(
+        len(by_type.get(stage, [])) != 1 + len(required_bridge_items)
+        for stage in START_STAGES
+    ):
+        raise S6BMCausalError("s6bm_v4_event_type_set")
     switch = _one(by_type.get(SWITCH_EVENT, []), "s6bm_v4_switch_event")
     unload = _one(by_type.get(UNLOAD_EVENT, []), "s6bm_v4_unload_event")
     effect_events = by_type.get(EFFECT_EVENT, [])
-    allowed_types = {*START_STAGES, SWITCH_EVENT, EFFECT_EVENT, UNLOAD_EVENT}
-    if set(by_type) != allowed_types:
-        raise S6BMCausalError("s6bm_v4_event_type_set")
     by_request, event_by_request, database_envelopes, database_anchors = _validate_effects(
         records, effects_export, effect_events, switch, config
     )
@@ -1132,16 +1210,6 @@ def validate_causal_bundle(
     if _event_identity(switch) != crossover or _event_identity(unload) != crossover:
         raise S6BMCausalError("s6bm_v4_fence_identity")
 
-    required_bridge_items: list[dict[str, Any]] = []
-    if raw.get("traffic_plan") is not None:
-        expected_plan = build_continuity_plan(config, attempt_id)
-        if dict(raw.get("traffic_plan", {})) != expected_plan:
-            raise S6BMCausalError("s6bm_v4_continuity_plan_binding")
-        required_bridge_items = [
-            dict(item)
-            for item in expected_plan["roles"]["bridge"]
-            if item.get("actor_receipt_required") is True
-        ]
     required_bridge_start_events: dict[str, dict[str, dict[str, Any]]] = {}
     for item in required_bridge_items:
         request_id = str(item["request_id"])
@@ -1185,6 +1253,13 @@ def validate_causal_bundle(
         or max(expected_sequences.values()) >= int(switch["causal_sequence"])
     ):
         raise S6BMCausalError("s6bm_v4_switch_receipt_fence")
+    continuity_receipt_fence: dict[str, Any] | None = None
+    if required_bridge_items:
+        continuity_receipt_fence = _validate_continuity_receipt_switch_fence(
+            switch_event=switch,
+            transition_receipt=dict(proof.get("route_transition_receipt", {})),
+            required_start_events=required_bridge_start_events,
+        )
     hold_effect = event_by_request[hold_id]
     if not int(switch["causal_sequence"]) < int(hold_effect["causal_sequence"]):
         raise S6BMCausalError("s6bm_v4_effect_before_switch")
@@ -1553,6 +1628,121 @@ def validate_causal_bundle(
             or not 0 < gate_satisfied_ns < switch_invoked_ns
         ):
             raise S6BMCausalError("s6bm_v4_continuity_actor_receipt_gate")
+
+        crossover_bridge_ids = [
+            str(item["request_id"])
+            for item in bridge_items
+            if item.get("causal_crossover") is True
+        ]
+        expected_terminal_ids = sorted(
+            set(str(item["request_id"]) for item in bridge_items)
+            - set(crossover_bridge_ids)
+        )
+        terminal_gate = dict(execution.get("pre_switch_terminal_gate", {}))
+        terminal_effect_path = _resolve(
+            private_root,
+            dict(terminal_gate.get("raw_effect_export", {})),
+            "s6bm_v4_continuity_terminal_effect_export",
+        )
+        terminal_event_path = _resolve(
+            private_root,
+            dict(terminal_gate.get("raw_event_export", {})),
+            "s6bm_v4_continuity_terminal_event_export",
+        )
+        terminal_effect_export = _read_json(
+            terminal_effect_path, "s6bm_v4_continuity_terminal_effect_export"
+        )
+        terminal_event_export = _read_json(
+            terminal_event_path, "s6bm_v4_continuity_terminal_event_export"
+        )
+        terminal_effect_rows = [
+            dict(item) for item in terminal_effect_export.get("effects", [])
+        ]
+        terminal_event_rows = [
+            dict(item)
+            for item in terminal_event_export.get("events", [])
+            if item.get("event_type") == EFFECT_EVENT
+        ]
+        terminal_effects_by_request = {
+            str(item.get("idempotency_key", "")): item for item in terminal_effect_rows
+        }
+        terminal_events_by_request = {
+            str(item.get("request_id", "")): item for item in terminal_event_rows
+        }
+        terminal_records: list[dict[str, Any]] = []
+        try:
+            terminal_records = sorted(
+                (
+                    s6bm_terminal_fence_record(
+                        terminal_effects_by_request[request_id],
+                        terminal_events_by_request[request_id],
+                    )
+                    for request_id in expected_terminal_ids
+                ),
+                key=lambda item: item["request_id"],
+            )
+        except (ControlPlaneParityError, KeyError) as exc:
+            raise S6BMCausalError(
+                "s6bm_v4_continuity_terminal_durable_binding"
+            ) from exc
+        transition_receipt = dict(proof.get("route_transition_receipt", {}))
+        expected_terminal_set_sha = canonical_sha256(expected_terminal_ids)
+        expected_terminal_records_sha = canonical_sha256(terminal_records)
+        source_control = dict(switch_payload.get("source_payload", {}))
+        expected_terminal_sequences = {
+            item["request_id"]: item["causal_sequence"] for item in terminal_records
+        }
+        if (
+            terminal_effect_export.get("schema_version")
+            != "evm.s8_v4.s6bm_terminal_effect_export.v1"
+            or terminal_effect_export.get("attempt_id") != attempt_id
+            or int(terminal_effect_export.get("effect_count", -1))
+            != len(terminal_effect_rows)
+            or terminal_event_export.get("schema_version")
+            != "evm.s8_v4.s6bm_causal_event_export.v1"
+            or terminal_event_export.get("attempt_id") != attempt_id
+            or int(terminal_event_export.get("event_count", -1))
+            != len(terminal_event_export.get("events", []))
+            or terminal_gate.get("schema_version")
+            != "evm.s8_v4.s6bm_pre_switch_bridge_terminal_gate.v2"
+            or terminal_gate.get("expected_terminal_request_ids")
+            != expected_terminal_ids
+            or terminal_gate.get("expected_terminal_request_set_sha256")
+            != expected_terminal_set_sha
+            or terminal_gate.get("observed_terminal_request_ids")
+            != expected_terminal_ids
+            or terminal_gate.get("observed_terminal_request_set_sha256")
+            != expected_terminal_set_sha
+            or terminal_gate.get("terminal_records") != terminal_records
+            or terminal_gate.get("terminal_records_sha256")
+            != expected_terminal_records_sha
+            or terminal_gate.get("durable_readback_complete") is not True
+            or source_control.get("continuity_terminal_request_ids")
+            != expected_terminal_ids
+            or source_control.get("continuity_terminal_request_set_sha256")
+            != expected_terminal_set_sha
+            or source_control.get("continuity_terminal_records_sha256")
+            != expected_terminal_records_sha
+            or switch_payload.get("continuity_terminal_request_ids")
+            != expected_terminal_ids
+            or switch_payload.get("continuity_terminal_request_set_sha256")
+            != expected_terminal_set_sha
+            or switch_payload.get("continuity_terminal_records_sha256")
+            != expected_terminal_records_sha
+            or switch_payload.get("continuity_terminal_sequences")
+            != expected_terminal_sequences
+            or transition_receipt.get("continuity_terminal_request_ids")
+            != expected_terminal_ids
+            or transition_receipt.get("continuity_terminal_request_set_sha256")
+            != expected_terminal_set_sha
+            or transition_receipt.get("continuity_terminal_records_sha256")
+            != expected_terminal_records_sha
+            or any(
+                int(sequence) >= int(switch["causal_sequence"])
+                for sequence in expected_terminal_sequences.values()
+            )
+        ):
+            raise S6BMCausalError("s6bm_v4_continuity_terminal_fence")
         bridge_collector_receipts = [
             dict(item) for item in execution.get("bridge_triton_start_receipts", [])
         ]
@@ -1881,6 +2071,7 @@ def validate_causal_bundle(
             "required_bridge_actor_request_set_sha256": canonical_sha256(
                 required_bridge_ids
             ),
+            "required_bridge_actor_switch_fence": continuity_receipt_fence,
             "required_bridge_actor_commit_readback_intervals": gate_readback_intervals,
             "required_bridge_actor_raw_readback_export": gate_readback_reference,
         },

@@ -1054,6 +1054,9 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
         raise S6BMRuntimeError("s6bm_continuity_actor_receipt_gate")
     causal_hold_ids = [str(item["request_id"]) for item in expected_plan["roles"]["causal_hold"]]
     expected_pending_crossover_ids = sorted(causal_hold_ids + crossover_bridge_ids)
+    expected_terminal_ids = sorted(
+        set(str(item["request_id"]) for item in bridge_plan) - set(crossover_bridge_ids)
+    )
     if (
         transition.get("continuity_receipt_request_ids") != required_bridge_ids
         or transition.get("continuity_receipt_request_set_sha256")
@@ -1065,17 +1068,22 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
         or transition.get("pending_crossover_request_set_sha256")
         != canonical_sha256(expected_pending_crossover_ids)
         or transition.get("released_crossover_request_ids") != expected_pending_crossover_ids
+        or transition.get("continuity_terminal_request_ids") != expected_terminal_ids
+        or transition.get("continuity_terminal_request_set_sha256")
+        != canonical_sha256(expected_terminal_ids)
         or transition.get("crossover_release_basis") != "fence_commit_readback_and_route_applied"
     ):
         raise S6BMRuntimeError("s6bm_continuity_crossover_release_binding")
-    expected_terminal_ids = sorted(
-        set(str(item["request_id"]) for item in bridge_plan) - set(crossover_bridge_ids)
-    )
     terminal_gate = dict(execution.get("pre_switch_terminal_gate", {}))
     terminal_gate_records = [dict(item) for item in terminal_gate.get("terminal_records", [])]
     observed_terminal_ids = [str(item.get("request_id", "")) for item in terminal_gate_records]
+    online_response_records = [
+        dict(item) for item in terminal_gate.get("online_response_records", [])
+    ]
+    raw_effect_reference = dict(terminal_gate.get("raw_effect_export", {}))
+    raw_event_reference = dict(terminal_gate.get("raw_event_export", {}))
     if (
-        terminal_gate.get("schema_version") != "evm.s8_v4.s6bm_pre_switch_bridge_terminal_gate.v1"
+        terminal_gate.get("schema_version") != "evm.s8_v4.s6bm_pre_switch_bridge_terminal_gate.v2"
         or terminal_gate.get("crossover_request_id") != crossover_bridge_ids[0]
         or terminal_gate.get("expected_terminal_request_ids") != expected_terminal_ids
         or terminal_gate.get("expected_terminal_request_set_sha256")
@@ -1089,6 +1097,19 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
         != int(config.continuity["pre_switch_terminal_bridge_count"])
         or observed_terminal_ids != expected_terminal_ids
         or terminal_gate.get("terminal_records_sha256") != canonical_sha256(terminal_gate_records)
+        or [str(item.get("request_id", "")) for item in online_response_records]
+        != expected_terminal_ids
+        or terminal_gate.get("online_response_records_sha256")
+        != canonical_sha256(online_response_records)
+        or terminal_gate.get("durable_readback_complete") is not True
+        or not str(raw_effect_reference.get("path", ""))
+        or len(str(raw_effect_reference.get("sha256", ""))) != 64
+        or int(raw_effect_reference.get("bytes", 0)) <= 0
+        or not str(raw_event_reference.get("path", ""))
+        or len(str(raw_event_reference.get("sha256", ""))) != 64
+        or int(raw_event_reference.get("bytes", 0)) <= 0
+        or transition.get("continuity_terminal_records_sha256")
+        != terminal_gate.get("terminal_records_sha256")
     ):
         raise S6BMRuntimeError("s6bm_continuity_pre_switch_terminal_set")
     terminal_gate_finished = _finite(
@@ -1120,10 +1141,11 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
     for terminal_record in terminal_gate_records:
         request_id = str(terminal_record["request_id"])
         final_record = records_by_id[request_id]
+        durable = dict(final_record.get("durable_effect") or {})
         expected_projection = {
-            "request_id": request_id,
             "attempt_id": final_record.get("attempt_id"),
             "run_id": final_record.get("run_id"),
+            "request_id": request_id,
             "trace_id": final_record.get("trace_id"),
             "effect_id": final_record.get("effect_id"),
             "model_role": final_record.get("model_role"),
@@ -1131,26 +1153,28 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
             "model_version": final_record.get("model_version"),
             "artifact_sha256": final_record.get("artifact_sha256"),
             "route_generation": final_record.get("route_generation"),
-            "status_code": final_record.get("status_code"),
-            "outcome": final_record.get("outcome"),
-            "attempted_monotonic": final_record.get("attempted_monotonic"),
-            "completed_monotonic": final_record.get("completed_monotonic"),
-            "durable_effect_readback_finished_monotonic_ns": dict(
-                final_record.get("durable_effect") or {}
-            ).get("readback_finished_monotonic_ns"),
+            "result_sha256": final_record.get("result_sha256"),
+            "terminal_outcome": "completed",
+            "entity_state": "completed",
+            "idempotency_key": request_id,
+            "request_sha256": durable.get("request_sha256"),
+            "stored_payload_sha256": durable.get("stored_payload_sha256"),
+            "causal_sequence": durable.get("causal_sequence"),
+            "causal_transaction_id": durable.get("transaction_id"),
+            "causal_payload_sha256": durable.get("causal_payload_sha256"),
         }
         if (
             terminal_record != expected_projection
             or terminal_record.get("model_role") != "blue"
             or int(terminal_record.get("route_generation", 0)) != old_generation
-            or int(terminal_record.get("status_code", 0)) != 200
-            or terminal_record.get("outcome") != "completed"
             or _finite(
-                terminal_record.get("completed_monotonic"),
+                final_record.get("completed_monotonic"),
                 "terminal_gate_completed",
             )
             > terminal_gate_finished
-            or int(terminal_record.get("durable_effect_readback_finished_monotonic_ns", 0)) <= 0
+            or durable.get("readback_visible") is not True
+            or int(durable.get("readback_finished_monotonic_ns", 0)) <= 0
+            or online_response_records[expected_terminal_ids.index(request_id)] != final_record
         ):
             raise S6BMRuntimeError("s6bm_continuity_pre_switch_terminal_binding")
     dispatches = [dict(item) for item in execution.get("dispatches", [])]

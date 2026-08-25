@@ -76,10 +76,32 @@ CASE_CONTRACT = (
     ("release_before_route_applied", "s6bm_continuity_crossover_release_order"),
     ("release_before_receipt_gate", "s6bm_continuity_crossover_release_order"),
     ("crossover_timeout_cleanup_residue", "s6bm_success_cleanup"),
+    (
+        "pre_switch_online_wrong_response_id",
+        "s6bm_continuity_pre_switch_terminal_set",
+    ),
+    (
+        "pre_switch_online_stale_generation",
+        "s6bm_continuity_pre_switch_terminal_binding",
+    ),
+    (
+        "pre_switch_online_wrong_artifact_version",
+        "s6bm_continuity_pre_switch_terminal_binding",
+    ),
+    (
+        "pre_switch_online_durable_readback_absent",
+        "s6bm_continuity_pre_switch_terminal_binding",
+    ),
+    (
+        "pre_switch_terminal_fence_hash_mismatch",
+        "s6bm_continuity_pre_switch_terminal_set",
+    ),
 )
-CASE_CONTRACT_SHA256 = "230ff21035dace5eb498d649d69a1bb063c377c95808d8d9bcae5903edd13a6e"
+CASE_CONTRACT_SHA256 = "d75b6bbc0e396151dc581b05b86fffc5f59ae4681f34a42b60e560f99c85d886"
 HISTORICAL_CASE_CONTRACT = CASE_CONTRACT[:9]
 HISTORICAL_CASE_CONTRACT_SHA256 = "c42a6245d1e48152d06c6f1bd31c7fca8de58f201129c99bb7c59abe9356d4d7"
+PREVIOUS_CASE_CONTRACT = CASE_CONTRACT[:19]
+PREVIOUS_CASE_CONTRACT_SHA256 = "230ff21035dace5eb498d649d69a1bb063c377c95808d8d9bcae5903edd13a6e"
 
 
 class ContinuityQualificationError(RuntimeError):
@@ -207,6 +229,50 @@ def after_switch_unix_ns(raw: dict[str, Any], config: S6BMConfig) -> tuple[int, 
     return target_monotonic + offset_high, target_monotonic
 
 
+def refresh_switch_receipt_binding(
+    root: Path,
+    raw: dict[str, Any],
+    *,
+    request_id: str,
+    stage: str,
+) -> None:
+    """Keep the immutable switch/readback chain coherent with a mutated receipt."""
+    causal_reference = proof(raw)["causal_event_export"]
+    causal_path = reference_path(root, causal_reference)
+    causal_export = read_json(causal_path)
+    start_event = next(
+        item
+        for item in causal_export["events"]
+        if item.get("request_id") == request_id and item.get("event_type") == stage
+    )
+    switch_event = next(
+        item
+        for item in causal_export["events"]
+        if item.get("event_type") == "blue_to_green_switch_commit"
+    )
+    switch_payload = switch_event["payload"]
+    switch_payload["continuity_receipt_sequences"][request_id][stage] = start_event[
+        "causal_sequence"
+    ]
+    switch_payload["continuity_receipt_payload_sha256"][request_id][stage] = start_event[
+        "payload_sha256"
+    ]
+    switch_payload["continuity_receipt_transaction_ids"][request_id][stage] = start_event[
+        "transaction_id"
+    ]
+    switch_event["payload_sha256"] = canonical_sha256(switch_payload)
+    canonical_write(causal_path, causal_export)
+    refresh(causal_reference, causal_path)
+
+    transition = proof(raw)["route_transition_receipt"]
+    fence_receipt = transition["fence_receipt"]
+    fence_receipt["payload"] = copy.deepcopy(switch_payload)
+    fence_receipt["payload_sha256"] = switch_event["payload_sha256"]
+    fence_receipt["fence_payload_sha256"] = switch_event["payload_sha256"]
+    transition["fence_receipt_sha256"] = canonical_sha256(fence_receipt)
+    transition["fence_payload_sha256"] = switch_event["payload_sha256"]
+
+
 def rewrite_bridge_start_event(
     root: Path,
     raw: dict[str, Any],
@@ -245,6 +311,12 @@ def rewrite_bridge_start_event(
     )
     gate["payload_sha256"] = selected["payload_sha256"]
     gate_bundle["selected_event_set_sha256"] = canonical_sha256(gate_events)
+    refresh_switch_receipt_binding(
+        root,
+        raw,
+        request_id=request_id,
+        stage=stage,
+    )
     return selected
 
 
@@ -368,6 +440,12 @@ def sync_bridge_collector_trace(
     result_path = reference_path(root, collector["result"])
     canonical_write(result_path, result_payload)
     refresh(collector["result"], result_path)
+    refresh_switch_receipt_binding(
+        root,
+        raw,
+        request_id=request_id,
+        stage="triton_backend_compute_entry",
+    )
 
 
 def mutate_model(root: Path, raw: dict[str, Any], config: S6BMConfig) -> None:
@@ -434,6 +512,7 @@ def mutate_receipt_after_switch(root: Path, raw: dict[str, Any], config: S6BMCon
             if item.get("request_id") == request_id and item.get("event_type") == stage
         )
         event["database_recorded_at"] = timestamp
+        event["captured_at"] = timestamp
 
     gate_bundle = raw["continuity_execution"]["bridge_actor_receipt_gate"]
     rewrite_reference(root, proof(raw)["causal_event_export"], mutate)
@@ -499,6 +578,9 @@ def mutate_terminal_identity(_root: Path, raw: dict[str, Any], _config: S6BMConf
     gate = raw["continuity_execution"]["pre_switch_terminal_gate"]
     gate["terminal_records"][0]["model_role"] = "green"
     gate["terminal_records_sha256"] = canonical_sha256(gate["terminal_records"])
+    proof(raw)["route_transition_receipt"]["continuity_terminal_records_sha256"] = gate[
+        "terminal_records_sha256"
+    ]
 
 
 def mutate_last_request_green(_root: Path, raw: dict[str, Any], config: S6BMConfig) -> None:
@@ -563,6 +645,57 @@ def mutate_release_before_receipts(_root: Path, raw: dict[str, Any], _config: S6
 
 def mutate_timeout_cleanup(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
     raw["cleanup"]["controller_pending_crossovers_zero"] = False
+
+
+def _online_records(raw: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    gate = raw["continuity_execution"]["pre_switch_terminal_gate"]
+    records = gate["online_response_records"]
+    if len(records) != 39:
+        raise ContinuityQualificationError("online_terminal_exact_set")
+    return gate, records
+
+
+def _refresh_online_records(gate: dict[str, Any], records: list[dict[str, Any]]) -> None:
+    gate["online_response_records_sha256"] = canonical_sha256(records)
+
+
+def mutate_online_wrong_response_id(
+    _root: Path, raw: dict[str, Any], _config: S6BMConfig
+) -> None:
+    gate, records = _online_records(raw)
+    records[0]["request_id"] = "attacker-substituted-request"
+    _refresh_online_records(gate, records)
+
+
+def mutate_online_stale_generation(
+    _root: Path, raw: dict[str, Any], _config: S6BMConfig
+) -> None:
+    gate, records = _online_records(raw)
+    records[0]["route_generation"] = int(records[0]["route_generation"]) - 1
+    _refresh_online_records(gate, records)
+
+
+def mutate_online_wrong_artifact_version(
+    _root: Path, raw: dict[str, Any], _config: S6BMConfig
+) -> None:
+    gate, records = _online_records(raw)
+    records[0]["model_version"] = "attacker-version"
+    records[0]["artifact_sha256"] = "f" * 64
+    _refresh_online_records(gate, records)
+
+
+def mutate_online_durable_readback_absent(
+    _root: Path, raw: dict[str, Any], _config: S6BMConfig
+) -> None:
+    gate, records = _online_records(raw)
+    records[0]["durable_effect"]["readback_visible"] = False
+    _refresh_online_records(gate, records)
+
+
+def mutate_terminal_fence_hash(
+    _root: Path, raw: dict[str, Any], _config: S6BMConfig
+) -> None:
+    proof(raw)["route_transition_receipt"]["continuity_terminal_records_sha256"] = "f" * 64
 
 
 MUTATIONS: dict[str, tuple[str, Mutation, str]] = {
@@ -659,6 +792,31 @@ MUTATIONS: dict[str, tuple[str, Mutation, str]] = {
     "crossover_timeout_cleanup_residue": (
         CASE_CONTRACT[18][1],
         mutate_timeout_cleanup,
+        "success",
+    ),
+    "pre_switch_online_wrong_response_id": (
+        CASE_CONTRACT[19][1],
+        mutate_online_wrong_response_id,
+        "continuity",
+    ),
+    "pre_switch_online_stale_generation": (
+        CASE_CONTRACT[20][1],
+        mutate_online_stale_generation,
+        "continuity",
+    ),
+    "pre_switch_online_wrong_artifact_version": (
+        CASE_CONTRACT[21][1],
+        mutate_online_wrong_artifact_version,
+        "continuity",
+    ),
+    "pre_switch_online_durable_readback_absent": (
+        CASE_CONTRACT[22][1],
+        mutate_online_durable_readback_absent,
+        "continuity",
+    ),
+    "pre_switch_terminal_fence_hash_mismatch": (
+        CASE_CONTRACT[23][1],
+        mutate_terminal_fence_hash,
         "continuity",
     ),
 }
@@ -680,6 +838,8 @@ def run_case(
         try:
             if validator == "continuity":
                 project_continuity_contract(candidate, config)
+            elif validator == "success":
+                project_success_attempt(candidate, config)
             else:
                 validate_causal_bundle(root, candidate, config, compare_projection=False)
         except (S6BMCausalError, S6BMRuntimeError, KeyError, TypeError, ValueError) as exc:
@@ -706,6 +866,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         set(MUTATIONS) != set(case_ids)
         or canonical_sha256(CASE_CONTRACT) != CASE_CONTRACT_SHA256
         or canonical_sha256(HISTORICAL_CASE_CONTRACT) != HISTORICAL_CASE_CONTRACT_SHA256
+        or canonical_sha256(PREVIOUS_CASE_CONTRACT) != PREVIOUS_CASE_CONTRACT_SHA256
     ):
         raise ContinuityQualificationError("continuity_mutation_case_contract")
     results = [run_case(args.private_root, raw, config, case_id) for case_id in case_ids]
