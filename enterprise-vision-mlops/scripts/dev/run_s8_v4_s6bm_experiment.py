@@ -47,6 +47,7 @@ from evm.scale_validation.s6bm_runtime import (  # noqa: E402
 from evm.scale_validation.s6bm_observability import (  # noqa: E402
     attempt_span_count,
     collect_attempt_trace_export,
+    direct_metric_sample,
     direct_metric_value,
     prometheus_value,
     validate_observability_bundle,
@@ -1277,6 +1278,9 @@ def _prometheus_matches_direct(
             }
             effect_labels = {**api_labels, "outcome": "committed"}
             triton_labels = {"model": model.model_name, "version": model.model_version}
+            triton_sample = direct_metric_sample(
+                triton_text, "nv_inference_request_success", triton_labels
+            )
             pairs = (
                 (
                     f"api_{role}_completed",
@@ -1290,8 +1294,8 @@ def _prometheus_matches_direct(
                 ),
                 (
                     f"triton_{role}_success",
-                    direct_metric_value(triton_text, "nv_inference_request_success", triton_labels),
-                    {**common, **triton_labels},
+                    float(triton_sample["value"]),
+                    {**common, **triton_sample["labels"]},
                 ),
             )
             for key, direct_value, expected_labels in pairs:

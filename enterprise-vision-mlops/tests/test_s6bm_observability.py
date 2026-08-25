@@ -10,6 +10,7 @@ from evm.scale_validation.s6bm_observability import (
     S6BMObservabilityError,
     attempt_span_count,
     collect_attempt_trace_export,
+    prometheus_value,
     project_trace_join,
 )
 
@@ -205,3 +206,50 @@ def test_collector_offset_excludes_historical_trace_batches(tmp_path: Path) -> N
     collected = collect_attempt_trace_export(path, ATTEMPT_ID, start_offset=offset)
     assert collected["span_count"] == 2
     assert collected["collector_start_offset"] == offset
+
+
+def test_prometheus_value_selects_exact_direct_label_set() -> None:
+    snapshot = {
+        "queries": {
+            "triton_green_success": {
+                "response": {
+                    "status": "success",
+                    "data": {
+                        "result": [
+                            {
+                                "metric": {
+                                    "attempt_id": ATTEMPT_ID,
+                                    "model": "s6bm_green",
+                                    "version": "1",
+                                },
+                                "value": [1, "10"],
+                            },
+                            {
+                                "metric": {
+                                    "attempt_id": ATTEMPT_ID,
+                                    "model": "s6bm_green",
+                                    "version": "1",
+                                    "gpu_uuid": "GPU-unit",
+                                },
+                                "value": [1, "20"],
+                            },
+                        ]
+                    },
+                }
+            }
+        }
+    }
+
+    assert (
+        prometheus_value(
+            snapshot,
+            "triton_green_success",
+            {
+                "attempt_id": ATTEMPT_ID,
+                "model": "s6bm_green",
+                "version": "1",
+                "gpu_uuid": "GPU-unit",
+            },
+        )
+        == 20
+    )
