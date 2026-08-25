@@ -246,6 +246,38 @@ def test_collector_offset_excludes_historical_trace_batches(tmp_path: Path) -> N
     assert collected["collector_start_offset"] == offset
 
 
+def test_collector_ignores_only_concurrent_partial_tail(tmp_path: Path) -> None:
+    _record, export = _record_and_export()
+    entry = export["entries"][1]  # type: ignore[index]
+    complete = {
+        "resourceSpans": [
+            {
+                "resource": entry["resource"],
+                "scopeSpans": [
+                    {
+                        "scope": {},
+                        "spans": [entry["span"]],
+                    }
+                ],
+            }
+        ]
+    }
+    path = tmp_path / "traces.json"
+    path.write_bytes(
+        json.dumps(complete).encode("utf-8") + b"\n" + b'{"resourceSpans":[{"resource":'
+    )
+
+    assert attempt_span_count(path, ATTEMPT_ID, stage="s6bm_controller") == 1
+
+
+def test_collector_rejects_newline_terminated_malformed_record(tmp_path: Path) -> None:
+    path = tmp_path / "traces.json"
+    path.write_bytes(b'{"resourceSpans":[]}\nnot-json\n')
+
+    with pytest.raises(S6BMObservabilityError, match="s6bm_trace_collector_json:2"):
+        attempt_span_count(path, ATTEMPT_ID, stage="s6bm_controller")
+
+
 def test_prometheus_value_aggregates_exact_identity_series() -> None:
     snapshot = {
         "queries": {

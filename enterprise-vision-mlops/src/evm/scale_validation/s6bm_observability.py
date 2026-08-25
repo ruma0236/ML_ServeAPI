@@ -62,7 +62,8 @@ def _iter_otlp_spans(path: Path, *, start_offset: int = 0):
     if not path.is_file():
         raise S6BMObservabilityError("s6bm_trace_collector_file_absent")
     with path.open("rb") as handle:
-        if start_offset < 0 or start_offset > path.stat().st_size:
+        snapshot_size = path.stat().st_size
+        if start_offset < 0 or start_offset > snapshot_size:
             raise S6BMObservabilityError("s6bm_trace_collector_offset")
         if start_offset:
             handle.seek(start_offset - 1)
@@ -70,7 +71,13 @@ def _iter_otlp_spans(path: Path, *, start_offset: int = 0):
                 handle.readline()
         else:
             handle.seek(0)
-        for line_number, raw_line in enumerate(handle, start=1):
+        payload = handle.read(max(0, snapshot_size - handle.tell()))
+        lines = payload.splitlines(keepends=True)
+        for line_number, raw_line in enumerate(lines, start=1):
+            # The file exporter appends concurrently. A snapshot may end in the middle
+            # of its final JSON record; only newline-terminated records are committed.
+            if line_number == len(lines) and not raw_line.endswith(b"\n"):
+                break
             try:
                 batch = json.loads(raw_line.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
