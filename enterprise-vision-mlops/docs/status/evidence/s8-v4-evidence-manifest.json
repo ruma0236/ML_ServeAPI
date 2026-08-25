@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.s8_v4.evidence_manifest.v1",
-  "generated_at": "2026-08-25T05:08:00.139475Z",
+  "generated_at": "2026-08-25T05:11:02.477324Z",
   "status": "contract_frozen",
   "runtime_execution_started": true,
   "acceptance_credit": false,
@@ -370,7 +370,9 @@
           "status_evidence": 105,
           "frontend_modules": 1803,
           "changed_file_lint": "passed"
-        }
+        },
+        "strict_v3_git_handoff_revision": "bf095d3eba8890dedce6a107f43a1d20cfeaa045",
+        "strict_v3_git_handoff_role": "immutable canonical review package; external systems bind the later final sync HEAD"
       },
       "claim_boundary": "one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, controlled traffic; not production SLA, physical HA, node failover, multi-node, multi-GPU, MIG, MPS, or a zero-interruption guarantee",
       "unresolved_items": [
