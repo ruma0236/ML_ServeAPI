@@ -9,6 +9,7 @@ import sys
 import tempfile
 from dataclasses import replace
 from datetime import UTC, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Callable
 
@@ -533,8 +534,91 @@ def _clock_drift(root: Path, raw: dict[str, Any]) -> None:
     _sync_collector_observation(root, raw)
 
 
+def _affine_mutation_metrics(
+    raw: dict[str, Any], *, anchor_index: int, unix_delta_ns: int
+) -> tuple[Fraction, Fraction, Fraction]:
+    anchors = [item["clock_anchor"] for item in raw["phase_timeline"]]
+    collector = _proof(raw)["triton_start_receipt"]["collector_observation"]
+    samples: list[tuple[Fraction, Fraction]] = []
+    for index, anchor in enumerate([*anchors, collector]):
+        midpoint = Fraction(
+            int(anchor["monotonic_before_ns"]) + int(anchor["monotonic_after_ns"]),
+            2,
+        )
+        unix_ns = int(anchor["unix_ns"])
+        if index == anchor_index:
+            unix_ns += unix_delta_ns
+        samples.append((midpoint, Fraction(unix_ns)))
+
+    count = len(samples)
+    x_mean = sum((x for x, _ in samples), Fraction(0)) / count
+    y_mean = sum((y for _, y in samples), Fraction(0)) / count
+    denominator = sum(((x - x_mean) ** 2 for x, _ in samples), Fraction(0))
+    slope = (
+        sum(((x - x_mean) * (y - y_mean) for x, y in samples), Fraction(0))
+        / denominator
+    )
+    intercept = y_mean - slope * x_mean
+    residuals = [y - (intercept + slope * x) for x, y in samples]
+    ordered = sorted(zip((x for x, _ in samples), residuals, strict=True))
+    max_step = max(
+        (
+            abs(right_residual - left_residual)
+            for (_, left_residual), (_, right_residual) in zip(
+                ordered, ordered[1:], strict=False
+            )
+        ),
+        default=Fraction(0),
+    )
+    return (
+        max((abs(value) for value in residuals), default=Fraction(0)),
+        max_step,
+        abs(slope - 1) * 1_000_000,
+    )
+
+
 def _clock_residual_over_bound(_root: Path, raw: dict[str, Any]) -> None:
-    _phase(raw, "canary")["clock_anchor"]["unix_ns"] += 1_500_000
+    residual_bound = Fraction(1_000_000)
+    step_bound = Fraction(2_000_000)
+    drift_bound = Fraction(100)
+    candidates: list[tuple[Fraction, int, int]] = []
+    anchors = [item["clock_anchor"] for item in raw["phase_timeline"]]
+    for anchor_index in range(len(anchors)):
+        for direction in (1, -1):
+            low = 0
+            high = 8_000_000
+            high_metrics = _affine_mutation_metrics(
+                raw,
+                anchor_index=anchor_index,
+                unix_delta_ns=direction * high,
+            )
+            if high_metrics[0] <= residual_bound:
+                continue
+            while low + 1 < high:
+                midpoint = (low + high) // 2
+                metrics = _affine_mutation_metrics(
+                    raw,
+                    anchor_index=anchor_index,
+                    unix_delta_ns=direction * midpoint,
+                )
+                if metrics[0] > residual_bound:
+                    high = midpoint
+                else:
+                    low = midpoint
+            residual, step, drift = _affine_mutation_metrics(
+                raw,
+                anchor_index=anchor_index,
+                unix_delta_ns=direction * high,
+            )
+            if step <= step_bound and drift <= drift_bound:
+                candidates.append((residual, anchor_index, direction * high))
+    if not candidates:
+        raise StrictV4QualificationError("clock_residual_mutation_not_constructible")
+    _, selected_index, selected_delta = min(
+        candidates,
+        key=lambda item: (item[0], item[1], item[2]),
+    )
+    anchors[selected_index]["unix_ns"] += selected_delta
     _rehash_runner_anchor_chain(raw)
 
 
