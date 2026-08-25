@@ -10,6 +10,7 @@ from evm.scale_validation.s6bm_observability import (
     S6BMObservabilityError,
     attempt_span_count,
     collect_attempt_trace_export,
+    direct_metric_aggregate,
     prometheus_value,
     project_trace_join,
 )
@@ -208,7 +209,7 @@ def test_collector_offset_excludes_historical_trace_batches(tmp_path: Path) -> N
     assert collected["collector_start_offset"] == offset
 
 
-def test_prometheus_value_selects_exact_direct_label_set() -> None:
+def test_prometheus_value_aggregates_exact_identity_series() -> None:
     snapshot = {
         "queries": {
             "triton_green_success": {
@@ -248,8 +249,64 @@ def test_prometheus_value_selects_exact_direct_label_set() -> None:
                 "attempt_id": ATTEMPT_ID,
                 "model": "s6bm_green",
                 "version": "1",
-                "gpu_uuid": "GPU-unit",
             },
+            expected_series_count=None,
         )
-        == 20
+        == 30
     )
+
+
+def test_direct_metric_aggregate_preserves_series_identity() -> None:
+    metrics = (
+        'nv_inference_request_success{model="s6bm_green",version="1"} 10\n'
+        'nv_inference_request_success{gpu_uuid="GPU-unit",model="s6bm_green",version="1"} 20\n'
+    )
+
+    result = direct_metric_aggregate(
+        metrics,
+        "nv_inference_request_success",
+        {"model": "s6bm_green", "version": "1"},
+    )
+
+    assert result["value"] == 30
+    assert result["series_count"] == 2
+    assert result["series_labels"] == [
+        {"gpu_uuid": "GPU-unit", "model": "s6bm_green", "version": "1"},
+        {"model": "s6bm_green", "version": "1"},
+    ]
+
+
+def test_prometheus_value_rejects_mixed_identity_series() -> None:
+    snapshot = {
+        "queries": {
+            "triton_green_success": {
+                "response": {
+                    "status": "success",
+                    "data": {
+                        "result": [
+                            {
+                                "metric": {
+                                    "attempt_id": ATTEMPT_ID,
+                                    "model": "s6bm_green",
+                                    "version": "2",
+                                },
+                                "value": [1, "10"],
+                            }
+                        ]
+                    },
+                }
+            }
+        }
+    }
+
+    with pytest.raises(S6BMObservabilityError, match="s6bm_prometheus_identity"):
+        prometheus_value(
+            snapshot,
+            "triton_green_success",
+            {
+                "attempt_id": ATTEMPT_ID,
+                "model": "s6bm_green",
+                "version": "1",
+            },
+            expected_series_count=None,
+        )

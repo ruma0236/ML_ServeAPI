@@ -289,28 +289,50 @@ def direct_metric_sample(text: str, name: str, labels: Mapping[str, str]) -> dic
     return matches[0]
 
 
+def direct_metric_aggregate(text: str, name: str, labels: Mapping[str, str]) -> dict[str, Any]:
+    matches = [
+        sample
+        for sample in _metric_samples(text, name)
+        if all(sample["labels"].get(key) == value for key, value in labels.items())
+    ]
+    if not matches or any(not math.isfinite(float(item["value"])) for item in matches):
+        raise S6BMObservabilityError(f"s6bm_direct_metric_aggregate:{name}:{len(matches)}")
+    return {
+        "value": sum(float(item["value"]) for item in matches),
+        "series_count": len(matches),
+        "series_labels": sorted(
+            (dict(item["labels"]) for item in matches),
+            key=canonical,
+        ),
+    }
+
+
 def prometheus_value(
-    snapshot: Mapping[str, Any], key: str, expected_labels: Mapping[str, str]
+    snapshot: Mapping[str, Any],
+    key: str,
+    expected_labels: Mapping[str, str],
+    *,
+    expected_series_count: int | None = 1,
 ) -> float:
     capture = dict(dict(snapshot.get("queries", {})).get(key, {}))
     response = dict(capture.get("response", {}))
     result = list(dict(response.get("data", {})).get("result", []))
-    matches = [
-        item
-        for item in result
-        if all(
-            dict(item.get("metric", {})).get(label) == value
-            for label, value in expected_labels.items()
-        )
-    ]
-    if response.get("status") != "success" or len(matches) != 1:
+    if response.get("status") != "success" or not result:
+        raise S6BMObservabilityError(f"s6bm_prometheus_cardinality:{key}:0:{len(result)}")
+    if expected_series_count is not None and len(result) != expected_series_count:
         raise S6BMObservabilityError(
-            f"s6bm_prometheus_cardinality:{key}:{len(matches)}:{len(result)}"
+            f"s6bm_prometheus_cardinality:{key}:{len(result)}:{expected_series_count}"
         )
-    value = list(matches[0].get("value", []))
-    if len(value) != 2:
-        raise S6BMObservabilityError(f"s6bm_prometheus_value:{key}")
-    return float(value[1])
+    values: list[float] = []
+    for item in result:
+        metric = dict(item.get("metric", {}))
+        if any(metric.get(label) != value for label, value in expected_labels.items()):
+            raise S6BMObservabilityError(f"s6bm_prometheus_identity:{key}")
+        value = list(item.get("value", []))
+        if len(value) != 2 or not math.isfinite(float(value[1])):
+            raise S6BMObservabilityError(f"s6bm_prometheus_value:{key}")
+        values.append(float(value[1]))
+    return sum(values)
 
 
 def _require_counter_delta(observed: float, expected: int, code: str) -> int:
@@ -417,6 +439,7 @@ def validate_observability_bundle(
     prometheus_api_deltas: dict[str, int] = {}
     prometheus_effect_deltas: dict[str, int] = {}
     prometheus_triton_deltas: dict[str, int] = {}
+    triton_series: dict[str, dict[str, Any]] = {}
     auxiliary = {
         "blue": int(config.procedure["warmup_requests"]) + 1,
         "green": int(config.procedure["warmup_requests"]),
@@ -439,22 +462,23 @@ def validate_observability_bundle(
         effect_after_sample = direct_metric_sample(
             api_after, "evm_s6bm_terminal_effects_total", effect_labels
         )
-        triton_before_sample = direct_metric_sample(
+        triton_before_aggregate = direct_metric_aggregate(
             triton_before, "nv_inference_request_success", triton_labels
         )
-        triton_after_sample = direct_metric_sample(
+        triton_after_aggregate = direct_metric_aggregate(
             triton_after, "nv_inference_request_success", triton_labels
         )
         for before_sample, after_sample, code in (
             (api_before_sample, api_after_sample, "api"),
             (effect_before_sample, effect_after_sample, "effect"),
-            (triton_before_sample, triton_after_sample, "triton"),
         ):
             if before_sample["labels"] != after_sample["labels"]:
                 raise S6BMObservabilityError(f"s6bm_direct_metric_identity_changed:{role}:{code}")
         api_delta = float(api_after_sample["value"]) - float(api_before_sample["value"])
         effect_delta = float(effect_after_sample["value"]) - float(effect_before_sample["value"])
-        triton_delta = float(triton_after_sample["value"]) - float(triton_before_sample["value"])
+        triton_delta = float(triton_after_aggregate["value"]) - float(
+            triton_before_aggregate["value"]
+        )
         expected_triton = served[role] + auxiliary[role]
         api_deltas[role] = _require_counter_delta(
             api_delta, served[role], f"s6bm_direct_api_delta:{role}"
@@ -465,6 +489,12 @@ def validate_observability_bundle(
         triton_deltas[role] = _require_counter_delta(
             triton_delta, expected_triton, f"s6bm_direct_triton_delta:{role}"
         )
+        triton_series[role] = {
+            "before_count": int(triton_before_aggregate["series_count"]),
+            "after_count": int(triton_after_aggregate["series_count"]),
+            "before_labels": triton_before_aggregate["series_labels"],
+            "after_labels": triton_after_aggregate["series_labels"],
+        }
 
         prom_identity = {
             "attempt_id": attempt_id,
@@ -474,25 +504,37 @@ def validate_observability_bundle(
         effect_key = f"api_{role}_effect"
         triton_key = f"triton_{role}_success"
         prom_api_delta = prometheus_value(
-            prom_after, api_key, {**prom_identity, **api_after_sample["labels"]}
-        ) - prometheus_value(prom_before, api_key, {**prom_identity, **api_before_sample["labels"]})
+            prom_after,
+            api_key,
+            {**prom_identity, **api_after_sample["labels"]},
+            expected_series_count=1,
+        ) - prometheus_value(
+            prom_before,
+            api_key,
+            {**prom_identity, **api_before_sample["labels"]},
+            expected_series_count=1,
+        )
         prom_effect_delta = prometheus_value(
             prom_after,
             effect_key,
             {**prom_identity, **effect_after_sample["labels"]},
+            expected_series_count=1,
         ) - prometheus_value(
             prom_before,
             effect_key,
             {**prom_identity, **effect_before_sample["labels"]},
+            expected_series_count=1,
         )
         prom_triton_delta = prometheus_value(
             prom_after,
             triton_key,
-            {**prom_identity, **triton_after_sample["labels"]},
+            {**prom_identity, **triton_labels},
+            expected_series_count=None,
         ) - prometheus_value(
             prom_before,
             triton_key,
-            {**prom_identity, **triton_before_sample["labels"]},
+            {**prom_identity, **triton_labels},
+            expected_series_count=None,
         )
         prometheus_api_deltas[role] = _require_counter_delta(
             prom_api_delta, served[role], f"s6bm_prometheus_api_delta:{role}"
@@ -520,6 +562,7 @@ def validate_observability_bundle(
         "prometheus_api_request_delta_by_role": prometheus_api_deltas,
         "prometheus_api_effect_delta_by_role": prometheus_effect_deltas,
         "prometheus_triton_success_delta_by_role": prometheus_triton_deltas,
+        "triton_metric_series_by_role": triton_series,
         "auxiliary_inferences_by_role": auxiliary,
         "trace_correlation_complete": trace["request_trace_effect_bound"] == len(records),
         "metric_delta_complete": sum(api_deltas.values()) == len(records),

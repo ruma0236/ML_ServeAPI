@@ -47,7 +47,7 @@ from evm.scale_validation.s6bm_runtime import (  # noqa: E402
 from evm.scale_validation.s6bm_observability import (  # noqa: E402
     attempt_span_count,
     collect_attempt_trace_export,
-    direct_metric_sample,
+    direct_metric_aggregate,
     direct_metric_value,
     prometheus_value,
     validate_observability_bundle,
@@ -1278,7 +1278,7 @@ def _prometheus_matches_direct(
             }
             effect_labels = {**api_labels, "outcome": "committed"}
             triton_labels = {"model": model.model_name, "version": model.model_version}
-            triton_sample = direct_metric_sample(
+            triton_aggregate = direct_metric_aggregate(
                 triton_text, "nv_inference_request_success", triton_labels
             )
             pairs = (
@@ -1286,20 +1286,31 @@ def _prometheus_matches_direct(
                     f"api_{role}_completed",
                     direct_metric_value(api_text, "evm_s6bm_requests_total", api_labels),
                     {**common, **api_labels},
+                    1,
                 ),
                 (
                     f"api_{role}_effect",
                     direct_metric_value(api_text, "evm_s6bm_terminal_effects_total", effect_labels),
                     {**common, **effect_labels},
+                    1,
                 ),
                 (
                     f"triton_{role}_success",
-                    float(triton_sample["value"]),
-                    {**common, **triton_sample["labels"]},
+                    float(triton_aggregate["value"]),
+                    {**common, **triton_labels},
+                    None,
                 ),
             )
-            for key, direct_value, expected_labels in pairs:
-                if prometheus_value(snapshot, key, expected_labels) != direct_value:
+            for key, direct_value, expected_labels, series_count in pairs:
+                if (
+                    prometheus_value(
+                        snapshot,
+                        key,
+                        expected_labels,
+                        expected_series_count=series_count,
+                    )
+                    != direct_value
+                ):
                     return False
     except (ValueError, RuntimeError):
         return False
