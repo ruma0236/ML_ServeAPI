@@ -1259,25 +1259,27 @@ def direct_metrics(config: S6BMConfig) -> tuple[str, str]:
     return api.text, triton.text
 
 
-def _prometheus_matches_direct(
+def prometheus_direct_comparison(
     config: S6BMConfig,
     snapshot: Mapping[str, Any],
     api_text: str,
     triton_text: str,
     attempt_id: str,
-) -> bool:
+) -> dict[str, Any]:
     common = {"scenario": "s8-v4-s6bm", "attempt_id": attempt_id}
-    try:
-        for role in ("blue", "green"):
-            model = config.blue if role == "blue" else config.green
-            api_labels = {
-                "model_role": role,
-                "model_name": model.model_name,
-                "model_version": model.model_version,
-                "outcome": "completed",
-            }
-            effect_labels = {**api_labels, "outcome": "committed"}
-            triton_labels = {"model": model.model_name, "version": model.model_version}
+    comparisons: dict[str, Any] = {}
+    errors: list[str] = []
+    for role in ("blue", "green"):
+        model = config.blue if role == "blue" else config.green
+        api_labels = {
+            "model_role": role,
+            "model_name": model.model_name,
+            "model_version": model.model_version,
+            "outcome": "completed",
+        }
+        effect_labels = {**api_labels, "outcome": "committed"}
+        triton_labels = {"model": model.model_name, "version": model.model_version}
+        try:
             triton_aggregate = direct_metric_aggregate(
                 triton_text, "nv_inference_request_success", triton_labels
             )
@@ -1302,19 +1304,54 @@ def _prometheus_matches_direct(
                 ),
             )
             for key, direct_value, expected_labels, series_count in pairs:
-                if (
-                    prometheus_value(
-                        snapshot,
-                        key,
-                        expected_labels,
-                        expected_series_count=series_count,
-                    )
-                    != direct_value
-                ):
-                    return False
-    except (ValueError, RuntimeError):
-        return False
-    return True
+                prom_value = prometheus_value(
+                    snapshot,
+                    key,
+                    expected_labels,
+                    expected_series_count=series_count,
+                )
+                matches = prom_value == direct_value
+                comparisons[key] = {
+                    "direct_value": direct_value,
+                    "prometheus_value": prom_value,
+                    "matches": matches,
+                    "expected_labels": expected_labels,
+                    "direct_series_count": (
+                        int(triton_aggregate["series_count"]) if key.startswith("triton_") else 1
+                    ),
+                    "direct_series_labels": (
+                        triton_aggregate["series_labels"]
+                        if key.startswith("triton_")
+                        else [expected_labels]
+                    ),
+                }
+                if not matches:
+                    errors.append(f"s6bm_prometheus_direct_value:{key}")
+        except (ValueError, RuntimeError) as exc:
+            errors.append(f"{role}:{type(exc).__name__}:{exc}")
+    return {
+        "passed": not errors,
+        "errors": errors,
+        "comparisons": comparisons,
+    }
+
+
+def _prometheus_matches_direct(
+    config: S6BMConfig,
+    snapshot: Mapping[str, Any],
+    api_text: str,
+    triton_text: str,
+    attempt_id: str,
+) -> bool:
+    return bool(
+        prometheus_direct_comparison(
+            config,
+            snapshot,
+            api_text,
+            triton_text,
+            attempt_id,
+        )["passed"]
+    )
 
 
 def capture_metric_checkpoint(
@@ -1327,6 +1364,7 @@ def capture_metric_checkpoint(
 ) -> tuple[str, str, dict[str, Any]]:
     deadline = time.monotonic() + timeout
     last: dict[str, Any] | None = None
+    last_comparison: dict[str, Any] | None = None
     while time.monotonic() < deadline:
         api_text, triton_text = direct_metrics(config)
         try:
@@ -1336,12 +1374,22 @@ def capture_metric_checkpoint(
                 attempt_id=attempt_id,
                 run_id=run_id,
             )
-            if _prometheus_matches_direct(config, last, api_text, triton_text, attempt_id):
+            last_comparison = prometheus_direct_comparison(
+                config,
+                last,
+                api_text,
+                triton_text,
+                attempt_id,
+            )
+            if last_comparison["passed"]:
                 return api_text, triton_text, last
         except (requests.RequestException, S6BMExperimentError):
             pass
         time.sleep(float(config.telemetry["prometheus_scrape_seconds"]))
-    raise S6BMExperimentError(f"prometheus_metric_convergence:{attempt_id}:{last}")
+    raise S6BMExperimentError(
+        f"prometheus_metric_convergence:{attempt_id}:"
+        f"{canonical({'comparison': last_comparison, 'snapshot': last})}"
+    )
 
 
 def artifact_reference(root: Path, path: Path) -> dict[str, Any]:

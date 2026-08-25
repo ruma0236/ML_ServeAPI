@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -141,3 +142,114 @@ def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
     assert 1 <= len(created) <= 3
     assert set(seen) == {id(session) for session in created}
     assert all(session.closed for session in created)
+
+
+def test_prometheus_direct_comparison_reports_exact_series_failure() -> None:
+    runner = load_runner()
+    config = SimpleNamespace(
+        blue=SimpleNamespace(model_name="s6bm_blue", model_version="1"),
+        green=SimpleNamespace(model_name="s6bm_green", model_version="1"),
+    )
+    api_metrics = "\n".join(
+        [
+            'evm_s6bm_requests_total{model_name="s6bm_blue",model_role="blue",model_version="1",outcome="completed"} 10',
+            'evm_s6bm_terminal_effects_total{model_name="s6bm_blue",model_role="blue",model_version="1",outcome="committed"} 10',
+            'evm_s6bm_requests_total{model_name="s6bm_green",model_role="green",model_version="1",outcome="completed"} 0',
+            'evm_s6bm_terminal_effects_total{model_name="s6bm_green",model_role="green",model_version="1",outcome="committed"} 0',
+        ]
+    )
+    triton_metrics = "\n".join(
+        [
+            'nv_inference_request_success{model="s6bm_blue",version="1"} 10',
+            'nv_inference_request_success{model="s6bm_green",version="1"} 0',
+            'nv_inference_request_success{gpu_uuid="GPU-unit",model="s6bm_green",version="1"} 0',
+        ]
+    )
+    common = {"scenario": "s8-v4-s6bm", "attempt_id": "attempt-unit"}
+
+    def query(metric: dict[str, str], value: int) -> dict[str, object]:
+        return {
+            "response": {
+                "status": "success",
+                "data": {"result": [{"metric": {**common, **metric}, "value": [1, str(value)]}]},
+            }
+        }
+
+    snapshot = {
+        "queries": {
+            "api_blue_completed": query(
+                {
+                    "model_name": "s6bm_blue",
+                    "model_role": "blue",
+                    "model_version": "1",
+                    "outcome": "completed",
+                },
+                10,
+            ),
+            "api_blue_effect": query(
+                {
+                    "model_name": "s6bm_blue",
+                    "model_role": "blue",
+                    "model_version": "1",
+                    "outcome": "committed",
+                },
+                10,
+            ),
+            "triton_blue_success": query({"model": "s6bm_blue", "version": "1"}, 10),
+            "api_green_completed": query(
+                {
+                    "model_name": "s6bm_green",
+                    "model_role": "green",
+                    "model_version": "1",
+                    "outcome": "completed",
+                },
+                0,
+            ),
+            "api_green_effect": query(
+                {
+                    "model_name": "s6bm_green",
+                    "model_role": "green",
+                    "model_version": "1",
+                    "outcome": "committed",
+                },
+                0,
+            ),
+            "triton_green_success": {
+                "response": {
+                    "status": "success",
+                    "data": {
+                        "result": [
+                            {
+                                "metric": {
+                                    **common,
+                                    "model": "s6bm_green",
+                                    "version": "1",
+                                },
+                                "value": [1, "0"],
+                            },
+                            {
+                                "metric": {
+                                    **common,
+                                    "model": "s6bm_green",
+                                    "version": "1",
+                                    "gpu_uuid": "GPU-unit",
+                                },
+                                "value": [1, "0"],
+                            },
+                        ]
+                    },
+                }
+            },
+        }
+    }
+
+    assert runner.prometheus_direct_comparison(
+        config, snapshot, api_metrics, triton_metrics, "attempt-unit"
+    )["passed"]
+
+    missing_green = triton_metrics.splitlines()[0]
+    failed = runner.prometheus_direct_comparison(
+        config, snapshot, api_metrics, missing_green, "attempt-unit"
+    )
+    assert failed["passed"] is False
+    assert any("s6bm_direct_metric_aggregate" in error for error in failed["errors"])
