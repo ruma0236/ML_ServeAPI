@@ -737,16 +737,20 @@ def validate_triton_container_mounts(
     by_destination = {item.get("Destination"): item for item in mounts if isinstance(item, Mapping)}
     if set(by_destination) != {"/models", "/evidence"}:
         raise X1ResumeTestbedError("x1_resume_container_mount_set")
+    expected_keys = {"Type", "Source", "Destination", "Mode", "RW", "Propagation"}
     expected = {
-        "/models": (repository, False),
-        "/evidence": (evidence_root, True),
+        "/models": (repository, False, "ro"),
+        "/evidence": (evidence_root, True, "rw"),
     }
-    for destination, (source, writable) in expected.items():
+    for destination, (source, writable, mode) in expected.items():
         item = by_destination[destination]
         if (
-            item.get("Type") != "bind"
+            set(item) != expected_keys
+            or item.get("Type") != "bind"
             or type(item.get("RW")) is not bool
             or item["RW"] is not writable
+            or item.get("Mode") != mode
+            or item.get("Propagation") != "rprivate"
             or type(item.get("Source")) is not str
             or host_mount_identity(item["Source"]) != host_mount_identity(source)
         ):
@@ -1725,12 +1729,79 @@ def _protobuf_integer_exact(value: Any, expected: int) -> bool:
     return isinstance(value, str) and bool(re.fullmatch(r"-?\d+", value)) and int(value) == expected
 
 
+def _protobuf_json_integer_exact(value: Any, expected: int) -> bool:
+    return type(value) is str and value == str(expected)
+
+
+def _default_runtime_behaviors_exact(config_readback: Mapping[str, Any]) -> bool:
+    if "response_cache" in config_readback and not _typed_canonical_equal(
+        config_readback["response_cache"], {"enable": False}
+    ):
+        return False
+    if "model_warmup" in config_readback and not _typed_canonical_equal(
+        config_readback["model_warmup"], []
+    ):
+        return False
+    if "optimization" in config_readback:
+        optimization = config_readback["optimization"]
+        if (
+            not isinstance(optimization, Mapping)
+            or set(optimization)
+            != {
+                "eager_batching",
+                "gather_kernel_buffer_threshold",
+                "input_pinned_memory",
+                "output_pinned_memory",
+                "priority",
+            }
+            or optimization.get("eager_batching") is not False
+            or not _protobuf_integer_exact(optimization.get("gather_kernel_buffer_threshold"), 0)
+            or not _typed_canonical_equal(optimization.get("input_pinned_memory"), {"enable": True})
+            or not _typed_canonical_equal(
+                optimization.get("output_pinned_memory"), {"enable": True}
+            )
+            or optimization.get("priority") != "PRIORITY_DEFAULT"
+        ):
+            return False
+    return True
+
+
+def _dynamic_batching_exact(
+    config_readback: Mapping[str, Any], batching: Mapping[str, Any]
+) -> bool:
+    if batching.get("enabled") is False:
+        return "dynamic_batching" not in config_readback
+    if batching.get("enabled") is not True:
+        return False
+    dynamic = config_readback.get("dynamic_batching")
+    preferred = dynamic.get("preferred_batch_size") if isinstance(dynamic, Mapping) else None
+    expected_preferred = batching.get("preferred_batch_sizes")
+    expected_delay = batching.get("max_queue_delay_microseconds")
+    return (
+        isinstance(dynamic, Mapping)
+        and set(dynamic) == {"preferred_batch_size", "max_queue_delay_microseconds"}
+        and isinstance(expected_preferred, list)
+        and all(type(value) is int and not isinstance(value, bool) for value in expected_preferred)
+        and isinstance(preferred, list)
+        and len(preferred) == len(expected_preferred)
+        and all(
+            _protobuf_json_integer_exact(actual, expected)
+            for actual, expected in zip(preferred, expected_preferred)
+        )
+        and type(expected_delay) is int
+        and not isinstance(expected_delay, bool)
+        and _protobuf_json_integer_exact(
+            dynamic.get("max_queue_delay_microseconds"), expected_delay
+        )
+    )
+
+
 def triton_gpu_instance_exact(
     config_readback: Any,
     *,
     model_id: str,
     input_width: int,
-    dynamic_batching_enabled: bool,
+    batching: Mapping[str, Any],
 ) -> bool:
     if not isinstance(config_readback, Mapping):
         return False
@@ -1762,7 +1833,8 @@ def triton_gpu_instance_exact(
         or not isinstance(versions, list)
         or len(versions) != 1
         or not _protobuf_integer_exact(versions[0], 1)
-        or bool(config_readback.get("dynamic_batching")) != dynamic_batching_enabled
+        or not _dynamic_batching_exact(config_readback, batching)
+        or not _default_runtime_behaviors_exact(config_readback)
         or not isinstance(inputs, list)
         or len(inputs) != 1
         or not isinstance(inputs[0], Mapping)
@@ -2766,7 +2838,7 @@ def _validate_runtime_contract_artifact(
                 model_configs[model.model_id]["payload"],
                 model_id=model.model_id,
                 input_width=model.input_width,
-                dynamic_batching_enabled=batching == "on",
+                batching=config.batching[batching],
             )
             for model in config.models
         )
@@ -2895,7 +2967,7 @@ def validate_private_evidence(
                     (model.input_width for model in config.models if model.model_id == model_id),
                     -1,
                 ),
-                dynamic_batching_enabled=False,
+                batching=config.batching["off"],
             )
             or [canonical_sha256(line) for line in gpu_lines] != item.get("gpu_log_line_sha256")
             or any(line not in log_text.splitlines() for line in gpu_lines)
@@ -3168,7 +3240,7 @@ def validate_evidence(
                     (model.input_width for model in config.models if model.model_id == model_id),
                     -1,
                 ),
-                dynamic_batching_enabled=False,
+                batching=config.batching["off"],
             ):
                 errors.append("q0_gpu_instance_readback")
             if float(item.get("triton_compute_delta", 0)) <= 0:

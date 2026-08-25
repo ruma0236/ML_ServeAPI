@@ -273,11 +273,19 @@ def triton_config_readback(
         "input": [{"name": "FEATURES__0", "data_type": "TYPE_FP32", "dims": [str(input_width)]}],
         "output": [{"name": "SCORE__0", "data_type": "TYPE_FP32", "dims": ["1"]}],
         "instance_group": [{"kind": "KIND_GPU", "count": "1", "gpus": ["0"]}],
+        "model_warmup": [],
+        "optimization": {
+            "eager_batching": False,
+            "gather_kernel_buffer_threshold": "0",
+            "input_pinned_memory": {"enable": True},
+            "output_pinned_memory": {"enable": True},
+            "priority": "PRIORITY_DEFAULT",
+        },
     }
     if dynamic_batching:
         result["dynamic_batching"] = {
-            "preferred_batch_size": ["4", "8", "16", "32"],
-            "max_queue_delay_microseconds": "5000",
+            "preferred_batch_size": ["4", "8"],
+            "max_queue_delay_microseconds": "10000",
         }
     return result
 
@@ -977,7 +985,7 @@ def test_triton_mount_contract_is_exact_and_structured(tmp_path: Path) -> None:
             "Type": "bind",
             "Source": str(evidence_root),
             "Destination": "/evidence",
-            "Mode": "",
+            "Mode": "rw",
             "RW": True,
             "Propagation": "rprivate",
         },
@@ -991,19 +999,118 @@ def test_triton_mount_contract_is_exact_and_structured(tmp_path: Path) -> None:
     mutations = []
     for destination, field, value in (
         ("/models", "RW", True),
+        ("/models", "Mode", "rw"),
+        ("/models", "Propagation", "rshared"),
         ("/models", "Type", "volume"),
         ("/models", "Source", str(tmp_path / "wrong")),
         ("/evidence", "RW", False),
+        ("/evidence", "Mode", "ro"),
+        ("/evidence", "Propagation", ""),
     ):
         mutated = json.loads(json.dumps(positive))
         next(item for item in mutated if item["Destination"] == destination)[field] = value
         mutations.append(mutated)
+    extra_field = json.loads(json.dumps(positive))
+    extra_field[0]["Unexpected"] = "coherent-but-forbidden"
+    mutations.append(extra_field)
     mutations.append([*json.loads(json.dumps(positive)), dict(positive[0])])
     for mutated in mutations:
         with pytest.raises(X1ResumeTestbedError, match="x1_resume_container_mount"):
             x1_resume_module.validate_triton_container_mounts(
                 mutated, repository=repository, evidence_root=evidence_root
             )
+
+
+def test_runner_start_triton_enforces_exact_mount_inspect(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    tmp_path: Path,
+) -> None:
+    runner, cfg, repository_root, _data_root = prepared_runner_repository
+    repository = repository_root / "batch-off"
+    evidence_root = tmp_path / "runtime-evidence"
+    evidence_root.mkdir()
+    positive = [
+        {
+            "Type": "bind",
+            "Source": str(repository),
+            "Destination": "/models",
+            "Mode": "ro",
+            "RW": False,
+            "Propagation": "rprivate",
+        },
+        {
+            "Type": "bind",
+            "Source": str(evidence_root),
+            "Destination": "/evidence",
+            "Mode": "rw",
+            "RW": True,
+            "Propagation": "rprivate",
+        },
+    ]
+
+    def bind_inspect(mounts: list[dict[str, object]]) -> None:
+        def fake_run(command: list[str], **_kwargs: object) -> SimpleNamespace:
+            stdout = json.dumps([{"Mounts": mounts}]) if command[1] == "inspect" else ""
+            return SimpleNamespace(stdout=stdout)
+
+        runner["start_triton"].__globals__["run"] = fake_run
+
+    bind_inspect(positive)
+    result = runner["start_triton"](
+        cfg, repository, evidence_root, "x1-mount-positive", trace_enabled=False
+    )
+    assert result["mounts"] == positive
+    for field, value in (
+        ("Mode", "rw"),
+        ("Propagation", "rshared"),
+        ("Unexpected", "forbidden"),
+    ):
+        mutated = json.loads(json.dumps(positive))
+        mutated[0][field] = value
+        bind_inspect(mutated)
+        with pytest.raises(X1ResumeTestbedError, match="x1_resume_container_mount"):
+            runner["start_triton"](
+                cfg, repository, evidence_root, "x1-mount-negative", trace_enabled=False
+            )
+
+
+def test_runner_model_config_readback_uses_shared_exact_gate(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+) -> None:
+    runner, cfg, _repository_root, _data_root = prepared_runner_repository
+
+    def bind_configs(configs: dict[str, dict[str, object]]) -> None:
+        runner["verify_model_configs"].__globals__["request_json"] = (
+            lambda url, **_kwargs: json.loads(
+                json.dumps(
+                    configs[
+                        next(model_id for model_id in EXPECTED_MODELS if f"/{model_id}/" in url)
+                    ]
+                )
+            )
+        )
+
+    positive = {
+        model_id: triton_config_readback(model_id, cfg, dynamic_batching=True)
+        for model_id in EXPECTED_MODELS
+    }
+    bind_configs(positive)
+    assert set(runner["verify_model_configs"](cfg, "on")) == set(EXPECTED_MODELS)
+
+    for case in ("preferred", "delay", "response-cache", "extra-nested"):
+        mutated = json.loads(json.dumps(positive))
+        selected = mutated[EXPECTED_MODELS[0]]
+        if case == "preferred":
+            selected["dynamic_batching"]["preferred_batch_size"] = ["999"]
+        elif case == "delay":
+            selected["dynamic_batching"]["max_queue_delay_microseconds"] = "1"
+        elif case == "response-cache":
+            selected["response_cache"] = {"enable": True}
+        else:
+            selected["dynamic_batching"]["unexpected"] = "field"
+        bind_configs(mutated)
+        with pytest.raises(X1ResumeTestbedError, match="x1_resume_model_config_readback"):
+            runner["verify_model_configs"](cfg, "on")
 
 
 def test_triton_repository_and_version_metadata_are_exact() -> None:
@@ -1530,7 +1637,14 @@ def test_triton_model_config_readback_is_exact_gpu_only() -> None:
         positive,
         model_id=model.model_id,
         input_width=model.input_width,
-        dynamic_batching_enabled=False,
+        batching=cfg.batching["off"],
+    )
+    batch_on = triton_config_readback(model.model_id, cfg, dynamic_batching=True)
+    assert triton_gpu_instance_exact(
+        batch_on,
+        model_id=model.model_id,
+        input_width=model.input_width,
+        batching=cfg.batching["on"],
     )
 
     mutations: list[dict[str, object]] = []
@@ -1575,13 +1689,50 @@ def test_triton_model_config_readback_is_exact_gpu_only() -> None:
         mutated[collection][0][field] = value
         mutations.append(mutated)
 
-    assert len(mutations) == 18
+    off_with_dynamic = json.loads(json.dumps(positive))
+    off_with_dynamic["dynamic_batching"] = {}
+    mutations.append(off_with_dynamic)
+    for case in (
+        "preferred",
+        "delay",
+        "preferred-type",
+        "delay-type",
+        "dynamic-extra",
+        "response-cache",
+        "warmup",
+        "optimization-extra",
+    ):
+        mutated = json.loads(json.dumps(batch_on))
+        if case == "preferred":
+            mutated["dynamic_batching"]["preferred_batch_size"] = ["999"]
+        elif case == "delay":
+            mutated["dynamic_batching"]["max_queue_delay_microseconds"] = "1"
+        elif case == "preferred-type":
+            mutated["dynamic_batching"]["preferred_batch_size"] = [4, 8]
+        elif case == "delay-type":
+            mutated["dynamic_batching"]["max_queue_delay_microseconds"] = 10_000
+        elif case == "dynamic-extra":
+            mutated["dynamic_batching"]["preserve_ordering"] = True
+        elif case == "response-cache":
+            mutated["response_cache"] = {"enable": True}
+        elif case == "warmup":
+            mutated["model_warmup"] = [{"name": "unexpected"}]
+        else:
+            mutated["optimization"]["unexpected"] = True
+        assert not triton_gpu_instance_exact(
+            mutated,
+            model_id=model.model_id,
+            input_width=model.input_width,
+            batching=cfg.batching["on"],
+        )
+
+    assert len(mutations) == 19
     assert all(
         not triton_gpu_instance_exact(
             mutated,
             model_id=model.model_id,
             input_width=model.input_width,
-            dynamic_batching_enabled=False,
+            batching=cfg.batching["off"],
         )
         for mutated in mutations
     )
@@ -2028,13 +2179,17 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
                         "Type": "bind",
                         "Source": str(repository_root / f"batch-{batching}"),
                         "Destination": "/models",
+                        "Mode": "ro",
                         "RW": False,
+                        "Propagation": "rprivate",
                     },
                     {
                         "Type": "bind",
                         "Source": str(evidence_root),
                         "Destination": "/evidence",
+                        "Mode": "rw",
                         "RW": True,
+                        "Propagation": "rprivate",
                     },
                 ],
                 "runtime_readiness": triton_runtime_readiness(cfg),
@@ -2547,23 +2702,23 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
     payload["environment"]["repository_sha256"] = original_manifest["repository_sha256"]
     rewrite_manifest(original_manifest)
 
-    q0_runtime_identity = payload["profile_evidence"]["q0_isolated"]["runtime_contract"]
-    q0_runtime_path = suite_root / q0_runtime_identity["path"]
-    original_runtime_contract = json.loads(q0_runtime_path.read_bytes())
-
-    def rewrite_runtime_contract(raw_contract: dict[str, object]) -> None:
-        canonical_write(q0_runtime_path, raw_contract)
-        q0_runtime_identity.update(
-            {"bytes": q0_runtime_path.stat().st_size, "sha256": sha256_file(q0_runtime_path)}
-        )
-
-    for case, pattern in (
-        ("wildcard-command", "x1_resume_private_runtime_contract"),
-        ("writable-model-mount", "x1_resume_container_mount"),
-        ("extra-repository-model", "x1_resume_private_runtime_contract"),
-        ("unversioned-metadata", "x1_resume_private_runtime_contract"),
-        ("config-version-two", "x1_resume_private_runtime_configs"),
+    for profile, case, pattern in (
+        ("q0_isolated", "wildcard-command", "x1_resume_private_runtime_contract"),
+        ("q0_isolated", "writable-model-mount", "x1_resume_container_mount"),
+        ("q0_isolated", "model-mode-rw", "x1_resume_container_mount"),
+        ("q0_isolated", "shared-propagation", "x1_resume_container_mount"),
+        ("q0_isolated", "mount-extra-field", "x1_resume_container_mount"),
+        ("q0_isolated", "extra-repository-model", "x1_resume_private_runtime_contract"),
+        ("q0_isolated", "unversioned-metadata", "x1_resume_private_runtime_contract"),
+        ("q0_isolated", "config-version-two", "x1_resume_private_runtime_configs"),
+        ("on", "preferred-999", "x1_resume_private_runtime_configs"),
+        ("on", "delay-one", "x1_resume_private_runtime_configs"),
+        ("on", "response-cache", "x1_resume_private_runtime_configs"),
+        ("on", "dynamic-extra-field", "x1_resume_private_runtime_configs"),
     ):
+        runtime_identity = payload["profile_evidence"][profile]["runtime_contract"]
+        runtime_path = suite_root / runtime_identity["path"]
+        original_runtime_contract = json.loads(runtime_path.read_bytes())
         mutated_runtime = json.loads(json.dumps(original_runtime_contract))
         if case == "wildcard-command":
             mutated_runtime["server_command"] = mutated_runtime["server_command"].replace(
@@ -2573,6 +2728,18 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
             next(item for item in mutated_runtime["mounts"] if item["Destination"] == "/models")[
                 "RW"
             ] = True
+        elif case == "model-mode-rw":
+            next(item for item in mutated_runtime["mounts"] if item["Destination"] == "/models")[
+                "Mode"
+            ] = "rw"
+        elif case == "shared-propagation":
+            next(item for item in mutated_runtime["mounts"] if item["Destination"] == "/models")[
+                "Propagation"
+            ] = "rshared"
+        elif case == "mount-extra-field":
+            next(item for item in mutated_runtime["mounts"] if item["Destination"] == "/models")[
+                "Unexpected"
+            ] = "coherent"
         elif case == "extra-repository-model":
             extra_index = {
                 "name": "extra-model",
@@ -2586,14 +2753,36 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
             mutated_runtime["runtime_readiness"]["model_metadata"][EXPECTED_MODELS[0]][
                 "endpoint"
             ] = f"/v2/models/{EXPECTED_MODELS[0]}"
-        else:
+        elif case == "config-version-two":
             mutated_runtime["model_configs"][EXPECTED_MODELS[0]]["payload"]["version_policy"][
                 "specific"
             ]["versions"] = ["2"]
-        rewrite_runtime_contract(mutated_runtime)
+        elif case == "preferred-999":
+            mutated_runtime["model_configs"][EXPECTED_MODELS[0]]["payload"]["dynamic_batching"][
+                "preferred_batch_size"
+            ] = ["999"]
+        elif case == "delay-one":
+            mutated_runtime["model_configs"][EXPECTED_MODELS[0]]["payload"]["dynamic_batching"][
+                "max_queue_delay_microseconds"
+            ] = "1"
+        elif case == "response-cache":
+            mutated_runtime["model_configs"][EXPECTED_MODELS[0]]["payload"]["response_cache"] = {
+                "enable": True
+            }
+        else:
+            mutated_runtime["model_configs"][EXPECTED_MODELS[0]]["payload"]["dynamic_batching"][
+                "unexpected"
+            ] = "field"
+        canonical_write(runtime_path, mutated_runtime)
+        runtime_identity.update(
+            {"bytes": runtime_path.stat().st_size, "sha256": sha256_file(runtime_path)}
+        )
         assert_source_rejected(pattern)
         assert_report_rejected(pattern)
-    rewrite_runtime_contract(original_runtime_contract)
+        canonical_write(runtime_path, original_runtime_contract)
+        runtime_identity.update(
+            {"bytes": runtime_path.stat().st_size, "sha256": sha256_file(runtime_path)}
+        )
 
     undeclared_version = repository_root / "batch-off/higgs_logistic_regression/2/model.pt"
     undeclared_version.parent.mkdir()

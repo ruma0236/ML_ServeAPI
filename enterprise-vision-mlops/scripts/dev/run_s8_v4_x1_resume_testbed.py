@@ -470,7 +470,7 @@ def start_triton(
             "-v",
             f"{repository}:/models:ro",
             "-v",
-            f"{evidence_root}:/evidence",
+            f"{evidence_root}:/evidence:rw",
             "--entrypoint",
             "bash",
             config.immutable_image,
@@ -598,10 +598,9 @@ def verify_model_configs(config: X1ResumeConfig, profile: str) -> dict[str, Any]
             input_width=next(
                 model.input_width for model in config.models if model.model_id == model_id
             ),
-            dynamic_batching_enabled=profile == "on",
+            batching=config.batching[profile],
         )
-        dynamic_present = bool(payload.get("dynamic_batching"))
-        if not gpu_exact or dynamic_present != (profile == "on"):
+        if not gpu_exact:
             raise X1ResumeTestbedError(f"x1_resume_model_config_readback:{model_id}:{profile}")
         result[model_id] = {
             "config": payload,
