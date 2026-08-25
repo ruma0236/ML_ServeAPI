@@ -300,6 +300,76 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
     assert fence_actions == ["green_switched", "blue_unloaded"]
 
 
+def test_s6bm_crossover_waits_for_switch_and_times_out_fail_closed(
+    manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"outputs": [{"name": "OUTPUT__0", "data": [3, 5, 7, 9]}]}
+
+    class Client:
+        async def __aenter__(self) -> "Client":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, *_args: object, **_kwargs: object) -> Response:
+            return Response()
+
+    monkeypatch.setenv("EVM_S6BM_REQUIRE_CAUSAL_FENCE", "1")
+    monkeypatch.setenv("EVM_S6BM_REQUIRE_DURABLE_EFFECT", "1")
+    monkeypatch.setenv("EVM_S6BM_CAUSAL_SWITCH_TIMEOUT_SECONDS", "0.01")
+    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    manager.control(control_request(manager, "green_loaded"))
+    manager.control(control_request(manager, "canary_started"))
+    request = TritonBlueGreenPredictRequest(
+        run_id="s8-v4-s6bm-test",
+        attempt_id="s6bm-success-causal-timeout",
+        request_id="request-blue-causal-timeout",
+        request_nonce="nonce-blue-causal-timeout",
+        traceparent="00-" + "6" * 32 + "-" + "7" * 16 + "-01",
+        input_values=[1, 2, 3, 4],
+        hold_ms=1,
+        expected_model_role="blue",
+        expected_model_name="s6bm_blue",
+        expected_model_version="1",
+        expected_artifact_sha256="c" * 64,
+        expected_route_generation=manager.snapshot().generation,
+        causal_crossover=True,
+    )
+
+    async def start_committer(
+        _stage: str,
+        _request: TritonBlueGreenPredictRequest,
+        _payload: dict[str, object],
+    ) -> dict[str, object]:
+        return {"readback_visible": True}
+
+    async def terminal_committer(
+        _request: TritonBlueGreenPredictRequest,
+        _response: module.TritonBlueGreenPredictResponse,
+    ) -> dict[str, object]:
+        raise AssertionError("terminal effect must not run before the switch fence")
+
+    with pytest.raises(TritonBlueGreenError) as timeout:
+        asyncio.run(
+            manager.predict(
+                request,
+                terminal_effect_committer=terminal_committer,
+                start_receipt_committer=start_committer,
+            )
+        )
+
+    assert timeout.value.code == "causal_switch_wait_timeout"
+    assert manager.snapshot().in_flight == {"blue": 0, "green": 0}
+
+
 def test_s6bm_rejects_readiness_and_canary_without_route_switch(
     manager: TritonBlueGreenManager,
 ) -> None:

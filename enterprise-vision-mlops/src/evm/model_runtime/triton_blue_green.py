@@ -340,6 +340,7 @@ class _State:
     loaded: set[ModelRole] = field(default_factory=lambda: {"blue"})
     in_flight: dict[ModelRole, int] = field(default_factory=lambda: {"blue": 0, "green": 0})
     responses: dict[str, tuple[str, TritonBlueGreenPredictResponse]] = field(default_factory=dict)
+    crossover_switch_events: dict[str, threading.Event] = field(default_factory=dict)
     used_approvals: set[str] = field(default_factory=set)
     duplicate_replays: int = 0
 
@@ -560,6 +561,7 @@ class TritonBlueGreenManager:
             self._validate_guard_signals(request)
             self._validate_transition(state, request.action)
             fence_context: dict[str, Any] = {}
+            crossover: TritonBlueGreenCausalIdentity | None = None
             if request.action in {"green_switched", "blue_unloaded"} and (
                 request.causal_crossover is not None or _strict_causal_required()
             ):
@@ -605,6 +607,8 @@ class TritonBlueGreenManager:
             self._transition(state, request.action)
             state.used_approvals.add(request.approval_id)
             state.generation += 1
+            if request.action == "green_switched" and crossover is not None:
+                state.crossover_switch_events[crossover.request_id].set()
             TRANSITIONS.labels(request.action, "applied").inc()
             return self.snapshot()
 
@@ -630,6 +634,15 @@ class TritonBlueGreenManager:
             raise TritonBlueGreenError(
                 "causal_crossover_identity_mismatch", request.action, status_code=409
             )
+        if (
+            request.action == "green_switched"
+            and crossover.request_id not in state.crossover_switch_events
+        ):
+            raise TritonBlueGreenError(
+                "causal_crossover_request_not_in_flight",
+                request.action,
+                status_code=409,
+            )
         return crossover
 
     async def predict(
@@ -640,6 +653,7 @@ class TritonBlueGreenManager:
         start_receipt_committer: StartReceiptCommitter | None = None,
     ) -> TritonBlueGreenPredictResponse:
         controller_entry = causal_start_observation("s6bm-controller")
+        switch_event: threading.Event | None = None
         with self._lock:
             state = self._require_state(request.run_id)
             digest = _request_digest(request)
@@ -699,6 +713,9 @@ class TritonBlueGreenManager:
                         request.request_id,
                         status_code=409,
                     )
+                if request.causal_crossover:
+                    switch_event = threading.Event()
+                    state.crossover_switch_events[request.request_id] = switch_event
 
         started = time.perf_counter()
         effect_id = _effect_id(request, identity)
@@ -807,6 +824,24 @@ class TritonBlueGreenManager:
                     raise TritonBlueGreenError("triton_output_shape", request.request_id)
                 if request.hold_ms:
                     await asyncio.sleep(request.hold_ms / 1000)
+                if request.causal_crossover:
+                    if switch_event is None:
+                        raise TritonBlueGreenError(
+                            "causal_switch_event_absent",
+                            request.request_id,
+                            status_code=503,
+                        )
+                    timeout = float(
+                        os.getenv("EVM_S6BM_CAUSAL_SWITCH_TIMEOUT_SECONDS", "15")
+                    )
+                    if timeout <= 0 or not await asyncio.to_thread(
+                        switch_event.wait, timeout
+                    ):
+                        raise TritonBlueGreenError(
+                            "causal_switch_wait_timeout",
+                            request.request_id,
+                            status_code=503,
+                        )
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 result = TritonBlueGreenPredictResponse(
                     run_id=request.run_id,
@@ -873,6 +908,7 @@ class TritonBlueGreenManager:
                     and current is not None
                     and current.request.run_id == request.run_id
                 ):
+                    current.crossover_switch_events.pop(request.request_id, None)
                     current.in_flight[role] = max(0, current.in_flight[role] - 1)
                     IN_FLIGHT.labels(role, identity.model_name, identity.model_version).set(
                         current.in_flight[role]

@@ -660,6 +660,9 @@ def start_api(
             "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:4318/v1/traces",
             "EVM_S6BM_REQUIRE_DURABLE_EFFECT": "1",
             "EVM_S6BM_REQUIRE_CAUSAL_FENCE": "1",
+            "EVM_S6BM_CAUSAL_SWITCH_TIMEOUT_SECONDS": str(
+                config.procedure["drain_timeout_seconds"]
+            ),
             "EVM_S6BM_DATABASE_URL": CONTROL_PLANE_DATABASE_URL,
             "EVM_S6BM_DATABASE_SCHEMA": database_schema,
             "EVM_CONTROL_PLANE_AUTO_MIGRATE": "true",
