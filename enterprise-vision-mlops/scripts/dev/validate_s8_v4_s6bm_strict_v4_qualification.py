@@ -520,15 +520,30 @@ def _clock_drift(root: Path, raw: dict[str, Any]) -> None:
     runner = [item["clock_anchor"] for item in raw["phase_timeline"]]
     collector = _proof(raw)["triton_start_receipt"]["collector_observation"]
     points = [*runner, collector]
-    origin = min(
-        (int(item["monotonic_before_ns"]) + int(item["monotonic_after_ns"])) // 2
+    samples = [
+        (
+            Fraction(
+                int(item["monotonic_before_ns"]) + int(item["monotonic_after_ns"]),
+                2,
+            ),
+            Fraction(int(item["unix_ns"])),
+        )
         for item in points
+    ]
+    x_mean = sum((x for x, _ in samples), Fraction(0)) / len(samples)
+    y_mean = sum((y for _, y in samples), Fraction(0)) / len(samples)
+    denominator = sum(((x - x_mean) ** 2 for x, _ in samples), Fraction(0))
+    slope = (
+        sum(((x - x_mean) * (y - y_mean) for x, y in samples), Fraction(0))
+        / denominator
     )
-    for item in points:
-        midpoint = (
-            int(item["monotonic_before_ns"]) + int(item["monotonic_after_ns"])
-        ) // 2
-        item["unix_ns"] = int(item["unix_ns"]) + ((midpoint - origin) * 101) // 1_000_000
+    direction = 1 if slope >= 1 else -1
+    target_slope = Fraction(1) + direction * Fraction(101, 1_000_000)
+    slope_delta = target_slope - slope
+    for item, (midpoint, _) in zip(points, samples, strict=True):
+        item["unix_ns"] = int(item["unix_ns"]) + round(
+            slope_delta * (midpoint - x_mean)
+        )
     _rehash_runner_anchor_chain(raw)
     _rehash_anchor(collector)
     _sync_collector_observation(root, raw)
