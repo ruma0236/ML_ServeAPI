@@ -93,6 +93,9 @@ def main() -> int:
     npm = shutil.which("npm.cmd") or shutil.which("npm")
     if not npm:
         raise RuntimeError("npm executable is required")
+    ruff = shutil.which("ruff.exe") or shutil.which("ruff")
+    if not ruff:
+        raise RuntimeError("ruff executable is required")
     environment = dict(os.environ)
     lifecycle_tests = [
         str(path.relative_to(ROOT))
@@ -103,9 +106,8 @@ def main() -> int:
         (
             "changed_file_lint",
             [
-                python_command(
-                    "-m",
-                    "ruff",
+                [
+                    ruff,
                     "check",
                     "src/evm/scale_validation/s8_evidence.py",
                     "src/evm/scale_validation/s8_closure.py",
@@ -125,9 +127,9 @@ def main() -> int:
                     "tests/test_s6bm_observability.py",
                     "tests/test_s6bm_runtime.py",
                     "tests/test_triton_blue_green.py",
-                )
+                ]
             ],
-            "python -m ruff check <S8 closure changed files>",
+            "ruff check <S8 closure changed files>",
         ),
         (
             "focused_s6bm",
