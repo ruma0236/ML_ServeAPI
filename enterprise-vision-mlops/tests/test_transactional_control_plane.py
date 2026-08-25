@@ -243,6 +243,9 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
             candidate["sequence"],
         ),
     )
+    assert (
+        database_anchor["monotonic_after_ns"] - database_anchor["monotonic_before_ns"] <= 1_000_000
+    )
     assert switch["causal_sequence"] < effect["causal_sequence"]
     replayed_stored, replayed, replayed_effect = (
         store.commit_idempotent_terminal_entity_with_receipt(
