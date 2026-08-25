@@ -267,9 +267,14 @@ def project_trace_join(
 
 def _metric_samples(text: str, name: str) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
+    accepted_names = {name}
+    if not name.endswith("_total"):
+        # prometheus_client normalizes an exposed counter name to a `_total`
+        # sample even when Triton publishes the wire name without that suffix.
+        accepted_names.add(f"{name}_total")
     for family in text_string_to_metric_families(text):
         for sample in family.samples:
-            if sample.name == name:
+            if sample.name in accepted_names:
                 samples.append({"labels": dict(sample.labels), "value": float(sample.value)})
     return samples
 

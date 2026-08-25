@@ -258,6 +258,7 @@ def test_prometheus_value_aggregates_exact_identity_series() -> None:
 
 def test_direct_metric_aggregate_preserves_series_identity() -> None:
     metrics = (
+        "# TYPE nv_inference_request_success counter\n"
         'nv_inference_request_success{model="s6bm_green",version="1"} 10\n'
         'nv_inference_request_success{gpu_uuid="GPU-unit",model="s6bm_green",version="1"} 20\n'
     )
