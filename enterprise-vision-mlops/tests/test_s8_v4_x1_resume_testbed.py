@@ -851,6 +851,60 @@ def test_runner_prometheus_preflight_accepts_only_exact_5_of_5() -> None:
             assert_preflight(snapshot)
 
 
+def test_runner_normalizes_omitted_empty_repository_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = runpy.run_path(
+        str(ROOT / "scripts/dev/run_s8_v4_x1_resume_testbed.py"),
+        run_name="x1_resume_runner_repository_index_test",
+    )
+    payload = [{"name": model_id, "version": "1", "state": "READY"} for model_id in EXPECTED_MODELS]
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> list[dict[str, str]]:
+            return payload
+
+    monkeypatch.setattr(runner["requests"], "post", lambda *args, **kwargs: Response())
+    normalized = runner["fetch_repository_index"](config())
+
+    assert normalized == [dict(item, reason="") for item in payload]
+    assert x1_resume_module.triton_repository_index_exact(normalized)
+
+
+def test_runner_preserves_nonempty_repository_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = runpy.run_path(
+        str(ROOT / "scripts/dev/run_s8_v4_x1_resume_testbed.py"),
+        run_name="x1_resume_runner_repository_reason_test",
+    )
+    payload = [
+        {
+            "name": model_id,
+            "version": "1",
+            "state": "READY",
+            "reason": "" if index else "unexpected",
+        }
+        for index, model_id in enumerate(EXPECTED_MODELS)
+    ]
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> list[dict[str, str]]:
+            return payload
+
+    monkeypatch.setattr(runner["requests"], "post", lambda *args, **kwargs: Response())
+    observed = runner["fetch_repository_index"](config())
+
+    assert observed == payload
+    assert not x1_resume_module.triton_repository_index_exact(observed)
+
+
 @pytest.fixture
 def prepared_runner_repository(
     tmp_path: Path,

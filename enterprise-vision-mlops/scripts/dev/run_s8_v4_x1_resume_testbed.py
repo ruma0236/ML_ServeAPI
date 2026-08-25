@@ -499,7 +499,15 @@ def fetch_repository_index(config: X1ResumeConfig, *, timeout: float = 1.0) -> A
         timeout=timeout,
     )
     response.raise_for_status()
-    return response.json()
+    payload = response.json()
+    if not isinstance(payload, list):
+        return payload
+    return [
+        {**item, "reason": ""}
+        if isinstance(item, Mapping) and set(item) == {"name", "version", "state"}
+        else item
+        for item in payload
+    ]
 
 
 def wait_ready(config: X1ResumeConfig, name: str) -> dict[str, Any]:
