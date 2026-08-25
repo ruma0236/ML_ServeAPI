@@ -135,6 +135,28 @@ green_readiness_failure = [1, 2, 3]
 green_canary_failure = [1, 2, 3]
 vram_preflight_rejection = [1, 2, 3]
 
+[continuity]
+contract = "fixed_exact_1000_blue_continuity_v1"
+logical_request_count = 1000
+canary_count = 100
+causal_hold_count = 1
+bridge_count = 40
+normal_count = 859
+cadence_ms = 150
+producer_workers = 4
+max_in_flight_requests = 4
+max_request_payload_bytes = 4096
+max_in_flight_payload_bytes = 16384
+bridge_hold_count = 4
+bridge_hold_ms = 400
+max_schedule_lateness_ms = 500
+minimum_blue_in_flight_at_switch = 2
+minimum_bridge_cross_switch_completions = 1
+minimum_transition_terminal_completions = 8
+adaptive_pacing_forbidden = true
+post_hoc_windowing_forbidden = true
+schedule_hash_algorithm = "sha256_canonical_json"
+
 [ports]
 triton_http = 18100
 triton_grpc = 18101

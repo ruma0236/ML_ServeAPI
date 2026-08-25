@@ -11,7 +11,9 @@ from evm.scale_validation.s6bm_runtime import (
     S6BMRuntimeError,
     SUCCESS_PHASES,
     analyze_attempts,
+    build_continuity_plan,
     canonical_sha256,
+    canonical,
     project_fault_attempt,
     project_raw_drain_timeline,
     project_success_attempt,
@@ -186,6 +188,28 @@ def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
     assert config.durable_effect["write_pool_size_change_forbidden"] is True
     assert config.durable_effect["whole_request_serialization_forbidden"] is True
     assert config.trace["exact_parent_span_required"] is True
+    assert config.continuity == {
+        "contract": "fixed_exact_1000_blue_continuity_v1",
+        "logical_request_count": 1000,
+        "canary_count": 100,
+        "causal_hold_count": 1,
+        "bridge_count": 40,
+        "normal_count": 859,
+        "cadence_ms": 150,
+        "producer_workers": 4,
+        "max_in_flight_requests": 4,
+        "max_request_payload_bytes": 4096,
+        "max_in_flight_payload_bytes": 16384,
+        "bridge_hold_count": 4,
+        "bridge_hold_ms": 400,
+        "max_schedule_lateness_ms": 500,
+        "minimum_blue_in_flight_at_switch": 2,
+        "minimum_bridge_cross_switch_completions": 1,
+        "minimum_transition_terminal_completions": 8,
+        "adaptive_pacing_forbidden": True,
+        "post_hoc_windowing_forbidden": True,
+        "schedule_hash_algorithm": "sha256_canonical_json",
+    }
     assert set(config.run_set) == {
         "contract",
         "baseline",
@@ -439,6 +463,320 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
             "lease_owner_exact": True,
         },
     }
+
+
+def v4_continuity_attempt() -> dict[str, object]:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    attempt_id = "s6bm-success-1-continuity-unit"
+    plan = build_continuity_plan(config, attempt_id)
+    records: list[dict[str, object]] = []
+    producer_started = 86.0
+    switch = 93.0
+    role_items = [
+        dict(item)
+        for role in plan["role_order"]
+        for item in plan["roles"][role]
+    ]
+    for item in role_items:
+        traffic_role = str(item["traffic_role"])
+        ordinal = int(item["ordinal"])
+        role = str(item["expected_model_role"])
+        model = config.blue if role == "blue" else config.green
+        if traffic_role == "canary":
+            attempted = 84.0 + ordinal * 0.001
+            terminal = attempted + 0.01
+        elif traffic_role == "causal_hold":
+            attempted = 85.0
+            terminal = 93.04
+        elif traffic_role == "bridge":
+            bridge_index = ordinal - 101
+            attempted = producer_started + bridge_index * 0.15 + 0.001
+            terminal = (
+                93.02 + (bridge_index - 36) * 0.001
+                if bridge_index >= 36
+                else attempted + 0.05
+            )
+        else:
+            normal_index = ordinal - 141
+            attempted = 93.1 + normal_index * 0.0001
+            terminal = attempted + 0.01
+        completed = terminal + 0.005
+        request_id = str(item["request_id"])
+        payload_sha = hashlib.sha256(f"payload:{request_id}".encode("ascii")).hexdigest()
+        records.append(
+            {
+                "run_id": "s8-v4-s6bm-unit-test",
+                "attempt_id": attempt_id,
+                "request_id": request_id,
+                "request_nonce": hashlib.sha256(request_id.encode("ascii")).hexdigest()[:32],
+                "trace_id": f"{ordinal + 1:032x}",
+                "effect_id": hashlib.sha256(
+                    f"{attempt_id}:{request_id}".encode("ascii")
+                ).hexdigest(),
+                "offered_traceparent": f"00-{ordinal + 1:032x}-{ordinal + 2:016x}-01",
+                "offered_identity": {
+                    "model_role": role,
+                    "model_name": model.model_name,
+                    "model_version": model.model_version,
+                    "artifact_sha256": model.artifact_sha256,
+                },
+                "offered_payload_bytes": 500,
+                "offered_payload_sha256": payload_sha,
+                "status_code": 200,
+                "outcome": "completed",
+                "model_role": role,
+                "model_name": model.model_name,
+                "model_version": model.model_version,
+                "artifact_sha256": model.artifact_sha256,
+                "output": list(model.expected_output),
+                "elapsed_ms": (completed - attempted) * 1000,
+                "attempted_monotonic": attempted,
+                "completed_monotonic": completed,
+                "route_generation": 3 if traffic_role == "normal" else 2,
+                "durable_effect": {
+                    "readback_visible": True,
+                    "readback_finished_monotonic_ns": int(terminal * 1e9),
+                },
+            }
+        )
+    terminal_times = sorted(
+        int(dict(item["durable_effect"])["readback_finished_monotonic_ns"]) / 1e9
+        for item in records
+    )
+    latencies = sorted(float(item["elapsed_ms"]) for item in records)
+
+    def percentile(value: float) -> float:
+        position = (len(latencies) - 1) * value
+        lower = int(position)
+        upper = min(lower + 1, len(latencies) - 1)
+        fraction = position - lower
+        return latencies[lower] + (latencies[upper] - latencies[lower]) * fraction
+
+    dispatches = []
+    for item in plan["roles"]["bridge"]:
+        record = next(value for value in records if value["request_id"] == item["request_id"])
+        attempted = float(record["attempted_monotonic"])
+        dispatches.append(
+            {
+                "request_id": item["request_id"],
+                "scheduled_offset_ms": item["scheduled_offset_ms"],
+                "hold_ms": item["hold_ms"],
+                "payload_bytes": 500,
+                "payload_sha256": record["offered_payload_sha256"],
+                "capacity_wait_ms": 0.0,
+                "attempted_monotonic": attempted,
+                "schedule_lateness_ms": (
+                    attempted
+                    - (producer_started + int(item["scheduled_offset_ms"]) / 1000)
+                )
+                * 1000,
+                "outcome": "completed",
+                "status_code": 200,
+            }
+        )
+    plan_artifact_sha = hashlib.sha256((canonical(plan) + "\n").encode("ascii")).hexdigest()
+    role_counts = {role: len(plan["roles"][role]) for role in plan["role_order"]}
+    return {
+        "attempt_id": attempt_id,
+        "profile": "successful_transition",
+        "repetition": 1,
+        "identities": identities(),
+        "phase_timeline": [
+            {"phase": phase, "monotonic_seconds": monotonic}
+            for phase, monotonic in zip(
+                SUCCESS_PHASES,
+                (80.0, 81.0, 84.0, 93.0, 93.01, 95.0, 96.0, 97.0, 98.0, 99.0),
+                strict=True,
+            )
+        ],
+        "traffic_plan": plan,
+        "traffic_plan_artifact": {
+            "path": f"traffic-plans/{attempt_id}/traffic-plan.json",
+            "sha256": plan_artifact_sha,
+            "bytes": len((canonical(plan) + "\n").encode("ascii")),
+        },
+        "continuity_execution": {
+            "plan_sha256": plan["plan_sha256"],
+            "plan_frozen_monotonic": 79.0,
+            "controller_initialized_monotonic": 80.0,
+            "producer_started_monotonic": producer_started,
+            "all_submitted_monotonic": 91.851,
+            "switch_invoked_monotonic": 92.99,
+            "transition_receipt_observed_monotonic": 93.005,
+            "producer_finished_monotonic": 93.03,
+            "adaptive_pacing": False,
+            "blue_in_flight_before_switch": 5,
+            "max_reserved_requests_observed": 4,
+            "max_reserved_payload_bytes_observed": 2000,
+            "reserved_requests_at_finish": 0,
+            "reserved_payload_bytes_at_finish": 0,
+            "dispatches": dispatches,
+        },
+        "traffic_conservation": {
+            "logical_request_ids": 1000,
+            "offered": 1000,
+            "admitted": 1000,
+            "terminal": 1000,
+            "completed": 1000,
+            "duplicate_replay_attempts": 1,
+            "client_attempts": 1001,
+            "missing": 0,
+            "duplicate": 0,
+            "dropped": 0,
+            "backpressure_terminal": 0,
+            "schedule_late_dispatches": 0,
+            "capacity_waited_dispatches": 0,
+            "terminal_during_transition": 36,
+            "bridge_cross_switch_completions": 4,
+            "gap_clock": "durable_effect_readback_monotonic_ns",
+            "role_counts": role_counts,
+        },
+        "causal_proof": {
+            "route_transition_receipt": {
+                "old_route_generation": 2,
+                "new_route_generation": 3,
+                "route_applied_monotonic_ns": int(switch * 1e9),
+            }
+        },
+        "request_records": records,
+        "requests": {
+            "logical": 1000,
+            "accepted": 1000,
+            "terminal": 1000,
+            "lost": 0,
+            "duplicate_effect": 0,
+            "wrong_version": 0,
+            "transport_failure": 0,
+            "http_5xx": 0,
+        },
+        "idempotent_replay": {
+            "request_id": records[0]["request_id"],
+            "replayed": True,
+            "unique_count_before": 100,
+            "unique_count_after": 100,
+            "record": {**records[0], "replayed": True},
+        },
+        "illegal_owner_overlap": 0,
+        "owner_samples": [{"owner_exact": True}],
+        "trace_complete": 1000,
+        "blue_in_flight_before_unload": 0,
+        "green_in_flight_before_unload": 0,
+        "rollback_exact_blue": True,
+        "latency": {
+            "p95_ms": percentile(0.95),
+            "p99_ms": percentile(0.99),
+            "max_inter_completion_gap_ms": max(
+                (right - left) * 1000
+                for left, right in zip(terminal_times, terminal_times[1:], strict=False)
+            ),
+        },
+        "transition_seconds": 13.0,
+        "rollback_seconds": 4.0,
+        "peak_vram_mib": 1024.0,
+        "physical_model_state": {
+            "green_loaded_ready": True,
+            "blue_unloaded_not_ready": True,
+            "blue_reloaded_ready": True,
+            "green_unloaded_not_ready": True,
+            "blue_final_ready": True,
+        },
+        "telemetry": {
+            "api_target_up": True,
+            "triton_target_up": True,
+            "trace_correlation_complete": True,
+            "metric_delta_complete": True,
+        },
+        "cleanup": {
+            "blue_only": True,
+            "green_unloaded": True,
+            "queue_zero": True,
+            "lease_owner_exact": True,
+        },
+    }
+
+
+def test_s6bm_v4_continuity_plan_is_exact_and_frozen() -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    plan = build_continuity_plan(config, "s6bm-success-plan-unit")
+    ids = [
+        item["request_id"]
+        for role in plan["role_order"]
+        for item in plan["roles"][role]
+    ]
+    assert len(ids) == len(set(ids)) == 1000
+    assert {role: len(plan["roles"][role]) for role in plan["role_order"]} == {
+        "canary": 100,
+        "causal_hold": 1,
+        "bridge": 40,
+        "normal": 859,
+    }
+    assert plan["request_id_set_sha256"] == canonical_sha256(ids)
+    assert plan["adaptive_pacing"] is False
+    assert plan["completion_windowing"] == "all_exact_logical_ids"
+
+
+def test_s6bm_v4_continuity_projection_uses_all_durable_terminal_completions() -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    raw = v4_continuity_attempt()
+    projection = project_success_attempt(raw, config)
+    assert projection["continuity"]["logical_request_count"] == 1000
+    assert projection["continuity"]["bridge_cross_switch_completions"] == 4
+    assert projection["continuity"]["terminal_during_transition"] == 36
+    assert projection["max_inter_completion_gap_ms"] == raw["latency"][
+        "max_inter_completion_gap_ms"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ("partition_overlap", "s6bm_continuity_plan_binding"),
+        ("logical_missing", "s6bm_request_records_empty|s6bm_continuity_exact_logical_set"),
+        ("schedule_late", "s6bm_continuity_schedule_late"),
+        ("bridge_post_switch", "s6bm_continuity_stale_blue_admission"),
+        ("wrong_epoch", "s6bm_continuity_generation_binding"),
+        ("wrong_digest", "s6bm_request_model_identity"),
+        ("synthetic_completion", "s6bm_durable_terminal_readback"),
+        ("gap_window", "s6bm_continuity_post_hoc_window"),
+        ("capacity", "s6bm_continuity_capacity_bound"),
+        ("premature_unload", "s6bm_drain_unload_before_blue_completion"),
+    ],
+)
+def test_s6bm_v4_continuity_mutations_fail_closed(mutation: str, reason: str) -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    raw = v4_continuity_attempt()
+    bridge_id = raw["traffic_plan"]["roles"]["bridge"][0]["request_id"]
+    bridge_record = next(
+        item for item in raw["request_records"] if item["request_id"] == bridge_id
+    )
+    if mutation == "partition_overlap":
+        raw["traffic_plan"]["roles"]["normal"][0]["request_id"] = bridge_id
+    elif mutation == "logical_missing":
+        raw["request_records"].pop()
+    elif mutation == "schedule_late":
+        bridge_record["attempted_monotonic"] += 0.6
+        raw["continuity_execution"]["dispatches"][0]["attempted_monotonic"] += 0.6
+        raw["continuity_execution"]["dispatches"][0]["schedule_lateness_ms"] += 600
+    elif mutation == "bridge_post_switch":
+        bridge_record["attempted_monotonic"] = 93.001
+        raw["continuity_execution"]["dispatches"][0]["attempted_monotonic"] = 93.001
+        raw["continuity_execution"]["dispatches"][0]["schedule_lateness_ms"] = 7001.0
+    elif mutation == "wrong_epoch":
+        bridge_record["route_generation"] = 3
+    elif mutation == "wrong_digest":
+        bridge_record["artifact_sha256"] = "f" * 64
+    elif mutation == "synthetic_completion":
+        bridge_record["durable_effect"] = {}
+    elif mutation == "gap_window":
+        raw["completion_window"] = {"exclude": [bridge_id]}
+    elif mutation == "capacity":
+        raw["continuity_execution"]["max_reserved_requests_observed"] = 5
+    elif mutation == "premature_unload":
+        next(
+            item for item in raw["phase_timeline"] if item["phase"] == "green_only"
+        )["monotonic_seconds"] = 93.03
+    with pytest.raises(S6BMRuntimeError, match=reason):
+        project_success_attempt(raw, config)
 
 
 def fault_attempt(profile: str, repetition: int = 1) -> dict[str, object]:

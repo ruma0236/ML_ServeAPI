@@ -105,6 +105,7 @@ class S6BMConfig:
     durable_effect: Mapping[str, Any]
     trace: Mapping[str, Any]
     run_set: Mapping[str, Any]
+    continuity: Mapping[str, Any]
     ports: Mapping[str, int]
     telemetry: Mapping[str, str | int]
     claim_boundary: str
@@ -122,6 +123,7 @@ class S6BMConfig:
         durable_effect = dict(raw.get("durable_effect", {}))
         trace = dict(raw.get("trace", {}))
         run_set = dict(raw.get("run_set", {}))
+        continuity = dict(raw.get("continuity", {}))
         config = cls(
             schema_version=str(raw["schema_version"]),
             image=str(identity["triton_image"]),
@@ -138,6 +140,7 @@ class S6BMConfig:
             durable_effect=durable_effect,
             trace=trace,
             run_set=run_set,
+            continuity=continuity,
             ports=ports,
             telemetry=telemetry,
             claim_boundary=str(dict(raw["claim_boundary"])["scope"]),
@@ -349,9 +352,41 @@ class S6BMConfig:
             }
             if self.run_set != expected_profiles:
                 raise S6BMRuntimeError("s6bm_run_set_contract_v4")
+            expected_continuity = {
+                "contract": "fixed_exact_1000_blue_continuity_v1",
+                "logical_request_count": 1000,
+                "canary_count": 100,
+                "causal_hold_count": 1,
+                "bridge_count": 40,
+                "normal_count": 859,
+                "cadence_ms": 150,
+                "producer_workers": 4,
+                "max_in_flight_requests": 4,
+                "max_request_payload_bytes": 4096,
+                "max_in_flight_payload_bytes": 16384,
+                "bridge_hold_count": 4,
+                "bridge_hold_ms": 400,
+                "max_schedule_lateness_ms": 500,
+                "minimum_blue_in_flight_at_switch": 2,
+                "minimum_bridge_cross_switch_completions": 1,
+                "minimum_transition_terminal_completions": 8,
+                "adaptive_pacing_forbidden": True,
+                "post_hoc_windowing_forbidden": True,
+                "schedule_hash_algorithm": "sha256_canonical_json",
+            }
+            if self.continuity != expected_continuity:
+                raise S6BMRuntimeError("s6bm_continuity_contract_v4")
+            if (
+                int(self.continuity["canary_count"])
+                + int(self.continuity["causal_hold_count"])
+                + int(self.continuity["bridge_count"])
+                + int(self.continuity["normal_count"])
+                != int(self.continuity["logical_request_count"])
+            ):
+                raise S6BMRuntimeError("s6bm_continuity_partition_count")
 
     def public_snapshot(self) -> dict[str, Any]:
-        return {
+        snapshot = {
             "schema_version": self.schema_version,
             "identity": {
                 "triton_image": self.image,
@@ -379,6 +414,9 @@ class S6BMConfig:
                 else CLAIM_BOUNDARY
             ),
         }
+        if self.continuity:
+            snapshot["continuity"] = dict(self.continuity)
+        return snapshot
 
 
 def _finite(value: Any, name: str) -> float:
@@ -404,6 +442,126 @@ def _expected_identity(config: S6BMConfig, role: str) -> dict[str, Any]:
     }
 
 
+def _route_role(request_id: str, green_weight_percent: int) -> str:
+    bucket = int(hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:8], 16) % 100
+    return "green" if bucket < green_weight_percent else "blue"
+
+
+def _blue_routed_request_id(prefix: str) -> str:
+    for suffix in range(10_000):
+        request_id = f"{prefix}-blue-{suffix:05d}"
+        if _route_role(request_id, 10) == "blue":
+            return request_id
+    raise S6BMRuntimeError("s6bm_continuity_blue_request_identity")
+
+
+def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]:
+    """Build the immutable exact-cardinality traffic plan before runtime control starts."""
+    if not config.schema_version.endswith(".v4"):
+        raise S6BMRuntimeError("s6bm_continuity_requires_v4")
+    if not attempt_id:
+        raise S6BMRuntimeError("s6bm_continuity_attempt_identity")
+    continuity = config.continuity
+    seed_prefix = f"{attempt_id}-s{config.seed}"
+    ordinal = 0
+
+    def entry(
+        request_id: str,
+        traffic_role: str,
+        expected_model_role: str,
+        *,
+        scheduled_offset_ms: int | None = None,
+        hold_ms: int = 0,
+    ) -> dict[str, Any]:
+        nonlocal ordinal
+        value = {
+            "ordinal": ordinal,
+            "request_id": request_id,
+            "traffic_role": traffic_role,
+            "expected_model_role": expected_model_role,
+            "hold_ms": hold_ms,
+        }
+        if scheduled_offset_ms is not None:
+            value["scheduled_offset_ms"] = scheduled_offset_ms
+        ordinal += 1
+        return value
+
+    canary = []
+    for index in range(int(continuity["canary_count"])):
+        request_id = f"{seed_prefix}-canary-{index:05d}"
+        canary.append(
+            entry(
+                request_id,
+                "canary",
+                _route_role(request_id, int(config.procedure["canary_weight_percent"])),
+            )
+        )
+    causal_hold = [
+        entry(
+            _blue_routed_request_id(f"{seed_prefix}-causal-hold"),
+            "causal_hold",
+            "blue",
+            hold_ms=int(config.procedure["long_in_flight_hold_ms"]),
+        )
+    ]
+    bridge = []
+    bridge_count = int(continuity["bridge_count"])
+    held_start = bridge_count - int(continuity["bridge_hold_count"])
+    for index in range(bridge_count):
+        bridge.append(
+            entry(
+                _blue_routed_request_id(f"{seed_prefix}-bridge-{index:05d}"),
+                "bridge",
+                "blue",
+                scheduled_offset_ms=index * int(continuity["cadence_ms"]),
+                hold_ms=int(continuity["bridge_hold_ms"]) if index >= held_start else 0,
+            )
+        )
+    normal = [
+        entry(
+            f"{seed_prefix}-normal-{index:05d}",
+            "normal",
+            "green",
+        )
+        for index in range(int(continuity["normal_count"]))
+    ]
+    roles = {
+        "canary": canary,
+        "causal_hold": causal_hold,
+        "bridge": bridge,
+        "normal": normal,
+    }
+    ordered = [item for role in ("canary", "causal_hold", "bridge", "normal") for item in roles[role]]
+    request_ids = [str(item["request_id"]) for item in ordered]
+    if len(request_ids) != int(continuity["logical_request_count"]):
+        raise S6BMRuntimeError("s6bm_continuity_partition_count")
+    if len(set(request_ids)) != len(request_ids):
+        raise S6BMRuntimeError("s6bm_continuity_partition_overlap")
+    schedule = [
+        {
+            "request_id": item["request_id"],
+            "scheduled_offset_ms": item["scheduled_offset_ms"],
+            "hold_ms": item["hold_ms"],
+        }
+        for item in bridge
+    ]
+    core = {
+        "schema_version": "evm.s8_v4.s6bm_exact_traffic_plan.v1",
+        "contract": continuity["contract"],
+        "attempt_id": attempt_id,
+        "seed": config.seed,
+        "logical_request_count": len(request_ids),
+        "role_order": ["canary", "causal_hold", "bridge", "normal"],
+        "roles": roles,
+        "request_id_set_sha256": canonical_sha256(request_ids),
+        "role_partition_sha256": canonical_sha256(roles),
+        "schedule_sha256": canonical_sha256(schedule),
+        "adaptive_pacing": False,
+        "completion_windowing": "all_exact_logical_ids",
+    }
+    return {**core, "plan_sha256": canonical_sha256(core)}
+
+
 def _percentile(values: Sequence[float], percentile: float) -> float:
     if not values:
         raise S6BMRuntimeError("s6bm_latency_empty")
@@ -421,6 +579,19 @@ def _percentile(values: Sequence[float], percentile: float) -> float:
 def _assert_exact_float(observed: Any, expected: float, name: str) -> None:
     if not math.isclose(_finite(observed, name), expected, rel_tol=0, abs_tol=1e-6):
         raise S6BMRuntimeError(f"s6bm_projection_mismatch:{name}")
+
+
+def _durable_terminal_monotonic(record: Mapping[str, Any]) -> float:
+    receipt = dict(record.get("durable_effect", {}))
+    if receipt.get("readback_visible") is not True:
+        raise S6BMRuntimeError("s6bm_durable_terminal_readback")
+    readback_ns = int(receipt.get("readback_finished_monotonic_ns", 0))
+    if readback_ns <= 0:
+        raise S6BMRuntimeError("s6bm_durable_terminal_timestamp")
+    terminal = readback_ns / 1e9
+    if terminal > _finite(record.get("completed_monotonic"), "completed_monotonic"):
+        raise S6BMRuntimeError("s6bm_durable_terminal_after_response")
+    return terminal
 
 
 def _validate_model_identities(raw: Mapping[str, Any], config: S6BMConfig) -> None:
@@ -594,7 +765,11 @@ def _project_request_records(
         if elapsed < 0 or completed <= 0:
             raise S6BMRuntimeError("s6bm_request_timing")
         latencies.append(elapsed)
-        completion_times.append(completed)
+        completion_times.append(
+            _durable_terminal_monotonic(record)
+            if config.schema_version.endswith(".v4")
+            else completed
+        )
     completion_times.sort()
     gaps = [
         (current - previous) * 1000
@@ -618,6 +793,242 @@ def _project_request_records(
     return records, summary, latency
 
 
+def project_continuity_contract(
+    raw: Mapping[str, Any], config: S6BMConfig
+) -> dict[str, Any]:
+    """Recompute exact run cardinality and fixed-cadence transition continuity."""
+    if not config.schema_version.endswith(".v4"):
+        raise S6BMRuntimeError("s6bm_continuity_requires_v4")
+    attempt_id = str(raw.get("attempt_id", ""))
+    expected_plan = build_continuity_plan(config, attempt_id)
+    observed_plan = dict(raw.get("traffic_plan", {}))
+    if observed_plan != expected_plan:
+        raise S6BMRuntimeError("s6bm_continuity_plan_binding")
+
+    plan_artifact = dict(raw.get("traffic_plan_artifact", {}))
+    expected_artifact_sha = hashlib.sha256(
+        (canonical(expected_plan) + "\n").encode("ascii")
+    ).hexdigest()
+    if (
+        plan_artifact.get("sha256") != expected_artifact_sha
+        or not str(plan_artifact.get("path", "")).endswith("traffic-plan.json")
+        or int(plan_artifact.get("bytes", -1))
+        != len((canonical(expected_plan) + "\n").encode("ascii"))
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_plan_artifact")
+
+    records = [dict(item) for item in raw.get("request_records", [])]
+    records_by_id = {str(item.get("request_id", "")): item for item in records}
+    ordered_plan_items = [
+        dict(item)
+        for role in expected_plan["role_order"]
+        for item in expected_plan["roles"][role]
+    ]
+    ordered_ids = [str(item["request_id"]) for item in ordered_plan_items]
+    if set(records_by_id) != set(ordered_ids) or len(records_by_id) != len(ordered_ids):
+        raise S6BMRuntimeError("s6bm_continuity_exact_logical_set")
+
+    causal = dict(raw.get("causal_proof", {}))
+    transition = dict(causal.get("route_transition_receipt", {}))
+    old_generation = int(transition.get("old_route_generation", 0))
+    new_generation = int(transition.get("new_route_generation", 0))
+    route_applied_ns = int(transition.get("route_applied_monotonic_ns", 0))
+    if old_generation < 1 or new_generation != old_generation + 1 or route_applied_ns <= 0:
+        raise S6BMRuntimeError("s6bm_continuity_transition_identity")
+    route_applied = route_applied_ns / 1e9
+
+    role_counts: dict[str, int] = {}
+    for item in ordered_plan_items:
+        request_id = str(item["request_id"])
+        record = records_by_id[request_id]
+        traffic_role = str(item["traffic_role"])
+        role_counts[traffic_role] = role_counts.get(traffic_role, 0) + 1
+        if record.get("model_role") != item["expected_model_role"]:
+            raise S6BMRuntimeError("s6bm_continuity_role_binding")
+        expected_generation = new_generation if traffic_role == "normal" else old_generation
+        if int(record.get("route_generation", 0)) != expected_generation:
+            raise S6BMRuntimeError("s6bm_continuity_generation_binding")
+
+    execution = dict(raw.get("continuity_execution", {}))
+    if execution.get("plan_sha256") != expected_plan["plan_sha256"]:
+        raise S6BMRuntimeError("s6bm_continuity_execution_plan")
+    plan_frozen = _finite(execution.get("plan_frozen_monotonic"), "plan_frozen")
+    initialized = _finite(
+        execution.get("controller_initialized_monotonic"), "controller_initialized"
+    )
+    producer_started = _finite(
+        execution.get("producer_started_monotonic"), "producer_started"
+    )
+    all_submitted = _finite(
+        execution.get("all_submitted_monotonic"), "all_submitted"
+    )
+    switch_invoked = _finite(
+        execution.get("switch_invoked_monotonic"), "switch_invoked"
+    )
+    receipt_observed = _finite(
+        execution.get("transition_receipt_observed_monotonic"), "receipt_observed"
+    )
+    producer_finished = _finite(
+        execution.get("producer_finished_monotonic"), "producer_finished"
+    )
+    if not (
+        plan_frozen
+        < initialized
+        <= producer_started
+        < all_submitted
+        <= switch_invoked
+        < receipt_observed
+        <= producer_finished
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_lifecycle_order")
+    if not switch_invoked <= route_applied <= receipt_observed:
+        raise S6BMRuntimeError("s6bm_continuity_actor_receipt_order")
+    if int(execution.get("blue_in_flight_before_switch", -1)) < int(
+        config.continuity["minimum_blue_in_flight_at_switch"]
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_in_flight")
+
+    bridge_plan = [dict(item) for item in expected_plan["roles"]["bridge"]]
+    dispatches = [dict(item) for item in execution.get("dispatches", [])]
+    if [str(item.get("request_id", "")) for item in dispatches] != [
+        str(item["request_id"]) for item in bridge_plan
+    ]:
+        raise S6BMRuntimeError("s6bm_continuity_schedule_identity")
+    max_lateness = 0.0
+    bridge_cross_switch = 0
+    capacity_events: list[tuple[float, int, int]] = []
+    for planned, dispatch in zip(bridge_plan, dispatches, strict=True):
+        request_id = str(planned["request_id"])
+        record = records_by_id[request_id]
+        scheduled_offset = int(planned["scheduled_offset_ms"])
+        if (
+            int(dispatch.get("scheduled_offset_ms", -1)) != scheduled_offset
+            or int(dispatch.get("hold_ms", -1)) != int(planned["hold_ms"])
+        ):
+            raise S6BMRuntimeError("s6bm_continuity_schedule_identity")
+        payload_bytes = int(dispatch.get("payload_bytes", 0))
+        if (
+            payload_bytes <= 0
+            or payload_bytes > int(config.continuity["max_request_payload_bytes"])
+            or payload_bytes != int(record.get("offered_payload_bytes", -1))
+            or dispatch.get("payload_sha256") != record.get("offered_payload_sha256")
+        ):
+            raise S6BMRuntimeError("s6bm_continuity_payload_binding")
+        attempted = _finite(record.get("attempted_monotonic"), "bridge_attempted")
+        completed = _durable_terminal_monotonic(record)
+        client_completed = _finite(
+            record.get("completed_monotonic"), "bridge_client_completed"
+        )
+        capacity_events.append((attempted, 1, payload_bytes))
+        capacity_events.append((client_completed, -1, -payload_bytes))
+        if attempted >= route_applied:
+            raise S6BMRuntimeError("s6bm_continuity_stale_blue_admission")
+        expected_lateness = (attempted - (producer_started + scheduled_offset / 1000.0)) * 1000
+        if expected_lateness < -1e-6:
+            raise S6BMRuntimeError("s6bm_continuity_schedule_early")
+        _assert_exact_float(
+            dispatch.get("attempted_monotonic"), attempted, "bridge_attempted"
+        )
+        _assert_exact_float(
+            dispatch.get("schedule_lateness_ms"), expected_lateness, "schedule_lateness"
+        )
+        max_lateness = max(max_lateness, expected_lateness)
+        if attempted < route_applied < completed:
+            bridge_cross_switch += 1
+    if max_lateness > float(config.continuity["max_schedule_lateness_ms"]):
+        raise S6BMRuntimeError("s6bm_continuity_schedule_late")
+    if bridge_cross_switch < int(
+        config.continuity["minimum_bridge_cross_switch_completions"]
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_cross_switch_absent")
+    active_count = 0
+    active_bytes = 0
+    recomputed_max_count = 0
+    recomputed_max_bytes = 0
+    for _timestamp, count_delta, bytes_delta in sorted(
+        capacity_events, key=lambda item: (item[0], item[1])
+    ):
+        active_count += count_delta
+        active_bytes += bytes_delta
+        if active_count < 0 or active_bytes < 0:
+            raise S6BMRuntimeError("s6bm_continuity_capacity_timeline")
+        recomputed_max_count = max(recomputed_max_count, active_count)
+        recomputed_max_bytes = max(recomputed_max_bytes, active_bytes)
+    observed_max_count = int(execution.get("max_reserved_requests_observed", -1))
+    observed_max_bytes = int(execution.get("max_reserved_payload_bytes_observed", -1))
+    if (
+        active_count != 0
+        or active_bytes != 0
+        or int(execution.get("reserved_requests_at_finish", -1)) != 0
+        or int(execution.get("reserved_payload_bytes_at_finish", -1)) != 0
+        or not recomputed_max_count <= observed_max_count <= int(
+            config.continuity["max_in_flight_requests"]
+        )
+        or not recomputed_max_bytes <= observed_max_bytes <= int(
+            config.continuity["max_in_flight_payload_bytes"]
+        )
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_capacity_bound")
+
+    terminal_during_transition = sum(
+        producer_started
+        <= _durable_terminal_monotonic(item)
+        <= receipt_observed
+        for item in records
+    )
+    if terminal_during_transition < int(
+        config.continuity["minimum_transition_terminal_completions"]
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_terminal_coverage")
+    if raw.get("completion_window") is not None or raw.get("excluded_request_ids"):
+        raise S6BMRuntimeError("s6bm_continuity_post_hoc_window")
+    if execution.get("adaptive_pacing") is not False:
+        raise S6BMRuntimeError("s6bm_continuity_adaptive_pacing")
+
+    conservation = {
+        "logical_request_ids": len(ordered_ids),
+        "offered": len(records),
+        "admitted": len(records),
+        "terminal": len(records),
+        "completed": len(records),
+        "duplicate_replay_attempts": 1,
+        "client_attempts": len(records) + 1,
+        "missing": 0,
+        "duplicate": 0,
+        "dropped": 0,
+        "backpressure_terminal": 0,
+        "schedule_late_dispatches": sum(
+            _finite(item.get("schedule_lateness_ms"), "schedule_lateness")
+            > float(config.continuity["cadence_ms"])
+            for item in dispatches
+        ),
+        "capacity_waited_dispatches": sum(
+            _finite(item.get("capacity_wait_ms"), "capacity_wait") > 0.001
+            for item in dispatches
+        ),
+        "terminal_during_transition": terminal_during_transition,
+        "bridge_cross_switch_completions": bridge_cross_switch,
+        "gap_clock": "durable_effect_readback_monotonic_ns",
+        "role_counts": role_counts,
+    }
+    if dict(raw.get("traffic_conservation", {})) != conservation:
+        raise S6BMRuntimeError("s6bm_continuity_conservation_projection")
+    return {
+        "plan_sha256": expected_plan["plan_sha256"],
+        "logical_request_count": len(ordered_ids),
+        "role_counts": role_counts,
+        "max_schedule_lateness_ms": max_lateness,
+        "max_in_flight_requests": recomputed_max_count,
+        "max_in_flight_payload_bytes": recomputed_max_bytes,
+        "terminal_during_transition": terminal_during_transition,
+        "bridge_cross_switch_completions": bridge_cross_switch,
+        "blue_in_flight_before_switch": int(execution["blue_in_flight_before_switch"]),
+        "old_route_generation": old_generation,
+        "new_route_generation": new_generation,
+        "passed": True,
+    }
+
+
 def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[str, Any]:
     if raw.get("profile") != "successful_transition":
         raise S6BMRuntimeError("s6bm_success_profile")
@@ -630,6 +1041,9 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
     if monotonic != sorted(monotonic) or len(set(monotonic)) != len(monotonic):
         raise S6BMRuntimeError("s6bm_phase_monotonic")
     records, requests, latency = _project_request_records(raw, config)
+    continuity_projection = None
+    if config.schema_version.endswith(".v4"):
+        continuity_projection = project_continuity_contract(raw, config)
     project_raw_drain_timeline(raw, config)
     if dict(raw.get("requests", {})) != requests:
         raise S6BMRuntimeError("s6bm_request_projection")
@@ -710,7 +1124,7 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
     cleanup = dict(raw.get("cleanup", {}))
     if not cleanup or not all(value is True for value in cleanup.values()):
         raise S6BMRuntimeError("s6bm_success_cleanup")
-    return {
+    projection = {
         "attempt_id": str(raw["attempt_id"]),
         "repetition": int(raw["repetition"]),
         "logical_requests": total,
@@ -722,6 +1136,9 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
         "peak_vram_mib": _finite(raw.get("peak_vram_mib"), "peak_vram_mib"),
         "passed": True,
     }
+    if continuity_projection is not None:
+        projection["continuity"] = continuity_projection
+    return projection
 
 
 def project_fault_attempt(

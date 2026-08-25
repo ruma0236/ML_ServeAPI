@@ -43,6 +43,7 @@ from evm.scale_validation.s6bm_runtime import (  # noqa: E402
     CLAIM_BOUNDARY,
     S6BMConfig,
     analyze_attempts,
+    build_continuity_plan,
     canonical,
     canonical_sha256,
     sha256_file,
@@ -994,6 +995,33 @@ def request_body(
     }
 
 
+def request_bodies_from_plan(
+    config: S6BMConfig,
+    run_id: str,
+    attempt_id: str,
+    items: Sequence[Mapping[str, Any]],
+    *,
+    route_generation: int = 0,
+) -> list[dict[str, Any]]:
+    bodies = []
+    for item in items:
+        traffic_role = str(item["traffic_role"])
+        causal = traffic_role == "causal_hold"
+        bodies.append(
+            request_body(
+                config,
+                run_id,
+                attempt_id,
+                str(item["request_id"]),
+                expected_model_role=str(item["expected_model_role"]),
+                hold_ms=int(item["hold_ms"]),
+                expected_route_generation=route_generation if causal else 0,
+                causal_crossover=causal,
+            )
+        )
+    return bodies
+
+
 def start_triton_start_receipt_collector(
     config: S6BMConfig,
     *,
@@ -1124,6 +1152,8 @@ def send_request(
     session: requests.Session | None = None,
 ) -> dict[str, Any]:
     attempted = time.perf_counter()
+    offered_payload_bytes = len(canonical(dict(body)).encode("ascii"))
+    offered_payload_sha256 = canonical_sha256(dict(body))
     client = session if session is not None else requests
     try:
         response = client.post(
@@ -1140,6 +1170,8 @@ def send_request(
                 "status_code": response.status_code,
                 "outcome": "http_error",
                 "detail": parsed,
+                "offered_payload_bytes": offered_payload_bytes,
+                "offered_payload_sha256": offered_payload_sha256,
                 "attempted_monotonic": attempted,
                 "completed_monotonic": completed,
             }
@@ -1150,6 +1182,8 @@ def send_request(
             "trace_id": parsed["trace_id"],
             "effect_id": parsed["effect_id"],
             "offered_traceparent": body["traceparent"],
+            "offered_payload_bytes": offered_payload_bytes,
+            "offered_payload_sha256": offered_payload_sha256,
             "offered_identity": {
                 "model_role": body["expected_model_role"],
                 "model_name": body["expected_model_name"],
@@ -1179,6 +1213,8 @@ def send_request(
             "status_code": 0,
             "outcome": "transport_failure",
             "error": str(exc),
+            "offered_payload_bytes": offered_payload_bytes,
+            "offered_payload_sha256": offered_payload_sha256,
             "attempted_monotonic": attempted,
             "completed_monotonic": time.perf_counter(),
         }
@@ -1210,6 +1246,14 @@ def send_batch(
                 expected_model_role=role,
             )
         )
+    return send_bodies(config, bodies, concurrency), bodies
+
+
+def send_bodies(
+    config: S6BMConfig,
+    bodies: Sequence[Mapping[str, Any]],
+    concurrency: int,
+) -> list[dict[str, Any]]:
     local = threading.local()
     sessions: list[requests.Session] = []
     sessions_lock = threading.Lock()
@@ -1235,7 +1279,129 @@ def send_batch(
     finally:
         for session in sessions:
             session.close()
-    return records, bodies
+    return records
+
+
+def run_fixed_bridge_producer(
+    config: S6BMConfig,
+    bodies: Sequence[Mapping[str, Any]],
+    schedule: Sequence[Mapping[str, Any]],
+    on_all_submitted: Callable[[], dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Offer the frozen bridge schedule without feedback-driven pacing or rewindowing."""
+    if len(bodies) != len(schedule):
+        raise S6BMExperimentError("continuity_schedule_cardinality")
+    workers = int(config.continuity["producer_workers"])
+    capacity = int(config.continuity["max_in_flight_requests"])
+    payload_cap = int(config.continuity["max_request_payload_bytes"])
+    bytes_cap = int(config.continuity["max_in_flight_payload_bytes"])
+    if workers != capacity:
+        raise S6BMExperimentError("continuity_worker_capacity_contract")
+
+    local = threading.local()
+    sessions: list[requests.Session] = []
+    sessions_lock = threading.Lock()
+    capacity_lock = threading.Lock()
+    slots = threading.BoundedSemaphore(capacity)
+    reserved_count = 0
+    reserved_bytes = 0
+    max_reserved_count = 0
+    max_reserved_bytes = 0
+    futures: list[concurrent.futures.Future[dict[str, Any]]] = []
+    dispatch_meta: list[dict[str, Any]] = []
+    producer_started = time.perf_counter()
+
+    def dispatch(body: Mapping[str, Any]) -> dict[str, Any]:
+        session = getattr(local, "session", None)
+        if session is None:
+            session = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=1,
+                pool_maxsize=1,
+                pool_block=True,
+            )
+            session.mount("http://", adapter)
+            local.session = session
+            with sessions_lock:
+                sessions.append(session)
+        return send_request(config, body, session=session)
+
+    def release_slot(payload_bytes: int) -> None:
+        nonlocal reserved_count, reserved_bytes
+        with capacity_lock:
+            reserved_count -= 1
+            reserved_bytes -= payload_bytes
+            if reserved_count < 0 or reserved_bytes < 0:
+                raise S6BMExperimentError("continuity_capacity_accounting")
+        slots.release()
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            for body, planned in zip(bodies, schedule, strict=True):
+                target = producer_started + int(planned["scheduled_offset_ms"]) / 1000.0
+                remaining = target - time.perf_counter()
+                if remaining > 0:
+                    time.sleep(remaining)
+                wait_started = time.perf_counter()
+                if not slots.acquire(timeout=20):
+                    raise S6BMExperimentError("continuity_capacity_wait_timeout")
+                wait_finished = time.perf_counter()
+                payload_bytes = len(canonical(dict(body)).encode("ascii"))
+                if payload_bytes > payload_cap:
+                    slots.release()
+                    raise S6BMExperimentError("continuity_payload_too_large")
+                with capacity_lock:
+                    reserved_count += 1
+                    reserved_bytes += payload_bytes
+                    max_reserved_count = max(max_reserved_count, reserved_count)
+                    max_reserved_bytes = max(max_reserved_bytes, reserved_bytes)
+                    if reserved_count > capacity or reserved_bytes > bytes_cap:
+                        reserved_count -= 1
+                        reserved_bytes -= payload_bytes
+                        slots.release()
+                        raise S6BMExperimentError("continuity_capacity_bound")
+                future = pool.submit(dispatch, body)
+                future.add_done_callback(lambda _future, size=payload_bytes: release_slot(size))
+                futures.append(future)
+                dispatch_meta.append(
+                    {
+                        "request_id": str(body["request_id"]),
+                        "scheduled_offset_ms": int(planned["scheduled_offset_ms"]),
+                        "hold_ms": int(body["hold_ms"]),
+                        "payload_bytes": payload_bytes,
+                        "payload_sha256": canonical_sha256(dict(body)),
+                        "capacity_wait_ms": (wait_finished - wait_started) * 1000.0,
+                    }
+                )
+            all_submitted = time.perf_counter()
+            transition = on_all_submitted()
+            receipt_observed = float(transition["transition_receipt_observed_monotonic"])
+            records = [future.result(timeout=25) for future in futures]
+            producer_finished = time.perf_counter()
+    finally:
+        for session in sessions:
+            session.close()
+
+    for record, meta in zip(records, dispatch_meta, strict=True):
+        attempted = float(record["attempted_monotonic"])
+        target = producer_started + int(meta["scheduled_offset_ms"]) / 1000.0
+        meta["attempted_monotonic"] = attempted
+        meta["schedule_lateness_ms"] = (attempted - target) * 1000.0
+        meta["outcome"] = record.get("outcome")
+        meta["status_code"] = int(record.get("status_code", 0))
+    evidence = {
+        "producer_started_monotonic": producer_started,
+        "all_submitted_monotonic": all_submitted,
+        "transition_receipt_observed_monotonic": receipt_observed,
+        "producer_finished_monotonic": producer_finished,
+        "adaptive_pacing": False,
+        "dispatches": dispatch_meta,
+        "max_reserved_requests_observed": max_reserved_count,
+        "max_reserved_payload_bytes_observed": max_reserved_bytes,
+        "reserved_requests_at_finish": reserved_count,
+        "reserved_payload_bytes_at_finish": reserved_bytes,
+    }
+    return records, evidence, transition
 
 
 def wait_in_flight(config: S6BMConfig, role: str, expected: int, timeout: float) -> dict[str, Any]:
@@ -1248,6 +1414,20 @@ def wait_in_flight(config: S6BMConfig, role: str, expected: int, timeout: float)
             return latest
         time.sleep(0.01)
     raise S6BMExperimentError(f"in_flight_timeout:{role}:{expected}:{latest}")
+
+
+def wait_in_flight_at_least(
+    config: S6BMConfig, role: str, minimum: int, timeout: float
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    latest: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        latest = controller_state(config)
+        observed = int(dict(latest.get("in_flight", {})).get(role, 0))
+        if observed >= minimum:
+            return latest
+        time.sleep(0.01)
+    raise S6BMExperimentError(f"in_flight_minimum_timeout:{role}:{minimum}:{latest}")
 
 
 def owner_sample(lease: GpuLease) -> dict[str, Any]:
@@ -1390,13 +1570,30 @@ def request_projection(records: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     }
 
 
-def latency_projection(records: Sequence[Mapping[str, Any]]) -> dict[str, float]:
+def latency_projection(
+    records: Sequence[Mapping[str, Any]], *, require_durable_terminal: bool = False
+) -> dict[str, float]:
     values = sorted(
         float(item["elapsed_ms"]) for item in records if item.get("outcome") == "completed"
     )
-    completed = sorted(
-        float(item["completed_monotonic"]) for item in records if item.get("outcome") == "completed"
-    )
+    completed = []
+    for item in records:
+        if item.get("outcome") != "completed":
+            continue
+        if require_durable_terminal:
+            receipt = dict(item.get("durable_effect", {}))
+            if receipt.get("readback_visible") is not True:
+                raise S6BMExperimentError("durable_terminal_readback_absent")
+            terminal_ns = int(receipt.get("readback_finished_monotonic_ns", 0))
+            if terminal_ns <= 0:
+                raise S6BMExperimentError("durable_terminal_timestamp_absent")
+            terminal = terminal_ns / 1e9
+            if terminal > float(item["completed_monotonic"]):
+                raise S6BMExperimentError("durable_terminal_after_response")
+            completed.append(terminal)
+        else:
+            completed.append(float(item["completed_monotonic"]))
+    completed.sort()
     if not values:
         raise S6BMExperimentError("latency_projection_empty")
 
@@ -1415,6 +1612,67 @@ def latency_projection(records: Sequence[Mapping[str, Any]]) -> dict[str, float]
         "p95_ms": percentile(0.95),
         "p99_ms": percentile(0.99),
         "max_inter_completion_gap_ms": max(gaps, default=0.0),
+    }
+
+
+def continuity_conservation_projection(
+    records: Sequence[Mapping[str, Any]],
+    traffic_plan: Mapping[str, Any],
+    execution: Mapping[str, Any],
+    transition_receipt: Mapping[str, Any],
+    config: S6BMConfig,
+) -> dict[str, Any]:
+    route_applied = int(transition_receipt["route_applied_monotonic_ns"]) / 1e9
+    producer_started = float(execution["producer_started_monotonic"])
+    receipt_observed = float(execution["transition_receipt_observed_monotonic"])
+    bridge_ids = {
+        str(item["request_id"]) for item in traffic_plan["roles"]["bridge"]
+    }
+    terminal_times: dict[str, float] = {}
+    for record in records:
+        receipt = dict(record.get("durable_effect", {}))
+        terminal_times[str(record["request_id"])] = (
+            int(receipt.get("readback_finished_monotonic_ns", 0)) / 1e9
+        )
+    bridge_cross_switch = sum(
+        str(record["request_id"]) in bridge_ids
+        and float(record["attempted_monotonic"]) < route_applied
+        < terminal_times[str(record["request_id"])]
+        for record in records
+    )
+    terminal_during_transition = sum(
+        producer_started <= terminal <= receipt_observed
+        for terminal in terminal_times.values()
+    )
+    role_counts = {
+        role: len(list(traffic_plan["roles"][role]))
+        for role in traffic_plan["role_order"]
+    }
+    dispatches = [dict(item) for item in execution["dispatches"]]
+    completed = sum(item.get("outcome") == "completed" for item in records)
+    return {
+        "logical_request_ids": int(traffic_plan["logical_request_count"]),
+        "offered": len(records),
+        "admitted": completed,
+        "terminal": len(records),
+        "completed": completed,
+        "duplicate_replay_attempts": 1,
+        "client_attempts": len(records) + 1,
+        "missing": int(traffic_plan["logical_request_count"]) - len(records),
+        "duplicate": len(records) - len({str(item["request_id"]) for item in records}),
+        "dropped": sum(item.get("outcome") != "completed" for item in records),
+        "backpressure_terminal": sum(int(item.get("status_code", 0)) == 429 for item in records),
+        "schedule_late_dispatches": sum(
+            float(item["schedule_lateness_ms"]) > float(config.continuity["cadence_ms"])
+            for item in dispatches
+        ),
+        "capacity_waited_dispatches": sum(
+            float(item["capacity_wait_ms"]) > 0.001 for item in dispatches
+        ),
+        "terminal_during_transition": terminal_during_transition,
+        "bridge_cross_switch_completions": bridge_cross_switch,
+        "gap_clock": "durable_effect_readback_monotonic_ns",
+        "role_counts": role_counts,
     }
 
 
@@ -2003,10 +2261,15 @@ def run_success(
 ) -> dict[str, Any]:
     started_at = utc_now()
     attempt_id = f"s6bm-success-{repetition}-{uuid4().hex[:10]}"
+    traffic_plan = build_continuity_plan(config, attempt_id)
+    traffic_plan_path = suite_root / "traffic-plans" / attempt_id / "traffic-plan.json"
+    canonical_write(traffic_plan_path, traffic_plan)
+    plan_frozen_monotonic = time.perf_counter()
     clock_chain = DualClockAnchorChain(
         source_identity=f"runner:{source['revision']}:{suite_id}:{attempt_id}"
     )
     initialize_controller(config, lease, source)
+    controller_initialized_monotonic = time.perf_counter()
     timeline = [phase_entry(config, "blue_only", clock_chain=clock_chain)]
     owner_samples = [owner_sample(lease)]
     physical: dict[str, bool] = {}
@@ -2029,14 +2292,16 @@ def run_success(
             direct_infer(config, "green")
         apply_control(config, lease, "canary_started")
         timeline.append(phase_entry(config, "canary", clock_chain=clock_chain))
-        canary_records, canary_bodies = send_batch(
+        canary_bodies = request_bodies_from_plan(
             config,
             lease.run_id,
             attempt_id,
-            f"{attempt_id}-canary",
-            int(config.procedure["canary_requests"]),
+            traffic_plan["roles"]["canary"],
+        )
+        canary_records = send_bodies(
+            config,
+            canary_bodies,
             int(config.procedure["request_concurrency"]),
-            green_weight_percent=int(config.procedure["canary_weight_percent"]),
         )
         records.extend(canary_records)
         execution_progress.update(
@@ -2055,16 +2320,13 @@ def run_success(
         }
 
         hold_generation = int(controller_state(config)["generation"])
-        hold_body = request_body(
+        hold_body = request_bodies_from_plan(
             config,
             lease.run_id,
             attempt_id,
-            blue_request_id(f"{attempt_id}-hold"),
-            expected_model_role="blue",
-            hold_ms=int(config.procedure["long_in_flight_hold_ms"]),
-            expected_route_generation=hold_generation,
-            causal_crossover=True,
-        )
+            traffic_plan["roles"]["causal_hold"],
+            route_generation=hold_generation,
+        )[0]
         hold_identity = expected_causal_identity_for_request(
             TritonBlueGreenPredictRequest.model_validate(hold_body)
         ).model_dump(mode="json")
@@ -2079,36 +2341,77 @@ def run_success(
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             hold_future = pool.submit(send_request, config, hold_body)
             wait_in_flight(config, "blue", 1, 5)
-            triton_start_receipt = wait_triton_start_receipt_collector(
-                collector,
-                suite_root=suite_root,
-                timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
-            )
-            switch_state = apply_control(
-                config,
-                lease,
-                "green_switched",
-                causal_crossover=hold_identity,
-            )
-            transition_receipt = dict(switch_state.get("transition_receipt") or {})
-            if not transition_receipt:
-                raise S6BMExperimentError("route_transition_receipt_absent")
-            timeline.append(phase_entry(config, "green_active", clock_chain=clock_chain))
-            apply_control(config, lease, "blue_drain_started")
-            timeline.append(phase_entry(config, "blue_draining", clock_chain=clock_chain))
-            remaining = (
-                int(config.procedure["logical_requests_per_transition"])
-                - int(config.procedure["canary_requests"])
-                - 1
-            )
-            green_records, _ = send_batch(
+            bridge_bodies = request_bodies_from_plan(
                 config,
                 lease.run_id,
                 attempt_id,
-                f"{attempt_id}-green",
-                remaining,
+                traffic_plan["roles"]["bridge"],
+            )
+
+            def switch_after_fixed_schedule() -> dict[str, Any]:
+                triton_receipt = wait_triton_start_receipt_collector(
+                    collector,
+                    suite_root=suite_root,
+                    timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
+                )
+                pre_switch = wait_in_flight_at_least(
+                    config,
+                    "blue",
+                    int(config.continuity["minimum_blue_in_flight_at_switch"]),
+                    5,
+                )
+                switch_invoked = time.perf_counter()
+                switched = apply_control(
+                    config,
+                    lease,
+                    "green_switched",
+                    causal_crossover=hold_identity,
+                )
+                receipt_observed = time.perf_counter()
+                receipt = dict(switched.get("transition_receipt") or {})
+                if not receipt:
+                    raise S6BMExperimentError("route_transition_receipt_absent")
+                timeline.append(phase_entry(config, "green_active", clock_chain=clock_chain))
+                apply_control(config, lease, "blue_drain_started")
+                timeline.append(phase_entry(config, "blue_draining", clock_chain=clock_chain))
+                return {
+                    "triton_start_receipt": triton_receipt,
+                    "transition_receipt": receipt,
+                    "switch_invoked_monotonic": switch_invoked,
+                    "transition_receipt_observed_monotonic": receipt_observed,
+                    "blue_in_flight_before_switch": int(pre_switch["in_flight"]["blue"]),
+                }
+
+            bridge_records, continuity_execution, transition = run_fixed_bridge_producer(
+                config,
+                bridge_bodies,
+                traffic_plan["roles"]["bridge"],
+                switch_after_fixed_schedule,
+            )
+            continuity_execution.update(
+                {
+                    "plan_sha256": traffic_plan["plan_sha256"],
+                    "plan_frozen_monotonic": plan_frozen_monotonic,
+                    "controller_initialized_monotonic": controller_initialized_monotonic,
+                    "switch_invoked_monotonic": transition["switch_invoked_monotonic"],
+                    "blue_in_flight_before_switch": transition[
+                        "blue_in_flight_before_switch"
+                    ],
+                }
+            )
+            triton_start_receipt = transition["triton_start_receipt"]
+            transition_receipt = transition["transition_receipt"]
+            records.extend(bridge_records)
+            green_bodies = request_bodies_from_plan(
+                config,
+                lease.run_id,
+                attempt_id,
+                traffic_plan["roles"]["normal"],
+            )
+            green_records = send_bodies(
+                config,
+                green_bodies,
                 int(config.procedure["request_concurrency"]),
-                expected_model_role="green",
             )
             records.extend(green_records)
             records.append(hold_future.result(timeout=20))
@@ -2178,7 +2481,14 @@ def run_success(
         owner_samples.append(owner_sample(lease))
 
     summary = request_projection(records)
-    latency = latency_projection(records)
+    latency = latency_projection(records, require_durable_terminal=True)
+    traffic_conservation = continuity_conservation_projection(
+        records,
+        traffic_plan,
+        continuity_execution,
+        transition_receipt,
+        config,
+    )
     state = controller_state(config)
     causal_root = suite_root / "causal" / attempt_id
     effects_response = requests.get(api_url(config, f"effects/{attempt_id}"), timeout=30)
@@ -2206,6 +2516,10 @@ def run_success(
         "source_revision": source["revision"],
         "identities": identities(config, lease),
         "phase_timeline": timeline,
+        "traffic_plan": traffic_plan,
+        "traffic_plan_artifact": artifact_reference(suite_root, traffic_plan_path),
+        "continuity_execution": continuity_execution,
+        "traffic_conservation": traffic_conservation,
         "causal_proof": {
             "crossover_identity": hold_identity,
             "triton_start_receipt": triton_start_receipt,

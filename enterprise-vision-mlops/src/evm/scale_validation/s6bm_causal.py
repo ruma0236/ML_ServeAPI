@@ -13,6 +13,7 @@ from evm.model_runtime.triton_blue_green import (
 )
 from evm.scale_validation.s6bm_runtime import (
     S6BMConfig,
+    build_continuity_plan,
     canonical_sha256,
     sha256_file,
 )
@@ -1254,6 +1255,124 @@ def validate_causal_bundle(
         if _project_unix(backend_span["start_unix_ns"], envelope)[1] >= switch_lower:
             raise S6BMCausalError(f"s6bm_v4_triton_{code}_after_switch")
 
+    bridge_actor_count = 0
+    if raw.get("traffic_plan") is not None:
+        expected_plan = build_continuity_plan(config, attempt_id)
+        if dict(raw.get("traffic_plan", {})) != expected_plan:
+            raise S6BMCausalError("s6bm_v4_continuity_plan_binding")
+        bridge_items = [dict(item) for item in expected_plan["roles"]["bridge"]]
+        for item in bridge_items:
+            request_id = str(item["request_id"])
+            bridge_record = by_request.get(request_id)
+            if bridge_record is None:
+                raise S6BMCausalError("s6bm_v4_continuity_request_missing")
+            bridge_spans = [
+                span for span in spans if span["trace_id"] == bridge_record["trace_id"]
+            ]
+            bridge_server = _one(
+                [span for span in bridge_spans if span["name"] == SERVER_SPAN],
+                "s6bm_v4_continuity_server_span",
+            )
+            bridge_controller = _one(
+                [
+                    span
+                    for span in bridge_spans
+                    if span["name"] == "s6bm.controller.predict"
+                    and span["attributes"].get("evm.request.replayed") is False
+                ],
+                "s6bm_v4_continuity_controller_span",
+            )
+            bridge_inference = _one(
+                [span for span in bridge_spans if span["name"] == "s6bm.triton.infer"],
+                "s6bm_v4_continuity_inference_span",
+            )
+            bridge_effect = _one(
+                [
+                    span
+                    for span in bridge_spans
+                    if span["name"] == "s6bm.terminal_effect.commit"
+                ],
+                "s6bm_v4_continuity_effect_span",
+            )
+            bridge_infer_request = _one(
+                [
+                    span
+                    for span in bridge_spans
+                    if span["resource"].get("service.name") == "triton-inference-server"
+                    and span["name"] == "InferRequest"
+                ],
+                "s6bm_v4_continuity_infer_request_span",
+            )
+            bridge_model = _one(
+                [
+                    span
+                    for span in bridge_spans
+                    if span["resource"].get("service.name") == "triton-inference-server"
+                    and span["name"] == config.blue.model_name
+                ],
+                "s6bm_v4_continuity_model_span",
+            )
+            bridge_compute = _one(
+                [
+                    span
+                    for span in bridge_spans
+                    if span["resource"].get("service.name") == "triton-inference-server"
+                    and span["name"] == "compute"
+                    and span["parent_span_id"] == bridge_model["span_id"]
+                ],
+                "s6bm_v4_continuity_compute_span",
+            )
+            if (
+                bridge_controller["parent_span_id"] != bridge_server["span_id"]
+                or bridge_inference["parent_span_id"] != bridge_controller["span_id"]
+                or bridge_infer_request["parent_span_id"] != bridge_inference["span_id"]
+                or bridge_model["parent_span_id"] != bridge_infer_request["span_id"]
+                or bridge_compute["parent_span_id"] != bridge_model["span_id"]
+                or bridge_effect["parent_span_id"] != bridge_controller["span_id"]
+            ):
+                raise S6BMCausalError("s6bm_v4_continuity_trace_topology")
+            for actor_span, code in (
+                (bridge_server, "server"),
+                (bridge_controller, "controller"),
+                (bridge_model, "model"),
+                (bridge_compute, "compute"),
+            ):
+                if _project_unix(actor_span["start_unix_ns"], envelope)[1] >= switch_lower:
+                    raise S6BMCausalError(f"s6bm_v4_continuity_{code}_after_switch")
+            bridge_expected = {
+                "evm.attempt.id": attempt_id,
+                "evm.run.id": str(crossover["run_id"]),
+                "evm.request.id": request_id,
+                "evm.effect.id": bridge_record["effect_id"],
+                "evm.model.role": "blue",
+                "evm.model.name": config.blue.model_name,
+                "evm.model.version": config.blue.model_version,
+                "evm.model.artifact.sha256": config.blue.artifact_sha256,
+            }
+            for actor_span in (
+                bridge_server,
+                bridge_controller,
+                bridge_inference,
+                bridge_effect,
+            ):
+                if any(
+                    actor_span["attributes"].get(key) != value
+                    for key, value in bridge_expected.items()
+                ):
+                    raise S6BMCausalError("s6bm_v4_continuity_actor_binding")
+            if (
+                bridge_model["attributes"].get("triton.model_name")
+                != config.blue.model_name
+                or str(bridge_model["attributes"].get("triton.model_version"))
+                != config.blue.model_version
+                or bridge_model["attributes"].get("triton.request_id")
+                != bridge_record["request_nonce"]
+                or int(bridge_record.get("route_generation", 0))
+                != int(dict(proof["route_transition_receipt"])["old_route_generation"])
+            ):
+                raise S6BMCausalError("s6bm_v4_continuity_model_binding")
+            bridge_actor_count += 1
+
     hold = by_request[hold_id]
     attempted_ns = int(_finite(hold.get("attempted_monotonic"), "s6bm_v4_hold_start") * 1e9)
     completion_ns = int(_finite(hold.get("completed_monotonic"), "s6bm_v4_hold_completion") * 1e9)
@@ -1361,6 +1480,7 @@ def validate_causal_bundle(
             "request_completion_monotonic_ns": completion_ns,
             "blue_unload_monotonic_lower_ns": unload_lower,
             "pre_switch_blue_request_count": len(pre_switch_ids),
+            "continuity_bridge_actor_bound_count": bridge_actor_count,
         },
         "transaction_semantics": {
             "sequence_order_proven": True,

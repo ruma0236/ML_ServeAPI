@@ -150,6 +150,67 @@ def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
     assert all(session.closed for session in created)
 
 
+def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypatch) -> None:
+    runner = load_runner()
+
+    class FakeSession:
+        def mount(self, _prefix: str, _adapter: object) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    def fake_send(_config, body, *, session=None):
+        assert session is not None
+        attempted = time.perf_counter()
+        time.sleep(0.003)
+        return {
+            "request_id": body["request_id"],
+            "attempted_monotonic": attempted,
+            "completed_monotonic": time.perf_counter(),
+            "outcome": "completed",
+            "status_code": 200,
+        }
+
+    monkeypatch.setattr(runner.requests, "Session", FakeSession)
+    monkeypatch.setattr(runner, "send_request", fake_send)
+    config = SimpleNamespace(
+        continuity={
+            "producer_workers": 2,
+            "max_in_flight_requests": 2,
+            "max_request_payload_bytes": 4096,
+            "max_in_flight_payload_bytes": 8192,
+        }
+    )
+    schedule = [
+        {"request_id": f"bridge-{index}", "scheduled_offset_ms": index * 5, "hold_ms": 0}
+        for index in range(3)
+    ]
+    bodies = [
+        {"request_id": item["request_id"], "hold_ms": 0, "value": index}
+        for index, item in enumerate(schedule)
+    ]
+
+    def transition():
+        observed = time.perf_counter()
+        return {"transition_receipt_observed_monotonic": observed, "receipt": "actor"}
+
+    records, evidence, receipt = runner.run_fixed_bridge_producer(
+        config, bodies, schedule, transition
+    )
+
+    assert [item["request_id"] for item in records] == [item["request_id"] for item in schedule]
+    assert receipt["receipt"] == "actor"
+    assert evidence["adaptive_pacing"] is False
+    assert evidence["max_reserved_requests_observed"] <= 2
+    assert evidence["max_reserved_payload_bytes_observed"] <= 8192
+    assert evidence["reserved_requests_at_finish"] == 0
+    assert evidence["reserved_payload_bytes_at_finish"] == 0
+    assert evidence["producer_finished_monotonic"] >= evidence[
+        "transition_receipt_observed_monotonic"
+    ]
+
+
 def test_expected_attempt_trace_counts_include_exact_controller_only_replay() -> None:
     runner = load_runner()
     attempt = {
