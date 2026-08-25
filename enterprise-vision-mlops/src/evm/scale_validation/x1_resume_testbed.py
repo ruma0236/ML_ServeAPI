@@ -24,26 +24,50 @@ EXPECTED_MODELS = (
     "higgs_tiny_mlp",
     "criteo_dlrm_lite",
 )
+EXPECTED_PROMETHEUS_JOBS = (
+    "evm-api",
+    "evm-b0-production",
+    "evm-otel-collector",
+    "evm-task-queue-worker",
+    "prometheus",
+)
 
 
 class X1ResumeTestbedError(RuntimeError):
     pass
 
 
-def prometheus_baseline_ready(
+def prometheus_baseline_state(
     snapshot: Mapping[str, Any], expected_jobs: Sequence[str]
-) -> bool:
+) -> str:
     jobs = snapshot.get("jobs")
     total = snapshot.get("total")
     up = snapshot.get("up")
-    if not isinstance(jobs, list) or type(total) is not int or type(up) is not int:
-        return False
+    if (
+        not isinstance(jobs, list)
+        or any(not isinstance(job, str) for job in jobs)
+        or type(total) is not int
+        or type(up) is not int
+    ):
+        return "invalid_snapshot"
     expected = {str(job) for job in expected_jobs}
-    return set(map(str, jobs)) == expected and total == len(expected) and up == len(expected)
+    if len(jobs) != len(expected) or set(jobs) != expected or total != len(expected):
+        return "invalid_snapshot"
+    if up == len(expected):
+        return "ready"
+    if up == len(expected) - 1:
+        return "retryable_4_of_5"
+    return "invalid_snapshot"
+
+
+def prometheus_baseline_ready(
+    snapshot: Mapping[str, Any], expected_jobs: Sequence[str]
+) -> bool:
+    return prometheus_baseline_state(snapshot, expected_jobs) == "ready"
 
 
 def wait_for_prometheus_baseline(
-    health_check: Callable[[], Mapping[str, Any]],
+    health_check: Callable[[float], Mapping[str, Any]],
     expected_jobs: Sequence[str],
     *,
     timeout_seconds: float,
@@ -51,7 +75,7 @@ def wait_for_prometheus_baseline(
     monotonic: Callable[[], float],
     sleep: Callable[[float], None],
     observed_at: Callable[[], str],
-) -> tuple[dict[str, Any], float, list[dict[str, Any]], bool]:
+) -> tuple[dict[str, Any], float, list[dict[str, Any]], bool, str]:
     if timeout_seconds <= 0 or poll_interval_seconds <= 0:
         raise ValueError("prometheus restore timeout and poll interval must be positive")
     started = monotonic()
@@ -59,23 +83,112 @@ def wait_for_prometheus_baseline(
     samples: list[dict[str, Any]] = []
     last_snapshot: dict[str, Any] = {}
     while True:
+        probe_started = monotonic()
+        remaining = deadline - probe_started
+        if remaining <= 0:
+            return last_snapshot, probe_started - started, samples, False, "timeout"
         timestamp = observed_at()
         try:
-            last_snapshot = dict(health_check())
-            samples.append({"observed_at": timestamp, "snapshot": last_snapshot})
-            if prometheus_baseline_ready(last_snapshot, expected_jobs):
-                return last_snapshot, monotonic() - started, samples, True
+            last_snapshot = dict(health_check(remaining))
         except Exception as exc:
+            probe_finished = monotonic()
             samples.append(
                 {
                     "observed_at": timestamp,
                     "error": f"{type(exc).__name__}:{exc}",
+                    "probe_budget_seconds": remaining,
+                    "probe_finished_elapsed_seconds": probe_finished - started,
+                    "probe_started_elapsed_seconds": probe_started - started,
+                    "state": "probe_error",
                 }
             )
-        remaining = deadline - monotonic()
+            reason = "deadline_exceeded" if probe_finished > deadline else "probe_error"
+            return last_snapshot, probe_finished - started, samples, False, reason
+        probe_finished = monotonic()
+        state = prometheus_baseline_state(last_snapshot, expected_jobs)
+        samples.append(
+            {
+                "observed_at": timestamp,
+                "probe_budget_seconds": remaining,
+                "probe_finished_elapsed_seconds": probe_finished - started,
+                "probe_started_elapsed_seconds": probe_started - started,
+                "snapshot": last_snapshot,
+                "state": state,
+            }
+        )
+        if probe_finished > deadline:
+            return last_snapshot, probe_finished - started, samples, False, "deadline_exceeded"
+        if state == "ready":
+            return last_snapshot, probe_finished - started, samples, True, "ready"
+        if state != "retryable_4_of_5":
+            return last_snapshot, probe_finished - started, samples, False, state
+        remaining = deadline - probe_finished
         if remaining <= 0:
-            return last_snapshot, monotonic() - started, samples, False
+            return last_snapshot, probe_finished - started, samples, False, "timeout"
         sleep(min(poll_interval_seconds, remaining))
+
+
+def _validate_prometheus_restore_evidence(
+    final_checks: Mapping[str, Any], *, timeout_seconds: float
+) -> None:
+    samples = final_checks.get("prometheus_restore_samples")
+    elapsed = final_checks.get("prometheus_restore_seconds")
+    if (
+        not isinstance(samples, list)
+        or not samples
+        or not isinstance(elapsed, (int, float))
+        or isinstance(elapsed, bool)
+        or not math.isfinite(float(elapsed))
+        or float(elapsed) < 0
+        or float(elapsed) > timeout_seconds
+        or final_checks.get("prometheus_restore_ready") is not True
+        or final_checks.get("prometheus_restore_terminal_reason") != "ready"
+    ):
+        raise X1ResumeTestbedError("x1_resume_private_prometheus_cleanup")
+
+    previous_finished = 0.0
+    states: list[str] = []
+    for sample in samples:
+        if not isinstance(sample, Mapping) or "error" in sample:
+            raise X1ResumeTestbedError("x1_resume_private_prometheus_cleanup")
+        snapshot = sample.get("snapshot")
+        started = sample.get("probe_started_elapsed_seconds")
+        finished = sample.get("probe_finished_elapsed_seconds")
+        budget = sample.get("probe_budget_seconds")
+        if (
+            not isinstance(snapshot, Mapping)
+            or not all(
+                isinstance(value, (int, float)) and not isinstance(value, bool)
+                for value in (started, finished, budget)
+            )
+        ):
+            raise X1ResumeTestbedError("x1_resume_private_prometheus_cleanup")
+        started_value = float(started)
+        finished_value = float(finished)
+        budget_value = float(budget)
+        state = prometheus_baseline_state(snapshot, EXPECTED_PROMETHEUS_JOBS)
+        if (
+            not str(sample.get("observed_at") or "")
+            or not all(math.isfinite(value) for value in (started_value, finished_value, budget_value))
+            or started_value < previous_finished
+            or finished_value < started_value
+            or finished_value > timeout_seconds
+            or budget_value <= 0
+            or budget_value > timeout_seconds - started_value + 1e-9
+            or sample.get("state") != state
+        ):
+            raise X1ResumeTestbedError("x1_resume_private_prometheus_cleanup")
+        states.append(state)
+        previous_finished = finished_value
+
+    terminal_snapshot = dict(samples[-1].get("snapshot", {}))
+    if (
+        any(state != "retryable_4_of_5" for state in states[:-1])
+        or states[-1] != "ready"
+        or not math.isclose(float(elapsed), previous_finished, rel_tol=0.0, abs_tol=1e-9)
+        or dict(final_checks.get("prometheus", {})) != terminal_snapshot
+    ):
+        raise X1ResumeTestbedError("x1_resume_private_prometheus_cleanup")
 
 
 def canonical(value: Any) -> str:
@@ -550,6 +663,7 @@ def _triton_metrics_for_model(text: str, model_id: str) -> dict[str, float]:
 def validate_private_evidence(
     payload: Mapping[str, Any],
     *,
+    config: X1ResumeConfig,
     private_suite_root: Path,
     model_repository_root: Path,
     source_root: Path,
@@ -745,6 +859,10 @@ def validate_private_evidence(
         cleanup_raw.get("final_checks", {})
     ) != dict(payload.get("cleanup_evidence", {})).get("final_checks_sha256"):
         raise X1ResumeTestbedError("x1_resume_private_cleanup")
+    _validate_prometheus_restore_evidence(
+        dict(cleanup_raw.get("final_checks", {})),
+        timeout_seconds=config.cleanup_timeout_seconds,
+    )
     return {
         "private_artifacts_valid": True,
         "private_attempt_count": len(payload.get("runs", [])),
@@ -1069,6 +1187,7 @@ def validate_evidence(
         result.update(
             validate_private_evidence(
                 payload,
+                config=config,
                 private_suite_root=private_suite_root,
                 model_repository_root=model_repository_root,
                 source_root=source_root,

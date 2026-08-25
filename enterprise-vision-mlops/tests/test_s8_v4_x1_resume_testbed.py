@@ -14,6 +14,7 @@ from evm.control_panel.scenario_workloads import (
 )
 from evm.scale_validation.x1_resume_testbed import (
     EXPECTED_MODELS,
+    EXPECTED_PROMETHEUS_JOBS,
     X1ResumeConfig,
     X1ResumeTestbedError,
     canonical_sha256,
@@ -179,13 +180,7 @@ def test_config_freezes_non_credit_matrix_and_honest_driver_scope() -> None:
 
 
 def test_prometheus_cleanup_waits_for_the_exact_restored_baseline() -> None:
-    expected = [
-        "evm-api",
-        "evm-b0-production",
-        "evm-otel-collector",
-        "evm-task-queue-worker",
-        "prometheus",
-    ]
+    expected = list(EXPECTED_PROMETHEUS_JOBS)
     healthy = {"jobs": expected, "total": 5, "up": 5}
     assert prometheus_baseline_ready(healthy, expected) is True
     for mutation in (
@@ -203,8 +198,14 @@ def test_prometheus_cleanup_waits_for_the_exact_restored_baseline() -> None:
     def advance(seconds: float) -> None:
         tick[0] += seconds
 
+    budgets = []
+
+    def health(remaining: float) -> dict[str, object]:
+        budgets.append(remaining)
+        return next(snapshots)
+
     result = wait_for_prometheus_baseline(
-        lambda: next(snapshots),
+        health,
         expected,
         timeout_seconds=3.0,
         poll_interval_seconds=1.0,
@@ -215,30 +216,48 @@ def test_prometheus_cleanup_waits_for_the_exact_restored_baseline() -> None:
     assert result[0] == healthy
     assert result[1] == 1.0
     assert [sample["snapshot"]["up"] for sample in result[2]] == [4, 5]
+    assert [sample["state"] for sample in result[2]] == ["retryable_4_of_5", "ready"]
     assert result[3] is True
+    assert result[4] == "ready"
+    assert budgets == [3.0, 2.0]
 
     runner = (ROOT / "scripts/dev/run_s8_v4_x1_resume_testbed.py").read_text(
         encoding="utf-8"
     )
     assert "def wait_prometheus_restore(" in runner
     assert "wait_prometheus_restore(config.cleanup_timeout_seconds)" in runner
+    assert "lambda remaining: prometheus_health(timeout=min(10.0, remaining))" in runner
     assert 'final_checks["prometheus_restore_samples"]' in runner
 
 
+def test_prometheus_cleanup_persistent_4_of_5_times_out_fail_closed() -> None:
+    expected = list(EXPECTED_PROMETHEUS_JOBS)
+    unhealthy = {"jobs": expected, "total": 5, "up": 4}
+    tick = [0.0]
+
+    def advance(seconds: float) -> None:
+        tick[0] += seconds
+
+    snapshot, elapsed, samples, ready, reason = wait_for_prometheus_baseline(
+        lambda _remaining: unhealthy,
+        expected,
+        timeout_seconds=2.0,
+        poll_interval_seconds=1.0,
+        monotonic=lambda: tick[0],
+        sleep=advance,
+        observed_at=lambda: f"t={tick[0]}",
+    )
+    assert snapshot == unhealthy
+    assert elapsed == 2.0
+    assert len(samples) == 2
+    assert ready is False
+    assert reason == "timeout"
+    assert prometheus_baseline_ready(snapshot, expected) is False
+
+
 @pytest.mark.parametrize(
-    "unhealthy",
+    "malformed",
     [
-        {
-            "jobs": [
-                "evm-api",
-                "evm-b0-production",
-                "evm-otel-collector",
-                "evm-task-queue-worker",
-                "prometheus",
-            ],
-            "total": 5,
-            "up": 4,
-        },
         {
             "jobs": [
                 "evm-api",
@@ -250,38 +269,79 @@ def test_prometheus_cleanup_waits_for_the_exact_restored_baseline() -> None:
             "total": 5,
             "up": 5,
         },
+        {"jobs": "not-a-list", "total": 5, "up": 5},
     ],
-    ids=["persistent-4-of-5", "wrong-job-set"],
+    ids=["wrong-job-set", "malformed-job-set"],
 )
-def test_prometheus_cleanup_timeout_stays_fail_closed(
-    unhealthy: dict[str, object],
+def test_prometheus_cleanup_job_set_mismatch_fails_without_retry(
+    malformed: dict[str, object],
 ) -> None:
-    expected = [
-        "evm-api",
-        "evm-b0-production",
-        "evm-otel-collector",
-        "evm-task-queue-worker",
-        "prometheus",
-    ]
     tick = [0.0]
+    calls = [0]
 
-    def advance(seconds: float) -> None:
-        tick[0] += seconds
+    def health(_remaining: float) -> dict[str, object]:
+        calls[0] += 1
+        return malformed
 
-    snapshot, elapsed, samples, ready = wait_for_prometheus_baseline(
-        lambda: unhealthy,
-        expected,
+    _snapshot, elapsed, samples, ready, reason = wait_for_prometheus_baseline(
+        health,
+        EXPECTED_PROMETHEUS_JOBS,
         timeout_seconds=2.0,
         poll_interval_seconds=1.0,
         monotonic=lambda: tick[0],
-        sleep=advance,
-        observed_at=lambda: f"t={tick[0]}",
+        sleep=lambda seconds: tick.__setitem__(0, tick[0] + seconds),
+        observed_at=lambda: "t=0",
     )
-    assert snapshot == unhealthy
-    assert elapsed == 2.0
-    assert len(samples) == 3
+    assert calls == [1]
+    assert elapsed == 0.0
+    assert len(samples) == 1
     assert ready is False
-    assert prometheus_baseline_ready(snapshot, expected) is False
+    assert reason == "invalid_snapshot"
+
+
+def test_prometheus_cleanup_slow_healthy_probe_cannot_cross_deadline() -> None:
+    tick = [0.0]
+
+    def slow_healthy(remaining: float) -> dict[str, object]:
+        tick[0] += remaining + 0.01
+        return {"jobs": list(EXPECTED_PROMETHEUS_JOBS), "total": 5, "up": 5}
+
+    _snapshot, elapsed, samples, ready, reason = wait_for_prometheus_baseline(
+        slow_healthy,
+        EXPECTED_PROMETHEUS_JOBS,
+        timeout_seconds=2.0,
+        poll_interval_seconds=1.0,
+        monotonic=lambda: tick[0],
+        sleep=lambda _seconds: None,
+        observed_at=lambda: "t=0",
+    )
+    assert elapsed > 2.0
+    assert samples[-1]["state"] == "ready"
+    assert ready is False
+    assert reason == "deadline_exceeded"
+
+
+def test_prometheus_cleanup_http_error_cannot_retry_into_healthy() -> None:
+    calls = [0]
+
+    def error_then_healthy(_remaining: float) -> dict[str, object]:
+        calls[0] += 1
+        if calls[0] == 1:
+            raise TimeoutError("probe timeout")
+        return {"jobs": list(EXPECTED_PROMETHEUS_JOBS), "total": 5, "up": 5}
+
+    result = wait_for_prometheus_baseline(
+        error_then_healthy,
+        EXPECTED_PROMETHEUS_JOBS,
+        timeout_seconds=2.0,
+        poll_interval_seconds=1.0,
+        monotonic=lambda: 0.0,
+        sleep=lambda _seconds: None,
+        observed_at=lambda: "t=0",
+    )
+    assert calls == [1]
+    assert result[3] is False
+    assert result[4] == "probe_error"
 
 
 def test_hot_mix_fairness_uses_normalized_attainment() -> None:
@@ -630,7 +690,28 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(tmp_path
             "sha256": sha256_file(raw_path),
         }
 
-    final_checks = {"holder": {"uid": "synthetic"}, "queues": {"active": 0}}
+    prometheus_snapshot = {
+        "jobs": list(EXPECTED_PROMETHEUS_JOBS),
+        "total": 5,
+        "up": 5,
+    }
+    prometheus_sample = {
+        "observed_at": "2026-08-25T00:00:00Z",
+        "probe_budget_seconds": config().cleanup_timeout_seconds,
+        "probe_finished_elapsed_seconds": 0.1,
+        "probe_started_elapsed_seconds": 0.0,
+        "snapshot": prometheus_snapshot,
+        "state": "ready",
+    }
+    final_checks = {
+        "holder": {"uid": "synthetic"},
+        "prometheus": prometheus_snapshot,
+        "prometheus_restore_ready": True,
+        "prometheus_restore_samples": [prometheus_sample],
+        "prometheus_restore_seconds": 0.1,
+        "prometheus_restore_terminal_reason": "ready",
+        "queues": {"active": 0},
+    }
     cleanup_path = suite_root / "cleanup.json"
     canonical_write(
         cleanup_path,
@@ -709,12 +790,87 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(tmp_path
             source_root=source_root,
         )
     rewrite_attempt(original_raw)
-    cleanup_tampered = json.loads(cleanup_path.read_bytes())
-    cleanup_tampered["cleanup"]["container_absent"] = False
-    canonical_write(cleanup_path, cleanup_tampered)
-    payload["cleanup_evidence"].update(
-        {"bytes": cleanup_path.stat().st_size, "sha256": sha256_file(cleanup_path)}
+    original_cleanup = json.loads(cleanup_path.read_bytes())
+
+    def rewrite_cleanup(raw_payload: dict[str, object]) -> None:
+        canonical_write(cleanup_path, raw_payload)
+        payload["cleanup_evidence"].update(
+            {
+                "bytes": cleanup_path.stat().st_size,
+                "sha256": sha256_file(cleanup_path),
+                "final_checks_sha256": canonical_sha256(raw_payload["final_checks"]),
+            }
+        )
+
+    terminal_not_ready = json.loads(json.dumps(original_cleanup))
+    terminal_not_ready["final_checks"]["prometheus"] = {
+        **prometheus_snapshot,
+        "up": 4,
+    }
+    terminal_not_ready["final_checks"]["prometheus_restore_ready"] = False
+    terminal_not_ready["final_checks"]["prometheus_restore_terminal_reason"] = "timeout"
+    terminal_not_ready["final_checks"]["prometheus_restore_samples"][-1].update(
+        {
+            "snapshot": {**prometheus_snapshot, "up": 4},
+            "state": "retryable_4_of_5",
+        }
     )
+    rewrite_cleanup(terminal_not_ready)
+    with pytest.raises(X1ResumeTestbedError, match="private_prometheus_cleanup"):
+        validate_evidence(
+            payload,
+            config(),
+            private_suite_root=suite_root,
+            model_repository_root=repository_root,
+            source_root=source_root,
+        )
+
+    elapsed_over_timeout = json.loads(json.dumps(original_cleanup))
+    elapsed_over_timeout["final_checks"]["prometheus_restore_seconds"] = 121.0
+    elapsed_over_timeout["final_checks"]["prometheus_restore_samples"][-1][
+        "probe_finished_elapsed_seconds"
+    ] = 121.0
+    rewrite_cleanup(elapsed_over_timeout)
+    with pytest.raises(X1ResumeTestbedError, match="private_prometheus_cleanup"):
+        validate_evidence(
+            payload,
+            config(),
+            private_suite_root=suite_root,
+            model_repository_root=repository_root,
+            source_root=source_root,
+        )
+
+    illegal_transition = json.loads(json.dumps(original_cleanup))
+    wrong_snapshot = {
+        "jobs": [*EXPECTED_PROMETHEUS_JOBS[:-1], "wrong-job"],
+        "total": 5,
+        "up": 5,
+    }
+    illegal_transition["final_checks"]["prometheus_restore_samples"] = [
+        {
+            "observed_at": "2026-08-25T00:00:00Z",
+            "probe_budget_seconds": config().cleanup_timeout_seconds,
+            "probe_finished_elapsed_seconds": 0.05,
+            "probe_started_elapsed_seconds": 0.0,
+            "snapshot": wrong_snapshot,
+            "state": "invalid_snapshot",
+        },
+        prometheus_sample,
+    ]
+    rewrite_cleanup(illegal_transition)
+    with pytest.raises(X1ResumeTestbedError, match="private_prometheus_cleanup"):
+        validate_evidence(
+            payload,
+            config(),
+            private_suite_root=suite_root,
+            model_repository_root=repository_root,
+            source_root=source_root,
+        )
+
+    rewrite_cleanup(original_cleanup)
+    cleanup_tampered = json.loads(json.dumps(original_cleanup))
+    cleanup_tampered["cleanup"]["container_absent"] = False
+    rewrite_cleanup(cleanup_tampered)
     with pytest.raises(X1ResumeTestbedError, match="private_cleanup"):
         validate_evidence(
             payload,

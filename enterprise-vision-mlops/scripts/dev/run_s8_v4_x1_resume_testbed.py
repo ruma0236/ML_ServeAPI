@@ -34,6 +34,7 @@ from evm.control_panel.scenario_workloads import (  # noqa: E402
 )
 from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
     EXPECTED_MODELS,
+    EXPECTED_PROMETHEUS_JOBS,
     MANIFEST_SCHEMA_VERSION,
     CellSpec,
     X1ResumeConfig,
@@ -56,15 +57,6 @@ from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
 CONTAINER_PREFIX = "evm-x1-resume-"
 SERVING_URL = "http://127.0.0.1:30800"
 SAMPLE_IMAGE_URI = "/mnt/evm-data/data/raw/industrial/visa/candle/Data/Images/Anomaly/000.JPG"
-EXPECTED_PROMETHEUS_JOBS = {
-    "evm-api",
-    "evm-b0-production",
-    "evm-otel-collector",
-    "evm-task-queue-worker",
-    "prometheus",
-}
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run X1 Resume Testbed v1 on the Windows host.")
     parser.add_argument(
@@ -248,8 +240,8 @@ def capture_triton_processes() -> list[dict[str, Any]]:
     return result
 
 
-def prometheus_health() -> dict[str, Any]:
-    payload = request_json("http://127.0.0.1:9090/api/v1/targets", timeout=10)
+def prometheus_health(*, timeout: float = 10.0) -> dict[str, Any]:
+    payload = request_json("http://127.0.0.1:9090/api/v1/targets", timeout=timeout)
     targets = list(dict(payload.get("data", {})).get("activeTargets", []))
     governed = [
         item
@@ -265,10 +257,10 @@ def prometheus_health() -> dict[str, Any]:
 
 def wait_prometheus_restore(
     timeout_seconds: float,
-) -> tuple[dict[str, Any], float, list[dict[str, Any]], bool]:
+) -> tuple[dict[str, Any], float, list[dict[str, Any]], bool, str]:
     return wait_for_prometheus_baseline(
-        prometheus_health,
-        sorted(EXPECTED_PROMETHEUS_JOBS),
+        lambda remaining: prometheus_health(timeout=min(10.0, remaining)),
+        EXPECTED_PROMETHEUS_JOBS,
         timeout_seconds=timeout_seconds,
         poll_interval_seconds=1.0,
         monotonic=time.monotonic,
@@ -1232,11 +1224,15 @@ def main() -> int:
             prometheus_restore_seconds,
             prometheus_restore_samples,
             prometheus_restore_ready,
+            prometheus_restore_terminal_reason,
         ) = wait_prometheus_restore(config.cleanup_timeout_seconds)
         final_checks["prometheus"] = prometheus_after
         final_checks["prometheus_restore_seconds"] = prometheus_restore_seconds
         final_checks["prometheus_restore_samples"] = prometheus_restore_samples
         final_checks["prometheus_restore_ready"] = prometheus_restore_ready
+        final_checks["prometheus_restore_terminal_reason"] = (
+            prometheus_restore_terminal_reason
+        )
     except Exception as exc:
         cleanup_errors.append(f"check:prometheus:{type(exc).__name__}:{exc}")
     try:
@@ -1258,12 +1254,12 @@ def main() -> int:
         == 0,
         "prometheus_5_of_5": final_checks.get("prometheus_restore_ready") is True
         and prometheus_baseline_ready(
-            dict(final_checks.get("prometheus", {})), sorted(EXPECTED_PROMETHEUS_JOBS)
+            dict(final_checks.get("prometheus", {})), EXPECTED_PROMETHEUS_JOBS
         ),
         "prometheus_exact_jobs_restored": set(
             dict(final_checks.get("prometheus", {})).get("jobs", [])
         )
-        == EXPECTED_PROMETHEUS_JOBS,
+        == set(EXPECTED_PROMETHEUS_JOBS),
         "errors": cleanup_errors,
     }
     cleanup_path = suite_root / "cleanup.json"
