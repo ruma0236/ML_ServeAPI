@@ -5,10 +5,13 @@ import json
 import math
 import re
 from collections import Counter, defaultdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from prometheus_client.parser import text_string_to_metric_families
+
+from evm.scale_validation.s6bm_runtime import S6BMRuntimeError, project_raw_drain_timeline
 
 
 TRACE_ID = re.compile(r"^[a-f0-9]{32}$")
@@ -332,6 +335,160 @@ def project_trace_join(
     }
 
 
+def _utc_unix_nano(value: Any, code: str) -> int:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise S6BMObservabilityError(code) from exc
+    if parsed.tzinfo is None:
+        raise S6BMObservabilityError(code)
+    return int(parsed.astimezone(UTC).timestamp() * 1_000_000_000)
+
+
+def project_drain_trace_timeline(
+    trace_export: Mapping[str, Any],
+    raw: Mapping[str, Any],
+    config: Any,
+    pre_unload_snapshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind the Blue hold/drain timeline across requests, spans, effects, and phases."""
+    try:
+        raw_projection = project_raw_drain_timeline(raw, config)
+    except S6BMRuntimeError as exc:
+        raise S6BMObservabilityError(f"s6bm_drain_raw:{exc}") from exc
+    records = [dict(item) for item in raw.get("request_records", [])]
+    spans = [_normalized_span(item) for item in trace_export.get("entries", [])]
+    by_trace: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for span in spans:
+        by_trace[span["trace_id"]].append(span)
+
+    gate_unix_nano = _utc_unix_nano(
+        pre_unload_snapshot.get("captured_at"), "s6bm_drain_pre_unload_timestamp"
+    )
+    switch = float(raw_projection["green_active_monotonic"])
+    unload_completed = float(raw_projection["blue_unload_completed_monotonic"])
+    hold_ids = set(raw_projection["hold_request_ids"])
+    pre_switch_blue = [
+        item
+        for item in records
+        if item.get("model_role") == "blue"
+        and float(item.get("attempted_monotonic", math.inf)) < switch
+    ]
+    if not pre_switch_blue:
+        raise S6BMObservabilityError("s6bm_drain_pre_switch_blue_absent")
+
+    hold_details: list[dict[str, Any]] = []
+    gate_monotonic_estimates: list[float] = []
+    for record in pre_switch_blue:
+        request_id = str(record.get("request_id", ""))
+        trace_id = str(record.get("trace_id", ""))
+        candidates = by_trace.get(trace_id, [])
+        server = _require_one(
+            [
+                item
+                for item in candidates
+                if item["name"] == PREDICT_ROUTE
+                and item["attributes"].get("evm.request.replayed") is False
+            ],
+            "s6bm_drain_server_span",
+        )
+        controller = _require_one(
+            [item for item in candidates if item["name"] == "s6bm.controller.predict"],
+            "s6bm_drain_controller_span",
+        )
+        inference = _require_one(
+            [item for item in candidates if item["name"] == "s6bm.triton.infer"],
+            "s6bm_drain_inference_span",
+        )
+        try:
+            server_start = int(server["start_time_unix_nano"])
+            server_end = int(server["end_time_unix_nano"])
+            controller_start = int(controller["start_time_unix_nano"])
+            controller_end = int(controller["end_time_unix_nano"])
+            inference_start = int(inference["start_time_unix_nano"])
+            inference_end = int(inference["end_time_unix_nano"])
+        except ValueError as exc:
+            raise S6BMObservabilityError("s6bm_drain_span_timestamp") from exc
+        if not (
+            server_start
+            <= controller_start
+            <= inference_start
+            < inference_end
+            <= controller_end
+            <= server_end
+        ):
+            raise S6BMObservabilityError("s6bm_drain_span_phase_order")
+        attempted = float(record.get("attempted_monotonic", 0.0))
+        completed = float(record.get("completed_monotonic", 0.0))
+        client_duration_ms = (completed - attempted) * 1000.0
+        server_duration_ms = (server_end - server_start) / 1_000_000.0
+        if (
+            server_duration_ms <= 0
+            or server_duration_ms > client_duration_ms + 25.0
+            or client_duration_ms - server_duration_ms > 250.0
+        ):
+            raise S6BMObservabilityError("s6bm_drain_client_server_timeline")
+        if any(value > gate_unix_nano for value in (server_end, controller_end, inference_end)):
+            raise S6BMObservabilityError("s6bm_drain_effect_after_pre_unload_gate")
+        if any(
+            span["attributes"].get("evm.request.id") != request_id
+            or span["attributes"].get("evm.effect.id") != record.get("effect_id")
+            or span["attributes"].get("evm.model.role") != "blue"
+            for span in (server, controller, inference)
+        ):
+            raise S6BMObservabilityError("s6bm_drain_span_effect_binding")
+
+        clock_offset_seconds = server_end / 1_000_000_000.0 - completed
+        effect_monotonic = controller_end / 1_000_000_000.0 - clock_offset_seconds
+        gate_monotonic = gate_unix_nano / 1_000_000_000.0 - clock_offset_seconds
+        gate_monotonic_estimates.append(gate_monotonic)
+        if not completed < gate_monotonic <= unload_completed:
+            raise S6BMObservabilityError("s6bm_drain_pre_unload_gate_order")
+
+        if request_id in hold_ids:
+            if not switch < effect_monotonic <= completed:
+                raise S6BMObservabilityError("s6bm_drain_terminal_effect_order")
+            if server_duration_ms < float(config.procedure["long_in_flight_hold_ms"]):
+                raise S6BMObservabilityError("s6bm_drain_hold_span_duration")
+            hold_details.append(
+                {
+                    "request_id": request_id,
+                    "trace_id": trace_id,
+                    "effect_id": str(record.get("effect_id", "")),
+                    "model_name": str(record.get("model_name", "")),
+                    "model_version": str(record.get("model_version", "")),
+                    "request_started_monotonic": attempted,
+                    "request_completed_monotonic": completed,
+                    "server_start_unix_nano": server_start,
+                    "server_end_unix_nano": server_end,
+                    "terminal_effect_unix_nano": controller_end,
+                    "terminal_effect_monotonic_estimate": effect_monotonic,
+                    "server_duration_ms": server_duration_ms,
+                    "pre_unload_gate_unix_nano": gate_unix_nano,
+                    "pre_unload_gate_monotonic_estimate": gate_monotonic,
+                }
+            )
+    if {item["request_id"] for item in hold_details} != hold_ids:
+        raise S6BMObservabilityError("s6bm_drain_hold_trace_set")
+    if max(float(item["completed_monotonic"]) for item in pre_switch_blue) >= min(
+        gate_monotonic_estimates
+    ):
+        raise S6BMObservabilityError("s6bm_drain_blue_completion_after_gate")
+
+    return {
+        **raw_projection,
+        "pre_unload_gate_captured_at": str(pre_unload_snapshot["captured_at"]),
+        "pre_unload_gate_unix_nano": gate_unix_nano,
+        "blue_in_flight_at_pre_unload_gate": 0,
+        "hold_trace_effect_bound": len(hold_details),
+        "hold_requests": hold_details,
+        "unload_contract": (
+            "the source-bound runner captures this gate after Blue in-flight reaches zero "
+            "and before invoking explicit Blue unload; green_only is the post-unload phase"
+        ),
+    }
+
+
 def _metric_samples(text: str, name: str) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     accepted_names = {name}
@@ -468,6 +625,7 @@ def validate_observability_bundle(
     config: Any,
     *,
     compare_projection: bool = True,
+    require_drain_timeline: bool = False,
 ) -> dict[str, Any]:
     evidence = dict(raw.get("observability", {}))
     artifacts = dict(evidence.get("artifacts", {}))
@@ -532,6 +690,12 @@ def validate_observability_bundle(
         target_suite_ids.add(suite_id)
     if len(target_suite_ids) != 1:
         raise S6BMObservabilityError("s6bm_prometheus_suite_identity")
+
+    drain_timeline = (
+        project_drain_trace_timeline(trace_export, raw, config, prom_before_blue_unload)
+        if require_drain_timeline
+        else None
+    )
 
     served = Counter(str(item.get("model_role")) for item in records)
     api_deltas: dict[str, int] = {}
@@ -721,4 +885,6 @@ def validate_observability_bundle(
             raise S6BMObservabilityError("s6bm_observability_join_projection")
         if dict(evidence.get("summary", {})) != summary:
             raise S6BMObservabilityError("s6bm_observability_summary_projection")
-    return summary
+    if drain_timeline is None:
+        return summary
+    return {**summary, "raw_drain_timeline": drain_timeline}

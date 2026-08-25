@@ -12,6 +12,7 @@ from evm.scale_validation.s6bm_runtime import (
     SUCCESS_PHASES,
     analyze_attempts,
     project_fault_attempt,
+    project_raw_drain_timeline,
     project_success_attempt,
 )
 
@@ -53,11 +54,18 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
     for index in range(1000):
         role = "blue" if index < 100 else "green"
         model = config.blue if role == "blue" else config.green
+        is_hold = index == 99
+        completed_monotonic = 94.2 if is_hold else 92.0 + index * 0.001
+        elapsed_ms = 1300.0 if is_hold else 10.0
         records.append(
             {
                 "run_id": "s8-v4-s6bm-unit-test",
                 "attempt_id": f"success-{repetition}",
-                "request_id": f"request-{index:04d}",
+                "request_id": (
+                    f"success-{repetition}-hold-blue-00000"
+                    if is_hold
+                    else f"request-{index:04d}"
+                ),
                 "trace_id": f"{index + 1:032x}",
                 "effect_id": hashlib.sha256(
                     f"success-{repetition}:request-{index:04d}".encode("ascii")
@@ -76,8 +84,9 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
                 "model_version": model.model_version,
                 "artifact_sha256": model.artifact_sha256,
                 "output": list(model.expected_output),
-                "elapsed_ms": 10.0,
-                "completed_monotonic": 100.0 + index * 0.001,
+                "elapsed_ms": elapsed_ms,
+                "attempted_monotonic": completed_monotonic - elapsed_ms / 1000.0,
+                "completed_monotonic": completed_monotonic,
             }
         )
     return {
@@ -86,8 +95,12 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
         "repetition": repetition,
         "identities": identities(),
         "phase_timeline": [
-            {"phase": phase, "monotonic_seconds": float(index + 1)}
-            for index, phase in enumerate(SUCCESS_PHASES)
+            {"phase": phase, "monotonic_seconds": monotonic}
+            for phase, monotonic in zip(
+                SUCCESS_PHASES,
+                (90.0, 91.0, 92.0, 93.0, 93.01, 95.0, 96.0, 97.0, 98.0, 99.0),
+                strict=True,
+            )
         ],
         "request_records": records,
         "requests": {
@@ -116,7 +129,7 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
         "latency": {
             "p95_ms": 10.0,
             "p99_ms": 10.0,
-            "max_inter_completion_gap_ms": 1.0,
+            "max_inter_completion_gap_ms": 1201.0,
         },
         "transition_seconds": 2.0,
         "rollback_seconds": 2.0,
@@ -251,6 +264,36 @@ def test_s6bm_success_projection_reports_transport_failure_before_trace_gap() ->
 
     with pytest.raises(S6BMRuntimeError, match="s6bm_request_not_completed"):
         project_success_attempt(raw, config)
+
+
+def test_s6bm_raw_drain_projection_rejects_timeline_consistent_fail_open_cases() -> None:
+    config = S6BMConfig.from_path(CONFIG)
+    raw = success_attempt()
+    projection = project_raw_drain_timeline(raw, config)
+    assert projection["hold_request_count"] == 1
+    assert projection["blue_in_flight_at_switch"] == 1
+    assert projection["blue_in_flight_at_unload_boundary"] == 0
+
+    completed_before_switch = copy.deepcopy(raw)
+    hold = next(
+        item
+        for item in completed_before_switch["request_records"]  # type: ignore[index]
+        if "-hold-blue-" in item["request_id"]
+    )
+    hold["attempted_monotonic"] = 91.6
+    hold["completed_monotonic"] = 92.9
+    hold["elapsed_ms"] = 1300.0
+    with pytest.raises(S6BMRuntimeError, match="s6bm_drain_hold_request_absent"):
+        project_raw_drain_timeline(completed_before_switch, config)
+
+    unload_before_completion = copy.deepcopy(raw)
+    next(
+        item
+        for item in unload_before_completion["phase_timeline"]  # type: ignore[index]
+        if item["phase"] == "green_only"
+    )["monotonic_seconds"] = 94.199
+    with pytest.raises(S6BMRuntimeError, match="s6bm_drain_unload_before_blue_completion"):
+        project_raw_drain_timeline(unload_before_completion, config)
 
 
 def test_s6bm_fault_projection_rejects_fail_open_mutations() -> None:

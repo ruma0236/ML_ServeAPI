@@ -176,7 +176,7 @@
     {
       "work_item": "S6B-M",
       "tracking_id": "EVM-300",
-      "status": "review_pending",
+      "status": "running",
       "acceptance_criteria": [
         "S6B-M-AC-01",
         "S6B-M-AC-02",
@@ -284,6 +284,25 @@
           "diagnostic_only": true,
           "new_acceptance_repetitions": 0,
           "private_evidence_sha256": "74cd1a0fff9cb28fc7f0e1b41bda0b9a7a2fc51883d31b07ab67464e2c50147a"
+        },
+        {
+          "attempt_id": "s6bm-independent-review-v2-20260825",
+          "credit": "zero_credit",
+          "passed": false,
+          "acceptance_credit": false,
+          "failure_class": "raw_drain_invariant_fail_open",
+          "public_evidence": "docs/status/evidence/s8-v4-s6bm-independent-review-failure-v2.json",
+          "public_evidence_sha256": "349fe05499664a916b36b04b0670e919e4056ecc937b82145b2a14d1d0c09ac0"
+        },
+        {
+          "attempt_id": "s6bm-strict-v3-remediation",
+          "credit": "non_credit",
+          "passed": false,
+          "evidence_ready": false,
+          "acceptance_credit": false,
+          "failure_class": "remediation_in_progress",
+          "history_amendment": "docs/status/evidence/s8-v4-s6bm-historical-partial-run-amendment-v3.json",
+          "history_amendment_sha256": "9fb5a8890c3c86a3057a921eeb49e18ca80e7f50f23b42c313f1398fb1c7a070"
         }
       ],
       "reviewer_sign_off": "pending",

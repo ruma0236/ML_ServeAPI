@@ -33,12 +33,16 @@ REQUIRED_CLEANUP = (
     "queue_outcome_unknown_zero",
     "vram_restored",
 )
-RUNTIME_PATHS = (
+EXECUTION_PATHS = (
     "enterprise-vision-mlops/src/evm/model_runtime/triton_blue_green.py",
-    "enterprise-vision-mlops/src/evm/scale_validation/s6bm_observability.py",
-    "enterprise-vision-mlops/src/evm/scale_validation/s6bm_runtime.py",
     "enterprise-vision-mlops/scripts/dev/run_s8_v4_s6bm_experiment.py",
     "enterprise-vision-mlops/configs/s8_v4_s6bm_blue_green_v1.toml",
+)
+VALIDATION_PATHS = (
+    "enterprise-vision-mlops/src/evm/scale_validation/s6bm_observability.py",
+    "enterprise-vision-mlops/src/evm/scale_validation/s6bm_runtime.py",
+    "enterprise-vision-mlops/scripts/dev/validate_s8_v4_s6bm.py",
+    "enterprise-vision-mlops/scripts/dev/write_s8_v4_s6bm_review.py",
 )
 
 
@@ -56,7 +60,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mutation",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-mutation-validation-v2.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-mutation-validation-v3.json",
+    )
+    parser.add_argument(
+        "--strict-validation",
+        type=Path,
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-strict-validation-v3.json",
     )
     parser.add_argument(
         "--config",
@@ -67,10 +76,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smoke", type=Path, required=True)
     parser.add_argument("--regression-root", type=Path, required=True)
     parser.add_argument("--validator-failure", type=Path, required=True)
+    parser.add_argument("--history-amendment", type=Path, required=True)
+    parser.add_argument("--remediation-private-root", type=Path, required=True)
     parser.add_argument(
         "--output",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-review-handoff-v2.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-review-handoff-v3.json",
     )
     return parser.parse_args()
 
@@ -228,13 +239,60 @@ def main() -> int:
     tree_sha = str(git("rev-parse", "HEAD^{tree}"))
     experiment = read_json(args.experiment)
     strict = validate_experiment(args.experiment, args.config, args.private_root)
+    strict_validation = read_json(args.strict_validation)
+    if (
+        strict_validation.get("schema_version")
+        != "evm.s8_v4.s6bm_strict_v3_validation.v1"
+        or strict_validation.get("status") != "review_pending"
+        or strict_validation.get("credit") != "non_credit_reviewer_pending"
+        or strict_validation.get("reviewer_sign_off") != "pending"
+        or strict_validation.get("acceptance") != strict["acceptance"]
+        or strict_validation.get("strict_raw_drain_timelines")
+        != strict["strict_raw_drain_timelines"]
+        or strict_validation.get("private_aggregate_sha256")
+        != strict["private_aggregate_sha256"]
+    ):
+        raise S6BMReviewError("strict_validation_projection")
     mutation = read_json(args.mutation)
+    expected_mutations = {
+        "loss",
+        "duplicate_request_identity",
+        "wrong_model_digest",
+        "trace_gap",
+        "phase_order",
+        "premature_drain",
+        "rollback_mismatch",
+        "illegal_owner_overlap",
+        "cleanup_residue",
+        "physical_model_residue",
+        "wrong_digest_fail_open",
+        "orphan",
+        "readiness_route_switch",
+        "canary_not_observed",
+        "vram_not_over_capacity",
+        "direct_metrics_absent",
+        "prometheus_counts_zero",
+        "duplicate_repetition_full_analysis",
+        "repetition_out_of_contract",
+        "offered_identity_substitution",
+        "unbound_trace_id",
+        "trace_artifact_absent",
+        "metric_label_substitution",
+        "attempt_mix",
+        "hold_completion_before_switch",
+        "unload_before_last_blue_completion",
+        "unload_completed_before_last_blue_completion",
+        "span_request_effect_timeline_mismatch",
+    }
+    mutation_cases = list(mutation.get("cases", []))
     if (
         mutation.get("passed") is not True
         or int(mutation.get("positive", 0)) != 1
-        or int(mutation.get("negative", 0)) != 24
-        or int(mutation.get("negative_rejected", 0)) != 24
-        or any(item.get("rejected") is not True for item in mutation.get("cases", []))
+        or int(mutation.get("negative", 0)) != len(expected_mutations)
+        or int(mutation.get("negative_rejected", 0)) != len(expected_mutations)
+        or {str(item.get("mutation", "")) for item in mutation_cases}
+        != expected_mutations
+        or any(item.get("rejected") is not True for item in mutation_cases)
     ):
         raise S6BMReviewError("mutation_result")
     runtime_revision = str(dict(experiment.get("source_identity", {})).get("revision", ""))
@@ -244,7 +302,7 @@ def main() -> int:
         check=False,
     ).returncode:
         raise S6BMReviewError("runtime_revision_ancestry")
-    for path in RUNTIME_PATHS:
+    for path in EXECUTION_PATHS:
         if subprocess.run(
             ["git", "diff", "--quiet", runtime_revision, revision, "--", path],
             cwd=ROOT.parent,
@@ -259,9 +317,18 @@ def main() -> int:
         or failed_validator.get("acceptance_credit") is not False
     ):
         raise S6BMReviewError("validator_failure_credit")
-    git_paths = [*RUNTIME_PATHS, "enterprise-vision-mlops/scripts/dev/validate_s8_v4_s6bm.py"]
+    history_amendment = read_json(args.history_amendment)
+    if (
+        history_amendment.get("credit") != "zero_credit"
+        or history_amendment.get("acceptance_credit") is not False
+        or history_amendment.get("independently_verifiable_executed_requests")
+        != "unknown"
+    ):
+        raise S6BMReviewError("history_amendment")
+    remediation_index_path = args.remediation_private_root / "private-evidence-index.json"
+    remediation_index = read_json(remediation_index_path)
     handoff = {
-        "schema_version": "evm.s8_v4.s6bm_review_handoff.v1",
+        "schema_version": "evm.s8_v4.s6bm_review_handoff.v3",
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "status": "review_pending",
         "evidence_ready": True,
@@ -271,7 +338,12 @@ def main() -> int:
             "runtime_revision": runtime_revision,
             "validation_revision": revision,
             "validation_tree_sha": tree_sha,
-            "git_blobs": {path: blob_identity(revision, path) for path in git_paths},
+            "runtime_git_blobs": {
+                path: blob_identity(runtime_revision, path) for path in EXECUTION_PATHS
+            },
+            "validation_git_blobs": {
+                path: blob_identity(revision, path) for path in VALIDATION_PATHS
+            },
         },
         "alignment": {
             "definition_alignment": True,
@@ -292,8 +364,17 @@ def main() -> int:
             "experiment_sha256": strict["experiment_sha256"],
             "mutation_path": args.mutation.relative_to(ROOT).as_posix(),
             "mutation_sha256": sha256_file(args.mutation),
+            "mutation_negative_rejected": len(expected_mutations),
+            "strict_validation_path": args.strict_validation.relative_to(ROOT).as_posix(),
+            "strict_validation_sha256": sha256_file(args.strict_validation),
+            "strict_raw_drain_timelines": strict["strict_raw_drain_timelines"],
             "private_artifacts": strict["private_artifacts"],
             "private_aggregate_sha256": strict["private_aggregate_sha256"],
+            "remediation_private_artifacts": remediation_index["artifact_count"],
+            "remediation_private_aggregate_sha256": remediation_index["aggregate_sha256"],
+            "remediation_private_index_sha256": sha256_file(remediation_index_path),
+            "history_amendment_path": args.history_amendment.relative_to(ROOT).as_posix(),
+            "history_amendment_sha256": sha256_file(args.history_amendment),
         },
         "current_revision_smoke": smoke,
         "regressions": regressions,
@@ -302,6 +383,7 @@ def main() -> int:
             "validator_diagnostics": 1,
             "all_excluded_from_credit": True,
             "validator_failure_sha256": sha256_file(args.validator_failure),
+            "historical_181425_executed_requests": "unknown_independently_unverifiable",
         },
         "cleanup": experiment["cleanup"],
         "claim_boundary": experiment["claim_boundary"],

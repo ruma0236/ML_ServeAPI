@@ -13,13 +13,16 @@ from evm.scale_validation.s6bm_observability import (
     direct_metric_aggregate,
     model_lifecycle_counter_delta,
     prometheus_value,
+    project_drain_trace_timeline,
     project_trace_join,
 )
+from evm.scale_validation.s6bm_runtime import S6BMConfig, SUCCESS_PHASES
 
 
 REVISION = "a" * 40
 ATTEMPT_ID = "s6bm-success-1-unit"
 RUN_ID = "s8-v4-s6bm-unit"
+CONFIG = Path(__file__).resolve().parents[1] / "configs/s8_v4_s6bm_blue_green_v1.toml"
 
 
 def _attributes(values: dict[str, str | int | bool]) -> list[dict[str, object]]:
@@ -153,6 +156,56 @@ def test_trace_join_recomputes_request_effect_and_topology() -> None:
     assert result["request_trace_effect_bound"] == 1
     assert result["unique_effect_count"] == 1
     assert result["topology_complete"] is True
+
+
+def test_drain_trace_timeline_binds_hold_effect_and_pre_unload_gate() -> None:
+    record, export = _record_and_export()
+    record.update(
+        attempted_monotonic=10.0,
+        completed_monotonic=11.3,
+        elapsed_ms=1300.0,
+        model_role="blue",
+    )
+    entries = export["entries"]  # type: ignore[assignment]
+    timings = (
+        (1_000_000_000, 2_300_000_000),
+        (1_010_000_000, 2_290_000_000),
+        (1_020_000_000, 1_030_000_000),
+    )
+    for entry, (start, end) in zip(entries, timings, strict=True):
+        entry["span"]["startTimeUnixNano"] = str(start)
+        entry["span"]["endTimeUnixNano"] = str(end)
+    raw = {
+        "phase_timeline": [
+            {"phase": phase, "monotonic_seconds": timestamp}
+            for phase, timestamp in zip(
+                SUCCESS_PHASES,
+                (9.0, 9.5, 9.8, 10.5, 10.6, 12.0, 13.0, 14.0, 15.0, 16.0),
+                strict=True,
+            )
+        ],
+        "request_records": [record],
+        "blue_in_flight_before_unload": 0,
+    }
+    snapshot = {"captured_at": "1970-01-01T00:00:03Z"}
+    config = S6BMConfig.from_path(CONFIG)
+
+    result = project_drain_trace_timeline(export, raw, config, snapshot)
+
+    assert result["hold_trace_effect_bound"] == 1
+    assert result["blue_in_flight_at_switch"] == 1
+    assert result["blue_in_flight_at_pre_unload_gate"] == 0
+
+    mutated = copy.deepcopy(export)
+    for entry in mutated["entries"]:  # type: ignore[index]
+        entry["span"]["startTimeUnixNano"] = str(
+            int(entry["span"]["startTimeUnixNano"]) + 2_000_000_000
+        )
+        entry["span"]["endTimeUnixNano"] = str(
+            int(entry["span"]["endTimeUnixNano"]) + 2_000_000_000
+        )
+    with pytest.raises(S6BMObservabilityError, match="s6bm_drain_effect_after_pre_unload_gate"):
+        project_drain_trace_timeline(mutated, raw, config, snapshot)
 
 
 def test_trace_join_distinguishes_idempotent_replay_attempt_from_effect() -> None:

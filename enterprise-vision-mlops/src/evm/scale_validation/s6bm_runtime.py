@@ -239,6 +239,87 @@ def _validate_model_identities(raw: Mapping[str, Any], config: S6BMConfig) -> No
         raise S6BMRuntimeError("s6bm_identity_lease")
 
 
+def project_raw_drain_timeline(
+    raw: Mapping[str, Any], config: S6BMConfig
+) -> dict[str, Any]:
+    """Recompute the Blue drain invariant from immutable request and phase records."""
+    timeline = [dict(item) for item in raw.get("phase_timeline", [])]
+    phases = {
+        str(item.get("phase", "")): _finite(item.get("monotonic_seconds"), "phase_monotonic")
+        for item in timeline
+    }
+    if set(phases) != set(SUCCESS_PHASES) or len(phases) != len(SUCCESS_PHASES):
+        raise S6BMRuntimeError("s6bm_drain_phase_identity")
+    switch = phases["green_active"]
+    drain_started = phases["blue_draining"]
+    unload_completed = phases["green_only"]
+    if not switch < drain_started < unload_completed:
+        raise S6BMRuntimeError("s6bm_drain_phase_order")
+
+    blue_records: list[dict[str, Any]] = []
+    for raw_record in raw.get("request_records", []):
+        record = dict(raw_record)
+        if record.get("model_role") != "blue":
+            continue
+        attempted = _finite(record.get("attempted_monotonic"), "attempted_monotonic")
+        completed = _finite(record.get("completed_monotonic"), "completed_monotonic")
+        if attempted <= 0 or completed <= attempted:
+            raise S6BMRuntimeError("s6bm_drain_request_timing")
+        record["attempted_monotonic"] = attempted
+        record["completed_monotonic"] = completed
+        record["wall_duration_ms"] = (completed - attempted) * 1000.0
+        blue_records.append(record)
+    if not blue_records:
+        raise S6BMRuntimeError("s6bm_drain_blue_records_absent")
+
+    pre_switch = [item for item in blue_records if item["attempted_monotonic"] < switch]
+    in_flight_at_switch = [
+        item
+        for item in pre_switch
+        if item["attempted_monotonic"] < switch < item["completed_monotonic"]
+    ]
+    frozen_hold_ms = float(config.procedure["long_in_flight_hold_ms"])
+    hold_records = [
+        item for item in in_flight_at_switch if item["wall_duration_ms"] >= frozen_hold_ms
+    ]
+    if not hold_records:
+        raise S6BMRuntimeError("s6bm_drain_hold_request_absent")
+    if any(
+        item["attempted_monotonic"] >= switch
+        or item["completed_monotonic"] <= switch
+        or item["attempted_monotonic"] >= drain_started
+        or item["completed_monotonic"] <= drain_started
+        for item in hold_records
+    ):
+        raise S6BMRuntimeError("s6bm_drain_hold_switch_order")
+
+    last_blue_completion = max(item["completed_monotonic"] for item in pre_switch)
+    in_flight_at_unload_boundary = [
+        item
+        for item in pre_switch
+        if item["attempted_monotonic"] < unload_completed < item["completed_monotonic"]
+    ]
+    if last_blue_completion >= unload_completed or in_flight_at_unload_boundary:
+        raise S6BMRuntimeError("s6bm_drain_unload_before_blue_completion")
+    if int(raw.get("blue_in_flight_before_unload", -1)) != len(in_flight_at_unload_boundary):
+        raise S6BMRuntimeError("s6bm_drain_summary_projection")
+
+    return {
+        "green_active_monotonic": switch,
+        "blue_drain_started_monotonic": drain_started,
+        "blue_unload_completed_monotonic": unload_completed,
+        "pre_switch_blue_request_count": len(pre_switch),
+        "blue_in_flight_at_switch": len(in_flight_at_switch),
+        "blue_in_flight_at_unload_boundary": len(in_flight_at_unload_boundary),
+        "hold_request_count": len(hold_records),
+        "hold_request_ids": sorted(str(item["request_id"]) for item in hold_records),
+        "last_pre_switch_blue_completion_monotonic": last_blue_completion,
+        "max_hold_wall_duration_ms": max(item["wall_duration_ms"] for item in hold_records),
+        "drain_wait_after_switch_ms": (last_blue_completion - switch) * 1000.0,
+        "frozen_hold_duration_ms": frozen_hold_ms,
+    }
+
+
 def _project_request_records(
     raw: Mapping[str, Any], config: S6BMConfig
 ) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, float]]:
@@ -340,6 +421,7 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
     if monotonic != sorted(monotonic) or len(set(monotonic)) != len(monotonic):
         raise S6BMRuntimeError("s6bm_phase_monotonic")
     records, requests, latency = _project_request_records(raw, config)
+    project_raw_drain_timeline(raw, config)
     if dict(raw.get("requests", {})) != requests:
         raise S6BMRuntimeError("s6bm_request_projection")
     total = requests["logical"]

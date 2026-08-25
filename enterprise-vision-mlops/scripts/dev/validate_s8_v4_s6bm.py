@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -50,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--private-root", type=Path, required=True)
     parser.add_argument("--mutation-output", type=Path)
+    parser.add_argument("--validation-output", type=Path)
     return parser.parse_args()
 
 
@@ -221,9 +223,12 @@ def validate(experiment_path: Path, config_path: Path, private_root: Path) -> di
     if any(item.get("source_revision") != revision for item in attempts):
         raise S6BMValidationError("attempt_source_revision")
     success_attempts = [item for item in attempts if item.get("profile") == "successful_transition"]
+    drain_timelines: list[dict[str, Any]] = []
     for attempt in success_attempts:
         try:
-            observability = validate_observability_bundle(private_root, attempt, config)
+            observability = validate_observability_bundle(
+                private_root, attempt, config, require_drain_timeline=True
+            )
         except S6BMObservabilityError as exc:
             raise S6BMValidationError(f"observability:{exc}") from exc
         if (
@@ -233,6 +238,13 @@ def validate(experiment_path: Path, config_path: Path, private_root: Path) -> di
             or observability["metric_delta_complete"] is not True
         ):
             raise S6BMValidationError("observability_acceptance_projection")
+        drain_timelines.append(
+            {
+                "attempt_id": str(attempt["attempt_id"]),
+                "repetition": int(attempt["repetition"]),
+                **dict(observability["raw_drain_timeline"]),
+            }
+        )
     analysis = analyze_attempts(attempts, config)
     if analysis != experiment.get("analysis") or not analysis["evidence_ready"]:
         raise S6BMValidationError("analysis_projection")
@@ -272,6 +284,7 @@ def validate(experiment_path: Path, config_path: Path, private_root: Path) -> di
         "private_artifacts": observed_index["artifact_count"],
         "private_aggregate_sha256": observed_index["aggregate_sha256"],
         "experiment_sha256": sha256_file(experiment_path),
+        "strict_raw_drain_timelines": drain_timelines,
     }
 
 
@@ -349,7 +362,9 @@ def observability_mutation_result(
         _copy_observability_artifacts(private_root, root, candidate)
         mutate(root, candidate)
         try:
-            validate_observability_bundle(root, candidate, config)
+            validate_observability_bundle(
+                root, candidate, config, require_drain_timeline=True
+            )
         except (S6BMObservabilityError, KeyError, TypeError, ValueError) as exc:
             return {"mutation": name, "rejected": True, "reason": str(exc)}
     return {"mutation": name, "rejected": False, "reason": "validator_fail_open"}
@@ -394,13 +409,136 @@ def _substitute_metric_label(root: Path, attempt: dict[str, Any]) -> None:
     _rewrite_json_artifact(root, attempt, "prometheus_after", mutate)
 
 
+def _latency_projection(attempt: dict[str, Any]) -> None:
+    records = list(attempt["request_records"])
+    latencies = sorted(float(item["elapsed_ms"]) for item in records)
+
+    def percentile(value: float) -> float:
+        position = (len(latencies) - 1) * value
+        lower = int(position)
+        upper = min(lower + 1, len(latencies) - 1)
+        return latencies[lower] + (latencies[upper] - latencies[lower]) * (position - lower)
+
+    completions = sorted(float(item["completed_monotonic"]) for item in records)
+    gaps = [
+        (current - previous) * 1000.0
+        for previous, current in zip(completions, completions[1:], strict=False)
+    ]
+    attempt["latency"] = {
+        "p95_ms": percentile(0.95),
+        "p99_ms": percentile(0.99),
+        "max_inter_completion_gap_ms": max(gaps, default=0.0),
+    }
+
+
+def _hold_record(attempt: Mapping[str, Any]) -> dict[str, Any]:
+    matches = [
+        dict(item)
+        for item in attempt.get("request_records", [])
+        if "-hold-blue-" in str(item.get("request_id", ""))
+    ]
+    if len(matches) != 1:
+        raise S6BMValidationError(f"hold_record_cardinality:{len(matches)}")
+    return matches[0]
+
+
+def _rewrite_trace_times(
+    root: Path, attempt: dict[str, Any], trace_id: str, delta_nanoseconds: int
+) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        changed = 0
+        for entry in payload["entries"]:
+            span = entry["span"]
+            if span.get("traceId") != trace_id:
+                continue
+            span["startTimeUnixNano"] = str(int(span["startTimeUnixNano"]) + delta_nanoseconds)
+            span["endTimeUnixNano"] = str(int(span["endTimeUnixNano"]) + delta_nanoseconds)
+            changed += 1
+        if changed != 3:
+            raise S6BMValidationError(f"hold_trace_cardinality:{changed}")
+
+    _rewrite_json_artifact(root, attempt, "trace_export", mutate)
+
+
+def _move_hold_completion_before_switch(root: Path, attempt: dict[str, Any]) -> None:
+    hold = _hold_record(attempt)
+    switch = next(
+        float(item["monotonic_seconds"])
+        for item in attempt["phase_timeline"]
+        if item["phase"] == "green_active"
+    )
+    old_completed = float(hold["completed_monotonic"])
+    duration = old_completed - float(hold["attempted_monotonic"])
+    new_completed = switch - 0.001
+    for record in attempt["request_records"]:
+        if record["request_id"] == hold["request_id"]:
+            record["completed_monotonic"] = new_completed
+            record["attempted_monotonic"] = new_completed - duration
+            record["elapsed_ms"] = duration * 1000.0
+            break
+    _rewrite_trace_times(
+        root,
+        attempt,
+        str(hold["trace_id"]),
+        int((new_completed - old_completed) * 1_000_000_000),
+    )
+    _latency_projection(attempt)
+
+
+def _move_unload_before_last_blue_completion(attempt: dict[str, Any]) -> None:
+    hold = _hold_record(attempt)
+    new_boundary = float(hold["completed_monotonic"]) - 0.001
+    for phase in attempt["phase_timeline"]:
+        if phase["phase"] == "green_only":
+            phase["monotonic_seconds"] = new_boundary
+            return
+    raise S6BMValidationError("green_only_phase_absent")
+
+
+def _move_pre_unload_gate_before_hold_completion(
+    root: Path, attempt: dict[str, Any]
+) -> None:
+    hold = _hold_record(attempt)
+    reference = dict(
+        attempt["observability"]["artifacts"]["prometheus_before_blue_unload"]
+    )
+    path = root / str(reference["path"])
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    trace_reference = dict(attempt["observability"]["artifacts"]["trace_export"])
+    trace_payload = json.loads((root / str(trace_reference["path"])).read_text(encoding="utf-8"))
+    server = next(
+        entry["span"]
+        for entry in trace_payload["entries"]
+        if entry["span"].get("traceId") == hold["trace_id"]
+        and entry["span"].get("name")
+        == "POST /control-panel/v1/scenario-workloads/triton-blue-green/predict"
+    )
+    gate_nanoseconds = int(server["endTimeUnixNano"]) - 1_000_000
+    payload["captured_at"] = (
+        datetime.fromtimestamp(gate_nanoseconds / 1_000_000_000, UTC)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    canonical_write(path, payload)
+    attempt["observability"]["artifacts"]["prometheus_before_blue_unload"].update(
+        sha256=sha256_file(path), bytes=path.stat().st_size
+    )
+
+
+def _move_hold_spans_after_pre_unload(root: Path, attempt: dict[str, Any]) -> None:
+    hold = _hold_record(attempt)
+    _rewrite_trace_times(root, attempt, str(hold["trace_id"]), 60_000_000_000)
+
+
 def run_mutations(private_root: Path, config: S6BMConfig) -> dict[str, Any]:
     _baselines, attempts = load_attempts(private_root)
     success = next(item for item in attempts if item["profile"] == "successful_transition")
     wrong = next(item for item in attempts if item["profile"] == "wrong_digest")
     canary = next(item for item in attempts if item["profile"] == "green_canary_failure")
     vram = next(item for item in attempts if item["profile"] == "vram_preflight_rejection")
-    validate_observability_bundle(private_root, success, config)
+    validate_observability_bundle(
+        private_root, success, config, require_drain_timeline=True
+    )
     analyze_attempts(attempts, config)
     cases = [
         mutation_result(
@@ -561,9 +699,36 @@ def run_mutations(private_root: Path, config: S6BMConfig) -> dict[str, Any]:
                 root, item, "evm.attempt.id", "s6bm-mixed-attempt"
             ),
         ),
+        observability_mutation_result(
+            "hold_completion_before_switch",
+            success,
+            private_root,
+            config,
+            _move_hold_completion_before_switch,
+        ),
+        observability_mutation_result(
+            "unload_before_last_blue_completion",
+            success,
+            private_root,
+            config,
+            _move_pre_unload_gate_before_hold_completion,
+        ),
+        mutation_result(
+            "unload_completed_before_last_blue_completion",
+            success,
+            _move_unload_before_last_blue_completion,
+            config,
+        ),
+        observability_mutation_result(
+            "span_request_effect_timeline_mismatch",
+            success,
+            private_root,
+            config,
+            _move_hold_spans_after_pre_unload,
+        ),
     ]
     return {
-        "schema_version": "evm.s8_v4.s6bm_mutation_validation.v1",
+        "schema_version": "evm.s8_v4.s6bm_mutation_validation.v2",
         "positive": 1,
         "negative": len(cases),
         "negative_rejected": sum(item["rejected"] is True for item in cases),
@@ -585,6 +750,20 @@ def main() -> int:
             "negative": mutations["negative"],
             "negative_rejected": mutations["negative_rejected"],
             "sha256": sha256_file(args.mutation_output),
+        }
+    if args.validation_output is not None:
+        validation = {
+            "schema_version": "evm.s8_v4.s6bm_strict_v3_validation.v1",
+            "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "status": "review_pending",
+            "credit": "non_credit_reviewer_pending",
+            "reviewer_sign_off": "pending",
+            **result,
+        }
+        canonical_write(args.validation_output, validation)
+        result["validation_output"] = {
+            "path": str(args.validation_output),
+            "sha256": sha256_file(args.validation_output),
         }
     print(canonical(result))
     return 0
