@@ -2,6 +2,7 @@ services:
   control-plane-postgres:
     image: postgres:16-alpine
     container_name: evm-control-plane-postgres
+    command: ["postgres", "-c", "track_commit_timestamp=on"]
     environment:
       POSTGRES_USER: ${CONTROL_PLANE_POSTGRES_USER:-evm_control_plane}
       POSTGRES_PASSWORD: ${CONTROL_PLANE_POSTGRES_PASSWORD:-evm_control_plane_local}
