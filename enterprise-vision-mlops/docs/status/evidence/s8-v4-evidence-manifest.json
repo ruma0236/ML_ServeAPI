@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.s8_v4.evidence_manifest.v1",
-  "generated_at": "2026-08-25T03:25:07.308567Z",
+  "generated_at": "2026-08-25T05:08:00.139475Z",
   "status": "contract_frozen",
   "runtime_execution_started": true,
   "acceptance_credit": false,
@@ -176,7 +176,7 @@
     {
       "work_item": "S6B-M",
       "tracking_id": "EVM-300",
-      "status": "running",
+      "status": "review_pending",
       "acceptance_criteria": [
         "S6B-M-AC-01",
         "S6B-M-AC-02",
@@ -297,14 +297,17 @@
         {
           "attempt_id": "s6bm-strict-v3-remediation",
           "credit": "non_credit",
-          "passed": false,
-          "evidence_ready": false,
+          "passed": true,
+          "evidence_ready": true,
           "acceptance_credit": false,
-          "failure_class": "remediation_in_progress",
+          "failure_class": null,
           "strict_projection_passed": true,
           "mutation_negative_rejected": 28,
           "history_amendment": "docs/status/evidence/s8-v4-s6bm-historical-partial-run-amendment-v3.json",
-          "history_amendment_sha256": "9fb5a8890c3c86a3057a921eeb49e18ca80e7f50f23b42c313f1398fb1c7a070"
+          "history_amendment_sha256": "9fb5a8890c3c86a3057a921eeb49e18ca80e7f50f23b42c313f1398fb1c7a070",
+          "strict_raw_drain_passed": true,
+          "regression_suites_passed": 9,
+          "current_cleanup_passed": true
         }
       ],
       "reviewer_sign_off": "pending",
@@ -322,7 +325,7 @@
         "strict_v3_validation_sha256": "74014d617378730129671519ee4edc84234d89cb44c362cbdd983c65d13c333d",
         "strict_v3_mutation_path": "docs/status/evidence/s8-v4-s6bm-mutation-validation-v3.json",
         "strict_v3_mutation_sha256": "9ae31c2012e276cebcbfe32e58481df57162519f02fb42e1ea48dbd88e348e8d",
-        "strict_v3_validation_revision": "348a86daf398934b8f988869c32feb361551aa64",
+        "strict_v3_validation_revision": "1636f7b106d5deb40fe34dacbbe306ad9eb5d0a5",
         "private_artifacts": 66,
         "private_total_bytes": 21293776,
         "private_index_sha256": "2eed1ef6ae6a41fde7c54dd954d9af4263bbedaf5b55d5bdfd4d96b397b4fac8",
@@ -342,9 +345,38 @@
           "independent_review_sha256": "cdd64a91617fad303cee1aaad86d1a139dd7712edff570558450f4c671915014",
           "status": "superseded_review_failed",
           "acceptance_credit": false
+        },
+        "strict_v3_implementation_revision": "348a86daf398934b8f988869c32feb361551aa64",
+        "strict_v3_review_handoff_path": "docs/status/evidence/s8-v4-s6bm-review-handoff-v3.json",
+        "strict_v3_review_handoff_sha256": "e71967d15287928bc6d2bf4d00bfbab5331417b5d7399416bcf1f167ad000a08",
+        "strict_v3_remediation_private_artifacts": 32,
+        "strict_v3_remediation_private_total_bytes": 259227,
+        "strict_v3_remediation_private_aggregate_sha256": "14229b12d329ddd49369550924d19613a384ae4f89eb8013e5b7b9ba7b1d8bf7",
+        "strict_v3_remediation_private_index_sha256": "e354a393ff36cbca8440788ae8c5b3b534e6b4d892c80bd7b612e8713ca98124",
+        "strict_v3_current_cleanup_readback_sha256": "70e1ef6539985da8425bd7d1a8393b3393c11fce80ac372b5abf48484843fe51",
+        "strict_v3_review_failure_path": "docs/status/evidence/s8-v4-s6bm-independent-review-failure-v2.json",
+        "strict_v3_review_failure_sha256": "349fe05499664a916b36b04b0670e919e4056ecc937b82145b2a14d1d0c09ac0",
+        "strict_v3_history_amendment_path": "docs/status/evidence/s8-v4-s6bm-historical-partial-run-amendment-v3.json",
+        "strict_v3_history_amendment_sha256": "9fb5a8890c3c86a3057a921eeb49e18ca80e7f50f23b42c313f1398fb1c7a070",
+        "strict_v3_regressions": {
+          "focused_s6bm": 42,
+          "focused_s8": 25,
+          "full_python_passed": 970,
+          "full_python_skipped": 0,
+          "real_postgresql": 40,
+          "lifecycle_host": 144,
+          "control_panel_python": 77,
+          "control_panel_ui": 59,
+          "status_evidence": 105,
+          "frontend_modules": 1803,
+          "changed_file_lint": "passed"
         }
       },
-      "claim_boundary": "one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, controlled traffic; not production SLA, physical HA, node failover, multi-node, multi-GPU, MIG, MPS, or a zero-interruption guarantee"
+      "claim_boundary": "one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, controlled traffic; not production SLA, physical HA, node failover, multi-node, multi-GPU, MIG, MPS, or a zero-interruption guarantee",
+      "unresolved_items": [
+        "Independent source-local reviewer sign-off remains pending.",
+        "Historical S2 Infinity validator debt remains a separate V4 closure backlog."
+      ]
     },
     {
       "work_item": "X1",
