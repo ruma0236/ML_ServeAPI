@@ -1018,6 +1018,25 @@ class TritonBlueGreenManager:
                 "evm.terminal.outcome": "completed",
             }.items():
                 effect_span.set_attribute(key, value)
+            database_anchor = dict(receipt.database_clock_anchor or {})
+            if database_anchor:
+                effect_span.set_attribute(
+                    "evm.effect.database_clock.anchor_hash",
+                    str(database_anchor.get("anchor_hash", "")),
+                )
+                effect_span.set_attribute(
+                    "evm.effect.database_clock.anchor_nonce",
+                    str(database_anchor.get("anchor_nonce", "")),
+                )
+                effect_span.set_attribute(
+                    "evm.effect.database_clock.backend_pid",
+                    int(database_anchor.get("backend_pid", 0)),
+                )
+                effect_span.set_attribute(
+                    "evm.effect.database_clock.anchor_width_ns",
+                    int(database_anchor.get("monotonic_after_ns", 0))
+                    - int(database_anchor.get("monotonic_before_ns", 0)),
+                )
             return receipt
 
     def snapshot(self) -> TritonBlueGreenStateResponse:

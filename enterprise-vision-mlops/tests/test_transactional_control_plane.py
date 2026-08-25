@@ -229,6 +229,7 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
     assert database_anchor["schema_version"] == "evm.s6bm.database_clock_anchor.v1"
     assert database_anchor["backend_pid"] == effect["commit_timestamp_backend_pid"]
     assert database_anchor["database_clock_timestamp"] == effect["commit_timestamp_observed_at"]
+    assert database_anchor["monotonic_before_ns"] <= database_anchor["monotonic_after_ns"]
     assert database_anchor["anchor_hash"] == canonical_digest(
         {key: value for key, value in database_anchor.items() if key != "anchor_hash"}
     )

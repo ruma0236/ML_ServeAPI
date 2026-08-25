@@ -1545,6 +1545,8 @@ class TransactionalControlPlaneStore:
                 row_factory=dict_row,
                 connect_timeout=max(1, int(math.ceil(self.configuration.acquire_timeout_seconds))),
             ) as commit_timestamp_connection:
+                # Keep connection/query-path warm-up outside the frozen clock bracket.
+                commit_timestamp_connection.execute("SELECT 1").fetchone()
                 database_clock_anchor_before_ns = time.perf_counter_ns()
                 commit_timestamp_row = commit_timestamp_connection.execute(
                     """
