@@ -41,6 +41,32 @@ The minimum timed window is 14 minutes 40 seconds. Allow 25–50 minutes for
 preparation, source hash checks, two Triton starts, Q0, queue drains, and exact
 cleanup on the current host.
 
+## Pinned static validation gate
+
+Run the selector-free checks with the frozen Ruff version and these exact four
+Python paths. The final command is a negative toolchain sanity check: it must
+stop at the `required-version` mismatch before reporting file diagnostics.
+
+```powershell
+uvx --from ruff==0.14.14 ruff check `
+  src/evm/scale_validation/x1_resume_testbed.py `
+  scripts/dev/prepare_s8_v4_x1_resume_testbed.py `
+  scripts/dev/run_s8_v4_x1_resume_testbed.py `
+  tests/test_s8_v4_x1_resume_testbed.py
+
+uvx --from ruff==0.14.14 ruff format --check `
+  src/evm/scale_validation/x1_resume_testbed.py `
+  scripts/dev/prepare_s8_v4_x1_resume_testbed.py `
+  scripts/dev/run_s8_v4_x1_resume_testbed.py `
+  tests/test_s8_v4_x1_resume_testbed.py
+
+uvx --from ruff==0.16.4 ruff check `
+  src/evm/scale_validation/x1_resume_testbed.py `
+  scripts/dev/prepare_s8_v4_x1_resume_testbed.py `
+  scripts/dev/run_s8_v4_x1_resume_testbed.py `
+  tests/test_s8_v4_x1_resume_testbed.py
+```
+
 ## Exact PowerShell execution
 
 Run from Windows PowerShell on the RTX 4080 host, not from inside WSL. The
