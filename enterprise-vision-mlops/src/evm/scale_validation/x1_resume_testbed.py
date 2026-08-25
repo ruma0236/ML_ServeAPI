@@ -7,7 +7,7 @@ import re
 import statistics
 import tomllib
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,6 +28,54 @@ EXPECTED_MODELS = (
 
 class X1ResumeTestbedError(RuntimeError):
     pass
+
+
+def prometheus_baseline_ready(
+    snapshot: Mapping[str, Any], expected_jobs: Sequence[str]
+) -> bool:
+    jobs = snapshot.get("jobs")
+    total = snapshot.get("total")
+    up = snapshot.get("up")
+    if not isinstance(jobs, list) or type(total) is not int or type(up) is not int:
+        return False
+    expected = {str(job) for job in expected_jobs}
+    return set(map(str, jobs)) == expected and total == len(expected) and up == len(expected)
+
+
+def wait_for_prometheus_baseline(
+    health_check: Callable[[], Mapping[str, Any]],
+    expected_jobs: Sequence[str],
+    *,
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+    observed_at: Callable[[], str],
+) -> tuple[dict[str, Any], float, list[dict[str, Any]], bool]:
+    if timeout_seconds <= 0 or poll_interval_seconds <= 0:
+        raise ValueError("prometheus restore timeout and poll interval must be positive")
+    started = monotonic()
+    deadline = started + timeout_seconds
+    samples: list[dict[str, Any]] = []
+    last_snapshot: dict[str, Any] = {}
+    while True:
+        timestamp = observed_at()
+        try:
+            last_snapshot = dict(health_check())
+            samples.append({"observed_at": timestamp, "snapshot": last_snapshot})
+            if prometheus_baseline_ready(last_snapshot, expected_jobs):
+                return last_snapshot, monotonic() - started, samples, True
+        except Exception as exc:
+            samples.append(
+                {
+                    "observed_at": timestamp,
+                    "error": f"{type(exc).__name__}:{exc}",
+                }
+            )
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return last_snapshot, monotonic() - started, samples, False
+        sleep(min(poll_interval_seconds, remaining))
 
 
 def canonical(value: Any) -> str:

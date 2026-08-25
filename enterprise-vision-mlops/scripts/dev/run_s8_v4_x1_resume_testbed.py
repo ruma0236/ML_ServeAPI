@@ -43,11 +43,13 @@ from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
     canonical_write,
     deterministic_model_schedule,
     generate_report,
+    prometheus_baseline_ready,
     request_interval_overlap,
     sha256_file,
     summarize_requests,
     triton_trace_compute_counts,
     validate_evidence,
+    wait_for_prometheus_baseline,
 )
 
 
@@ -259,6 +261,20 @@ def prometheus_health() -> dict[str, Any]:
         "total": len(governed),
         "up": sum(item.get("health") == "up" for item in governed),
     }
+
+
+def wait_prometheus_restore(
+    timeout_seconds: float,
+) -> tuple[dict[str, Any], float, list[dict[str, Any]], bool]:
+    return wait_for_prometheus_baseline(
+        prometheus_health,
+        sorted(EXPECTED_PROMETHEUS_JOBS),
+        timeout_seconds=timeout_seconds,
+        poll_interval_seconds=1.0,
+        monotonic=time.monotonic,
+        sleep=time.sleep,
+        observed_at=utc_now,
+    )
 
 
 def queue_counts() -> dict[str, int]:
@@ -1202,7 +1218,6 @@ def main() -> int:
         "holder": lambda: capture_holder(),
         "b0_cuda": b0_cuda_check,
         "queues": queue_counts,
-        "prometheus": prometheus_health,
         "gpu": capture_gpu,
         "triton_processes": capture_triton_processes,
     }
@@ -1211,6 +1226,19 @@ def main() -> int:
             final_checks[key] = operation()
         except Exception as exc:
             cleanup_errors.append(f"check:{key}:{type(exc).__name__}:{exc}")
+    try:
+        (
+            prometheus_after,
+            prometheus_restore_seconds,
+            prometheus_restore_samples,
+            prometheus_restore_ready,
+        ) = wait_prometheus_restore(config.cleanup_timeout_seconds)
+        final_checks["prometheus"] = prometheus_after
+        final_checks["prometheus_restore_seconds"] = prometheus_restore_seconds
+        final_checks["prometheus_restore_samples"] = prometheus_restore_samples
+        final_checks["prometheus_restore_ready"] = prometheus_restore_ready
+    except Exception as exc:
+        cleanup_errors.append(f"check:prometheus:{type(exc).__name__}:{exc}")
     try:
         gpu_after, vram_seconds = wait_vram_restore(gpu_before, config.cleanup_timeout_seconds)
         final_checks["gpu_after_vram_wait"] = gpu_after
@@ -1228,8 +1256,10 @@ def main() -> int:
         "queue_leased_zero": dict(final_checks.get("queues", {})).get("leased") == 0,
         "queue_outcome_unknown_zero": dict(final_checks.get("queues", {})).get("outcome_unknown")
         == 0,
-        "prometheus_5_of_5": dict(final_checks.get("prometheus", {})).get("total") == 5
-        and dict(final_checks.get("prometheus", {})).get("up") == 5,
+        "prometheus_5_of_5": final_checks.get("prometheus_restore_ready") is True
+        and prometheus_baseline_ready(
+            dict(final_checks.get("prometheus", {})), sorted(EXPECTED_PROMETHEUS_JOBS)
+        ),
         "prometheus_exact_jobs_restored": set(
             dict(final_checks.get("prometheus", {})).get("jobs", [])
         )

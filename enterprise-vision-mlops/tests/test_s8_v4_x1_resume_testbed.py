@@ -20,11 +20,13 @@ from evm.scale_validation.x1_resume_testbed import (
     canonical_write,
     deterministic_model_schedule,
     generate_report,
+    prometheus_baseline_ready,
     request_interval_overlap,
     sha256_file,
     summarize_requests,
     triton_trace_compute_counts,
     validate_evidence,
+    wait_for_prometheus_baseline,
 )
 
 # Importing the host runner is intentionally avoided; assert the frozen Triton
@@ -174,6 +176,112 @@ def test_config_freezes_non_credit_matrix_and_honest_driver_scope() -> None:
     assert "--trace-config=triton,file=/evidence/triton-trace.json" in runner
     assert "--trace-config=rate=64" in runner
     assert "trace_enabled=False" in runner
+
+
+def test_prometheus_cleanup_waits_for_the_exact_restored_baseline() -> None:
+    expected = [
+        "evm-api",
+        "evm-b0-production",
+        "evm-otel-collector",
+        "evm-task-queue-worker",
+        "prometheus",
+    ]
+    healthy = {"jobs": expected, "total": 5, "up": 5}
+    assert prometheus_baseline_ready(healthy, expected) is True
+    for mutation in (
+        {**healthy, "up": 4},
+        {**healthy, "total": 4},
+        {**healthy, "jobs": expected[:-1]},
+        {**healthy, "jobs": [*expected[:-1], "wrong-job"]},
+        {**healthy, "up": True},
+    ):
+        assert prometheus_baseline_ready(mutation, expected) is False
+
+    snapshots = iter(({**healthy, "up": 4}, healthy))
+    tick = [0.0]
+
+    def advance(seconds: float) -> None:
+        tick[0] += seconds
+
+    result = wait_for_prometheus_baseline(
+        lambda: next(snapshots),
+        expected,
+        timeout_seconds=3.0,
+        poll_interval_seconds=1.0,
+        monotonic=lambda: tick[0],
+        sleep=advance,
+        observed_at=lambda: f"t={tick[0]}",
+    )
+    assert result[0] == healthy
+    assert result[1] == 1.0
+    assert [sample["snapshot"]["up"] for sample in result[2]] == [4, 5]
+    assert result[3] is True
+
+    runner = (ROOT / "scripts/dev/run_s8_v4_x1_resume_testbed.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def wait_prometheus_restore(" in runner
+    assert "wait_prometheus_restore(config.cleanup_timeout_seconds)" in runner
+    assert 'final_checks["prometheus_restore_samples"]' in runner
+
+
+@pytest.mark.parametrize(
+    "unhealthy",
+    [
+        {
+            "jobs": [
+                "evm-api",
+                "evm-b0-production",
+                "evm-otel-collector",
+                "evm-task-queue-worker",
+                "prometheus",
+            ],
+            "total": 5,
+            "up": 4,
+        },
+        {
+            "jobs": [
+                "evm-api",
+                "evm-b0-production",
+                "evm-otel-collector",
+                "evm-task-queue-worker",
+                "wrong-job",
+            ],
+            "total": 5,
+            "up": 5,
+        },
+    ],
+    ids=["persistent-4-of-5", "wrong-job-set"],
+)
+def test_prometheus_cleanup_timeout_stays_fail_closed(
+    unhealthy: dict[str, object],
+) -> None:
+    expected = [
+        "evm-api",
+        "evm-b0-production",
+        "evm-otel-collector",
+        "evm-task-queue-worker",
+        "prometheus",
+    ]
+    tick = [0.0]
+
+    def advance(seconds: float) -> None:
+        tick[0] += seconds
+
+    snapshot, elapsed, samples, ready = wait_for_prometheus_baseline(
+        lambda: unhealthy,
+        expected,
+        timeout_seconds=2.0,
+        poll_interval_seconds=1.0,
+        monotonic=lambda: tick[0],
+        sleep=advance,
+        observed_at=lambda: f"t={tick[0]}",
+    )
+    assert snapshot == unhealthy
+    assert elapsed == 2.0
+    assert len(samples) == 3
+    assert ready is False
+    assert prometheus_baseline_ready(snapshot, expected) is False
 
 
 def test_hot_mix_fairness_uses_normalized_attainment() -> None:
