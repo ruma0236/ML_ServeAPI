@@ -161,8 +161,10 @@ def fault_attempt(profile: str, repetition: int = 1) -> dict[str, object]:
         observation.update(free_vram_mib=1000.0, required_vram_mib=1512.0)
     if profile == "green_canary_failure":
         observation["canary_mismatch"] = True
+    attempt_id = f"{profile}-{repetition}"
+    suite_id = "s6bm-unit-suite"
     return {
-        "attempt_id": f"{profile}-{repetition}",
+        "attempt_id": attempt_id,
         "profile": profile,
         "repetition": repetition,
         "guard_rejected": True,
@@ -182,7 +184,27 @@ def fault_attempt(profile: str, repetition: int = 1) -> dict[str, object]:
         "http_5xx": 0,
         "orphan_count": 0,
         "blue_health_after": True,
-        "telemetry": {"api_target_up": True, "triton_target_up": True},
+        "telemetry": {
+            "suite_id": suite_id,
+            "attempt_id": attempt_id,
+            "target_count": 2,
+            "target_labels": [
+                {
+                    "job": "evm-s8-v4-s6bm-api",
+                    "scenario": "s8-v4-s6bm",
+                    "suite_id": suite_id,
+                    "attempt_id": attempt_id,
+                },
+                {
+                    "job": "evm-s8-v4-s6bm-triton",
+                    "scenario": "s8-v4-s6bm",
+                    "suite_id": suite_id,
+                    "attempt_id": attempt_id,
+                },
+            ],
+            "api_target_up": True,
+            "triton_target_up": True,
+        },
         "cleanup": {"blue_only": True, "green_unloaded": True},
     }
 
@@ -246,6 +268,18 @@ def test_s6bm_fault_projection_rejects_fail_open_mutations() -> None:
         raw = fault_attempt("wrong_digest")
         raw[field] = value
         with pytest.raises(S6BMRuntimeError):
+            project_fault_attempt(raw, config, "wrong_digest")
+
+    for mutate in (
+        lambda raw: raw["telemetry"].update(attempt_id="substituted"),  # type: ignore[union-attr]
+        lambda raw: raw["telemetry"].update(target_count=1),  # type: ignore[union-attr]
+        lambda raw: raw["telemetry"]["target_labels"][0].update(  # type: ignore[index]
+            attempt_id="substituted"
+        ),
+    ):
+        raw = fault_attempt("wrong_digest")
+        mutate(raw)
+        with pytest.raises(S6BMRuntimeError, match="s6bm_fault_telemetry_identity"):
             project_fault_attempt(raw, config, "wrong_digest")
 
 

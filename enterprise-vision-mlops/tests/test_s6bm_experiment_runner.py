@@ -253,3 +253,53 @@ def test_prometheus_direct_comparison_reports_exact_series_failure() -> None:
     )
     assert failed["passed"] is False
     assert any("s6bm_direct_metric_aggregate" in error for error in failed["errors"])
+
+
+def test_telemetry_snapshot_waits_for_exact_attempt_targets(monkeypatch) -> None:
+    runner = load_runner()
+    config = SimpleNamespace(
+        ports={"triton_metrics": 18002},
+        telemetry={
+            "prometheus_job_api": "evm-s8-v4-s6bm-api",
+            "prometheus_job_triton": "evm-s8-v4-s6bm-triton",
+        },
+    )
+
+    def targets(attempt_id: str) -> list[dict[str, object]]:
+        return [
+            {
+                "health": "up",
+                "labels": {
+                    "job": job,
+                    "scenario": "s8-v4-s6bm",
+                    "suite_id": "suite-unit",
+                    "attempt_id": attempt_id,
+                },
+            }
+            for job in ("evm-s8-v4-s6bm-api", "evm-s8-v4-s6bm-triton")
+        ]
+
+    snapshots = [targets("stale-attempt"), targets("current-attempt")]
+    monkeypatch.setattr(
+        runner,
+        "prometheus_targets",
+        lambda: snapshots.pop(0) if snapshots else targets("current-attempt"),
+    )
+    monkeypatch.setattr(runner, "prometheus_query", lambda _query: 1.0)
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        runner.requests,
+        "get",
+        lambda *_args, **_kwargs: SimpleNamespace(text="nv_inference_request_success 1"),
+    )
+
+    snapshot = runner.telemetry_snapshot(
+        config,
+        suite_id="suite-unit",
+        attempt_id="current-attempt",
+        timeout=1,
+    )
+
+    assert snapshot["target_count"] == 2
+    assert snapshot["attempt_id"] == "current-attempt"
+    assert {item["attempt_id"] for item in snapshot["target_labels"]} == {"current-attempt"}

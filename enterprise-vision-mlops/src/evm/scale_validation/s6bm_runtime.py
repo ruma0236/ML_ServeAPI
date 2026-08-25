@@ -486,6 +486,27 @@ def project_fault_attempt(
     telemetry = dict(raw.get("telemetry", {}))
     if telemetry.get("api_target_up") is not True or telemetry.get("triton_target_up") is not True:
         raise S6BMRuntimeError(f"s6bm_fault_telemetry:{profile}")
+    attempt_id = str(raw.get("attempt_id", ""))
+    suite_id = str(telemetry.get("suite_id", ""))
+    target_labels = [dict(item) for item in telemetry.get("target_labels", [])]
+    expected_jobs = {
+        str(config.telemetry["prometheus_job_api"]),
+        str(config.telemetry["prometheus_job_triton"]),
+    }
+    if (
+        telemetry.get("attempt_id") != attempt_id
+        or not suite_id
+        or int(telemetry.get("target_count", 0)) != 2
+        or len(target_labels) != 2
+        or {item.get("job") for item in target_labels} != expected_jobs
+        or any(
+            item.get("scenario") != "s8-v4-s6bm"
+            or item.get("suite_id") != suite_id
+            or item.get("attempt_id") != attempt_id
+            for item in target_labels
+        )
+    ):
+        raise S6BMRuntimeError(f"s6bm_fault_telemetry_identity:{profile}")
     cleanup = dict(raw.get("cleanup", {}))
     if not cleanup or not all(value is True for value in cleanup.values()):
         raise S6BMRuntimeError(f"s6bm_fault_cleanup:{profile}")

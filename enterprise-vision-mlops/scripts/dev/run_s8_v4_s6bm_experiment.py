@@ -1548,23 +1548,57 @@ def capture_transition_observability(
     )
 
 
-def telemetry_snapshot(config: S6BMConfig) -> dict[str, Any]:
-    jobs = {
-        str(dict(item.get("labels", {})).get("job")): item.get("health")
-        for item in prometheus_targets()
+def telemetry_snapshot(
+    config: S6BMConfig,
+    *,
+    suite_id: str,
+    attempt_id: str,
+    timeout: float = 30,
+) -> dict[str, Any]:
+    expected_jobs = {
+        str(config.telemetry["prometheus_job_api"]),
+        str(config.telemetry["prometheus_job_triton"]),
     }
-    metrics = requests.get(
-        f"http://127.0.0.1:{config.ports['triton_metrics']}/metrics", timeout=10
-    ).text
-    return {
-        "api_target_up": jobs.get(config.telemetry["prometheus_job_api"]) == "up",
-        "triton_target_up": jobs.get(config.telemetry["prometheus_job_triton"]) == "up",
-        "triton_success_total": prometheus_query(
-            'sum(nv_inference_request_success{model=~"s6bm_blue|s6bm_green"})'
-        ),
-        "api_request_metric_total": prometheus_query("sum(evm_s6bm_requests_total)"),
-        "direct_metrics_present": "nv_inference_request_success" in metrics,
-    }
+    deadline = time.monotonic() + timeout
+    last_labels: list[dict[str, Any]] = []
+    while time.monotonic() < deadline:
+        selected = []
+        for target in prometheus_targets():
+            labels = dict(target.get("labels", {}))
+            if (
+                labels.get("job") in expected_jobs
+                and labels.get("scenario") == "s8-v4-s6bm"
+                and labels.get("suite_id") == suite_id
+                and labels.get("attempt_id") == attempt_id
+            ):
+                selected.append(target)
+        last_labels = [dict(item.get("labels", {})) for item in selected]
+        if (
+            len(selected) == 2
+            and {dict(item.get("labels", {})).get("job") for item in selected} == expected_jobs
+            and all(item.get("health") == "up" for item in selected)
+        ):
+            metrics = requests.get(
+                f"http://127.0.0.1:{config.ports['triton_metrics']}/metrics",
+                timeout=10,
+            ).text
+            return {
+                "suite_id": suite_id,
+                "attempt_id": attempt_id,
+                "target_count": len(selected),
+                "target_labels": sorted(last_labels, key=lambda item: str(item["job"])),
+                "api_target_up": True,
+                "triton_target_up": True,
+                "triton_success_total": prometheus_query(
+                    'sum(nv_inference_request_success{model=~"s6bm_blue|s6bm_green"})'
+                ),
+                "api_request_metric_total": prometheus_query("sum(evm_s6bm_requests_total)"),
+                "direct_metrics_present": "nv_inference_request_success" in metrics,
+            }
+        time.sleep(0.25)
+    raise S6BMExperimentError(
+        f"telemetry_attempt_target_timeout:{suite_id}:{attempt_id}:{last_labels}"
+    )
 
 
 def run_baseline(
@@ -1602,7 +1636,7 @@ def run_baseline(
         "request_records": records,
         "requests": summary,
         "latency": latency_projection(records),
-        "telemetry": telemetry_snapshot(config),
+        "telemetry": telemetry_snapshot(config, suite_id=suite_id, attempt_id=attempt_id),
         "owner_samples": [owner_sample(lease)],
         "resources": {"api_pid": api.process.pid, "gpu": capture_gpu()},
     }
@@ -1757,7 +1791,7 @@ def run_success(
     summary = request_projection(records)
     latency = latency_projection(records)
     state = controller_state(config)
-    telemetry = telemetry_snapshot(config)
+    telemetry = telemetry_snapshot(config, suite_id=suite_id, attempt_id=attempt_id)
     samples = resources.samples
     peak_vram = max(
         (float(item["gpu"]["memory_used_mib"]) for item in samples if "gpu" in item),
@@ -1884,7 +1918,7 @@ def run_fault(
         apply_control(config, lease, "green_aborted")
     final = controller_state(config)
     blue_probe = direct_infer(config, "blue")
-    telemetry = telemetry_snapshot(config)
+    telemetry = telemetry_snapshot(config, suite_id=suite_id, attempt_id=attempt_id)
     result = {
         "schema_version": "evm.s8_v4.s6bm_fault_private.v1",
         "attempt_id": attempt_id,
