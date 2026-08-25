@@ -77,6 +77,11 @@ def s6bm_transition_context(
     continuity_terminal_records_sha256: str | None = None,
 ) -> dict[str, object]:
     terminal_ids = continuity_terminal_request_ids or []
+    pending_ids = (
+        [str(identity["request_id"])]
+        if pending_crossover_request_ids is None
+        else pending_crossover_request_ids
+    )
     source_payload = {
         "run_id": identity["run_id"],
         "action": "green_switched",
@@ -84,7 +89,7 @@ def s6bm_transition_context(
         "causal_crossover": identity,
         "continuity_receipt_request_ids": continuity_receipt_request_ids or [],
         "continuity_crossover_request_ids": continuity_crossover_request_ids or [],
-        "pending_crossover_request_ids": pending_crossover_request_ids or [],
+        "pending_crossover_request_ids": pending_ids,
         "continuity_terminal_request_ids": terminal_ids,
         "continuity_terminal_request_set_sha256": (
             canonical_digest(terminal_ids) if terminal_ids else None
@@ -583,6 +588,50 @@ def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
         < switch_recorded
         for receipt in bridge_receipts
     )
+
+    crossover = identity(bridge_ids[0], 1)
+    crossover_result_sha256 = hashlib.sha256(
+        f"result:{crossover['request_id']}".encode("ascii")
+    ).hexdigest()
+    crossover_response = {
+        "schema_version": "evm.s8_v4.s6bm_terminal_effect.v1",
+        "run_id": run_id,
+        "attempt_id": attempt_id,
+        "request_id": crossover["request_id"],
+        "trace_id": crossover["trace_id"],
+        "effect_id": crossover["effect_id"],
+        "served_identity": {
+            "model_role": "blue",
+            "model_name": "s6bm_blue",
+            "model_version": "1",
+            "artifact_sha256": "3" * 64,
+        },
+        "route_generation": 3,
+        "result_sha256": crossover_result_sha256,
+        "terminal_outcome": "completed",
+    }
+    stored, replayed, effect = store.commit_idempotent_terminal_entity_with_receipt(
+        scope=f"s6bm.terminal-effect.{attempt_id}",
+        idempotency_key=str(crossover["request_id"]),
+        request_payload={"request_id": crossover["request_id"], "ordinal": 1},
+        entity_kind="s6bm_terminal_effect",
+        entity_id=str(crossover["effect_id"]),
+        response_payload=crossover_response,
+        state="completed",
+        causal_payload={
+            **crossover,
+            "schema_version": "evm.s8_v4.s6bm_terminal_causal_event.v1",
+            "result_sha256": crossover_result_sha256,
+            "requires_switch_before_effect": True,
+        },
+    )
+    assert replayed is False
+    observed = effect["observed_transition"]
+    assert observed["request_id"] == hold["request_id"]
+    assert observed["transition_id"] == switch["transition_id"]
+    assert observed["fence_sequence"] == switch["fence_sequence"]
+    assert stored["observed_transition"] == observed
+    assert effect["transition_readback_visible"] is True
 
 
 def test_s6bm_cold_store_commits_frozen_concurrency_without_pool_starvation(

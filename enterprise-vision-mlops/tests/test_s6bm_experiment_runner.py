@@ -78,6 +78,7 @@ def test_all_bridge_requests_are_pinned_to_the_observed_blue_generation() -> Non
 def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: Path) -> None:
     validator = load_continuity_validator()
     request_id = "bridge-0001"
+    hold_id = "hold-0001"
     stage = "api_server_handler_entry"
     start_payload = {"actor_start_unix_ns": 100}
     start_event = {
@@ -89,6 +90,15 @@ def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: P
         "payload_sha256": validator.canonical_sha256(start_payload),
     }
     switch_payload = {
+        "schema_version": "evm.s6bm.route_switch_fence.v2",
+        "transition_id": "1" * 64,
+        "fence_id": "2" * 64,
+        "old_route_generation": 2,
+        "new_route_generation": 3,
+        "source_payload_sha256": "3" * 64,
+        "cell_id": "attempt-unit",
+        "replica_id": "replica-unit",
+        "pending_crossover_request_ids": [hold_id, request_id],
         "continuity_receipt_sequences": {request_id: {stage: 1}},
         "continuity_receipt_payload_sha256": {
             request_id: {stage: start_event["payload_sha256"]}
@@ -97,18 +107,68 @@ def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: P
     }
     switch_event = {
         "event_type": "blue_to_green_switch_commit",
+        "attempt_id": "attempt-unit",
+        "run_id": "run-unit",
+        "request_id": hold_id,
         "causal_sequence": 2,
         "transaction_id": "1002",
+        "database_recorded_at": "2026-08-25T00:00:00Z",
         "payload": switch_payload,
         "payload_sha256": validator.canonical_sha256(switch_payload),
     }
+    observed = validator.observed_transition_from_switch(switch_event)
+    effect_events = []
+    effects = []
+    records = []
+    for sequence, crossover_id in enumerate((hold_id, request_id), start=3):
+        event_payload = {
+            "requires_switch_before_effect": True,
+            "observed_transition": copy.deepcopy(observed),
+        }
+        effect_event = {
+            "event_type": "durable_terminal_effect_commit",
+            "request_id": crossover_id,
+            "causal_sequence": sequence,
+            "transaction_id": str(1000 + sequence),
+            "payload": event_payload,
+            "payload_sha256": validator.canonical_sha256(event_payload),
+        }
+        stored = {
+            "observed_transition": copy.deepcopy(observed),
+            "durable_commit": {
+                "observed_transition": copy.deepcopy(observed),
+                "causal_payload_sha256": effect_event["payload_sha256"],
+            },
+        }
+        effect_events.append(effect_event)
+        effects.append({"idempotency_key": crossover_id, "payload": stored})
+        records.append(
+            {
+                "request_id": crossover_id,
+                "durable_effect": {
+                    "observed_transition": copy.deepcopy(observed),
+                    "causal_payload_sha256": effect_event["payload_sha256"],
+                    "stored_payload_sha256": validator.canonical_sha256(stored),
+                },
+            }
+        )
     causal_path = tmp_path / "causal-events.json"
     validator.canonical_write(
         causal_path,
-        {"event_count": 2, "events": [start_event, switch_event]},
+        {
+            "event_count": 4,
+            "events": [start_event, switch_event, *effect_events],
+        },
+    )
+    effects_path = tmp_path / "durable-effects.json"
+    validator.canonical_write(
+        effects_path,
+        {"effect_count": 2, "effects": effects},
     )
     causal_reference = {"path": causal_path.name}
     validator.refresh(causal_reference, causal_path)
+    effects_reference = {"path": effects_path.name}
+    validator.refresh(effects_reference, effects_path)
     fence_receipt = {
         "payload": copy.deepcopy(switch_payload),
         "payload_sha256": switch_event["payload_sha256"],
@@ -117,12 +177,14 @@ def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: P
     raw = {
         "causal_proof": {
             "causal_event_export": causal_reference,
+            "durable_effect_export": effects_reference,
             "route_transition_receipt": {
                 "fence_receipt": fence_receipt,
                 "fence_receipt_sha256": validator.canonical_sha256(fence_receipt),
                 "fence_payload_sha256": switch_event["payload_sha256"],
             },
-        }
+        },
+        "request_records": records,
     }
 
     mutated = validator.read_json(causal_path)
@@ -139,7 +201,7 @@ def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: P
     )
 
     rebound = validator.read_json(causal_path)
-    rebound_start, rebound_switch = rebound["events"]
+    rebound_start, rebound_switch, *rebound_effects = rebound["events"]
     transition = raw["causal_proof"]["route_transition_receipt"]
     assert rebound_switch["payload"]["continuity_receipt_payload_sha256"][request_id][stage] == (
         rebound_start["payload_sha256"]
@@ -148,6 +210,21 @@ def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: P
     assert transition["fence_receipt"]["payload_sha256"] == rebound_switch["payload_sha256"]
     assert transition["fence_receipt_sha256"] == validator.canonical_sha256(
         transition["fence_receipt"]
+    )
+    expected_transition = validator.observed_transition_from_switch(rebound_switch)
+    assert len(rebound_effects) == 2
+    assert all(
+        item["payload"]["observed_transition"] == expected_transition
+        for item in rebound_effects
+    )
+    rebound_stored = validator.read_json(effects_path)["effects"]
+    assert all(
+        item["payload"]["observed_transition"] == expected_transition
+        for item in rebound_stored
+    )
+    assert all(
+        item["durable_effect"]["observed_transition"] == expected_transition
+        for item in raw["request_records"]
     )
 
 
@@ -242,7 +319,6 @@ def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
 
     monkeypatch.setattr(runner.requests, "Session", FakeSession)
     monkeypatch.setattr(runner, "send_request", fake_send)
-
     class Model:
         model_name = "s6bm_blue"
         model_version = "1"
@@ -310,6 +386,17 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
 
     monkeypatch.setattr(runner.requests, "Session", FakeSession)
     monkeypatch.setattr(runner, "send_request", fake_send)
+    monkeypatch.setattr(
+        runner,
+        "wait_route_switch_deadline",
+        lambda _config, *, owner_request_id: {
+            "owner_request_id": owner_request_id,
+            "started_monotonic_ns": time.perf_counter_ns(),
+            "deadline_monotonic_ns": time.perf_counter_ns() + 2_000_000_000,
+            "timeout_seconds": 2.0,
+            "source": "api_control_plane_designated_crossover_registration",
+        },
+    )
     config = SimpleNamespace(
         continuity={
             "producer_workers": 2,
@@ -339,11 +426,11 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
         for index, item in enumerate(schedule)
     ]
 
-    def collect_receipts():
+    def collect_receipts(_deadline_monotonic_ns):
         assert actor_receipts_ready.wait(timeout=2)
         return {"receipt": "actor"}
 
-    def transition(receipt_proof, terminal_gate):
+    def transition(receipt_proof, terminal_gate, _deadline_monotonic_ns):
         assert receipt_proof == {"receipt": "actor"}
         assert terminal_gate["expected_terminal_request_ids"] == [
             "bridge-1",
@@ -425,6 +512,17 @@ def test_bridge_switch_waits_for_every_non_crossover_terminal_after_submission(
 
     monkeypatch.setattr(runner.requests, "Session", FakeSession)
     monkeypatch.setattr(runner, "send_request", fake_send)
+    monkeypatch.setattr(
+        runner,
+        "wait_route_switch_deadline",
+        lambda _config, *, owner_request_id: {
+            "owner_request_id": owner_request_id,
+            "started_monotonic_ns": time.perf_counter_ns(),
+            "deadline_monotonic_ns": time.perf_counter_ns() + 2_000_000_000,
+            "timeout_seconds": 2.0,
+            "source": "api_control_plane_designated_crossover_registration",
+        },
+    )
     config = SimpleNamespace(
         continuity={
             "producer_workers": 4,
@@ -453,7 +551,7 @@ def test_bridge_switch_waits_for_every_non_crossover_terminal_after_submission(
         for index, item in enumerate(schedule)
     ]
 
-    def switch(_receipts, terminal_gate):
+    def switch(_receipts, terminal_gate, _deadline_monotonic_ns):
         assert terminal_gate["observed_terminal_request_ids"] == [
             "bridge-1",
             "bridge-2",
@@ -469,7 +567,7 @@ def test_bridge_switch_waits_for_every_non_crossover_terminal_after_submission(
             config,
             bodies,
             schedule,
-            lambda: {"receipts": "ready"},
+            lambda _deadline_monotonic_ns: {"receipts": "ready"},
             switch,
         )
         assert all_started.wait(timeout=2)
@@ -547,6 +645,7 @@ def test_bridge_receipt_gate_preserves_exact_pre_switch_readback(
         attempt_id=attempt_id,
         required_request_ids=request_ids,
         route_generation=2,
+        deadline_monotonic_ns=time.perf_counter_ns() + 1_000_000_000,
     )
 
     readback_path = tmp_path / gate["raw_readback_export"]["path"]
@@ -715,6 +814,7 @@ def test_pre_switch_terminal_gate_binds_online_response_to_durable_exports(
         expected_bodies=bodies,
         response_records=responses,
         terminal_gate=gate,
+        deadline_monotonic_ns=time.perf_counter_ns() + 1_000_000_000,
     )
 
     assert result["schema_version"] == "evm.s8_v4.s6bm_pre_switch_bridge_terminal_gate.v2"
@@ -791,6 +891,7 @@ def test_pre_switch_terminal_gate_rejects_online_identity_mutations(
                 "expected_terminal_request_ids": ids,
                 "expected_terminal_count": len(ids),
             },
+            deadline_monotonic_ns=time.perf_counter_ns() + 1_000_000_000,
         )
 
 
@@ -1050,6 +1151,7 @@ def test_triton_receipt_wait_uses_frozen_drain_bound(monkeypatch, tmp_path: Path
         "schema_version": "evm.s8_v4.s6bm_trace_collector_spec.v1",
         "runner_process_id": os.getppid(),
         "timeout_seconds": 15,
+        "deadline_monotonic_ns": 115_000_000_000,
         "otel_trace_path": str(tmp_path / "traces.json"),
         "trace_start_offset": 0,
         "source_revision": "a" * 40,

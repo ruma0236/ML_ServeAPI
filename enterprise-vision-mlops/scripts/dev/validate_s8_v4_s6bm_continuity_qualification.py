@@ -229,6 +229,80 @@ def after_switch_unix_ns(raw: dict[str, Any], config: S6BMConfig) -> tuple[int, 
     return target_monotonic + offset_high, target_monotonic
 
 
+def observed_transition_from_switch(switch_event: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(switch_event["payload"])
+    return {
+        "schema_version": "evm.s6bm.observed_transition.v1",
+        "transition_id": str(payload["transition_id"]),
+        "fence_id": str(payload["fence_id"]),
+        "fence_sequence": int(switch_event["causal_sequence"]),
+        "fence_transaction_id": str(switch_event["transaction_id"]),
+        "fence_payload_sha256": str(switch_event["payload_sha256"]),
+        "attempt_id": str(switch_event["attempt_id"]),
+        "run_id": str(switch_event["run_id"]),
+        "request_id": str(switch_event["request_id"]),
+        "old_route_generation": int(payload["old_route_generation"]),
+        "new_route_generation": int(payload["new_route_generation"]),
+        "source_payload_sha256": str(payload["source_payload_sha256"]),
+        "cell_id": str(payload["cell_id"]),
+        "replica_id": str(payload["replica_id"]),
+        "database_recorded_at": str(switch_event["database_recorded_at"]),
+    }
+
+
+def refresh_crossover_effect_bindings(
+    root: Path,
+    raw: dict[str, Any],
+    causal_export: dict[str, Any],
+) -> None:
+    """Rebind both post-switch crossover effects to the rewritten fence."""
+    switch_event = next(
+        item
+        for item in causal_export["events"]
+        if item.get("event_type") == "blue_to_green_switch_commit"
+    )
+    observed_transition = observed_transition_from_switch(switch_event)
+    effect_events = [
+        item
+        for item in causal_export["events"]
+        if item.get("event_type") == "durable_terminal_effect_commit"
+        and dict(item.get("payload", {})).get("requires_switch_before_effect") is True
+    ]
+    eligible_ids = sorted(
+        str(value)
+        for value in switch_event["payload"].get("pending_crossover_request_ids", [])
+    )
+    event_ids = sorted(str(item["request_id"]) for item in effect_events)
+    if event_ids != eligible_ids or len(event_ids) != 2:
+        raise ContinuityQualificationError("crossover_effect_exact_set")
+    records = {str(item["request_id"]): item for item in raw["request_records"]}
+    effects_reference = proof(raw)["durable_effect_export"]
+    effects_path = reference_path(root, effects_reference)
+    effects_export = read_json(effects_path)
+    effects = {
+        str(item.get("idempotency_key", "")): item
+        for item in effects_export.get("effects", [])
+    }
+    if not set(event_ids).issubset(records) or not set(event_ids).issubset(effects):
+        raise ContinuityQualificationError("crossover_effect_artifact_set")
+    for event in effect_events:
+        request_id = str(event["request_id"])
+        event["payload"]["observed_transition"] = copy.deepcopy(observed_transition)
+        event["payload_sha256"] = canonical_sha256(event["payload"])
+        receipt = records[request_id]["durable_effect"]
+        receipt["observed_transition"] = copy.deepcopy(observed_transition)
+        receipt["causal_payload_sha256"] = event["payload_sha256"]
+        stored = effects[request_id]["payload"]
+        stored["observed_transition"] = copy.deepcopy(observed_transition)
+        stored["durable_commit"]["observed_transition"] = copy.deepcopy(
+            observed_transition
+        )
+        stored["durable_commit"]["causal_payload_sha256"] = event["payload_sha256"]
+        receipt["stored_payload_sha256"] = canonical_sha256(stored)
+    canonical_write(effects_path, effects_export)
+    refresh(effects_reference, effects_path)
+
+
 def refresh_switch_receipt_binding(
     root: Path,
     raw: dict[str, Any],
@@ -261,6 +335,7 @@ def refresh_switch_receipt_binding(
         "transaction_id"
     ]
     switch_event["payload_sha256"] = canonical_sha256(switch_payload)
+    refresh_crossover_effect_bindings(root, raw, causal_export)
     canonical_write(causal_path, causal_export)
     refresh(causal_reference, causal_path)
 
@@ -530,6 +605,13 @@ def mutate_receipt_after_switch(root: Path, raw: dict[str, Any], config: S6BMCon
 def mutate_required_event_missing(root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
     request_id = required_bridge_id(raw)
     stage = "controller_entry"
+    gate = raw["continuity_execution"]["bridge_actor_receipt_gate"]
+    final_reference = proof(raw)["causal_event_export"]
+    pre_switch_reference = gate["raw_readback_export"]
+    final_count_before = int(read_json(reference_path(root, final_reference))["event_count"])
+    pre_switch_count_before = int(
+        read_json(reference_path(root, pre_switch_reference))["event_count"]
+    )
 
     def mutate(payload: dict[str, Any]) -> None:
         payload["events"] = [
@@ -539,9 +621,8 @@ def mutate_required_event_missing(root: Path, raw: dict[str, Any], _config: S6BM
         ]
         payload["event_count"] = len(payload["events"])
 
-    gate = raw["continuity_execution"]["bridge_actor_receipt_gate"]
-    final_export = rewrite_reference(root, proof(raw)["causal_event_export"], mutate)
-    pre_switch_export = rewrite_reference(root, gate["raw_readback_export"], mutate)
+    final_export = rewrite_reference(root, final_reference, mutate)
+    pre_switch_export = rewrite_reference(root, pre_switch_reference, mutate)
     gate["events"] = [
         item
         for item in gate["events"]
@@ -554,7 +635,10 @@ def mutate_required_event_missing(root: Path, raw: dict[str, Any], _config: S6BM
     )
     gate["selected_event_set_sha256"] = canonical_sha256(gate["events"])
     gate["raw_readback_event_count"] = int(pre_switch_export["event_count"])
-    if int(final_export["event_count"]) != int(pre_switch_export["event_count"]):
+    if (
+        int(final_export["event_count"]) != final_count_before - 1
+        or int(pre_switch_export["event_count"]) != pre_switch_count_before - 1
+    ):
         raise ContinuityQualificationError("coherent_event_export_count")
 
 

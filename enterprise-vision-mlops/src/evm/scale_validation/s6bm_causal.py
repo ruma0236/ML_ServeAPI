@@ -666,6 +666,8 @@ def _validate_route_transition_receipt(
     return route_applied, {
         "transition_id": expected_transition_id,
         "fence_id": expected_fence_id,
+        "old_route_generation": transition_core["old_route_generation"],
+        "new_route_generation": transition_core["new_route_generation"],
         "fence_sequence": int(switch_event["causal_sequence"]),
         "fence_transaction_id": str(switch_event["transaction_id"]),
         "actor_process_id": int(actor["process_id"]),
@@ -917,6 +919,10 @@ def _validate_effects(
     if len(exported) != len(effects) or len(event_by_request) != len(effect_events):
         raise S6BMCausalError("s6bm_v4_durable_effect_duplicate")
     expected_transition = _transition_reference(switch_event)
+    switch_payload = dict(switch_event.get("payload", {}))
+    eligible_crossover_request_ids = sorted(
+        str(value) for value in switch_payload.get("pending_crossover_request_ids", [])
+    )
     for request_id, record in by_request.items():
         effect = exported[request_id]
         event = event_by_request[request_id]
@@ -970,7 +976,9 @@ def _validate_effects(
                 or receipt.get("transition_readback_visible") is not True
                 or expected_transition["attempt_id"] != record.get("attempt_id")
                 or expected_transition["run_id"] != record.get("run_id")
-                or expected_transition["request_id"] != request_id
+                or request_id not in eligible_crossover_request_ids
+                or len(eligible_crossover_request_ids)
+                != len(set(eligible_crossover_request_ids))
                 or expected_transition["old_route_generation"]
                 != int(record.get("route_generation", 0))
                 or expected_transition["new_route_generation"]

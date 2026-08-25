@@ -689,7 +689,7 @@ def start_api(
             "EVM_S6BM_REQUIRE_DURABLE_EFFECT": "1",
             "EVM_S6BM_REQUIRE_CAUSAL_FENCE": "1",
             "EVM_S6BM_CAUSAL_SWITCH_TIMEOUT_SECONDS": str(
-                config.procedure["drain_timeout_seconds"]
+                config.continuity["route_switch_barrier_timeout_seconds"]
             ),
             "EVM_S6BM_DATABASE_URL": CONTROL_PLANE_DATABASE_URL,
             "EVM_S6BM_DATABASE_SCHEMA": database_schema,
@@ -878,6 +878,52 @@ def controller_state(config: S6BMConfig) -> dict[str, Any]:
     return response.json()
 
 
+def remaining_deadline_seconds(
+    deadline_monotonic_ns: int,
+    *,
+    error: str = "continuity_route_switch_barrier_timeout",
+) -> float:
+    remaining = (int(deadline_monotonic_ns) - time.perf_counter_ns()) / 1_000_000_000
+    if remaining <= 0:
+        raise S6BMExperimentError(error)
+    return remaining
+
+
+def wait_route_switch_deadline(
+    config: S6BMConfig,
+    *,
+    owner_request_id: str,
+) -> dict[str, Any]:
+    """Read the actor-origin deadline created at designated crossover registration."""
+    registration_wait_deadline = time.monotonic() + float(
+        config.continuity["route_switch_barrier_timeout_seconds"]
+    )
+    latest: dict[str, Any] = {}
+    while time.monotonic() < registration_wait_deadline:
+        latest = controller_state(config)
+        if latest.get("route_switch_deadline_owner_request_id") == owner_request_id:
+            started = int(latest.get("route_switch_deadline_started_monotonic_ns") or 0)
+            deadline = int(latest.get("route_switch_deadline_monotonic_ns") or 0)
+            frozen_ns = int(
+                float(config.continuity["route_switch_barrier_timeout_seconds"])
+                * 1_000_000_000
+            )
+            if started <= 0 or deadline - started != frozen_ns:
+                raise S6BMExperimentError("continuity_route_switch_deadline_binding")
+            remaining_deadline_seconds(deadline)
+            return {
+                "owner_request_id": owner_request_id,
+                "started_monotonic_ns": started,
+                "deadline_monotonic_ns": deadline,
+                "timeout_seconds": float(
+                    config.continuity["route_switch_barrier_timeout_seconds"]
+                ),
+                "source": "api_control_plane_designated_crossover_registration",
+            }
+        time.sleep(0.01)
+    raise S6BMExperimentError("continuity_crossover_registration_timeout")
+
+
 def control_payload(
     config: S6BMConfig,
     lease: GpuLease,
@@ -922,13 +968,19 @@ def control_payload(
 
 
 def apply_control(
-    config: S6BMConfig, lease: GpuLease, action: str, **signals: Any
+    config: S6BMConfig,
+    lease: GpuLease,
+    action: str,
+    *,
+    deadline_monotonic_ns: int | None = None,
+    **signals: Any,
 ) -> dict[str, Any]:
-    timeout = (
-        float(config.continuity["route_switch_barrier_timeout_seconds"])
-        if action == "green_switched" and config.schema_version.endswith(".v4")
-        else 30.0
-    )
+    if action == "green_switched" and config.schema_version.endswith(".v4"):
+        if deadline_monotonic_ns is None:
+            raise S6BMExperimentError("continuity_route_switch_deadline_absent")
+        timeout = remaining_deadline_seconds(deadline_monotonic_ns)
+    else:
+        timeout = 30.0
     response = requests.post(
         api_url(config, "control"),
         json=control_payload(config, lease, action, **signals),
@@ -1001,6 +1053,7 @@ def request_body(
     expected_route_generation: int = 0,
     start_receipt_required: bool = False,
     causal_crossover: bool = False,
+    route_switch_deadline_owner: bool = False,
 ) -> dict[str, Any]:
     model = config.blue if expected_model_role == "blue" else config.green
     return {
@@ -1021,6 +1074,7 @@ def request_body(
         "expected_route_generation": expected_route_generation,
         "start_receipt_required": start_receipt_required,
         "causal_crossover": causal_crossover,
+        "route_switch_deadline_owner": route_switch_deadline_owner,
     }
 
 
@@ -1038,6 +1092,9 @@ def request_bodies_from_plan(
         causal = traffic_role == "causal_hold"
         start_receipt_required = bool(item.get("actor_receipt_required", False))
         causal_crossover = bool(item.get("causal_crossover", causal))
+        route_switch_deadline_owner = bool(
+            item.get("route_switch_deadline_owner", False)
+        )
         bodies.append(
             request_body(
                 config,
@@ -1049,6 +1106,7 @@ def request_bodies_from_plan(
                 expected_route_generation=route_generation,
                 start_receipt_required=start_receipt_required,
                 causal_crossover=causal_crossover,
+                route_switch_deadline_owner=route_switch_deadline_owner,
             )
         )
     return bodies
@@ -1062,16 +1120,18 @@ def start_triton_start_receipt_collector(
     body: Mapping[str, Any],
     source_revision: str,
     suite_id: str,
-    timeout: float | None = None,
+    deadline_monotonic_ns: int,
     artifact_scope: str | None = None,
 ) -> TraceCollectorProcess:
     request = TritonBlueGreenPredictRequest.model_validate(dict(body))
     identity = expected_causal_identity_for_request(request)
-    wait_seconds = (
-        float(config.procedure["drain_timeout_seconds"]) if timeout is None else float(timeout)
-    )
+    wait_seconds = float(config.continuity["route_switch_barrier_timeout_seconds"])
     if wait_seconds <= 0:
         raise S6BMExperimentError("triton_compute_start_trace_timeout_bound")
+    remaining_deadline_seconds(
+        deadline_monotonic_ns,
+        error="triton_compute_start_trace_timeout",
+    )
     root = suite_root / "causal" / identity.attempt_id
     if artifact_scope is not None:
         root = root / artifact_scope
@@ -1107,6 +1167,8 @@ def start_triton_start_receipt_collector(
         "image_digest": config.image_digest,
         "expected_gpu_uuid": capture_gpu()["uuid"],
         "timeout_seconds": wait_seconds,
+        "deadline_monotonic_ns": int(deadline_monotonic_ns),
+        "deadline_source": "api_control_plane_designated_crossover_registration",
     }
     canonical_write(spec_path, spec)
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1144,10 +1206,15 @@ def wait_triton_start_receipt_collector(
     collector: TraceCollectorProcess,
     *,
     suite_root: Path,
-    timeout: float,
+    deadline_monotonic_ns: int,
 ) -> dict[str, Any]:
     try:
-        return_code = collector.process.wait(timeout=timeout)
+        return_code = collector.process.wait(
+            timeout=remaining_deadline_seconds(
+                deadline_monotonic_ns,
+                error="triton_compute_start_trace_timeout",
+            )
+        )
     except subprocess.TimeoutExpired as exc:
         collector.process.kill()
         collector.process.wait(timeout=5)
@@ -1198,8 +1265,12 @@ def read_required_bridge_start_receipts(
     attempt_id: str,
     required_request_ids: Sequence[str],
     route_generation: int,
+    deadline_monotonic_ns: int,
 ) -> dict[str, Any]:
-    response = requests.get(api_url(config, f"causal-events/{attempt_id}"), timeout=30)
+    response = requests.get(
+        api_url(config, f"causal-events/{attempt_id}"),
+        timeout=remaining_deadline_seconds(deadline_monotonic_ns),
+    )
     response.raise_for_status()
     payload = response.json()
     readback_path = suite_root / "causal" / attempt_id / "bridge-start-receipts-pre-switch.json"
@@ -1318,6 +1389,7 @@ def bind_pre_switch_terminal_gate(
     expected_bodies: Mapping[str, Mapping[str, Any]],
     response_records: Mapping[str, Mapping[str, Any]],
     terminal_gate: dict[str, Any],
+    deadline_monotonic_ns: int,
 ) -> dict[str, Any]:
     """Bind online Blue responses to committed PG entity/event readback before switch."""
     expected_ids = sorted(expected_bodies)
@@ -1326,8 +1398,14 @@ def bind_pre_switch_terminal_gate(
         or sorted(response_records) != expected_ids
     ):
         raise S6BMExperimentError("continuity_pre_switch_terminal_exact_set")
-    effects_response = requests.get(api_url(config, f"effects/{attempt_id}"), timeout=30)
-    events_response = requests.get(api_url(config, f"causal-events/{attempt_id}"), timeout=30)
+    effects_response = requests.get(
+        api_url(config, f"effects/{attempt_id}"),
+        timeout=remaining_deadline_seconds(deadline_monotonic_ns),
+    )
+    events_response = requests.get(
+        api_url(config, f"causal-events/{attempt_id}"),
+        timeout=remaining_deadline_seconds(deadline_monotonic_ns),
+    )
     effects_response.raise_for_status()
     events_response.raise_for_status()
     effects_export = effects_response.json()
@@ -1573,8 +1651,8 @@ def run_fixed_bridge_producer(
     config: S6BMConfig,
     bodies: Sequence[Mapping[str, Any]],
     schedule: Sequence[Mapping[str, Any]],
-    collect_required_actor_receipts: Callable[[], dict[str, Any]],
-    on_switch_ready: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
+    collect_required_actor_receipts: Callable[[int], dict[str, Any]],
+    on_switch_ready: Callable[[dict[str, Any], dict[str, Any], int], dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     """Finish 39 Blue requests before switching and release one exact waiter."""
     if len(bodies) != len(schedule):
@@ -1607,6 +1685,8 @@ def run_fixed_bridge_producer(
     if len(crossover_ids) != 1:
         raise S6BMExperimentError("continuity_crossover_exact_set")
     crossover_id = crossover_ids[0]
+    barrier_deadline_ns: int | None = None
+    deadline_state: dict[str, Any] | None = None
 
     def dispatch(body: Mapping[str, Any]) -> dict[str, Any]:
         session = getattr(local, "session", None)
@@ -1634,7 +1714,7 @@ def run_fixed_bridge_producer(
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as gate_pool:
-            gate_future = gate_pool.submit(collect_required_actor_receipts)
+            gate_future: concurrent.futures.Future[dict[str, Any]] | None = None
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
                 for body, planned in zip(bodies, schedule, strict=True):
                     target = producer_started + int(planned["scheduled_offset_ms"]) / 1000.0
@@ -1642,7 +1722,12 @@ def run_fixed_bridge_producer(
                     if remaining > 0:
                         time.sleep(remaining)
                     wait_started = time.perf_counter()
-                    if not slots.acquire(timeout=barrier_timeout):
+                    slot_timeout = (
+                        remaining_deadline_seconds(barrier_deadline_ns)
+                        if barrier_deadline_ns is not None
+                        else barrier_timeout
+                    )
+                    if not slots.acquire(timeout=slot_timeout):
                         raise S6BMExperimentError("continuity_capacity_wait_timeout")
                     wait_finished = time.perf_counter()
                     payload_bytes = len(canonical(dict(body)).encode("ascii"))
@@ -1662,7 +1747,8 @@ def run_fixed_bridge_producer(
                     future = pool.submit(dispatch, body)
                     future.add_done_callback(lambda _future, size=payload_bytes: release_slot(size))
                     futures.append(future)
-                    futures_by_request[str(body["request_id"])] = future
+                    request_id = str(body["request_id"])
+                    futures_by_request[request_id] = future
                     dispatch_meta.append(
                         {
                             "request_id": str(body["request_id"]),
@@ -1677,14 +1763,24 @@ def run_fixed_bridge_producer(
                             "capacity_wait_ms": (wait_finished - wait_started) * 1000.0,
                         }
                     )
+                    if request_id == crossover_id:
+                        deadline_state = wait_route_switch_deadline(
+                            config,
+                            owner_request_id=crossover_id,
+                        )
+                        barrier_deadline_ns = int(
+                            deadline_state["deadline_monotonic_ns"]
+                        )
+                        gate_future = gate_pool.submit(
+                            collect_required_actor_receipts,
+                            barrier_deadline_ns,
+                        )
                 all_submitted = time.perf_counter()
-                barrier_deadline = all_submitted + barrier_timeout
+                if gate_future is None or barrier_deadline_ns is None or deadline_state is None:
+                    raise S6BMExperimentError("continuity_route_switch_deadline_absent")
 
                 def remaining_barrier_time() -> float:
-                    remaining = barrier_deadline - time.perf_counter()
-                    if remaining <= 0:
-                        raise S6BMExperimentError("continuity_route_switch_barrier_timeout")
-                    return remaining
+                    return remaining_deadline_seconds(barrier_deadline_ns)
 
                 receipt_proof = gate_future.result(timeout=remaining_barrier_time())
                 expected_terminal_ids = sorted(
@@ -1781,9 +1877,12 @@ def run_fixed_bridge_producer(
                     "all_submitted_monotonic": all_submitted,
                     "all_non_crossover_terminal_monotonic": time.perf_counter(),
                 }
-                transition = on_switch_ready(receipt_proof, terminal_gate)
-                if time.perf_counter() > barrier_deadline:
-                    raise S6BMExperimentError("continuity_route_switch_barrier_timeout")
+                transition = on_switch_ready(
+                    receipt_proof,
+                    terminal_gate,
+                    barrier_deadline_ns,
+                )
+                remaining_barrier_time()
                 receipt_observed = float(transition["transition_receipt_observed_monotonic"])
                 records = [
                     future.result(timeout=remaining_barrier_time()) for future in futures
@@ -1812,6 +1911,8 @@ def run_fixed_bridge_producer(
             "plus_exact2_pending_crossovers"
         ),
         "crossover_request_id": crossover_id,
+        "route_switch_deadline": deadline_state,
+        "route_switch_deadline_monotonic_ns": barrier_deadline_ns,
         "pre_switch_terminal_gate": terminal_gate,
         "dispatches": dispatch_meta,
         "max_reserved_requests_observed": max_reserved_count,
@@ -2746,14 +2847,6 @@ def run_success(
         hold_identity = expected_causal_identity_for_request(
             TritonBlueGreenPredictRequest.model_validate(hold_body)
         ).model_dump(mode="json")
-        collector = start_triton_start_receipt_collector(
-            config,
-            suite_root=suite_root,
-            checkpoint=observability_checkpoint,
-            body=hold_body,
-            source_revision=source["revision"],
-            suite_id=suite_id,
-        )
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             hold_future = pool.submit(send_request, config, hold_body)
             wait_in_flight(config, "blue", 1, 5)
@@ -2782,10 +2875,22 @@ def run_success(
                 [str(hold_identity["request_id"]), crossover_bridge_id]
             )
             bridge_bodies_by_id = {str(body["request_id"]): body for body in bridge_bodies}
-            bridge_collectors: list[TraceCollectorProcess] = []
-            try:
-                for request_id in required_bridge_ids:
-                    bridge_collectors.append(
+            def collect_bridge_receipt_proof(
+                deadline_monotonic_ns: int,
+            ) -> dict[str, Any]:
+                collectors = [
+                    start_triton_start_receipt_collector(
+                        config,
+                        suite_root=suite_root,
+                        checkpoint=observability_checkpoint,
+                        body=hold_body,
+                        source_revision=source["revision"],
+                        suite_id=suite_id,
+                        deadline_monotonic_ns=deadline_monotonic_ns,
+                    )
+                ]
+                try:
+                    collectors.extend(
                         start_triton_start_receipt_collector(
                             config,
                             suite_root=suite_root,
@@ -2793,50 +2898,48 @@ def run_success(
                             body=bridge_bodies_by_id[request_id],
                             source_revision=source["revision"],
                             suite_id=suite_id,
+                            deadline_monotonic_ns=deadline_monotonic_ns,
                             artifact_scope=f"bridge-receipts/{request_id}",
                         )
+                        for request_id in required_bridge_ids
                     )
-            except Exception:
-                stop_trace_collectors(bridge_collectors)
-                raise
-
-            def collect_bridge_receipt_proof() -> dict[str, Any]:
-                triton_receipt = wait_triton_start_receipt_collector(
-                    collector,
-                    suite_root=suite_root,
-                    timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
-                )
-                bridge_triton_receipts = [
-                    wait_triton_start_receipt_collector(
-                        item,
+                    results = [
+                        wait_triton_start_receipt_collector(
+                            item,
+                            suite_root=suite_root,
+                            deadline_monotonic_ns=deadline_monotonic_ns,
+                        )
+                        for item in collectors
+                    ]
+                    triton_receipt = results[0]
+                    bridge_triton_receipts = results[1:]
+                    bridge_receipt_gate = read_required_bridge_start_receipts(
+                        config,
                         suite_root=suite_root,
-                        timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
+                        attempt_id=attempt_id,
+                        required_request_ids=required_bridge_ids,
+                        route_generation=hold_generation,
+                        deadline_monotonic_ns=deadline_monotonic_ns,
                     )
-                    for item in bridge_collectors
-                ]
-                bridge_receipt_gate = read_required_bridge_start_receipts(
-                    config,
-                    suite_root=suite_root,
-                    attempt_id=attempt_id,
-                    required_request_ids=required_bridge_ids,
-                    route_generation=hold_generation,
-                )
-                bridge_receipt_gate["collector_request_ids"] = [
-                    str(item["request_id"]) for item in bridge_triton_receipts
-                ]
-                bridge_receipt_gate["collector_request_set_sha256"] = canonical_sha256(
-                    bridge_receipt_gate["collector_request_ids"]
-                )
-                bridge_receipt_gate["gate_satisfied_monotonic"] = time.perf_counter()
-                return {
-                    "triton_start_receipt": triton_receipt,
-                    "bridge_triton_start_receipts": bridge_triton_receipts,
-                    "bridge_actor_receipt_gate": bridge_receipt_gate,
-                }
+                    bridge_receipt_gate["collector_request_ids"] = [
+                        str(item["request_id"]) for item in bridge_triton_receipts
+                    ]
+                    bridge_receipt_gate["collector_request_set_sha256"] = canonical_sha256(
+                        bridge_receipt_gate["collector_request_ids"]
+                    )
+                    bridge_receipt_gate["gate_satisfied_monotonic"] = time.perf_counter()
+                    return {
+                        "triton_start_receipt": triton_receipt,
+                        "bridge_triton_start_receipts": bridge_triton_receipts,
+                        "bridge_actor_receipt_gate": bridge_receipt_gate,
+                    }
+                finally:
+                    stop_trace_collectors(collectors)
 
             def switch_after_fixed_schedule(
                 receipt_proof: dict[str, Any],
                 terminal_gate: dict[str, Any],
+                deadline_monotonic_ns: int,
             ) -> dict[str, Any]:
                 expected_terminal_bodies = {
                     request_id: body
@@ -2853,6 +2956,7 @@ def run_success(
                         for item in terminal_gate.get("online_response_records", [])
                     },
                     terminal_gate=terminal_gate,
+                    deadline_monotonic_ns=deadline_monotonic_ns,
                 )
                 state_before_switch = controller_state(config)
                 if (
@@ -2878,6 +2982,7 @@ def run_success(
                     config,
                     lease,
                     "green_switched",
+                    deadline_monotonic_ns=deadline_monotonic_ns,
                     causal_crossover=hold_identity,
                     continuity_receipt_request_ids=sorted(required_bridge_ids),
                     continuity_crossover_request_ids=[crossover_bridge_id],
@@ -2936,18 +3041,16 @@ def run_success(
                     "bridge_triton_start_receipts": receipt_proof["bridge_triton_start_receipts"],
                     "bridge_actor_receipt_gate": receipt_proof["bridge_actor_receipt_gate"],
                     "pre_switch_terminal_gate": terminal_gate,
+                    "route_switch_deadline_monotonic_ns": deadline_monotonic_ns,
                 }
 
-            try:
-                bridge_records, continuity_execution, transition = run_fixed_bridge_producer(
-                    config,
-                    bridge_bodies,
-                    traffic_plan["roles"]["bridge"],
-                    collect_bridge_receipt_proof,
-                    switch_after_fixed_schedule,
-                )
-            finally:
-                stop_trace_collectors(bridge_collectors)
+            bridge_records, continuity_execution, transition = run_fixed_bridge_producer(
+                config,
+                bridge_bodies,
+                traffic_plan["roles"]["bridge"],
+                collect_bridge_receipt_proof,
+                switch_after_fixed_schedule,
+            )
             continuity_execution.update(
                 {
                     "plan_sha256": traffic_plan["plan_sha256"],
@@ -3192,30 +3295,38 @@ def run_causal_qualification(
         hold_ms=int(config.procedure["long_in_flight_hold_ms"]),
         expected_route_generation=hold_generation,
         causal_crossover=True,
+        route_switch_deadline_owner=True,
     )
     hold_identity = expected_causal_identity_for_request(
         TritonBlueGreenPredictRequest.model_validate(hold_body)
     ).model_dump(mode="json")
-    collector = start_triton_start_receipt_collector(
-        config,
-        suite_root=suite_root,
-        checkpoint=checkpoint,
-        body=hold_body,
-        source_revision=source["revision"],
-        suite_id=suite_id,
-    )
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         hold_future = pool.submit(send_request, config, hold_body)
         wait_in_flight(config, "blue", 1, 5)
+        deadline_state = wait_route_switch_deadline(
+            config,
+            owner_request_id=str(hold_identity["request_id"]),
+        )
+        deadline_monotonic_ns = int(deadline_state["deadline_monotonic_ns"])
+        collector = start_triton_start_receipt_collector(
+            config,
+            suite_root=suite_root,
+            checkpoint=checkpoint,
+            body=hold_body,
+            source_revision=source["revision"],
+            suite_id=suite_id,
+            deadline_monotonic_ns=deadline_monotonic_ns,
+        )
         triton_start_receipt = wait_triton_start_receipt_collector(
             collector,
             suite_root=suite_root,
-            timeout=float(config.procedure["drain_timeout_seconds"]) + 5,
+            deadline_monotonic_ns=deadline_monotonic_ns,
         )
         switch_state = apply_control(
             config,
             lease,
             "green_switched",
+            deadline_monotonic_ns=deadline_monotonic_ns,
             causal_crossover=hold_identity,
             pending_crossover_request_ids=[str(hold_identity["request_id"])],
         )

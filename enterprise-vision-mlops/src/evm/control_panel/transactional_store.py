@@ -1110,27 +1110,33 @@ class TransactionalControlPlaneStore:
         identity: Mapping[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         schema = _safe_identifier(self.configuration.schema)
-        row = connection.execute(
+        rows = connection.execute(
             f"""
             SELECT * FROM {schema}.s6bm_causal_events
-            WHERE attempt_id=%s AND request_id=%s
+            WHERE attempt_id=%s AND run_id=%s
               AND event_type='blue_to_green_switch_commit'
             FOR SHARE
             """,
-            (identity["attempt_id"], identity["request_id"]),
-        ).fetchone()
-        if row is None:
+            (identity["attempt_id"], identity["run_id"]),
+        ).fetchall()
+        if not rows:
             raise ControlPlaneParityError("S6B-M crossover effect preceded route switch")
-        event = self._s6bm_causal_row(row)
+        if len(rows) != 1:
+            raise ControlPlaneParityError("S6B-M crossover transition fence is ambiguous")
+        event = self._s6bm_causal_row(rows[0])
         payload = dict(event["payload"])
         reference = self._s6bm_transition_reference(event)
+        eligible_request_ids = sorted(
+            str(value) for value in payload.get("pending_crossover_request_ids", [])
+        )
         if (
             payload.get("schema_version") != "evm.s6bm.route_switch_fence.v2"
             or not reference["transition_id"]
             or not reference["fence_id"]
             or reference["attempt_id"] != identity["attempt_id"]
             or reference["run_id"] != identity["run_id"]
-            or reference["request_id"] != identity["request_id"]
+            or identity["request_id"] not in eligible_request_ids
+            or len(eligible_request_ids) != len(set(eligible_request_ids))
             or reference["old_route_generation"] != int(identity["route_generation"])
             or reference["new_route_generation"] != reference["old_route_generation"] + 1
             or reference["fence_sequence"] <= 0
@@ -2258,7 +2264,7 @@ class TransactionalControlPlaneStore:
                 (entity_kind, entity_id, scope, idempotency_key),
             ).fetchone()
             causal_row = None
-            transition_row = None
+            transition_readback = None
             if causal_payload is not None:
                 identity = _validate_s6bm_causal_identity(causal_payload)
                 causal_row = connection.execute(
@@ -2270,14 +2276,12 @@ class TransactionalControlPlaneStore:
                     (identity["attempt_id"], identity["request_id"]),
                 ).fetchone()
                 if causal_payload.get("requires_switch_before_effect") is True:
-                    transition_row = connection.execute(
-                        f"""
-                        SELECT * FROM {schema}.s6bm_causal_events
-                        WHERE attempt_id=%s AND request_id=%s
-                          AND event_type='blue_to_green_switch_commit'
-                        """,
-                        (identity["attempt_id"], identity["request_id"]),
-                    ).fetchone()
+                    transition_readback, _transition_reference = (
+                        self._lock_s6bm_committed_transition(
+                            connection,
+                            identity=identity,
+                        )
+                    )
         readback_finished_monotonic_ns = time.perf_counter_ns()
         if row is None:
             raise ControlPlaneParityError("terminal effect was not visible after commit ACK")
@@ -2296,9 +2300,6 @@ class TransactionalControlPlaneStore:
         if row["readback_at"] < database_recorded_at:
             raise ControlPlaneParityError("terminal effect readback clock regressed")
         causal_readback = self._s6bm_causal_row(causal_row) if causal_row is not None else None
-        transition_readback = (
-            self._s6bm_causal_row(transition_row) if transition_row is not None else None
-        )
         if causal_payload is not None:
             if causal_readback is None:
                 raise ControlPlaneParityError("terminal causal event was not visible after commit")

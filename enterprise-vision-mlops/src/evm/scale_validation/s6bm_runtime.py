@@ -491,6 +491,7 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
         hold_ms: int = 0,
         actor_receipt_required: bool = False,
         causal_crossover: bool = False,
+        route_switch_deadline_owner: bool = False,
     ) -> dict[str, Any]:
         nonlocal ordinal
         value = {
@@ -501,6 +502,7 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
             "hold_ms": hold_ms,
             "actor_receipt_required": actor_receipt_required,
             "causal_crossover": causal_crossover,
+            "route_switch_deadline_owner": route_switch_deadline_owner,
         }
         if scheduled_offset_ms is not None:
             value["scheduled_offset_ms"] = scheduled_offset_ms
@@ -542,6 +544,7 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
                 hold_ms=(int(continuity["bridge_hold_ms"]) if index >= held_start else 0),
                 actor_receipt_required=index < receipt_count,
                 causal_crossover=index < crossover_count,
+                route_switch_deadline_owner=index < crossover_count,
             )
         )
     normal = [
@@ -581,6 +584,11 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
     crossover_request_ids = [
         str(item["request_id"]) for item in bridge if item["causal_crossover"] is True
     ]
+    deadline_owner_request_ids = [
+        str(item["request_id"])
+        for item in bridge
+        if item["route_switch_deadline_owner"] is True
+    ]
     bridge_subsets = {
         "receipt_required": {
             "request_ids": receipt_request_ids,
@@ -594,11 +602,16 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
             "request_ids": crossover_request_ids,
             "request_set_sha256": canonical_sha256(crossover_request_ids),
         },
+        "deadline_owner": {
+            "request_ids": deadline_owner_request_ids,
+            "request_set_sha256": canonical_sha256(deadline_owner_request_ids),
+        },
     }
     if (
         len(receipt_request_ids) != receipt_count
         or len(held_request_ids) != held_count
         or len(crossover_request_ids) != crossover_count
+        or deadline_owner_request_ids != crossover_request_ids
         or not set(crossover_request_ids).issubset(receipt_request_ids)
         or set(receipt_request_ids) & set(held_request_ids)
     ):
@@ -934,6 +947,33 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
         raise S6BMRuntimeError("s6bm_continuity_switch_gate_basis")
     if not switch_invoked <= route_applied <= receipt_observed:
         raise S6BMRuntimeError("s6bm_continuity_actor_receipt_order")
+    deadline_owner_ids = [
+        str(item["request_id"])
+        for item in expected_plan["roles"]["bridge"]
+        if item.get("route_switch_deadline_owner") is True
+    ]
+    deadline_evidence = dict(execution.get("route_switch_deadline", {}))
+    deadline_started_ns = int(deadline_evidence.get("started_monotonic_ns", 0))
+    deadline_ns = int(deadline_evidence.get("deadline_monotonic_ns", 0))
+    frozen_deadline_ns = int(
+        float(config.continuity["route_switch_barrier_timeout_seconds"]) * 1_000_000_000
+    )
+    if (
+        len(deadline_owner_ids) != 1
+        or deadline_evidence.get("owner_request_id") != deadline_owner_ids[0]
+        or deadline_evidence.get("source")
+        != "api_control_plane_designated_crossover_registration"
+        or deadline_started_ns <= int(producer_started * 1e9)
+        or deadline_ns - deadline_started_ns != frozen_deadline_ns
+        or int(execution.get("route_switch_deadline_monotonic_ns", 0)) != deadline_ns
+        or int(receipt_observed * 1e9) >= deadline_ns
+        or transition.get("route_switch_deadline_owner_request_id")
+        != deadline_owner_ids[0]
+        or int(transition.get("route_switch_deadline_started_monotonic_ns", 0))
+        != deadline_started_ns
+        or int(transition.get("route_switch_deadline_monotonic_ns", 0)) != deadline_ns
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_route_switch_deadline")
     if int(execution.get("blue_in_flight_before_switch", -1)) < int(
         config.continuity["minimum_blue_in_flight_at_switch"]
     ):
@@ -963,6 +1003,10 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
         "crossover": {
             "request_ids": crossover_bridge_ids,
             "request_set_sha256": canonical_sha256(crossover_bridge_ids),
+        },
+        "deadline_owner": {
+            "request_ids": deadline_owner_ids,
+            "request_set_sha256": canonical_sha256(deadline_owner_ids),
         },
     }
     if (

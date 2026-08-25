@@ -278,6 +278,7 @@ class TritonBlueGreenPredictRequest(ContractModel):
     expected_route_generation: int = Field(default=0, ge=0)
     start_receipt_required: bool = False
     causal_crossover: bool = False
+    route_switch_deadline_owner: bool = False
 
     @field_validator("traceparent")
     @classmethod
@@ -306,6 +307,8 @@ class TritonBlueGreenPredictRequest(ContractModel):
             raise ValueError("start receipt requires Blue identity, nonce, and route generation")
         if self.causal_crossover and self.hold_ms <= 0 and not self.start_receipt_required:
             raise ValueError("crossover request requires a hold or a committed start receipt")
+        if self.route_switch_deadline_owner and not self.causal_crossover:
+            raise ValueError("route-switch deadline owner must be a crossover request")
         return self
 
 
@@ -424,6 +427,9 @@ class TritonBlueGreenStateResponse(ContractModel):
     used_approvals: int = 0
     pending_crossover_request_ids: list[str] = Field(default_factory=list)
     pending_crossover_count: int = 0
+    route_switch_deadline_owner_request_id: str | None = None
+    route_switch_deadline_started_monotonic_ns: int | None = None
+    route_switch_deadline_monotonic_ns: int | None = None
     transition_receipt: dict[str, Any] | None = None
 
 
@@ -437,6 +443,9 @@ class _State:
     in_flight: dict[ModelRole, int] = field(default_factory=lambda: {"blue": 0, "green": 0})
     responses: dict[str, tuple[str, TritonBlueGreenPredictResponse]] = field(default_factory=dict)
     crossover_switch_events: dict[str, threading.Event] = field(default_factory=dict)
+    route_switch_deadline_owner_request_id: str | None = None
+    route_switch_deadline_started_monotonic_ns: int | None = None
+    route_switch_deadline_monotonic_ns: int | None = None
     used_approvals: set[str] = field(default_factory=set)
     duplicate_replays: int = 0
     last_transition_receipt: dict[str, Any] | None = None
@@ -687,6 +696,22 @@ class TritonBlueGreenManager:
                         state.crossover_switch_events[request_id]
                         for request_id in pending_crossover_ids
                     ]
+                    deadline_owner = (
+                        request.continuity_crossover_request_ids[0]
+                        if request.continuity_crossover_request_ids
+                        else crossover.request_id
+                    )
+                    if (
+                        state.route_switch_deadline_owner_request_id != deadline_owner
+                        or state.route_switch_deadline_started_monotonic_ns is None
+                        or state.route_switch_deadline_monotonic_ns is None
+                        or time.perf_counter_ns() >= state.route_switch_deadline_monotonic_ns
+                    ):
+                        raise TritonBlueGreenError(
+                            "causal_switch_deadline_mismatch",
+                            request.action,
+                            status_code=409,
+                        )
                 if request.action == "blue_unloaded":
                     fence_context["pre_switch_blue_effects"] = sorted(
                         (
@@ -795,6 +820,8 @@ class TritonBlueGreenManager:
                     > int(fence_receipt["readback_finished_monotonic_ns"])
                     or int(fence_receipt["readback_finished_monotonic_ns"])
                     > route_applied_monotonic_ns
+                    or state.route_switch_deadline_monotonic_ns is None
+                    or route_applied_monotonic_ns >= state.route_switch_deadline_monotonic_ns
                     or state.generation != request.expected_generation + 1
                     or state.phase != "green_active"
                     or state.weights != {"blue": 0, "green": 100}
@@ -856,6 +883,15 @@ class TritonBlueGreenManager:
                         canonical(pending_crossover_ids).encode("ascii")
                     ).hexdigest(),
                     "pending_crossover_count": len(pending_crossover_ids),
+                    "route_switch_deadline_owner_request_id": (
+                        state.route_switch_deadline_owner_request_id
+                    ),
+                    "route_switch_deadline_started_monotonic_ns": (
+                        state.route_switch_deadline_started_monotonic_ns
+                    ),
+                    "route_switch_deadline_monotonic_ns": (
+                        state.route_switch_deadline_monotonic_ns
+                    ),
                     "continuity_terminal_request_ids": list(
                         request.continuity_terminal_request_ids
                     ),
@@ -994,6 +1030,28 @@ class TritonBlueGreenManager:
                 if request.causal_crossover:
                     switch_event = threading.Event()
                     state.crossover_switch_events[request.request_id] = switch_event
+                    if request.route_switch_deadline_owner:
+                        if state.route_switch_deadline_owner_request_id is not None:
+                            raise TritonBlueGreenError(
+                                "causal_switch_deadline_owner_conflict",
+                                request.request_id,
+                                status_code=409,
+                            )
+                        timeout_seconds = float(
+                            os.getenv("EVM_S6BM_CAUSAL_SWITCH_TIMEOUT_SECONDS", "15")
+                        )
+                        if timeout_seconds <= 0:
+                            raise TritonBlueGreenError(
+                                "causal_switch_deadline_invalid",
+                                request.request_id,
+                                status_code=503,
+                            )
+                        deadline_started = time.perf_counter_ns()
+                        state.route_switch_deadline_owner_request_id = request.request_id
+                        state.route_switch_deadline_started_monotonic_ns = deadline_started
+                        state.route_switch_deadline_monotonic_ns = deadline_started + int(
+                            timeout_seconds * 1_000_000_000
+                        )
 
         started = time.perf_counter()
         effect_id = _effect_id(request, identity)
@@ -1111,8 +1169,19 @@ class TritonBlueGreenManager:
                             request.request_id,
                             status_code=503,
                         )
-                    timeout = float(os.getenv("EVM_S6BM_CAUSAL_SWITCH_TIMEOUT_SECONDS", "15"))
-                    if timeout <= 0 or not await asyncio.to_thread(switch_event.wait, timeout):
+                    with self._lock:
+                        current = self._require_state(request.run_id)
+                        deadline = current.route_switch_deadline_monotonic_ns
+                    if deadline is None:
+                        raise TritonBlueGreenError(
+                            "causal_switch_deadline_absent",
+                            request.request_id,
+                            status_code=503,
+                        )
+                    remaining = (deadline - time.perf_counter_ns()) / 1_000_000_000
+                    if remaining <= 0 or not await asyncio.to_thread(
+                        switch_event.wait, remaining
+                    ):
                         raise TritonBlueGreenError(
                             "causal_switch_wait_timeout",
                             request.request_id,
@@ -1200,6 +1269,10 @@ class TritonBlueGreenManager:
                     and current.request.run_id == request.run_id
                 ):
                     current.crossover_switch_events.pop(request.request_id, None)
+                    if not current.crossover_switch_events:
+                        current.route_switch_deadline_owner_request_id = None
+                        current.route_switch_deadline_started_monotonic_ns = None
+                        current.route_switch_deadline_monotonic_ns = None
                     current.in_flight[role] = max(0, current.in_flight[role] - 1)
                     IN_FLIGHT.labels(role, identity.model_name, identity.model_version).set(
                         current.in_flight[role]
@@ -1356,6 +1429,13 @@ class TritonBlueGreenManager:
                 used_approvals=len(state.used_approvals),
                 pending_crossover_request_ids=sorted(state.crossover_switch_events),
                 pending_crossover_count=len(state.crossover_switch_events),
+                route_switch_deadline_owner_request_id=(
+                    state.route_switch_deadline_owner_request_id
+                ),
+                route_switch_deadline_started_monotonic_ns=(
+                    state.route_switch_deadline_started_monotonic_ns
+                ),
+                route_switch_deadline_monotonic_ns=state.route_switch_deadline_monotonic_ns,
                 transition_receipt=(
                     dict(state.last_transition_receipt)
                     if state.last_transition_receipt is not None

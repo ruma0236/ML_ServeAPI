@@ -250,6 +250,7 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
         expected_artifact_sha256="c" * 64,
         expected_route_generation=manager.snapshot().generation,
         causal_crossover=True,
+        route_switch_deadline_owner=True,
     )
     identity = expected_causal_identity_for_request(request)
     start_stages: list[str] = []
@@ -442,6 +443,7 @@ def test_s6bm_crossover_waits_for_switch_and_times_out_fail_closed(
         expected_artifact_sha256="c" * 64,
         expected_route_generation=manager.snapshot().generation,
         causal_crossover=True,
+        route_switch_deadline_owner=True,
     )
 
     async def start_committer(
@@ -580,6 +582,7 @@ def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
             expected_route_generation=generation,
             start_receipt_required=receipt_required,
             causal_crossover=True,
+            route_switch_deadline_owner=receipt_required,
         )
 
     def blue_request_id(prefix: str) -> str:
@@ -661,7 +664,16 @@ def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
             manager.predict(bridge_request, start_receipt_committer=start_committer)
         )
         await asyncio.sleep(0.01)
-        assert manager.snapshot().pending_crossover_request_ids == pending_ids
+        pre_switch = manager.snapshot()
+        assert pre_switch.pending_crossover_request_ids == pending_ids
+        assert pre_switch.route_switch_deadline_owner_request_id == bridge_request.request_id
+        assert pre_switch.route_switch_deadline_started_monotonic_ns is not None
+        assert pre_switch.route_switch_deadline_monotonic_ns is not None
+        assert (
+            pre_switch.route_switch_deadline_monotonic_ns
+            - pre_switch.route_switch_deadline_started_monotonic_ns
+            == 15_000_000_000
+        )
         switched = manager.control(
             control_request(
                 manager,
@@ -679,8 +691,15 @@ def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
         assert switched.transition_receipt is not None
         assert switched.transition_receipt["pending_crossover_request_ids"] == pending_ids
         assert switched.transition_receipt["released_crossover_request_ids"] == pending_ids
+        assert (
+            switched.transition_receipt["route_switch_deadline_owner_request_id"]
+            == bridge_request.request_id
+        )
         await asyncio.gather(hold_task, bridge_task)
-        assert manager.snapshot().pending_crossover_count == 0
+        final = manager.snapshot()
+        assert final.pending_crossover_count == 0
+        assert final.route_switch_deadline_owner_request_id is None
+        assert final.route_switch_deadline_monotonic_ns is None
 
     asyncio.run(scenario())
 

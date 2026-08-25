@@ -27,7 +27,9 @@ from evm.scale_validation.s6bm_causal import (
     _unix_nano,
     _validate_continuity_receipt_switch_fence,
     _validate_hold_effect_span_order,
+    validate_causal_bundle,
 )
+from tests.s6bm_causal_fixture import materialize_causal_mutation_bundle
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -722,6 +724,10 @@ def v4_continuity_attempt() -> dict[str, object]:
     ]
     causal_hold_ids = [item["request_id"] for item in plan["roles"]["causal_hold"]]
     pending_crossover_ids = sorted(causal_hold_ids + crossover_bridge_ids)
+    deadline_started_ns = int(86.01 * 1e9)
+    deadline_ns = deadline_started_ns + int(
+        float(config.continuity["route_switch_barrier_timeout_seconds"]) * 1e9
+    )
     pre_switch_terminal_ids = sorted(
         item["request_id"]
         for item in plan["roles"]["bridge"]
@@ -832,6 +838,16 @@ def v4_continuity_attempt() -> dict[str, object]:
                 "plus_exact2_pending_crossovers"
             ),
             "blue_in_flight_before_switch": 2,
+            "route_switch_deadline": {
+                "owner_request_id": crossover_bridge_ids[0],
+                "started_monotonic_ns": deadline_started_ns,
+                "deadline_monotonic_ns": deadline_ns,
+                "timeout_seconds": float(
+                    config.continuity["route_switch_barrier_timeout_seconds"]
+                ),
+                "source": "api_control_plane_designated_crossover_registration",
+            },
+            "route_switch_deadline_monotonic_ns": deadline_ns,
             "pre_switch_state": {
                 "generation": 2,
                 "phase": "canary",
@@ -948,6 +964,9 @@ def v4_continuity_attempt() -> dict[str, object]:
                 ),
                 "crossover_release_monotonic_ns": int(93.002 * 1e9),
                 "crossover_release_basis": ("fence_commit_readback_and_route_applied"),
+                "route_switch_deadline_owner_request_id": crossover_bridge_ids[0],
+                "route_switch_deadline_started_monotonic_ns": deadline_started_ns,
+                "route_switch_deadline_monotonic_ns": deadline_ns,
             }
         },
         "request_records": records,
@@ -1035,7 +1054,21 @@ def test_s6bm_v4_continuity_plan_is_exact_and_frozen() -> None:
     assert [item["ordinal"] for item in held_bridge] == [137, 138, 139, 140]
     assert all(item["hold_ms"] == 400 for item in held_bridge)
     assert [item["request_id"] for item in crossover_bridge] == [required_bridge[0]["request_id"]]
-    assert set(plan["bridge_subsets"]) == {"receipt_required", "held", "crossover"}
+    deadline_owners = [
+        item for item in plan["roles"]["bridge"] if item["route_switch_deadline_owner"] is True
+    ]
+    assert [item["request_id"] for item in deadline_owners] == [
+        required_bridge[0]["request_id"]
+    ]
+    assert set(plan["bridge_subsets"]) == {
+        "receipt_required",
+        "held",
+        "crossover",
+        "deadline_owner",
+    }
+    assert plan["bridge_subsets"]["deadline_owner"]["request_ids"] == [
+        required_bridge[0]["request_id"]
+    ]
 
 
 def test_s6bm_v4_continuity_projection_uses_all_durable_terminal_completions() -> None:
@@ -1056,15 +1089,27 @@ def test_s6bm_v4_synthetic_runtime_mutation_cases_reject_exact_reasons(
     validator = load_continuity_mutation_validator()
     config = S6BMConfig.from_path(V4_CONFIG)
     raw = v4_continuity_attempt()
+    runtime_root = tmp_path / "runtime-positive"
+    runtime_root.mkdir()
+    causal_root = tmp_path / "causal-positive"
+    causal_raw = materialize_causal_mutation_bundle(causal_root, raw, config)
 
     assert project_success_attempt(raw, config)["passed"] is True
-    results = [
-        validator.run_case(tmp_path, raw, config, case_id)
-        for case_id, (_reason, _mutate, kind) in validator.MUTATIONS.items()
-        if kind in {"continuity", "success"}
-    ]
+    assert validate_causal_bundle(
+        causal_root, causal_raw, config, compare_projection=False
+    )["passed"] is True
+    results = []
+    for case_id, (_reason, _mutate, kind) in validator.MUTATIONS.items():
+        source_root, source_raw = (
+            (causal_root, causal_raw)
+            if kind == "causal"
+            else (runtime_root, raw)
+        )
+        results.append(
+            validator.run_case(source_root, source_raw, config, case_id)
+        )
 
-    assert len(results) == 16
+    assert len(results) == 24
     assert [item for item in results if item["rejected"] is not True] == []
 
 

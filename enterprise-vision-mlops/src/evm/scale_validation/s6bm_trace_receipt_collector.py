@@ -87,9 +87,12 @@ def collect(spec_path: Path) -> dict[str, Any]:
     if int(spec.get("runner_process_id", 0)) != os.getppid():
         raise S6BMTraceCollectorError("collector_parent_process_identity")
     timeout = float(spec["timeout_seconds"])
-    if timeout <= 0:
+    deadline_monotonic_ns = int(spec.get("deadline_monotonic_ns", 0))
+    if timeout <= 0 or deadline_monotonic_ns <= 0:
         raise S6BMTraceCollectorError("collector_timeout_bound")
-    deadline = time.monotonic() + timeout
+    deadline = deadline_monotonic_ns / 1_000_000_000
+    if deadline <= time.monotonic():
+        raise S6BMTraceCollectorError("collector_deadline_expired")
     observed: dict[str, Any] | None = None
     while time.monotonic() < deadline:
         observed = find_triton_compute_start(
