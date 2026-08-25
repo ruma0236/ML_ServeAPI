@@ -284,8 +284,12 @@ def triton_config_readback(
     }
     if dynamic_batching:
         result["dynamic_batching"] = {
-            "preferred_batch_size": ["4", "8"],
-            "max_queue_delay_microseconds": "10000",
+            "preferred_batch_size": [4, 8],
+            "max_queue_delay_microseconds": 10000,
+            "preserve_ordering": False,
+            "priority_levels": 0,
+            "default_priority_level": 0,
+            "priority_queue_policy": {},
         }
     return result
 
@@ -1751,6 +1755,10 @@ def test_triton_model_config_readback_is_exact_gpu_only() -> None:
         "delay",
         "preferred-type",
         "delay-type",
+        "preserve-ordering",
+        "priority-levels",
+        "default-priority-level",
+        "priority-policy",
         "dynamic-extra",
         "response-cache",
         "warmup",
@@ -1762,11 +1770,19 @@ def test_triton_model_config_readback_is_exact_gpu_only() -> None:
         elif case == "delay":
             mutated["dynamic_batching"]["max_queue_delay_microseconds"] = "1"
         elif case == "preferred-type":
-            mutated["dynamic_batching"]["preferred_batch_size"] = [4, 8]
+            mutated["dynamic_batching"]["preferred_batch_size"] = ["4", "8"]
         elif case == "delay-type":
-            mutated["dynamic_batching"]["max_queue_delay_microseconds"] = 10_000
-        elif case == "dynamic-extra":
+            mutated["dynamic_batching"]["max_queue_delay_microseconds"] = "10000"
+        elif case == "preserve-ordering":
             mutated["dynamic_batching"]["preserve_ordering"] = True
+        elif case == "priority-levels":
+            mutated["dynamic_batching"]["priority_levels"] = 1
+        elif case == "default-priority-level":
+            mutated["dynamic_batching"]["default_priority_level"] = 1
+        elif case == "priority-policy":
+            mutated["dynamic_batching"]["priority_queue_policy"] = {"0": {}}
+        elif case == "dynamic-extra":
+            mutated["dynamic_batching"]["unexpected"] = True
         elif case == "response-cache":
             mutated["response_cache"] = {"enable": True}
         elif case == "warmup":

@@ -1730,7 +1730,7 @@ def _protobuf_integer_exact(value: Any, expected: int) -> bool:
 
 
 def _protobuf_json_integer_exact(value: Any, expected: int) -> bool:
-    return type(value) is str and value == str(expected)
+    return type(value) is int and value == expected
 
 
 def _default_runtime_behaviors_exact(config_readback: Mapping[str, Any]) -> bool:
@@ -1779,7 +1779,15 @@ def _dynamic_batching_exact(
     expected_delay = batching.get("max_queue_delay_microseconds")
     return (
         isinstance(dynamic, Mapping)
-        and set(dynamic) == {"preferred_batch_size", "max_queue_delay_microseconds"}
+        and set(dynamic)
+        == {
+            "preferred_batch_size",
+            "max_queue_delay_microseconds",
+            "preserve_ordering",
+            "priority_levels",
+            "default_priority_level",
+            "priority_queue_policy",
+        }
         and isinstance(expected_preferred, list)
         and all(type(value) is int and not isinstance(value, bool) for value in expected_preferred)
         and isinstance(preferred, list)
@@ -1793,6 +1801,10 @@ def _dynamic_batching_exact(
         and _protobuf_json_integer_exact(
             dynamic.get("max_queue_delay_microseconds"), expected_delay
         )
+        and dynamic.get("preserve_ordering") is False
+        and _protobuf_json_integer_exact(dynamic.get("priority_levels"), 0)
+        and _protobuf_json_integer_exact(dynamic.get("default_priority_level"), 0)
+        and _typed_canonical_equal(dynamic.get("priority_queue_policy"), {})
     )
 
 
