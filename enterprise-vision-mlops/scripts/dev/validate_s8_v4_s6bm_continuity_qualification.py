@@ -63,8 +63,23 @@ CASE_CONTRACT = (
         "s6bm_v4_continuity_actor_receipt_commit_readback",
     ),
     ("bridge_required_event_missing", "s6bm_v4_event_type_set"),
+    ("pre_switch_terminal_set_missing", "s6bm_continuity_pre_switch_terminal_set"),
+    ("pre_switch_terminal_set_extra", "s6bm_continuity_pre_switch_terminal_set"),
+    (
+        "pre_switch_terminal_identity_mismatch",
+        "s6bm_continuity_pre_switch_terminal_binding",
+    ),
+    ("all_submitted_last_request_green_routed", "s6bm_continuity_role_binding"),
+    ("pending_crossover_set_missing", "s6bm_continuity_pending_crossover_gate"),
+    ("pending_crossover_set_extra", "s6bm_continuity_pending_crossover_gate"),
+    ("one_crossover_not_released", "s6bm_continuity_crossover_release_binding"),
+    ("release_before_route_applied", "s6bm_continuity_crossover_release_order"),
+    ("release_before_receipt_gate", "s6bm_continuity_crossover_release_order"),
+    ("crossover_timeout_cleanup_residue", "s6bm_success_cleanup"),
 )
-CASE_CONTRACT_SHA256 = "c42a6245d1e48152d06c6f1bd31c7fca8de58f201129c99bb7c59abe9356d4d7"
+CASE_CONTRACT_SHA256 = "230ff21035dace5eb498d649d69a1bb063c377c95808d8d9bcae5903edd13a6e"
+HISTORICAL_CASE_CONTRACT = CASE_CONTRACT[:9]
+HISTORICAL_CASE_CONTRACT_SHA256 = "c42a6245d1e48152d06c6f1bd31c7fca8de58f201129c99bb7c59abe9356d4d7"
 
 
 class ContinuityQualificationError(RuntimeError):
@@ -160,22 +175,17 @@ def required_bridge_id(raw: dict[str, Any]) -> str:
 
 
 def record_for(raw: dict[str, Any], request_id: str) -> dict[str, Any]:
-    matches = [
-        item for item in raw["request_records"] if item.get("request_id") == request_id
-    ]
+    matches = [item for item in raw["request_records"] if item.get("request_id") == request_id]
     if len(matches) != 1:
         raise ContinuityQualificationError("request_record_identity")
     return matches[0]
 
 
-def span_entry(
-    payload: dict[str, Any], *, trace_id: str, name: str
-) -> dict[str, Any]:
+def span_entry(payload: dict[str, Any], *, trace_id: str, name: str) -> dict[str, Any]:
     matches = [
         entry
         for entry in payload["entries"]
-        if entry["span"].get("traceId") == trace_id
-        and entry["span"].get("name") == name
+        if entry["span"].get("traceId") == trace_id and entry["span"].get("name") == name
     ]
     if len(matches) != 1:
         raise ContinuityQualificationError(f"span_identity:{name}:{len(matches)}")
@@ -224,14 +234,17 @@ def rewrite_bridge_start_event(
             selected["payload"]["monotonic_after_ns"] = actor_start_monotonic_ns + 500
         selected["payload_sha256"] = canonical_sha256(selected["payload"])
 
+    gate_bundle = raw["continuity_execution"]["bridge_actor_receipt_gate"]
     rewrite_reference(root, proof(raw)["causal_event_export"], mutate)
-    gate_events = raw["continuity_execution"]["bridge_actor_receipt_gate"]["events"]
+    rewrite_reference(root, gate_bundle["raw_readback_export"], mutate)
+    gate_events = gate_bundle["events"]
     gate = next(
         item
         for item in gate_events
         if item.get("request_id") == request_id and item.get("event_type") == stage
     )
     gate["payload_sha256"] = selected["payload_sha256"]
+    gate_bundle["selected_event_set_sha256"] = canonical_sha256(gate_events)
     return selected
 
 
@@ -305,9 +318,7 @@ def sync_bridge_collector_trace(
     model_entry = span_entry(
         trace_payload, trace_id=str(record["trace_id"]), name=config.blue.model_name
     )
-    compute_entry = span_entry(
-        trace_payload, trace_id=str(record["trace_id"]), name="compute"
-    )
+    compute_entry = span_entry(trace_payload, trace_id=str(record["trace_id"]), name="compute")
     collectors = raw["continuity_execution"]["bridge_triton_start_receipts"]
     collector = next(item for item in collectors if item.get("request_id") == request_id)
     raw_trace_path = reference_path(root, collector["raw_trace"])
@@ -315,9 +326,7 @@ def sync_bridge_collector_trace(
     if update_model:
         bridge_trace["raw_model_entry"] = copy.deepcopy(model_entry)
     if update_compute:
-        bridge_trace["compute_start_unix_ns"] = int(
-            compute_entry["span"]["startTimeUnixNano"]
-        )
+        bridge_trace["compute_start_unix_ns"] = int(compute_entry["span"]["startTimeUnixNano"])
         bridge_trace["raw_compute_entry"] = copy.deepcopy(compute_entry)
     canonical_write(raw_trace_path, bridge_trace)
     refresh(collector["raw_trace"], raw_trace_path)
@@ -332,20 +341,21 @@ def sync_bridge_collector_trace(
             if item.get("request_id") == request_id
             and item.get("event_type") == "triton_backend_compute_entry"
         )
-        selected_event["payload"]["raw_trace_artifact_sha256"] = collector[
-            "raw_trace"
-        ]["sha256"]
+        selected_event["payload"]["raw_trace_artifact_sha256"] = collector["raw_trace"]["sha256"]
         selected_event["payload"]["raw_trace_record_sha256"] = raw_trace_record_sha
         selected_event["payload_sha256"] = canonical_sha256(selected_event["payload"])
 
+    gate_bundle = raw["continuity_execution"]["bridge_actor_receipt_gate"]
     rewrite_reference(root, proof(raw)["causal_event_export"], mutate_event)
+    rewrite_reference(root, gate_bundle["raw_readback_export"], mutate_event)
     gate = next(
         item
-        for item in raw["continuity_execution"]["bridge_actor_receipt_gate"]["events"]
+        for item in gate_bundle["events"]
         if item.get("request_id") == request_id
         and item.get("event_type") == "triton_backend_compute_entry"
     )
     gate["payload_sha256"] = selected_event["payload_sha256"]
+    gate_bundle["selected_event_set_sha256"] = canonical_sha256(gate_bundle["events"])
     collector["raw_trace_sha256"] = collector["raw_trace"]["sha256"]
     collector["raw_record_sha256"] = raw_trace_record_sha
     collector["receipt"]["payload"] = copy.deepcopy(selected_event["payload"])
@@ -368,9 +378,7 @@ def mutate_model(root: Path, raw: dict[str, Any], config: S6BMConfig) -> None:
         span_name=config.blue.model_name,
         stage=None,
     )
-    sync_bridge_collector_trace(
-        root, raw, config, update_model=True, update_compute=False
-    )
+    sync_bridge_collector_trace(root, raw, config, update_model=True, update_compute=False)
 
 
 def mutate_compute(root: Path, raw: dict[str, Any], config: S6BMConfig) -> None:
@@ -381,14 +389,10 @@ def mutate_compute(root: Path, raw: dict[str, Any], config: S6BMConfig) -> None:
         span_name="compute",
         stage="triton_backend_compute_entry",
     )
-    sync_bridge_collector_trace(
-        root, raw, config, update_model=False, update_compute=True
-    )
+    sync_bridge_collector_trace(root, raw, config, update_model=False, update_compute=True)
 
 
-def mutate_normal_old_blue(
-    _root: Path, raw: dict[str, Any], _config: S6BMConfig
-) -> None:
+def mutate_normal_old_blue(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
     request_id = str(raw["traffic_plan"]["roles"]["normal"][0]["request_id"])
     record = record_for(raw, request_id)
     transition = proof(raw)["route_transition_receipt"]
@@ -396,21 +400,17 @@ def mutate_normal_old_blue(
     record["route_generation"] = int(transition["old_route_generation"])
 
 
-def mutate_callback_before_start(
-    _root: Path, raw: dict[str, Any], _config: S6BMConfig
-) -> None:
+def mutate_callback_before_start(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
     execution = raw["continuity_execution"]
     execution["bridge_actor_receipt_gate"]["gate_satisfied_monotonic"] = execution[
         "causal_gate_started_monotonic"
     ]
 
 
-def mutate_receipt_readback_absent(
-    _root: Path, raw: dict[str, Any], _config: S6BMConfig
-) -> None:
-    raw["continuity_execution"]["bridge_actor_receipt_gate"]["events"][0][
-        "readback_visible"
-    ] = False
+def mutate_receipt_readback_absent(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
+    raw["continuity_execution"]["bridge_actor_receipt_gate"]["events"][0]["readback_visible"] = (
+        False
+    )
 
 
 def unix_ns_iso(value: int) -> str:
@@ -421,9 +421,7 @@ def unix_ns_iso(value: int) -> str:
     )
 
 
-def mutate_receipt_after_switch(
-    root: Path, raw: dict[str, Any], config: S6BMConfig
-) -> None:
+def mutate_receipt_after_switch(root: Path, raw: dict[str, Any], config: S6BMConfig) -> None:
     request_id = required_bridge_id(raw)
     stage = "api_server_handler_entry"
     target_unix_ns, _target_monotonic_ns = after_switch_unix_ns(raw, config)
@@ -437,19 +435,20 @@ def mutate_receipt_after_switch(
         )
         event["database_recorded_at"] = timestamp
 
+    gate_bundle = raw["continuity_execution"]["bridge_actor_receipt_gate"]
     rewrite_reference(root, proof(raw)["causal_event_export"], mutate)
+    rewrite_reference(root, gate_bundle["raw_readback_export"], mutate)
     gate = next(
         item
-        for item in raw["continuity_execution"]["bridge_actor_receipt_gate"]["events"]
+        for item in gate_bundle["events"]
         if item.get("request_id") == request_id and item.get("event_type") == stage
     )
     gate["database_recorded_at"] = timestamp
     gate["readback_at"] = timestamp
+    gate_bundle["selected_event_set_sha256"] = canonical_sha256(gate_bundle["events"])
 
 
-def mutate_required_event_missing(
-    root: Path, raw: dict[str, Any], _config: S6BMConfig
-) -> None:
+def mutate_required_event_missing(root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
     request_id = required_bridge_id(raw)
     stage = "controller_entry"
 
@@ -457,20 +456,113 @@ def mutate_required_event_missing(
         payload["events"] = [
             item
             for item in payload["events"]
-            if not (
-                item.get("request_id") == request_id and item.get("event_type") == stage
-            )
+            if not (item.get("request_id") == request_id and item.get("event_type") == stage)
         ]
         payload["event_count"] = len(payload["events"])
 
-    rewrite_reference(root, proof(raw)["causal_event_export"], mutate)
     gate = raw["continuity_execution"]["bridge_actor_receipt_gate"]
+    final_export = rewrite_reference(root, proof(raw)["causal_event_export"], mutate)
+    pre_switch_export = rewrite_reference(root, gate["raw_readback_export"], mutate)
     gate["events"] = [
         item
         for item in gate["events"]
         if not (item.get("request_id") == request_id and item.get("event_type") == stage)
     ]
     gate["visible_event_count"] = len(gate["events"])
+    gate["maximum_visible_causal_sequence"] = max(
+        (int(item["causal_sequence"]) for item in gate["events"]),
+        default=0,
+    )
+    gate["selected_event_set_sha256"] = canonical_sha256(gate["events"])
+    gate["raw_readback_event_count"] = int(pre_switch_export["event_count"])
+    if int(final_export["event_count"]) != int(pre_switch_export["event_count"]):
+        raise ContinuityQualificationError("coherent_event_export_count")
+
+
+def mutate_terminal_set_missing(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
+    raw["continuity_execution"]["pre_switch_terminal_gate"]["terminal_records"].pop()
+
+
+def mutate_terminal_set_extra(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
+    crossover_id = str(raw["traffic_plan"]["bridge_subsets"]["crossover"]["request_ids"][0])
+    crossover = record_for(raw, crossover_id)
+    raw["continuity_execution"]["pre_switch_terminal_gate"]["terminal_records"].append(
+        {
+            "request_id": crossover_id,
+            "attempt_id": crossover["attempt_id"],
+            "run_id": crossover["run_id"],
+        }
+    )
+
+
+def mutate_terminal_identity(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
+    gate = raw["continuity_execution"]["pre_switch_terminal_gate"]
+    gate["terminal_records"][0]["model_role"] = "green"
+    gate["terminal_records_sha256"] = canonical_sha256(gate["terminal_records"])
+
+
+def mutate_last_request_green(_root: Path, raw: dict[str, Any], config: S6BMConfig) -> None:
+    gate = raw["continuity_execution"]["pre_switch_terminal_gate"]
+    request_id = str(gate["expected_terminal_request_ids"][-1])
+    record = record_for(raw, request_id)
+    record.update(
+        {
+            "model_role": "green",
+            "model_name": config.green.model_name,
+            "model_version": config.green.model_version,
+            "artifact_sha256": config.green.artifact_sha256,
+            "offered_identity": {
+                "model_role": "green",
+                "model_name": config.green.model_name,
+                "model_version": config.green.model_version,
+                "artifact_sha256": config.green.artifact_sha256,
+            },
+            "output": list(config.green.expected_output),
+            "route_generation": int(proof(raw)["route_transition_receipt"]["new_route_generation"]),
+        }
+    )
+    gate_record = next(
+        item for item in gate["terminal_records"] if item["request_id"] == request_id
+    )
+    for key in (
+        "model_role",
+        "model_name",
+        "model_version",
+        "artifact_sha256",
+        "route_generation",
+    ):
+        gate_record[key] = record[key]
+    gate["terminal_records_sha256"] = canonical_sha256(gate["terminal_records"])
+
+
+def mutate_pending_missing(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
+    raw["continuity_execution"]["pre_switch_state"]["pending_crossover_request_ids"].pop()
+
+
+def mutate_pending_extra(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
+    raw["continuity_execution"]["pre_switch_state"]["pending_crossover_request_ids"].append(
+        "unexpected-crossover"
+    )
+
+
+def mutate_one_not_released(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
+    proof(raw)["route_transition_receipt"]["released_crossover_request_ids"].pop()
+
+
+def mutate_release_before_route(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
+    transition = proof(raw)["route_transition_receipt"]
+    transition["crossover_release_monotonic_ns"] = int(transition["route_applied_monotonic_ns"]) - 1
+
+
+def mutate_release_before_receipts(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
+    gate = raw["continuity_execution"]["bridge_actor_receipt_gate"]
+    proof(raw)["route_transition_receipt"]["crossover_release_monotonic_ns"] = (
+        int(float(gate["gate_satisfied_monotonic"]) * 1e9) - 1
+    )
+
+
+def mutate_timeout_cleanup(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
+    raw["cleanup"]["controller_pending_crossovers_zero"] = False
 
 
 MUTATIONS: dict[str, tuple[str, Mutation, str]] = {
@@ -519,6 +611,56 @@ MUTATIONS: dict[str, tuple[str, Mutation, str]] = {
         mutate_required_event_missing,
         "causal",
     ),
+    "pre_switch_terminal_set_missing": (
+        CASE_CONTRACT[9][1],
+        mutate_terminal_set_missing,
+        "continuity",
+    ),
+    "pre_switch_terminal_set_extra": (
+        CASE_CONTRACT[10][1],
+        mutate_terminal_set_extra,
+        "continuity",
+    ),
+    "pre_switch_terminal_identity_mismatch": (
+        CASE_CONTRACT[11][1],
+        mutate_terminal_identity,
+        "continuity",
+    ),
+    "all_submitted_last_request_green_routed": (
+        CASE_CONTRACT[12][1],
+        mutate_last_request_green,
+        "continuity",
+    ),
+    "pending_crossover_set_missing": (
+        CASE_CONTRACT[13][1],
+        mutate_pending_missing,
+        "continuity",
+    ),
+    "pending_crossover_set_extra": (
+        CASE_CONTRACT[14][1],
+        mutate_pending_extra,
+        "continuity",
+    ),
+    "one_crossover_not_released": (
+        CASE_CONTRACT[15][1],
+        mutate_one_not_released,
+        "continuity",
+    ),
+    "release_before_route_applied": (
+        CASE_CONTRACT[16][1],
+        mutate_release_before_route,
+        "continuity",
+    ),
+    "release_before_receipt_gate": (
+        CASE_CONTRACT[17][1],
+        mutate_release_before_receipts,
+        "continuity",
+    ),
+    "crossover_timeout_cleanup_residue": (
+        CASE_CONTRACT[18][1],
+        mutate_timeout_cleanup,
+        "continuity",
+    ),
 }
 
 
@@ -563,6 +705,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if (
         set(MUTATIONS) != set(case_ids)
         or canonical_sha256(CASE_CONTRACT) != CASE_CONTRACT_SHA256
+        or canonical_sha256(HISTORICAL_CASE_CONTRACT) != HISTORICAL_CASE_CONTRACT_SHA256
     ):
         raise ContinuityQualificationError("continuity_mutation_case_contract")
     results = [run_case(args.private_root, raw, config, case_id) for case_id in case_ids]
@@ -582,9 +725,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "count": len(CASE_CONTRACT),
             "sha256": CASE_CONTRACT_SHA256,
             "cases": [
-                {"case_id": case_id, "expected_reason": reason}
-                for case_id, reason in CASE_CONTRACT
+                {"case_id": case_id, "expected_reason": reason} for case_id, reason in CASE_CONTRACT
             ],
+            "historical_prefix_count": len(HISTORICAL_CASE_CONTRACT),
+            "historical_prefix_sha256": HISTORICAL_CASE_CONTRACT_SHA256,
         },
         "positive": {
             "count": 1,

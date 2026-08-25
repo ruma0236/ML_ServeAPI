@@ -365,10 +365,18 @@ class S6BMConfig:
                 "max_request_payload_bytes": 4096,
                 "max_in_flight_payload_bytes": 16384,
                 "bridge_hold_count": 4,
-                "bridge_hold_ms": 2000,
+                "bridge_hold_ms": 400,
                 "required_actor_bridge_count": 4,
+                "crossover_bridge_count": 1,
+                "required_actor_bridge_selection": "prefix",
+                "held_bridge_selection": "suffix",
+                "crossover_bridge_selection": "first_required",
+                "pending_crossover_count": 2,
+                "pre_switch_terminal_bridge_count": 39,
+                "route_switch_barrier_mode": "exact_one_after_39_blue_terminal",
+                "route_switch_barrier_timeout_seconds": 15,
                 "max_schedule_lateness_ms": 500,
-                "minimum_blue_in_flight_at_switch": 5,
+                "minimum_blue_in_flight_at_switch": 2,
                 "minimum_bridge_cross_switch_completions": 1,
                 "minimum_transition_terminal_completions": 8,
                 "adaptive_pacing_forbidden": True,
@@ -377,18 +385,22 @@ class S6BMConfig:
             }
             if self.continuity != expected_continuity:
                 raise S6BMRuntimeError("s6bm_continuity_contract_v4")
-            if (
-                int(self.continuity["canary_count"])
-                + int(self.continuity["causal_hold_count"])
-                + int(self.continuity["bridge_count"])
-                + int(self.continuity["normal_count"])
-                != int(self.continuity["logical_request_count"])
+            if int(self.continuity["canary_count"]) + int(
+                self.continuity["causal_hold_count"]
+            ) + int(self.continuity["bridge_count"]) + int(self.continuity["normal_count"]) != int(
+                self.continuity["logical_request_count"]
             ):
                 raise S6BMRuntimeError("s6bm_continuity_partition_count")
             if not 1 <= int(self.continuity["required_actor_bridge_count"]) <= int(
-                self.continuity["bridge_hold_count"]
-            ) <= int(self.continuity["bridge_count"]):
+                self.continuity["bridge_count"]
+            ) or not 1 <= int(self.continuity["bridge_hold_count"]) <= int(
+                self.continuity["bridge_count"]
+            ):
                 raise S6BMRuntimeError("s6bm_continuity_actor_receipt_bounds")
+            if int(self.continuity["crossover_bridge_count"]) != 1 or int(
+                self.continuity["crossover_bridge_count"]
+            ) > int(self.continuity["required_actor_bridge_count"]):
+                raise S6BMRuntimeError("s6bm_continuity_crossover_bounds")
 
     def public_snapshot(self) -> dict[str, Any]:
         snapshot = {
@@ -478,6 +490,7 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
         scheduled_offset_ms: int | None = None,
         hold_ms: int = 0,
         actor_receipt_required: bool = False,
+        causal_crossover: bool = False,
     ) -> dict[str, Any]:
         nonlocal ordinal
         value = {
@@ -487,6 +500,7 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
             "expected_model_role": expected_model_role,
             "hold_ms": hold_ms,
             "actor_receipt_required": actor_receipt_required,
+            "causal_crossover": causal_crossover,
         }
         if scheduled_offset_ms is not None:
             value["scheduled_offset_ms"] = scheduled_offset_ms
@@ -509,12 +523,15 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
             "causal_hold",
             "blue",
             hold_ms=int(config.procedure["long_in_flight_hold_ms"]),
+            causal_crossover=True,
         )
     ]
     bridge = []
     bridge_count = int(continuity["bridge_count"])
-    held_start = bridge_count - int(continuity["bridge_hold_count"])
-    receipt_start = bridge_count - int(continuity["required_actor_bridge_count"])
+    held_count = int(continuity["bridge_hold_count"])
+    receipt_count = int(continuity["required_actor_bridge_count"])
+    crossover_count = int(continuity["crossover_bridge_count"])
+    held_start = bridge_count - held_count
     for index in range(bridge_count):
         bridge.append(
             entry(
@@ -522,8 +539,9 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
                 "bridge",
                 "blue",
                 scheduled_offset_ms=index * int(continuity["cadence_ms"]),
-                hold_ms=int(continuity["bridge_hold_ms"]) if index >= held_start else 0,
-                actor_receipt_required=index >= receipt_start,
+                hold_ms=(int(continuity["bridge_hold_ms"]) if index >= held_start else 0),
+                actor_receipt_required=index < receipt_count,
+                causal_crossover=index < crossover_count,
             )
         )
     normal = [
@@ -540,7 +558,9 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
         "bridge": bridge,
         "normal": normal,
     }
-    ordered = [item for role in ("canary", "causal_hold", "bridge", "normal") for item in roles[role]]
+    ordered = [
+        item for role in ("canary", "causal_hold", "bridge", "normal") for item in roles[role]
+    ]
     request_ids = [str(item["request_id"]) for item in ordered]
     if len(request_ids) != int(continuity["logical_request_count"]):
         raise S6BMRuntimeError("s6bm_continuity_partition_count")
@@ -554,6 +574,35 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
         }
         for item in bridge
     ]
+    receipt_request_ids = [
+        str(item["request_id"]) for item in bridge if item["actor_receipt_required"] is True
+    ]
+    held_request_ids = [str(item["request_id"]) for item in bridge if int(item["hold_ms"]) > 0]
+    crossover_request_ids = [
+        str(item["request_id"]) for item in bridge if item["causal_crossover"] is True
+    ]
+    bridge_subsets = {
+        "receipt_required": {
+            "request_ids": receipt_request_ids,
+            "request_set_sha256": canonical_sha256(receipt_request_ids),
+        },
+        "held": {
+            "request_ids": held_request_ids,
+            "request_set_sha256": canonical_sha256(held_request_ids),
+        },
+        "crossover": {
+            "request_ids": crossover_request_ids,
+            "request_set_sha256": canonical_sha256(crossover_request_ids),
+        },
+    }
+    if (
+        len(receipt_request_ids) != receipt_count
+        or len(held_request_ids) != held_count
+        or len(crossover_request_ids) != crossover_count
+        or not set(crossover_request_ids).issubset(receipt_request_ids)
+        or set(receipt_request_ids) & set(held_request_ids)
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_bridge_subset_contract")
     core = {
         "schema_version": "evm.s8_v4.s6bm_exact_traffic_plan.v1",
         "contract": continuity["contract"],
@@ -565,6 +614,7 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
         "request_id_set_sha256": canonical_sha256(request_ids),
         "role_partition_sha256": canonical_sha256(roles),
         "schedule_sha256": canonical_sha256(schedule),
+        "bridge_subsets": bridge_subsets,
         "adaptive_pacing": False,
         "completion_windowing": "all_exact_logical_ids",
     }
@@ -802,9 +852,7 @@ def _project_request_records(
     return records, summary, latency
 
 
-def project_continuity_contract(
-    raw: Mapping[str, Any], config: S6BMConfig
-) -> dict[str, Any]:
+def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> dict[str, Any]:
     """Recompute exact run cardinality and fixed-cadence transition continuity."""
     if not config.schema_version.endswith(".v4"):
         raise S6BMRuntimeError("s6bm_continuity_requires_v4")
@@ -829,9 +877,7 @@ def project_continuity_contract(
     records = [dict(item) for item in raw.get("request_records", [])]
     records_by_id = {str(item.get("request_id", "")): item for item in records}
     ordered_plan_items = [
-        dict(item)
-        for role in expected_plan["role_order"]
-        for item in expected_plan["roles"][role]
+        dict(item) for role in expected_plan["role_order"] for item in expected_plan["roles"][role]
     ]
     ordered_ids = [str(item["request_id"]) for item in ordered_plan_items]
     if set(records_by_id) != set(ordered_ids) or len(records_by_id) != len(ordered_ids):
@@ -865,31 +911,26 @@ def project_continuity_contract(
     initialized = _finite(
         execution.get("controller_initialized_monotonic"), "controller_initialized"
     )
-    producer_started = _finite(
-        execution.get("producer_started_monotonic"), "producer_started"
-    )
+    producer_started = _finite(execution.get("producer_started_monotonic"), "producer_started")
     causal_gate_started = _finite(
         execution.get("causal_gate_started_monotonic"), "causal_gate_started"
     )
-    all_submitted = _finite(
-        execution.get("all_submitted_monotonic"), "all_submitted"
-    )
-    switch_invoked = _finite(
-        execution.get("switch_invoked_monotonic"), "switch_invoked"
-    )
+    all_submitted = _finite(execution.get("all_submitted_monotonic"), "all_submitted")
+    switch_invoked = _finite(execution.get("switch_invoked_monotonic"), "switch_invoked")
     receipt_observed = _finite(
         execution.get("transition_receipt_observed_monotonic"), "receipt_observed"
     )
-    producer_finished = _finite(
-        execution.get("producer_finished_monotonic"), "producer_finished"
-    )
+    producer_finished = _finite(execution.get("producer_finished_monotonic"), "producer_finished")
     if not (
         plan_frozen < initialized <= producer_started <= causal_gate_started < switch_invoked
         and producer_started < all_submitted <= producer_finished
         and switch_invoked < receipt_observed <= producer_finished
     ):
         raise S6BMRuntimeError("s6bm_continuity_lifecycle_order")
-    if execution.get("switch_gate_basis") != "required_actor_receipts_and_db_readback":
+    if execution.get("switch_gate_basis") != (
+        "all40_schedule_plus_exact39_blue_terminal_plus_exact4x3_receipts_"
+        "plus_exact2_pending_crossovers"
+    ):
         raise S6BMRuntimeError("s6bm_continuity_switch_gate_basis")
     if not switch_invoked <= route_applied <= receipt_observed:
         raise S6BMRuntimeError("s6bm_continuity_actor_receipt_order")
@@ -903,6 +944,35 @@ def project_continuity_contract(
         item for item in bridge_plan if item.get("actor_receipt_required") is True
     ]
     required_bridge_ids = [str(item["request_id"]) for item in required_bridge_items]
+    held_bridge_ids = [
+        str(item["request_id"]) for item in bridge_plan if int(item.get("hold_ms", 0)) > 0
+    ]
+    crossover_bridge_ids = [
+        str(item["request_id"]) for item in bridge_plan if item.get("causal_crossover") is True
+    ]
+    subset_contract = dict(expected_plan.get("bridge_subsets", {}))
+    expected_subset_contract = {
+        "receipt_required": {
+            "request_ids": required_bridge_ids,
+            "request_set_sha256": canonical_sha256(required_bridge_ids),
+        },
+        "held": {
+            "request_ids": held_bridge_ids,
+            "request_set_sha256": canonical_sha256(held_bridge_ids),
+        },
+        "crossover": {
+            "request_ids": crossover_bridge_ids,
+            "request_set_sha256": canonical_sha256(crossover_bridge_ids),
+        },
+    }
+    if (
+        subset_contract != expected_subset_contract
+        or len(held_bridge_ids) != int(config.continuity["bridge_hold_count"])
+        or len(crossover_bridge_ids) != int(config.continuity["crossover_bridge_count"])
+        or set(required_bridge_ids) & set(held_bridge_ids)
+        or not set(crossover_bridge_ids).issubset(required_bridge_ids)
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_bridge_subset_contract")
     if len(required_bridge_ids) != int(config.continuity["required_actor_bridge_count"]):
         raise S6BMRuntimeError("s6bm_continuity_actor_receipt_count")
     bridge_receipt_gate = dict(execution.get("bridge_actor_receipt_gate", {}))
@@ -924,16 +994,12 @@ def project_continuity_contract(
         "triton_backend_compute_entry",
     }
     expected_event_keys = {
-        (request_id, stage)
-        for request_id in required_bridge_ids
-        for stage in required_stages
+        (request_id, stage) for request_id in required_bridge_ids for stage in required_stages
     }
     collector_request_ids = [
         str(item) for item in bridge_receipt_gate.get("collector_request_ids", [])
     ]
-    bridge_collectors = [
-        dict(item) for item in execution.get("bridge_triton_start_receipts", [])
-    ]
+    bridge_collectors = [dict(item) for item in execution.get("bridge_triton_start_receipts", [])]
     raw_readback_reference = dict(bridge_receipt_gate.get("raw_readback_export", {}))
     receipt_identity_valid = True
     for item in receipt_events:
@@ -961,17 +1027,14 @@ def project_continuity_contract(
             receipt_identity_valid = False
             break
     if (
-        bridge_receipt_gate.get("schema_version")
-        != "evm.s8_v4.s6bm_bridge_actor_receipt_gate.v1"
+        bridge_receipt_gate.get("schema_version") != "evm.s8_v4.s6bm_bridge_actor_receipt_gate.v1"
         or bridge_receipt_gate.get("attempt_id") != attempt_id
         or int(bridge_receipt_gate.get("route_generation", 0)) != old_generation
         or bridge_receipt_gate.get("required_request_ids") != required_bridge_ids
         or bridge_receipt_gate.get("required_request_set_sha256") != expected_bridge_set_sha
         or int(bridge_receipt_gate.get("required_stage_count", 0)) != 3
-        or int(bridge_receipt_gate.get("expected_event_count", -1))
-        != required_event_count
-        or int(bridge_receipt_gate.get("visible_event_count", -1))
-        != required_event_count
+        or int(bridge_receipt_gate.get("expected_event_count", -1)) != required_event_count
+        or int(bridge_receipt_gate.get("visible_event_count", -1)) != required_event_count
         or len(receipt_event_keys) != len(set(receipt_event_keys))
         or set(receipt_event_keys) != expected_event_keys
         or any(int(item.get("causal_sequence", 0)) <= 0 for item in receipt_events)
@@ -981,18 +1044,115 @@ def project_continuity_contract(
         or not str(raw_readback_reference.get("path", ""))
         or len(str(raw_readback_reference.get("sha256", ""))) != 64
         or int(raw_readback_reference.get("bytes", 0)) <= 0
-        or int(bridge_receipt_gate.get("raw_readback_event_count", -1))
-        < required_event_count
-        or bridge_receipt_gate.get("selected_event_set_sha256")
-        != canonical_sha256(receipt_events)
+        or int(bridge_receipt_gate.get("raw_readback_event_count", -1)) < required_event_count
+        or bridge_receipt_gate.get("selected_event_set_sha256") != canonical_sha256(receipt_events)
         or collector_request_ids != required_bridge_ids
-        or bridge_receipt_gate.get("collector_request_set_sha256")
-        != expected_bridge_set_sha
-        or [str(item.get("request_id", "")) for item in bridge_collectors]
-        != required_bridge_ids
+        or bridge_receipt_gate.get("collector_request_set_sha256") != expected_bridge_set_sha
+        or [str(item.get("request_id", "")) for item in bridge_collectors] != required_bridge_ids
         or not causal_gate_started <= gate_satisfied < switch_invoked
     ):
         raise S6BMRuntimeError("s6bm_continuity_actor_receipt_gate")
+    causal_hold_ids = [str(item["request_id"]) for item in expected_plan["roles"]["causal_hold"]]
+    expected_pending_crossover_ids = sorted(causal_hold_ids + crossover_bridge_ids)
+    if (
+        transition.get("continuity_receipt_request_ids") != required_bridge_ids
+        or transition.get("continuity_receipt_request_set_sha256")
+        != canonical_sha256(required_bridge_ids)
+        or transition.get("continuity_crossover_request_ids") != crossover_bridge_ids
+        or transition.get("continuity_crossover_request_set_sha256")
+        != canonical_sha256(crossover_bridge_ids)
+        or transition.get("pending_crossover_request_ids") != expected_pending_crossover_ids
+        or transition.get("pending_crossover_request_set_sha256")
+        != canonical_sha256(expected_pending_crossover_ids)
+        or transition.get("released_crossover_request_ids") != expected_pending_crossover_ids
+        or transition.get("crossover_release_basis") != "fence_commit_readback_and_route_applied"
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_crossover_release_binding")
+    expected_terminal_ids = sorted(
+        set(str(item["request_id"]) for item in bridge_plan) - set(crossover_bridge_ids)
+    )
+    terminal_gate = dict(execution.get("pre_switch_terminal_gate", {}))
+    terminal_gate_records = [dict(item) for item in terminal_gate.get("terminal_records", [])]
+    observed_terminal_ids = [str(item.get("request_id", "")) for item in terminal_gate_records]
+    if (
+        terminal_gate.get("schema_version") != "evm.s8_v4.s6bm_pre_switch_bridge_terminal_gate.v1"
+        or terminal_gate.get("crossover_request_id") != crossover_bridge_ids[0]
+        or terminal_gate.get("expected_terminal_request_ids") != expected_terminal_ids
+        or terminal_gate.get("expected_terminal_request_set_sha256")
+        != canonical_sha256(expected_terminal_ids)
+        or int(terminal_gate.get("expected_terminal_count", -1))
+        != int(config.continuity["pre_switch_terminal_bridge_count"])
+        or terminal_gate.get("observed_terminal_request_ids") != expected_terminal_ids
+        or terminal_gate.get("observed_terminal_request_set_sha256")
+        != canonical_sha256(expected_terminal_ids)
+        or int(terminal_gate.get("observed_terminal_count", -1))
+        != int(config.continuity["pre_switch_terminal_bridge_count"])
+        or observed_terminal_ids != expected_terminal_ids
+        or terminal_gate.get("terminal_records_sha256") != canonical_sha256(terminal_gate_records)
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_pre_switch_terminal_set")
+    terminal_gate_finished = _finite(
+        terminal_gate.get("all_non_crossover_terminal_monotonic"),
+        "all_non_crossover_terminal_monotonic",
+    )
+    if not all_submitted <= terminal_gate_finished < switch_invoked:
+        raise S6BMRuntimeError("s6bm_continuity_pre_switch_terminal_order")
+    pre_switch_state = dict(execution.get("pre_switch_state", {}))
+    if (
+        int(pre_switch_state.get("generation", 0)) != old_generation
+        or pre_switch_state.get("phase") != "canary"
+        or int(pre_switch_state.get("blue_in_flight", -1))
+        < int(config.continuity["minimum_blue_in_flight_at_switch"])
+        or pre_switch_state.get("pending_crossover_request_ids") != expected_pending_crossover_ids
+        or int(pre_switch_state.get("pending_crossover_count", -1))
+        != int(config.continuity["pending_crossover_count"])
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_pending_crossover_gate")
+    release_monotonic_ns = int(transition.get("crossover_release_monotonic_ns", 0))
+    if not (
+        int(gate_satisfied * 1e9)
+        < int(switch_invoked * 1e9)
+        <= route_applied_ns
+        <= release_monotonic_ns
+        <= int(receipt_observed * 1e9)
+    ):
+        raise S6BMRuntimeError("s6bm_continuity_crossover_release_order")
+    for terminal_record in terminal_gate_records:
+        request_id = str(terminal_record["request_id"])
+        final_record = records_by_id[request_id]
+        expected_projection = {
+            "request_id": request_id,
+            "attempt_id": final_record.get("attempt_id"),
+            "run_id": final_record.get("run_id"),
+            "trace_id": final_record.get("trace_id"),
+            "effect_id": final_record.get("effect_id"),
+            "model_role": final_record.get("model_role"),
+            "model_name": final_record.get("model_name"),
+            "model_version": final_record.get("model_version"),
+            "artifact_sha256": final_record.get("artifact_sha256"),
+            "route_generation": final_record.get("route_generation"),
+            "status_code": final_record.get("status_code"),
+            "outcome": final_record.get("outcome"),
+            "attempted_monotonic": final_record.get("attempted_monotonic"),
+            "completed_monotonic": final_record.get("completed_monotonic"),
+            "durable_effect_readback_finished_monotonic_ns": dict(
+                final_record.get("durable_effect") or {}
+            ).get("readback_finished_monotonic_ns"),
+        }
+        if (
+            terminal_record != expected_projection
+            or terminal_record.get("model_role") != "blue"
+            or int(terminal_record.get("route_generation", 0)) != old_generation
+            or int(terminal_record.get("status_code", 0)) != 200
+            or terminal_record.get("outcome") != "completed"
+            or _finite(
+                terminal_record.get("completed_monotonic"),
+                "terminal_gate_completed",
+            )
+            > terminal_gate_finished
+            or int(terminal_record.get("durable_effect_readback_finished_monotonic_ns", 0)) <= 0
+        ):
+            raise S6BMRuntimeError("s6bm_continuity_pre_switch_terminal_binding")
     dispatches = [dict(item) for item in execution.get("dispatches", [])]
     if [str(item.get("request_id", "")) for item in dispatches] != [
         str(item["request_id"]) for item in bridge_plan
@@ -1010,6 +1170,7 @@ def project_continuity_contract(
             or int(dispatch.get("hold_ms", -1)) != int(planned["hold_ms"])
             or dispatch.get("actor_receipt_required")
             != bool(planned.get("actor_receipt_required", False))
+            or dispatch.get("causal_crossover") != bool(planned.get("causal_crossover", False))
         ):
             raise S6BMRuntimeError("s6bm_continuity_schedule_identity")
         payload_bytes = int(dispatch.get("payload_bytes", 0))
@@ -1022,13 +1183,9 @@ def project_continuity_contract(
             raise S6BMRuntimeError("s6bm_continuity_payload_binding")
         attempted = _finite(record.get("attempted_monotonic"), "bridge_attempted")
         completed = _durable_terminal_monotonic(record)
-        client_completed = _finite(
-            record.get("completed_monotonic"), "bridge_client_completed"
-        )
-        if (
-            int(planned["hold_ms"]) > 0
-            and (client_completed - attempted) * 1000.0
-            < int(planned["hold_ms"])
+        client_completed = _finite(record.get("completed_monotonic"), "bridge_client_completed")
+        if int(planned["hold_ms"]) > 0 and (client_completed - attempted) * 1000.0 < int(
+            planned["hold_ms"]
         ):
             raise S6BMRuntimeError("s6bm_continuity_bridge_hold_duration")
         capacity_events.append((attempted, 1, payload_bytes))
@@ -1038,22 +1195,23 @@ def project_continuity_contract(
         expected_lateness = (attempted - (producer_started + scheduled_offset / 1000.0)) * 1000
         if expected_lateness < -1e-6:
             raise S6BMRuntimeError("s6bm_continuity_schedule_early")
-        _assert_exact_float(
-            dispatch.get("attempted_monotonic"), attempted, "bridge_attempted"
-        )
+        _assert_exact_float(dispatch.get("attempted_monotonic"), attempted, "bridge_attempted")
         _assert_exact_float(
             dispatch.get("schedule_lateness_ms"), expected_lateness, "schedule_lateness"
         )
         max_lateness = max(max_lateness, expected_lateness)
         if attempted < route_applied < completed:
             bridge_cross_switch += 1
-        if request_id in required_bridge_ids and not attempted < route_applied < completed:
-            raise S6BMRuntimeError("s6bm_continuity_required_bridge_crossover")
+        if request_id in crossover_bridge_ids:
+            if not attempted < route_applied < completed:
+                raise S6BMRuntimeError("s6bm_continuity_designated_bridge_crossover")
+        elif not completed <= terminal_gate_finished < switch_invoked:
+            raise S6BMRuntimeError("s6bm_continuity_non_crossover_terminal_order")
     if max_lateness > float(config.continuity["max_schedule_lateness_ms"]):
         raise S6BMRuntimeError("s6bm_continuity_schedule_late")
     if bridge_cross_switch < int(
         config.continuity["minimum_bridge_cross_switch_completions"]
-    ):
+    ) or bridge_cross_switch != len(crossover_bridge_ids):
         raise S6BMRuntimeError("s6bm_continuity_cross_switch_absent")
     active_count = 0
     active_bytes = 0
@@ -1075,19 +1233,17 @@ def project_continuity_contract(
         or active_bytes != 0
         or int(execution.get("reserved_requests_at_finish", -1)) != 0
         or int(execution.get("reserved_payload_bytes_at_finish", -1)) != 0
-        or not recomputed_max_count <= observed_max_count <= int(
-            config.continuity["max_in_flight_requests"]
-        )
-        or not recomputed_max_bytes <= observed_max_bytes <= int(
-            config.continuity["max_in_flight_payload_bytes"]
-        )
+        or not recomputed_max_count
+        <= observed_max_count
+        <= int(config.continuity["max_in_flight_requests"])
+        or not recomputed_max_bytes
+        <= observed_max_bytes
+        <= int(config.continuity["max_in_flight_payload_bytes"])
     ):
         raise S6BMRuntimeError("s6bm_continuity_capacity_bound")
 
     terminal_during_transition = sum(
-        producer_started
-        <= _durable_terminal_monotonic(item)
-        <= receipt_observed
+        producer_started <= _durable_terminal_monotonic(item) <= receipt_observed
         for item in records
     )
     if terminal_during_transition < int(
@@ -1117,8 +1273,7 @@ def project_continuity_contract(
             for item in dispatches
         ),
         "capacity_waited_dispatches": sum(
-            _finite(item.get("capacity_wait_ms"), "capacity_wait") > 0.001
-            for item in dispatches
+            _finite(item.get("capacity_wait_ms"), "capacity_wait") > 0.001 for item in dispatches
         ),
         "terminal_during_transition": terminal_during_transition,
         "bridge_cross_switch_completions": bridge_cross_switch,
@@ -1139,6 +1294,9 @@ def project_continuity_contract(
         "blue_in_flight_before_switch": int(execution["blue_in_flight_before_switch"]),
         "required_actor_bridge_count": len(required_bridge_ids),
         "required_actor_bridge_request_set_sha256": expected_bridge_set_sha,
+        "held_bridge_request_set_sha256": canonical_sha256(held_bridge_ids),
+        "crossover_bridge_request_set_sha256": canonical_sha256(crossover_bridge_ids),
+        "pre_switch_terminal_request_set_sha256": canonical_sha256(expected_terminal_ids),
         "required_actor_receipt_event_count": required_event_count,
         "old_route_generation": old_generation,
         "new_route_generation": new_generation,

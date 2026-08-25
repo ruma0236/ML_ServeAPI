@@ -171,6 +171,15 @@ class TritonBlueGreenControlRequest(ContractModel):
     readiness_passed: bool = True
     canary_passed: bool = True
     causal_crossover: TritonBlueGreenCausalIdentity | None = None
+    continuity_receipt_request_ids: list[str] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+    continuity_crossover_request_ids: list[str] = Field(
+        default_factory=list,
+        max_length=1,
+    )
+    pending_crossover_request_ids: list[str] = Field(default_factory=list, max_length=2)
 
     @model_validator(mode="after")
     def validate_causal_action(self) -> "TritonBlueGreenControlRequest":
@@ -179,6 +188,43 @@ class TritonBlueGreenControlRequest(ContractModel):
                 raise ValueError("causal crossover identity is required")
         elif self.causal_crossover is not None:
             raise ValueError("causal crossover identity is only valid for switch and unload")
+        continuity_fields_present = bool(
+            self.continuity_receipt_request_ids or self.continuity_crossover_request_ids
+        )
+        if continuity_fields_present:
+            if self.action != "green_switched":
+                raise ValueError("continuity receipts are only valid for the Green switch")
+            if (
+                self.causal_crossover is None
+                or len(self.continuity_receipt_request_ids) != 4
+                or len(set(self.continuity_receipt_request_ids)) != 4
+                or self.continuity_receipt_request_ids
+                != sorted(self.continuity_receipt_request_ids)
+                or len(self.continuity_crossover_request_ids) != 1
+                or self.continuity_crossover_request_ids[0]
+                not in self.continuity_receipt_request_ids
+                or len(self.pending_crossover_request_ids) != 2
+                or self.pending_crossover_request_ids
+                != sorted(set(self.pending_crossover_request_ids))
+                or self.causal_crossover.request_id in self.continuity_receipt_request_ids
+                or self.pending_crossover_request_ids
+                != sorted(
+                    [
+                        self.causal_crossover.request_id,
+                        self.continuity_crossover_request_ids[0],
+                    ]
+                )
+            ):
+                raise ValueError(
+                    "continuity switch requires separate receipt, crossover, and pending sets"
+                )
+        elif self.pending_crossover_request_ids:
+            if (
+                self.action != "green_switched"
+                or self.causal_crossover is None
+                or self.pending_crossover_request_ids != [self.causal_crossover.request_id]
+            ):
+                raise ValueError("causal switch pending set must match the crossover request")
         return self
 
 
@@ -237,11 +283,9 @@ class TritonBlueGreenPredictRequest(ContractModel):
             or self.expected_route_generation < 1
             or self.expected_model_role != "blue"
         ):
-            raise ValueError(
-                "start receipt requires Blue identity, nonce, and route generation"
-            )
-        if self.causal_crossover and self.hold_ms <= 0:
-            raise ValueError("crossover request requires a positive hold")
+            raise ValueError("start receipt requires Blue identity, nonce, and route generation")
+        if self.causal_crossover and self.hold_ms <= 0 and not self.start_receipt_required:
+            raise ValueError("crossover request requires a hold or a committed start receipt")
         return self
 
 
@@ -358,6 +402,8 @@ class TritonBlueGreenStateResponse(ContractModel):
     terminal_unique: int = 0
     duplicate_replays: int = 0
     used_approvals: int = 0
+    pending_crossover_request_ids: list[str] = Field(default_factory=list)
+    pending_crossover_count: int = 0
     transition_receipt: dict[str, Any] | None = None
 
 
@@ -404,6 +450,9 @@ def action_digest(request: TritonBlueGreenControlRequest) -> str:
             if request.causal_crossover is not None
             else None
         ),
+        "continuity_receipt_request_ids": list(request.continuity_receipt_request_ids),
+        "continuity_crossover_request_ids": list(request.continuity_crossover_request_ids),
+        "pending_crossover_request_ids": list(request.pending_crossover_request_ids),
     }
     return hashlib.sha256(canonical(payload).encode("ascii")).hexdigest()
 
@@ -594,10 +643,27 @@ class TritonBlueGreenManager:
             fence_context: dict[str, Any] = {}
             fence_receipt: dict[str, Any] | None = None
             crossover: TritonBlueGreenCausalIdentity | None = None
+            pending_crossover_ids: list[str] = []
+            pending_crossover_events: list[threading.Event] = []
             if request.action in {"green_switched", "blue_unloaded"} and (
                 request.causal_crossover is not None or _strict_causal_required()
             ):
                 crossover = self._validate_causal_crossover(state, request)
+                if request.action == "green_switched":
+                    pending_crossover_ids = sorted(state.crossover_switch_events)
+                    expected_pending_ids = request.pending_crossover_request_ids or [
+                        crossover.request_id
+                    ]
+                    if pending_crossover_ids != expected_pending_ids:
+                        raise TritonBlueGreenError(
+                            "causal_crossover_pending_set_mismatch",
+                            request.action,
+                            status_code=409,
+                        )
+                    pending_crossover_events = [
+                        state.crossover_switch_events[request_id]
+                        for request_id in pending_crossover_ids
+                    ]
                 if request.action == "blue_unloaded":
                     fence_context["pre_switch_blue_effects"] = sorted(
                         (
@@ -636,8 +702,7 @@ class TritonBlueGreenManager:
                             status_code=503,
                         )
                     if request.action == "green_switched" and (
-                        fence_receipt.get("schema_version")
-                        != "evm.s6bm.route_switch_receipt.v2"
+                        fence_receipt.get("schema_version") != "evm.s6bm.route_switch_receipt.v2"
                         or fence_receipt.get("attempt_id") != crossover.attempt_id
                         or fence_receipt.get("run_id") != crossover.run_id
                         or fence_receipt.get("request_id") != crossover.request_id
@@ -645,16 +710,26 @@ class TritonBlueGreenManager:
                         != request.expected_generation
                         or int(fence_receipt.get("new_route_generation", 0))
                         != request.expected_generation + 1
+                        or fence_receipt.get("continuity_receipt_request_ids")
+                        != request.continuity_receipt_request_ids
+                        or int(fence_receipt.get("continuity_receipt_request_count", -1))
+                        != len(request.continuity_receipt_request_ids)
+                        or fence_receipt.get("continuity_crossover_request_ids")
+                        != request.continuity_crossover_request_ids
+                        or fence_receipt.get("pending_crossover_request_ids")
+                        != pending_crossover_ids
+                        or int(fence_receipt.get("pending_crossover_count", -1))
+                        != len(pending_crossover_ids)
                         or int(fence_receipt.get("actor_process_id", 0)) != os.getpid()
-                        or int(fence_receipt.get("actor_thread_id", 0))
-                        != threading.get_ident()
+                        or int(fence_receipt.get("actor_thread_id", 0)) != threading.get_ident()
                     ):
                         raise TritonBlueGreenError(
                             "causal_transition_receipt_mismatch",
                             request.action,
                             status_code=503,
                         )
-            state.last_transition_receipt = None
+            if request.action == "green_switched":
+                state.last_transition_receipt = None
             self._apply_model_control(state, request.action)
             self._transition(state, request.action)
             state.used_approvals.add(request.approval_id)
@@ -671,8 +746,7 @@ class TritonBlueGreenManager:
                     "api-control-plane-route-switch-applied"
                 )
                 if (
-                    int(route_applied_actor["process_id"])
-                    != int(fence_receipt["actor_process_id"])
+                    int(route_applied_actor["process_id"]) != int(fence_receipt["actor_process_id"])
                     or int(route_applied_actor["thread_id"])
                     != int(fence_receipt["actor_thread_id"])
                     or int(fence_receipt["commit_ack_monotonic_ns"])
@@ -690,6 +764,7 @@ class TritonBlueGreenManager:
                         request.action,
                         status_code=503,
                     )
+                waiter_release_monotonic_ns = time.perf_counter_ns()
                 state.last_transition_receipt = {
                     "schema_version": "evm.s6bm.route_transition_receipt.v1",
                     "transition_id": fence_receipt["transition_id"],
@@ -709,9 +784,7 @@ class TritonBlueGreenManager:
                     "actor_identity": fence_receipt["actor_identity"],
                     "actor_process_id": fence_receipt["actor_process_id"],
                     "actor_thread_id": fence_receipt["actor_thread_id"],
-                    "actor_commit_ack_monotonic_ns": fence_receipt[
-                        "commit_ack_monotonic_ns"
-                    ],
+                    "actor_commit_ack_monotonic_ns": fence_receipt["commit_ack_monotonic_ns"],
                     "fence_readback_started_monotonic_ns": fence_receipt[
                         "readback_started_monotonic_ns"
                     ],
@@ -726,12 +799,33 @@ class TritonBlueGreenManager:
                         "route_weights": dict(state.weights),
                         "loaded_roles": sorted(state.loaded),
                     },
+                    "continuity_crossover_request_ids": list(
+                        request.continuity_crossover_request_ids
+                    ),
+                    "continuity_crossover_request_set_sha256": hashlib.sha256(
+                        canonical(request.continuity_crossover_request_ids).encode("ascii")
+                    ).hexdigest(),
+                    "continuity_crossover_count": len(request.continuity_crossover_request_ids),
+                    "continuity_receipt_request_ids": list(request.continuity_receipt_request_ids),
+                    "continuity_receipt_request_set_sha256": hashlib.sha256(
+                        canonical(request.continuity_receipt_request_ids).encode("ascii")
+                    ).hexdigest(),
+                    "continuity_receipt_request_count": len(request.continuity_receipt_request_ids),
+                    "pending_crossover_request_ids": pending_crossover_ids,
+                    "pending_crossover_request_set_sha256": hashlib.sha256(
+                        canonical(pending_crossover_ids).encode("ascii")
+                    ).hexdigest(),
+                    "pending_crossover_count": len(pending_crossover_ids),
+                    "released_crossover_request_ids": pending_crossover_ids,
+                    "crossover_release_monotonic_ns": (waiter_release_monotonic_ns),
+                    "crossover_release_basis": ("fence_commit_readback_and_route_applied"),
                     "fence_receipt_sha256": hashlib.sha256(
                         canonical(fence_receipt).encode("ascii")
                     ).hexdigest(),
                     "fence_receipt": fence_receipt,
                 }
-                state.crossover_switch_events[crossover.request_id].set()
+                for waiter in pending_crossover_events:
+                    waiter.set()
             TRANSITIONS.labels(request.action, "applied").inc()
             return self.snapshot()
 
@@ -860,7 +954,9 @@ class TritonBlueGreenManager:
         }
         counted_in_flight = cached_result is None
         try:
-            if (request.causal_crossover or request.start_receipt_required) and cached_result is None:
+            if (
+                request.causal_crossover or request.start_receipt_required
+            ) and cached_result is None:
                 if start_receipt_committer is None:
                     raise TritonBlueGreenError(
                         "causal_start_store_unavailable",
@@ -963,6 +1059,21 @@ class TritonBlueGreenManager:
                             request.request_id,
                             status_code=503,
                         )
+                    with self._lock:
+                        current = self._require_state(request.run_id)
+                        transition = dict(current.last_transition_receipt or {})
+                        if (
+                            request.request_id
+                            not in transition.get("pending_crossover_request_ids", [])
+                            or request.request_id
+                            not in transition.get("released_crossover_request_ids", [])
+                            or int(transition.get("new_route_generation", 0)) != generation + 1
+                        ):
+                            raise TritonBlueGreenError(
+                                "causal_switch_release_mismatch",
+                                request.request_id,
+                                status_code=503,
+                            )
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 result = TritonBlueGreenPredictResponse(
                     run_id=request.run_id,
@@ -1184,6 +1295,8 @@ class TritonBlueGreenManager:
                 terminal_unique=len(state.responses),
                 duplicate_replays=state.duplicate_replays,
                 used_approvals=len(state.used_approvals),
+                pending_crossover_request_ids=sorted(state.crossover_switch_events),
+                pending_crossover_count=len(state.crossover_switch_events),
                 transition_receipt=(
                     dict(state.last_transition_receipt)
                     if state.last_transition_receipt is not None

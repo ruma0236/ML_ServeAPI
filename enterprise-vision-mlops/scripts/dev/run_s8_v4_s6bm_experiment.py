@@ -183,10 +183,7 @@ def parse_args() -> argparse.Namespace:
     modes.add_argument(
         "--continuity-qualification-only",
         action="store_true",
-        help=(
-            "Run one exact-1000 non-credit continuity qualification and stop before "
-            "acceptance."
-        ),
+        help=("Run one exact-1000 non-credit continuity qualification and stop before acceptance."),
     )
     return parser.parse_args()
 
@@ -887,6 +884,9 @@ def control_payload(
     readiness_passed: bool = True,
     canary_passed: bool = True,
     causal_crossover: Mapping[str, Any] | None = None,
+    continuity_receipt_request_ids: Sequence[str] = (),
+    continuity_crossover_request_ids: Sequence[str] = (),
+    pending_crossover_request_ids: Sequence[str] = (),
 ) -> dict[str, Any]:
     state = controller_state(config)
     request = TritonBlueGreenControlRequest(
@@ -903,6 +903,9 @@ def control_payload(
         readiness_passed=readiness_passed,
         canary_passed=canary_passed,
         causal_crossover=causal_crossover,
+        continuity_receipt_request_ids=list(continuity_receipt_request_ids),
+        continuity_crossover_request_ids=list(continuity_crossover_request_ids),
+        pending_crossover_request_ids=list(pending_crossover_request_ids),
     )
     request = request.model_copy(update={"action_digest": action_digest(request)})
     return request.model_dump(mode="json")
@@ -1019,6 +1022,7 @@ def request_bodies_from_plan(
         traffic_role = str(item["traffic_role"])
         causal = traffic_role == "causal_hold"
         start_receipt_required = bool(item.get("actor_receipt_required", False))
+        causal_crossover = bool(item.get("causal_crossover", causal))
         bodies.append(
             request_body(
                 config,
@@ -1028,10 +1032,10 @@ def request_bodies_from_plan(
                 expected_model_role=str(item["expected_model_role"]),
                 hold_ms=int(item["hold_ms"]),
                 expected_route_generation=(
-                    route_generation if causal or start_receipt_required else 0
+                    route_generation if causal_crossover or start_receipt_required else 0
                 ),
                 start_receipt_required=start_receipt_required,
-                causal_crossover=causal,
+                causal_crossover=causal_crossover,
             )
         )
     return bodies
@@ -1185,12 +1189,7 @@ def read_required_bridge_start_receipts(
     response = requests.get(api_url(config, f"causal-events/{attempt_id}"), timeout=30)
     response.raise_for_status()
     payload = response.json()
-    readback_path = (
-        suite_root
-        / "causal"
-        / attempt_id
-        / "bridge-start-receipts-pre-switch.json"
-    )
+    readback_path = suite_root / "causal" / attempt_id / "bridge-start-receipts-pre-switch.json"
     canonical_write(readback_path, payload)
     required_stages = {
         "api_server_handler_entry",
@@ -1210,12 +1209,12 @@ def read_required_bridge_start_receipts(
         matches = [
             item
             for item in rows
-            if item.get("request_id") == request_id
-            and item.get("event_type") in required_stages
+            if item.get("request_id") == request_id and item.get("event_type") in required_stages
         ]
-        if len(matches) != len(required_stages) or {
-            str(item.get("event_type", "")) for item in matches
-        } != required_stages:
+        if (
+            len(matches) != len(required_stages)
+            or {str(item.get("event_type", "")) for item in matches} != required_stages
+        ):
             raise S6BMExperimentError(f"continuity_actor_receipt_incomplete:{request_id}")
         for item in matches:
             event_payload = dict(item.get("payload", {}))
@@ -1246,9 +1245,7 @@ def read_required_bridge_start_receipts(
                 or not str(item.get("database_recorded_at", ""))
                 or not str(item.get("captured_at", ""))
             ):
-                raise S6BMExperimentError(
-                    f"continuity_actor_receipt_identity:{request_id}"
-                )
+                raise S6BMExperimentError(f"continuity_actor_receipt_identity:{request_id}")
             observed_sequences.append(int(item["causal_sequence"]))
         selected.extend(matches)
     if len(set(required_request_ids)) != len(required_request_ids):
@@ -1441,9 +1438,10 @@ def run_fixed_bridge_producer(
     config: S6BMConfig,
     bodies: Sequence[Mapping[str, Any]],
     schedule: Sequence[Mapping[str, Any]],
-    on_required_actor_receipts: Callable[[], dict[str, Any]],
+    collect_required_actor_receipts: Callable[[], dict[str, Any]],
+    on_switch_ready: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
-    """Offer the frozen bridge schedule while an independent causal gate waits."""
+    """Finish 39 Blue requests before switching and release one exact waiter."""
     if len(bodies) != len(schedule):
         raise S6BMExperimentError("continuity_schedule_cardinality")
     workers = int(config.continuity["producer_workers"])
@@ -1463,9 +1461,16 @@ def run_fixed_bridge_producer(
     max_reserved_count = 0
     max_reserved_bytes = 0
     futures: list[concurrent.futures.Future[dict[str, Any]]] = []
+    futures_by_request: dict[str, concurrent.futures.Future[dict[str, Any]]] = {}
     dispatch_meta: list[dict[str, Any]] = []
     producer_started = time.perf_counter()
     causal_gate_started = time.perf_counter()
+    crossover_ids = [
+        str(body["request_id"]) for body in bodies if bool(body.get("causal_crossover", False))
+    ]
+    if len(crossover_ids) != 1:
+        raise S6BMExperimentError("continuity_crossover_exact_set")
+    crossover_id = crossover_ids[0]
 
     def dispatch(body: Mapping[str, Any]) -> dict[str, Any]:
         session = getattr(local, "session", None)
@@ -1493,7 +1498,7 @@ def run_fixed_bridge_producer(
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as gate_pool:
-            gate_future = gate_pool.submit(on_required_actor_receipts)
+            gate_future = gate_pool.submit(collect_required_actor_receipts)
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
                 for body, planned in zip(bodies, schedule, strict=True):
                     target = producer_started + int(planned["scheduled_offset_ms"]) / 1000.0
@@ -1519,10 +1524,9 @@ def run_fixed_bridge_producer(
                             slots.release()
                             raise S6BMExperimentError("continuity_capacity_bound")
                     future = pool.submit(dispatch, body)
-                    future.add_done_callback(
-                        lambda _future, size=payload_bytes: release_slot(size)
-                    )
+                    future.add_done_callback(lambda _future, size=payload_bytes: release_slot(size))
                     futures.append(future)
+                    futures_by_request[str(body["request_id"])] = future
                     dispatch_meta.append(
                         {
                             "request_id": str(body["request_id"]),
@@ -1531,6 +1535,7 @@ def run_fixed_bridge_producer(
                             "actor_receipt_required": bool(
                                 planned.get("actor_receipt_required", False)
                             ),
+                            "causal_crossover": bool(body.get("causal_crossover", False)),
                             "payload_bytes": payload_bytes,
                             "payload_sha256": canonical_sha256(dict(body)),
                             "capacity_wait_ms": (wait_finished - wait_started) * 1000.0,
@@ -1539,13 +1544,71 @@ def run_fixed_bridge_producer(
                 all_submitted = time.perf_counter()
                 gate_timeout = max(
                     30.0,
-                    float(getattr(config, "procedure", {}).get("drain_timeout_seconds", 15))
-                    + 10.0,
+                    float(getattr(config, "procedure", {}).get("drain_timeout_seconds", 15)) + 10.0,
                 )
-                transition = gate_future.result(timeout=gate_timeout)
-                receipt_observed = float(
-                    transition["transition_receipt_observed_monotonic"]
+                receipt_proof = gate_future.result(timeout=gate_timeout)
+                expected_terminal_ids = sorted(
+                    request_id for request_id in futures_by_request if request_id != crossover_id
                 )
+                terminal_records = {
+                    request_id: futures_by_request[request_id].result(timeout=25)
+                    for request_id in expected_terminal_ids
+                }
+                if (
+                    len(expected_terminal_ids) != len(bodies) - 1
+                    or set(terminal_records) != set(expected_terminal_ids)
+                    or any(
+                        record.get("outcome") != "completed"
+                        or int(record.get("status_code", 0)) != 200
+                        or record.get("model_role") != "blue"
+                        for record in terminal_records.values()
+                    )
+                ):
+                    raise S6BMExperimentError("continuity_pre_switch_terminal_set")
+                projected_terminal_records = [
+                    {
+                        "request_id": request_id,
+                        "attempt_id": terminal_records[request_id].get("attempt_id"),
+                        "run_id": terminal_records[request_id].get("run_id"),
+                        "trace_id": terminal_records[request_id].get("trace_id"),
+                        "effect_id": terminal_records[request_id].get("effect_id"),
+                        "model_role": terminal_records[request_id].get("model_role"),
+                        "model_name": terminal_records[request_id].get("model_name"),
+                        "model_version": terminal_records[request_id].get("model_version"),
+                        "artifact_sha256": terminal_records[request_id].get("artifact_sha256"),
+                        "route_generation": terminal_records[request_id].get("route_generation"),
+                        "status_code": terminal_records[request_id].get("status_code"),
+                        "outcome": terminal_records[request_id].get("outcome"),
+                        "attempted_monotonic": terminal_records[request_id].get(
+                            "attempted_monotonic"
+                        ),
+                        "completed_monotonic": terminal_records[request_id].get(
+                            "completed_monotonic"
+                        ),
+                        "durable_effect_readback_finished_monotonic_ns": dict(
+                            terminal_records[request_id].get("durable_effect") or {}
+                        ).get("readback_finished_monotonic_ns"),
+                    }
+                    for request_id in expected_terminal_ids
+                ]
+                terminal_gate = {
+                    "schema_version": ("evm.s8_v4.s6bm_pre_switch_bridge_terminal_gate.v1"),
+                    "crossover_request_id": crossover_id,
+                    "expected_terminal_request_ids": expected_terminal_ids,
+                    "expected_terminal_request_set_sha256": canonical_sha256(expected_terminal_ids),
+                    "expected_terminal_count": len(expected_terminal_ids),
+                    "observed_terminal_request_ids": sorted(terminal_records),
+                    "observed_terminal_request_set_sha256": canonical_sha256(
+                        sorted(terminal_records)
+                    ),
+                    "observed_terminal_count": len(terminal_records),
+                    "terminal_records": projected_terminal_records,
+                    "terminal_records_sha256": canonical_sha256(projected_terminal_records),
+                    "all_submitted_monotonic": all_submitted,
+                    "all_non_crossover_terminal_monotonic": time.perf_counter(),
+                }
+                transition = on_switch_ready(receipt_proof, terminal_gate)
+                receipt_observed = float(transition["transition_receipt_observed_monotonic"])
                 records = [future.result(timeout=25) for future in futures]
                 producer_finished = time.perf_counter()
     finally:
@@ -1566,7 +1629,12 @@ def run_fixed_bridge_producer(
         "transition_receipt_observed_monotonic": receipt_observed,
         "producer_finished_monotonic": producer_finished,
         "adaptive_pacing": False,
-        "switch_gate_basis": "required_actor_receipts_and_db_readback",
+        "switch_gate_basis": (
+            "all40_schedule_plus_exact39_blue_terminal_plus_exact4x3_receipts_"
+            "plus_exact2_pending_crossovers"
+        ),
+        "crossover_request_id": crossover_id,
+        "pre_switch_terminal_gate": terminal_gate,
         "dispatches": dispatch_meta,
         "max_reserved_requests_observed": max_reserved_count,
         "max_reserved_payload_bytes_observed": max_reserved_bytes,
@@ -1797,9 +1865,7 @@ def continuity_conservation_projection(
     route_applied = int(transition_receipt["route_applied_monotonic_ns"]) / 1e9
     producer_started = float(execution["producer_started_monotonic"])
     receipt_observed = float(execution["transition_receipt_observed_monotonic"])
-    bridge_ids = {
-        str(item["request_id"]) for item in traffic_plan["roles"]["bridge"]
-    }
+    bridge_ids = {str(item["request_id"]) for item in traffic_plan["roles"]["bridge"]}
     terminal_times: dict[str, float] = {}
     for record in records:
         receipt = dict(record.get("durable_effect", {}))
@@ -1808,17 +1874,16 @@ def continuity_conservation_projection(
         )
     bridge_cross_switch = sum(
         str(record["request_id"]) in bridge_ids
-        and float(record["attempted_monotonic"]) < route_applied
+        and float(record["attempted_monotonic"])
+        < route_applied
         < terminal_times[str(record["request_id"])]
         for record in records
     )
     terminal_during_transition = sum(
-        producer_started <= terminal <= receipt_observed
-        for terminal in terminal_times.values()
+        producer_started <= terminal <= receipt_observed for terminal in terminal_times.values()
     )
     role_counts = {
-        role: len(list(traffic_plan["roles"][role]))
-        for role in traffic_plan["role_order"]
+        role: len(list(traffic_plan["roles"][role])) for role in traffic_plan["role_order"]
     }
     dispatches = [dict(item) for item in execution["dispatches"]]
     completed = sum(item.get("outcome") == "completed" for item in records)
@@ -2527,9 +2592,18 @@ def run_success(
                 if item.get("actor_receipt_required") is True
             ]
             required_bridge_ids = [str(item["request_id"]) for item in required_bridge_items]
-            bridge_bodies_by_id = {
-                str(body["request_id"]): body for body in bridge_bodies
-            }
+            crossover_bridge_ids = [
+                str(item["request_id"])
+                for item in required_bridge_items
+                if item.get("causal_crossover") is True
+            ]
+            if len(crossover_bridge_ids) != 1:
+                raise S6BMExperimentError("continuity_crossover_exact_set")
+            crossover_bridge_id = crossover_bridge_ids[0]
+            expected_pending_crossover_ids = sorted(
+                [str(hold_identity["request_id"]), crossover_bridge_id]
+            )
+            bridge_bodies_by_id = {str(body["request_id"]): body for body in bridge_bodies}
             bridge_collectors: list[TraceCollectorProcess] = []
             try:
                 for request_id in required_bridge_ids:
@@ -2548,7 +2622,7 @@ def run_success(
                 stop_trace_collectors(bridge_collectors)
                 raise
 
-            def switch_after_fixed_schedule() -> dict[str, Any]:
+            def collect_bridge_receipt_proof() -> dict[str, Any]:
                 triton_receipt = wait_triton_start_receipt_collector(
                     collector,
                     suite_root=suite_root,
@@ -2576,6 +2650,29 @@ def run_success(
                     bridge_receipt_gate["collector_request_ids"]
                 )
                 bridge_receipt_gate["gate_satisfied_monotonic"] = time.perf_counter()
+                return {
+                    "triton_start_receipt": triton_receipt,
+                    "bridge_triton_start_receipts": bridge_triton_receipts,
+                    "bridge_actor_receipt_gate": bridge_receipt_gate,
+                }
+
+            def switch_after_fixed_schedule(
+                receipt_proof: dict[str, Any],
+                terminal_gate: dict[str, Any],
+            ) -> dict[str, Any]:
+                state_before_switch = controller_state(config)
+                if (
+                    state_before_switch.get("pending_crossover_request_ids")
+                    != expected_pending_crossover_ids
+                    or int(state_before_switch.get("pending_crossover_count", -1)) != 2
+                    or int(state_before_switch["in_flight"]["blue"])
+                    < int(config.continuity["minimum_blue_in_flight_at_switch"])
+                    or int(terminal_gate.get("observed_terminal_count", -1)) != 39
+                    or terminal_gate.get("crossover_request_id") != crossover_bridge_id
+                ):
+                    raise S6BMExperimentError(
+                        f"continuity_switch_gate_state:{state_before_switch}:{terminal_gate}"
+                    )
                 pre_switch = wait_in_flight_at_least(
                     config,
                     "blue",
@@ -2588,22 +2685,48 @@ def run_success(
                     lease,
                     "green_switched",
                     causal_crossover=hold_identity,
+                    continuity_receipt_request_ids=sorted(required_bridge_ids),
+                    continuity_crossover_request_ids=[crossover_bridge_id],
+                    pending_crossover_request_ids=expected_pending_crossover_ids,
                 )
                 receipt_observed = time.perf_counter()
                 receipt = dict(switched.get("transition_receipt") or {})
                 if not receipt:
                     raise S6BMExperimentError("route_transition_receipt_absent")
+                if (
+                    receipt.get("continuity_receipt_request_ids") != sorted(required_bridge_ids)
+                    or receipt.get("continuity_crossover_request_ids") != [crossover_bridge_id]
+                    or receipt.get("pending_crossover_request_ids")
+                    != expected_pending_crossover_ids
+                    or receipt.get("released_crossover_request_ids")
+                    != expected_pending_crossover_ids
+                    or receipt.get("crossover_release_basis")
+                    != "fence_commit_readback_and_route_applied"
+                ):
+                    raise S6BMExperimentError("continuity_crossover_release_receipt")
                 timeline.append(phase_entry(config, "green_active", clock_chain=clock_chain))
                 apply_control(config, lease, "blue_drain_started")
                 timeline.append(phase_entry(config, "blue_draining", clock_chain=clock_chain))
                 return {
-                    "triton_start_receipt": triton_receipt,
+                    "triton_start_receipt": receipt_proof["triton_start_receipt"],
                     "transition_receipt": receipt,
                     "switch_invoked_monotonic": switch_invoked,
                     "transition_receipt_observed_monotonic": receipt_observed,
                     "blue_in_flight_before_switch": int(pre_switch["in_flight"]["blue"]),
-                    "bridge_triton_start_receipts": bridge_triton_receipts,
-                    "bridge_actor_receipt_gate": bridge_receipt_gate,
+                    "pre_switch_state": {
+                        "generation": int(state_before_switch["generation"]),
+                        "phase": state_before_switch["phase"],
+                        "blue_in_flight": int(state_before_switch["in_flight"]["blue"]),
+                        "pending_crossover_request_ids": state_before_switch[
+                            "pending_crossover_request_ids"
+                        ],
+                        "pending_crossover_count": int(
+                            state_before_switch["pending_crossover_count"]
+                        ),
+                    },
+                    "bridge_triton_start_receipts": receipt_proof["bridge_triton_start_receipts"],
+                    "bridge_actor_receipt_gate": receipt_proof["bridge_actor_receipt_gate"],
+                    "pre_switch_terminal_gate": terminal_gate,
                 }
 
             try:
@@ -2611,6 +2734,7 @@ def run_success(
                     config,
                     bridge_bodies,
                     traffic_plan["roles"]["bridge"],
+                    collect_bridge_receipt_proof,
                     switch_after_fixed_schedule,
                 )
             finally:
@@ -2621,15 +2745,10 @@ def run_success(
                     "plan_frozen_monotonic": plan_frozen_monotonic,
                     "controller_initialized_monotonic": controller_initialized_monotonic,
                     "switch_invoked_monotonic": transition["switch_invoked_monotonic"],
-                    "blue_in_flight_before_switch": transition[
-                        "blue_in_flight_before_switch"
-                    ],
-                    "bridge_triton_start_receipts": transition[
-                        "bridge_triton_start_receipts"
-                    ],
-                    "bridge_actor_receipt_gate": transition[
-                        "bridge_actor_receipt_gate"
-                    ],
+                    "blue_in_flight_before_switch": transition["blue_in_flight_before_switch"],
+                    "bridge_triton_start_receipts": transition["bridge_triton_start_receipts"],
+                    "bridge_actor_receipt_gate": transition["bridge_actor_receipt_gate"],
+                    "pre_switch_state": transition["pre_switch_state"],
                 }
             )
             triton_start_receipt = transition["triton_start_receipt"]
@@ -2787,6 +2906,8 @@ def run_success(
             "queue_zero": queue_counts()["active"] == 0,
             "lease_owner_exact": owner_sample(lease)["owner_exact"],
             "controller_in_flight_zero": not any(state["in_flight"].values()),
+            "controller_pending_crossovers_zero": int(state.get("pending_crossover_count", -1))
+            == 0,
             "prometheus_targets_up": telemetry["api_target_up"] and telemetry["triton_target_up"],
         },
     }
@@ -2887,6 +3008,7 @@ def run_causal_qualification(
             lease,
             "green_switched",
             causal_crossover=hold_identity,
+            pending_crossover_request_ids=[str(hold_identity["request_id"])],
         )
         transition_receipt = dict(switch_state.get("transition_receipt") or {})
         if not transition_receipt:
@@ -3133,6 +3255,8 @@ def run_fault(
             "blue_only": final["route_weights"] == {"blue": 100, "green": 0},
             "green_unloaded": not model_ready(config, "green"),
             "controller_in_flight_zero": not any(final["in_flight"].values()),
+            "controller_pending_crossovers_zero": int(final.get("pending_crossover_count", -1))
+            == 0,
             "lease_owner_exact": owner_sample(lease)["owner_exact"],
         },
     }
@@ -3555,9 +3679,7 @@ def main() -> int:
 
     if args.qualification_only or args.continuity_qualification_only:
         qualification_payload = (
-            qualification_result
-            if args.qualification_only
-            else continuity_qualification_result
+            qualification_result if args.qualification_only else continuity_qualification_result
         )
         if qualification_payload is None:
             raise S6BMExperimentError("causal_qualification_result_absent")

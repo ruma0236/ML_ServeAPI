@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import importlib.util
 import json
@@ -21,9 +22,7 @@ GIT_ROOT = ROOT.parent
 RUNNER = ROOT / "scripts/dev/run_s8_v4_s6bm_experiment.py"
 VALIDATOR = ROOT / "scripts/dev/validate_s8_v4_s6bm.py"
 REVIEW_WRITER = ROOT / "scripts/dev/write_s8_v4_s6bm_review.py"
-CONTINUITY_VALIDATOR = (
-    ROOT / "scripts/dev/validate_s8_v4_s6bm_continuity_qualification.py"
-)
+CONTINUITY_VALIDATOR = ROOT / "scripts/dev/validate_s8_v4_s6bm_continuity_qualification.py"
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
 
 
@@ -37,9 +36,7 @@ def load_runner():
 
 
 def load_continuity_validator():
-    spec = importlib.util.spec_from_file_location(
-        "s6bm_continuity_validator", CONTINUITY_VALIDATOR
-    )
+    spec = importlib.util.spec_from_file_location("s6bm_continuity_validator", CONTINUITY_VALIDATOR)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -48,9 +45,12 @@ def load_continuity_validator():
 
 def test_continuity_mutation_contract_is_exact_and_frozen() -> None:
     validator = load_continuity_validator()
-    assert len(validator.CASE_CONTRACT) == len(validator.MUTATIONS) == 9
-    assert len({case_id for case_id, _reason in validator.CASE_CONTRACT}) == 9
+    assert len(validator.CASE_CONTRACT) == len(validator.MUTATIONS) == 19
+    assert len({case_id for case_id, _reason in validator.CASE_CONTRACT}) == 19
     assert validator.canonical_sha256(validator.CASE_CONTRACT) == (
+        "230ff21035dace5eb498d649d69a1bb063c377c95808d8d9bcae5903edd13a6e"
+    )
+    assert validator.canonical_sha256(validator.HISTORICAL_CASE_CONTRACT) == (
         "c42a6245d1e48152d06c6f1bd31c7fca8de58f201129c99bb7c59abe9356d4d7"
     )
 
@@ -175,6 +175,7 @@ def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
 def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypatch) -> None:
     runner = load_runner()
     actor_receipts_ready = threading.Event()
+    switch_released = threading.Event()
     observed_request_ids: set[str] = set()
     observed_lock = threading.Lock()
 
@@ -192,9 +193,12 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
             observed_request_ids.add(body["request_id"])
             if len(observed_request_ids) == 3:
                 actor_receipts_ready.set()
+        if body.get("causal_crossover"):
+            assert switch_released.wait(timeout=2)
         time.sleep(0.003)
         return {
             "request_id": body["request_id"],
+            "model_role": "blue",
             "attempted_monotonic": attempted,
             "completed_monotonic": time.perf_counter(),
             "outcome": "completed",
@@ -216,35 +220,142 @@ def test_fixed_bridge_producer_preserves_schedule_and_bounded_capacity(monkeypat
         for index in range(3)
     ]
     bodies = [
-        {"request_id": item["request_id"], "hold_ms": 0, "value": index}
+        {
+            "request_id": item["request_id"],
+            "hold_ms": 0,
+            "value": index,
+            "causal_crossover": index == 0,
+        }
         for index, item in enumerate(schedule)
     ]
 
-    def transition():
+    def collect_receipts():
         assert actor_receipts_ready.wait(timeout=2)
-        observed = time.perf_counter()
+        return {"receipt": "actor"}
+
+    def transition(receipt_proof, terminal_gate):
+        assert receipt_proof == {"receipt": "actor"}
+        assert terminal_gate["expected_terminal_request_ids"] == [
+            "bridge-1",
+            "bridge-2",
+        ]
+        switch_released.set()
         return {
-            "transition_receipt_observed_monotonic": observed,
+            "transition_receipt_observed_monotonic": time.perf_counter(),
             "receipt": "actor",
             "observed_request_ids": sorted(observed_request_ids),
         }
 
     records, evidence, receipt = runner.run_fixed_bridge_producer(
-        config, bodies, schedule, transition
+        config, bodies, schedule, collect_receipts, transition
     )
 
     assert [item["request_id"] for item in records] == [item["request_id"] for item in schedule]
     assert receipt["receipt"] == "actor"
     assert receipt["observed_request_ids"] == ["bridge-0", "bridge-1", "bridge-2"]
     assert evidence["adaptive_pacing"] is False
-    assert evidence["switch_gate_basis"] == "required_actor_receipts_and_db_readback"
+    assert evidence["switch_gate_basis"] == (
+        "all40_schedule_plus_exact39_blue_terminal_plus_exact4x3_receipts_"
+        "plus_exact2_pending_crossovers"
+    )
+    assert evidence["pre_switch_terminal_gate"]["observed_terminal_count"] == 2
     assert evidence["max_reserved_requests_observed"] <= 2
     assert evidence["max_reserved_payload_bytes_observed"] <= 8192
     assert evidence["reserved_requests_at_finish"] == 0
     assert evidence["reserved_payload_bytes_at_finish"] == 0
-    assert evidence["producer_finished_monotonic"] >= evidence[
-        "transition_receipt_observed_monotonic"
+    assert (
+        evidence["producer_finished_monotonic"] >= evidence["transition_receipt_observed_monotonic"]
+    )
+
+
+def test_bridge_switch_waits_for_every_non_crossover_terminal_after_submission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = load_runner()
+    all_started = threading.Event()
+    release_last = threading.Event()
+    release_crossover = threading.Event()
+    switch_called = threading.Event()
+    started: set[str] = set()
+    lock = threading.Lock()
+
+    class FakeSession:
+        def mount(self, _prefix: str, _adapter: object) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    def fake_send(_config, body, *, session=None):
+        assert session is not None
+        attempted = time.perf_counter()
+        with lock:
+            started.add(body["request_id"])
+            if len(started) == 4:
+                all_started.set()
+        if body["request_id"] == "bridge-3":
+            assert release_last.wait(timeout=2)
+        if body.get("causal_crossover"):
+            assert release_crossover.wait(timeout=2)
+        return {
+            "request_id": body["request_id"],
+            "model_role": "blue",
+            "attempted_monotonic": attempted,
+            "completed_monotonic": time.perf_counter(),
+            "outcome": "completed",
+            "status_code": 200,
+        }
+
+    monkeypatch.setattr(runner.requests, "Session", FakeSession)
+    monkeypatch.setattr(runner, "send_request", fake_send)
+    config = SimpleNamespace(
+        continuity={
+            "producer_workers": 4,
+            "max_in_flight_requests": 4,
+            "max_request_payload_bytes": 4096,
+            "max_in_flight_payload_bytes": 16384,
+        }
+    )
+    schedule = [
+        {"request_id": f"bridge-{index}", "scheduled_offset_ms": index, "hold_ms": 0}
+        for index in range(4)
     ]
+    bodies = [
+        {
+            "request_id": item["request_id"],
+            "hold_ms": 0,
+            "causal_crossover": index == 0,
+        }
+        for index, item in enumerate(schedule)
+    ]
+
+    def switch(_receipts, terminal_gate):
+        assert terminal_gate["observed_terminal_request_ids"] == [
+            "bridge-1",
+            "bridge-2",
+            "bridge-3",
+        ]
+        switch_called.set()
+        release_crossover.set()
+        return {"transition_receipt_observed_monotonic": time.perf_counter()}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            runner.run_fixed_bridge_producer,
+            config,
+            bodies,
+            schedule,
+            lambda: {"receipts": "ready"},
+            switch,
+        )
+        assert all_started.wait(timeout=2)
+        assert not switch_called.wait(timeout=0.05)
+        release_last.set()
+        records, evidence, _receipt = future.result(timeout=3)
+
+    assert switch_called.is_set()
+    assert len(records) == 4
+    assert evidence["pre_switch_terminal_gate"]["observed_terminal_count"] == 3
 
 
 def test_bridge_receipt_gate_preserves_exact_pre_switch_readback(

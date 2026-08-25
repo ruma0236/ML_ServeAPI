@@ -306,6 +306,11 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
             "source_payload_sha256": "3" * 64,
             "old_route_generation": control.expected_generation,
             "new_route_generation": control.expected_generation + 1,
+            "continuity_receipt_request_ids": [],
+            "continuity_receipt_request_count": 0,
+            "continuity_crossover_request_ids": [],
+            "pending_crossover_request_ids": [identity.request_id],
+            "pending_crossover_count": 1,
             "fence_sequence": 4,
             "fence_transaction_id": "100",
             "fence_payload_sha256": "4" * 64,
@@ -335,6 +340,7 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
                 manager,
                 "green_switched",
                 causal_crossover=identity.model_dump(mode="json"),
+                pending_crossover_request_ids=[identity.request_id],
             ),
             transition_fence_committer=fence_committer,
         )
@@ -437,6 +443,7 @@ def test_s6bm_crossover_waits_for_switch_and_times_out_fail_closed(
 
     assert timeout.value.code == "causal_switch_wait_timeout"
     assert manager.snapshot().in_flight == {"blue": 0, "green": 0}
+    assert manager.snapshot().pending_crossover_count == 0
 
 
 def test_s6bm_bridge_start_receipt_does_not_wait_for_route_switch(
@@ -488,14 +495,157 @@ def test_s6bm_bridge_start_receipt_does_not_wait_for_route_switch(
         observed.append((stage, int(payload["route_generation"])))
         return {"readback_visible": True}
 
-    result = asyncio.run(
-        manager.predict(request, start_receipt_committer=start_committer)
-    )
+    result = asyncio.run(manager.predict(request, start_receipt_committer=start_committer))
 
     assert result.model_role == "blue"
     assert result.route_generation == generation
     assert observed == [("controller_entry", generation)]
     assert manager.snapshot().in_flight == {"blue": 0, "green": 0}
+
+
+def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
+    manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"outputs": [{"name": "OUTPUT__0", "data": [3, 5, 7, 9]}]}
+
+    class Client:
+        async def __aenter__(self) -> "Client":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, *_args: object, **_kwargs: object) -> Response:
+            return Response()
+
+    monkeypatch.setenv("EVM_S6BM_REQUIRE_CAUSAL_FENCE", "1")
+    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    manager.control(control_request(manager, "green_loaded"))
+    manager.control(control_request(manager, "canary_started"))
+    generation = manager.snapshot().generation
+
+    def predict_request(
+        request_id: str, *, receipt_required: bool
+    ) -> TritonBlueGreenPredictRequest:
+        return TritonBlueGreenPredictRequest(
+            run_id="s8-v4-s6bm-test",
+            attempt_id="s6bm-success-exact-pending",
+            request_id=request_id,
+            request_nonce=f"nonce-{request_id}",
+            traceparent=(
+                "00-"
+                + ("a" if receipt_required else "b") * 32
+                + "-"
+                + ("c" if receipt_required else "d") * 16
+                + "-01"
+            ),
+            input_values=[1, 2, 3, 4],
+            hold_ms=0 if receipt_required else 20,
+            expected_model_role="blue",
+            expected_model_name="s6bm_blue",
+            expected_model_version="1",
+            expected_artifact_sha256="c" * 64,
+            expected_route_generation=generation,
+            start_receipt_required=receipt_required,
+            causal_crossover=True,
+        )
+
+    def blue_request_id(prefix: str) -> str:
+        for suffix in range(100):
+            candidate = f"{prefix}-{suffix:02d}"
+            if module._role_for_request(candidate, {"blue": 90, "green": 10}) == "blue":
+                return candidate
+        raise AssertionError("failed to generate a Blue-routed request ID")
+
+    hold_request = predict_request(
+        blue_request_id("request-blue-causal-hold"), receipt_required=False
+    )
+    bridge_request = predict_request(
+        blue_request_id("request-blue-bridge-crossover"), receipt_required=True
+    )
+    hold_identity = expected_causal_identity_for_request(hold_request)
+    bridge_identity = expected_causal_identity_for_request(bridge_request)
+    receipt_ids = sorted(
+        [bridge_request.request_id, "receipt-bridge-1", "receipt-bridge-2", "receipt-bridge-3"]
+    )
+    pending_ids = sorted([hold_request.request_id, bridge_request.request_id])
+
+    async def start_committer(
+        _stage: str,
+        _request: TritonBlueGreenPredictRequest,
+        _payload: dict[str, object],
+    ) -> dict[str, object]:
+        return {"readback_visible": True}
+
+    def fence_committer(
+        control: TritonBlueGreenControlRequest,
+        _context: dict[str, object],
+    ) -> dict[str, object]:
+        now = module.time.perf_counter_ns()
+        return {
+            "schema_version": "evm.s6bm.route_switch_receipt.v2",
+            "readback_visible": True,
+            "attempt_id": hold_identity.attempt_id,
+            "run_id": hold_identity.run_id,
+            "request_id": hold_identity.request_id,
+            "transition_id": "1" * 64,
+            "fence_id": "2" * 64,
+            "cell_id": hold_identity.attempt_id,
+            "replica_id": "test-replica",
+            "source_revision": "a" * 40,
+            "source_payload_sha256": "3" * 64,
+            "old_route_generation": control.expected_generation,
+            "new_route_generation": control.expected_generation + 1,
+            "continuity_receipt_request_ids": receipt_ids,
+            "continuity_receipt_request_count": 4,
+            "continuity_crossover_request_ids": [bridge_identity.request_id],
+            "pending_crossover_request_ids": pending_ids,
+            "pending_crossover_count": 2,
+            "fence_sequence": 13,
+            "fence_transaction_id": "100",
+            "fence_payload_sha256": "4" * 64,
+            "actor_identity": "api-control-plane-route-switch",
+            "actor_process_id": module.os.getpid(),
+            "actor_thread_id": module.threading.get_ident(),
+            "commit_ack_monotonic_ns": now,
+            "readback_started_monotonic_ns": now + 1,
+            "readback_finished_monotonic_ns": now + 2,
+        }
+
+    async def scenario() -> None:
+        hold_task = asyncio.create_task(
+            manager.predict(hold_request, start_receipt_committer=start_committer)
+        )
+        bridge_task = asyncio.create_task(
+            manager.predict(bridge_request, start_receipt_committer=start_committer)
+        )
+        await asyncio.sleep(0.01)
+        assert manager.snapshot().pending_crossover_request_ids == pending_ids
+        switched = manager.control(
+            control_request(
+                manager,
+                "green_switched",
+                causal_crossover=hold_identity.model_dump(mode="json"),
+                continuity_receipt_request_ids=receipt_ids,
+                continuity_crossover_request_ids=[bridge_identity.request_id],
+                pending_crossover_request_ids=pending_ids,
+            ),
+            transition_fence_committer=fence_committer,
+        )
+        assert switched.transition_receipt is not None
+        assert switched.transition_receipt["pending_crossover_request_ids"] == pending_ids
+        assert switched.transition_receipt["released_crossover_request_ids"] == pending_ids
+        await asyncio.gather(hold_task, bridge_task)
+        assert manager.snapshot().pending_crossover_count == 0
+
+    asyncio.run(scenario())
 
 
 def test_s6bm_rejects_readiness_and_canary_without_route_switch(

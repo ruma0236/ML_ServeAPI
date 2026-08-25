@@ -66,12 +66,21 @@ def store(postgres_dsn: str):
             connection.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
 
 
-def s6bm_transition_context(identity: dict[str, object]) -> dict[str, object]:
+def s6bm_transition_context(
+    identity: dict[str, object],
+    *,
+    continuity_receipt_request_ids: list[str] | None = None,
+    continuity_crossover_request_ids: list[str] | None = None,
+    pending_crossover_request_ids: list[str] | None = None,
+) -> dict[str, object]:
     source_payload = {
         "run_id": identity["run_id"],
         "action": "green_switched",
         "expected_generation": identity["route_generation"],
         "causal_crossover": identity,
+        "continuity_receipt_request_ids": continuity_receipt_request_ids or [],
+        "continuity_crossover_request_ids": continuity_crossover_request_ids or [],
+        "pending_crossover_request_ids": pending_crossover_request_ids or [],
     }
     source_payload_sha256 = canonical_digest(source_payload)
     core = {
@@ -422,12 +431,22 @@ def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
 
     switch = store.commit_s6bm_route_switch_fence(
         crossover_identity=hold,
-        transition_context=s6bm_transition_context(hold),
+        transition_context=s6bm_transition_context(
+            hold,
+            continuity_receipt_request_ids=bridge_ids,
+            continuity_crossover_request_ids=[bridge_ids[0]],
+            pending_crossover_request_ids=sorted([str(hold["request_id"]), bridge_ids[0]]),
+        ),
     )
     switch_recorded = datetime.fromisoformat(
         str(switch["database_recorded_at"]).replace("Z", "+00:00")
     )
     assert len(bridge_receipts) == 12
+    assert switch["continuity_receipt_request_ids"] == bridge_ids
+    assert switch["continuity_crossover_request_ids"] == [bridge_ids[0]]
+    assert switch["pending_crossover_request_ids"] == sorted(
+        [str(hold["request_id"]), bridge_ids[0]]
+    )
     assert len({receipt["transaction_id"] for receipt in bridge_receipts}) == 12
     assert all(
         receipt["causal_sequence"] < switch["causal_sequence"]
@@ -441,9 +460,7 @@ def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
         and receipt["event_type"] in stages
         and receipt["model_role"] == "blue"
         and int(receipt["route_generation"]) == 3
-        and datetime.fromisoformat(
-            str(receipt["database_recorded_at"]).replace("Z", "+00:00")
-        )
+        and datetime.fromisoformat(str(receipt["database_recorded_at"]).replace("Z", "+00:00"))
         < switch_recorded
         and datetime.fromisoformat(str(receipt["readback_at"]).replace("Z", "+00:00"))
         < switch_recorded

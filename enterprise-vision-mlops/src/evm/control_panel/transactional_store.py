@@ -1073,8 +1073,7 @@ class TransactionalControlPlaneStore:
             or reference["run_id"] != identity["run_id"]
             or reference["request_id"] != identity["request_id"]
             or reference["old_route_generation"] != int(identity["route_generation"])
-            or reference["new_route_generation"]
-            != reference["old_route_generation"] + 1
+            or reference["new_route_generation"] != reference["old_route_generation"] + 1
             or reference["fence_sequence"] <= 0
             or not reference["fence_transaction_id"]
             or len(reference["fence_payload_sha256"]) != 64
@@ -1226,6 +1225,9 @@ class TransactionalControlPlaneStore:
         context = dict(transition_context)
         source_payload = dict(context.get("source_payload", {}))
         actor = dict(context.get("actor", {}))
+        continuity_receipt_ids = list(source_payload.get("continuity_receipt_request_ids", []))
+        continuity_crossover_ids = list(source_payload.get("continuity_crossover_request_ids", []))
+        pending_crossover_ids = list(source_payload.get("pending_crossover_request_ids", []))
         transition_core = {
             "attempt_id": str(context.get("attempt_id", "")),
             "run_id": str(context.get("run_id", "")),
@@ -1274,6 +1276,28 @@ class TransactionalControlPlaneStore:
             or int(actor.get("thread_id", 0)) != threading.get_ident()
             or actor.get("source_revision") != transition_core["source_revision"]
             or actor.get("service_instance_id") != transition_core["replica_id"]
+            or continuity_receipt_ids != sorted(set(continuity_receipt_ids))
+            or continuity_crossover_ids != sorted(set(continuity_crossover_ids))
+            or pending_crossover_ids != sorted(set(pending_crossover_ids))
+            or (
+                bool(continuity_receipt_ids)
+                and (
+                    len(continuity_receipt_ids) != 4
+                    or len(continuity_crossover_ids) != 1
+                    or continuity_crossover_ids[0] not in continuity_receipt_ids
+                    or identity["request_id"] in continuity_receipt_ids
+                    or len(pending_crossover_ids) != 2
+                    or pending_crossover_ids
+                    != sorted([identity["request_id"], continuity_crossover_ids[0]])
+                )
+            )
+            or (
+                not continuity_receipt_ids
+                and (
+                    bool(continuity_crossover_ids)
+                    or pending_crossover_ids not in ([], [identity["request_id"]])
+                )
+            )
         ):
             raise ControlPlaneParityError("S6B-M route transition context mismatch")
         required = {
@@ -1318,6 +1342,66 @@ class TransactionalControlPlaneStore:
                     <= int(anchor.get("monotonic_after_ns", 0))
                 ):
                     raise ControlPlaneParityError("S6B-M actor clock anchor is invalid")
+            bridge_events: list[dict[str, Any]] = []
+            if continuity_receipt_ids:
+                bridge_rows = connection.execute(
+                    f"""
+                    SELECT * FROM {schema}.s6bm_causal_events
+                    WHERE attempt_id=%s AND request_id=ANY(%s)
+                      AND event_type=ANY(%s)
+                    ORDER BY request_id, event_type
+                    FOR UPDATE
+                    """,
+                    (
+                        identity["attempt_id"],
+                        continuity_receipt_ids,
+                        list(required),
+                    ),
+                ).fetchall()
+                bridge_events = [self._s6bm_causal_row(row) for row in bridge_rows]
+                expected_bridge_keys = {
+                    (request_id, event_type)
+                    for request_id in continuity_receipt_ids
+                    for event_type in required
+                }
+                observed_bridge_keys = {
+                    (str(event["request_id"]), str(event["event_type"])) for event in bridge_events
+                }
+                common_fields = (
+                    "attempt_id",
+                    "run_id",
+                    "model_role",
+                    "model_name",
+                    "model_version",
+                    "artifact_sha256",
+                    "route_generation",
+                )
+                if (
+                    len(bridge_events) != 12
+                    or observed_bridge_keys != expected_bridge_keys
+                    or any(
+                        any(event[field] != identity[field] for field in common_fields)
+                        for event in bridge_events
+                    )
+                    or any(
+                        event["payload_sha256"] != canonical_digest(event.get("payload", {}))
+                        for event in bridge_events
+                    )
+                ):
+                    raise ControlPlaneParityError(
+                        "S6B-M continuity receipt set is incomplete or mismatched"
+                    )
+            bridge_by_request = {
+                request_id: {
+                    event_type: next(
+                        event
+                        for event in bridge_events
+                        if event["request_id"] == request_id and event["event_type"] == event_type
+                    )
+                    for event_type in sorted(required)
+                }
+                for request_id in continuity_receipt_ids
+            }
             switch_payload = {
                 **identity,
                 "schema_version": "evm.s6bm.route_switch_fence.v2",
@@ -1335,6 +1419,35 @@ class TransactionalControlPlaneStore:
                 "receipt_transaction_ids": {
                     event["event_type"]: event["transaction_id"] for event in events
                 },
+                "continuity_receipt_request_ids": continuity_receipt_ids,
+                "continuity_receipt_request_set_sha256": canonical_digest(continuity_receipt_ids),
+                "continuity_crossover_request_ids": continuity_crossover_ids,
+                "continuity_crossover_request_set_sha256": canonical_digest(
+                    continuity_crossover_ids
+                ),
+                "pending_crossover_request_ids": pending_crossover_ids,
+                "pending_crossover_request_set_sha256": canonical_digest(pending_crossover_ids),
+                "continuity_receipt_sequences": {
+                    request_id: {
+                        event_type: bridge_by_request[request_id][event_type]["causal_sequence"]
+                        for event_type in sorted(required)
+                    }
+                    for request_id in continuity_receipt_ids
+                },
+                "continuity_receipt_payload_sha256": {
+                    request_id: {
+                        event_type: bridge_by_request[request_id][event_type]["payload_sha256"]
+                        for event_type in sorted(required)
+                    }
+                    for request_id in continuity_receipt_ids
+                },
+                "continuity_receipt_transaction_ids": {
+                    request_id: {
+                        event_type: bridge_by_request[request_id][event_type]["transaction_id"]
+                        for event_type in sorted(required)
+                    }
+                    for request_id in continuity_receipt_ids
+                },
             }
             switch, replayed = self._insert_s6bm_causal_event(
                 connection,
@@ -1345,6 +1458,10 @@ class TransactionalControlPlaneStore:
             if any(
                 int(sequence) >= switch["causal_sequence"]
                 for sequence in switch_payload["receipt_sequences"].values()
+            ) or any(
+                int(sequence) >= switch["causal_sequence"]
+                for request_sequences in switch_payload["continuity_receipt_sequences"].values()
+                for sequence in request_sequences.values()
             ):
                 raise ControlPlaneParityError("S6B-M route switch causal sequence regressed")
         commit_ack_monotonic_ns = time.perf_counter_ns()
@@ -1376,6 +1493,12 @@ class TransactionalControlPlaneStore:
             "fence_payload_sha256": switch["payload_sha256"],
             "old_route_generation": transition_core["old_route_generation"],
             "new_route_generation": transition_core["new_route_generation"],
+            "continuity_receipt_request_ids": continuity_receipt_ids,
+            "continuity_receipt_request_count": len(continuity_receipt_ids),
+            "continuity_crossover_request_ids": continuity_crossover_ids,
+            "continuity_crossover_count": len(continuity_crossover_ids),
+            "pending_crossover_request_ids": pending_crossover_ids,
+            "pending_crossover_count": len(pending_crossover_ids),
             "source_payload_sha256": transition_core["source_payload_sha256"],
             "source_revision": transition_core["source_revision"],
             "cell_id": transition_core["cell_id"],
@@ -1784,11 +1907,9 @@ class TransactionalControlPlaneStore:
                 if causal_payload is not None:
                     causal_identity = _validate_s6bm_causal_identity(causal_payload)
                     if causal_payload.get("requires_switch_before_effect") is True:
-                        _switch_event, observed_transition = (
-                            self._lock_s6bm_committed_transition(
-                                connection,
-                                identity=causal_identity,
-                            )
+                        _switch_event, observed_transition = self._lock_s6bm_committed_transition(
+                            connection,
+                            identity=causal_identity,
                         )
                         effective_causal_payload = {
                             **dict(causal_payload),
@@ -1833,11 +1954,9 @@ class TransactionalControlPlaneStore:
                     causal_identity = _validate_s6bm_causal_identity(causal_payload)
                     switch_event: dict[str, Any] | None = None
                     if causal_payload.get("requires_switch_before_effect") is True:
-                        switch_event, observed_transition = (
-                            self._lock_s6bm_committed_transition(
-                                connection,
-                                identity=causal_identity,
-                            )
+                        switch_event, observed_transition = self._lock_s6bm_committed_transition(
+                            connection,
+                            identity=causal_identity,
                         )
                         effective_causal_payload = {
                             **dict(causal_payload),
@@ -1857,10 +1976,8 @@ class TransactionalControlPlaneStore:
                         raise ControlPlaneParityError(
                             "S6B-M new terminal entity found an existing causal event"
                         )
-                    if (
-                        switch_event is not None
-                        and causal_event["causal_sequence"]
-                        <= int(switch_event["causal_sequence"])
+                    if switch_event is not None and causal_event["causal_sequence"] <= int(
+                        switch_event["causal_sequence"]
                     ):
                         raise ControlPlaneParityError(
                             "S6B-M crossover effect causal sequence preceded switch"
