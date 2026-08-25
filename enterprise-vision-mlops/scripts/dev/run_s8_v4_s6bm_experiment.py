@@ -50,8 +50,10 @@ from evm.scale_validation.s6bm_observability import (  # noqa: E402
     attempt_span_count,
     collect_attempt_trace_export,
     direct_metric_aggregate,
+    direct_metric_optional_aggregate,
     direct_metric_value,
     find_triton_compute_start,
+    prometheus_optional_value,
     prometheus_value,
     validate_observability_bundle,
 )
@@ -1431,6 +1433,8 @@ def prometheus_direct_comparison(
     api_text: str,
     triton_text: str,
     attempt_id: str,
+    *,
+    expected_absent_triton_roles: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     common = {"scenario": "s8-v4-s6bm", "attempt_id": attempt_id}
     comparisons: dict[str, Any] = {}
@@ -1446,10 +1450,7 @@ def prometheus_direct_comparison(
         effect_labels = {**api_labels, "outcome": "committed"}
         triton_labels = {"model": model.model_name, "version": model.model_version}
         try:
-            triton_aggregate = direct_metric_aggregate(
-                triton_text, "nv_inference_request_success", triton_labels
-            )
-            pairs = (
+            api_pairs = (
                 (
                     f"api_{role}_completed",
                     direct_metric_value(api_text, "evm_s6bm_requests_total", api_labels),
@@ -1462,14 +1463,8 @@ def prometheus_direct_comparison(
                     {**common, **effect_labels},
                     1,
                 ),
-                (
-                    f"triton_{role}_success",
-                    float(triton_aggregate["value"]),
-                    {**common, **triton_labels},
-                    None,
-                ),
             )
-            for key, direct_value, expected_labels, series_count in pairs:
+            for key, direct_value, expected_labels, series_count in api_pairs:
                 prom_value = prometheus_value(
                     snapshot,
                     key,
@@ -1482,17 +1477,60 @@ def prometheus_direct_comparison(
                     "prometheus_value": prom_value,
                     "matches": matches,
                     "expected_labels": expected_labels,
-                    "direct_series_count": (
-                        int(triton_aggregate["series_count"]) if key.startswith("triton_") else 1
-                    ),
-                    "direct_series_labels": (
-                        triton_aggregate["series_labels"]
-                        if key.startswith("triton_")
-                        else [expected_labels]
-                    ),
+                    "direct_series_count": 1,
+                    "direct_series_labels": [expected_labels],
                 }
                 if not matches:
                     errors.append(f"s6bm_prometheus_direct_value:{key}")
+
+            triton_key = f"triton_{role}_success"
+            triton_expected_labels = {**common, **triton_labels}
+            if role in expected_absent_triton_roles:
+                triton_aggregate = direct_metric_optional_aggregate(
+                    triton_text,
+                    "nv_inference_request_success",
+                    triton_labels,
+                )
+                prom_value = prometheus_optional_value(
+                    snapshot,
+                    triton_key,
+                    triton_expected_labels,
+                    expected_series_count=None,
+                )
+                if triton_aggregate is not None or prom_value is not None:
+                    errors.append(f"s6bm_triton_expected_absent:{role}")
+                comparisons[triton_key] = {
+                    "direct_value": None,
+                    "prometheus_value": None,
+                    "matches": triton_aggregate is None and prom_value is None,
+                    "expected_labels": triton_expected_labels,
+                    "direct_series_count": 0,
+                    "direct_series_labels": [],
+                }
+            else:
+                triton_aggregate = direct_metric_aggregate(
+                    triton_text,
+                    "nv_inference_request_success",
+                    triton_labels,
+                )
+                direct_value = float(triton_aggregate["value"])
+                prom_value = prometheus_value(
+                    snapshot,
+                    triton_key,
+                    triton_expected_labels,
+                    expected_series_count=None,
+                )
+                matches = prom_value == direct_value
+                comparisons[triton_key] = {
+                    "direct_value": direct_value,
+                    "prometheus_value": prom_value,
+                    "matches": matches,
+                    "expected_labels": triton_expected_labels,
+                    "direct_series_count": int(triton_aggregate["series_count"]),
+                    "direct_series_labels": triton_aggregate["series_labels"],
+                }
+                if not matches:
+                    errors.append(f"s6bm_prometheus_direct_value:{triton_key}")
         except (ValueError, RuntimeError) as exc:
             errors.append(f"{role}:{type(exc).__name__}:{exc}")
     return {
@@ -1527,6 +1565,7 @@ def capture_metric_checkpoint(
     attempt_id: str,
     run_id: str,
     timeout: float = 15,
+    expected_absent_triton_roles: frozenset[str] = frozenset(),
 ) -> tuple[str, str, dict[str, Any]]:
     deadline = time.monotonic() + timeout
     last: dict[str, Any] | None = None
@@ -1546,6 +1585,7 @@ def capture_metric_checkpoint(
                 api_text,
                 triton_text,
                 attempt_id,
+                expected_absent_triton_roles=expected_absent_triton_roles,
             )
             if last_comparison["passed"]:
                 return api_text, triton_text, last
@@ -1728,6 +1768,7 @@ def capture_post_unload_observability(
         suite_id=suite_id,
         attempt_id=attempt_id,
         run_id=run_id,
+        expected_absent_triton_roles=frozenset({"blue"}),
     )
     root = Path(checkpoint["root"])
     triton_path = root / "triton-metrics-after-blue-unload.txt"

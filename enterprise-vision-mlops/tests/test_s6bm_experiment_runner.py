@@ -255,6 +255,104 @@ def test_prometheus_direct_comparison_reports_exact_series_failure() -> None:
     assert any("s6bm_direct_metric_aggregate" in error for error in failed["errors"])
 
 
+def test_prometheus_direct_comparison_accepts_only_explicit_unloaded_blue() -> None:
+    runner = load_runner()
+    config = SimpleNamespace(
+        blue=SimpleNamespace(model_name="s6bm_blue", model_version="1"),
+        green=SimpleNamespace(model_name="s6bm_green", model_version="1"),
+    )
+    api_metrics = "\n".join(
+        [
+            'evm_s6bm_requests_total{model_name="s6bm_blue",model_role="blue",model_version="1",outcome="completed"} 1',
+            'evm_s6bm_terminal_effects_total{model_name="s6bm_blue",model_role="blue",model_version="1",outcome="committed"} 1',
+            'evm_s6bm_requests_total{model_name="s6bm_green",model_role="green",model_version="1",outcome="completed"} 0',
+            'evm_s6bm_terminal_effects_total{model_name="s6bm_green",model_role="green",model_version="1",outcome="committed"} 0',
+        ]
+    )
+    triton_metrics = 'nv_inference_request_success{model="s6bm_green",version="1"} 20'
+    common = {"scenario": "s8-v4-s6bm", "attempt_id": "attempt-unloaded"}
+
+    def query(metric: dict[str, str], value: int) -> dict[str, object]:
+        return {
+            "response": {
+                "status": "success",
+                "data": {"result": [{"metric": {**common, **metric}, "value": [1, str(value)]}]},
+            }
+        }
+
+    snapshot = {
+        "queries": {
+            "api_blue_completed": query(
+                {
+                    "model_name": "s6bm_blue",
+                    "model_role": "blue",
+                    "model_version": "1",
+                    "outcome": "completed",
+                },
+                1,
+            ),
+            "api_blue_effect": query(
+                {
+                    "model_name": "s6bm_blue",
+                    "model_role": "blue",
+                    "model_version": "1",
+                    "outcome": "committed",
+                },
+                1,
+            ),
+            "triton_blue_success": {
+                "response": {"status": "success", "data": {"result": []}}
+            },
+            "api_green_completed": query(
+                {
+                    "model_name": "s6bm_green",
+                    "model_role": "green",
+                    "model_version": "1",
+                    "outcome": "completed",
+                },
+                0,
+            ),
+            "api_green_effect": query(
+                {
+                    "model_name": "s6bm_green",
+                    "model_role": "green",
+                    "model_version": "1",
+                    "outcome": "committed",
+                },
+                0,
+            ),
+            "triton_green_success": query(
+                {"model": "s6bm_green", "version": "1"},
+                20,
+            ),
+        }
+    }
+
+    passed = runner.prometheus_direct_comparison(
+        config,
+        snapshot,
+        api_metrics,
+        triton_metrics,
+        "attempt-unloaded",
+        expected_absent_triton_roles=frozenset({"blue"}),
+    )
+    assert passed["passed"] is True
+
+    contaminated = triton_metrics + (
+        '\nnv_inference_request_success{model="s6bm_blue",version="1"} 1'
+    )
+    failed = runner.prometheus_direct_comparison(
+        config,
+        snapshot,
+        api_metrics,
+        contaminated,
+        "attempt-unloaded",
+        expected_absent_triton_roles=frozenset({"blue"}),
+    )
+    assert failed["passed"] is False
+    assert "s6bm_triton_expected_absent:blue" in failed["errors"]
+
+
 def test_telemetry_snapshot_waits_for_exact_attempt_targets(monkeypatch) -> None:
     runner = load_runner()
     config = SimpleNamespace(

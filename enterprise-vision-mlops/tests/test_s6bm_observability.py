@@ -561,7 +561,7 @@ def test_model_lifecycle_counter_delta_accounts_for_blue_reload_only() -> None:
             "blue",
             before=0,
             before_unload=1,
-            after_unload=1,
+            after_unload=None,
             after=21,
             code="unit",
         )
@@ -570,23 +570,23 @@ def test_model_lifecycle_counter_delta_accounts_for_blue_reload_only() -> None:
 
     with pytest.raises(
         S6BMObservabilityError,
-        match="unit_blue_counter_changed_during_unload",
+        match="unit_blue_counter_reset_missing",
     ):
         model_lifecycle_counter_delta(
             "blue",
             before=750,
             before_unload=845,
             after_unload=846,
-            after=21,
+            after=900,
             code="unit",
         )
 
-    with pytest.raises(S6BMObservabilityError, match="unit_green_counter_changed_after_drain"):
+    with pytest.raises(S6BMObservabilityError, match="unit_green_counter_absent_after_blue_unload"):
         model_lifecycle_counter_delta(
             "green",
             before=0,
             before_unload=920,
-            after_unload=921,
+            after_unload=None,
             after=921,
             code="unit",
         )

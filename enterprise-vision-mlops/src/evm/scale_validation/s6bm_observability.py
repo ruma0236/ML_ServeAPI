@@ -618,12 +618,25 @@ def direct_metric_sample(text: str, name: str, labels: Mapping[str, str]) -> dic
 
 
 def direct_metric_aggregate(text: str, name: str, labels: Mapping[str, str]) -> dict[str, Any]:
+    aggregate = direct_metric_optional_aggregate(text, name, labels)
+    if aggregate is None:
+        raise S6BMObservabilityError(f"s6bm_direct_metric_aggregate:{name}:0")
+    return aggregate
+
+
+def direct_metric_optional_aggregate(
+    text: str,
+    name: str,
+    labels: Mapping[str, str],
+) -> dict[str, Any] | None:
     matches = [
         sample
         for sample in _metric_samples(text, name)
         if all(sample["labels"].get(key) == value for key, value in labels.items())
     ]
-    if not matches or any(not math.isfinite(float(item["value"])) for item in matches):
+    if not matches:
+        return None
+    if any(not math.isfinite(float(item["value"])) for item in matches):
         raise S6BMObservabilityError(f"s6bm_direct_metric_aggregate:{name}:{len(matches)}")
     return {
         "value": sum(float(item["value"]) for item in matches),
@@ -642,11 +655,31 @@ def prometheus_value(
     *,
     expected_series_count: int | None = 1,
 ) -> float:
+    value = prometheus_optional_value(
+        snapshot,
+        key,
+        expected_labels,
+        expected_series_count=expected_series_count,
+    )
+    if value is None:
+        raise S6BMObservabilityError(f"s6bm_prometheus_cardinality:{key}:0:0")
+    return value
+
+
+def prometheus_optional_value(
+    snapshot: Mapping[str, Any],
+    key: str,
+    expected_labels: Mapping[str, str],
+    *,
+    expected_series_count: int | None = 1,
+) -> float | None:
     capture = dict(dict(snapshot.get("queries", {})).get(key, {}))
     response = dict(capture.get("response", {}))
     result = list(dict(response.get("data", {})).get("result", []))
-    if response.get("status") != "success" or not result:
+    if response.get("status") != "success":
         raise S6BMObservabilityError(f"s6bm_prometheus_cardinality:{key}:0:{len(result)}")
+    if not result:
+        return None
     if expected_series_count is not None and len(result) != expected_series_count:
         raise S6BMObservabilityError(
             f"s6bm_prometheus_cardinality:{key}:{len(result)}:{expected_series_count}"
@@ -680,23 +713,22 @@ def model_lifecycle_counter_delta(
     after: float,
     code: str,
 ) -> float:
-    values = (before, before_unload, after_unload, after)
-    if any(
-        value is None or not math.isfinite(value) or value < 0
-        for value in values
-    ):
+    if any(not math.isfinite(value) or value < 0 for value in (before, before_unload, after)):
         raise S6BMObservabilityError(f"{code}_counter_value")
-    assert after_unload is not None
     if before_unload < before:
         raise S6BMObservabilityError(f"{code}_counter_regressed_before_unload")
     if role == "blue":
-        if not math.isclose(after_unload, before_unload, rel_tol=0.0, abs_tol=1e-9):
-            raise S6BMObservabilityError(f"{code}_blue_counter_changed_during_unload")
+        if after_unload is not None:
+            if after >= before_unload:
+                raise S6BMObservabilityError(f"{code}_blue_counter_reset_missing")
         # Triton resets a model's counter generation on reload. The post-rollback
         # counter may exceed the pre-unload generation after warmup, so compare
-        # the two generations independently instead of relying on after < before_unload.
+        # the two generations independently. Strict V4 proves the unloaded
+        # boundary by requiring the Blue series to be absent in both raw sources.
         return before_unload - before + after
     if role == "green":
+        if after_unload is None:
+            raise S6BMObservabilityError(f"{code}_green_counter_absent_after_blue_unload")
         if not (
             math.isclose(before_unload, after_unload, rel_tol=0.0, abs_tol=1e-9)
             and math.isclose(after_unload, after, rel_tol=0.0, abs_tol=1e-9)
@@ -874,11 +906,18 @@ def validate_observability_bundle(
             "nv_inference_request_success",
             triton_labels,
         )
-        triton_after_blue_unload_aggregate = direct_metric_aggregate(
+        triton_after_blue_unload_aggregate = direct_metric_optional_aggregate(
             triton_after_blue_unload,
             "nv_inference_request_success",
             triton_labels,
         )
+        if str(config.schema_version).endswith(".v3"):
+            if role == "blue" and triton_after_blue_unload_aggregate is not None:
+                raise S6BMObservabilityError("s6bm_triton_blue_present_after_unload")
+            if role == "green" and triton_after_blue_unload_aggregate is None:
+                raise S6BMObservabilityError("s6bm_triton_green_absent_after_blue_unload")
+        elif triton_after_blue_unload_aggregate is None:
+            triton_after_blue_unload_aggregate = triton_before_blue_unload_aggregate
         triton_after_aggregate = direct_metric_aggregate(
             triton_after, "nv_inference_request_success", triton_labels
         )
@@ -904,7 +943,11 @@ def validate_observability_bundle(
         effect_delta = float(effect_after_sample["value"]) - float(effect_before_sample["value"])
         triton_before_value = float(triton_before_aggregate["value"])
         triton_transition_value = float(triton_before_blue_unload_aggregate["value"])
-        triton_after_unload_value = float(triton_after_blue_unload_aggregate["value"])
+        triton_after_unload_value = (
+            None
+            if triton_after_blue_unload_aggregate is None
+            else float(triton_after_blue_unload_aggregate["value"])
+        )
         triton_after_value = float(triton_after_aggregate["value"])
         triton_delta = model_lifecycle_counter_delta(
             role,
@@ -927,11 +970,19 @@ def validate_observability_bundle(
         triton_series[role] = {
             "before_count": int(triton_before_aggregate["series_count"]),
             "before_blue_unload_count": int(triton_before_blue_unload_aggregate["series_count"]),
-            "after_blue_unload_count": int(triton_after_blue_unload_aggregate["series_count"]),
+            "after_blue_unload_count": (
+                0
+                if triton_after_blue_unload_aggregate is None
+                else int(triton_after_blue_unload_aggregate["series_count"])
+            ),
             "after_count": int(triton_after_aggregate["series_count"]),
             "before_labels": triton_before_aggregate["series_labels"],
             "before_blue_unload_labels": triton_before_blue_unload_aggregate["series_labels"],
-            "after_blue_unload_labels": triton_after_blue_unload_aggregate["series_labels"],
+            "after_blue_unload_labels": (
+                []
+                if triton_after_blue_unload_aggregate is None
+                else triton_after_blue_unload_aggregate["series_labels"]
+            ),
             "after_labels": triton_after_aggregate["series_labels"],
         }
 
@@ -982,12 +1033,19 @@ def validate_observability_bundle(
             {**prom_identity, **triton_labels},
             expected_series_count=None,
         )
-        prom_triton_after_blue_unload = prometheus_value(
+        prom_triton_after_blue_unload = prometheus_optional_value(
             prom_after_blue_unload,
             triton_key,
             {**prom_identity, **triton_labels},
             expected_series_count=None,
         )
+        if str(config.schema_version).endswith(".v3"):
+            if role == "blue" and prom_triton_after_blue_unload is not None:
+                raise S6BMObservabilityError("s6bm_prometheus_blue_present_after_unload")
+            if role == "green" and prom_triton_after_blue_unload is None:
+                raise S6BMObservabilityError("s6bm_prometheus_green_absent_after_blue_unload")
+        elif prom_triton_after_blue_unload is None:
+            prom_triton_after_blue_unload = prom_triton_before_blue_unload
         prom_triton_delta = model_lifecycle_counter_delta(
             role,
             before=prom_triton_before,
