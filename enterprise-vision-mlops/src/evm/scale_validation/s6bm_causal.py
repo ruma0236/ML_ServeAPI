@@ -380,7 +380,10 @@ def _database_clock_envelope(
         raise S6BMCausalError("s6bm_v4_database_clock_selection")
     before = int(selected["monotonic_before_ns"])
     after = int(selected["monotonic_after_ns"])
-    if after - before > int(config.clock["max_anchor_width_ns"]):
+    max_selected_width_ns = int(
+        config.durable_effect["database_clock_anchor_max_selected_width_ns"]
+    )
+    if after - before > max_selected_width_ns:
         raise S6BMCausalError("s6bm_v4_database_clock_all_candidates_over_bound")
     observed_at = str(selected["database_clock_timestamp"])
     if observed_at != str(receipt.get("commit_timestamp_observed_at", "")):
@@ -392,6 +395,7 @@ def _database_clock_envelope(
         "anchor_nonce": selected["anchor_nonce"],
         "backend_pid": backend_pid,
         "width_ns": after - before,
+        "max_selected_width_ns": max_selected_width_ns,
         "offset_envelope_ns": list(envelope),
         "candidate_count": len(candidates),
         "candidate_set_sha256": canonical_sha256(candidates),

@@ -207,9 +207,7 @@ def _rewrite_start_event(
         mutate_payload(selected["payload"])
         _rehash_event(selected)
         switch = next(
-            item
-            for item in export["events"]
-            if item["event_type"] == "blue_to_green_switch_commit"
+            item for item in export["events"] if item["event_type"] == "blue_to_green_switch_commit"
         )
         switch["payload"]["receipt_payload_sha256"][stage] = selected["payload_sha256"]
         _rehash_event(switch)
@@ -232,8 +230,7 @@ def _set_span_start_after_switch(
         span = next(
             entry["span"]
             for entry in payload["entries"]
-            if entry["span"].get("traceId") == trace_id
-            and entry["span"].get("name") == span_name
+            if entry["span"].get("traceId") == trace_id and entry["span"].get("name") == span_name
         )
         duration = max(1_000, int(span["endTimeUnixNano"]) - int(span["startTimeUnixNano"]))
         span["startTimeUnixNano"] = str(start)
@@ -264,8 +261,7 @@ def _model_start_after_switch(root: Path, raw: dict[str, Any]) -> None:
         model_entry = next(
             entry
             for entry in payload["entries"]
-            if entry["span"].get("traceId") == trace_id
-            and entry["span"].get("name") == model_name
+            if entry["span"].get("traceId") == trace_id and entry["span"].get("name") == model_name
         )
         span = model_entry["span"]
         duration = max(1_000, int(span["endTimeUnixNano"]) - int(span["startTimeUnixNano"]))
@@ -276,8 +272,7 @@ def _model_start_after_switch(root: Path, raw: dict[str, Any]) -> None:
     model_entry = next(
         entry
         for entry in trace["entries"]
-        if entry["span"].get("traceId") == trace_id
-        and entry["span"].get("name") == model_name
+        if entry["span"].get("traceId") == trace_id and entry["span"].get("name") == model_name
     )
     receipt = _proof(raw)["triton_start_receipt"]
 
@@ -344,6 +339,26 @@ def _terminal_effect_before_switch(root: Path, raw: dict[str, Any]) -> None:
     switch_unix = _switch_unix_ns(raw)
     timestamp = (
         datetime.fromtimestamp((switch_unix - 1_000_000) / 1_000_000_000, UTC)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    _effect_receipt(raw)["commit_timestamp"] = timestamp
+
+    def mutate(payload: dict[str, Any]) -> None:
+        for entry in payload["entries"]:
+            if entry["span"].get("name") != "s6bm.terminal_effect.commit":
+                continue
+            for attribute in entry["span"].get("attributes", []):
+                if attribute.get("key") == "evm.effect.commit.timestamp":
+                    attribute["value"] = {"stringValue": timestamp}
+
+    _rewrite_trace(root, raw, mutate)
+
+
+def _terminal_effect_switch_overlap(root: Path, raw: dict[str, Any]) -> None:
+    switch_unix = _switch_unix_ns(raw)
+    timestamp = (
+        datetime.fromtimestamp(switch_unix / 1_000_000_000, UTC)
         .isoformat(timespec="microseconds")
         .replace("+00:00", "Z")
     )
@@ -473,14 +488,19 @@ def _all_candidates_over_bound(_root: Path, raw: dict[str, Any]) -> None:
     receipt = _effect_receipt(raw)
     start = int(receipt["commit_timestamp_started_monotonic_ns"]) + 10_000
     for index, candidate in enumerate(receipt["database_clock_anchor_candidates"]):
-        before = start + index * 1_100_100
+        before = start + index * 5_100_100
         candidate["monotonic_before_ns"] = before
-        candidate["monotonic_after_ns"] = before + 1_000_001
+        candidate["monotonic_after_ns"] = before + 5_000_001
         _rehash_anchor(candidate)
     selected = receipt["database_clock_anchor_candidates"][0]
     receipt["database_clock_anchor"] = copy.deepcopy(selected)
     receipt["database_clock_anchor_selection"]["selected_sequence"] = 1
     receipt["commit_timestamp_observed_at"] = selected["database_clock_timestamp"]
+    timestamp_end = int(receipt["database_clock_anchor_candidates"][-1]["monotonic_after_ns"])
+    receipt["commit_timestamp_finished_monotonic_ns"] = timestamp_end + 1_000
+    receipt["readback_started_monotonic_ns"] = timestamp_end + 2_000
+    receipt["readback_finished_monotonic_ns"] = timestamp_end + 3_000
+    raw["request_records"][0]["completed_monotonic"] = (timestamp_end + 4_000) / 1e9
 
 
 def _run_case(
@@ -575,27 +595,109 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     validator_tree = git_text("rev-parse", "HEAD^{tree}")
     cases = [
         ("database_candidate_missing", "s6bm_v4_database_clock_candidate_set", _candidate_missing),
-        ("database_candidate_duplicate", "s6bm_v4_database_clock_candidate_duplicate", _candidate_duplicate),
-        ("database_candidate_reordered", "s6bm_v4_database_clock_candidate_set", _candidate_reordered),
-        ("database_selected_index_wrong", "s6bm_v4_database_clock_selection", _candidate_wrong_index),
-        ("database_nonminimum_selection", "s6bm_v4_database_clock_selection", _candidate_nonminimum),
-        ("database_candidate_hash_drift", "s6bm_v4_database_clock_candidate_hash", _candidate_hash_drift),
-        ("database_all_candidates_over_bound", "s6bm_v4_database_clock_all_candidates_over_bound", _all_candidates_over_bound),
-        ("server_span_start_after_switch", "s6bm_v4_api_server_handler_entry_span_after_switch", _server_start_after_switch),
-        ("controller_span_start_after_switch", "s6bm_v4_controller_entry_span_after_switch", _controller_start_after_switch),
-        ("model_span_start_after_switch", "s6bm_v4_triton_model_after_switch", _model_start_after_switch),
-        ("per_request_clock_anchor_self_reference", "s6bm_v4_clock_anchor_self_reference", _clock_self_reference),
+        (
+            "database_candidate_duplicate",
+            "s6bm_v4_database_clock_candidate_duplicate",
+            _candidate_duplicate,
+        ),
+        (
+            "database_candidate_reordered",
+            "s6bm_v4_database_clock_candidate_set",
+            _candidate_reordered,
+        ),
+        (
+            "database_selected_index_wrong",
+            "s6bm_v4_database_clock_selection",
+            _candidate_wrong_index,
+        ),
+        (
+            "database_nonminimum_selection",
+            "s6bm_v4_database_clock_selection",
+            _candidate_nonminimum,
+        ),
+        (
+            "database_candidate_hash_drift",
+            "s6bm_v4_database_clock_candidate_hash",
+            _candidate_hash_drift,
+        ),
+        (
+            "database_all_candidates_over_bound",
+            "s6bm_v4_database_clock_all_candidates_over_bound",
+            _all_candidates_over_bound,
+        ),
+        (
+            "database_selected_width_5000001ns",
+            "s6bm_v4_database_clock_all_candidates_over_bound",
+            _all_candidates_over_bound,
+        ),
+        (
+            "server_span_start_after_switch",
+            "s6bm_v4_api_server_handler_entry_span_after_switch",
+            _server_start_after_switch,
+        ),
+        (
+            "controller_span_start_after_switch",
+            "s6bm_v4_controller_entry_span_after_switch",
+            _controller_start_after_switch,
+        ),
+        (
+            "model_span_start_after_switch",
+            "s6bm_v4_triton_model_after_switch",
+            _model_start_after_switch,
+        ),
+        (
+            "per_request_clock_anchor_self_reference",
+            "s6bm_v4_clock_anchor_self_reference",
+            _clock_self_reference,
+        ),
         ("run_clock_anchor_drift", "s6bm_v4_clock_drift", _clock_drift),
-        ("run_clock_anchor_out_of_envelope", "s6bm_v4_clock_envelope_disjoint", _clock_envelope_disjoint),
-        ("run_clock_anchor_source_substitution", "s6bm_v4_clock_source_identity", _clock_source_substitution),
+        (
+            "run_clock_anchor_out_of_envelope",
+            "s6bm_v4_clock_envelope_disjoint",
+            _clock_envelope_disjoint,
+        ),
+        (
+            "run_clock_anchor_source_substitution",
+            "s6bm_v4_clock_source_identity",
+            _clock_source_substitution,
+        ),
         ("phase_unix_monotonic_mismatch", "s6bm_v4_phase_anchor_interval", _phase_clock_mismatch),
-        ("terminal_effect_before_switch_outer_completion_after", "s6bm_v4_hold_commit_interval_order", _terminal_effect_before_switch),
+        (
+            "terminal_effect_before_switch_outer_completion_after",
+            "s6bm_v4_hold_commit_interval_order",
+            _terminal_effect_before_switch,
+        ),
+        (
+            "database_commit_switch_interval_overlap",
+            "s6bm_v4_hold_commit_interval_order",
+            _terminal_effect_switch_overlap,
+        ),
         ("durable_effect_row_absent", "s6bm_v4_durable_effect_count", _durable_effect_absent),
-        ("effect_commit_readback_absent", "s6bm_v4_effect_receipt_binding", _effect_readback_absent),
-        ("duplicate_effect_row_idempotency_violation", "s6bm_v4_durable_effect_count", _duplicate_effect_row),
-        ("request_trace_effect_model_binding_mismatch", "s6bm_v4_effect_entity_binding", _effect_identity_mismatch),
-        ("causal_sequence_xid_receipt_mismatch", "s6bm_v4_effect_receipt_binding", _effect_xid_mismatch),
-        ("unload_before_last_completion_or_effect", "s6bm_v4_unload_before_hold_completion", _unload_before_last_effect),
+        (
+            "effect_commit_readback_absent",
+            "s6bm_v4_effect_receipt_binding",
+            _effect_readback_absent,
+        ),
+        (
+            "duplicate_effect_row_idempotency_violation",
+            "s6bm_v4_durable_effect_count",
+            _duplicate_effect_row,
+        ),
+        (
+            "request_trace_effect_model_binding_mismatch",
+            "s6bm_v4_effect_entity_binding",
+            _effect_identity_mismatch,
+        ),
+        (
+            "causal_sequence_xid_receipt_mismatch",
+            "s6bm_v4_effect_receipt_binding",
+            _effect_xid_mismatch,
+        ),
+        (
+            "unload_before_last_completion_or_effect",
+            "s6bm_v4_unload_before_hold_completion",
+            _unload_before_last_effect,
+        ),
         ("stale_blue_admission", "s6bm_v4_stale_blue_admission", _stale_blue_admission),
         ("parent_span_chain_mismatch", "s6bm_v4_trace_topology", _trace_parent_mismatch),
     ]

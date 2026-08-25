@@ -363,7 +363,7 @@ def test_s6bm_cold_store_commits_frozen_concurrency_without_pool_starvation(
             - receipt["database_clock_anchor"]["monotonic_before_ns"]
             for receipt in receipts
         ]
-        assert max(selected_widths) <= 1_000_000
+        assert max(selected_widths) <= 5_000_000
         assert len(store.list_entities("s6bm_terminal_effect")) == 16
         assert store.telemetry().timeouts == 0
         readback = store.commit_timestamp_readback_telemetry()

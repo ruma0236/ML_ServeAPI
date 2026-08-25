@@ -305,6 +305,7 @@ class S6BMConfig:
                 "commit_timestamp_readback_lane": "bounded_parallel_post_commit_v1",
                 "commit_timestamp_readback_max_concurrency": 2,
                 "commit_timestamp_readback_acquire_timeout_seconds": 2.0,
+                "database_clock_anchor_max_selected_width_ns": 5_000_000,
                 "write_pool_size_change_forbidden": True,
                 "whole_request_serialization_forbidden": True,
                 "entity_kind": "s6bm_terminal_effect",

@@ -90,6 +90,7 @@ def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
         "bounded_parallel_post_commit_v1"
     )
     assert config.durable_effect["commit_timestamp_readback_max_concurrency"] == 2
+    assert config.durable_effect["database_clock_anchor_max_selected_width_ns"] == 5_000_000
     assert config.durable_effect["write_pool_size_change_forbidden"] is True
     assert config.durable_effect["whole_request_serialization_forbidden"] is True
     assert config.trace["exact_parent_span_required"] is True
@@ -160,6 +161,7 @@ def test_s6bm_v4_database_clock_anchor_is_independent_and_fail_closed() -> None:
     envelope, projection = _database_clock_envelope(receipt, config)
     assert envelope[0] <= envelope[1]
     assert projection["width_ns"] == 200
+    assert projection["max_selected_width_ns"] == 5_000_000
     assert projection["candidate_count"] == 8
     assert projection["selected_sequence"] == 8
 
@@ -177,6 +179,20 @@ def test_s6bm_v4_database_clock_anchor_is_independent_and_fail_closed() -> None:
     tie["commit_timestamp_observed_at"] = tie_candidate["database_clock_timestamp"]
     _, tie_projection = _database_clock_envelope(tie, config)
     assert tie_projection["selected_sequence"] == 7
+
+    at_bound = copy.deepcopy(receipt)
+    for candidate in at_bound["database_clock_anchor_candidates"]:
+        candidate["monotonic_before_ns"] = candidate["sequence"] * 6_000_000
+        candidate["monotonic_after_ns"] = candidate["monotonic_before_ns"] + 5_000_000
+        rehash(candidate)
+    at_bound["database_clock_anchor"] = at_bound["database_clock_anchor_candidates"][0]
+    at_bound["database_clock_anchor_selection"]["selected_sequence"] = 1
+    at_bound["commit_timestamp_observed_at"] = at_bound["database_clock_anchor"][
+        "database_clock_timestamp"
+    ]
+    at_bound["commit_timestamp_finished_monotonic_ns"] = 60_000_000
+    _, at_bound_projection = _database_clock_envelope(at_bound, config)
+    assert at_bound_projection["width_ns"] == 5_000_000
 
     mutations = []
     missing = copy.deepcopy(receipt)
@@ -211,15 +227,15 @@ def test_s6bm_v4_database_clock_anchor_is_independent_and_fail_closed() -> None:
     mutations.append((hash_drift, "candidate_hash"))
     all_over = copy.deepcopy(receipt)
     for candidate in all_over["database_clock_anchor_candidates"]:
-        candidate["monotonic_before_ns"] = candidate["sequence"] * 2_000_000
-        candidate["monotonic_after_ns"] = candidate["monotonic_before_ns"] + 1_000_001
+        candidate["monotonic_before_ns"] = candidate["sequence"] * 6_000_000
+        candidate["monotonic_after_ns"] = candidate["monotonic_before_ns"] + 5_000_001
         rehash(candidate)
     all_over["database_clock_anchor"] = all_over["database_clock_anchor_candidates"][0]
     all_over["database_clock_anchor_selection"]["selected_sequence"] = 1
     all_over["commit_timestamp_observed_at"] = all_over["database_clock_anchor"][
         "database_clock_timestamp"
     ]
-    all_over["commit_timestamp_finished_monotonic_ns"] = 20_000_000
+    all_over["commit_timestamp_finished_monotonic_ns"] = 60_000_000
     mutations.append((all_over, "all_candidates_over_bound"))
 
     for candidate, code in mutations:

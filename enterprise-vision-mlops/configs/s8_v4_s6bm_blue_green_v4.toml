@@ -97,6 +97,7 @@ database_clock_anchor_candidates_required = true
 database_clock_anchor_sequence = [1, 2, 3, 4, 5, 6, 7, 8]
 database_clock_anchor_nonce_derivation = "uuid4_hex_immediately_before_each_sequence"
 database_clock_anchor_selection_inputs = ["bracket_width_ns", "sequence"]
+database_clock_anchor_max_selected_width_ns = 5000000
 commit_timestamp_readback_lane = "bounded_parallel_post_commit_v1"
 commit_timestamp_readback_max_concurrency = 2
 commit_timestamp_readback_acquire_timeout_seconds = 2.0
