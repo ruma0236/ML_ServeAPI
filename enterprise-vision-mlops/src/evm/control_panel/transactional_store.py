@@ -152,9 +152,7 @@ class StoreConfiguration:
     def from_env(cls) -> StoreConfiguration:
         mode = os.getenv("EVM_CONTROL_PLANE_STORE_MODE", "file").strip().lower()
         if mode not in {"file", "dual", "postgres"}:
-            raise ControlPlaneStoreUnavailable(
-                f"unsupported control-plane store mode: {mode}"
-            )
+            raise ControlPlaneStoreUnavailable(f"unsupported control-plane store mode: {mode}")
         return cls(
             mode=mode,
             dsn=os.getenv("EVM_CONTROL_PLANE_DATABASE_URL") or None,
@@ -164,9 +162,7 @@ class StoreConfiguration:
             acquire_timeout_seconds=float(
                 os.getenv("EVM_CONTROL_PLANE_POOL_ACQUIRE_TIMEOUT_SECONDS", "2")
             ),
-            lock_timeout_seconds=float(
-                os.getenv("EVM_CONTROL_PLANE_LOCK_TIMEOUT_SECONDS", "2")
-            ),
+            lock_timeout_seconds=float(os.getenv("EVM_CONTROL_PLANE_LOCK_TIMEOUT_SECONDS", "2")),
             statement_timeout_seconds=float(
                 os.getenv("EVM_CONTROL_PLANE_STATEMENT_TIMEOUT_SECONDS", "10")
             ),
@@ -213,8 +209,7 @@ class TaskQueueSnapshot:
     def downstream_outstanding(self, resource_class: str) -> int:
         counts = self.resource_state_counts.get(resource_class, {})
         return sum(
-            counts.get(state, 0)
-            for state in ("leased", "runtime_pending", "outcome_unknown")
+            counts.get(state, 0) for state in ("leased", "runtime_pending", "outcome_unknown")
         )
 
 
@@ -249,9 +244,7 @@ class TaskQueueLease:
     deadline_at: str
 
 
-_BOUND_CONNECTION: ContextVar[Any | None] = ContextVar(
-    "evm_control_plane_connection", default=None
-)
+_BOUND_CONNECTION: ContextVar[Any | None] = ContextVar("evm_control_plane_connection", default=None)
 _BOUND_CLAIM: ContextVar[dict[str, Any] | None] = ContextVar(
     "evm_control_plane_claim", default=None
 )
@@ -297,9 +290,7 @@ _S6BM_CAUSAL_IDENTITY_FIELDS = (
 def _validate_s6bm_causal_identity(payload: Mapping[str, Any]) -> dict[str, Any]:
     identity = {field: payload.get(field) for field in _S6BM_CAUSAL_IDENTITY_FIELDS}
     if any(value is None or value == "" for value in identity.values()):
-        missing = [
-            field for field, value in identity.items() if value is None or value == ""
-        ]
+        missing = [field for field, value in identity.items() if value is None or value == ""]
         raise ControlPlaneParityError(f"S6B-M causal identity is incomplete: {missing}")
     if len(str(identity["trace_id"])) != 32:
         raise ControlPlaneParityError("S6B-M causal trace identity is invalid")
@@ -523,9 +514,7 @@ class TransactionalControlPlaneStore:
                         "SELECT set_config('lock_timeout', %s, true)",
                         (f"{max(1, int(wait_seconds * 1000))}ms",),
                     )
-                connection.execute(
-                    "SELECT pg_advisory_xact_lock(%s)", (_advisory_key(scope),)
-                )
+                connection.execute("SELECT pg_advisory_xact_lock(%s)", (_advisory_key(scope),))
                 if wait_seconds is not None:
                     connection.execute(
                         "SELECT set_config('lock_timeout', %s, true)",
@@ -1091,9 +1080,7 @@ class TransactionalControlPlaneStore:
                     )
                 actor_start = int(event["payload"].get("actor_start_unix_ns", 0))
                 if actor_start <= 0:
-                    raise ControlPlaneParityError(
-                        "S6B-M actor start timestamp is absent"
-                    )
+                    raise ControlPlaneParityError("S6B-M actor start timestamp is absent")
                 anchor = (
                     event["payload"].get("collector_observation")
                     if event["event_type"] == "triton_backend_compute_entry"
@@ -1294,9 +1281,7 @@ class TransactionalControlPlaneStore:
             raise ControlPlaneIdempotencyConflict("idempotency key is required")
         schema = _safe_identifier(self.configuration.schema)
         request_sha256 = canonical_digest(request_payload)
-        with self.serialized(
-            f"idempotent-terminal:{scope}:{idempotency_key}"
-        ) as connection:
+        with self.serialized(f"idempotent-terminal:{scope}:{idempotency_key}") as connection:
             existing = connection.execute(
                 f"""
                 SELECT request_sha256, response_payload
@@ -1382,9 +1367,7 @@ class TransactionalControlPlaneStore:
         request_sha256 = canonical_digest(request_payload)
         replayed = False
         causal_event: dict[str, Any] | None = None
-        with self.serialized(
-            f"idempotent-terminal:{scope}:{idempotency_key}"
-        ) as connection:
+        with self.serialized(f"idempotent-terminal:{scope}:{idempotency_key}") as connection:
             connection.execute("SELECT set_config('synchronous_commit', 'on', true)")
             existing = connection.execute(
                 f"""
@@ -1400,10 +1383,7 @@ class TransactionalControlPlaneStore:
                     raise ControlPlaneIdempotencyConflict(
                         f"idempotency key {idempotency_key!r} was reused with a different request"
                     )
-                if (
-                    existing["entity_kind"] != entity_kind
-                    or existing["entity_id"] != entity_id
-                ):
+                if existing["entity_kind"] != entity_kind or existing["entity_id"] != entity_id:
                     raise ControlPlaneParityError(
                         "idempotency identity points to a different terminal entity"
                     )
@@ -1501,9 +1481,7 @@ class TransactionalControlPlaneStore:
                     **dict(response_payload),
                     "durable_commit": {
                         "schema_version": "evm.s6bm.durable_commit.v2",
-                        "database_recorded_at": _utc_iso(
-                            write_identity["database_recorded_at"]
-                        ),
+                        "database_recorded_at": _utc_iso(write_identity["database_recorded_at"]),
                         "transaction_id": str(write_identity["transaction_id"]),
                         "write_backend_pid": int(write_identity["backend_pid"]),
                         "synchronous_commit": str(write_identity["synchronous_commit"]),
@@ -1550,6 +1528,9 @@ class TransactionalControlPlaneStore:
             )
 
         commit_timestamp_started_monotonic_ns = time.perf_counter_ns()
+        database_clock_anchor_nonce = uuid4().hex
+        database_clock_anchor_before_ns = 0
+        database_clock_anchor_after_ns = 0
         try:
             import psycopg
             from psycopg.rows import dict_row
@@ -1562,19 +1543,25 @@ class TransactionalControlPlaneStore:
                 self.configuration.dsn,
                 autocommit=True,
                 row_factory=dict_row,
-                connect_timeout=max(
-                    1, int(math.ceil(self.configuration.acquire_timeout_seconds))
-                ),
+                connect_timeout=max(1, int(math.ceil(self.configuration.acquire_timeout_seconds))),
             ) as commit_timestamp_connection:
+                database_clock_anchor_before_ns = time.perf_counter_ns()
                 commit_timestamp_row = commit_timestamp_connection.execute(
                     """
+                    WITH observed AS (
+                        SELECT clock_timestamp() AS observed_at
+                    )
                     SELECT pg_xact_commit_timestamp(%s::xid) AS commit_timestamp,
-                           clock_timestamp() AS observed_at,
+                           observed_at,
+                           ((EXTRACT(EPOCH FROM observed_at) * 1000000000)::numeric(30,0))::text
+                               AS observed_unix_ns,
                            pg_backend_pid() AS backend_pid,
                            current_setting('track_commit_timestamp') AS tracking
+                    FROM observed
                     """,
                     (transaction_id,),
                 ).fetchone()
+                database_clock_anchor_after_ns = time.perf_counter_ns()
         except (ControlPlaneStoreError, ImportError):
             raise
         except Exception as exc:
@@ -1585,9 +1572,7 @@ class TransactionalControlPlaneStore:
         if commit_timestamp_row is None:
             raise ControlPlaneParityError("terminal effect commit timestamp is absent")
         if str(commit_timestamp_row["tracking"]) != "on":
-            raise ControlPlaneParityError(
-                "PostgreSQL track_commit_timestamp is not enabled"
-            )
+            raise ControlPlaneParityError("PostgreSQL track_commit_timestamp is not enabled")
         if commit_timestamp_row["commit_timestamp"] is None:
             raise ControlPlaneParityError("terminal effect commit timestamp is not visible")
         commit_timestamp_backend_pid = int(commit_timestamp_row["backend_pid"])
@@ -1597,6 +1582,23 @@ class TransactionalControlPlaneStore:
             raise ControlPlaneParityError(
                 "terminal effect commit timestamp was not read on a separate connection"
             )
+        database_clock_anchor = {
+            "schema_version": "evm.s6bm.database_clock_anchor.v1",
+            "anchor_nonce": database_clock_anchor_nonce,
+            "clock_source": "postgresql_clock_timestamp",
+            "schema_name": schema,
+            "source_identity": (
+                f"postgresql:{schema}:{transaction_id}:"
+                f"{commit_timestamp_backend_pid}:{database_clock_anchor_nonce}"
+            ),
+            "transaction_id": transaction_id,
+            "backend_pid": commit_timestamp_backend_pid,
+            "monotonic_before_ns": database_clock_anchor_before_ns,
+            "monotonic_after_ns": database_clock_anchor_after_ns,
+            "database_clock_timestamp": _utc_iso(commit_timestamp_row["observed_at"]),
+            "database_unix_ns": int(commit_timestamp_row["observed_unix_ns"]),
+        }
+        database_clock_anchor["anchor_hash"] = canonical_digest(database_clock_anchor)
 
         readback_started_monotonic_ns = time.perf_counter_ns()
         with self.transaction("terminal_effect_readback") as connection:
@@ -1643,9 +1645,7 @@ class TransactionalControlPlaneStore:
             raise ControlPlaneParityError("terminal effect readback parity failed")
         if durable_commit.get("synchronous_commit") != "on":
             raise ControlPlaneParityError("terminal effect did not use synchronous_commit=on")
-        database_recorded_at = _parse_datetime(
-            str(durable_commit.get("database_recorded_at", ""))
-        )
+        database_recorded_at = _parse_datetime(str(durable_commit.get("database_recorded_at", "")))
         if row["readback_at"] < database_recorded_at:
             raise ControlPlaneParityError("terminal effect readback clock regressed")
         causal_readback = self._s6bm_causal_row(causal_row) if causal_row is not None else None
@@ -1661,7 +1661,7 @@ class TransactionalControlPlaneStore:
             ):
                 raise ControlPlaneParityError("terminal causal event transaction parity failed")
         receipt = {
-            "schema_version": "evm.s6bm.durable_effect_receipt.v2",
+            "schema_version": "evm.s6bm.durable_effect_receipt.v3",
             "entity_kind": entity_kind,
             "entity_id": entity_id,
             "request_sha256": request_sha256,
@@ -1675,19 +1675,14 @@ class TransactionalControlPlaneStore:
             "synchronous_commit": "on",
             "commit_ack_monotonic_ns": commit_ack_monotonic_ns,
             "commit_timestamp": _utc_iso(commit_timestamp_row["commit_timestamp"]),
-            "commit_timestamp_observed_at": _utc_iso(
-                commit_timestamp_row["observed_at"]
-            ),
+            "commit_timestamp_observed_at": _utc_iso(commit_timestamp_row["observed_at"]),
             "commit_timestamp_backend_pid": commit_timestamp_backend_pid,
             "commit_timestamp_tracking": "on",
             "commit_timestamp_visible": True,
             "separate_connection_readback": True,
-            "commit_timestamp_started_monotonic_ns": (
-                commit_timestamp_started_monotonic_ns
-            ),
-            "commit_timestamp_finished_monotonic_ns": (
-                commit_timestamp_finished_monotonic_ns
-            ),
+            "commit_timestamp_started_monotonic_ns": (commit_timestamp_started_monotonic_ns),
+            "commit_timestamp_finished_monotonic_ns": (commit_timestamp_finished_monotonic_ns),
+            "database_clock_anchor": database_clock_anchor,
             "readback_started_monotonic_ns": readback_started_monotonic_ns,
             "readback_finished_monotonic_ns": readback_finished_monotonic_ns,
             "readback_visible": True,
@@ -1935,9 +1930,7 @@ class TransactionalControlPlaneStore:
                         task_id,
                         self._json(task_payload),
                         observed_at
-                        + timedelta(
-                            seconds=config.idempotency_tombstone_retention_seconds
-                        ),
+                        + timedelta(seconds=config.idempotency_tombstone_retention_seconds),
                     ),
                 )
                 return TaskAdmissionResult(
@@ -2032,10 +2025,7 @@ class TransactionalControlPlaneStore:
                       AND updated_at <= %s
                     FOR UPDATE
                     """,
-                    (
-                        observed_at
-                        - timedelta(seconds=config.pending_max_age_seconds),
-                    ),
+                    (observed_at - timedelta(seconds=config.pending_max_age_seconds),),
                 ).fetchall()
                 for row in stale:
                     self._update_task_runtime_locked(
@@ -2091,9 +2081,7 @@ class TransactionalControlPlaneStore:
                         str(task_payload["task_id"]),
                         self._json(task_payload),
                         observed_at
-                        + timedelta(
-                            seconds=config.idempotency_tombstone_retention_seconds
-                        ),
+                        + timedelta(seconds=config.idempotency_tombstone_retention_seconds),
                     ),
                 )
                 return TaskAdmissionResult(
@@ -2216,8 +2204,7 @@ class TransactionalControlPlaneStore:
             pending_depth = int(pending["depth"])
             pending_bytes = int(pending["bytes"])
             if mode == "durable" and (
-                pending_depth > config.pending_max_depth
-                or pending_bytes > config.pending_max_bytes
+                pending_depth > config.pending_max_depth or pending_bytes > config.pending_max_bytes
             ):
                 raise ControlPlaneParityError(
                     "pending approval state exceeds the frozen durable cutover bounds"
@@ -2658,12 +2645,8 @@ class TransactionalControlPlaneStore:
                 GROUP BY history_class
                 """
             ).fetchall()
-        compacted_rows = {
-            str(row["history_class"]): int(row["rows"]) for row in rollups
-        }
-        compacted_bytes = {
-            str(row["history_class"]): int(row["bytes"]) for row in rollups
-        }
+        compacted_rows = {str(row["history_class"]): int(row["rows"]) for row in rollups}
+        compacted_bytes = {str(row["history_class"]): int(row["bytes"]) for row in rollups}
         return TaskQueueHistorySnapshot(
             queue_rows=int(queue["rows"]),
             queue_bytes=int(queue["bytes"]),
@@ -2745,9 +2728,7 @@ class TransactionalControlPlaneStore:
                         observed_at,
                         observed_at,
                         observed_at
-                        + timedelta(
-                            seconds=config.idempotency_tombstone_retention_seconds
-                        ),
+                        + timedelta(seconds=config.idempotency_tombstone_retention_seconds),
                         task_ids,
                     ),
                 )
@@ -2816,9 +2797,7 @@ class TransactionalControlPlaneStore:
                         observed_at,
                         observed_at,
                         observed_at
-                        + timedelta(
-                            seconds=config.idempotency_tombstone_retention_seconds
-                        ),
+                        + timedelta(seconds=config.idempotency_tombstone_retention_seconds),
                         stale_task_ids,
                     ),
                 )
@@ -3426,9 +3405,7 @@ class TransactionalControlPlaneStore:
                     or str(row["dag_id"]) != dag_id
                     or str(row["dag_run_id"]) != dag_run_id
                 ):
-                    raise ControlPlaneLeaseConflict(
-                        "task_dispatch_effect_identity_mismatch"
-                    )
+                    raise ControlPlaneLeaseConflict("task_dispatch_effect_identity_mismatch")
                 replayed = str(row["state"]) in {"submitted", "terminal"}
                 if not replayed:
                     connection.execute(
@@ -3507,9 +3484,7 @@ class TransactionalControlPlaneStore:
             if state in {"submitted", "terminal"}:
                 return {"effect_key": effect_key, "state": state, "replayed": True}
             if state in {"failed", "outcome_unknown"}:
-                raise ControlPlaneLeaseConflict(
-                    f"task_dispatch_effect_not_submittable:{state}"
-                )
+                raise ControlPlaneLeaseConflict(f"task_dispatch_effect_not_submittable:{state}")
             connection.execute(
                 f"""
                 UPDATE {schema}.task_dispatch_effects
@@ -3551,9 +3526,7 @@ class TransactionalControlPlaneStore:
                 or str(effect_row["lease_owner"]) != lease.lease_owner
                 or int(effect_row["lease_epoch"]) != lease.lease_epoch
             ):
-                raise ControlPlaneLeaseConflict(
-                    "task_dispatch_effect_fence_mismatch"
-                )
+                raise ControlPlaneLeaseConflict("task_dispatch_effect_fence_mismatch")
             state = str(effect_row["state"])
             if state == "reserved":
                 return {
@@ -3590,14 +3563,8 @@ class TransactionalControlPlaneStore:
     ) -> dict[str, Any]:
         schema = _safe_identifier(self.configuration.schema)
         observed_at = now or utc_now()
-        queue_state = (
-            "completed" if succeeded else "failed"
-        ) if terminal else "runtime_pending"
-        reason = (
-            f"runtime_terminal:{runtime_state}"
-            if terminal
-            else "runtime_dispatch_submitted"
-        )
+        queue_state = ("completed" if succeeded else "failed") if terminal else "runtime_pending"
+        reason = f"runtime_terminal:{runtime_state}" if terminal else "runtime_dispatch_submitted"
         effect_state = "terminal" if terminal else "submitted"
         with self.transaction("task_dispatch_effect_commit") as connection:
             queue_row = connection.execute(
@@ -4023,9 +3990,11 @@ class TransactionalControlPlaneStore:
             """,
             (budget_name,),
         ).fetchone()
-        if budget is None or (
-            observed_at - budget["window_started_at"]
-        ).total_seconds() >= config.retry_budget_window_seconds:
+        if (
+            budget is None
+            or (observed_at - budget["window_started_at"]).total_seconds()
+            >= config.retry_budget_window_seconds
+        ):
             consumed = 0
             window_started_at = observed_at
         else:
@@ -4468,9 +4437,7 @@ class TransactionalControlPlaneStore:
             if _parse_datetime(current["expires_at"]) <= observed_at:
                 raise ControlPlaneLeaseConflict("lifecycle_claim_expired")
             current["renewed_at"] = observed_at.isoformat()
-            current["expires_at"] = (
-                observed_at + timedelta(seconds=ttl_seconds)
-            ).isoformat()
+            current["expires_at"] = (observed_at + timedelta(seconds=ttl_seconds)).isoformat()
             self._write_locked_claim(current)
             return current
 

@@ -28,6 +28,7 @@ from evm.control_panel.transactional_store import (
     ControlPlaneVersionConflict,
     StoreConfiguration,
     TransactionalControlPlaneStore,
+    canonical_digest,
     reset_transactional_store,
 )
 
@@ -99,9 +100,7 @@ def test_entity_optimistic_version_and_idempotency(store: TransactionalControlPl
         entity_kind="lifecycle_run",
         entity_id="run-1",
     )
-    assert store.lookup_idempotency(
-        "lifecycle.cancel", "cancel-key-0001", request
-    ) == updated
+    assert store.lookup_idempotency("lifecycle.cancel", "cancel-key-0001", request) == updated
 
 
 def test_idempotent_terminal_entity_commits_one_effect_in_real_postgres(
@@ -221,11 +220,18 @@ def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
     assert stored["durable_commit"]["schema_version"] == "evm.s6bm.durable_commit.v2"
     assert stored["durable_commit"]["transaction_id"] == effect["transaction_id"]
     assert stored["durable_commit"]["write_backend_pid"] == effect["write_backend_pid"]
-    assert effect["schema_version"] == "evm.s6bm.durable_effect_receipt.v2"
+    assert effect["schema_version"] == "evm.s6bm.durable_effect_receipt.v3"
     assert effect["commit_timestamp_tracking"] == "on"
     assert effect["commit_timestamp_visible"] is True
     assert effect["separate_connection_readback"] is True
     assert effect["commit_timestamp_backend_pid"] != effect["write_backend_pid"]
+    database_anchor = effect["database_clock_anchor"]
+    assert database_anchor["schema_version"] == "evm.s6bm.database_clock_anchor.v1"
+    assert database_anchor["backend_pid"] == effect["commit_timestamp_backend_pid"]
+    assert database_anchor["database_clock_timestamp"] == effect["commit_timestamp_observed_at"]
+    assert database_anchor["anchor_hash"] == canonical_digest(
+        {key: value for key, value in database_anchor.items() if key != "anchor_hash"}
+    )
     assert switch["causal_sequence"] < effect["causal_sequence"]
     replayed_stored, replayed, replayed_effect = (
         store.commit_idempotent_terminal_entity_with_receipt(
@@ -478,9 +484,7 @@ def test_existing_lifecycle_boundary_replays_create_and_queue(
     monkeypatch.setenv("EVM_PIPELINE_PROFILE_RUNTIME_ROOT", "/mnt/evm-data/test-profiles")
     monkeypatch.setenv("EVM_LIFECYCLE_RUN_ROOT", str(tmp_path / "lifecycle-runs"))
     monkeypatch.setenv("EVM_EXPERIMENT_RUN_ROOT", str(tmp_path / "experiments"))
-    monkeypatch.setenv(
-        "EVM_LIFECYCLE_RUNTIME_ROOT", "/mnt/evm-data/test-lifecycle-runs"
-    )
+    monkeypatch.setenv("EVM_LIFECYCLE_RUNTIME_ROOT", "/mnt/evm-data/test-lifecycle-runs")
     monkeypatch.setenv("EVM_HOST_DATA_ROOT", str(tmp_path / "data-root"))
     monkeypatch.setenv("EVM_DATA_MOUNT_ROOT", "/mnt/evm-data")
     monkeypatch.setenv("EVM_PROJECT_ROOT", str(Path(__file__).resolve().parents[1]))
@@ -492,9 +496,7 @@ def test_existing_lifecycle_boundary_replays_create_and_queue(
     source_manifest.write_text('{"sample_id":"sample-1"}\n', encoding="utf-8")
     split_identity = "b" * 64
     split_manifest.write_text(
-        '{"schema_version":"evm.dataset_shards.v1","identity_sha256":"'
-        + split_identity
-        + '"}',
+        '{"schema_version":"evm.dataset_shards.v1","identity_sha256":"' + split_identity + '"}',
         encoding="utf-8",
     )
     profile = default_profile()
@@ -514,9 +516,7 @@ def test_existing_lifecycle_boundary_replays_create_and_queue(
 
     def executable(profile_value):
         result = original_validate(profile_value)
-        return result.model_copy(
-            update={"status": "ready", "executable": True, "blockers": []}
-        )
+        return result.model_copy(update={"status": "ready", "executable": True, "blockers": []})
 
     monkeypatch.setattr(lifecycle_runs, "validate_profile", executable)
     reset_transactional_store()

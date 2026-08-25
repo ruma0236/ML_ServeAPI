@@ -15,6 +15,11 @@ from evm.scale_validation.s6bm_runtime import (
     project_raw_drain_timeline,
     project_success_attempt,
 )
+from evm.scale_validation.s6bm_causal import (
+    S6BMCausalError,
+    _database_clock_envelope,
+    _unix_nano,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,15 +77,14 @@ def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
     assert config.schema_version == "evm.s8_v4.s6bm_runtime_config.v4"
     assert config.clock["independent_nonce_anchor_required"] is True
     assert config.clock["adjudicated_request_anchor_forbidden"] is True
-    assert config.causal_fence[
-        "same_transaction_entity_idempotency_effect_event_and_sequence"
-    ] is True
-    assert config.triton_actor_receipt["registration_actor"] == (
-        "dedicated_collector_process"
+    assert (
+        config.causal_fence["same_transaction_entity_idempotency_effect_event_and_sequence"] is True
     )
+    assert config.triton_actor_receipt["registration_actor"] == ("dedicated_collector_process")
     assert config.triton_actor_receipt["runner_synthesized_receipt_forbidden"] is True
     assert config.durable_effect["commit_timestamp_tracking_required"] is True
     assert config.durable_effect["commit_timestamp_separate_connection_required"] is True
+    assert config.durable_effect["database_clock_anchor_required"] is True
     assert config.trace["exact_parent_span_required"] is True
     assert set(config.run_set) == {
         "contract",
@@ -92,6 +96,74 @@ def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
         "green_canary_failure",
         "vram_preflight_rejection",
     }
+
+
+def test_s6bm_v4_database_clock_anchor_is_independent_and_fail_closed() -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    observed_at = "2026-08-25T00:00:00.000200Z"
+    transaction_id = "101"
+    backend_pid = 202
+    nonce = "a" * 32
+    schema_name = f"{config.durable_effect['schema_prefix']}_unit"
+    anchor = {
+        "schema_version": "evm.s6bm.database_clock_anchor.v1",
+        "anchor_nonce": nonce,
+        "clock_source": "postgresql_clock_timestamp",
+        "schema_name": schema_name,
+        "source_identity": (f"postgresql:{schema_name}:{transaction_id}:{backend_pid}:{nonce}"),
+        "transaction_id": transaction_id,
+        "backend_pid": backend_pid,
+        "monotonic_before_ns": 100,
+        "monotonic_after_ns": 200,
+        "database_clock_timestamp": observed_at,
+        "database_unix_ns": _unix_nano(observed_at, "test"),
+    }
+    from evm.scale_validation.s6bm_runtime import canonical_sha256
+
+    anchor["anchor_hash"] = canonical_sha256(anchor)
+    receipt = {
+        "schema_version": "evm.s6bm.durable_effect_receipt.v3",
+        "transaction_id": transaction_id,
+        "commit_timestamp_backend_pid": backend_pid,
+        "commit_timestamp_observed_at": observed_at,
+        "commit_timestamp_started_monotonic_ns": 90,
+        "commit_timestamp_finished_monotonic_ns": 210,
+        "database_clock_anchor": anchor,
+    }
+    envelope, projection = _database_clock_envelope(receipt, config)
+    assert envelope[0] <= envelope[1]
+    assert projection["width_ns"] == 100
+
+    for mutate, code in (
+        (lambda value: value["database_clock_anchor"].update(anchor_hash="f" * 64), "binding"),
+        (
+            lambda value: value["database_clock_anchor"].update(monotonic_after_ns=2_000_000),
+            "interval",
+        ),
+        (
+            lambda value: value["database_clock_anchor"].update(
+                source_identity="postgresql:substituted"
+            ),
+            "binding",
+        ),
+    ):
+        candidate = copy.deepcopy(receipt)
+        mutate(candidate)
+        candidate["database_clock_anchor"]["anchor_hash"] = canonical_sha256(
+            {
+                key: value
+                for key, value in candidate["database_clock_anchor"].items()
+                if key != "anchor_hash"
+            }
+        )
+        if (
+            code == "binding"
+            and candidate["database_clock_anchor"].get("source_identity")
+            != "postgresql:substituted"
+        ):
+            candidate["database_clock_anchor"]["anchor_hash"] = "f" * 64
+        with pytest.raises(S6BMCausalError, match=f"database_clock_anchor_{code}"):
+            _database_clock_envelope(candidate, config)
 
 
 def success_attempt(repetition: int = 1) -> dict[str, object]:
@@ -108,9 +180,7 @@ def success_attempt(repetition: int = 1) -> dict[str, object]:
                 "run_id": "s8-v4-s6bm-unit-test",
                 "attempt_id": f"success-{repetition}",
                 "request_id": (
-                    f"success-{repetition}-hold-blue-00000"
-                    if is_hold
-                    else f"request-{index:04d}"
+                    f"success-{repetition}-hold-blue-00000" if is_hold else f"request-{index:04d}"
                 ),
                 "trace_id": f"{index + 1:032x}",
                 "effect_id": hashlib.sha256(

@@ -61,7 +61,10 @@ def _unix_nano(value: Any, code: str) -> int:
         raise S6BMCausalError(code) from exc
     if parsed.tzinfo is None:
         raise S6BMCausalError(code)
-    return int(parsed.astimezone(UTC).timestamp() * 1_000_000_000)
+    normalized = parsed.astimezone(UTC)
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    delta = normalized - epoch
+    return (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
 
 
 def _finite(value: Any, code: str) -> float:
@@ -171,16 +174,15 @@ def _anchor_projection(
         if host is None:
             host = str(anchor.get("host_identity", ""))
             process = int(anchor.get("process_id", 0))
-        if str(anchor.get("host_identity", "")) != host or int(
-            anchor.get("process_id", 0)
-        ) != process:
+        if (
+            str(anchor.get("host_identity", "")) != host
+            or int(anchor.get("process_id", 0)) != process
+        ):
             raise S6BMCausalError("s6bm_v4_clock_actor_identity")
         offsets_low.append(unix_ns - after)
         offsets_high.append(unix_ns - before)
         midpoint_offsets.append(unix_ns - ((before + after) // 2))
-    if max(midpoint_offsets) - min(midpoint_offsets) > int(
-        config.clock["max_offset_spread_ns"]
-    ):
+    if max(midpoint_offsets) - min(midpoint_offsets) > int(config.clock["max_offset_spread_ns"]):
         raise S6BMCausalError("s6bm_v4_clock_drift")
     for left, right in zip(anchors, anchors[1:], strict=False):
         gap = int(right["monotonic_before_ns"]) - int(left["monotonic_after_ns"])
@@ -241,9 +243,7 @@ def _anchor_projection(
     )
     if envelope[0] > envelope[1]:
         raise S6BMCausalError("s6bm_v4_clock_envelope_disjoint")
-    collector_midpoint_offset = collector_unix - (
-        (collector_before + collector_after) // 2
-    )
+    collector_midpoint_offset = collector_unix - ((collector_before + collector_after) // 2)
     if max([*midpoint_offsets, collector_midpoint_offset]) - min(
         [*midpoint_offsets, collector_midpoint_offset]
     ) > int(config.clock["max_offset_spread_ns"]):
@@ -266,33 +266,86 @@ def _anchor_projection(
     required = set(config.clock.get("required_phase_anchors", []))
     if not required.issubset(phase_bounds):
         raise S6BMCausalError("s6bm_v4_required_phase_anchor")
-    return phase_bounds, envelope, {
-        "runner_anchor_count": len(anchors),
-        "collector_anchor_count": 1,
-        "first_anchor_hash": str(anchors[0]["anchor_hash"]),
-        "last_anchor_hash": str(anchors[-1]["anchor_hash"]),
-        "collector_anchor_hash": collector_hash,
-        "runner_anchor_nonce": anchor_nonce,
-        "collector_anchor_nonce": collector_nonce,
-        "max_anchor_width_ns": max(
-            [
-                *(
-                    int(item["monotonic_after_ns"])
-                    - int(item["monotonic_before_ns"])
-                    for item in anchors
-                ),
-                collector_after - collector_before,
-            ]
-        ),
-        "offset_spread_ns": max([*midpoint_offsets, collector_midpoint_offset])
-        - min([*midpoint_offsets, collector_midpoint_offset]),
-        "combined_offset_envelope_ns": list(envelope),
-    }
+    return (
+        phase_bounds,
+        envelope,
+        {
+            "runner_anchor_count": len(anchors),
+            "collector_anchor_count": 1,
+            "first_anchor_hash": str(anchors[0]["anchor_hash"]),
+            "last_anchor_hash": str(anchors[-1]["anchor_hash"]),
+            "collector_anchor_hash": collector_hash,
+            "runner_anchor_nonce": anchor_nonce,
+            "collector_anchor_nonce": collector_nonce,
+            "max_anchor_width_ns": max(
+                [
+                    *(
+                        int(item["monotonic_after_ns"]) - int(item["monotonic_before_ns"])
+                        for item in anchors
+                    ),
+                    collector_after - collector_before,
+                ]
+            ),
+            "offset_spread_ns": max([*midpoint_offsets, collector_midpoint_offset])
+            - min([*midpoint_offsets, collector_midpoint_offset]),
+            "combined_offset_envelope_ns": list(envelope),
+        },
+    )
 
 
 def _project_unix(unix_ns: int, envelope: tuple[int, int]) -> tuple[int, int]:
     offset_low, offset_high = envelope
     return unix_ns - offset_high, unix_ns - offset_low
+
+
+def _database_clock_envelope(
+    receipt: Mapping[str, Any], config: S6BMConfig
+) -> tuple[tuple[int, int], dict[str, Any]]:
+    anchor = dict(receipt.get("database_clock_anchor", {}))
+    observed_at = str(receipt.get("commit_timestamp_observed_at", ""))
+    transaction_id = str(receipt.get("transaction_id", ""))
+    backend_pid = int(receipt.get("commit_timestamp_backend_pid", 0))
+    nonce = str(anchor.get("anchor_nonce", ""))
+    schema_name = str(anchor.get("schema_name", ""))
+    expected_source = f"postgresql:{schema_name}:{transaction_id}:{backend_pid}:{nonce}"
+    observed_hash = str(anchor.get("anchor_hash", ""))
+    expected_hash = canonical_sha256(
+        {key: value for key, value in anchor.items() if key != "anchor_hash"}
+    )
+    if (
+        receipt.get("schema_version") != "evm.s6bm.durable_effect_receipt.v3"
+        or anchor.get("schema_version") != "evm.s6bm.database_clock_anchor.v1"
+        or observed_hash != expected_hash
+        or len(nonce) != 32
+        or any(character not in "0123456789abcdef" for character in nonce)
+        or anchor.get("clock_source") != "postgresql_clock_timestamp"
+        or not schema_name.startswith(str(config.durable_effect["schema_prefix"]))
+        or anchor.get("source_identity") != expected_source
+        or str(anchor.get("transaction_id", "")) != transaction_id
+        or int(anchor.get("backend_pid", 0)) != backend_pid
+        or anchor.get("database_clock_timestamp") != observed_at
+    ):
+        raise S6BMCausalError("s6bm_v4_database_clock_anchor_binding")
+    before = int(anchor.get("monotonic_before_ns", 0))
+    after = int(anchor.get("monotonic_after_ns", 0))
+    timestamp_start = int(receipt.get("commit_timestamp_started_monotonic_ns", 0))
+    timestamp_end = int(receipt.get("commit_timestamp_finished_monotonic_ns", 0))
+    database_unix_ns = int(anchor.get("database_unix_ns", 0))
+    if (
+        before <= 0
+        or not timestamp_start <= before <= after <= timestamp_end
+        or after - before > int(config.clock["max_anchor_width_ns"])
+        or database_unix_ns != _unix_nano(observed_at, "s6bm_v4_database_clock_time")
+    ):
+        raise S6BMCausalError("s6bm_v4_database_clock_anchor_interval")
+    envelope = (database_unix_ns - after, database_unix_ns - before)
+    return envelope, {
+        "anchor_hash": observed_hash,
+        "anchor_nonce": nonce,
+        "backend_pid": backend_pid,
+        "width_ns": after - before,
+        "offset_envelope_ns": list(envelope),
+    }
 
 
 def _event_identity(event: Mapping[str, Any]) -> dict[str, Any]:
@@ -334,13 +387,21 @@ def _validate_effects(
     records: Sequence[Mapping[str, Any]],
     effects_export: Mapping[str, Any],
     effect_events: Sequence[Mapping[str, Any]],
-) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    config: S6BMConfig,
+) -> tuple[
+    dict[str, dict[str, Any]],
+    dict[str, dict[str, Any]],
+    dict[str, tuple[int, int]],
+    dict[str, dict[str, Any]],
+]:
     effects = [dict(item) for item in effects_export.get("effects", [])]
     if int(effects_export.get("effect_count", -1)) != len(records) or len(effects) != len(records):
         raise S6BMCausalError("s6bm_v4_durable_effect_count")
     by_request = {str(item.get("request_id", "")): dict(item) for item in records}
     exported = {str(item.get("idempotency_key", "")): item for item in effects}
     event_by_request = {str(item.get("request_id", "")): dict(item) for item in effect_events}
+    database_envelopes: dict[str, tuple[int, int]] = {}
+    database_anchors: dict[str, dict[str, Any]] = {}
     if set(exported) != set(by_request) or set(event_by_request) != set(by_request):
         raise S6BMCausalError("s6bm_v4_durable_effect_identity_set")
     if len(exported) != len(effects) or len(event_by_request) != len(effect_events):
@@ -378,7 +439,7 @@ def _validate_effects(
         ):
             raise S6BMCausalError("s6bm_v4_effect_transaction_binding")
         if (
-            receipt.get("schema_version") != "evm.s6bm.durable_effect_receipt.v2"
+            receipt.get("schema_version") != "evm.s6bm.durable_effect_receipt.v3"
             or receipt.get("entity_id") != record.get("effect_id")
             or receipt.get("causal_sequence") != event.get("causal_sequence")
             or receipt.get("causal_payload_sha256") != event.get("payload_sha256")
@@ -407,19 +468,18 @@ def _validate_effects(
             raise S6BMCausalError("s6bm_v4_effect_commit_readback_order")
         for field in ("database_recorded_at", "entity_created_at", "idempotency_created_at"):
             _unix_nano(receipt.get(field), f"s6bm_v4_effect_{field}")
-        commit_unix = _unix_nano(
-            receipt.get("commit_timestamp"), "s6bm_v4_effect_commit_timestamp"
-        )
+        commit_unix = _unix_nano(receipt.get("commit_timestamp"), "s6bm_v4_effect_commit_timestamp")
         observed_unix = _unix_nano(
             receipt.get("commit_timestamp_observed_at"),
             "s6bm_v4_effect_commit_timestamp_observed",
         )
-        readback_unix = _unix_nano(
-            receipt.get("readback_at"), "s6bm_v4_effect_readback_timestamp"
-        )
+        readback_unix = _unix_nano(receipt.get("readback_at"), "s6bm_v4_effect_readback_timestamp")
         if not commit_unix <= observed_unix <= readback_unix:
             raise S6BMCausalError("s6bm_v4_effect_commit_timestamp_order")
-    return by_request, event_by_request
+        database_envelopes[request_id], database_anchors[request_id] = _database_clock_envelope(
+            receipt, config
+        )
+    return by_request, event_by_request, database_envelopes, database_anchors
 
 
 def validate_causal_bundle(
@@ -472,10 +532,8 @@ def validate_causal_bundle(
     if collector_result != projected_collector_result:
         raise S6BMCausalError("s6bm_v4_collector_result_projection")
     if (
-        collector_spec.get("schema_version")
-        != "evm.s8_v4.s6bm_trace_collector_spec.v1"
-        or collector_result.get("schema_version")
-        != "evm.s8_v4.s6bm_trace_collector_result.v1"
+        collector_spec.get("schema_version") != "evm.s8_v4.s6bm_trace_collector_spec.v1"
+        or collector_result.get("schema_version") != "evm.s8_v4.s6bm_trace_collector_result.v1"
         or collector_result.get("collector_spec_sha256") != sha256_file(collector_spec_path)
         or collector_result.get("raw_trace_sha256") != sha256_file(triton_trace_path)
     ):
@@ -524,7 +582,9 @@ def validate_causal_bundle(
     allowed_types = {*START_STAGES, SWITCH_EVENT, EFFECT_EVENT, UNLOAD_EVENT}
     if set(by_type) != allowed_types or len(events) != len(records) + 5:
         raise S6BMCausalError("s6bm_v4_event_type_set")
-    by_request, event_by_request = _validate_effects(records, effects_export, effect_events)
+    by_request, event_by_request, database_envelopes, database_anchors = _validate_effects(
+        records, effects_export, effect_events, config
+    )
 
     crossover = _event_identity(starts[START_STAGES[0]])
     hold_id = str(crossover["request_id"])
@@ -626,9 +686,11 @@ def validate_causal_bundle(
     for span in (server, controller, inference, effect_span):
         if any(span["attributes"].get(key) != value for key, value in expected_attributes.items()):
             raise S6BMCausalError("s6bm_v4_trace_identity_binding")
-    if effect_span["attributes"].get("evm.effect.transaction.id") != str(
-        hold_effect["transaction_id"]
-    ) or effect_span["attributes"].get("evm.effect.readback.visible") is not True:
+    if (
+        effect_span["attributes"].get("evm.effect.transaction.id")
+        != str(hold_effect["transaction_id"])
+        or effect_span["attributes"].get("evm.effect.readback.visible") is not True
+    ):
         raise S6BMCausalError("s6bm_v4_effect_span_receipt")
 
     raw_compute = dict(triton_trace.get("raw_compute_entry", {}))
@@ -652,18 +714,14 @@ def validate_causal_bundle(
         "compute_parent_span_id": model_span["span_id"],
     }
     if (
-        triton_event_payload.get("schema_version")
-        != "evm.s8_v4.s6bm_triton_actor_receipt.v1"
+        triton_event_payload.get("schema_version") != "evm.s8_v4.s6bm_triton_actor_receipt.v1"
         or triton_event_payload.get("raw_trace_artifact_sha256") != sha256_file(triton_trace_path)
-        or triton_event_payload.get("raw_trace_record_sha256")
-        != canonical_sha256(triton_trace)
+        or triton_event_payload.get("raw_trace_record_sha256") != canonical_sha256(triton_trace)
         or triton_event_payload.get("raw_trace_span_id") != compute_span["span_id"]
-        or int(triton_event_payload.get("actor_start_unix_ns", 0))
-        != compute_span["start_unix_ns"]
+        or int(triton_event_payload.get("actor_start_unix_ns", 0)) != compute_span["start_unix_ns"]
         or triton_event_payload.get("backend_identity") != expected_backend
         or triton_receipt.get("backend_identity") != expected_backend
-        or triton_event_payload.get("collector_spec_sha256")
-        != sha256_file(collector_spec_path)
+        or triton_event_payload.get("collector_spec_sha256") != sha256_file(collector_spec_path)
         or triton_event_payload.get("collector_nonce")
         != dict(triton_receipt.get("collector_observation", {})).get("anchor_nonce")
     ):
@@ -711,29 +769,36 @@ def validate_causal_bundle(
 
     hold = by_request[hold_id]
     attempted_ns = int(_finite(hold.get("attempted_monotonic"), "s6bm_v4_hold_start") * 1e9)
-    completion_ns = int(
-        _finite(hold.get("completed_monotonic"), "s6bm_v4_hold_completion") * 1e9
-    )
+    completion_ns = int(_finite(hold.get("completed_monotonic"), "s6bm_v4_hold_completion") * 1e9)
     receipt = dict(hold.get("durable_effect", {}))
     commit_ack = int(receipt.get("commit_ack_monotonic_ns", 0))
     readback_end = int(receipt.get("readback_finished_monotonic_ns", 0))
     commit_interval = _project_unix(
         _unix_nano(receipt.get("commit_timestamp"), "s6bm_v4_hold_commit_timestamp"),
-        envelope,
+        database_envelopes[hold_id],
     )
-    if not attempted_ns < switch_lower <= switch_upper < commit_ack <= readback_end <= completion_ns:
+    if (
+        not attempted_ns
+        < switch_lower
+        <= switch_upper
+        < commit_ack
+        <= readback_end
+        <= completion_ns
+    ):
         raise S6BMCausalError("s6bm_v4_hold_switch_effect_order")
     if not switch_upper < commit_interval[0] <= commit_interval[1] <= completion_ns:
         raise S6BMCausalError("s6bm_v4_hold_commit_interval_order")
-    commit_unix = _unix_nano(
-        receipt.get("commit_timestamp"), "s6bm_v4_hold_commit_timestamp"
-    )
+    effect_start_interval = _project_unix(effect_span["start_unix_ns"], envelope)
+    effect_end_interval = _project_unix(effect_span["end_unix_ns"], envelope)
+    controller_end_interval = _project_unix(controller["end_unix_ns"], envelope)
+    server_end_interval = _project_unix(server["end_unix_ns"], envelope)
     if not (
-        effect_span["start_unix_ns"]
-        <= commit_unix
-        <= effect_span["end_unix_ns"]
-        <= controller["end_unix_ns"]
-        <= server["end_unix_ns"]
+        effect_start_interval[1]
+        <= commit_interval[0]
+        <= commit_interval[1]
+        <= effect_end_interval[0]
+        and effect_end_interval[1] <= controller_end_interval[0]
+        and controller_end_interval[1] <= server_end_interval[0]
     ):
         raise S6BMCausalError("s6bm_v4_hold_effect_span_order")
     if completion_ns >= unload_lower:
@@ -767,7 +832,9 @@ def validate_causal_bundle(
         (str(item["request_id"]), str(item["effect_id"])) for item in pre_switch_blue
     )
     unload_payload = dict(unload.get("payload", {}))
-    last_effect_sequence = max(int(event_by_request[item]["causal_sequence"]) for item in pre_switch_ids)
+    last_effect_sequence = max(
+        int(event_by_request[item]["causal_sequence"]) for item in pre_switch_ids
+    )
     if (
         int(unload["causal_sequence"]) <= last_effect_sequence
         or int(unload_payload.get("switch_sequence", 0)) != int(switch["causal_sequence"])
@@ -800,6 +867,7 @@ def validate_causal_bundle(
             "switch_monotonic_interval_ns": [switch_lower, switch_upper],
             "effect_commit_ack_monotonic_ns": commit_ack,
             "effect_commit_monotonic_interval_ns": list(commit_interval),
+            "database_clock_anchor": database_anchors[hold_id],
             "effect_readback_finished_monotonic_ns": readback_end,
             "request_completion_monotonic_ns": completion_ns,
             "blue_unload_monotonic_lower_ns": unload_lower,

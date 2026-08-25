@@ -64,6 +64,7 @@ def causal_start_observation(actor_identity: str) -> dict[str, Any]:
         "service_instance_id": os.getenv("OTEL_SERVICE_INSTANCE_ID", "unknown"),
     }
 
+
 REQUESTS = Counter(
     "evm_s6bm_requests_total",
     "S6B-M routed request outcomes.",
@@ -236,7 +237,9 @@ class TritonBlueGreenPredictRequest(ContractModel):
             or self.expected_model_role != "blue"
             or self.hold_ms <= 0
         ):
-            raise ValueError("crossover request requires Blue identity, nonce, generation, and hold")
+            raise ValueError(
+                "crossover request requires Blue identity, nonce, generation, and hold"
+            )
         return self
 
 
@@ -279,9 +282,8 @@ class TritonBlueGreenDurableEffectReceipt(ContractModel):
     schema_version: Literal[
         "evm.s6bm.durable_effect_receipt.v1",
         "evm.s6bm.durable_effect_receipt.v2",
-    ] = (
-        "evm.s6bm.durable_effect_receipt.v1"
-    )
+        "evm.s6bm.durable_effect_receipt.v3",
+    ] = "evm.s6bm.durable_effect_receipt.v1"
     entity_kind: Literal["s6bm_terminal_effect"]
     entity_id: str = Field(pattern=r"^[a-f0-9]{64}$")
     request_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -308,6 +310,7 @@ class TritonBlueGreenDurableEffectReceipt(ContractModel):
     separate_connection_readback: bool | None = None
     commit_timestamp_started_monotonic_ns: int | None = Field(default=None, gt=0)
     commit_timestamp_finished_monotonic_ns: int | None = Field(default=None, gt=0)
+    database_clock_anchor: dict[str, object] | None = None
 
 
 TerminalEffectCommitter = Callable[
@@ -843,12 +846,8 @@ class TritonBlueGreenManager:
                             request.request_id,
                             status_code=503,
                         )
-                    timeout = float(
-                        os.getenv("EVM_S6BM_CAUSAL_SWITCH_TIMEOUT_SECONDS", "15")
-                    )
-                    if timeout <= 0 or not await asyncio.to_thread(
-                        switch_event.wait, timeout
-                    ):
+                    timeout = float(os.getenv("EVM_S6BM_CAUSAL_SWITCH_TIMEOUT_SECONDS", "15"))
+                    if timeout <= 0 or not await asyncio.to_thread(switch_event.wait, timeout):
                         raise TritonBlueGreenError(
                             "causal_switch_wait_timeout",
                             request.request_id,
@@ -989,7 +988,7 @@ class TritonBlueGreenManager:
                 or (
                     _strict_causal_required()
                     and (
-                        receipt.schema_version != "evm.s6bm.durable_effect_receipt.v2"
+                        receipt.schema_version != "evm.s6bm.durable_effect_receipt.v3"
                         or receipt.causal_sequence is None
                         or receipt.causal_payload_sha256 is None
                         or receipt.write_backend_pid is None
@@ -999,6 +998,7 @@ class TritonBlueGreenManager:
                         or receipt.commit_timestamp_tracking != "on"
                         or receipt.commit_timestamp_visible is not True
                         or receipt.separate_connection_readback is not True
+                        or receipt.database_clock_anchor is None
                     )
                 )
             ):
@@ -1012,9 +1012,7 @@ class TritonBlueGreenManager:
                 "evm.effect.causal.sequence": receipt.causal_sequence or 0,
                 "evm.effect.commit.timestamp": receipt.commit_timestamp or "unavailable",
                 "evm.effect.write.backend_pid": receipt.write_backend_pid or 0,
-                "evm.effect.readback.backend_pid": (
-                    receipt.commit_timestamp_backend_pid or 0
-                ),
+                "evm.effect.readback.backend_pid": (receipt.commit_timestamp_backend_pid or 0),
                 "evm.effect.readback.visible": receipt.readback_visible,
                 "evm.effect.replayed": receipt.replayed,
                 "evm.terminal.outcome": "completed",

@@ -243,7 +243,7 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
         response: module.TritonBlueGreenPredictResponse,
     ) -> dict[str, object]:
         return {
-            "schema_version": "evm.s6bm.durable_effect_receipt.v2",
+            "schema_version": "evm.s6bm.durable_effect_receipt.v3",
             "entity_kind": "s6bm_terminal_effect",
             "entity_id": response.effect_id,
             "request_sha256": "3" * 64,
@@ -264,6 +264,7 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
             "separate_connection_readback": True,
             "commit_timestamp_started_monotonic_ns": 1,
             "commit_timestamp_finished_monotonic_ns": 2,
+            "database_clock_anchor": {"schema_version": "evm.s6bm.database_clock_anchor.v1"},
             "readback_started_monotonic_ns": 2,
             "readback_finished_monotonic_ns": 3,
             "readback_visible": True,
