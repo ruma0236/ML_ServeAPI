@@ -86,6 +86,7 @@ GOVERNED_SOURCE_IDENTITIES = {
         "path": "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/replay/features.npy",
         "sha256": "dde408a9a1df8a1cdd0e12ac6cbd0ef655ffa5049781b1d008a449c8b8fbc359",
         "bytes": 22400128,
+        "shape": [200000, 28],
     },
     "s3_logistic": {
         "path": "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/models/logistic.json",
@@ -1201,8 +1202,11 @@ def summarize_requests(
 
 def _bound_file(root: Path, identity: Mapping[str, Any], label: str) -> Path:
     relative = Path(str(identity.get("path") or ""))
+    expected_bytes = identity.get("bytes")
     if not relative.parts or relative.is_absolute() or ".." in relative.parts:
         raise X1ResumeTestbedError(f"x1_resume_private_path:{label}")
+    if type(expected_bytes) is not int or expected_bytes < 0:
+        raise X1ResumeTestbedError(f"x1_resume_private_bytes:{label}")
     resolved_root = root.resolve()
     path = (resolved_root / relative).resolve()
     try:
@@ -1211,7 +1215,7 @@ def _bound_file(root: Path, identity: Mapping[str, Any], label: str) -> Path:
         raise X1ResumeTestbedError(f"x1_resume_private_containment:{label}") from exc
     if (
         not path.is_file()
-        or path.stat().st_size != int(identity.get("bytes", -1))
+        or path.stat().st_size != expected_bytes
         or sha256_file(path) != identity.get("sha256")
     ):
         raise X1ResumeTestbedError(f"x1_resume_private_digest:{label}:{relative}")
@@ -1244,7 +1248,7 @@ def validate_repository_entries(
     if (
         manifest.get("samples_sha256") != sample_entry["sha256"]
         or sample_entry["sha256"] != sha256_file(sample_path)
-        or int(sample_entry["bytes"]) != sample_path.stat().st_size
+        or sample_entry["bytes"] != sample_path.stat().st_size
     ):
         raise X1ResumeTestbedError("x1_resume_private_repository_samples_binding")
     return entries
@@ -1279,17 +1283,7 @@ def validate_governed_source_bindings(
     manifest: Mapping[str, Any], *, data_root: Path, config: X1ResumeConfig
 ) -> None:
     bindings = manifest.get("source_bindings")
-    framework = manifest.get("framework")
-    if (
-        not isinstance(bindings, Mapping)
-        or set(bindings) != set(EXPECTED_MODELS)
-        or not isinstance(framework, Mapping)
-        or set(framework) != {"torch", "cuda_build"}
-        or not re.fullmatch(
-            r"[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[^\s]*)", str(framework.get("torch") or "")
-        )
-        or not re.fullmatch(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?", str(framework.get("cuda_build") or ""))
-    ):
+    if not isinstance(bindings, Mapping) or set(bindings) != set(EXPECTED_MODELS):
         raise X1ResumeTestbedError("x1_resume_governed_binding_schema")
 
     s3_registry_identity = GOVERNED_SOURCE_IDENTITIES["s3_registry"]
@@ -1309,7 +1303,7 @@ def validate_governed_source_bindings(
         "replay_path": replay_identity["path"],
         "replay_sha256": replay_identity["sha256"],
         "replay_bytes": replay_identity["bytes"],
-        "replay_shape": [100000, 28],
+        "replay_shape": list(replay_identity["shape"]),
         "sample_shape": [config.sample_rows_per_dataset, 28],
         "dataset_identity_sha256": s3_registry_identity["dataset_identity_sha256"],
         "split_manifest_sha256": s3_registry_identity["split_manifest_sha256"],
@@ -1565,7 +1559,6 @@ def _validate_manifest_contract(manifest: Any, config: X1ResumeConfig) -> None:
         "cpu_fallback_allowed",
         "model_ids",
         "source_bindings",
-        "framework",
         "samples_sha256",
         "profile_identities",
         "model_identities",
@@ -1575,9 +1568,16 @@ def _validate_manifest_contract(manifest: Any, config: X1ResumeConfig) -> None:
         "model_claim_contract_sha256",
         "claim_boundary",
     }
+    if not isinstance(manifest, Mapping):
+        raise X1ResumeTestbedError("x1_resume_private_manifest_contract")
+    profile_identities = manifest.get("profile_identities")
+    model_identities = manifest.get("model_identities")
+    entries = manifest.get("entries")
+    expected_model_identity_keys = {
+        f"{profile}:{model_id}" for profile in ("off", "on") for model_id in EXPECTED_MODELS
+    }
     if (
-        not isinstance(manifest, Mapping)
-        or set(manifest) != required_keys
+        set(manifest) != required_keys
         or manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION
         or manifest.get("claim_class") != CLAIM_CLASS
         or manifest.get("credit") != CREDIT
@@ -1589,6 +1589,17 @@ def _validate_manifest_contract(manifest: Any, config: X1ResumeConfig) -> None:
         or tuple(manifest.get("model_ids", [])) != EXPECTED_MODELS
         or manifest.get("model_claim_contract") != MODEL_CLAIM_CONTRACT
         or manifest.get("model_claim_contract_sha256") != canonical_sha256(MODEL_CLAIM_CONTRACT)
+        or not isinstance(profile_identities, Mapping)
+        or set(profile_identities) != {"off", "on"}
+        or not isinstance(model_identities, Mapping)
+        or set(model_identities) != expected_model_identity_keys
+        or not isinstance(entries, list)
+        or any(
+            not isinstance(entry, Mapping)
+            or type(entry.get("bytes")) is not int
+            or entry["bytes"] < 0
+            for entry in entries
+        )
         or manifest.get("claim_boundary") != config.claim_boundary
     ):
         raise X1ResumeTestbedError("x1_resume_private_manifest_contract")

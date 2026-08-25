@@ -9,6 +9,7 @@ from collections import Counter
 from dataclasses import replace
 from itertools import groupby
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -159,6 +160,7 @@ def governed_fixture(
             "path": replay_relative,
             "sha256": sha256_file(replay),
             "bytes": replay.stat().st_size,
+            "shape": [100000, 28],
         },
         "s3_logistic": {
             "path": logistic_relative,
@@ -792,6 +794,174 @@ def test_runner_prometheus_preflight_accepts_only_exact_5_of_5() -> None:
             assert_preflight(snapshot)
 
 
+@pytest.fixture
+def prepared_runner_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[dict[str, Any], X1ResumeConfig, Path, Path]:
+    cfg = config()
+    repository_root = tmp_path / "prepared-repository"
+    data_root, source_bindings = governed_fixture(tmp_path, cfg, monkeypatch)
+    prepare = runpy.run_path(
+        str(ROOT / "scripts/dev/prepare_s8_v4_x1_resume_testbed.py"),
+        run_name="x1_resume_prepare_to_runner_integration",
+    )
+    runner = runpy.run_path(
+        str(ROOT / "scripts/dev/run_s8_v4_x1_resume_testbed.py"),
+        run_name="x1_resume_runner_repository_integration",
+    )
+
+    class FakeModule:
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def save(self, path: str) -> None:
+            Path(path).write_bytes(f"prepared:{self.model_id}".encode())
+
+        def __call__(self, values: Any) -> Any:
+            import torch
+
+            return torch.full((len(values), 1), 0.5, dtype=torch.float32)
+
+    def parse_args() -> object:
+        return type(
+            "Args",
+            (),
+            {"config": CONFIG, "data_root": data_root, "output": repository_root},
+        )()
+
+    def build_models(
+        active_config: X1ResumeConfig, _data_root: Path
+    ) -> tuple[dict[str, Any], dict[str, list[list[float]]]]:
+        samples = {
+            model.model_id: [
+                [0.0] * model.input_width for _ in range(active_config.sample_rows_per_dataset)
+            ]
+            for model in active_config.models
+        }
+        return {
+            "modules": {
+                model.model_id: FakeModule(model.model_id) for model in active_config.models
+            },
+            "bindings": source_bindings,
+        }, samples
+
+    def git(*args: str) -> str:
+        if args == ("status", "--porcelain"):
+            return ""
+        if args == ("rev-parse", "HEAD"):
+            return "a" * 40
+        if args == ("rev-parse", "HEAD^{tree}"):
+            return "b" * 40
+        raise AssertionError(args)
+
+    def committed_blob(relative: str, revision: str) -> dict[str, str]:
+        return {
+            "path": relative,
+            "source_revision": revision,
+            "blob_oid": "c" * 40,
+            "sha256": "d" * 64,
+            "working_sha256": "d" * 64,
+        }
+
+    prepare_globals = prepare["main"].__globals__
+    prepare_globals["parse_args"] = parse_args
+    prepare_globals["build_models"] = build_models
+    prepare_globals["git"] = git
+    prepare_globals["committed_blob"] = committed_blob
+    assert prepare["main"]() == 0
+    return runner, cfg, repository_root, data_root
+
+
+def test_runner_loader_accepts_actual_prepare_manifest(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    manifest, samples = runner["load_and_validate_repository"](repository_root, cfg, data_root)
+    assert manifest["model_claim_contract"] == MODEL_CLAIM_CONTRACT
+    assert manifest["model_claim_contract_sha256"] == canonical_sha256(MODEL_CLAIM_CONTRACT)
+    assert "framework" not in manifest
+    assert set(samples["samples"]) == set(EXPECTED_MODELS)
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["claim-missing", "bool-recomputed-sha", "sha-only", "claim-extra"],
+)
+def test_runner_loader_rejects_prepare_manifest_claim_mutation(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    case: str,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    manifest_path = repository_root / "model-repository-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    if case == "claim-missing":
+        manifest.pop("model_claim_contract")
+    elif case == "bool-recomputed-sha":
+        manifest["model_claim_contract"]["model_accuracy_claim"] = True
+        manifest["model_claim_contract_sha256"] = canonical_sha256(manifest["model_claim_contract"])
+    elif case == "sha-only":
+        manifest["model_claim_contract_sha256"] = "f" * 64
+    else:
+        manifest["model_claim_contract"]["unexpected_claim"] = False
+        manifest["model_claim_contract_sha256"] = canonical_sha256(manifest["model_claim_contract"])
+    canonical_write(manifest_path, manifest)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_repository_manifest_contract"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+@pytest.mark.parametrize("field", ["profile_identities", "model_identities"])
+@pytest.mark.parametrize("operation", ["add", "drop"])
+def test_runner_loader_rejects_identity_key_set_drift(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    field: str,
+    operation: str,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    manifest_path = repository_root / "model-repository-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    if operation == "add":
+        manifest[field]["unexpected"] = {}
+    else:
+        manifest[field].pop(next(iter(manifest[field])))
+    canonical_write(manifest_path, manifest)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_repository_manifest_contract"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_private_manifest_contract"):
+        x1_resume_module._validate_manifest_contract(manifest, cfg)
+
+
+def test_runner_loader_rejects_removed_framework_provenance(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    manifest_path = repository_root / "model-repository-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["framework"] = {"torch": "99.99", "cuda_build": "99.99"}
+    canonical_write(manifest_path, manifest)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_repository_manifest_contract"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+
+
+@pytest.mark.parametrize(
+    "bytes_value", ["1", 1.0, True], ids=["numeric-string", "float", "boolean"]
+)
+def test_runner_loader_rejects_non_integer_repository_bytes(
+    prepared_runner_repository: tuple[dict[str, Any], X1ResumeConfig, Path, Path],
+    bytes_value: object,
+) -> None:
+    runner, cfg, repository_root, data_root = prepared_runner_repository
+    manifest_path = repository_root / "model-repository-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["entries"][0]["bytes"] = bytes_value
+    manifest["repository_sha256"] = canonical_sha256(manifest["entries"])
+    canonical_write(manifest_path, manifest)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_repository_manifest_contract"):
+        runner["load_and_validate_repository"](repository_root, cfg, data_root)
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_private_manifest_contract"):
+        x1_resume_module._validate_manifest_contract(manifest, cfg)
+
+
 def test_default_config_path_and_frozen_matrix_fail_closed(tmp_path: Path) -> None:
     assert require_default_config_path(CONFIG, ROOT) == CONFIG.resolve()
     alternate = tmp_path / CONFIG.name
@@ -1242,7 +1412,6 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
         "cpu_fallback_allowed": False,
         "model_ids": list(EXPECTED_MODELS),
         "source_bindings": source_bindings,
-        "framework": {"torch": "2.13.0+cu126", "cuda_build": "12.6"},
         "samples_sha256": sha256_file(sample_path),
         "entries": entries,
         "repository_sha256": canonical_sha256(entries),
@@ -1730,6 +1899,19 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
                 data_root=data_root,
             )
 
+    def assert_report_rejected(pattern: str) -> None:
+        canonical_write(evidence_path, payload)
+        with pytest.raises(X1ResumeTestbedError, match=pattern):
+            generate_report(
+                payload,
+                cfg,
+                evidence_path=evidence_path,
+                private_suite_root=suite_root,
+                model_repository_root=repository_root,
+                source_root=source_root,
+                data_root=data_root,
+            )
+
     payload["source_blobs"] = []
     assert_source_rejected()
     payload.pop("source_blobs")
@@ -1806,6 +1988,15 @@ def test_private_validator_recomputes_repository_q0_and_attempt_digests(
     manifest_wrong_backend["backend"] = "python"
     rewrite_manifest(manifest_wrong_backend)
     assert_source_rejected("x1_resume_private_manifest_contract")
+
+    coherent_claim_drift = json.loads(json.dumps(original_manifest))
+    coherent_claim_drift["model_claim_contract"]["model_accuracy_claim"] = True
+    coherent_claim_drift["model_claim_contract_sha256"] = canonical_sha256(
+        coherent_claim_drift["model_claim_contract"]
+    )
+    rewrite_manifest(coherent_claim_drift)
+    assert_source_rejected("x1_resume_private_manifest_contract")
+    assert_report_rejected("x1_resume_private_manifest_contract")
 
     manifest_missing_sample = json.loads(json.dumps(original_manifest))
     manifest_missing_sample["entries"] = [
@@ -2684,15 +2875,13 @@ def test_governed_model_source_replacement_is_not_accepted_coherently(
 ) -> None:
     cfg = config()
     data_root, bindings = governed_fixture(tmp_path, cfg, monkeypatch)
-    manifest = {
-        "source_bindings": bindings,
-        "framework": {"torch": "2.13.0+cu126", "cuda_build": "12.6"},
-    }
+    manifest = {"source_bindings": bindings}
     x1_resume_module.validate_governed_source_bindings(manifest, data_root=data_root, config=cfg)
 
     identity = x1_resume_module.GOVERNED_SOURCE_IDENTITIES["s3_logistic"]
     source_path = data_root / str(identity["path"])
-    source_path.write_bytes(source_path.read_bytes() + b"coherent replacement")
+    original_source = source_path.read_bytes()
+    source_path.write_bytes(original_source + b"coherent replacement")
     coherent = json.loads(json.dumps(manifest))
     coherent_binding = coherent["source_bindings"]["higgs_logistic_regression"]
     coherent_binding["source_sha256"] = sha256_file(source_path)
@@ -2701,10 +2890,14 @@ def test_governed_model_source_replacement_is_not_accepted_coherently(
         x1_resume_module.validate_governed_source_bindings(
             coherent, data_root=data_root, config=cfg
         )
+    source_path.write_bytes(original_source)
 
-    invalid_framework = json.loads(json.dumps(manifest))
-    invalid_framework["framework"] = {"torch": "", "cuda_build": "12.6", "extra": "x"}
-    with pytest.raises(X1ResumeTestbedError, match="x1_resume_governed_binding_schema"):
+    shape_drift = json.loads(json.dumps(manifest))
+    shape_drift["source_bindings"]["higgs_logistic_regression"]["replay"]["replay_shape"] = [
+        99999,
+        28,
+    ]
+    with pytest.raises(X1ResumeTestbedError, match="x1_resume_governed_s3_binding"):
         x1_resume_module.validate_governed_source_bindings(
-            invalid_framework, data_root=data_root, config=cfg
+            shape_drift, data_root=data_root, config=cfg
         )

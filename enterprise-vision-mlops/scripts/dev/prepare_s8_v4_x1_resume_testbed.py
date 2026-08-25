@@ -376,8 +376,6 @@ def build_models(
     return {
         "modules": scripted,
         "bindings": source_bindings,
-        "torch_version": torch.__version__,
-        "cuda_build": torch.version.cuda,
     }, {
         "higgs_logistic_regression": higgs_samples,
         "higgs_gaussian_nb": higgs_samples,
@@ -513,7 +511,6 @@ def main() -> int:
         "cpu_fallback_allowed": False,
         "model_ids": [model.model_id for model in config.models],
         "source_bindings": built["bindings"],
-        "framework": {"torch": str(built["torch_version"]), "cuda_build": str(built["cuda_build"])},
         "samples_sha256": sha256_file(sample_path),
         "profile_identities": profile_identities,
         "model_identities": model_identities,

@@ -38,11 +38,11 @@ from evm.scale_validation.x1_resume_testbed import (  # noqa: E402
     DEFAULT_CONFIG_RELATIVE_PATH,
     EXPECTED_MODELS,
     EXPECTED_PROMETHEUS_JOBS,
-    MANIFEST_SCHEMA_VERSION,
     REQUIRED_SOURCE_BLOB_PATHS,
     CellSpec,
     X1ResumeConfig,
     X1ResumeTestbedError,
+    _validate_manifest_contract,
     _validate_attempt_records,
     _triton_metric_deltas,
     _triton_metrics_for_model,
@@ -166,57 +166,25 @@ def load_and_validate_repository(
         samples = validate_sample_payload(samples_path, config)
     except (OSError, X1ResumeTestbedError) as exc:
         raise X1ResumeTestbedError("x1_resume_repository_manifest_missing") from exc
-    required_manifest_keys = {
-        "schema_version",
-        "claim_class",
-        "credit",
-        "config_sha256",
-        "source_revision",
-        "source_tree_sha",
-        "source_blobs",
-        "triton_image",
-        "backend",
-        "instance_kind",
-        "cpu_fallback_allowed",
-        "model_ids",
-        "source_bindings",
-        "framework",
-        "samples_sha256",
-        "profile_identities",
-        "model_identities",
-        "entries",
-        "repository_sha256",
-        "claim_boundary",
-    }
-    if (
-        set(manifest) != required_manifest_keys
-        or manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION
-        or manifest.get("claim_class") != "preliminary_controlled_testbed"
-        or manifest.get("credit") != "non_credit"
-        or manifest.get("config_sha256") != config.sha256
-        or manifest.get("triton_image") != config.immutable_image
-        or manifest.get("backend") != "pytorch"
-        or manifest.get("instance_kind") != "KIND_GPU"
-        or manifest.get("cpu_fallback_allowed") is not False
-        or tuple(manifest.get("model_ids", [])) != EXPECTED_MODELS
-        or manifest.get("claim_boundary") != config.claim_boundary
-    ):
-        raise X1ResumeTestbedError("x1_resume_repository_manifest_contract")
+    try:
+        _validate_manifest_contract(manifest, config)
+    except X1ResumeTestbedError as exc:
+        raise X1ResumeTestbedError("x1_resume_repository_manifest_contract") from exc
+    profile_identities = dict(manifest["profile_identities"])
+    model_identities = dict(manifest["model_identities"])
     validate_governed_source_bindings(manifest, data_root=data_root, config=config)
     entries = validate_repository_entries(manifest, root)
     if canonical_sha256(entries) != manifest.get("repository_sha256"):
         raise X1ResumeTestbedError("x1_resume_repository_aggregate")
     for profile in config.batching:
         selected = [item for item in entries if str(item["path"]).startswith(f"batch-{profile}/")]
-        identity = dict(dict(manifest.get("profile_identities", {})).get(profile, {}))
+        identity = dict(profile_identities.get(profile, {}))
         if identity.get("entry_count") != len(selected) or identity.get(
             "repository_sha256"
         ) != canonical_sha256(selected):
             raise X1ResumeTestbedError(f"x1_resume_profile_repository_identity:{profile}")
         for model_id in EXPECTED_MODELS:
-            expected = dict(
-                dict(manifest.get("model_identities", {})).get(f"{profile}:{model_id}", {})
-            )
+            expected = dict(model_identities.get(f"{profile}:{model_id}", {}))
             artifact = next(
                 item
                 for item in selected
