@@ -11,6 +11,7 @@ from evm.scale_validation.s6bm_observability import (
     attempt_span_count,
     collect_attempt_trace_export,
     direct_metric_aggregate,
+    model_lifecycle_counter_delta,
     prometheus_value,
     project_trace_join,
 )
@@ -347,3 +348,20 @@ def test_prometheus_value_rejects_mixed_identity_series() -> None:
             },
             expected_series_count=None,
         )
+
+
+def test_model_lifecycle_counter_delta_accounts_for_blue_reload_only() -> None:
+    assert (
+        model_lifecycle_counter_delta("blue", before=750, before_unload=845, after=21, code="unit")
+        == 116
+    )
+    assert (
+        model_lifecycle_counter_delta("green", before=0, before_unload=920, after=920, code="unit")
+        == 920
+    )
+
+    with pytest.raises(S6BMObservabilityError, match="unit_blue_counter_reset_missing"):
+        model_lifecycle_counter_delta("blue", before=750, before_unload=845, after=900, code="unit")
+
+    with pytest.raises(S6BMObservabilityError, match="unit_green_counter_changed_after_drain"):
+        model_lifecycle_counter_delta("green", before=0, before_unload=920, after=921, code="unit")

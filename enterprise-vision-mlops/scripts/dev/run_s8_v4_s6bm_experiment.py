@@ -1517,6 +1517,37 @@ def finish_attempt_observability(
     return summary
 
 
+def capture_transition_observability(
+    config: S6BMConfig,
+    *,
+    suite_root: Path,
+    suite_id: str,
+    attempt_id: str,
+    run_id: str,
+    checkpoint: dict[str, Any],
+) -> None:
+    api_text, triton_text, prometheus = capture_metric_checkpoint(
+        config,
+        suite_id=suite_id,
+        attempt_id=attempt_id,
+        run_id=run_id,
+    )
+    root = Path(checkpoint["root"])
+    api_path = root / "api-metrics-before-blue-unload.txt"
+    triton_path = root / "triton-metrics-before-blue-unload.txt"
+    prometheus_path = root / "prometheus-before-blue-unload.json"
+    api_path.write_text(api_text, encoding="utf-8", newline="\n")
+    triton_path.write_text(triton_text, encoding="utf-8", newline="\n")
+    canonical_write(prometheus_path, prometheus)
+    checkpoint["artifacts"].update(
+        {
+            "api_metrics_before_blue_unload": artifact_reference(suite_root, api_path),
+            "triton_metrics_before_blue_unload": artifact_reference(suite_root, triton_path),
+            "prometheus_before_blue_unload": artifact_reference(suite_root, prometheus_path),
+        }
+    )
+
+
 def telemetry_snapshot(config: S6BMConfig) -> dict[str, Any]:
     jobs = {
         str(dict(item.get("labels", {})).get("job")): item.get("health")
@@ -1676,6 +1707,14 @@ def run_success(
             )
         wait_in_flight(config, "blue", 0, float(config.procedure["drain_timeout_seconds"]))
         blue_before_unload = int(controller_state(config)["in_flight"]["blue"])
+        capture_transition_observability(
+            config,
+            suite_root=suite_root,
+            suite_id=suite_id,
+            attempt_id=attempt_id,
+            run_id=lease.run_id,
+            checkpoint=observability_checkpoint,
+        )
         apply_control(config, lease, "blue_unloaded")
         physical["blue_unloaded_not_ready"] = not model_ready(config, "blue")
         timeline.append(phase_entry(config, "green_only"))

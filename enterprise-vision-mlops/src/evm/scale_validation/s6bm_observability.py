@@ -17,10 +17,13 @@ PREDICT_ROUTE = "POST /control-panel/v1/scenario-workloads/triton-blue-green/pre
 REQUIRED_ARTIFACTS = {
     "trace_export",
     "api_metrics_before",
+    "api_metrics_before_blue_unload",
     "api_metrics_after",
     "triton_metrics_before",
+    "triton_metrics_before_blue_unload",
     "triton_metrics_after",
     "prometheus_before",
+    "prometheus_before_blue_unload",
     "prometheus_after",
     "join_report",
 }
@@ -405,6 +408,29 @@ def _require_counter_delta(observed: float, expected: int, code: str) -> int:
     return expected
 
 
+def model_lifecycle_counter_delta(
+    role: str,
+    *,
+    before: float,
+    before_unload: float,
+    after: float,
+    code: str,
+) -> float:
+    if any(not math.isfinite(value) or value < 0 for value in (before, before_unload, after)):
+        raise S6BMObservabilityError(f"{code}_counter_value")
+    if before_unload < before:
+        raise S6BMObservabilityError(f"{code}_counter_regressed_before_unload")
+    if role == "blue":
+        if after >= before_unload:
+            raise S6BMObservabilityError(f"{code}_blue_counter_reset_missing")
+        return before_unload - before + after
+    if role == "green":
+        if not math.isclose(before_unload, after, rel_tol=0.0, abs_tol=1e-9):
+            raise S6BMObservabilityError(f"{code}_green_counter_changed_after_drain")
+        return after - before
+    raise S6BMObservabilityError(f"{code}_model_role")
+
+
 def _resolve_artifact(root: Path, reference: Mapping[str, Any], key: str) -> Path:
     relative = Path(str(reference.get("path", "")))
     if relative.is_absolute() or ".." in relative.parts:
@@ -462,13 +488,18 @@ def validate_observability_bundle(
     )
 
     api_before = paths["api_metrics_before"].read_text(encoding="utf-8")
+    api_before_blue_unload = paths["api_metrics_before_blue_unload"].read_text(encoding="utf-8")
     api_after = paths["api_metrics_after"].read_text(encoding="utf-8")
     triton_before = paths["triton_metrics_before"].read_text(encoding="utf-8")
+    triton_before_blue_unload = paths["triton_metrics_before_blue_unload"].read_text(
+        encoding="utf-8"
+    )
     triton_after = paths["triton_metrics_after"].read_text(encoding="utf-8")
     prom_before = _read_json(paths["prometheus_before"])
+    prom_before_blue_unload = _read_json(paths["prometheus_before_blue_unload"])
     prom_after = _read_json(paths["prometheus_after"])
     target_suite_ids: set[str] = set()
-    for snapshot in (prom_before, prom_after):
+    for snapshot in (prom_before, prom_before_blue_unload, prom_after):
         if snapshot.get("attempt_id") != attempt_id or snapshot.get("run_id") != run_id:
             raise S6BMObservabilityError("s6bm_prometheus_attempt_identity")
         target = dict(snapshot.get("target_identity", {}))
@@ -518,9 +549,17 @@ def validate_observability_bundle(
         effect_labels = {**identity, "outcome": "committed"}
         triton_labels = {"model": model.model_name, "version": model.model_version}
         api_before_sample = direct_metric_sample(api_before, "evm_s6bm_requests_total", api_labels)
+        api_before_blue_unload_sample = direct_metric_sample(
+            api_before_blue_unload, "evm_s6bm_requests_total", api_labels
+        )
         api_after_sample = direct_metric_sample(api_after, "evm_s6bm_requests_total", api_labels)
         effect_before_sample = direct_metric_sample(
             api_before, "evm_s6bm_terminal_effects_total", effect_labels
+        )
+        effect_before_blue_unload_sample = direct_metric_sample(
+            api_before_blue_unload,
+            "evm_s6bm_terminal_effects_total",
+            effect_labels,
         )
         effect_after_sample = direct_metric_sample(
             api_after, "evm_s6bm_terminal_effects_total", effect_labels
@@ -528,19 +567,43 @@ def validate_observability_bundle(
         triton_before_aggregate = direct_metric_aggregate(
             triton_before, "nv_inference_request_success", triton_labels
         )
+        triton_before_blue_unload_aggregate = direct_metric_aggregate(
+            triton_before_blue_unload,
+            "nv_inference_request_success",
+            triton_labels,
+        )
         triton_after_aggregate = direct_metric_aggregate(
             triton_after, "nv_inference_request_success", triton_labels
         )
-        for before_sample, after_sample, code in (
-            (api_before_sample, api_after_sample, "api"),
-            (effect_before_sample, effect_after_sample, "effect"),
+        for before_sample, transition_sample, after_sample, code in (
+            (
+                api_before_sample,
+                api_before_blue_unload_sample,
+                api_after_sample,
+                "api",
+            ),
+            (
+                effect_before_sample,
+                effect_before_blue_unload_sample,
+                effect_after_sample,
+                "effect",
+            ),
         ):
-            if before_sample["labels"] != after_sample["labels"]:
+            if not (
+                before_sample["labels"] == transition_sample["labels"] == after_sample["labels"]
+            ):
                 raise S6BMObservabilityError(f"s6bm_direct_metric_identity_changed:{role}:{code}")
         api_delta = float(api_after_sample["value"]) - float(api_before_sample["value"])
         effect_delta = float(effect_after_sample["value"]) - float(effect_before_sample["value"])
-        triton_delta = float(triton_after_aggregate["value"]) - float(
-            triton_before_aggregate["value"]
+        triton_before_value = float(triton_before_aggregate["value"])
+        triton_transition_value = float(triton_before_blue_unload_aggregate["value"])
+        triton_after_value = float(triton_after_aggregate["value"])
+        triton_delta = model_lifecycle_counter_delta(
+            role,
+            before=triton_before_value,
+            before_unload=triton_transition_value,
+            after=triton_after_value,
+            code="s6bm_triton",
         )
         expected_triton = served[role] + auxiliary[role]
         api_deltas[role] = _require_counter_delta(
@@ -554,8 +617,10 @@ def validate_observability_bundle(
         )
         triton_series[role] = {
             "before_count": int(triton_before_aggregate["series_count"]),
+            "before_blue_unload_count": int(triton_before_blue_unload_aggregate["series_count"]),
             "after_count": int(triton_after_aggregate["series_count"]),
             "before_labels": triton_before_aggregate["series_labels"],
+            "before_blue_unload_labels": triton_before_blue_unload_aggregate["series_labels"],
             "after_labels": triton_after_aggregate["series_labels"],
         }
 
@@ -588,16 +653,30 @@ def validate_observability_bundle(
             {**prom_identity, **effect_before_sample["labels"]},
             expected_series_count=1,
         )
-        prom_triton_delta = prometheus_value(
+        prom_triton_after = prometheus_value(
             prom_after,
             triton_key,
             {**prom_identity, **triton_labels},
             expected_series_count=None,
-        ) - prometheus_value(
+        )
+        prom_triton_before = prometheus_value(
             prom_before,
             triton_key,
             {**prom_identity, **triton_labels},
             expected_series_count=None,
+        )
+        prom_triton_before_blue_unload = prometheus_value(
+            prom_before_blue_unload,
+            triton_key,
+            {**prom_identity, **triton_labels},
+            expected_series_count=None,
+        )
+        prom_triton_delta = model_lifecycle_counter_delta(
+            role,
+            before=prom_triton_before,
+            before_unload=prom_triton_before_blue_unload,
+            after=prom_triton_after,
+            code="s6bm_prometheus",
         )
         prometheus_api_deltas[role] = _require_counter_delta(
             prom_api_delta, served[role], f"s6bm_prometheus_api_delta:{role}"
