@@ -1717,6 +1717,28 @@ def begin_attempt_observability(
     }
 
 
+def expected_attempt_trace_counts(attempt: Mapping[str, Any]) -> dict[str, int]:
+    records = [dict(item) for item in attempt.get("request_records", [])]
+    replay = dict(attempt.get("idempotent_replay", {}))
+    replay_record = dict(replay.get("record", {}))
+    request_ids = {str(item.get("request_id", "")) for item in records}
+    if (
+        not records
+        or len(request_ids) != len(records)
+        or replay_record.get("replayed") is not True
+        or str(replay_record.get("request_id", "")) not in request_ids
+        or int(replay.get("unique_count_before", -1))
+        != int(replay.get("unique_count_after", -2))
+    ):
+        raise S6BMExperimentError(
+            f"otlp_replay_identity:{str(attempt.get('attempt_id', ''))}"
+        )
+    return {
+        "controller": len(records) + 1,
+        "inference": len(records),
+    }
+
+
 def finish_attempt_observability(
     config: S6BMConfig,
     *,
@@ -1741,7 +1763,9 @@ def finish_attempt_observability(
     triton_path.write_text(triton_text, encoding="utf-8", newline="\n")
     canonical_write(prometheus_path, prometheus)
 
-    expected = len(attempt["request_records"])
+    expected_spans = expected_attempt_trace_counts(attempt)
+    expected_controller_spans = expected_spans["controller"]
+    expected_inference_spans = expected_spans["inference"]
     deadline = time.monotonic() + 30
     controller_spans = 0
     inference_spans = 0
@@ -1759,12 +1783,20 @@ def finish_attempt_observability(
             stage="triton_inference",
             start_offset=trace_start_offset,
         )
-        if controller_spans == expected and inference_spans == expected:
+        if (
+            controller_spans == expected_controller_spans
+            and inference_spans == expected_inference_spans
+        ):
             break
         time.sleep(1)
-    if controller_spans != expected or inference_spans != expected:
+    if (
+        controller_spans != expected_controller_spans
+        or inference_spans != expected_inference_spans
+    ):
         raise S6BMExperimentError(
-            f"otlp_trace_convergence:{attempt_id}:{controller_spans}:{inference_spans}"
+            f"otlp_trace_convergence:{attempt_id}:"
+            f"controller={controller_spans}/{expected_controller_spans}:"
+            f"inference={inference_spans}/{expected_inference_spans}"
         )
     trace_export = collect_attempt_trace_export(
         OTEL_TRACE_FILE, attempt_id, start_offset=trace_start_offset

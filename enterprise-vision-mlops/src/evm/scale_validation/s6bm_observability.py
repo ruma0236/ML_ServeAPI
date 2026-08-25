@@ -331,15 +331,26 @@ def project_trace_join(
         ]
         if len(replay_servers) != (1 if trace_id == replay_trace_id else 0):
             raise S6BMObservabilityError(f"s6bm_trace_replay_server_span:{len(replay_servers)}")
+        controllers = [
+            item
+            for item in candidates
+            if item["name"] == "s6bm.controller.predict"
+            and item["attributes"].get("evm.stage") == "s6bm_controller"
+        ]
+        expected_controller_count = 2 if trace_id == replay_trace_id else 1
+        if len(controllers) != expected_controller_count:
+            raise S6BMObservabilityError(f"s6bm_trace_controller_span:{len(controllers)}")
         controller = _require_one(
-            [
-                item
-                for item in candidates
-                if item["name"] == "s6bm.controller.predict"
-                and item["attributes"].get("evm.stage") == "s6bm_controller"
-            ],
-            "s6bm_trace_controller_span",
+            [item for item in controllers if item["attributes"].get("evm.request.replayed") is False],
+            "s6bm_trace_original_controller_span",
         )
+        replay_controllers = [
+            item for item in controllers if item["attributes"].get("evm.request.replayed") is True
+        ]
+        if len(replay_controllers) != (1 if trace_id == replay_trace_id else 0):
+            raise S6BMObservabilityError(
+                f"s6bm_trace_replay_controller_span:{len(replay_controllers)}"
+            )
         inference = _require_one(
             [
                 item
@@ -392,6 +403,7 @@ def project_trace_join(
             raise S6BMObservabilityError("s6bm_trace_server_attribute_binding")
         if replay_servers:
             replay_server = replay_servers[0]
+            replay_controller = replay_controllers[0]
             replay_expected = {**expected, "evm.request.replayed": True}
             if (
                 replay_server["parent_span_id"] != parts[2]
@@ -402,9 +414,38 @@ def project_trace_join(
                 )
             ):
                 raise S6BMObservabilityError("s6bm_trace_replay_binding")
-        for span in (controller, inference):
-            if any(span["attributes"].get(key) != value for key, value in expected.items()):
+            try:
+                replay_server_start = int(replay_server["start_time_unix_nano"])
+                replay_server_end = int(replay_server["end_time_unix_nano"])
+                replay_controller_start = int(replay_controller["start_time_unix_nano"])
+                replay_controller_end = int(replay_controller["end_time_unix_nano"])
+            except ValueError as exc:
+                raise S6BMObservabilityError("s6bm_trace_replay_timestamp") from exc
+            if (
+                replay_controller["parent_span_id"] != replay_server["span_id"]
+                or not (
+                    replay_server_start
+                    <= replay_controller_start
+                    <= replay_controller_end
+                    <= replay_server_end
+                )
+                or any(
+                    replay_controller["attributes"].get(key) != value
+                    for key, value in replay_expected.items()
+                )
+            ):
+                raise S6BMObservabilityError("s6bm_trace_replay_controller_binding")
+            if replay_controller["resource"].get("service.version") != source_revision:
+                raise S6BMObservabilityError("s6bm_trace_source_revision")
+        original_expected = {**expected, "evm.request.replayed": False}
+        if any(
+            controller["attributes"].get(key) != value
+            for key, value in original_expected.items()
+        ):
+            raise S6BMObservabilityError("s6bm_trace_attribute_binding")
+        if any(inference["attributes"].get(key) != value for key, value in expected.items()):
                 raise S6BMObservabilityError("s6bm_trace_attribute_binding")
+        for span in (controller, inference):
             if span["resource"].get("service.version") != source_revision:
                 raise S6BMObservabilityError("s6bm_trace_source_revision")
         if server["resource"].get("service.version") != source_revision:
@@ -429,6 +470,11 @@ def project_trace_join(
             for item in spans
         ),
         "controller_span_count": sum(item["name"] == "s6bm.controller.predict" for item in spans),
+        "replay_controller_span_count": sum(
+            item["name"] == "s6bm.controller.predict"
+            and item["attributes"].get("evm.request.replayed") is True
+            for item in spans
+        ),
         "triton_client_span_count": sum(item["name"] == "s6bm.triton.infer" for item in spans),
         "topology_complete": bound == len(records),
     }

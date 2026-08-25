@@ -150,6 +150,33 @@ def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
     assert all(session.closed for session in created)
 
 
+def test_expected_attempt_trace_counts_include_exact_controller_only_replay() -> None:
+    runner = load_runner()
+    attempt = {
+        "attempt_id": "s6bm-success-1-unit",
+        "request_records": [
+            {"request_id": "request-0001"},
+            {"request_id": "request-0002"},
+        ],
+        "idempotent_replay": {
+            "request_id": "request-0001",
+            "replayed": True,
+            "unique_count_before": 2,
+            "unique_count_after": 2,
+            "record": {"request_id": "request-0001", "replayed": True},
+        },
+    }
+
+    assert runner.expected_attempt_trace_counts(attempt) == {
+        "controller": 3,
+        "inference": 2,
+    }
+
+    attempt["idempotent_replay"]["unique_count_after"] = 3
+    with pytest.raises(runner.S6BMExperimentError, match="otlp_replay_identity"):
+        runner.expected_attempt_trace_counts(attempt)
+
+
 def test_prometheus_direct_comparison_reports_exact_series_failure() -> None:
     runner = load_runner()
     config = SimpleNamespace(

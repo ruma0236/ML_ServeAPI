@@ -122,7 +122,11 @@ def _record_and_export() -> tuple[dict[str, object], dict[str, object]]:
             name="s6bm.controller.predict",
             start=200,
             end=500,
-            attributes={**bound, "evm.stage": "s6bm_controller"},
+            attributes={
+                **bound,
+                "evm.stage": "s6bm_controller",
+                "evm.request.replayed": False,
+            },
         ),
         _entry(
             trace_id=trace_id,
@@ -131,7 +135,11 @@ def _record_and_export() -> tuple[dict[str, object], dict[str, object]]:
             name="s6bm.triton.infer",
             start=300,
             end=400,
-            attributes={**bound, "evm.stage": "triton_inference"},
+            attributes={
+                **bound,
+                "evm.stage": "triton_inference",
+                "evm.request.replayed": False,
+            },
         ),
     ]
     export = {
@@ -211,13 +219,23 @@ def test_drain_trace_timeline_binds_hold_effect_and_pre_unload_gate() -> None:
 
 def test_trace_join_distinguishes_idempotent_replay_attempt_from_effect() -> None:
     record, export = _record_and_export()
-    replay = copy.deepcopy(export["entries"][0])  # type: ignore[index]
-    replay["span"]["spanId"] = "6" * 16  # type: ignore[index]
-    for attribute in replay["span"]["attributes"]:  # type: ignore[index]
+    replay_server = copy.deepcopy(export["entries"][0])  # type: ignore[index]
+    replay_server["span"]["spanId"] = "6" * 16  # type: ignore[index]
+    replay_server["span"]["startTimeUnixNano"] = "700"  # type: ignore[index]
+    replay_server["span"]["endTimeUnixNano"] = "1000"  # type: ignore[index]
+    for attribute in replay_server["span"]["attributes"]:  # type: ignore[index]
         if attribute["key"] == "evm.request.replayed":
             attribute["value"] = {"boolValue": True}
-    export["entries"].append(replay)  # type: ignore[union-attr]
-    export["span_count"] = 4
+    replay_controller = copy.deepcopy(export["entries"][1])  # type: ignore[index]
+    replay_controller["span"]["spanId"] = "7" * 16  # type: ignore[index]
+    replay_controller["span"]["parentSpanId"] = "6" * 16  # type: ignore[index]
+    replay_controller["span"]["startTimeUnixNano"] = "800"  # type: ignore[index]
+    replay_controller["span"]["endTimeUnixNano"] = "900"  # type: ignore[index]
+    for attribute in replay_controller["span"]["attributes"]:  # type: ignore[index]
+        if attribute["key"] == "evm.request.replayed":
+            attribute["value"] = {"boolValue": True}
+    export["entries"].extend([replay_server, replay_controller])  # type: ignore[union-attr]
+    export["span_count"] = 5
     replay_record = {**record, "replayed": True}
 
     result = project_trace_join(
@@ -232,6 +250,21 @@ def test_trace_join_distinguishes_idempotent_replay_attempt_from_effect() -> Non
     assert result["request_trace_effect_bound"] == 1
     assert result["server_span_count"] == 2
     assert result["replay_server_span_count"] == 1
+    assert result["controller_span_count"] == 2
+    assert result["replay_controller_span_count"] == 1
+
+    missing_controller = copy.deepcopy(export)
+    missing_controller["entries"].pop()  # type: ignore[union-attr]
+    missing_controller["span_count"] = 4
+    with pytest.raises(S6BMObservabilityError, match="s6bm_trace_controller_span:1"):
+        project_trace_join(
+            missing_controller,
+            [record],
+            attempt_id=ATTEMPT_ID,
+            run_id=RUN_ID,
+            source_revision=REVISION,
+            replay_record=replay_record,
+        )
 
 
 @pytest.mark.parametrize(
