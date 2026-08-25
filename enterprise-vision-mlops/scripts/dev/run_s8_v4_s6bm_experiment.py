@@ -2459,6 +2459,17 @@ def run_causal_qualification(
             and final_state["loaded_roles"] == ["blue"]
         ),
     }
+    prevalidation_path = (
+        suite_root / "prevalidation" / f"{attempt_id}-qualification-raw-bundle.json"
+    )
+    canonical_write(prevalidation_path, result)
+    execution_progress.update(
+        {
+            "attempt_id": attempt_id,
+            "requests": result["requests"],
+            "prevalidation_artifact": artifact_reference(suite_root, prevalidation_path),
+        }
+    )
     result["causal_projection"] = validate_causal_bundle(
         suite_root,
         result,
