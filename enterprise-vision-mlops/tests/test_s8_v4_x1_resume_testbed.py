@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 from collections import Counter
 from itertools import groupby
 from pathlib import Path
@@ -342,6 +343,29 @@ def test_prometheus_cleanup_http_error_cannot_retry_into_healthy() -> None:
     assert calls == [1]
     assert result[3] is False
     assert result[4] == "probe_error"
+
+
+def test_runner_prometheus_preflight_accepts_only_exact_5_of_5() -> None:
+    runner = runpy.run_path(
+        str(ROOT / "scripts/dev/run_s8_v4_x1_resume_testbed.py"),
+        run_name="x1_resume_runner_preflight_test",
+    )
+    assert_preflight = runner["assert_prometheus_preflight"]
+    healthy = {"jobs": list(EXPECTED_PROMETHEUS_JOBS), "total": 5, "up": 5}
+    assert_preflight(healthy)
+
+    invalid = (
+        {**healthy, "jobs": [*EXPECTED_PROMETHEUS_JOBS[:-1], "wrong-job"]},
+        {"jobs": list(EXPECTED_PROMETHEUS_JOBS[:-1]), "total": 4, "up": 4},
+        {
+            "jobs": [*EXPECTED_PROMETHEUS_JOBS[:-1], EXPECTED_PROMETHEUS_JOBS[0]],
+            "total": 5,
+            "up": 5,
+        },
+    )
+    for snapshot in invalid:
+        with pytest.raises(X1ResumeTestbedError, match="x1_resume_prometheus_preflight"):
+            assert_preflight(snapshot)
 
 
 def test_hot_mix_fairness_uses_normalized_attainment() -> None:

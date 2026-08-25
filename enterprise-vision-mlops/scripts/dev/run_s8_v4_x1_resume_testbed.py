@@ -255,6 +255,15 @@ def prometheus_health(*, timeout: float = 10.0) -> dict[str, Any]:
     }
 
 
+def assert_prometheus_preflight(snapshot: dict[str, Any]) -> None:
+    if (
+        set(snapshot.get("jobs", [])) != set(EXPECTED_PROMETHEUS_JOBS)
+        or snapshot.get("total") != len(EXPECTED_PROMETHEUS_JOBS)
+        or snapshot.get("up") != len(EXPECTED_PROMETHEUS_JOBS)
+    ):
+        raise X1ResumeTestbedError(f"x1_resume_prometheus_preflight:{snapshot}")
+
+
 def wait_prometheus_restore(
     timeout_seconds: float,
 ) -> tuple[dict[str, Any], float, list[dict[str, Any]], bool, str]:
@@ -1045,12 +1054,7 @@ def main() -> int:
     if any(queues_before.values()):
         raise X1ResumeTestbedError(f"x1_resume_queue_preflight:{queues_before}")
     prometheus_before = prometheus_health()
-    if (
-        set(prometheus_before["jobs"]) != EXPECTED_PROMETHEUS_JOBS
-        or prometheus_before["total"] != 5
-        or prometheus_before["up"] != 5
-    ):
-        raise X1ResumeTestbedError(f"x1_resume_prometheus_preflight:{prometheus_before}")
+    assert_prometheus_preflight(prometheus_before)
     holder = capture_holder()
     b0_before = b0_cuda_check()
     suite_id = f"x1-resume-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{source['revision'][:8]}"
