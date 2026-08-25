@@ -1,4 +1,5 @@
 *.sh text eol=lf
+.gitattributes text eol=lf
 Makefile text eol=lf
 docs/status/evidence/*.json text eol=lf
 docs/status/*scenario-progress.json text eol=lf
@@ -11,5 +12,11 @@ configs/s3_*.toml text eol=lf
 configs/s5_*.toml text eol=lf
 configs/s6_*.toml text eol=lf
 configs/s8_v4_*.toml text eol=lf
+src/evm/scale_validation/x1_resume_testbed.py text eol=lf
+src/evm/control_panel/scenario_workloads.py text eol=lf
+scripts/dev/prepare_s8_v4_x1_resume_testbed.py text eol=lf
+scripts/dev/run_s8_v4_x1_resume_testbed.py text eol=lf
+scripts/dev/validate_s8_v4_x1_resume_testbed.py text eol=lf
+tests/test_s8_v4_x1_resume_testbed.py text eol=lf
 monitoring/prometheus/prometheus.yml text eol=lf
 infra/postgres/control-plane/*.sql text eol=lf

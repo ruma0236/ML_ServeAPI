@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evm.local/contracts/distributed-scale/s8-v4-x1-resume-testbed-evidence.schema.json",
+  "title": "X1 Resume Testbed v1 non-credit evidence",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "suite_id",
+    "status",
+    "claim_class",
+    "credit",
+    "canonical_x1",
+    "acceptance_credit",
+    "config_sha256",
+    "q0",
+    "runs",
+    "cleanup",
+    "claim_boundary"
+  ],
+  "properties": {
+    "schema_version": {"const": "evm.s8_v4.x1_resume_testbed.v1"},
+    "status": {"const": "complete"},
+    "claim_class": {"const": "preliminary_controlled_testbed"},
+    "credit": {"const": "non_credit"},
+    "canonical_x1": {"const": false},
+    "acceptance_credit": {"const": false},
+    "q0": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "model_id",
+          "artifact_sha256",
+          "config_sha256",
+          "private_raw",
+          "triton_trace_compute_start_count"
+        ]
+      }
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 22,
+      "maxItems": 22,
+      "items": {
+        "type": "object",
+        "required": ["attempt_id", "cell_id", "repetition", "metrics", "private_raw"],
+        "properties": {
+          "metrics": {
+            "type": "object",
+            "required": [
+              "offered",
+              "admitted",
+              "local_admission_rejected",
+              "window_completed",
+              "admitted_cohort_completed",
+              "tail_completed",
+              "loss",
+              "throughput_rps",
+              "drain_seconds",
+              "per_model"
+            ],
+            "not": {
+              "anyOf": [
+                {"required": ["http_429"]},
+                {"required": ["completed"]}
+              ]
+            }
+          }
+        }
+      }
+    },
+    "cleanup": {"type": "object"}
+  }
+}

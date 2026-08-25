@@ -1,0 +1,177 @@
+schema_version = "evm.s8_v4.x1_resume_testbed_config.v1"
+claim_class = "preliminary_controlled_testbed"
+credit = "non_credit"
+seed = 20260826
+
+[runtime]
+triton_image = "nvcr.io/nvidia/tritonserver:25.08-py3"
+triton_image_digest = "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0687a4d2ac9f7a5"
+expected_gpu_name = "NVIDIA GeForce RTX 4080 SUPER"
+expected_gpu_uuid = "GPU-4eea4bfc-f15e-bd25-c1b8-ed53ade9ad1d"
+http_port = 18300
+grpc_port = 18301
+metrics_port = 18302
+readiness_timeout_seconds = 60
+cleanup_timeout_seconds = 120
+
+[inputs]
+s3_registry = "artifacts/scale_validation/s3/capacity-registry.json"
+s3_replay_features = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/replay/features.npy"
+s4_registry = "artifacts/scale_validation/s4/tiny-mlp-v1/registry.json"
+s5_manifest = "datasets/criteo-click-logs/s5/governed/dataset-manifest.json"
+sample_rows_per_dataset = 256
+
+[load]
+warmup_seconds = 10
+measurement_seconds = 30
+offered_requests_per_second = 800
+queue_depth_per_api = 64
+request_timeout_seconds = 5
+sample_gpu_interval_ms = 200
+
+[q0]
+activity_seconds_per_model = 5
+workers = 8
+request_batch_size = 32
+
+[batching.off]
+enabled = false
+preferred_batch_sizes = []
+max_queue_delay_microseconds = 0
+
+[batching.on]
+enabled = true
+preferred_batch_sizes = [4, 8]
+max_queue_delay_microseconds = 10000
+
+[[models]]
+model_id = "higgs_logistic_regression"
+display_name = "HIGGS LogisticRegression"
+dataset = "HIGGS"
+source_kind = "s3_json"
+source_key = "logistic"
+input_width = 28
+
+[[models]]
+model_id = "higgs_gaussian_nb"
+display_name = "HIGGS GaussianNB"
+dataset = "HIGGS"
+source_kind = "s3_json"
+source_key = "probabilistic"
+input_width = 28
+
+[[models]]
+model_id = "higgs_tiny_mlp"
+display_name = "HIGGS TinyMLP"
+dataset = "HIGGS"
+source_kind = "s4_checkpoint"
+source_key = "tiny-mlp"
+input_width = 28
+
+[[models]]
+model_id = "criteo_dlrm_lite"
+display_name = "Criteo DLRM-lite"
+dataset = "Criteo Display Advertising Challenge"
+source_kind = "s5_governed_sample_seeded_test_model"
+source_key = "dlrm-lite"
+input_width = 39
+
+# A physical run appears once even when analytical_roles contains more than one role.
+[[cells]]
+cell_id = "solo-logistic"
+repetitions = 1
+model_mix = { higgs_logistic_regression = 1.0 }
+batching = "off"
+client_lanes = 1
+client_workers = 1
+analytical_roles = ["solo"]
+
+[[cells]]
+cell_id = "solo-gaussian-nb"
+repetitions = 1
+model_mix = { higgs_gaussian_nb = 1.0 }
+batching = "off"
+client_lanes = 1
+client_workers = 1
+analytical_roles = ["solo"]
+
+[[cells]]
+cell_id = "solo-tiny-mlp"
+repetitions = 1
+model_mix = { higgs_tiny_mlp = 1.0 }
+batching = "off"
+client_lanes = 1
+client_workers = 1
+analytical_roles = ["solo"]
+
+[[cells]]
+cell_id = "solo-dlrm-lite"
+repetitions = 1
+model_mix = { criteo_dlrm_lite = 1.0 }
+batching = "off"
+client_lanes = 1
+client_workers = 1
+analytical_roles = ["solo"]
+
+[[cells]]
+cell_id = "balanced-serial"
+repetitions = 3
+model_mix = { higgs_logistic_regression = 0.25, higgs_gaussian_nb = 0.25, higgs_tiny_mlp = 0.25, criteo_dlrm_lite = 0.25 }
+batching = "off"
+client_lanes = 1
+client_workers = 1
+analytical_roles = ["serial_balanced"]
+
+[[cells]]
+cell_id = "balanced-concurrent-batch-off"
+repetitions = 3
+model_mix = { higgs_logistic_regression = 0.25, higgs_gaussian_nb = 0.25, higgs_tiny_mlp = 0.25, criteo_dlrm_lite = 0.25 }
+batching = "off"
+client_lanes = 1
+client_workers = 8
+analytical_roles = ["concurrent_balanced", "batching_off"]
+
+[[cells]]
+cell_id = "balanced-concurrent-batch-on"
+repetitions = 3
+model_mix = { higgs_logistic_regression = 0.25, higgs_gaussian_nb = 0.25, higgs_tiny_mlp = 0.25, criteo_dlrm_lite = 0.25 }
+batching = "on"
+client_lanes = 1
+client_workers = 8
+analytical_roles = ["batching_on"]
+
+[[cells]]
+cell_id = "balanced-driver-l1w1"
+repetitions = 3
+model_mix = { higgs_logistic_regression = 0.25, higgs_gaussian_nb = 0.25, higgs_tiny_mlp = 0.25, criteo_dlrm_lite = 0.25 }
+batching = "on"
+client_lanes = 1
+client_workers = 1
+analytical_roles = ["client_driver_l1w1"]
+
+[[cells]]
+cell_id = "balanced-driver-l2w4"
+repetitions = 3
+model_mix = { higgs_logistic_regression = 0.25, higgs_gaussian_nb = 0.25, higgs_tiny_mlp = 0.25, criteo_dlrm_lite = 0.25 }
+batching = "on"
+client_lanes = 2
+client_workers = 4
+analytical_roles = ["client_driver_l2w4"]
+
+[[cells]]
+cell_id = "hot-dlrm-l2w4"
+repetitions = 3
+model_mix = { higgs_logistic_regression = 0.10, higgs_gaussian_nb = 0.10, higgs_tiny_mlp = 0.10, criteo_dlrm_lite = 0.70 }
+batching = "on"
+client_lanes = 2
+client_workers = 4
+analytical_roles = ["hot_mix"]
+
+[profiler]
+enabled_if_available = true
+repetitions = 1
+capture_seconds = 10
+claim_kernel_overlap_only_when_directly_observed = true
+
+[claim]
+boundary = "claim_class=preliminary_controlled_testbed on one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, governed HIGGS/Criteo-derived inputs, and direct local load. L1W1/L2W4 denote client admission lanes and load-driver workers, not deployed API replicas or service CPU workers. It is non-credit and is not canonical X1, production capacity, an SLA, HA/DR, tenant isolation, multi-node, multi-GPU, MPS, MIG, or kernel-overlap evidence unless a profiler directly proves overlap."
