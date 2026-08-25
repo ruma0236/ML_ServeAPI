@@ -34,7 +34,9 @@ from evm.control_panel.scenario_workloads import (  # noqa: E402
 )
 from evm.model_runtime.triton_blue_green import (  # noqa: E402
     TritonBlueGreenControlRequest,
+    TritonBlueGreenPredictRequest,
     action_digest,
+    expected_causal_identity_for_request,
 )
 from evm.scale_validation.s6bm_runtime import (  # noqa: E402
     CLAIM_BOUNDARY,
@@ -49,6 +51,7 @@ from evm.scale_validation.s6bm_observability import (  # noqa: E402
     collect_attempt_trace_export,
     direct_metric_aggregate,
     direct_metric_value,
+    find_triton_compute_start,
     prometheus_value,
     validate_observability_bundle,
 )
@@ -68,6 +71,10 @@ OTEL_TRACE_FILE = Path(
         "EVM_OTEL_TRACE_FILE",
         "F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/scale_validation/otel/traces.json",
     )
+)
+CONTROL_PLANE_DATABASE_URL = os.getenv(
+    "EVM_CONTROL_PLANE_DATABASE_URL",
+    "postgresql://evm_control_plane:evm_control_plane_local@127.0.0.1:5434/evm_control_plane",
 )
 
 
@@ -93,12 +100,40 @@ class ApiProcess:
     stderr_path: Path
 
 
+@dataclass
+class DualClockAnchorChain:
+    source_identity: str
+    sequence: int = 0
+    previous_anchor_hash: str | None = None
+
+    def capture(self, phase: str) -> dict[str, Any]:
+        monotonic_before_ns = time.perf_counter_ns()
+        unix_ns = time.time_ns()
+        monotonic_after_ns = time.perf_counter_ns()
+        self.sequence += 1
+        payload = {
+            "schema_version": "evm.s8_v4.s6bm_dual_clock_anchor.v2",
+            "sequence": self.sequence,
+            "phase": phase,
+            "monotonic_before_ns": monotonic_before_ns,
+            "unix_ns": unix_ns,
+            "monotonic_after_ns": monotonic_after_ns,
+            "source_identity": self.source_identity,
+            "process_id": os.getpid(),
+            "host_identity": socket.gethostname(),
+            "previous_anchor_hash": self.previous_anchor_hash,
+        }
+        payload["anchor_hash"] = canonical_sha256(payload)
+        self.previous_anchor_hash = str(payload["anchor_hash"])
+        return payload
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run S8-V4 S6B-M controlled evidence suite")
     parser.add_argument(
         "--config",
         type=Path,
-        default=ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml",
+        default=ROOT / "configs/s8_v4_s6bm_blue_green_v3.toml",
     )
     parser.add_argument(
         "--model-repository",
@@ -327,6 +362,28 @@ def queue_counts() -> dict[str, int]:
     return {"active": values[0], "leased": values[1], "outcome_unknown": values[2]}
 
 
+def s6bm_schema_exists(schema: str) -> bool:
+    import psycopg
+
+    with psycopg.connect(CONTROL_PLANE_DATABASE_URL) as connection:
+        row = connection.execute(
+            "SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=%s)",
+            (schema,),
+        ).fetchone()
+    return bool(row[0])
+
+
+def drop_s6bm_schema(schema: str) -> None:
+    if not schema.startswith("evm_s6bm_v4_") or not schema.replace("_", "").isalnum():
+        raise S6BMExperimentError("s6bm_cleanup_schema_identity")
+    import psycopg
+
+    with psycopg.connect(CONTROL_PLANE_DATABASE_URL, autocommit=True) as connection:
+        connection.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+    if s6bm_schema_exists(schema):
+        raise S6BMExperimentError("s6bm_cleanup_schema_residue")
+
+
 def prometheus_targets() -> list[dict[str, Any]]:
     response = requests.get(f"{PROMETHEUS_URL}/api/v1/targets", timeout=10)
     response.raise_for_status()
@@ -541,6 +598,11 @@ def start_triton(config: S6BMConfig, model_root: Path, log_path: Path) -> None:
             f"--load-model={config.blue.model_name}",
             "--strict-readiness=true",
             "--exit-on-error=false",
+            "--trace-config=mode=opentelemetry",
+            "--trace-config=opentelemetry,url=http://host.docker.internal:4318/v1/traces",
+            "--trace-config=level=TIMESTAMPS",
+            "--trace-config=rate=1",
+            "--trace-config=count=-1",
         ],
         timeout=60,
     )
@@ -571,6 +633,7 @@ def start_api(
     *,
     source_revision: str,
     suite_id: str,
+    database_schema: str,
 ) -> ApiProcess:
     stdout_path = suite_root / "runtime" / "api-stdout.log"
     stderr_path = suite_root / "runtime" / "api-stderr.log"
@@ -590,6 +653,11 @@ def start_api(
             "OTEL_SERVICE_NAME": "evm-s8-v4-s6bm-api",
             "OTEL_SERVICE_INSTANCE_ID": suite_id,
             "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:4318/v1/traces",
+            "EVM_S6BM_REQUIRE_DURABLE_EFFECT": "1",
+            "EVM_S6BM_REQUIRE_CAUSAL_FENCE": "1",
+            "EVM_S6BM_DATABASE_URL": CONTROL_PLANE_DATABASE_URL,
+            "EVM_S6BM_DATABASE_SCHEMA": database_schema,
+            "EVM_CONTROL_PLANE_AUTO_MIGRATE": "true",
         }
     )
     process = subprocess.Popen(
@@ -772,6 +840,7 @@ def control_payload(
     preflight_vram_passed: bool = True,
     readiness_passed: bool = True,
     canary_passed: bool = True,
+    causal_crossover: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     state = controller_state(config)
     request = TritonBlueGreenControlRequest(
@@ -787,6 +856,7 @@ def control_payload(
         preflight_vram_passed=preflight_vram_passed,
         readiness_passed=readiness_passed,
         canary_passed=canary_passed,
+        causal_crossover=causal_crossover,
     )
     request = request.model_copy(update={"action_digest": action_digest(request)})
     return request.model_dump(mode="json")
@@ -864,6 +934,8 @@ def request_body(
     *,
     expected_model_role: str,
     hold_ms: int = 0,
+    expected_route_generation: int = 0,
+    causal_crossover: bool = False,
 ) -> dict[str, Any]:
     model = config.blue if expected_model_role == "blue" else config.green
     return {
@@ -871,6 +943,9 @@ def request_body(
         "run_id": run_id,
         "attempt_id": attempt_id,
         "request_id": request_id,
+        "request_nonce": hashlib.sha256(
+            f"{run_id}:{attempt_id}:{request_id}:nonce".encode("utf-8")
+        ).hexdigest()[:32],
         "traceparent": traceparent(request_id),
         "input_values": [1.0, 2.0, 3.0, 4.0],
         "hold_ms": hold_ms,
@@ -878,6 +953,77 @@ def request_body(
         "expected_model_name": model.model_name,
         "expected_model_version": model.model_version,
         "expected_artifact_sha256": model.artifact_sha256,
+        "expected_route_generation": expected_route_generation,
+        "causal_crossover": causal_crossover,
+    }
+
+
+def wait_and_register_triton_start_receipt(
+    config: S6BMConfig,
+    *,
+    suite_root: Path,
+    checkpoint: Mapping[str, Any],
+    body: Mapping[str, Any],
+    clock_chain: DualClockAnchorChain,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    request = TritonBlueGreenPredictRequest.model_validate(dict(body))
+    identity = expected_causal_identity_for_request(request)
+    deadline = time.monotonic() + timeout
+    observed: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        observed = find_triton_compute_start(
+            OTEL_TRACE_FILE,
+            request_nonce=request.request_nonce,
+            trace_id=identity.trace_id,
+            model_name=identity.model_name,
+            model_version=identity.model_version,
+            start_offset=int(checkpoint["trace_start_offset"]),
+        )
+        if observed is not None:
+            break
+        time.sleep(0.01)
+    if observed is None:
+        raise S6BMExperimentError("triton_compute_start_trace_timeout")
+    root = suite_root / "causal" / identity.attempt_id
+    path = root / "triton-compute-start.json"
+    canonical_write(path, observed)
+    artifact_sha256 = sha256_file(path)
+    container_id = run(
+        ["docker", "inspect", "--format", "{{.Id}}", CONTAINER_NAME],
+        timeout=10,
+    ).stdout.strip()
+    collector_observation = clock_chain.capture("triton_compute_receipt_collected")
+    payload = {
+        "schema_version": "evm.s8_v4.s6bm_triton_start_receipt.v1",
+        "causal_identity": identity.model_dump(mode="json"),
+        "trace_event_name": "COMPUTE_START",
+        "actor_start_unix_ns": int(observed["compute_start_unix_ns"]),
+        "raw_trace_artifact_sha256": artifact_sha256,
+        "raw_trace_record_sha256": canonical_sha256(observed),
+        "raw_trace_span_id": observed["span_id"],
+        "triton_container_id": container_id,
+        "triton_image_digest": config.image_digest,
+        "gpu_uuid": capture_gpu()["uuid"],
+        "collector_observation": collector_observation,
+    }
+    response = requests.post(
+        api_url(config, "causal-receipts/triton"),
+        json=payload,
+        timeout=5,
+    )
+    if response.status_code != 200:
+        raise S6BMExperimentError(
+            f"triton_start_receipt_rejected:{response.status_code}:{response.text[:1000]}"
+        )
+    receipt = response.json()
+    if receipt.get("readback_visible") is not True:
+        raise S6BMExperimentError("triton_start_receipt_not_visible")
+    return {
+        "raw_trace": artifact_reference(suite_root, path),
+        "raw_record_sha256": canonical_sha256(observed),
+        "receipt": receipt,
+        "collector_observation": collector_observation,
     }
 
 
@@ -926,9 +1072,13 @@ def send_request(
             "model_name": parsed["model_name"],
             "model_version": parsed["model_version"],
             "artifact_sha256": parsed["artifact_sha256"],
+            "request_nonce": body["request_nonce"],
             "output": parsed["output"],
+            "result_sha256": parsed["result_sha256"],
             "elapsed_ms": float(parsed["elapsed_ms"]),
             "route_generation": parsed["route_generation"],
+            "route_phase": parsed["route_phase"],
+            "durable_effect": parsed.get("durable_effect"),
             "replayed": bool(parsed["replayed"]),
             "attempted_monotonic": attempted,
             "completed_monotonic": completed,
@@ -1108,11 +1258,16 @@ def identities(config: S6BMConfig, lease: GpuLease) -> dict[str, Any]:
     }
 
 
-def phase_entry(config: S6BMConfig, phase: str) -> dict[str, Any]:
+def phase_entry(
+    config: S6BMConfig,
+    phase: str,
+    *,
+    clock_chain: DualClockAnchorChain | None = None,
+) -> dict[str, Any]:
     state = controller_state(config)
     if state["phase"] != phase:
         raise S6BMExperimentError(f"phase_identity_mismatch:{phase}:{state['phase']}")
-    return {
+    entry = {
         "phase": phase,
         "monotonic_seconds": time.perf_counter(),
         "generation": state["generation"],
@@ -1120,6 +1275,9 @@ def phase_entry(config: S6BMConfig, phase: str) -> dict[str, Any]:
         "loaded_roles": state["loaded_roles"],
         "in_flight": state["in_flight"],
     }
+    if clock_chain is not None:
+        entry["clock_anchor"] = clock_chain.capture(phase)
+    return entry
 
 
 def request_projection(records: Sequence[Mapping[str, Any]]) -> dict[str, int]:
@@ -1657,8 +1815,11 @@ def run_success(
 ) -> dict[str, Any]:
     started_at = utc_now()
     attempt_id = f"s6bm-success-{repetition}-{uuid4().hex[:10]}"
+    clock_chain = DualClockAnchorChain(
+        source_identity=f"runner:{source['revision']}:{suite_id}:{attempt_id}"
+    )
     initialize_controller(config, lease, source)
-    timeline = [phase_entry(config, "blue_only")]
+    timeline = [phase_entry(config, "blue_only", clock_chain=clock_chain)]
     owner_samples = [owner_sample(lease)]
     physical: dict[str, bool] = {}
     records: list[dict[str, Any]] = []
@@ -1668,7 +1829,7 @@ def run_success(
         transition_started = time.perf_counter()
         apply_control(config, lease, "green_loaded")
         physical["green_loaded_ready"] = model_ready(config, "green")
-        timeline.append(phase_entry(config, "green_warmup"))
+        timeline.append(phase_entry(config, "green_warmup", clock_chain=clock_chain))
         observability_checkpoint = begin_attempt_observability(
             config,
             suite_root=suite_root,
@@ -1679,7 +1840,7 @@ def run_success(
         for _ in range(int(config.procedure["warmup_requests"])):
             direct_infer(config, "green")
         apply_control(config, lease, "canary_started")
-        timeline.append(phase_entry(config, "canary"))
+        timeline.append(phase_entry(config, "canary", clock_chain=clock_chain))
         canary_records, canary_bodies = send_batch(
             config,
             lease.run_id,
@@ -1705,6 +1866,7 @@ def run_success(
             "record": replay,
         }
 
+        hold_generation = int(controller_state(config)["generation"])
         hold_body = request_body(
             config,
             lease.run_id,
@@ -1712,14 +1874,31 @@ def run_success(
             blue_request_id(f"{attempt_id}-hold"),
             expected_model_role="blue",
             hold_ms=int(config.procedure["long_in_flight_hold_ms"]),
+            expected_route_generation=hold_generation,
+            causal_crossover=True,
         )
+        hold_identity = expected_causal_identity_for_request(
+            TritonBlueGreenPredictRequest.model_validate(hold_body)
+        ).model_dump(mode="json")
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             hold_future = pool.submit(send_request, config, hold_body)
             wait_in_flight(config, "blue", 1, 5)
-            apply_control(config, lease, "green_switched")
-            timeline.append(phase_entry(config, "green_active"))
+            triton_start_receipt = wait_and_register_triton_start_receipt(
+                config,
+                suite_root=suite_root,
+                checkpoint=observability_checkpoint,
+                body=hold_body,
+                clock_chain=clock_chain,
+            )
+            apply_control(
+                config,
+                lease,
+                "green_switched",
+                causal_crossover=hold_identity,
+            )
+            timeline.append(phase_entry(config, "green_active", clock_chain=clock_chain))
             apply_control(config, lease, "blue_drain_started")
-            timeline.append(phase_entry(config, "blue_draining"))
+            timeline.append(phase_entry(config, "blue_draining", clock_chain=clock_chain))
             remaining = (
                 int(config.procedure["logical_requests_per_transition"])
                 - int(config.procedure["canary_requests"])
@@ -1749,21 +1928,28 @@ def run_success(
             run_id=lease.run_id,
             checkpoint=observability_checkpoint,
         )
-        apply_control(config, lease, "blue_unloaded")
+        apply_control(
+            config,
+            lease,
+            "blue_unloaded",
+            causal_crossover=hold_identity,
+        )
         physical["blue_unloaded_not_ready"] = not model_ready(config, "blue")
-        timeline.append(phase_entry(config, "green_only"))
+        timeline.append(phase_entry(config, "green_only", clock_chain=clock_chain))
         transition_seconds = time.perf_counter() - transition_started
 
         rollback_started = time.perf_counter()
         apply_control(config, lease, "blue_loaded")
         physical["blue_reloaded_ready"] = model_ready(config, "blue")
-        timeline.append(phase_entry(config, "rollback_warmup"))
+        timeline.append(phase_entry(config, "rollback_warmup", clock_chain=clock_chain))
         for _ in range(int(config.procedure["warmup_requests"])):
             direct_infer(config, "blue")
         apply_control(config, lease, "blue_switched")
-        timeline.append(phase_entry(config, "blue_active_rollback"))
+        timeline.append(
+            phase_entry(config, "blue_active_rollback", clock_chain=clock_chain)
+        )
         apply_control(config, lease, "green_drain_started")
-        timeline.append(phase_entry(config, "green_draining"))
+        timeline.append(phase_entry(config, "green_draining", clock_chain=clock_chain))
         wait_in_flight(config, "green", 0, float(config.procedure["drain_timeout_seconds"]))
         green_before_unload = int(controller_state(config)["in_flight"]["green"])
         direct_infer(config, "blue")
@@ -1783,7 +1969,7 @@ def run_success(
         )
         apply_control(config, lease, "green_unloaded")
         physical["green_unloaded_not_ready"] = not model_ready(config, "green")
-        timeline.append(phase_entry(config, "rolled_back"))
+        timeline.append(phase_entry(config, "rolled_back", clock_chain=clock_chain))
         physical["blue_final_ready"] = model_ready(config, "blue")
         rollback_seconds = time.perf_counter() - rollback_started
         owner_samples.append(owner_sample(lease))
@@ -1791,6 +1977,15 @@ def run_success(
     summary = request_projection(records)
     latency = latency_projection(records)
     state = controller_state(config)
+    causal_root = suite_root / "causal" / attempt_id
+    effects_response = requests.get(api_url(config, f"effects/{attempt_id}"), timeout=30)
+    effects_response.raise_for_status()
+    causal_response = requests.get(api_url(config, f"causal-events/{attempt_id}"), timeout=30)
+    causal_response.raise_for_status()
+    effects_path = causal_root / "durable-effects.json"
+    causal_path = causal_root / "causal-events.json"
+    canonical_write(effects_path, effects_response.json())
+    canonical_write(causal_path, causal_response.json())
     telemetry = telemetry_snapshot(config, suite_id=suite_id, attempt_id=attempt_id)
     samples = resources.samples
     peak_vram = max(
@@ -1808,6 +2003,12 @@ def run_success(
         "source_revision": source["revision"],
         "identities": identities(config, lease),
         "phase_timeline": timeline,
+        "causal_proof": {
+            "crossover_identity": hold_identity,
+            "triton_start_receipt": triton_start_receipt,
+            "durable_effect_export": artifact_reference(suite_root, effects_path),
+            "causal_event_export": artifact_reference(suite_root, causal_path),
+        },
         "request_records": records,
         "requests": summary,
         "idempotent_replay": replay_evidence,
@@ -2023,6 +2224,7 @@ def cleanup_snapshot(
     holder: Holder,
     gpu_before: Mapping[str, Any],
     prometheus_before: Mapping[str, Any],
+    database_schema: str,
 ) -> dict[str, Any]:
     gpu_after, vram_restore_seconds = wait_vram_restore(
         gpu_before, float(config.procedure["cleanup_timeout_seconds"])
@@ -2043,6 +2245,7 @@ def cleanup_snapshot(
         "queue_active_zero": queues["active"] == 0,
         "queue_leased_zero": queues["leased"] == 0,
         "queue_outcome_unknown_zero": queues["outcome_unknown"] == 0,
+        "experiment_schema_absent": not s6bm_schema_exists(database_schema),
         "vram_restore_seconds": vram_restore_seconds,
         "vram_delta_mib": float(gpu_after["memory_used_mib"])
         - float(gpu_before["memory_used_mib"]),
@@ -2069,6 +2272,7 @@ def main() -> int:
     manifest = verify_model_repository(model_root, config)
     canonical_write(suite_root / "source-model-manifest.json", manifest)
     canonical_write(suite_root / "frozen-config.json", config.public_snapshot())
+    database_schema = f"evm_s6bm_v4_{hashlib.sha256(suite_id.encode('ascii')).hexdigest()[:12]}"
 
     holder = capture_holder()
     b0_before = b0_cuda_inference()
@@ -2092,6 +2296,9 @@ def main() -> int:
             "manifest_sha256": sha256_file(model_root / "model-repository-manifest.json"),
             "repository_sha256": manifest["repository_sha256"],
         },
+        "control_plane_schema_sha256": hashlib.sha256(
+            database_schema.encode("ascii")
+        ).hexdigest(),
     }
     canonical_write(suite_root / "environment-preflight.json", environment)
 
@@ -2134,6 +2341,7 @@ def main() -> int:
             suite_root,
             source_revision=source["revision"],
             suite_id=suite_id,
+            database_schema=database_schema,
         )
         wait_runtime(config, api)
         wait_prometheus_jobs(config, present=True)
@@ -2212,6 +2420,7 @@ def main() -> int:
         cleanup_actions: list[tuple[str, Callable[[], None]]] = [
             ("api", lambda: stop_api(api)),
             ("triton", lambda: stop_triton(triton_log)),
+            ("experiment_schema", lambda: drop_s6bm_schema(database_schema)),
         ]
         if target_written:
             cleanup_actions.append(
@@ -2253,7 +2462,13 @@ def main() -> int:
         if cleanup_errors:
             canonical_write(suite_root / "cleanup-errors.json", cleanup_errors)
 
-    cleanup = cleanup_snapshot(config, holder, gpu_before, prometheus_before)
+    cleanup = cleanup_snapshot(
+        config,
+        holder,
+        gpu_before,
+        prometheus_before,
+        database_schema,
+    )
     canonical_write(suite_root / "final-cleanup.json", cleanup)
     if failure is not None:
         failure.update(
@@ -2286,6 +2501,7 @@ def main() -> int:
             "queue_active_zero",
             "queue_leased_zero",
             "queue_outcome_unknown_zero",
+            "experiment_schema_absent",
             "vram_restored",
         }
     )

@@ -23,6 +23,7 @@ from evm.control_panel.transactional_store import (
     ControlPlaneIdempotencyConflict,
     ControlPlaneLeaseConflict,
     ControlPlanePoolTimeout,
+    ControlPlaneParityError,
     ControlPlaneTransactionTimeout,
     ControlPlaneVersionConflict,
     StoreConfiguration,
@@ -147,6 +148,155 @@ def test_idempotent_terminal_entity_commits_one_effect_in_real_postgres(
             entity_id="s6-request-0001",
             response_payload=response,
             state="completed",
+        )
+
+
+def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
+    store: TransactionalControlPlaneStore,
+) -> None:
+    identity = {
+        "attempt_id": "s6bm-success-1-causal",
+        "run_id": "s8-v4-s6bm-causal-test",
+        "request_id": "s6bm-crossover-request-0001",
+        "request_nonce": "nonce-crossover-0001",
+        "trace_id": "1" * 32,
+        "effect_id": "2" * 64,
+        "model_role": "blue",
+        "model_name": "s6bm_blue",
+        "model_version": "1",
+        "artifact_sha256": "3" * 64,
+        "route_generation": 3,
+    }
+    for index, stage in enumerate(
+        (
+            "api_server_handler_entry",
+            "controller_entry",
+            "triton_backend_compute_entry",
+        ),
+        start=1,
+    ):
+        before = time.perf_counter_ns()
+        anchor = {
+            "monotonic_before_ns": before,
+            "monotonic_after_ns": time.perf_counter_ns(),
+        }
+        receipt = store.commit_s6bm_start_receipt(
+            event_type=stage,
+            payload={
+                **identity,
+                "actor_start_unix_ns": time.time_ns() - (10_000_000 - index),
+                "stage": stage,
+                **(anchor if stage != "triton_backend_compute_entry" else {}),
+                **(
+                    {"collector_observation": anchor}
+                    if stage == "triton_backend_compute_entry"
+                    else {}
+                ),
+            },
+            actor_identity=f"actor-{index}",
+        )
+        assert receipt["readback_visible"] is True
+
+    switch = store.commit_s6bm_route_switch_fence(crossover_identity=identity)
+    assert switch["event_type"] == "blue_to_green_switch_commit"
+    effect_payload = {
+        **identity,
+        "schema_version": "evm.s8_v4.s6bm_terminal_causal_event.v1",
+        "actor_start_unix_ns": time.time_ns(),
+        "result_sha256": "4" * 64,
+        "requires_switch_before_effect": True,
+    }
+    stored, replayed, effect = store.commit_idempotent_terminal_entity_with_receipt(
+        scope=f"s6bm.terminal-effect.{identity['attempt_id']}",
+        idempotency_key=identity["request_id"],
+        request_payload={"request_id": identity["request_id"], "seed": 20260825},
+        entity_kind="s6bm_terminal_effect",
+        entity_id=identity["effect_id"],
+        response_payload={**identity, "terminal_outcome": "completed"},
+        state="completed",
+        causal_payload=effect_payload,
+    )
+    assert replayed is False
+    assert stored["durable_commit"]["causal_sequence"] == effect["causal_sequence"]
+    assert switch["causal_sequence"] < effect["causal_sequence"]
+    replayed_stored, replayed, replayed_effect = (
+        store.commit_idempotent_terminal_entity_with_receipt(
+            scope=f"s6bm.terminal-effect.{identity['attempt_id']}",
+            idempotency_key=identity["request_id"],
+            request_payload={"request_id": identity["request_id"], "seed": 20260825},
+            entity_kind="s6bm_terminal_effect",
+            entity_id=identity["effect_id"],
+            response_payload={**identity, "terminal_outcome": "completed"},
+            state="completed",
+            causal_payload=effect_payload,
+        )
+    )
+    assert replayed is True
+    assert replayed_stored == stored
+    assert replayed_effect["causal_sequence"] == effect["causal_sequence"]
+    unload = store.commit_s6bm_unload_intent(
+        crossover_identity=identity,
+        pre_switch_blue_effects=[
+            {"request_id": identity["request_id"], "effect_id": identity["effect_id"]}
+        ],
+    )
+    assert effect["causal_sequence"] < unload["causal_sequence"]
+    events = store.list_s6bm_causal_events(attempt_id=identity["attempt_id"])
+    assert [event["event_type"] for event in events] == [
+        "api_server_handler_entry",
+        "controller_entry",
+        "triton_backend_compute_entry",
+        "blue_to_green_switch_commit",
+        "durable_terminal_effect_commit",
+        "blue_unload_intent",
+    ]
+
+
+def test_s6bm_causal_fence_rejects_missing_receipt_and_early_effect(
+    store: TransactionalControlPlaneStore,
+) -> None:
+    identity = {
+        "attempt_id": "s6bm-success-2-negative",
+        "run_id": "s8-v4-s6bm-causal-negative",
+        "request_id": "s6bm-crossover-request-0002",
+        "request_nonce": "nonce-crossover-0002",
+        "trace_id": "5" * 32,
+        "effect_id": "6" * 64,
+        "model_role": "blue",
+        "model_name": "s6bm_blue",
+        "model_version": "1",
+        "artifact_sha256": "7" * 64,
+        "route_generation": 3,
+    }
+    for stage in ("api_server_handler_entry", "controller_entry"):
+        before = time.perf_counter_ns()
+        store.commit_s6bm_start_receipt(
+            event_type=stage,
+            payload={
+                **identity,
+                "actor_start_unix_ns": time.time_ns(),
+                "monotonic_before_ns": before,
+                "monotonic_after_ns": time.perf_counter_ns(),
+                "stage": stage,
+            },
+            actor_identity=stage,
+        )
+    with pytest.raises(ControlPlaneParityError, match="start receipts are incomplete"):
+        store.commit_s6bm_route_switch_fence(crossover_identity=identity)
+    with pytest.raises(ControlPlaneParityError, match="preceded route switch"):
+        store.commit_idempotent_terminal_entity_with_receipt(
+            scope=f"s6bm.terminal-effect.{identity['attempt_id']}",
+            idempotency_key=identity["request_id"],
+            request_payload={"request_id": identity["request_id"]},
+            entity_kind="s6bm_terminal_effect",
+            entity_id=identity["effect_id"],
+            response_payload={**identity, "terminal_outcome": "completed"},
+            state="completed",
+            causal_payload={
+                **identity,
+                "actor_start_unix_ns": time.time_ns(),
+                "requires_switch_before_effect": True,
+            },
         )
 
 

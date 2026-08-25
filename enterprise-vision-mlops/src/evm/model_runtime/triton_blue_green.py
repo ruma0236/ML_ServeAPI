@@ -5,10 +5,11 @@ import hashlib
 import json
 import os
 import re
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Awaitable, Callable, Literal, Mapping
 
 import httpx
 from prometheus_client import Counter, Gauge, Histogram
@@ -36,6 +37,32 @@ ControlAction = Literal[
 
 _TRACEPARENT = re.compile(r"^00-([a-f0-9]{32})-([a-f0-9]{16})-0[01]$")
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
+
+
+def _strict_causal_required() -> bool:
+    return os.getenv("EVM_S6BM_REQUIRE_CAUSAL_FENCE", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def causal_start_observation(actor_identity: str) -> dict[str, Any]:
+    monotonic_before_ns = time.perf_counter_ns()
+    unix_ns = time.time_ns()
+    monotonic_after_ns = time.perf_counter_ns()
+    return {
+        "schema_version": "evm.s6bm.actor_start_observation.v1",
+        "actor_identity": actor_identity,
+        "actor_start_unix_ns": unix_ns,
+        "monotonic_before_ns": monotonic_before_ns,
+        "monotonic_after_ns": monotonic_after_ns,
+        "process_id": os.getpid(),
+        "thread_id": threading.get_ident(),
+        "host_identity": socket.gethostname(),
+        "source_revision": os.getenv("EVM_IMAGE_SOURCE_REVISION", "unknown"),
+        "service_instance_id": os.getenv("OTEL_SERVICE_INSTANCE_ID", "unknown"),
+    }
 
 REQUESTS = Counter(
     "evm_s6bm_requests_total",
@@ -83,6 +110,22 @@ class TritonModelIdentity(ContractModel):
     expected_output: list[float] = Field(min_length=4, max_length=4)
 
 
+class TritonBlueGreenCausalIdentity(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    attempt_id: str = Field(min_length=8, max_length=128, pattern=r"^[a-zA-Z0-9._:-]+$")
+    run_id: str = Field(pattern=r"^s8-v4-s6bm-[a-z0-9-]+$")
+    request_id: str = Field(min_length=8, max_length=128, pattern=r"^[a-zA-Z0-9._:-]+$")
+    request_nonce: str = Field(min_length=16, max_length=128, pattern=r"^[a-zA-Z0-9._:-]+$")
+    trace_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    effect_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model_role: Literal["blue"] = "blue"
+    model_name: str = Field(pattern=r"^[a-z0-9_-]+$")
+    model_version: str = Field(pattern=r"^[0-9]+$")
+    artifact_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    route_generation: int = Field(ge=1)
+
+
 class TritonBlueGreenInitializeRequest(ContractModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -126,6 +169,16 @@ class TritonBlueGreenControlRequest(ContractModel):
     preflight_vram_passed: bool = True
     readiness_passed: bool = True
     canary_passed: bool = True
+    causal_crossover: TritonBlueGreenCausalIdentity | None = None
+
+    @model_validator(mode="after")
+    def validate_causal_action(self) -> "TritonBlueGreenControlRequest":
+        if self.action in {"green_switched", "blue_unloaded"}:
+            if self.causal_crossover is None and _strict_causal_required():
+                raise ValueError("causal crossover identity is required")
+        elif self.causal_crossover is not None:
+            raise ValueError("causal crossover identity is only valid for switch and unload")
+        return self
 
 
 class TritonBlueGreenPredictRequest(ContractModel):
@@ -142,6 +195,12 @@ class TritonBlueGreenPredictRequest(ContractModel):
         max_length=128,
         pattern=r"^[a-zA-Z0-9._:-]+$",
     )
+    request_nonce: str = Field(
+        default="legacy-unbound",
+        min_length=8,
+        max_length=128,
+        pattern=r"^[a-zA-Z0-9._:-]+$",
+    )
     traceparent: str
     input_values: list[float] = Field(min_length=4, max_length=4)
     hold_ms: int = Field(default=0, ge=0, le=2500)
@@ -149,6 +208,8 @@ class TritonBlueGreenPredictRequest(ContractModel):
     expected_model_name: str | None = Field(default=None, pattern=r"^[a-z0-9_-]+$")
     expected_model_version: str | None = Field(default=None, pattern=r"^[0-9]+$")
     expected_artifact_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    expected_route_generation: int = Field(default=0, ge=0)
+    causal_crossover: bool = False
 
     @field_validator("traceparent")
     @classmethod
@@ -169,6 +230,13 @@ class TritonBlueGreenPredictRequest(ContractModel):
             value is not None for value in values
         ):
             raise ValueError("expected model identity must be complete")
+        if self.causal_crossover and (
+            self.request_nonce == "legacy-unbound"
+            or self.expected_route_generation < 1
+            or self.expected_model_role != "blue"
+            or self.hold_ms <= 0
+        ):
+            raise ValueError("crossover request requires Blue identity, nonce, generation, and hold")
         return self
 
 
@@ -197,9 +265,53 @@ class TritonBlueGreenPredictResponse(ContractModel):
     model_name: str
     model_version: str
     artifact_sha256: str
+    route_phase: str
     output: list[float]
+    result_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     elapsed_ms: float = Field(ge=0)
     replayed: bool = False
+    durable_effect: "TritonBlueGreenDurableEffectReceipt | None" = None
+
+
+class TritonBlueGreenDurableEffectReceipt(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["evm.s6bm.durable_effect_receipt.v1"] = (
+        "evm.s6bm.durable_effect_receipt.v1"
+    )
+    entity_kind: Literal["s6bm_terminal_effect"]
+    entity_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    request_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    stored_payload_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    database_recorded_at: str
+    entity_created_at: str
+    idempotency_created_at: str
+    readback_at: str
+    transaction_id: str = Field(min_length=1)
+    synchronous_commit: Literal["on"]
+    commit_ack_monotonic_ns: int = Field(gt=0)
+    readback_started_monotonic_ns: int = Field(gt=0)
+    readback_finished_monotonic_ns: int = Field(gt=0)
+    readback_visible: Literal[True]
+    replayed: bool
+    causal_sequence: int | None = Field(default=None, ge=1)
+    causal_payload_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+
+TerminalEffectCommitter = Callable[
+    [TritonBlueGreenPredictRequest, TritonBlueGreenPredictResponse],
+    Awaitable[Mapping[str, Any]],
+]
+StartReceiptCommitter = Callable[
+    [str, TritonBlueGreenPredictRequest, Mapping[str, Any]],
+    Awaitable[Mapping[str, Any]],
+]
+TransitionFenceCommitter = Callable[
+    [TritonBlueGreenControlRequest, Mapping[str, Any]],
+    Mapping[str, Any],
+]
+
+TritonBlueGreenPredictResponse.model_rebuild()
 
 
 class TritonBlueGreenStateResponse(ContractModel):
@@ -255,6 +367,11 @@ def action_digest(request: TritonBlueGreenControlRequest) -> str:
         "preflight_vram_passed": request.preflight_vram_passed,
         "readiness_passed": request.readiness_passed,
         "canary_passed": request.canary_passed,
+        "causal_crossover": (
+            request.causal_crossover.model_dump(mode="json")
+            if request.causal_crossover is not None
+            else None
+        ),
     }
     return hashlib.sha256(canonical(payload).encode("ascii")).hexdigest()
 
@@ -273,6 +390,93 @@ def _effect_id(request: TritonBlueGreenPredictRequest, identity: TritonModelIden
                 "model_name": identity.model_name,
                 "model_version": identity.model_version,
                 "artifact_sha256": identity.artifact_sha256,
+            }
+        ).encode("ascii")
+    ).hexdigest()
+
+
+def causal_identity_for_request(
+    request: TritonBlueGreenPredictRequest,
+    identity: TritonModelIdentity,
+    *,
+    route_generation: int,
+) -> TritonBlueGreenCausalIdentity:
+    return TritonBlueGreenCausalIdentity(
+        attempt_id=request.attempt_id,
+        run_id=request.run_id,
+        request_id=request.request_id,
+        request_nonce=request.request_nonce,
+        trace_id=_trace_id(request.traceparent),
+        effect_id=_effect_id(request, identity),
+        model_name=identity.model_name,
+        model_version=identity.model_version,
+        artifact_sha256=identity.artifact_sha256,
+        route_generation=route_generation,
+    )
+
+
+def expected_causal_identity_for_request(
+    request: TritonBlueGreenPredictRequest,
+) -> TritonBlueGreenCausalIdentity:
+    if (
+        request.expected_model_role != "blue"
+        or request.expected_model_name is None
+        or request.expected_model_version is None
+        or request.expected_artifact_sha256 is None
+        or request.expected_route_generation < 1
+    ):
+        raise TritonBlueGreenError(
+            "causal_expected_identity_incomplete", request.request_id, status_code=422
+        )
+    effect_id = hashlib.sha256(
+        canonical(
+            {
+                "run_id": request.run_id,
+                "attempt_id": request.attempt_id,
+                "request_id": request.request_id,
+                "model_name": request.expected_model_name,
+                "model_version": request.expected_model_version,
+                "artifact_sha256": request.expected_artifact_sha256,
+            }
+        ).encode("ascii")
+    ).hexdigest()
+    return TritonBlueGreenCausalIdentity(
+        attempt_id=request.attempt_id,
+        run_id=request.run_id,
+        request_id=request.request_id,
+        request_nonce=request.request_nonce,
+        trace_id=_trace_id(request.traceparent),
+        effect_id=effect_id,
+        model_name=request.expected_model_name,
+        model_version=request.expected_model_version,
+        artifact_sha256=request.expected_artifact_sha256,
+        route_generation=request.expected_route_generation,
+    )
+
+
+def _result_digest(
+    request: TritonBlueGreenPredictRequest,
+    identity: TritonModelIdentity,
+    *,
+    role: ModelRole,
+    generation: int,
+    phase: str,
+    output: list[float],
+) -> str:
+    return hashlib.sha256(
+        canonical(
+            {
+                "run_id": request.run_id,
+                "attempt_id": request.attempt_id,
+                "request_id": request.request_id,
+                "trace_id": _trace_id(request.traceparent),
+                "model_role": role,
+                "model_name": identity.model_name,
+                "model_version": identity.model_version,
+                "artifact_sha256": identity.artifact_sha256,
+                "route_generation": generation,
+                "route_phase": phase,
+                "output": output,
             }
         ).encode("ascii")
     ).hexdigest()
@@ -329,7 +533,12 @@ class TritonBlueGreenManager:
                 LATENCY.labels(identity.role, identity.model_name, identity.model_version)
             return self.snapshot()
 
-    def control(self, request: TritonBlueGreenControlRequest) -> TritonBlueGreenStateResponse:
+    def control(
+        self,
+        request: TritonBlueGreenControlRequest,
+        *,
+        transition_fence_committer: TransitionFenceCommitter | None = None,
+    ) -> TritonBlueGreenStateResponse:
         self._assert_lease(request.run_id, request.lease_id, request.fencing_token)
         with self._lock:
             state = self._require_state(request.run_id)
@@ -350,6 +559,48 @@ class TritonBlueGreenManager:
                 raise TritonBlueGreenError("approval_reused", request.run_id)
             self._validate_guard_signals(request)
             self._validate_transition(state, request.action)
+            fence_context: dict[str, Any] = {}
+            if request.action in {"green_switched", "blue_unloaded"} and (
+                request.causal_crossover is not None or _strict_causal_required()
+            ):
+                crossover = self._validate_causal_crossover(state, request)
+                if request.action == "blue_unloaded":
+                    fence_context["pre_switch_blue_effects"] = sorted(
+                        (
+                            {
+                                "request_id": response.request_id,
+                                "effect_id": response.effect_id,
+                            }
+                            for _, response in state.responses.values()
+                            if response.model_role == "blue"
+                            and response.route_generation <= crossover.route_generation
+                        ),
+                        key=lambda item: item["request_id"],
+                    )
+                if transition_fence_committer is None:
+                    if _strict_causal_required():
+                        raise TritonBlueGreenError(
+                            "causal_transition_store_unavailable",
+                            request.action,
+                            status_code=503,
+                        )
+                else:
+                    try:
+                        receipt = transition_fence_committer(request, fence_context)
+                    except TritonBlueGreenError:
+                        raise
+                    except Exception as exc:
+                        raise TritonBlueGreenError(
+                            "causal_transition_fence_failed",
+                            request.action,
+                            status_code=503,
+                        ) from exc
+                    if receipt.get("readback_visible") is not True:
+                        raise TritonBlueGreenError(
+                            "causal_transition_receipt_mismatch",
+                            request.action,
+                            status_code=503,
+                        )
             self._apply_model_control(state, request.action)
             self._transition(state, request.action)
             state.used_approvals.add(request.approval_id)
@@ -357,9 +608,38 @@ class TritonBlueGreenManager:
             TRANSITIONS.labels(request.action, "applied").inc()
             return self.snapshot()
 
+    @staticmethod
+    def _validate_causal_crossover(
+        state: _State,
+        request: TritonBlueGreenControlRequest,
+    ) -> TritonBlueGreenCausalIdentity:
+        crossover = request.causal_crossover
+        if crossover is None:
+            raise TritonBlueGreenError(
+                "causal_crossover_identity_absent", request.action, status_code=503
+            )
+        blue = state.request.blue
+        if (
+            crossover.run_id != request.run_id
+            or crossover.model_role != "blue"
+            or crossover.model_name != blue.model_name
+            or crossover.model_version != blue.model_version
+            or crossover.artifact_sha256 != blue.artifact_sha256
+            or crossover.route_generation > request.expected_generation
+        ):
+            raise TritonBlueGreenError(
+                "causal_crossover_identity_mismatch", request.action, status_code=409
+            )
+        return crossover
+
     async def predict(
-        self, request: TritonBlueGreenPredictRequest
+        self,
+        request: TritonBlueGreenPredictRequest,
+        *,
+        terminal_effect_committer: TerminalEffectCommitter | None = None,
+        start_receipt_committer: StartReceiptCommitter | None = None,
     ) -> TritonBlueGreenPredictResponse:
+        controller_entry = causal_start_observation("s6bm-controller")
         with self._lock:
             state = self._require_state(request.run_id)
             digest = _request_digest(request)
@@ -369,40 +649,56 @@ class TritonBlueGreenManager:
                     raise TritonBlueGreenError(
                         "idempotency_payload_mismatch", request.request_id, status_code=409
                     )
+                cached_result = cached[1]
                 state.duplicate_replays += 1
-                return cached[1].model_copy(update={"replayed": True})
-            if len(state.responses) >= state.request.max_request_cache:
-                raise TritonBlueGreenError(
-                    "request_identity_cache_full", request.run_id, status_code=429
+            else:
+                cached_result = None
+            if cached_result is not None:
+                role = cached_result.model_role
+                identity = state.request.blue if role == "blue" else state.request.green
+                generation = cached_result.route_generation
+                phase = cached_result.route_phase
+                triton_url = state.request.triton_http_url
+            else:
+                if len(state.responses) >= state.request.max_request_cache:
+                    raise TritonBlueGreenError(
+                        "request_identity_cache_full", request.run_id, status_code=429
+                    )
+                role = _role_for_request(request.request_id, state.weights)
+                if role not in state.loaded:
+                    raise TritonBlueGreenError("route_target_not_loaded", role, status_code=503)
+                identity = state.request.blue if role == "blue" else state.request.green
+                offered = (
+                    request.expected_model_role,
+                    request.expected_model_name,
+                    request.expected_model_version,
+                    request.expected_artifact_sha256,
                 )
-            role = _role_for_request(request.request_id, state.weights)
-            if role not in state.loaded:
-                raise TritonBlueGreenError("route_target_not_loaded", role, status_code=503)
-            identity = state.request.blue if role == "blue" else state.request.green
-            offered = (
-                request.expected_model_role,
-                request.expected_model_name,
-                request.expected_model_version,
-                request.expected_artifact_sha256,
-            )
-            served = (
-                role,
-                identity.model_name,
-                identity.model_version,
-                identity.artifact_sha256,
-            )
-            if any(value is not None for value in offered) and offered != served:
-                raise TritonBlueGreenError(
-                    "offered_served_identity_mismatch",
-                    request.request_id,
-                    status_code=409,
+                served = (
+                    role,
+                    identity.model_name,
+                    identity.model_version,
+                    identity.artifact_sha256,
                 )
-            state.in_flight[role] += 1
-            IN_FLIGHT.labels(role, identity.model_name, identity.model_version).set(
-                state.in_flight[role]
-            )
-            generation = state.generation
-            triton_url = state.request.triton_http_url
+                if any(value is not None for value in offered) and offered != served:
+                    raise TritonBlueGreenError(
+                        "offered_served_identity_mismatch",
+                        request.request_id,
+                        status_code=409,
+                    )
+                state.in_flight[role] += 1
+                IN_FLIGHT.labels(role, identity.model_name, identity.model_version).set(
+                    state.in_flight[role]
+                )
+                generation = state.generation
+                phase = state.phase
+                triton_url = state.request.triton_http_url
+                if request.causal_crossover and request.expected_route_generation != generation:
+                    raise TritonBlueGreenError(
+                        "causal_route_generation_mismatch",
+                        request.request_id,
+                        status_code=409,
+                    )
 
         started = time.perf_counter()
         effect_id = _effect_id(request, identity)
@@ -417,15 +713,66 @@ class TritonBlueGreenManager:
             "evm.model.version": identity.model_version,
             "evm.model.artifact.sha256": identity.artifact_sha256,
             "evm.route.generation": generation,
+            "evm.route.phase": phase,
             "evm.effect.id": effect_id,
         }
+        counted_in_flight = cached_result is None
         try:
+            if request.causal_crossover and cached_result is None:
+                if start_receipt_committer is None:
+                    raise TritonBlueGreenError(
+                        "causal_start_store_unavailable",
+                        request.request_id,
+                        status_code=503,
+                    )
+                causal_identity = causal_identity_for_request(
+                    request,
+                    identity,
+                    route_generation=generation,
+                )
+                try:
+                    controller_receipt = await start_receipt_committer(
+                        "controller_entry",
+                        request,
+                        {
+                            **causal_identity.model_dump(mode="json"),
+                            **controller_entry,
+                            "route_phase": phase,
+                        },
+                    )
+                except TritonBlueGreenError:
+                    raise
+                except Exception as exc:
+                    raise TritonBlueGreenError(
+                        "causal_controller_receipt_failed",
+                        request.request_id,
+                        status_code=503,
+                    ) from exc
+                if controller_receipt.get("readback_visible") is not True:
+                    raise TritonBlueGreenError(
+                        "causal_controller_receipt_mismatch",
+                        request.request_id,
+                        status_code=503,
+                    )
             with trace_span(
                 "s6bm.controller.predict",
                 kind="internal",
                 attributes=span_attributes,
             ) as controller_span:
+                if cached_result is not None:
+                    receipt = await self._commit_terminal_effect(
+                        request,
+                        cached_result.model_copy(update={"durable_effect": None}),
+                        terminal_effect_committer,
+                        span_attributes,
+                    )
+                    controller_span.set_attribute("evm.request.replayed", True)
+                    controller_span.set_attribute("evm.terminal.outcome", "completed")
+                    return cached_result.model_copy(
+                        update={"replayed": True, "durable_effect": receipt}
+                    )
                 payload = {
+                    "id": request.request_nonce,
                     "inputs": [
                         {
                             "name": "INPUT__0",
@@ -446,6 +793,7 @@ class TritonBlueGreenManager:
                             f"{triton_url}/v2/models/{identity.model_name}/versions/"
                             f"{identity.model_version}/infer",
                             json=payload,
+                            headers={"traceparent": request.traceparent},
                         )
                     inference_span.set_attribute("http.response.status_code", response.status_code)
                     response.raise_for_status()
@@ -471,22 +819,48 @@ class TritonBlueGreenManager:
                     model_name=identity.model_name,
                     model_version=identity.model_version,
                     artifact_sha256=identity.artifact_sha256,
+                    route_phase=phase,
                     output=values,
+                    result_sha256=_result_digest(
+                        request,
+                        identity,
+                        role=role,
+                        generation=generation,
+                        phase=phase,
+                        output=values,
+                    ),
                     elapsed_ms=elapsed_ms,
+                )
+                receipt = await self._commit_terminal_effect(
+                    request,
+                    result,
+                    terminal_effect_committer,
+                    span_attributes,
+                )
+                result = result.model_copy(
+                    update={"replayed": receipt.replayed, "durable_effect": receipt}
                 )
                 with self._lock:
                     current = self._require_state(request.run_id)
-                    current.responses[request.request_id] = (digest, result)
-                REQUESTS.labels(
-                    role, identity.model_name, identity.model_version, "completed"
-                ).inc()
-                TERMINAL_EFFECTS.labels(
-                    role, identity.model_name, identity.model_version, "committed"
-                ).inc()
-                LATENCY.labels(role, identity.model_name, identity.model_version).observe(
-                    elapsed_ms / 1000
-                )
+                    original = current.responses.get(request.request_id)
+                    if original is None:
+                        current.responses[request.request_id] = (digest, result)
+                    elif original[0] != digest:
+                        raise TritonBlueGreenError(
+                            "idempotency_payload_mismatch", request.request_id, status_code=409
+                        )
+                if not receipt.replayed:
+                    REQUESTS.labels(
+                        role, identity.model_name, identity.model_version, "completed"
+                    ).inc()
+                    TERMINAL_EFFECTS.labels(
+                        role, identity.model_name, identity.model_version, "committed"
+                    ).inc()
+                    LATENCY.labels(role, identity.model_name, identity.model_version).observe(
+                        elapsed_ms / 1000
+                    )
                 controller_span.set_attribute("evm.terminal.outcome", "completed")
+                controller_span.set_attribute("evm.request.replayed", receipt.replayed)
                 return result
         except Exception:
             REQUESTS.labels(role, identity.model_name, identity.model_version, "failed").inc()
@@ -494,11 +868,97 @@ class TritonBlueGreenManager:
         finally:
             with self._lock:
                 current = self._state
-                if current is not None and current.request.run_id == request.run_id:
+                if (
+                    counted_in_flight
+                    and current is not None
+                    and current.request.run_id == request.run_id
+                ):
                     current.in_flight[role] = max(0, current.in_flight[role] - 1)
                     IN_FLIGHT.labels(role, identity.model_name, identity.model_version).set(
                         current.in_flight[role]
                     )
+
+    async def _commit_terminal_effect(
+        self,
+        request: TritonBlueGreenPredictRequest,
+        result: TritonBlueGreenPredictResponse,
+        committer: TerminalEffectCommitter | None,
+        span_attributes: Mapping[str, str | int],
+    ) -> TritonBlueGreenDurableEffectReceipt:
+        if committer is None:
+            if os.getenv("EVM_S6BM_REQUIRE_DURABLE_EFFECT", "0").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }:
+                raise TritonBlueGreenError(
+                    "durable_effect_store_unavailable",
+                    request.request_id,
+                    status_code=503,
+                )
+            now = time.perf_counter_ns()
+            return TritonBlueGreenDurableEffectReceipt(
+                entity_kind="s6bm_terminal_effect",
+                entity_id=result.effect_id,
+                request_sha256=_request_digest(request),
+                stored_payload_sha256=hashlib.sha256(
+                    canonical(result.model_dump(mode="json", exclude={"durable_effect"})).encode(
+                        "ascii"
+                    )
+                ).hexdigest(),
+                database_recorded_at="1970-01-01T00:00:00Z",
+                entity_created_at="1970-01-01T00:00:00Z",
+                idempotency_created_at="1970-01-01T00:00:00Z",
+                readback_at="1970-01-01T00:00:00Z",
+                transaction_id="test-only-nondurable",
+                synchronous_commit="on",
+                commit_ack_monotonic_ns=now,
+                readback_started_monotonic_ns=now,
+                readback_finished_monotonic_ns=now,
+                readback_visible=True,
+                replayed=False,
+            )
+        with trace_span(
+            "s6bm.terminal_effect.commit",
+            kind="internal",
+            attributes={**span_attributes, "evm.stage": "durable_terminal_effect"},
+        ) as effect_span:
+            try:
+                raw_receipt = await committer(request, result)
+                receipt = TritonBlueGreenDurableEffectReceipt.model_validate(raw_receipt)
+            except TritonBlueGreenError:
+                raise
+            except Exception as exc:
+                raise TritonBlueGreenError(
+                    "durable_effect_commit_failed",
+                    request.request_id,
+                    status_code=503,
+                ) from exc
+            if (
+                receipt.entity_id != result.effect_id
+                or receipt.readback_visible is not True
+                or receipt.synchronous_commit != "on"
+                or (
+                    _strict_causal_required()
+                    and (
+                        receipt.causal_sequence is None
+                        or receipt.causal_payload_sha256 is None
+                    )
+                )
+            ):
+                raise TritonBlueGreenError(
+                    "durable_effect_receipt_mismatch",
+                    request.request_id,
+                    status_code=503,
+                )
+            for key, value in {
+                "evm.effect.transaction.id": receipt.transaction_id,
+                "evm.effect.readback.visible": receipt.readback_visible,
+                "evm.effect.replayed": receipt.replayed,
+                "evm.terminal.outcome": "completed",
+            }.items():
+                effect_span.set_attribute(key, value)
+            return receipt
 
     def snapshot(self) -> TritonBlueGreenStateResponse:
         with self._lock:

@@ -33,6 +33,7 @@ SCHEMA_VERSIONS = (
     "003_task_queue_safety",
     "004_task_entity_storage",
     "005_task_queue_operational_safety",
+    "006_s6bm_causal_receipts",
 )
 CONTROL_PLANE_DB_POOL_ACQUIRE_SECONDS = Histogram(
     "evm_control_plane_db_pool_acquire_seconds",
@@ -262,6 +263,11 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _utc_iso(value: datetime) -> str:
+    observed = value if value.tzinfo else value.replace(tzinfo=UTC)
+    return observed.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 def canonical_digest(payload: object) -> str:
     encoded = json.dumps(
         payload,
@@ -270,6 +276,39 @@ def canonical_digest(payload: object) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+_S6BM_CAUSAL_IDENTITY_FIELDS = (
+    "attempt_id",
+    "run_id",
+    "request_id",
+    "request_nonce",
+    "trace_id",
+    "effect_id",
+    "model_role",
+    "model_name",
+    "model_version",
+    "artifact_sha256",
+    "route_generation",
+)
+
+
+def _validate_s6bm_causal_identity(payload: Mapping[str, Any]) -> dict[str, Any]:
+    identity = {field: payload.get(field) for field in _S6BM_CAUSAL_IDENTITY_FIELDS}
+    if any(value is None or value == "" for value in identity.values()):
+        missing = [
+            field for field, value in identity.items() if value is None or value == ""
+        ]
+        raise ControlPlaneParityError(f"S6B-M causal identity is incomplete: {missing}")
+    if len(str(identity["trace_id"])) != 32:
+        raise ControlPlaneParityError("S6B-M causal trace identity is invalid")
+    if len(str(identity["effect_id"])) != 64:
+        raise ControlPlaneParityError("S6B-M causal effect identity is invalid")
+    if len(str(identity["artifact_sha256"])) != 64:
+        raise ControlPlaneParityError("S6B-M causal artifact identity is invalid")
+    if int(identity["route_generation"]) < 1:
+        raise ControlPlaneParityError("S6B-M causal route generation is invalid")
+    return identity
 
 
 def _advisory_key(scope: str) -> int:
@@ -858,6 +897,377 @@ class TransactionalControlPlaneStore:
                         f"idempotency key {key!r} conflicts with an existing request"
                     )
 
+    @staticmethod
+    def _s6bm_causal_row(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "causal_sequence": int(row["causal_sequence"]),
+            "event_type": str(row["event_type"]),
+            "attempt_id": str(row["attempt_id"]),
+            "run_id": str(row["run_id"]),
+            "request_id": str(row["request_id"]),
+            "request_nonce": str(row["request_nonce"]),
+            "trace_id": str(row["trace_id"]),
+            "effect_id": str(row["effect_id"]),
+            "model_role": str(row["model_role"]),
+            "model_name": str(row["model_name"]),
+            "model_version": str(row["model_version"]),
+            "artifact_sha256": str(row["artifact_sha256"]),
+            "route_generation": int(row["route_generation"]),
+            "actor_identity": str(row["actor_identity"]),
+            "payload_sha256": str(row["payload_sha256"]),
+            "payload": dict(row["payload"]),
+            "transaction_id": str(row["transaction_id"]),
+            "database_recorded_at": _utc_iso(row["database_recorded_at"]),
+        }
+
+    def _insert_s6bm_causal_event(
+        self,
+        connection: Any,
+        *,
+        event_type: str,
+        payload: Mapping[str, Any],
+        actor_identity: str,
+    ) -> tuple[dict[str, Any], bool]:
+        schema = _safe_identifier(self.configuration.schema)
+        identity = _validate_s6bm_causal_identity(payload)
+        stored_payload = dict(payload)
+        payload_sha256 = canonical_digest(stored_payload)
+        row = connection.execute(
+            f"""
+            INSERT INTO {schema}.s6bm_causal_events
+                (event_type, attempt_id, run_id, request_id, request_nonce,
+                 trace_id, effect_id, model_role, model_name, model_version,
+                 artifact_sha256, route_generation, actor_identity,
+                 payload_sha256, payload, transaction_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, txid_current())
+            ON CONFLICT (attempt_id, request_id, event_type) DO NOTHING
+            RETURNING *
+            """,
+            (
+                event_type,
+                identity["attempt_id"],
+                identity["run_id"],
+                identity["request_id"],
+                identity["request_nonce"],
+                identity["trace_id"],
+                identity["effect_id"],
+                identity["model_role"],
+                identity["model_name"],
+                identity["model_version"],
+                identity["artifact_sha256"],
+                int(identity["route_generation"]),
+                actor_identity,
+                payload_sha256,
+                self._json(stored_payload),
+            ),
+        ).fetchone()
+        replayed = row is None
+        if row is None:
+            row = connection.execute(
+                f"""
+                SELECT * FROM {schema}.s6bm_causal_events
+                WHERE attempt_id=%s AND request_id=%s AND event_type=%s
+                FOR UPDATE
+                """,
+                (identity["attempt_id"], identity["request_id"], event_type),
+            ).fetchone()
+            if row is None:
+                raise ControlPlaneParityError("S6B-M causal event conflict disappeared")
+        projected = self._s6bm_causal_row(row)
+        if (
+            projected["payload_sha256"] != payload_sha256
+            or projected["payload"] != stored_payload
+            or projected["actor_identity"] != actor_identity
+        ):
+            raise ControlPlaneIdempotencyConflict(
+                f"S6B-M causal event {event_type!r} was reused with different evidence"
+            )
+        return projected, replayed
+
+    def _readback_s6bm_causal_event(
+        self,
+        *,
+        attempt_id: str,
+        request_id: str,
+        event_type: str,
+    ) -> dict[str, Any]:
+        schema = _safe_identifier(self.configuration.schema)
+        with self.transaction("s6bm_causal_readback") as connection:
+            row = connection.execute(
+                f"""
+                SELECT event.*, clock_timestamp() AS readback_at
+                FROM {schema}.s6bm_causal_events event
+                WHERE attempt_id=%s AND request_id=%s AND event_type=%s
+                """,
+                (attempt_id, request_id, event_type),
+            ).fetchone()
+        if row is None:
+            raise ControlPlaneParityError("S6B-M causal event was not visible after commit ACK")
+        projected = self._s6bm_causal_row(row)
+        projected["readback_at"] = _utc_iso(row["readback_at"])
+        projected["readback_visible"] = True
+        return projected
+
+    def commit_s6bm_start_receipt(
+        self,
+        *,
+        event_type: str,
+        payload: Mapping[str, Any],
+        actor_identity: str,
+    ) -> dict[str, Any]:
+        """Commit and read back one actor start receipt before route switch."""
+        if event_type not in {
+            "api_server_handler_entry",
+            "controller_entry",
+            "triton_backend_compute_entry",
+        }:
+            raise ControlPlaneParityError("unsupported S6B-M start receipt type")
+        if not self.enabled:
+            raise ControlPlaneStoreUnavailable("S6B-M causal receipts require PostgreSQL")
+        identity = _validate_s6bm_causal_identity(payload)
+        with self.serialized(
+            f"s6bm-causal:{identity['attempt_id']}:{identity['request_id']}"
+        ) as connection:
+            connection.execute("SELECT set_config('synchronous_commit', 'on', true)")
+            event, replayed = self._insert_s6bm_causal_event(
+                connection,
+                event_type=event_type,
+                payload=payload,
+                actor_identity=actor_identity,
+            )
+        commit_ack_monotonic_ns = time.perf_counter_ns()
+        readback = self._readback_s6bm_causal_event(
+            attempt_id=str(identity["attempt_id"]),
+            request_id=str(identity["request_id"]),
+            event_type=event_type,
+        )
+        if readback["payload_sha256"] != event["payload_sha256"]:
+            raise ControlPlaneParityError("S6B-M start receipt readback changed")
+        return {
+            **readback,
+            "schema_version": "evm.s6bm.causal_receipt.v1",
+            "commit_ack_monotonic_ns": commit_ack_monotonic_ns,
+            "replayed": replayed,
+        }
+
+    def commit_s6bm_route_switch_fence(
+        self,
+        *,
+        crossover_identity: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Append route switch only after all three actor receipts are visible."""
+        if not self.enabled:
+            raise ControlPlaneStoreUnavailable("S6B-M route fence requires PostgreSQL")
+        identity = _validate_s6bm_causal_identity(crossover_identity)
+        required = {
+            "api_server_handler_entry",
+            "controller_entry",
+            "triton_backend_compute_entry",
+        }
+        schema = _safe_identifier(self.configuration.schema)
+        with self.serialized(
+            f"s6bm-causal:{identity['attempt_id']}:{identity['request_id']}"
+        ) as connection:
+            connection.execute("SELECT set_config('synchronous_commit', 'on', true)")
+            rows = connection.execute(
+                f"""
+                SELECT * FROM {schema}.s6bm_causal_events
+                WHERE attempt_id=%s AND request_id=%s
+                  AND event_type=ANY(%s)
+                ORDER BY causal_sequence
+                FOR UPDATE
+                """,
+                (identity["attempt_id"], identity["request_id"], list(required)),
+            ).fetchall()
+            events = [self._s6bm_causal_row(row) for row in rows]
+            if {event["event_type"] for event in events} != required or len(events) != 3:
+                raise ControlPlaneParityError("S6B-M route switch start receipts are incomplete")
+            for event in events:
+                if any(event[field] != identity[field] for field in _S6BM_CAUSAL_IDENTITY_FIELDS):
+                    raise ControlPlaneParityError(
+                        "S6B-M route switch start receipt identity mismatch"
+                    )
+                actor_start = int(event["payload"].get("actor_start_unix_ns", 0))
+                if actor_start <= 0:
+                    raise ControlPlaneParityError(
+                        "S6B-M actor start timestamp is absent"
+                    )
+                anchor = (
+                    event["payload"].get("collector_observation")
+                    if event["event_type"] == "triton_backend_compute_entry"
+                    else event["payload"]
+                )
+                if not isinstance(anchor, Mapping) or not (
+                    0
+                    < int(anchor.get("monotonic_before_ns", 0))
+                    <= int(anchor.get("monotonic_after_ns", 0))
+                ):
+                    raise ControlPlaneParityError("S6B-M actor clock anchor is invalid")
+            switch_payload = {
+                **identity,
+                "schema_version": "evm.s6bm.route_switch_fence.v1",
+                "receipt_sequences": {
+                    event["event_type"]: event["causal_sequence"] for event in events
+                },
+                "receipt_payload_sha256": {
+                    event["event_type"]: event["payload_sha256"] for event in events
+                },
+                "receipt_transaction_ids": {
+                    event["event_type"]: event["transaction_id"] for event in events
+                },
+            }
+            switch, replayed = self._insert_s6bm_causal_event(
+                connection,
+                event_type="blue_to_green_switch_commit",
+                payload=switch_payload,
+                actor_identity="control-plane-route-switch",
+            )
+            if any(
+                int(sequence) >= switch["causal_sequence"]
+                for sequence in switch_payload["receipt_sequences"].values()
+            ):
+                raise ControlPlaneParityError("S6B-M route switch causal sequence regressed")
+        commit_ack_monotonic_ns = time.perf_counter_ns()
+        readback = self._readback_s6bm_causal_event(
+            attempt_id=str(identity["attempt_id"]),
+            request_id=str(identity["request_id"]),
+            event_type="blue_to_green_switch_commit",
+        )
+        return {
+            **readback,
+            "schema_version": "evm.s6bm.route_switch_receipt.v1",
+            "commit_ack_monotonic_ns": commit_ack_monotonic_ns,
+            "replayed": replayed,
+        }
+
+    def commit_s6bm_unload_intent(
+        self,
+        *,
+        crossover_identity: Mapping[str, Any],
+        pre_switch_blue_effects: Sequence[Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Fence Blue unload after every pre-switch Blue terminal effect."""
+        if not self.enabled:
+            raise ControlPlaneStoreUnavailable("S6B-M unload fence requires PostgreSQL")
+        identity = _validate_s6bm_causal_identity(crossover_identity)
+        schema = _safe_identifier(self.configuration.schema)
+        with self.serialized(f"s6bm-causal-unload:{identity['attempt_id']}") as connection:
+            connection.execute("SELECT set_config('synchronous_commit', 'on', true)")
+            switch_row = connection.execute(
+                f"""
+                SELECT * FROM {schema}.s6bm_causal_events
+                WHERE attempt_id=%s AND request_id=%s
+                  AND event_type='blue_to_green_switch_commit'
+                FOR UPDATE
+                """,
+                (identity["attempt_id"], identity["request_id"]),
+            ).fetchone()
+            if switch_row is None:
+                raise ControlPlaneParityError("S6B-M unload intent has no route switch")
+            switch = self._s6bm_causal_row(switch_row)
+            starts = connection.execute(
+                f"""
+                SELECT request_id, causal_sequence FROM {schema}.s6bm_causal_events
+                WHERE attempt_id=%s AND event_type='api_server_handler_entry'
+                  AND model_role='blue' AND causal_sequence < %s
+                ORDER BY request_id
+                FOR UPDATE
+                """,
+                (identity["attempt_id"], switch["causal_sequence"]),
+            ).fetchall()
+            receipt_ids = [str(row["request_id"]) for row in starts]
+            stale = connection.execute(
+                f"""
+                SELECT count(*) AS count FROM {schema}.s6bm_causal_events
+                WHERE attempt_id=%s AND event_type='api_server_handler_entry'
+                  AND model_role='blue' AND causal_sequence > %s
+                """,
+                (identity["attempt_id"], switch["causal_sequence"]),
+            ).fetchone()
+            if int(stale["count"]) != 0:
+                raise ControlPlaneParityError("S6B-M stale Blue admission followed route switch")
+            if not receipt_ids or identity["request_id"] not in receipt_ids:
+                raise ControlPlaneParityError("S6B-M pre-switch Blue request set is incomplete")
+            expected_by_request = {
+                str(item.get("request_id")): str(item.get("effect_id"))
+                for item in pre_switch_blue_effects
+            }
+            if (
+                not expected_by_request
+                or "" in expected_by_request
+                or identity["request_id"] not in expected_by_request
+                or len(expected_by_request) != len(pre_switch_blue_effects)
+            ):
+                raise ControlPlaneParityError(
+                    "S6B-M expected pre-switch Blue effect set is invalid"
+                )
+            pre_switch_ids = sorted(expected_by_request)
+            effects = connection.execute(
+                f"""
+                SELECT request_id, effect_id, causal_sequence
+                FROM {schema}.s6bm_causal_events
+                WHERE attempt_id=%s AND event_type='durable_terminal_effect_commit'
+                  AND request_id=ANY(%s)
+                ORDER BY request_id
+                FOR UPDATE
+                """,
+                (identity["attempt_id"], pre_switch_ids),
+            ).fetchall()
+            effect_by_request = {
+                str(row["request_id"]): {
+                    "effect_id": str(row["effect_id"]),
+                    "causal_sequence": int(row["causal_sequence"]),
+                }
+                for row in effects
+            }
+            if set(effect_by_request) != set(pre_switch_ids):
+                raise ControlPlaneParityError(
+                    "S6B-M Blue unload preceded one or more terminal effects"
+                )
+            if any(
+                effect_by_request[request_id]["effect_id"] != effect_id
+                for request_id, effect_id in expected_by_request.items()
+            ):
+                raise ControlPlaneParityError(
+                    "S6B-M Blue unload effect identity set does not match runtime state"
+                )
+            unload_payload = {
+                **identity,
+                "schema_version": "evm.s6bm.unload_intent.v1",
+                "switch_sequence": switch["causal_sequence"],
+                "pre_switch_blue_request_count": len(pre_switch_ids),
+                "pre_switch_blue_request_set_sha256": canonical_digest(pre_switch_ids),
+                "pre_switch_blue_effect_set_sha256": canonical_digest(
+                    sorted(expected_by_request.items())
+                ),
+                "last_terminal_effect_sequence": max(
+                    int(item["causal_sequence"]) for item in effect_by_request.values()
+                ),
+            }
+            unload, replayed = self._insert_s6bm_causal_event(
+                connection,
+                event_type="blue_unload_intent",
+                payload=unload_payload,
+                actor_identity="control-plane-blue-unload",
+            )
+            if unload["causal_sequence"] <= max(
+                int(item["causal_sequence"]) for item in effect_by_request.values()
+            ):
+                raise ControlPlaneParityError("S6B-M unload intent causal sequence regressed")
+        commit_ack_monotonic_ns = time.perf_counter_ns()
+        readback = self._readback_s6bm_causal_event(
+            attempt_id=str(identity["attempt_id"]),
+            request_id=str(identity["request_id"]),
+            event_type="blue_unload_intent",
+        )
+        return {
+            **readback,
+            "schema_version": "evm.s6bm.unload_intent_receipt.v1",
+            "commit_ack_monotonic_ns": commit_ack_monotonic_ns,
+            "replayed": replayed,
+        }
+
     def commit_idempotent_terminal_entity(
         self,
         *,
@@ -941,6 +1351,348 @@ class TransactionalControlPlaneStore:
                 ),
             )
             return stored, False
+
+    def commit_idempotent_terminal_entity_with_receipt(
+        self,
+        *,
+        scope: str,
+        idempotency_key: str,
+        request_payload: Mapping[str, Any],
+        entity_kind: str,
+        entity_id: str,
+        response_payload: Mapping[str, Any],
+        state: str,
+        causal_payload: Mapping[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], bool, dict[str, Any]]:
+        """Commit one terminal effect and prove visibility after the commit ACK.
+
+        The write transaction binds the entity and idempotency response with
+        ``synchronous_commit=on``. A separate transaction then reads both rows
+        back. The two database clock samples form a conservative interval around
+        the commit; the controller span end remains only an upper-bound signal.
+        """
+        if not self.enabled:
+            raise ControlPlaneStoreUnavailable(
+                "durable terminal-effect receipts require the PostgreSQL store"
+            )
+        if not idempotency_key:
+            raise ControlPlaneIdempotencyConflict("idempotency key is required")
+        schema = _safe_identifier(self.configuration.schema)
+        request_sha256 = canonical_digest(request_payload)
+        replayed = False
+        causal_event: dict[str, Any] | None = None
+        with self.serialized(
+            f"idempotent-terminal:{scope}:{idempotency_key}"
+        ) as connection:
+            connection.execute("SELECT set_config('synchronous_commit', 'on', true)")
+            existing = connection.execute(
+                f"""
+                SELECT request_sha256, response_payload, entity_kind, entity_id
+                FROM {schema}.idempotency_keys
+                WHERE scope=%s AND idempotency_key=%s
+                FOR UPDATE
+                """,
+                (scope, idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                if existing["request_sha256"] != request_sha256:
+                    raise ControlPlaneIdempotencyConflict(
+                        f"idempotency key {idempotency_key!r} was reused with a different request"
+                    )
+                if (
+                    existing["entity_kind"] != entity_kind
+                    or existing["entity_id"] != entity_id
+                ):
+                    raise ControlPlaneParityError(
+                        "idempotency identity points to a different terminal entity"
+                    )
+                stored = dict(existing["response_payload"])
+                replayed = True
+                if causal_payload is not None:
+                    causal_identity = _validate_s6bm_causal_identity(causal_payload)
+                    if causal_payload.get("requires_switch_before_effect") is True:
+                        switch = connection.execute(
+                            f"""
+                            SELECT causal_sequence FROM {schema}.s6bm_causal_events
+                            WHERE attempt_id=%s AND request_id=%s
+                              AND event_type='blue_to_green_switch_commit'
+                            FOR UPDATE
+                            """,
+                            (
+                                causal_identity["attempt_id"],
+                                causal_identity["request_id"],
+                            ),
+                        ).fetchone()
+                        if switch is None:
+                            raise ControlPlaneParityError(
+                                "S6B-M crossover effect preceded route switch"
+                            )
+                    causal_event, causal_replayed = self._insert_s6bm_causal_event(
+                        connection,
+                        event_type="durable_terminal_effect_commit",
+                        payload=causal_payload,
+                        actor_identity="control-plane-terminal-effect",
+                    )
+                    if causal_replayed is not True:
+                        raise ControlPlaneParityError(
+                            "S6B-M replay unexpectedly created a terminal causal event"
+                        )
+            else:
+                orphan = connection.execute(
+                    f"""
+                    SELECT payload FROM {schema}.entities
+                    WHERE entity_kind=%s AND entity_id=%s
+                    FOR UPDATE
+                    """,
+                    (entity_kind, entity_id),
+                ).fetchone()
+                if orphan is not None:
+                    raise ControlPlaneParityError(
+                        f"terminal entity {entity_kind}/{entity_id} exists without idempotency identity"
+                    )
+                write_identity = connection.execute(
+                    """
+                    SELECT clock_timestamp() AS database_recorded_at,
+                           txid_current()::text AS transaction_id,
+                           current_setting('synchronous_commit') AS synchronous_commit
+                    """
+                ).fetchone()
+                if causal_payload is not None:
+                    causal_identity = _validate_s6bm_causal_identity(causal_payload)
+                    switch_sequence: int | None = None
+                    if causal_payload.get("requires_switch_before_effect") is True:
+                        switch = connection.execute(
+                            f"""
+                            SELECT causal_sequence FROM {schema}.s6bm_causal_events
+                            WHERE attempt_id=%s AND request_id=%s
+                              AND event_type='blue_to_green_switch_commit'
+                            FOR UPDATE
+                            """,
+                            (
+                                causal_identity["attempt_id"],
+                                causal_identity["request_id"],
+                            ),
+                        ).fetchone()
+                        if switch is None:
+                            raise ControlPlaneParityError(
+                                "S6B-M crossover effect preceded route switch"
+                            )
+                        switch_sequence = int(switch["causal_sequence"])
+                    causal_event, causal_replayed = self._insert_s6bm_causal_event(
+                        connection,
+                        event_type="durable_terminal_effect_commit",
+                        payload=causal_payload,
+                        actor_identity="control-plane-terminal-effect",
+                    )
+                    if causal_replayed:
+                        raise ControlPlaneParityError(
+                            "S6B-M new terminal entity found an existing causal event"
+                        )
+                    if (
+                        switch_sequence is not None
+                        and causal_event["causal_sequence"] <= switch_sequence
+                    ):
+                        raise ControlPlaneParityError(
+                            "S6B-M crossover effect causal sequence preceded switch"
+                        )
+                stored = {
+                    **dict(response_payload),
+                    "durable_commit": {
+                        "schema_version": "evm.s6bm.durable_commit.v1",
+                        "database_recorded_at": _utc_iso(
+                            write_identity["database_recorded_at"]
+                        ),
+                        "transaction_id": str(write_identity["transaction_id"]),
+                        "synchronous_commit": str(write_identity["synchronous_commit"]),
+                        "causal_sequence": (
+                            causal_event["causal_sequence"] if causal_event is not None else None
+                        ),
+                        "causal_payload_sha256": (
+                            causal_event["payload_sha256"] if causal_event is not None else None
+                        ),
+                    },
+                }
+                connection.execute(
+                    f"""
+                    INSERT INTO {schema}.entities
+                        (entity_kind, entity_id, version, state, payload)
+                    VALUES (%s, %s, 1, %s, %s)
+                    """,
+                    (entity_kind, entity_id, state, self._json(stored)),
+                )
+                connection.execute(
+                    f"""
+                    INSERT INTO {schema}.idempotency_keys
+                        (scope, idempotency_key, request_sha256, entity_kind, entity_id,
+                         response_payload)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        scope,
+                        idempotency_key,
+                        request_sha256,
+                        entity_kind,
+                        entity_id,
+                        self._json(stored),
+                    ),
+                )
+
+        commit_ack_monotonic_ns = time.perf_counter_ns()
+        readback_started_monotonic_ns = time.perf_counter_ns()
+        with self.transaction("terminal_effect_readback") as connection:
+            row = connection.execute(
+                f"""
+                SELECT entity.payload AS entity_payload,
+                       entity.state AS entity_state,
+                       entity.created_at AS entity_created_at,
+                       identity.response_payload AS idempotency_payload,
+                       identity.request_sha256,
+                       identity.created_at AS idempotency_created_at,
+                       clock_timestamp() AS readback_at
+                FROM {schema}.entities entity
+                JOIN {schema}.idempotency_keys identity
+                  ON identity.entity_kind=entity.entity_kind
+                 AND identity.entity_id=entity.entity_id
+                WHERE entity.entity_kind=%s AND entity.entity_id=%s
+                  AND identity.scope=%s AND identity.idempotency_key=%s
+                """,
+                (entity_kind, entity_id, scope, idempotency_key),
+            ).fetchone()
+            causal_row = None
+            if causal_payload is not None:
+                identity = _validate_s6bm_causal_identity(causal_payload)
+                causal_row = connection.execute(
+                    f"""
+                    SELECT * FROM {schema}.s6bm_causal_events
+                    WHERE attempt_id=%s AND request_id=%s
+                      AND event_type='durable_terminal_effect_commit'
+                    """,
+                    (identity["attempt_id"], identity["request_id"]),
+                ).fetchone()
+        readback_finished_monotonic_ns = time.perf_counter_ns()
+        if row is None:
+            raise ControlPlaneParityError("terminal effect was not visible after commit ACK")
+        entity_payload = dict(row["entity_payload"])
+        idempotency_payload = dict(row["idempotency_payload"])
+        if (
+            entity_payload != stored
+            or idempotency_payload != stored
+            or row["entity_state"] != state
+            or row["request_sha256"] != request_sha256
+        ):
+            raise ControlPlaneParityError("terminal effect readback parity failed")
+        durable_commit = dict(stored.get("durable_commit", {}))
+        if durable_commit.get("synchronous_commit") != "on":
+            raise ControlPlaneParityError("terminal effect did not use synchronous_commit=on")
+        database_recorded_at = _parse_datetime(
+            str(durable_commit.get("database_recorded_at", ""))
+        )
+        if row["readback_at"] < database_recorded_at:
+            raise ControlPlaneParityError("terminal effect readback clock regressed")
+        causal_readback = self._s6bm_causal_row(causal_row) if causal_row is not None else None
+        if causal_payload is not None:
+            if causal_readback is None:
+                raise ControlPlaneParityError("terminal causal event was not visible after commit")
+            if (
+                causal_readback["payload"] != dict(causal_payload)
+                or causal_readback["causal_sequence"]
+                != int(durable_commit.get("causal_sequence", -1))
+                or causal_readback["transaction_id"]
+                != str(durable_commit.get("transaction_id", ""))
+            ):
+                raise ControlPlaneParityError("terminal causal event transaction parity failed")
+        receipt = {
+            "schema_version": "evm.s6bm.durable_effect_receipt.v1",
+            "entity_kind": entity_kind,
+            "entity_id": entity_id,
+            "request_sha256": request_sha256,
+            "stored_payload_sha256": canonical_digest(stored),
+            "database_recorded_at": _utc_iso(database_recorded_at),
+            "entity_created_at": _utc_iso(row["entity_created_at"]),
+            "idempotency_created_at": _utc_iso(row["idempotency_created_at"]),
+            "readback_at": _utc_iso(row["readback_at"]),
+            "transaction_id": str(durable_commit.get("transaction_id", "")),
+            "synchronous_commit": "on",
+            "commit_ack_monotonic_ns": commit_ack_monotonic_ns,
+            "readback_started_monotonic_ns": readback_started_monotonic_ns,
+            "readback_finished_monotonic_ns": readback_finished_monotonic_ns,
+            "readback_visible": True,
+            "replayed": replayed,
+            "causal_sequence": (
+                causal_readback["causal_sequence"] if causal_readback is not None else None
+            ),
+            "causal_payload_sha256": (
+                causal_readback["payload_sha256"] if causal_readback is not None else None
+            ),
+        }
+        return stored, replayed, receipt
+
+    def list_idempotent_terminal_entities(
+        self,
+        *,
+        entity_kind: str,
+        attempt_id: str,
+    ) -> list[dict[str, Any]]:
+        """Read back an attempt's durable effects with database row identity."""
+        if not self.enabled:
+            raise ControlPlaneStoreUnavailable(
+                "durable terminal-effect readback requires the PostgreSQL store"
+            )
+        schema = _safe_identifier(self.configuration.schema)
+        with self.transaction("terminal_effect_attempt_readback") as connection:
+            rows = connection.execute(
+                f"""
+                SELECT entity.entity_id, entity.state, entity.payload,
+                       entity.created_at, entity.updated_at,
+                       identity.scope, identity.idempotency_key,
+                       identity.request_sha256,
+                       identity.created_at AS idempotency_created_at,
+                       clock_timestamp() AS captured_at
+                FROM {schema}.entities entity
+                JOIN {schema}.idempotency_keys identity
+                  ON identity.entity_kind=entity.entity_kind
+                 AND identity.entity_id=entity.entity_id
+                WHERE entity.entity_kind=%s
+                  AND entity.payload->>'attempt_id'=%s
+                ORDER BY entity.entity_id
+                """,
+                (entity_kind, attempt_id),
+            ).fetchall()
+        return [
+            {
+                "entity_id": row["entity_id"],
+                "state": row["state"],
+                "payload": dict(row["payload"]),
+                "entity_created_at": _utc_iso(row["created_at"]),
+                "entity_updated_at": _utc_iso(row["updated_at"]),
+                "scope": row["scope"],
+                "idempotency_key": row["idempotency_key"],
+                "request_sha256": row["request_sha256"],
+                "idempotency_created_at": _utc_iso(row["idempotency_created_at"]),
+                "captured_at": _utc_iso(row["captured_at"]),
+            }
+            for row in rows
+        ]
+
+    def list_s6bm_causal_events(self, *, attempt_id: str) -> list[dict[str, Any]]:
+        """Export immutable causal receipts for independent evidence recomputation."""
+        if not self.enabled:
+            raise ControlPlaneStoreUnavailable("S6B-M causal export requires PostgreSQL")
+        schema = _safe_identifier(self.configuration.schema)
+        with self.transaction("s6bm_causal_attempt_readback") as connection:
+            rows = connection.execute(
+                f"""
+                SELECT event.*, clock_timestamp() AS captured_at
+                FROM {schema}.s6bm_causal_events event
+                WHERE attempt_id=%s
+                ORDER BY causal_sequence
+                """,
+                (attempt_id,),
+            ).fetchall()
+        return [
+            {**self._s6bm_causal_row(row), "captured_at": _utc_iso(row["captured_at"])}
+            for row in rows
+        ]
 
     def admit_task_assignment(
         self,
@@ -4016,6 +4768,37 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
         CREATE INDEX IF NOT EXISTS idempotency_retention_idx
         ON {schema}.idempotency_keys(compacted_at, retain_until, created_at)
         WHERE compacted_at IS NOT NULL
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS {schema}.s6bm_causal_events (
+            causal_sequence bigserial PRIMARY KEY,
+            event_type text NOT NULL,
+            attempt_id text NOT NULL,
+            run_id text NOT NULL,
+            request_id text NOT NULL,
+            request_nonce text NOT NULL,
+            trace_id char(32) NOT NULL,
+            effect_id char(64) NOT NULL,
+            model_role text NOT NULL CHECK (model_role IN ('blue', 'green')),
+            model_name text NOT NULL,
+            model_version text NOT NULL,
+            artifact_sha256 char(64) NOT NULL,
+            route_generation bigint NOT NULL CHECK (route_generation >= 1),
+            actor_identity text NOT NULL,
+            payload_sha256 char(64) NOT NULL,
+            payload jsonb NOT NULL,
+            transaction_id bigint NOT NULL,
+            database_recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+            UNIQUE (attempt_id, request_id, event_type)
+        )
+        """,
+        f"""
+        CREATE INDEX IF NOT EXISTS s6bm_causal_attempt_sequence_idx
+        ON {schema}.s6bm_causal_events(attempt_id, causal_sequence)
+        """,
+        f"""
+        CREATE INDEX IF NOT EXISTS s6bm_causal_attempt_type_idx
+        ON {schema}.s6bm_causal_events(attempt_id, event_type, model_role)
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {schema}.lifecycle_claims (

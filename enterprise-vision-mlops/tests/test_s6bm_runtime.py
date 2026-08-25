@@ -19,6 +19,7 @@ from evm.scale_validation.s6bm_runtime import (
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
+V3_CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v3.toml"
 
 
 def identities() -> dict[str, object]:
@@ -46,6 +47,22 @@ def identities() -> dict[str, object]:
             "owner_exact": True,
         },
     }
+
+
+def test_s6bm_v3_contract_freezes_causal_receipt_and_effect_boundaries() -> None:
+    config = S6BMConfig.from_path(V3_CONFIG)
+
+    assert config.schema_version == "evm.s8_v4.s6bm_runtime_config.v3"
+    assert config.causal_fence["required_start_receipts"] == [
+        "api_server_handler_entry",
+        "controller_entry",
+        "triton_backend_compute_entry",
+    ]
+    assert config.causal_fence["route_switch_requires_all_start_receipts"] is True
+    assert config.causal_fence["exact_commit_instant_claimed"] is False
+    assert config.triton_actor_receipt["required_activity"] == "COMPUTE_START"
+    assert config.triton_actor_receipt["missing_or_ambiguous_trace_fails"] is True
+    assert config.durable_effect["same_transaction_causal_receipt"] is True
 
 
 def success_attempt(repetition: int = 1) -> dict[str, object]:

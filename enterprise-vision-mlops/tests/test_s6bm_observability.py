@@ -11,6 +11,7 @@ from evm.scale_validation.s6bm_observability import (
     attempt_span_count,
     collect_attempt_trace_export,
     direct_metric_aggregate,
+    find_triton_compute_start,
     model_lifecycle_counter_delta,
     prometheus_value,
     project_drain_trace_timeline,
@@ -329,6 +330,93 @@ def test_collector_rejects_newline_terminated_malformed_record(tmp_path: Path) -
 
     with pytest.raises(S6BMObservabilityError, match="s6bm_trace_collector_json:2"):
         attempt_span_count(path, ATTEMPT_ID, stage="s6bm_controller")
+
+
+def _write_triton_compute_start(
+    path: Path,
+    *,
+    request_nonce: str = "nonce-blue-causal-0001",
+    trace_id: str = "1" * 32,
+    service_name: str = "triton-inference-server",
+) -> None:
+    payload = {
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": _attributes({"service.name": service_name})
+                },
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "triton"},
+                        "spans": [
+                            {
+                                "traceId": trace_id,
+                                "spanId": "2" * 16,
+                                "parentSpanId": "3" * 16,
+                                "name": "InferRequest",
+                                "startTimeUnixNano": "1000000000",
+                                "endTimeUnixNano": "1002000000",
+                                "attributes": _attributes(
+                                    {
+                                        "request_id": request_nonce,
+                                        "model_name": "s6bm_blue",
+                                        "model_version": "1",
+                                    }
+                                ),
+                                "events": [
+                                    {
+                                        "name": "COMPUTE_START",
+                                        "timeUnixNano": "1001000000",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8", newline="\n")
+
+
+def test_triton_compute_start_requires_exact_actor_and_request_identity(tmp_path: Path) -> None:
+    path = tmp_path / "triton-otel.jsonl"
+    _write_triton_compute_start(path)
+
+    result = find_triton_compute_start(
+        path,
+        request_nonce="nonce-blue-causal-0001",
+        trace_id="1" * 32,
+        model_name="s6bm_blue",
+        model_version="1",
+    )
+
+    assert result is not None
+    assert result["compute_start_unix_ns"] == 1_001_000_000
+    assert result["resource"]["service.name"] == "triton-inference-server"
+    assert (
+        find_triton_compute_start(
+            path,
+            request_nonce="nonce-blue-causal-9999",
+            trace_id="1" * 32,
+            model_name="s6bm_blue",
+            model_version="1",
+        )
+        is None
+    )
+
+    _write_triton_compute_start(path, service_name="substituted-service")
+    with pytest.raises(
+        S6BMObservabilityError,
+        match="s6bm_triton_trace_resource_identity",
+    ):
+        find_triton_compute_start(
+            path,
+            request_nonce="nonce-blue-causal-0001",
+            trace_id="1" * 32,
+            model_name="s6bm_blue",
+            model_version="1",
+        )
 
 
 def test_prometheus_value_aggregates_exact_identity_series() -> None:

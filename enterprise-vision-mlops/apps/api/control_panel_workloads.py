@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import atexit
+import hashlib
 import json
 import os
+from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from opentelemetry import trace as otel_trace
@@ -24,6 +28,11 @@ from evm.control_panel.scenario_workloads import (
     list_workload_runs,
     read_active_gpu_lease,
 )
+from evm.control_panel.transactional_store import (
+    StoreConfiguration,
+    TransactionalControlPlaneStore,
+    canonical_digest,
+)
 from evm.model_runtime.capacity_probe import (
     CapacityProbeError,
     load_capacity_probe_catalog,
@@ -35,6 +44,7 @@ from evm.model_runtime.gpu_batch_probe import (
     load_gpu_batch_probe_descriptor,
 )
 from evm.model_runtime.triton_blue_green import (
+    TritonBlueGreenCausalIdentity,
     TritonBlueGreenControlRequest,
     TritonBlueGreenError,
     TritonBlueGreenInitializeRequest,
@@ -42,6 +52,8 @@ from evm.model_runtime.triton_blue_green import (
     TritonBlueGreenPredictResponse,
     TritonBlueGreenResetRequest,
     TritonBlueGreenStateResponse,
+    causal_start_observation,
+    expected_causal_identity_for_request,
     manager as triton_blue_green_manager,
 )
 from evm.control_panel.scenario_workload_control import (
@@ -74,10 +86,178 @@ from evm.control_panel.scenario_workload_production import (
 router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-workloads"])
 
 
+@lru_cache(maxsize=1)
+def _s6bm_terminal_store() -> TransactionalControlPlaneStore:
+    dsn = os.getenv("EVM_S6BM_DATABASE_URL", "").strip()
+    schema = os.getenv("EVM_S6BM_DATABASE_SCHEMA", "").strip()
+    if not dsn or not schema:
+        raise RuntimeError("S6B-M durable terminal-effect store is not configured")
+    store = TransactionalControlPlaneStore(
+        StoreConfiguration(
+            mode="postgres",
+            dsn=dsn,
+            schema=schema,
+            pool_min_size=int(os.getenv("EVM_S6BM_DATABASE_POOL_MIN_SIZE", "1")),
+            pool_max_size=int(os.getenv("EVM_S6BM_DATABASE_POOL_MAX_SIZE", "8")),
+            acquire_timeout_seconds=float(
+                os.getenv("EVM_S6BM_DATABASE_ACQUIRE_TIMEOUT_SECONDS", "2")
+            ),
+            lock_timeout_seconds=float(
+                os.getenv("EVM_S6BM_DATABASE_LOCK_TIMEOUT_SECONDS", "2")
+            ),
+            statement_timeout_seconds=float(
+                os.getenv("EVM_S6BM_DATABASE_STATEMENT_TIMEOUT_SECONDS", "10")
+            ),
+        )
+    )
+    atexit.register(store.close)
+    return store
+
+
+def _commit_s6bm_terminal_effect_sync(
+    request: TritonBlueGreenPredictRequest,
+    response: TritonBlueGreenPredictResponse,
+) -> dict[str, Any]:
+    request_payload = request.model_dump(mode="json")
+    response_core = response.model_dump(mode="json", exclude={"durable_effect"})
+    effect_payload = {
+        "schema_version": "evm.s8_v4.s6bm_terminal_effect.v1",
+        "run_id": response.run_id,
+        "attempt_id": response.attempt_id,
+        "request_id": response.request_id,
+        "trace_id": response.trace_id,
+        "effect_id": response.effect_id,
+        "offered_identity": {
+            "model_role": request.expected_model_role,
+            "model_name": request.expected_model_name,
+            "model_version": request.expected_model_version,
+            "artifact_sha256": request.expected_artifact_sha256,
+        },
+        "served_identity": {
+            "model_role": response.model_role,
+            "model_name": response.model_name,
+            "model_version": response.model_version,
+            "artifact_sha256": response.artifact_sha256,
+        },
+        "route_generation": response.route_generation,
+        "route_phase": response.route_phase,
+        "result_sha256": response.result_sha256,
+        "result_payload_sha256": canonical_digest(response_core),
+        "terminal_outcome": "completed",
+    }
+    causal_payload = {
+        "schema_version": "evm.s8_v4.s6bm_terminal_causal_event.v1",
+        "attempt_id": response.attempt_id,
+        "run_id": response.run_id,
+        "request_id": response.request_id,
+        "request_nonce": request.request_nonce,
+        "trace_id": response.trace_id,
+        "effect_id": response.effect_id,
+        "model_role": response.model_role,
+        "model_name": response.model_name,
+        "model_version": response.model_version,
+        "artifact_sha256": response.artifact_sha256,
+        "route_generation": response.route_generation,
+        "route_phase": response.route_phase,
+        "result_sha256": response.result_sha256,
+        "requires_switch_before_effect": request.causal_crossover,
+    }
+    stored, replayed, receipt = (
+        _s6bm_terminal_store().commit_idempotent_terminal_entity_with_receipt(
+            scope=f"s6bm.terminal-effect.{request.attempt_id}",
+            idempotency_key=request.request_id,
+            request_payload=request_payload,
+            entity_kind="s6bm_terminal_effect",
+            entity_id=response.effect_id,
+            response_payload=effect_payload,
+            state="completed",
+            causal_payload=causal_payload,
+        )
+    )
+    expected = {
+        key: effect_payload[key]
+        for key in effect_payload
+        if key != "durable_commit"
+    }
+    if any(stored.get(key) != value for key, value in expected.items()):
+        raise RuntimeError("S6B-M durable terminal-effect payload parity failed")
+    if bool(receipt["replayed"]) is not replayed:
+        raise RuntimeError("S6B-M durable terminal-effect replay parity failed")
+    return receipt
+
+
+async def _commit_s6bm_terminal_effect(
+    request: TritonBlueGreenPredictRequest,
+    response: TritonBlueGreenPredictResponse,
+) -> dict[str, Any]:
+    return await asyncio.to_thread(_commit_s6bm_terminal_effect_sync, request, response)
+
+
+def _commit_s6bm_start_receipt_sync(
+    stage: str,
+    request: TritonBlueGreenPredictRequest,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    expected = expected_causal_identity_for_request(request).model_dump(mode="json")
+    if any(payload.get(key) != value for key, value in expected.items()):
+        raise RuntimeError("S6B-M start receipt identity differs from offered identity")
+    return _s6bm_terminal_store().commit_s6bm_start_receipt(
+        event_type=stage,
+        payload=payload,
+        actor_identity=str(payload.get("actor_identity") or stage),
+    )
+
+
+async def _commit_s6bm_start_receipt(
+    stage: str,
+    request: TritonBlueGreenPredictRequest,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    return await asyncio.to_thread(
+        _commit_s6bm_start_receipt_sync,
+        stage,
+        request,
+        payload,
+    )
+
+
+def _commit_s6bm_transition_fence(
+    request: TritonBlueGreenControlRequest,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    if request.causal_crossover is None:
+        raise RuntimeError("S6B-M causal crossover identity is absent")
+    identity = request.causal_crossover.model_dump(mode="json")
+    if request.action == "green_switched":
+        return _s6bm_terminal_store().commit_s6bm_route_switch_fence(
+            crossover_identity=identity
+        )
+    if request.action == "blue_unloaded":
+        return _s6bm_terminal_store().commit_s6bm_unload_intent(
+            crossover_identity=identity,
+            pre_switch_blue_effects=list(context.get("pre_switch_blue_effects", [])),
+        )
+    raise RuntimeError(f"unsupported S6B-M causal transition: {request.action}")
+
+
 class WorkloadReleaseGateSummary(BaseModel):
     status: Literal["pass", "blocked", "unavailable"] = "unavailable"
     blockers: list[str] = Field(default_factory=list)
     policy_source: str
+
+
+class S6BMTritonStartReceiptRequest(BaseModel):
+    schema_version: Literal["evm.s8_v4.s6bm_triton_start_receipt.v1"]
+    causal_identity: TritonBlueGreenCausalIdentity
+    trace_event_name: Literal["COMPUTE_START"]
+    actor_start_unix_ns: int = Field(gt=0)
+    raw_trace_artifact_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    raw_trace_record_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    raw_trace_span_id: str = Field(min_length=1, max_length=64)
+    triton_container_id: str = Field(min_length=12, max_length=128)
+    triton_image_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    gpu_uuid: str = Field(min_length=8, max_length=128)
+    collector_observation: dict[str, Any]
 
 
 class WorkloadEvaluationSummary(BaseModel):
@@ -301,7 +481,12 @@ def initialize_triton_blue_green(
 def control_triton_blue_green(
     request: TritonBlueGreenControlRequest,
 ) -> TritonBlueGreenStateResponse:
-    return triton_blue_green_operation(lambda: triton_blue_green_manager.control(request))
+    return triton_blue_green_operation(
+        lambda: triton_blue_green_manager.control(
+            request,
+            transition_fence_committer=_commit_s6bm_transition_fence,
+        )
+    )
 
 
 @router.post(
@@ -312,7 +497,28 @@ async def predict_triton_blue_green(
     request: TritonBlueGreenPredictRequest,
 ) -> TritonBlueGreenPredictResponse:
     try:
-        response = await triton_blue_green_manager.predict(request)
+        if request.causal_crossover:
+            server_payload = {
+                **expected_causal_identity_for_request(request).model_dump(mode="json"),
+                **causal_start_observation("fastapi-server-handler"),
+                "route_phase": "offered_blue_crossover",
+            }
+            server_receipt = await _commit_s6bm_start_receipt(
+                "api_server_handler_entry",
+                request,
+                server_payload,
+            )
+            if server_receipt.get("readback_visible") is not True:
+                raise TritonBlueGreenError(
+                    "causal_server_receipt_mismatch",
+                    request.request_id,
+                    status_code=503,
+                )
+        response = await triton_blue_green_manager.predict(
+            request,
+            terminal_effect_committer=_commit_s6bm_terminal_effect,
+            start_receipt_committer=_commit_s6bm_start_receipt,
+        )
         span = otel_trace.get_current_span()
         span.set_attributes(
             {
@@ -334,6 +540,62 @@ async def predict_triton_blue_green(
             status_code=exc.status_code,
             detail={"error": exc.code, "message": str(exc)},
         ) from exc
+
+
+@router.post("/scenario-workloads/triton-blue-green/causal-receipts/triton")
+def record_triton_blue_green_start_receipt(
+    request: S6BMTritonStartReceiptRequest,
+) -> dict[str, Any]:
+    identity = request.causal_identity.model_dump(mode="json")
+    payload = {
+        **identity,
+        "schema_version": "evm.s8_v4.s6bm_triton_actor_receipt.v1",
+        "actor_identity": f"triton:{request.triton_container_id[:12]}",
+        "actor_start_unix_ns": request.actor_start_unix_ns,
+        "trace_event_name": request.trace_event_name,
+        "raw_trace_artifact_sha256": request.raw_trace_artifact_sha256,
+        "raw_trace_record_sha256": request.raw_trace_record_sha256,
+        "raw_trace_span_id": request.raw_trace_span_id,
+        "triton_container_id": request.triton_container_id,
+        "triton_image_digest": request.triton_image_digest,
+        "gpu_uuid": request.gpu_uuid,
+        "collector_observation": request.collector_observation,
+    }
+    return _s6bm_terminal_store().commit_s6bm_start_receipt(
+        event_type="triton_backend_compute_entry",
+        payload=payload,
+        actor_identity=str(payload["actor_identity"]),
+    )
+
+
+@router.get("/scenario-workloads/triton-blue-green/effects/{attempt_id}")
+def triton_blue_green_effects(attempt_id: str) -> dict[str, Any]:
+    if not attempt_id or len(attempt_id) > 128:
+        raise HTTPException(status_code=422, detail={"error": "attempt_identity_invalid"})
+    rows = _s6bm_terminal_store().list_idempotent_terminal_entities(
+        entity_kind="s6bm_terminal_effect",
+        attempt_id=attempt_id,
+    )
+    return {
+        "schema_version": "evm.s8_v4.s6bm_terminal_effect_export.v1",
+        "attempt_id": attempt_id,
+        "effect_count": len(rows),
+        "identity_sha256": hashlib.sha256(attempt_id.encode("utf-8")).hexdigest(),
+        "effects": rows,
+    }
+
+
+@router.get("/scenario-workloads/triton-blue-green/causal-events/{attempt_id}")
+def triton_blue_green_causal_events(attempt_id: str) -> dict[str, Any]:
+    if not attempt_id or len(attempt_id) > 128:
+        raise HTTPException(status_code=422, detail={"error": "attempt_identity_invalid"})
+    rows = _s6bm_terminal_store().list_s6bm_causal_events(attempt_id=attempt_id)
+    return {
+        "schema_version": "evm.s8_v4.s6bm_causal_event_export.v1",
+        "attempt_id": attempt_id,
+        "event_count": len(rows),
+        "events": rows,
+    }
 
 
 @router.get(

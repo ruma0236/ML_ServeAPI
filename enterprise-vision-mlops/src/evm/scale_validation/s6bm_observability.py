@@ -131,6 +131,77 @@ def collect_attempt_trace_export(
     }
 
 
+def find_triton_compute_start(
+    path: Path,
+    *,
+    request_nonce: str,
+    trace_id: str,
+    model_name: str,
+    model_version: str,
+    start_offset: int = 0,
+) -> dict[str, Any] | None:
+    """Find one official Triton OTel COMPUTE_START bound to a request nonce."""
+
+    def first(attributes: Mapping[str, Any], names: Sequence[str]) -> str:
+        for name in names:
+            value = attributes.get(name)
+            if value is not None:
+                return str(value)
+        return ""
+
+    matches: list[dict[str, Any]] = []
+    for entry in _iter_otlp_spans(path, start_offset=start_offset):
+        span = dict(entry["span"])
+        attributes = _attributes(span.get("attributes", []))
+        resource = _attributes(dict(entry.get("resource", {})).get("attributes", []))
+        observed_request = first(attributes, ("request_id", "triton.request_id"))
+        observed_model = first(attributes, ("model_name", "triton.model_name"))
+        observed_version = first(attributes, ("model_version", "triton.model_version"))
+        if (
+            observed_request != request_nonce
+            or observed_model != model_name
+            or observed_version != model_version
+            or str(span.get("traceId", "")) != trace_id
+        ):
+            continue
+        if first(resource, ("service.name",)) != "triton-inference-server":
+            raise S6BMObservabilityError("s6bm_triton_trace_resource_identity")
+        events = [
+            dict(event)
+            for event in span.get("events", [])
+            if str(event.get("name", "")).upper() == "COMPUTE_START"
+        ]
+        if len(events) != 1:
+            raise S6BMObservabilityError(
+                f"s6bm_triton_compute_start_event:{len(events)}"
+            )
+        try:
+            started_unix_ns = int(events[0]["timeUnixNano"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise S6BMObservabilityError("s6bm_triton_compute_start_timestamp") from exc
+        if started_unix_ns <= 0:
+            raise S6BMObservabilityError("s6bm_triton_compute_start_timestamp")
+        matches.append(
+            {
+                "schema_version": "evm.s8_v4.s6bm_triton_compute_start.v1",
+                "request_nonce": request_nonce,
+                "trace_id": trace_id,
+                "span_id": str(span.get("spanId", "")),
+                "parent_span_id": str(span.get("parentSpanId", "")),
+                "model_name": observed_model,
+                "model_version": observed_version,
+                "compute_start_unix_ns": started_unix_ns,
+                "resource": resource,
+                "raw_entry": entry,
+            }
+        )
+    if len(matches) > 1:
+        raise S6BMObservabilityError(
+            f"s6bm_triton_compute_start_ambiguous:{len(matches)}"
+        )
+    return matches[0] if matches else None
+
+
 def _normalized_span(entry: Mapping[str, Any]) -> dict[str, Any]:
     resource = dict(entry.get("resource", {}))
     span = dict(entry.get("span", {}))
