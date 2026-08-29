@@ -47,6 +47,7 @@ from scripts.dev import run_s8_v4_x1_calibration as base  # noqa: E402
 DLRM_MODEL_ID = "criteo_dlrm_lite"
 REPEATED_REQUESTS = 64
 REQUEST_TIMEOUT_SECONDS = 10
+HOST_REPLAY_TIMEOUT_SECONDS = 30
 PRIVATE_BASE = base.PRIVATE_BASE / "diagnostics"
 EXPECTED_SOURCE_SUITE_ID = "x1-canonical-20260829t230109z-3e7df802"
 EXPECTED_SOURCE_AGGREGATE_SHA256 = (
@@ -494,69 +495,91 @@ def run_direct_image(*, diagnostic_id: str, model_path: Path, oracle_path: Path)
         }
 
 
-def run_host_torchscript(
-    *,
-    model_path: Path,
-    features: Sequence[Sequence[float]],
-    expected: Sequence[Sequence[float]],
-    relative_tolerance: float,
-    absolute_tolerance: float,
-) -> dict[str, Any]:
-    import torch
+HOST_TORCH_CODE = """
+import json, math, sys, time, torch
+model_path, oracle_path = sys.argv[1:3]
+model = torch.jit.load(model_path, map_location='cuda:0').eval()
+oracle = json.load(open(oracle_path, encoding='utf-8'))
+print(json.dumps({'type': 'metadata', 'torch_version': torch.__version__, 'torch_cuda_version': torch.version.cuda, 'cuda_available': torch.cuda.is_available(), 'cuda_device_name': torch.cuda.get_device_name(0)}, sort_keys=True, separators=(',', ':')), flush=True)
+with torch.inference_mode():
+    for sequence, (features, expected) in enumerate(zip(oracle['input'], oracle['output'], strict=True)):
+        started = time.perf_counter()
+        tensor = torch.tensor(features, dtype=torch.float32, device='cuda:0')
+        observed = float(model(tensor).detach().reshape(-1)[0].cpu())
+        torch.cuda.synchronize()
+        record = {'type': 'record', 'sequence': sequence, 'elapsed_ms': (time.perf_counter() - started) * 1000, 'observed': observed, 'expected': float(expected[0]), 'correct': math.isclose(observed, float(expected[0]), rel_tol=float(oracle['relative_tolerance']), abs_tol=float(oracle['absolute_tolerance']))}
+        print(json.dumps(record, sort_keys=True, separators=(',', ':')), flush=True)
+""".strip()
 
+
+def _parse_host_output(stdout: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    payloads: list[dict[str, Any]] = []
+    for line in stdout.splitlines():
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            payloads.append(value)
+    metadata = next((value for value in payloads if value.get("type") == "metadata"), None)
+    records = [value for value in payloads if value.get("type") == "record"]
+    if [record.get("sequence") for record in records] != list(range(len(records))):
+        raise base.X1ExperimentError("x1_dlrm_diagnostic_host_sequence")
+    return metadata, records
+
+
+def run_host_torchscript(*, model_path: Path, oracle_path: Path) -> dict[str, Any]:
     started = time.perf_counter()
-    rows: list[dict[str, Any]] = []
+    command = [sys.executable, "-c", HOST_TORCH_CODE, str(model_path), str(oracle_path)]
     try:
-        model = torch.jit.load(str(model_path), map_location="cuda:0").eval()
-        with torch.inference_mode():
-            for sequence, (feature_row, expected_row) in enumerate(
-                zip(features, expected, strict=True)
-            ):
-                request_started = time.perf_counter()
-                tensor = torch.tensor(feature_row, dtype=torch.float32, device="cuda:0")
-                observed = float(model(tensor).detach().reshape(-1)[0].cpu())
-                torch.cuda.synchronize()
-                rows.append(
-                    {
-                        "sequence": sequence,
-                        "elapsed_ms": (time.perf_counter() - request_started) * 1000,
-                        "observed": observed,
-                        "expected": float(expected_row[0]),
-                        "correct": math.isclose(
-                            observed,
-                            float(expected_row[0]),
-                            rel_tol=relative_tolerance,
-                            abs_tol=absolute_tolerance,
-                        ),
-                    }
-                )
-        gpu = base.capture_gpu()
-        return {
-            "mode": "host_python_direct_torchscript",
-            "python_executable": sys.executable,
-            "torch_version": torch.__version__,
-            "torch_cuda_version": torch.version.cuda,
-            "cuda_available": torch.cuda.is_available(),
-            "cuda_device_name": torch.cuda.get_device_name(0),
-            "gpu": gpu,
-            "request_count": len(rows),
-            "correct_count": sum(row["correct"] for row in rows),
-            "elapsed_ms": (time.perf_counter() - started) * 1000,
-            "rows_sha256": canonical_sha256(rows),
-            "rows": rows,
-        }
-    except Exception as exc:  # noqa: BLE001 - preserve bounded diagnostic outcome
-        return {
-            "mode": "host_python_direct_torchscript",
-            "python_executable": sys.executable,
-            "torch_version": torch.__version__,
-            "torch_cuda_version": torch.version.cuda,
-            "cuda_available": torch.cuda.is_available(),
-            "elapsed_ms": (time.perf_counter() - started) * 1000,
-            "completed_request_count": len(rows),
-            "error_type": type(exc).__name__,
-            "error": str(exc),
-        }
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=HOST_REPLAY_TIMEOUT_SECONDS,
+            check=False,
+        )
+        stdout = result.stdout
+        stderr = result.stderr
+        error_type = None if result.returncode == 0 else "ChildProcessError"
+        error = None if result.returncode == 0 else f"exit_code:{result.returncode}"
+    except subprocess.TimeoutExpired as exc:
+        stdout = (
+            exc.stdout
+            if isinstance(exc.stdout, str)
+            else (exc.stdout or b"").decode("utf-8", errors="replace")
+        )
+        stderr = (
+            exc.stderr
+            if isinstance(exc.stderr, str)
+            else (exc.stderr or b"").decode("utf-8", errors="replace")
+        )
+        error_type = type(exc).__name__
+        error = str(exc)
+    metadata, rows = _parse_host_output(stdout)
+    payload = {
+        "mode": "host_python_direct_torchscript",
+        "python_executable": sys.executable,
+        "command": command,
+        "timeout_seconds": HOST_REPLAY_TIMEOUT_SECONDS,
+        "elapsed_ms": (time.perf_counter() - started) * 1000,
+        "request_count": len(rows),
+        "correct_count": sum(row.get("correct") is True for row in rows),
+        "rows_sha256": canonical_sha256(rows),
+        "rows": rows,
+        "stdout": stdout[-200_000:],
+        "stderr": stderr[-200_000:],
+    }
+    if metadata is not None:
+        payload.update({key: value for key, value in metadata.items() if key != "type"})
+    if error_type is not None:
+        payload.update({"error_type": error_type, "error": error})
+    if metadata is None:
+        payload["metadata_missing"] = True
+    return payload
 
 
 def capture_kubernetes_state() -> dict[str, Any]:
@@ -705,10 +728,7 @@ def main() -> int:
         base.canonical_write(diagnostic_root / "direct-image.json", direct)
         host_direct = run_host_torchscript(
             model_path=source_suite["model_path"],
-            features=source_suite["features"],
-            expected=source_suite["expected"],
-            relative_tolerance=source_suite["relative_tolerance"],
-            absolute_tolerance=source_suite["absolute_tolerance"],
+            oracle_path=source_suite["oracle_path"],
         )
         base.canonical_write(diagnostic_root / "host-direct.json", host_direct)
         modes = (

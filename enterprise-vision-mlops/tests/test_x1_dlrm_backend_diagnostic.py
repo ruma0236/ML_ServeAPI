@@ -142,6 +142,25 @@ def test_dlrm_diagnostic_sums_reason_labelled_failure_counters() -> None:
     }
 
 
+def test_dlrm_diagnostic_parses_bounded_host_replay_output() -> None:
+    stdout = "\n".join(
+        [
+            '{"cuda_available":true,"type":"metadata"}',
+            '{"correct":true,"sequence":0,"type":"record"}',
+            '{"correct":true,"sequence":1,"type":"record"}',
+        ]
+    )
+    metadata, records = diagnostic._parse_host_output(stdout)
+    assert metadata == {"cuda_available": True, "type": "metadata"}
+    assert [record["sequence"] for record in records] == [0, 1]
+
+
+def test_dlrm_diagnostic_rejects_noncontiguous_host_replay_output() -> None:
+    stdout = '{"correct":true,"sequence":1,"type":"record"}'
+    with pytest.raises(X1ExperimentError, match="x1_dlrm_diagnostic_host_sequence"):
+        diagnostic._parse_host_output(stdout)
+
+
 @pytest.mark.parametrize(
     (
         "direct_passed",
