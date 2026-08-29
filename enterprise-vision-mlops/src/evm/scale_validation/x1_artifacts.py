@@ -754,6 +754,10 @@ def _freeze_model(
     with torch.inference_mode():
         traced = torch.jit.trace(model, example, strict=True)
     torch.jit.save(traced.cpu(), output_path)
+    runtime_model = model.cuda().eval()
+    runtime_tensors = [*runtime_model.parameters(), *runtime_model.buffers()]
+    if not runtime_tensors or any(tensor.device.type != "cuda" for tensor in runtime_tensors):
+        raise X1ArtifactError("x1_artifact_runtime_model_cuda")
     return {
         "feature_count": feature_count,
         "dtype": "float32",
@@ -762,7 +766,7 @@ def _freeze_model(
         "artifact_path": output_path.name,
         "artifact_sha256": sha256_file(output_path),
         "source_artifact": dict(source_artifact),
-        "runtime_model": model,
+        "runtime_model": runtime_model,
     }
 
 

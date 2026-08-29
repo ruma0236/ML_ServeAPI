@@ -11,6 +11,7 @@ from evm.scale_validation.x1_artifacts import (
     PROFILE_IDS,
     X1ArtifactError,
     _entries,
+    _freeze_model,
     _load_artifact_dependencies,
     _preprocess_criteo,
     _source_manifest,
@@ -65,6 +66,84 @@ def test_x1_artifact_dependencies_load_in_clean_process() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_x1_freeze_restores_shared_runtime_model_to_cuda(tmp_path: Path) -> None:
+    class Device:
+        def __init__(self, kind: str) -> None:
+            self.type = kind
+
+    class Tensor:
+        def __init__(self, kind: str) -> None:
+            self.device = Device(kind)
+
+    class Model:
+        def __init__(self) -> None:
+            self.weight = Tensor("cuda")
+
+        def eval(self) -> Model:
+            return self
+
+        def cuda(self) -> Model:
+            self.weight.device = Device("cuda")
+            return self
+
+        def parameters(self) -> list[Tensor]:
+            return [self.weight]
+
+        def buffers(self) -> list[Tensor]:
+            return []
+
+    class Traced:
+        def __init__(self, model: Model) -> None:
+            self.model = model
+
+        def cpu(self) -> Traced:
+            self.model.weight.device = Device("cpu")
+            return self
+
+    class InferenceMode:
+        def __enter__(self) -> None:
+            return None
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class Jit:
+        @staticmethod
+        def trace(model: Model, _example: object, *, strict: bool) -> Traced:
+            assert strict is True
+            return Traced(model)
+
+        @staticmethod
+        def save(_traced: Traced, path: Path) -> None:
+            path.write_bytes(b"frozen-model")
+
+    class Torch:
+        float32 = "float32"
+        jit = Jit()
+
+        @staticmethod
+        def zeros(_shape: tuple[int, int], *, dtype: str, device: str) -> object:
+            assert dtype == "float32"
+            assert device == "cuda"
+            return object()
+
+        @staticmethod
+        def inference_mode() -> InferenceMode:
+            return InferenceMode()
+
+    model = Model()
+    frozen = _freeze_model(
+        Torch(),
+        model,
+        tmp_path / "model.pt",
+        feature_count=28,
+        source_artifact={},
+    )
+
+    assert frozen["runtime_model"] is model
+    assert model.weight.device.type == "cuda"
 
 
 def test_x1_criteo_preprocessing_uses_governed_shard_schema() -> None:
