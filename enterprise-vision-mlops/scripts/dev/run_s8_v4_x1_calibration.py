@@ -380,6 +380,13 @@ def wait_x1_prometheus(*, present: bool, timeout: float = 60) -> dict[str, Any]:
 
 
 def remove_prometheus_targets() -> None:
+    empty_target_group = [{"targets": []}]
+    for path in (TRITON_TARGET, API_TARGET):
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        canonical_write(temporary, empty_target_group)
+        os.replace(temporary, path)
+    _prometheus_reload()
+    wait_x1_prometheus(present=False)
     for path in (TRITON_TARGET, API_TARGET):
         path.unlink(missing_ok=True)
     _prometheus_reload()
@@ -1684,6 +1691,8 @@ def main() -> int:
             source_revision=source["revision"],
         )
         profile_root = artifact_root / "model-repositories" / active_profile
+        # kubectl apply may create a partial resource set before rollout readiness fails.
+        topology_started = True
         apply_topology(
             contract,
             suite_root=suite_root,
@@ -1697,7 +1706,6 @@ def main() -> int:
             database_schema=database_schema,
             lease=inference_lease,
         )
-        topology_started = True
         wait_runtime_ready()
         wait_x1_prometheus(present=True)
         q0 = run_q0(

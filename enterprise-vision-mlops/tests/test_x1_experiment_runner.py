@@ -5,11 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from scripts.dev import run_s8_v4_x1_calibration as runner
 from scripts.dev.run_s8_v4_x1_calibration import (
     X1ExperimentError,
     _iter_otlp_entries,
     canonical_write,
     deterministic_model_schedule,
+    remove_prometheus_targets,
     validate_warmup,
 )
 
@@ -83,3 +85,40 @@ def test_x1_otlp_reader_skips_partial_record_at_snapshot_offset(tmp_path: Path) 
     entries = _iter_otlp_entries(path, offset=offset)
     assert len(entries) == 1
     assert entries[0]["span"]["traceId"] == "a" * 32
+
+
+def test_x1_prometheus_cleanup_drains_target_set_before_unlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    triton = tmp_path / "triton.json"
+    api = tmp_path / "api.json"
+    triton.write_text('[{"targets":["triton:8002"]}]\n', encoding="ascii")
+    api.write_text('[{"targets":["api:8000"]}]\n', encoding="ascii")
+    monkeypatch.setattr(runner, "TRITON_TARGET", triton)
+    monkeypatch.setattr(runner, "API_TARGET", api)
+    reload_snapshots: list[tuple[bytes | None, bytes | None]] = []
+    waits: list[bool] = []
+
+    def capture_reload() -> None:
+        reload_snapshots.append(
+            (
+                triton.read_bytes() if triton.exists() else None,
+                api.read_bytes() if api.exists() else None,
+            )
+        )
+
+    def capture_wait(*, present: bool, timeout: float = 60) -> dict[str, object]:
+        del timeout
+        waits.append(present)
+        return {"observed": [], "healthy": []}
+
+    monkeypatch.setattr(runner, "_prometheus_reload", capture_reload)
+    monkeypatch.setattr(runner, "wait_x1_prometheus", capture_wait)
+
+    remove_prometheus_targets()
+
+    empty = b'[{"targets":[]}]\n'
+    assert reload_snapshots == [(empty, empty), (None, None)]
+    assert waits == [False, False]
+    assert not triton.exists()
+    assert not api.exists()

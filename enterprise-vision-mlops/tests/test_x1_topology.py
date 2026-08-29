@@ -58,6 +58,8 @@ def test_x1_kubernetes_bundle_freezes_real_server_topology() -> None:
     assert "--workers', '4" in serialized
     assert "nvidia.com/gpu': '1" in serialized
     assert "--load-model=higgs_logistic_regression" in serialized
+    assert "/usr/lib/wsl/lib" in serialized
+    assert "/usr/lib/wsl/drivers" in serialized
 
 
 @pytest.mark.parametrize(
@@ -68,6 +70,30 @@ def test_x1_kubernetes_bundle_freezes_real_server_topology() -> None:
                 "resources"
             ]["limits"].__setitem__("nvidia.com/gpu", "0"),
             "x1_triton_gpu_limit",
+        ),
+        (
+            lambda value: value["items"][0]["spec"]["template"]["spec"]["containers"][0][
+                "volumeMounts"
+            ].pop(0),
+            "x1_triton_gpu_mounts",
+        ),
+        (
+            lambda value: value["items"][0]["spec"]["template"]["spec"]["containers"][0][
+                "volumeMounts"
+            ].append(
+                copy.deepcopy(
+                    value["items"][0]["spec"]["template"]["spec"]["containers"][0]["volumeMounts"][
+                        0
+                    ]
+                )
+            ),
+            "x1_triton_gpu_mounts",
+        ),
+        (
+            lambda value: value["items"][0]["spec"]["template"]["spec"]["volumes"][0][
+                "hostPath"
+            ].__setitem__("path", "/wrong/wsl/lib"),
+            "x1_triton_gpu_volumes",
         ),
         (
             lambda value: value["items"][2]["spec"].__setitem__("replicas", 1),

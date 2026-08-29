@@ -14,6 +14,17 @@ TRITON_IMAGE_DIGEST = "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0
 NAMESPACE = "evm-platform"
 API_NAME = "evm-x1-api"
 TRITON_NAME = "evm-x1-triton"
+WSL_GPU_VOLUME_MOUNTS = [
+    {"name": "wsl-lib", "mountPath": "/usr/lib/wsl/lib", "readOnly": True},
+    {"name": "wsl-drivers", "mountPath": "/usr/lib/wsl/drivers", "readOnly": True},
+]
+WSL_GPU_VOLUMES = [
+    {"name": "wsl-lib", "hostPath": {"path": "/usr/lib/wsl/lib", "type": "Directory"}},
+    {
+        "name": "wsl-drivers",
+        "hostPath": {"path": "/usr/lib/wsl/drivers", "type": "Directory"},
+    },
+]
 
 
 class X1TopologyError(RuntimeError):
@@ -115,22 +126,31 @@ def kubernetes_resource_list(
                                     "failureThreshold": 3,
                                 },
                                 "volumeMounts": [
+                                    *WSL_GPU_VOLUME_MOUNTS,
                                     {
                                         "name": "large-data",
                                         "mountPath": "/mnt/evm-data",
                                         "readOnly": True,
-                                    }
+                                    },
+                                    {"name": "dshm", "mountPath": "/dev/shm"},
+                                    {"name": "tmp", "mountPath": "/tmp"},
                                 ],
                             }
                         ],
                         "volumes": [
+                            *WSL_GPU_VOLUMES,
                             {
                                 "name": "large-data",
                                 "persistentVolumeClaim": {
                                     "claimName": "evm-large-data",
                                     "readOnly": True,
                                 },
-                            }
+                            },
+                            {
+                                "name": "dshm",
+                                "emptyDir": {"medium": "Memory", "sizeLimit": "2Gi"},
+                            },
+                            {"name": "tmp", "emptyDir": {}},
                         ],
                     },
                 },
@@ -296,12 +316,57 @@ def validate_kubernetes_resource_list(
     triton_container = triton_container[0]
     if triton_container.get("image") != TRITON_IMAGE:
         raise X1TopologyError("x1_triton_image")
+    pod_spec = triton["spec"]["template"]["spec"]
+    volume_mounts = triton_container.get("volumeMounts")
+    if not isinstance(volume_mounts, list):
+        raise X1TopologyError("x1_triton_gpu_mounts")
+    mounts_by_name = {item.get("name"): item for item in volume_mounts if isinstance(item, Mapping)}
+    expected_mounts = {
+        "wsl-lib": {"name": "wsl-lib", "mountPath": "/usr/lib/wsl/lib", "readOnly": True},
+        "wsl-drivers": {
+            "name": "wsl-drivers",
+            "mountPath": "/usr/lib/wsl/drivers",
+            "readOnly": True,
+        },
+        "large-data": {
+            "name": "large-data",
+            "mountPath": "/mnt/evm-data",
+            "readOnly": True,
+        },
+        "dshm": {"name": "dshm", "mountPath": "/dev/shm"},
+        "tmp": {"name": "tmp", "mountPath": "/tmp"},
+    }
+    if len(volume_mounts) != len(expected_mounts) or mounts_by_name != expected_mounts:
+        raise X1TopologyError("x1_triton_gpu_mounts")
+    volumes = pod_spec.get("volumes")
+    if not isinstance(volumes, list):
+        raise X1TopologyError("x1_triton_gpu_volumes")
+    volumes_by_name = {item.get("name"): item for item in volumes if isinstance(item, Mapping)}
+    expected_volumes = {
+        "wsl-lib": WSL_GPU_VOLUMES[0],
+        "wsl-drivers": WSL_GPU_VOLUMES[1],
+        "large-data": {
+            "name": "large-data",
+            "persistentVolumeClaim": {"claimName": "evm-large-data", "readOnly": True},
+        },
+        "dshm": {
+            "name": "dshm",
+            "emptyDir": {"medium": "Memory", "sizeLimit": "2Gi"},
+        },
+        "tmp": {"name": "tmp", "emptyDir": {}},
+    }
+    if len(volumes) != len(expected_volumes) or volumes_by_name != expected_volumes:
+        raise X1TopologyError("x1_triton_gpu_volumes")
     command = triton_container.get("command")
     if not isinstance(command, list) or set(
         item for item in command if isinstance(item, str) and item.startswith("--load-model=")
     ) != {f"--load-model={model_id}" for model_id in MODEL_IDS}:
         raise X1TopologyError("x1_triton_explicit_models")
-    if triton_container["resources"]["limits"].get("nvidia.com/gpu") != "1":
+    resources = triton_container["resources"]
+    if (
+        resources["limits"].get("nvidia.com/gpu") != "1"
+        or resources["requests"].get("nvidia.com/gpu") != "1"
+    ):
         raise X1TopologyError("x1_triton_gpu_limit")
     api = keyed[("Deployment", API_NAME)]
     if api["spec"].get("replicas") != api_replicas:
