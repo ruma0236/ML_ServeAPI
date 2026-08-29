@@ -1835,6 +1835,9 @@ def validate_causal_bundle(
     required_bridge_ids: list[str] = []
     gate_readback_intervals: list[dict[str, Any]] = []
     gate_readback_reference: dict[str, Any] | None = None
+    readback_request_started_ns: int | None = None
+    readback_request_finished_ns: int | None = None
+    gate_satisfied_ns: int | None = None
     if raw.get("traffic_plan") is not None:
         bridge_items = [dict(item) for item in expected_plan["roles"]["bridge"]]
         required_bridge_ids = [str(item["request_id"]) for item in required_bridge_items]
@@ -2418,10 +2421,12 @@ def validate_causal_bundle(
             ),
             "required_bridge_actor_receipt_count": len(required_bridge_ids),
             "required_bridge_actor_request_set_sha256": canonical_sha256(required_bridge_ids),
-            "required_bridge_actor_readback_request_interval_ns": [
-                readback_request_started_ns,
-                readback_request_finished_ns,
-            ],
+            "required_bridge_actor_readback_request_interval_ns": (
+                [readback_request_started_ns, readback_request_finished_ns]
+                if readback_request_started_ns is not None
+                and readback_request_finished_ns is not None
+                else []
+            ),
             "required_bridge_actor_gate_satisfied_monotonic_ns": gate_satisfied_ns,
             "required_bridge_actor_switch_fence": continuity_receipt_fence,
             "required_bridge_actor_commit_readback_intervals": gate_readback_intervals,
