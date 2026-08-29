@@ -109,6 +109,10 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(canonical(payload) + "\n", encoding="utf-8", newline="\n")
 
 
+def repository_path(path: Path) -> str:
+    return path.resolve().relative_to(ROOT).as_posix()
+
+
 def git(*arguments: str, binary: bool = False) -> str | bytes:
     result = subprocess.run(
         ["git", *arguments],
@@ -526,20 +530,20 @@ def main() -> int:
             "total_cells": 21,
         },
         "evidence": {
-            "experiment_path": args.experiment.relative_to(ROOT).as_posix(),
+            "experiment_path": repository_path(args.experiment),
             "experiment_sha256": strict["experiment_sha256"],
-            "mutation_path": args.mutation.relative_to(ROOT).as_posix(),
+            "mutation_path": repository_path(args.mutation),
             "mutation_sha256": sha256_file(args.mutation),
             "mutation_negative_rejected": len(expected_mutations),
-            "strict_validation_path": args.strict_validation.relative_to(ROOT).as_posix(),
+            "strict_validation_path": repository_path(args.strict_validation),
             "strict_validation_sha256": sha256_file(args.strict_validation),
             "strict_raw_drain_timelines": strict["strict_raw_drain_timelines"],
             "private_artifacts": strict["private_artifacts"],
             "private_aggregate_sha256": strict["private_aggregate_sha256"],
             "qualification_gates": qualifications,
-            "history_amendment_path": args.history_amendment.relative_to(ROOT).as_posix(),
+            "history_amendment_path": repository_path(args.history_amendment),
             "history_amendment_sha256": sha256_file(args.history_amendment),
-            "regression_failure_rca_path": args.regression_failure_rca.relative_to(ROOT).as_posix(),
+            "regression_failure_rca_path": repository_path(args.regression_failure_rca),
             "regression_failure_rca_sha256": sha256_file(args.regression_failure_rca),
         },
         "current_revision_runtime_proof": runtime_proof,

@@ -619,6 +619,8 @@ def test_review_writer_separates_python_and_ui_pass_counts() -> None:
 
     assert writer.pytest_counts(log, occurrence=0) == (77, 0)
     assert writer.pytest_counts(log) == (59, 0)
+    evidence = ROOT / "docs/status/evidence/s8-v4-s6bm-experiment-v4.json"
+    assert writer.repository_path(evidence) == writer.repository_path(evidence.relative_to(ROOT))
 
 
 def test_review_writer_binds_v4_runtime_contract_and_exact_success_set() -> None:
