@@ -625,8 +625,8 @@ def _preprocess_criteo(
     np: Any, table: Any, *, vocab_size: int, train_rows: int
 ) -> tuple[Any, Any, dict[str, Any]]:
     names = table.column_names
-    dense_names = [f"integer_feature_{index}" for index in range(1, 14)]
-    categorical_names = [f"categorical_feature_{index}" for index in range(1, 27)]
+    dense_names = [f"int_feature_{index}" for index in range(1, 14)]
+    categorical_names = [f"cat_feature_{index}" for index in range(1, 27)]
     if names[:1] != ["label"] or any(name not in names for name in dense_names + categorical_names):
         raise X1ArtifactError("x1_criteo_schema")
     dense = np.zeros((table.num_rows, 13), dtype="float32")

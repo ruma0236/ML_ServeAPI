@@ -11,6 +11,8 @@ from evm.scale_validation.x1_artifacts import (
     PROFILE_IDS,
     X1ArtifactError,
     _entries,
+    _load_artifact_dependencies,
+    _preprocess_criteo,
     _source_manifest,
     _write_json,
     prepare_x1_artifacts,
@@ -63,6 +65,29 @@ def test_x1_artifact_dependencies_load_in_clean_process() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_x1_criteo_preprocessing_uses_governed_shard_schema() -> None:
+    np, pq, _torch = _load_artifact_dependencies()
+    shard = DATA_ROOT / "datasets/criteo-click-logs/s5/governed/shard-000.parquet"
+    table = pq.read_table(shard).slice(0, 8)
+
+    values, labels, preprocessing = _preprocess_criteo(
+        np,
+        table,
+        vocab_size=4096,
+        train_rows=4,
+    )
+    assert values.shape == (8, 39)
+    assert labels.shape == (8,)
+    assert len(preprocessing["dense"]["mean"]) == 13
+    assert preprocessing["categorical"]["feature_count"] == 26
+
+    mutated_names = list(table.column_names)
+    mutated_names[mutated_names.index("int_feature_1")] = "integer_feature_1"
+    mutated = table.rename_columns(mutated_names)
+    with pytest.raises(X1ArtifactError, match="x1_criteo_schema"):
+        _preprocess_criteo(np, mutated, vocab_size=4096, train_rows=4)
 
 
 @pytest.mark.parametrize(
