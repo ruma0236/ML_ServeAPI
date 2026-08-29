@@ -1248,6 +1248,8 @@ def materialize_causal_mutation_bundle(
         "events": selected_gate_events,
         "collector_request_ids": required_ids,
         "collector_request_set_sha256": canonical_sha256(required_ids),
+        "readback_request_started_monotonic_ns": 92_970_000_000,
+        "readback_request_finished_monotonic_ns": 92_975_000_000,
         "gate_satisfied_monotonic": 92.98,
     }
     raw["continuity_execution"]["bridge_triton_start_receipts"] = [

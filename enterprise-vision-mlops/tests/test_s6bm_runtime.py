@@ -167,6 +167,42 @@ def test_s6bm_v4_causal_bundle_accepts_unanchored_triton_tail_discontinuity(
     assert validate_causal_bundle(root, raw, config, compare_projection=False)["passed"] is True
 
 
+def test_s6bm_v4_actor_receipt_db_projection_is_independent_of_runner_gate_clock(
+    tmp_path: Path,
+) -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    root = tmp_path / "actor-receipt-clock-domains"
+    raw = materialize_causal_mutation_bundle(root, v4_continuity_attempt(), config)
+    gate = raw["continuity_execution"]["bridge_actor_receipt_gate"]
+    gate["readback_request_started_monotonic_ns"] = 89_800_000_000
+    gate["readback_request_finished_monotonic_ns"] = 89_850_000_000
+    gate["gate_satisfied_monotonic"] = 89.9
+
+    projection = validate_causal_bundle(root, raw, config, compare_projection=False)
+    intervals = projection["crossover"]["required_bridge_actor_commit_readback_intervals"]
+
+    assert projection["passed"] is True
+    assert max(item["readback_interval_ns"][1] for item in intervals) > 89_900_000_000
+
+
+def test_s6bm_v4_actor_receipt_http_readback_must_finish_before_gate(
+    tmp_path: Path,
+) -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    root = tmp_path / "actor-receipt-http-finish-after-gate"
+    raw = materialize_causal_mutation_bundle(root, v4_continuity_attempt(), config)
+    gate = raw["continuity_execution"]["bridge_actor_receipt_gate"]
+    gate["readback_request_finished_monotonic_ns"] = (
+        int(float(gate["gate_satisfied_monotonic"]) * 1e9) + 1
+    )
+
+    with pytest.raises(
+        S6BMCausalError,
+        match="s6bm_v4_continuity_actor_receipt_commit_readback",
+    ):
+        validate_causal_bundle(root, raw, config, compare_projection=False)
+
+
 def test_s6bm_v4_route_revision_receipt_rejects_control_generation_substitution(
     tmp_path: Path,
 ) -> None:
@@ -1062,6 +1098,8 @@ def v4_continuity_attempt() -> dict[str, object]:
                 "events": bridge_gate_events,
                 "collector_request_ids": required_bridge_ids,
                 "collector_request_set_sha256": canonical_sha256(required_bridge_ids),
+                "readback_request_started_monotonic_ns": 92_970_000_000,
+                "readback_request_finished_monotonic_ns": 92_975_000_000,
                 "gate_satisfied_monotonic": 92.98,
             },
             "pre_switch_terminal_gate": {

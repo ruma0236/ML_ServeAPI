@@ -1270,12 +1270,14 @@ def read_required_bridge_start_receipts(
     route_generation: int,
     deadline_monotonic_ns: int,
 ) -> dict[str, Any]:
+    readback_request_started_monotonic_ns = time.perf_counter_ns()
     response = requests.get(
         api_url(config, f"causal-events/{attempt_id}"),
         timeout=remaining_deadline_seconds(deadline_monotonic_ns),
     )
     response.raise_for_status()
     payload = response.json()
+    readback_request_finished_monotonic_ns = time.perf_counter_ns()
     readback_path = suite_root / "causal" / attempt_id / "bridge-start-receipts-pre-switch.json"
     canonical_write(readback_path, payload)
     required_stages = {
@@ -1381,6 +1383,8 @@ def read_required_bridge_start_receipts(
         "raw_readback_event_count": len(rows),
         "selected_event_set_sha256": canonical_sha256(gate_events),
         "events": gate_events,
+        "readback_request_started_monotonic_ns": readback_request_started_monotonic_ns,
+        "readback_request_finished_monotonic_ns": readback_request_finished_monotonic_ns,
     }
 
 

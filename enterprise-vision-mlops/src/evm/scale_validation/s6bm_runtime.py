@@ -1023,6 +1023,8 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
         bridge_receipt_gate.get("gate_satisfied_monotonic"),
         "bridge_actor_gate_satisfied",
     )
+    readback_request_started_ns = bridge_receipt_gate.get("readback_request_started_monotonic_ns")
+    readback_request_finished_ns = bridge_receipt_gate.get("readback_request_finished_monotonic_ns")
     receipt_events = [dict(item) for item in bridge_receipt_gate.get("events", [])]
     receipt_event_keys = [
         (str(item.get("request_id", "")), str(item.get("event_type", "")))
@@ -1090,7 +1092,15 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
         or collector_request_ids != required_bridge_ids
         or bridge_receipt_gate.get("collector_request_set_sha256") != expected_bridge_set_sha
         or [str(item.get("request_id", "")) for item in bridge_collectors] != required_bridge_ids
-        or not causal_gate_started <= gate_satisfied < switch_invoked
+        or type(readback_request_started_ns) is not int
+        or type(readback_request_finished_ns) is not int
+        or not (
+            int(causal_gate_started * 1e9)
+            <= readback_request_started_ns
+            <= readback_request_finished_ns
+            <= int(gate_satisfied * 1e9)
+            < int(switch_invoked * 1e9)
+        )
     ):
         raise S6BMRuntimeError("s6bm_continuity_actor_receipt_gate")
     causal_hold_ids = [str(item["request_id"]) for item in expected_plan["roles"]["causal_hold"]]

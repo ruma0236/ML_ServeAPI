@@ -1931,6 +1931,13 @@ def validate_causal_bundle(
             )
             * 1e9
         )
+        readback_request_started_ns = bridge_gate.get("readback_request_started_monotonic_ns")
+        readback_request_finished_ns = bridge_gate.get("readback_request_finished_monotonic_ns")
+        if (
+            type(readback_request_started_ns) is not int
+            or type(readback_request_finished_ns) is not int
+        ):
+            raise S6BMCausalError("s6bm_v4_continuity_actor_receipt_commit_readback")
         switch_invoked_ns = int(
             _finite(
                 execution.get("switch_invoked_monotonic"),
@@ -1975,9 +1982,12 @@ def validate_causal_bundle(
                     "readback_interval_ns": list(readback_interval),
                 }
             )
-        if any(
-            int(item["readback_interval_ns"][1]) > gate_satisfied_ns
-            for item in gate_readback_intervals
+        if not (
+            0
+            < readback_request_started_ns
+            <= readback_request_finished_ns
+            <= gate_satisfied_ns
+            < switch_invoked_ns
         ):
             raise S6BMCausalError("s6bm_v4_continuity_actor_receipt_commit_readback")
         if (
@@ -2408,6 +2418,11 @@ def validate_causal_bundle(
             ),
             "required_bridge_actor_receipt_count": len(required_bridge_ids),
             "required_bridge_actor_request_set_sha256": canonical_sha256(required_bridge_ids),
+            "required_bridge_actor_readback_request_interval_ns": [
+                readback_request_started_ns,
+                readback_request_finished_ns,
+            ],
+            "required_bridge_actor_gate_satisfied_monotonic_ns": gate_satisfied_ns,
             "required_bridge_actor_switch_fence": continuity_receipt_fence,
             "required_bridge_actor_commit_readback_intervals": gate_readback_intervals,
             "required_bridge_actor_raw_readback_export": gate_readback_reference,

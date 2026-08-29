@@ -781,6 +781,11 @@ def test_bridge_receipt_gate_preserves_exact_pre_switch_readback(
     assert json.loads(readback_path.read_text(encoding="utf-8")) == export
     assert gate["visible_event_count"] == 12
     assert gate["selected_event_set_sha256"] == runner.canonical_sha256(gate["events"])
+    assert (
+        0
+        < gate["readback_request_started_monotonic_ns"]
+        <= gate["readback_request_finished_monotonic_ns"]
+    )
 
 
 def _terminal_gate_fixture(runner, count: int = 2):
