@@ -28,7 +28,11 @@ LEDGER = ROOT / "docs/status/2026-08-24-s8-v4-progress-ledger.jsonl"
 E0_EXPERIMENT = ROOT / "docs/status/evidence/s8-v4-e0-environment-experiment.json"
 E0_HANDOFF = ROOT / "docs/status/evidence/s8-v4-e0-review-handoff.json"
 E0_VERIFIED_CLOSURE = ROOT / "docs/status/evidence/s8-v4-e0-verified-closure.json"
+S6BM_HANDOFF = ROOT / "docs/status/evidence/s8-v4-s6bm-review-handoff-v4.json"
+S6BM_VERIFIED_CLOSURE = ROOT / "docs/status/evidence/s8-v4-s6bm-verified-closure.json"
+V4_EVIDENCE_MANIFEST = ROOT / "docs/status/evidence/s8-v4-evidence-manifest.json"
 E0_PRE_SIGN_OFF_LEDGER_SHA256 = "0b825ab53b063ba181350b2ce3236b4b3b81cdf41736a09b03d99f102b89c58d"
+S6BM_PRE_SIGN_OFF_LEDGER_SHA256 = "2702505d4f9b33b94cd6cf7752ec8f3ad51cf0ce1a29310864801da9cbef6b09"
 
 
 def test_committed_v4_ledger_hash_chain() -> None:
@@ -57,6 +61,56 @@ def test_e0_verified_sign_off_is_append_only_and_evidence_bound() -> None:
     assert closure["acceptance_credit"] is True
     assert all(closure["acceptance"].values())
     assert all(closure["alignment"].values())
+
+
+def test_s6bm_verified_sign_off_is_append_only_and_evidence_bound() -> None:
+    ledger_lines = LEDGER.read_bytes().splitlines(keepends=True)
+    assert hashlib.sha256(b"".join(ledger_lines[:211])).hexdigest() == (
+        S6BM_PRE_SIGN_OFF_LEDGER_SHA256
+    )
+
+    events = read_events(LEDGER)
+    event = next(item for item in events if item["event_id"] == "s8-v4-0212")
+    closure_bytes = S6BM_VERIFIED_CLOSURE.read_bytes()
+    closure = json.loads(closure_bytes)
+    manifest = json.loads(V4_EVIDENCE_MANIFEST.read_bytes())
+    s6bm = next(item for item in manifest["work_items"] if item["work_item"] == "S6B-M")
+    accepted_attempt = next(
+        item for item in s6bm["attempts"] if item["attempt_id"] == "s6bm-20260829t155604z-12d55e24"
+    )
+
+    assert event["from_status"] == "review_pending"
+    assert event["to_status"] == "verified"
+    assert event["acceptance_credit"] is True
+    assert event["reviewer_sign_off"]["result"] == "passed"
+    assert event["reviewer_sign_off"]["approved_handoff_revision"] == (
+        "b5eb172dd30c75fc5831950a409bc8d2e4e7b926"
+    )
+    assert (
+        event["evidence"]["review_handoff_sha256"]
+        == hashlib.sha256(S6BM_HANDOFF.read_bytes()).hexdigest()
+    )
+    assert (
+        event["evidence"]["evidence_manifest_sha256"]
+        == hashlib.sha256(V4_EVIDENCE_MANIFEST.read_bytes()).hexdigest()
+    )
+    assert event["evidence"]["verified_closure_sha256"] == hashlib.sha256(closure_bytes).hexdigest()
+    assert closure["status"] == "verified"
+    assert closure["acceptance_credit"] is True
+    assert all(closure["acceptance"].values())
+    assert all(closure["alignment"].values())
+    assert closure["immutable_evidence"]["ordinary_private"]["artifact_count"] == 34
+    assert closure["immutable_evidence"]["continuity_private"]["artifact_count"] == 58
+    assert closure["immutable_evidence"]["matrix_private"]["artifact_count"] == 168
+    assert closure["tracked_worktree"]["tracked_clean"] is True
+    assert closure["tracked_worktree"]["untracked_clean_claim"] is False
+    assert closure["tracked_worktree"]["untracked_user_owned_count"] == 4244
+    assert s6bm["status"] == "verified"
+    assert s6bm["reviewer_sign_off"] == "passed"
+    assert s6bm["acceptance_credit"] is True
+    assert accepted_attempt["credit"] == "credit"
+    assert accepted_attempt["acceptance_credit"] is True
+    assert s6bm["verified_closure"]["sha256"] == hashlib.sha256(closure_bytes).hexdigest()
 
 
 def test_v4_ledger_rejects_mutation() -> None:

@@ -1,6 +1,6 @@
 {
   "schema_version": "evm.s8_v4.evidence_manifest.v1",
-  "generated_at": "2026-08-25T05:11:02.477324Z",
+  "generated_at": "2026-08-29T18:07:44.912521Z",
   "status": "contract_frozen",
   "runtime_execution_started": true,
   "acceptance_credit": false,
@@ -176,7 +176,7 @@
     {
       "work_item": "S6B-M",
       "tracking_id": "EVM-300",
-      "status": "review_pending",
+      "status": "verified",
       "acceptance_criteria": [
         "S6B-M-AC-01",
         "S6B-M-AC-02",
@@ -335,10 +335,10 @@
         },
         {
           "attempt_id": "s6bm-20260829t155604z-12d55e24",
-          "credit": "non_credit",
+          "credit": "credit",
           "passed": true,
           "evidence_ready": true,
-          "acceptance_credit": false,
+          "acceptance_credit": true,
           "baseline_repetitions": 3,
           "successful_transition_repetitions": 3,
           "logical_requests": 3000,
@@ -366,8 +366,8 @@
           "public_evidence_sha256": "191b1b6fbafed21110233d8ea61c06ffc67dfcb65a206dc6afbe6c1d0cdfcd9e"
         }
       ],
-      "reviewer_sign_off": "pending",
-      "acceptance_credit": false,
+      "reviewer_sign_off": "passed",
+      "acceptance_credit": true,
       "evidence": {
         "experiment_path": "docs/status/evidence/s8-v4-s6bm-experiment-v2.json",
         "experiment_sha256": "49bf0e78aa5253c31b88d8256f8aff54845b2938e90b67e6312f634aafe26747",
@@ -440,6 +440,7 @@
           "integrated_validation_sha256": "8c3135ede22f6eb67bdf34174f9a9d84115187a3c18bd163abc7885af26dbee0",
           "review_handoff_path": "docs/status/evidence/s8-v4-s6bm-review-handoff-v4.json",
           "review_handoff_sha256": "a763789d3bc60ec8e2b18219aebda036201b550b16f57e5cd7b6c8ecaa4ec4fb",
+          "reviewer_sign_off": "passed",
           "private_artifacts": 168,
           "private_total_bytes": 192998712,
           "private_index_sha256": "8661988da27edce5743982aaa07f465a1d6a59663ae5bd8d60580965ae29887c",
@@ -484,12 +485,16 @@
           }
         }
       },
+      "verified_closure": {
+        "path": "docs/status/evidence/s8-v4-s6bm-verified-closure.json",
+        "sha256": "81980b36f460dff1ef688a611ad1915e40724297e70d69483af349ddd34fcb62",
+        "source_revision": "b5eb172dd30c75fc5831950a409bc8d2e4e7b926"
+      },
       "claim_boundary": "one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, controlled traffic; not production SLA, physical HA, node failover, multi-node, multi-GPU, MIG, MPS, or a zero-interruption guarantee",
       "unresolved_items": [
-        "Independent source-local reviewer sign-off remains pending.",
-        "Historical S2 Infinity validator debt remains a separate V4 closure backlog.",
-        "X1 and Integrated V4 remain planned/not_run until S6B-M is independently approved and verified."
-      ]
+        "Historical S2 Infinity validator debt remains a separate nonblocking V4 closure backlog and is not part of S6B-M evidence."
+      ],
+      "next_action": "S6B-M is independently approved; canonical X1 is next and remains planned/not_run in this closure."
     },
     {
       "work_item": "X1",
