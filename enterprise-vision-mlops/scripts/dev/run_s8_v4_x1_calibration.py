@@ -706,24 +706,35 @@ def _oracle(
     return payload
 
 
-def _direct_infer(model_id: str, features: Sequence[float], *, request_id: str) -> float:
-    response = requests.post(
-        f"{TRITON_URL}/v2/models/{model_id}/versions/1/infer",
-        json={
-            "id": request_id,
-            "inputs": [
-                {
-                    "name": "INPUT__0",
-                    "shape": [len(features)],
-                    "datatype": "FP32",
-                    "data": list(features),
-                }
-            ],
-            "outputs": [{"name": "OUTPUT__0"}],
-        },
-        timeout=10,
-    )
-    response.raise_for_status()
+def _direct_infer(
+    model_id: str,
+    features: Sequence[float],
+    *,
+    request_id: str,
+    session: requests.Session,
+) -> float:
+    try:
+        response = session.post(
+            f"{TRITON_URL}/v2/models/{model_id}/versions/1/infer",
+            json={
+                "id": request_id,
+                "inputs": [
+                    {
+                        "name": "INPUT__0",
+                        "shape": [len(features)],
+                        "datatype": "FP32",
+                        "data": list(features),
+                    }
+                ],
+                "outputs": [{"name": "OUTPUT__0"}],
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise X1ExperimentError(
+            f"x1_q0_transport:{model_id}:{request_id}:{type(exc).__name__}"
+        ) from exc
     outputs = response.json().get("outputs")
     if not isinstance(outputs, list) or len(outputs) != 1:
         raise X1ExperimentError("x1_q0_output_schema")
@@ -745,73 +756,76 @@ def run_q0(
 ) -> dict[str, Any]:
     index = repository_index()
     records: list[dict[str, Any]] = []
-    for model_id in MODEL_IDS:
-        oracle = _oracle(artifact_root, artifact_manifest, model_id)
-        config = triton_config_readback(model_id)
-        validate_triton_runtime_config(
-            config,
-            model_id=model_id,
-            identity={
-                **artifact_manifest["models"][model_id],
-                "feature_count": 39 if model_id == "criteo_dlrm_lite" else 28,
-                "max_batch_size": 0,
-                "preferred_batch_size": [],
-                "max_queue_delay_microseconds": 0,
-            },
-        )
-        before = triton_metrics_text()
-        gpu_before = capture_gpu()
-        correct = 0
-        for sequence, (features, expected) in enumerate(
-            zip(oracle["input"], oracle["output"], strict=True)
-        ):
-            observed = _direct_infer(
-                model_id,
-                features,
-                request_id=f"{suite_id}-q0-{model_id}-{sequence:04d}",
+    with requests.Session() as session:
+        session.trust_env = False
+        for model_id in MODEL_IDS:
+            oracle = _oracle(artifact_root, artifact_manifest, model_id)
+            config = triton_config_readback(model_id)
+            validate_triton_runtime_config(
+                config,
+                model_id=model_id,
+                identity={
+                    **artifact_manifest["models"][model_id],
+                    "feature_count": 39 if model_id == "criteo_dlrm_lite" else 28,
+                    "max_batch_size": 0,
+                    "preferred_batch_size": [],
+                    "max_queue_delay_microseconds": 0,
+                },
             )
-            expected_value = float(expected[0])
-            if math.isclose(
-                observed,
-                expected_value,
-                rel_tol=float(oracle["relative_tolerance"]),
-                abs_tol=float(oracle["absolute_tolerance"]),
+            before = triton_metrics_text()
+            gpu_before = capture_gpu()
+            correct = 0
+            for sequence, (features, expected) in enumerate(
+                zip(oracle["input"], oracle["output"], strict=True)
             ):
-                correct += 1
-        after = triton_metrics_text()
-        gpu_after = capture_gpu()
-        delta = _metric_delta(before, after, model_id)
-        identity = artifact_manifest["models"][model_id]
-        config_path = artifact_root / "model-repositories/disabled" / model_id / "config.pbtxt"
-        actual_cuda = (
-            delta["success_count"] == 64
-            and delta["inference_count"] == 64
-            and int(delta["execution_count"]) > 0
-            and float(delta["compute_duration_us"]) > 0
-            and gpu_before["uuid"] == GPU_UUID
-            and gpu_after["uuid"] == GPU_UUID
-        )
-        records.append(
-            {
-                "model_id": model_id,
-                "model_version": "1",
-                "artifact_sha256": identity["artifact_sha256"],
-                "isolated_request_count": 64,
-                "correct_count": correct,
-                "failed_count": 64 - correct,
-                "cpu_fallback_detected": not actual_cuda,
-                "actual_cuda_activity": actual_cuda,
-                "triton_delta": delta,
-                "gpu_uuid": gpu_after["uuid"],
-                "gpu_name": gpu_after["name"],
-                "config_sha256": sha256_file(config_path),
-                "config_bytes_sha256": sha256_file(config_path),
-                "repository_index_exact": index == sorted(index, key=lambda item: item["name"]),
-                "runtime_config_readback": config,
-                "gpu_before": gpu_before,
-                "gpu_after": gpu_after,
-            }
-        )
+                observed = _direct_infer(
+                    model_id,
+                    features,
+                    request_id=f"{suite_id}-q0-{model_id}-{sequence:04d}",
+                    session=session,
+                )
+                expected_value = float(expected[0])
+                if math.isclose(
+                    observed,
+                    expected_value,
+                    rel_tol=float(oracle["relative_tolerance"]),
+                    abs_tol=float(oracle["absolute_tolerance"]),
+                ):
+                    correct += 1
+            after = triton_metrics_text()
+            gpu_after = capture_gpu()
+            delta = _metric_delta(before, after, model_id)
+            identity = artifact_manifest["models"][model_id]
+            config_path = artifact_root / "model-repositories/disabled" / model_id / "config.pbtxt"
+            actual_cuda = (
+                delta["success_count"] == 64
+                and delta["inference_count"] == 64
+                and int(delta["execution_count"]) > 0
+                and float(delta["compute_duration_us"]) > 0
+                and gpu_before["uuid"] == GPU_UUID
+                and gpu_after["uuid"] == GPU_UUID
+            )
+            records.append(
+                {
+                    "model_id": model_id,
+                    "model_version": "1",
+                    "artifact_sha256": identity["artifact_sha256"],
+                    "isolated_request_count": 64,
+                    "correct_count": correct,
+                    "failed_count": 64 - correct,
+                    "cpu_fallback_detected": not actual_cuda,
+                    "actual_cuda_activity": actual_cuda,
+                    "triton_delta": delta,
+                    "gpu_uuid": gpu_after["uuid"],
+                    "gpu_name": gpu_after["name"],
+                    "config_sha256": sha256_file(config_path),
+                    "config_bytes_sha256": sha256_file(config_path),
+                    "repository_index_exact": index == sorted(index, key=lambda item: item["name"]),
+                    "runtime_config_readback": config,
+                    "gpu_before": gpu_before,
+                    "gpu_after": gpu_after,
+                }
+            )
     bundle = {
         "schema_version": "evm.s8_v4.x1_q0.v1",
         "suite_id": suite_id,

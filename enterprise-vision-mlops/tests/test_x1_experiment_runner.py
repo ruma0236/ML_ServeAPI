@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import requests
 
 from scripts.dev import run_s8_v4_x1_calibration as runner
 from scripts.dev.run_s8_v4_x1_calibration import (
@@ -167,3 +168,99 @@ def test_x1_runner_repository_index_rejects_optional_field_mutation(
     )
     with pytest.raises(X1ExperimentError, match=expected):
         runner.repository_index()
+
+
+def test_x1_q0_reuses_one_bounded_no_proxy_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sessions: list[object] = []
+    observed_sessions: list[object] = []
+
+    class Session:
+        trust_env = True
+
+        def __enter__(self) -> Session:
+            sessions.append(self)
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    def direct_infer(
+        model_id: str,
+        features: list[float],
+        *,
+        request_id: str,
+        session: object,
+    ) -> float:
+        assert model_id == "model"
+        assert features == [1.0]
+        assert request_id.startswith("suite-q0-model-")
+        observed_sessions.append(session)
+        return 1.0
+
+    monkeypatch.setattr(runner, "MODEL_IDS", ("model",))
+    monkeypatch.setattr(runner.requests, "Session", Session)
+    monkeypatch.setattr(runner, "repository_index", lambda: [])
+    monkeypatch.setattr(
+        runner,
+        "_oracle",
+        lambda *args: {
+            "input": [[1.0]] * 64,
+            "output": [[1.0]] * 64,
+            "relative_tolerance": 0.0,
+            "absolute_tolerance": 0.0,
+        },
+    )
+    monkeypatch.setattr(runner, "triton_config_readback", lambda model_id: {})
+    monkeypatch.setattr(runner, "validate_triton_runtime_config", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "triton_metrics_text", lambda: "")
+    monkeypatch.setattr(
+        runner,
+        "capture_gpu",
+        lambda: {"uuid": runner.GPU_UUID, "name": "gpu"},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_metric_delta",
+        lambda *args: {
+            "success_count": 64,
+            "inference_count": 64,
+            "execution_count": 64,
+            "compute_duration_us": 1.0,
+        },
+    )
+    monkeypatch.setattr(runner, "sha256_file", lambda path: "a" * 64)
+    monkeypatch.setattr(runner, "validate_q0_bundle", lambda *args: {"passed": True})
+    monkeypatch.setattr(runner, "_direct_infer", direct_infer)
+    manifest = {"models": {"model": {"artifact_sha256": "b" * 64}}}
+
+    bundle = runner.run_q0(
+        object(),
+        suite_id="suite",
+        artifact_root=tmp_path,
+        artifact_manifest=manifest,
+    )
+
+    assert bundle["projection"] == {"passed": True}
+    assert len(sessions) == 1
+    assert sessions[0].trust_env is False
+    assert len(observed_sessions) == 64
+    assert all(session is sessions[0] for session in observed_sessions)
+
+
+def test_x1_q0_transport_failure_is_contextual_and_fail_closed() -> None:
+    class Session:
+        def post(self, *args: object, **kwargs: object) -> None:
+            raise requests.ReadTimeout("bounded timeout")
+
+    with pytest.raises(
+        X1ExperimentError,
+        match="x1_q0_transport:higgs_gaussian_nb:request-7:ReadTimeout",
+    ):
+        runner._direct_infer(
+            "higgs_gaussian_nb",
+            [1.0],
+            request_id="request-7",
+            session=Session(),
+        )
