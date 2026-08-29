@@ -152,6 +152,70 @@ def test_generation_pinned_request_rejects_before_in_flight_accounting(
     assert manager.snapshot().in_flight == {"blue": 0, "green": 0}
 
 
+def test_s6bm_reuses_bounded_async_inference_client_and_closes_once(
+    manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"outputs": [{"name": "OUTPUT__0", "data": [3, 5, 7, 9]}]}
+
+    created: list[dict[str, object]] = []
+
+    class Client:
+        def __init__(self, **kwargs: object) -> None:
+            self.close_count = 0
+            self.post_count = 0
+            created.append({"client": self, **kwargs})
+
+        async def post(self, *_args: object, **_kwargs: object) -> Response:
+            self.post_count += 1
+            await asyncio.sleep(0.001)
+            return Response()
+
+        async def aclose(self) -> None:
+            self.close_count += 1
+
+    monkeypatch.setattr(module.httpx, "AsyncClient", Client)
+
+    async def scenario() -> None:
+        requests = [
+            TritonBlueGreenPredictRequest(
+                run_id="s8-v4-s6bm-test",
+                lease_id="lease-test",
+                fencing_token="fence-test",
+                attempt_id="s6bm-client-pool-test",
+                request_id=f"request-client-pool-{index:02d}",
+                request_nonce=f"nonce-client-pool-{index:02d}",
+                traceparent=f"00-{index + 1:032x}-{index + 1:016x}-01",
+                input_values=[1, 2, 3, 4],
+            )
+            for index in range(16)
+        ]
+        results = await asyncio.gather(*(manager.predict(request) for request in requests))
+        assert len(results) == 16
+        await manager.close_inference_client()
+        await manager.close_inference_client()
+
+    asyncio.run(scenario())
+
+    assert len(created) == 1
+    client = created[0]["client"]
+    assert isinstance(client, Client)
+    assert client.post_count == 16
+    assert client.close_count == 1
+    assert created[0]["timeout"] == 10
+    limits = created[0]["limits"]
+    assert isinstance(limits, httpx.Limits)
+    assert limits.max_connections == 16
+    assert limits.max_keepalive_connections == 16
+    assert limits.keepalive_expiry == 30
+
+
 def test_route_generation_remains_at_switch_epoch_during_blue_drain(
     manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:

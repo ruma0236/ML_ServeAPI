@@ -65,6 +65,7 @@ from evm.control_panel.transactional_store import (
 from evm.operations.metrics import OperationalMetrics, load_metric_projection
 from evm.model_runtime.capacity_executor import shutdown_capacity_probe_executor
 from evm.model_runtime.gpu_batch_probe import shutdown_gpu_batch_probe_executor
+from evm.model_runtime.triton_blue_green import manager as triton_blue_green_manager
 from evm.control_panel.api_rollout import API_DRAIN_CONTROLLER, ApiDrainMiddleware
 
 
@@ -296,7 +297,10 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
-        shutdown_s6bm_terminal_store()
+        try:
+            await triton_blue_green_manager.close_inference_client()
+        finally:
+            shutdown_s6bm_terminal_store()
         await shutdown_gpu_batch_probe_executor()
         shutdown_capacity_probe_executor()
         shutdown_tracing()

@@ -769,6 +769,30 @@ class TritonBlueGreenManager:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._state: _State | None = None
+        self._inference_client_lock = threading.Lock()
+        self._inference_client: httpx.AsyncClient | None = None
+
+    def _shared_inference_client(self) -> httpx.AsyncClient:
+        with self._inference_client_lock:
+            client = self._inference_client
+            if client is None:
+                client = httpx.AsyncClient(
+                    timeout=10,
+                    limits=httpx.Limits(
+                        max_connections=16,
+                        max_keepalive_connections=16,
+                        keepalive_expiry=30,
+                    ),
+                )
+                self._inference_client = client
+            return client
+
+    async def close_inference_client(self) -> None:
+        with self._inference_client_lock:
+            client = self._inference_client
+            self._inference_client = None
+        if client is not None:
+            await client.aclose()
 
     def initialize(
         self,
@@ -1462,13 +1486,12 @@ class TritonBlueGreenManager:
                     kind="client",
                     attributes={**span_attributes, "evm.stage": "triton_inference"},
                 ) as inference_span:
-                    async with httpx.AsyncClient(timeout=10) as client:
-                        response = await client.post(
-                            f"{triton_url}/v2/models/{identity.model_name}/versions/"
-                            f"{identity.model_version}/infer",
-                            json=payload,
-                            headers=inference_span.context.headers(),
-                        )
+                    response = await self._shared_inference_client().post(
+                        f"{triton_url}/v2/models/{identity.model_name}/versions/"
+                        f"{identity.model_version}/infer",
+                        json=payload,
+                        headers=inference_span.context.headers(),
+                    )
                     inference_span.set_attribute("http.response.status_code", response.status_code)
                     response.raise_for_status()
                     inference_span.set_attribute("evm.terminal.outcome", "completed")
