@@ -26,7 +26,19 @@ def _bundle() -> dict[str, object]:
                 "spec": {
                     "template": {
                         "spec": {
-                            "containers": [{"name": "triton", "command": ["tritonserver", *trace]}]
+                            "containers": [
+                                {
+                                    "name": "triton",
+                                    "command": [
+                                        "tritonserver",
+                                        *[
+                                            f"--load-model={model_id}"
+                                            for model_id in diagnostic.base.MODEL_IDS
+                                        ],
+                                        *trace,
+                                    ],
+                                }
+                            ]
                         }
                     }
                 },
@@ -81,6 +93,31 @@ def test_dlrm_diagnostic_rejects_trace_contract_drift() -> None:
         diagnostic.triton_only_bundle(bundle, trace_enabled=True)
 
 
+def test_dlrm_diagnostic_selects_exact_loaded_model_set() -> None:
+    source = diagnostic.triton_only_bundle(_bundle(), trace_enabled=False)
+    all_models = diagnostic.select_loaded_models(source, model_ids=diagnostic.base.MODEL_IDS)
+    dlrm_only = diagnostic.select_loaded_models(source, model_ids=(diagnostic.DLRM_MODEL_ID,))
+    source_command = source["items"][0]["spec"]["template"]["spec"]["containers"][0]["command"]
+    all_command = all_models["items"][0]["spec"]["template"]["spec"]["containers"][0]["command"]
+    dlrm_command = dlrm_only["items"][0]["spec"]["template"]["spec"]["containers"][0]["command"]
+    assert source_command == all_command
+    assert [value for value in dlrm_command if value.startswith("--load-model=")] == [
+        f"--load-model={diagnostic.DLRM_MODEL_ID}"
+    ]
+
+
+@pytest.mark.parametrize(
+    "model_ids",
+    [(), (diagnostic.DLRM_MODEL_ID, diagnostic.DLRM_MODEL_ID), ("unknown",)],
+)
+def test_dlrm_diagnostic_rejects_invalid_loaded_model_set(
+    model_ids: tuple[str, ...],
+) -> None:
+    source = diagnostic.triton_only_bundle(_bundle(), trace_enabled=False)
+    with pytest.raises(X1ExperimentError, match="x1_dlrm_diagnostic_loaded_model_set"):
+        diagnostic.select_loaded_models(source, model_ids=model_ids)
+
+
 def test_dlrm_diagnostic_sums_reason_labelled_failure_counters() -> None:
     labels = 'model="criteo_dlrm_lite",version="1"'
     metrics = "\n".join(
@@ -106,31 +143,52 @@ def test_dlrm_diagnostic_sums_reason_labelled_failure_counters() -> None:
 
 
 @pytest.mark.parametrize(
-    ("direct_passed", "enabled_passed", "disabled_passed", "expected"),
+    (
+        "direct_passed",
+        "host_passed",
+        "enabled_passed",
+        "disabled_passed",
+        "dlrm_only_passed",
+        "expected",
+    ),
     [
-        (False, False, False, "direct_image_artifact_or_framework_failure"),
-        (True, False, True, "triton_trace_pipeline_correlated_stall"),
+        (False, False, False, False, False, "host_direct_artifact_or_framework_failure"),
+        (False, True, False, True, True, "triton_trace_pipeline_correlated_stall"),
         (
+            True,
             True,
             False,
             False,
-            "triton_backend_or_model_instance_stall_independent_of_trace_setting",
+            True,
+            "triton_four_model_coresidency_correlated_stall",
         ),
-        (True, True, True, "stall_not_reproduced_in_bounded_isolation"),
-        (True, True, False, "diagnostic_inconclusive"),
+        (
+            True,
+            True,
+            False,
+            False,
+            False,
+            "triton_pytorch_backend_or_dlrm_artifact_interaction",
+        ),
+        (True, True, True, True, True, "stall_not_reproduced_in_bounded_isolation"),
+        (True, True, True, False, True, "diagnostic_inconclusive"),
     ],
 )
 def test_dlrm_diagnostic_classification_is_bounded(
     direct_passed: bool,
+    host_passed: bool,
     enabled_passed: bool,
     disabled_passed: bool,
+    dlrm_only_passed: bool,
     expected: str,
 ) -> None:
     assert (
         diagnostic.classify_diagnostic(
             _direct(passed=direct_passed),
+            _direct(passed=host_passed)["projection"],
             _mode(passed=enabled_passed),
             _mode(passed=disabled_passed),
+            _mode(passed=dlrm_only_passed),
         )
         == expected
     )
