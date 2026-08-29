@@ -770,13 +770,13 @@ class TritonBlueGreenManager:
         self._lock = threading.RLock()
         self._state: _State | None = None
         self._inference_client_lock = threading.Lock()
-        self._inference_client: httpx.AsyncClient | None = None
+        self._inference_client: httpx.Client | None = None
 
-    def _shared_inference_client(self) -> httpx.AsyncClient:
+    def _shared_inference_client(self) -> httpx.Client:
         with self._inference_client_lock:
             client = self._inference_client
             if client is None:
-                client = httpx.AsyncClient(
+                client = httpx.Client(
                     timeout=10,
                     limits=httpx.Limits(
                         max_connections=16,
@@ -792,7 +792,7 @@ class TritonBlueGreenManager:
             client = self._inference_client
             self._inference_client = None
         if client is not None:
-            await client.aclose()
+            await asyncio.to_thread(client.close)
 
     def initialize(
         self,
@@ -1486,7 +1486,8 @@ class TritonBlueGreenManager:
                     kind="client",
                     attributes={**span_attributes, "evm.stage": "triton_inference"},
                 ) as inference_span:
-                    response = await self._shared_inference_client().post(
+                    response = await asyncio.to_thread(
+                        self._shared_inference_client().post,
                         f"{triton_url}/v2/models/{identity.model_name}/versions/"
                         f"{identity.model_version}/infer",
                         json=payload,

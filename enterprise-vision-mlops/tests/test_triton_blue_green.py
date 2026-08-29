@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import threading
+import time
 from typing import Any
 
 import httpx
@@ -172,15 +174,17 @@ def test_s6bm_reuses_bounded_async_inference_client_and_closes_once(
             self.post_count = 0
             created.append({"client": self, **kwargs})
 
-        async def post(self, *_args: object, **_kwargs: object) -> Response:
-            self.post_count += 1
-            await asyncio.sleep(0.001)
+        def post(self, *_args: object, **_kwargs: object) -> Response:
+            with counter_lock:
+                self.post_count += 1
+            time.sleep(0.001)
             return Response()
 
-        async def aclose(self) -> None:
+        def close(self) -> None:
             self.close_count += 1
 
-    monkeypatch.setattr(module.httpx, "AsyncClient", Client)
+    counter_lock = threading.Lock()
+    monkeypatch.setattr(module.httpx, "Client", Client)
 
     async def scenario() -> None:
         requests = [
@@ -235,10 +239,10 @@ def test_route_generation_remains_at_switch_epoch_during_blue_drain(
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def post(self, *_args: object, **_kwargs: object) -> Response:
+        def post(self, *_args: object, **_kwargs: object) -> Response:
             return Response()
 
-    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(module.httpx, "Client", lambda **_kwargs: Client())
     manager.control(control_request(manager, "green_loaded"))
     manager.control(control_request(manager, "canary_started"))
     switched = manager.control(control_request(manager, "green_switched"))
@@ -286,10 +290,10 @@ def test_route_revision_is_last_route_changing_control_revision(
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def post(self, *_args: object, **_kwargs: object) -> Response:
+        def post(self, *_args: object, **_kwargs: object) -> Response:
             return Response()
 
-    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(module.httpx, "Client", lambda **_kwargs: Client())
     assert (manager.snapshot().generation, manager.snapshot().route_generation) == (1, 1)
     manager.control(control_request(manager, "green_loaded"))
     assert (manager.snapshot().generation, manager.snapshot().route_generation) == (2, 1)
@@ -459,10 +463,10 @@ def test_s6bm_external_effect_is_idempotent_and_drain_blocks_in_flight(
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def post(self, *_args: object, **_kwargs: object) -> Response:
+        def post(self, *_args: object, **_kwargs: object) -> Response:
             return Response()
 
-    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(module.httpx, "Client", lambda **_kwargs: Client())
     request = TritonBlueGreenPredictRequest(
         run_id="s8-v4-s6bm-test",
         lease_id="lease-test",
@@ -519,13 +523,13 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def post(self, *_args: object, **kwargs: object) -> Response:
+        def post(self, *_args: object, **kwargs: object) -> Response:
             observed_headers.append(dict(kwargs.get("headers", {})))
             return Response()
 
     monkeypatch.setenv("EVM_S6BM_REQUIRE_CAUSAL_FENCE", "1")
     monkeypatch.setenv("EVM_S6BM_REQUIRE_DURABLE_EFFECT", "1")
-    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(module.httpx, "Client", lambda **_kwargs: Client())
     manager.control(control_request(manager, "green_loaded"))
     manager.control(control_request(manager, "canary_started"))
     request = TritonBlueGreenPredictRequest(
@@ -717,13 +721,13 @@ def test_s6bm_crossover_waits_for_switch_and_times_out_fail_closed(
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def post(self, *_args: object, **_kwargs: object) -> Response:
+        def post(self, *_args: object, **_kwargs: object) -> Response:
             return Response()
 
     monkeypatch.setenv("EVM_S6BM_REQUIRE_CAUSAL_FENCE", "1")
     monkeypatch.setenv("EVM_S6BM_REQUIRE_DURABLE_EFFECT", "1")
     monkeypatch.setenv("EVM_S6BM_CAUSAL_SWITCH_TIMEOUT_SECONDS", "0.01")
-    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(module.httpx, "Client", lambda **_kwargs: Client())
     manager.control(control_request(manager, "green_loaded"))
     manager.control(control_request(manager, "canary_started"))
     request = TritonBlueGreenPredictRequest(
@@ -791,10 +795,10 @@ def test_s6bm_bridge_start_receipt_does_not_wait_for_route_switch(
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def post(self, *_args: object, **_kwargs: object) -> Response:
+        def post(self, *_args: object, **_kwargs: object) -> Response:
             return Response()
 
-    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(module.httpx, "Client", lambda **_kwargs: Client())
     observed: list[tuple[str, int]] = []
     generation = manager.snapshot().generation
     request = TritonBlueGreenPredictRequest(
@@ -850,11 +854,11 @@ def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def post(self, *_args: object, **_kwargs: object) -> Response:
+        def post(self, *_args: object, **_kwargs: object) -> Response:
             return Response()
 
     monkeypatch.setenv("EVM_S6BM_REQUIRE_CAUSAL_FENCE", "1")
-    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(module.httpx, "Client", lambda **_kwargs: Client())
     manager.control(control_request(manager, "green_loaded"))
     manager.control(control_request(manager, "canary_started"))
     generation = manager.snapshot().generation
