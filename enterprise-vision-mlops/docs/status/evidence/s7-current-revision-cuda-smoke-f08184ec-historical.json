@@ -3,9 +3,9 @@
   "status": "verified",
   "verdict": "passed",
   "acceptance_credit": false,
-  "suite_id": "20260829T160726Z-1f631c19",
+  "suite_id": "20260825T031437Z-f08184ec",
   "source_identity": {
-    "revision": "1f631c19174008c379c4802d20482ca6ed878d11",
+    "revision": "f08184ec522d02c0ad158ac40e544e4a081ee334",
     "branch": "codex/distributed-scale-validation-plan",
     "config_sha256": "44f057932a402787becc9476c598a2dd00d05cbb8915df7f3fa6eac143f79d93",
     "git_blobs": {
@@ -80,7 +80,7 @@
         "scope": "non_acceptance_current_revision_diagnostic_only",
         "reason": "curated_manifest_regenerated_after_accepted_matrix",
         "frozen_manifest_sha256": "33d37c40901026b9bd5ddd5ee41546864c86a03add507a2da78b937b12d01ff1",
-        "observed_manifest_sha256": "147eedf63de3de89517dfd24339a484675fcf6b13e13f06196be2c083ae95e24",
+        "observed_manifest_sha256": "ef5aad5f18bbeff5795caf5ca1b24cc79f07491aa1d2d6cbe4701420c81e2969",
         "dataset_version": "visa-open-data-e35d93d5561f",
         "record_count": 4317,
         "acceptance_credit": false
@@ -104,12 +104,12 @@
       "expired": 0,
       "transport_failed": 0,
       "rejection_statuses": [],
-      "measurement_seconds": 0.34399999999732245,
-      "throughput_requests_per_second": 17.441860465252038,
-      "p50_seconds": 0.17199999999866122,
-      "p95_seconds": 0.23075000000244472,
-      "p99_seconds": 0.2341500000009546,
-      "maximum_queue_wait_seconds": 0.188,
+      "measurement_seconds": 0.29699999996228144,
+      "throughput_requests_per_second": 20.20202020458583,
+      "p50_seconds": 0.13300000000162981,
+      "p95_seconds": 0.18399999997927807,
+      "p99_seconds": 0.18719999996828846,
+      "maximum_queue_wait_seconds": 0.141,
       "short_request_count": 6,
       "long_request_count": 0,
       "short_completed": 6,
@@ -120,9 +120,9 @@
       "admitted_starvation_count": 0,
       "long_request_noncompletion_count": 0,
       "oom_count": 0,
-      "peak_gpu_used_memory_bytes": 2659188736,
-      "gpu_utilization_percent_max": 16.0,
-      "gpu_temperature_celsius_max": 51.0,
+      "peak_gpu_used_memory_bytes": 3433037824,
+      "gpu_utilization_percent_max": 11.0,
+      "gpu_temperature_celsius_max": 39.0,
       "quality": {
         "binary_accuracy": 0.6666666666666666,
         "mean_confidence": 0.7407833333333333
@@ -161,12 +161,12 @@
       "expired": 0,
       "transport_failed": 0,
       "rejection_statuses": [],
-      "measurement_seconds": 3.9840000000112923,
-      "throughput_requests_per_second": 1.5060240963812734,
-      "p50_seconds": 2.3590000000040163,
-      "p95_seconds": 2.7030000000049768,
-      "p99_seconds": 2.7030000000078873,
-      "maximum_queue_wait_seconds": 2.109,
+      "measurement_seconds": 5.546999999962281,
+      "throughput_requests_per_second": 1.081665765285884,
+      "p50_seconds": 3.3514999999897555,
+      "p95_seconds": 3.9259999999776483,
+      "p99_seconds": 3.960399999981746,
+      "maximum_queue_wait_seconds": 3.016,
       "short_request_count": 6,
       "long_request_count": 0,
       "short_completed": 6,
@@ -177,9 +177,9 @@
       "admitted_starvation_count": 0,
       "long_request_noncompletion_count": 0,
       "oom_count": 0,
-      "peak_gpu_used_memory_bytes": 6740246528,
+      "peak_gpu_used_memory_bytes": 7492075520,
       "gpu_utilization_percent_max": 100.0,
-      "gpu_temperature_celsius_max": 63.0,
+      "gpu_temperature_celsius_max": 44.0,
       "quality": {
         "accuracy": 0.8333333333333334,
         "parse_rate": 1.0
@@ -220,9 +220,9 @@
       "cleanup_passed": true,
       "generation": {
         "generated_tokens_total": 20,
-        "tokens_per_second_mean": 9.019460166666667,
-        "ttft_p95_seconds": 0.263385,
-        "tpot_p95_seconds": 0.062264,
+        "tokens_per_second_mean": 5.9330165,
+        "ttft_p95_seconds": 0.54506975,
+        "tpot_p95_seconds": 0.10137775,
         "termination_reasons": {
           "eos_or_model_stop": 6
         }
@@ -239,12 +239,12 @@
       "expired": 0,
       "transport_failed": 0,
       "rejection_statuses": [],
-      "measurement_seconds": 3.4070000000065193,
-      "throughput_requests_per_second": 1.7610801291425062,
-      "p50_seconds": 2.0155000000013388,
-      "p95_seconds": 2.3440000000082364,
-      "p99_seconds": 2.344000000011147,
-      "maximum_queue_wait_seconds": 1.766,
+      "measurement_seconds": 3.1869999999762513,
+      "throughput_requests_per_second": 1.8826482585643898,
+      "p50_seconds": 1.8355000000155997,
+      "p95_seconds": 2.1632499999686843,
+      "p99_seconds": 2.16944999997213,
+      "maximum_queue_wait_seconds": 1.625,
       "short_request_count": 6,
       "long_request_count": 0,
       "short_completed": 6,
@@ -255,9 +255,9 @@
       "admitted_starvation_count": 0,
       "long_request_noncompletion_count": 0,
       "oom_count": 0,
-      "peak_gpu_used_memory_bytes": 3415212032,
-      "gpu_utilization_percent_max": 32.0,
-      "gpu_temperature_celsius_max": 49.0,
+      "peak_gpu_used_memory_bytes": 4141875200,
+      "gpu_utilization_percent_max": 61.0,
+      "gpu_temperature_celsius_max": 39.0,
       "quality": {
         "mean_token_f1": 0.1059482808881641,
         "nonempty_rate": 1.0
@@ -295,9 +295,9 @@
       "cleanup_passed": true,
       "generation": {
         "generated_tokens_total": 47,
-        "tokens_per_second_mean": 14.172923500000001,
-        "ttft_p95_seconds": 0.09403875,
-        "tpot_p95_seconds": 0.0763915,
+        "tokens_per_second_mean": 15.139046833333333,
+        "ttft_p95_seconds": 0.08924425,
+        "tpot_p95_seconds": 0.06814724999999999,
         "termination_reasons": {
           "max_new_tokens": 5,
           "eos_or_model_stop": 1
@@ -325,7 +325,7 @@
       "model_artifact_sha256": "9135f9045b92f2bb5914818e47d168187c327307b2ff2826a4d319b78cb6534b",
       "data_identity_sha256": "8bce3a7ad9c60599100ba59d1e538ce29d08434f98b7e9521d2b212427bed7a1",
       "model_source_commit": "d6444b542d183bbd51a7782c561cbc962ec0d6b3",
-      "runtime_source_commit": "1f631c19174008c379c4802d20482ca6ed878d11",
+      "runtime_source_commit": "f08184ec522d02c0ad158ac40e544e4a081ee334",
       "quantization_requested": "none",
       "quantization_observed": "none",
       "loaded_in_4bit": false,
@@ -344,7 +344,7 @@
       "model_artifact_sha256": "326f95c3cba5cf29a02fb7798be0c282083da303359d350d27ddbd9861a85d58",
       "data_identity_sha256": "15b54c61c6ff2f1141c1c8f1b8edd27a6817afb3ae0f02008c53659b1b8a8557",
       "model_source_commit": "d6444b542d183bbd51a7782c561cbc962ec0d6b3",
-      "runtime_source_commit": "1f631c19174008c379c4802d20482ca6ed878d11",
+      "runtime_source_commit": "f08184ec522d02c0ad158ac40e544e4a081ee334",
       "quantization_requested": "int4_nf4",
       "quantization_observed": "int4_nf4",
       "loaded_in_4bit": true,
@@ -369,7 +369,7 @@
         "license_url": "https://creativecommons.org/licenses/by/4.0/",
         "usage_policy": "portfolio-and-commercial-use-with-attribution"
       },
-      "runtime_manifest_sha256": "147eedf63de3de89517dfd24339a484675fcf6b13e13f06196be2c083ae95e24",
+      "runtime_manifest_sha256": "ef5aad5f18bbeff5795caf5ca1b24cc79f07491aa1d2d6cbe4701420c81e2969",
       "model": {
         "repository": "effnet-b0-img224-expedited-adamw",
         "revision": "abcb8504a36c1128d32021722cfedce6357fd73598a52f6c2a0d60aca9d9a27f",
@@ -462,11 +462,11 @@
   },
   "private_evidence": {
     "artifact_count": 24,
-    "total_bytes": 184347,
-    "aggregate_sha256": "966cb8e23251d2113f249940a2d7137248de4b2a9ed0b8592aff35cb885eb431",
-    "index_sha256": "a0fec2d200e7b6e1770e2603ae3aace8b2a20926a1e1dd33b5f563f039ad6480",
+    "total_bytes": 185627,
+    "aggregate_sha256": "54b9506ec2d9f29195adc8b642b27ee59d717c948a65645fd2af109a28313e7f",
+    "index_sha256": "1b353f3a5289e96d43ec1c1a72d2fd38b934a4ec57906381d2d79d2f68d270a1",
     "location": "outside_git_private_evidence_root"
   },
   "claim_boundary": "Current-revision external-HTTP CUDA identity smoke for image, VLM, and LLM on one local physical node and one consumer GPU. ScienceQA is non-commercial research/portfolio-only. This is not production, SLA, HA, multi-GPU, or broad model-quality evidence.",
-  "generated_at": "2026-08-29T16:10:12.426751Z"
+  "generated_at": "2026-08-25T03:17:34.783588Z"
 }
