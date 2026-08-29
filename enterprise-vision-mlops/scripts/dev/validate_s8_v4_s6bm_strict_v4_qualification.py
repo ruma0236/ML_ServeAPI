@@ -320,9 +320,7 @@ def _rewrite_start_event(
 
 def _route_applied_actor_unix_ns(raw: dict[str, Any]) -> int:
     return int(
-        _proof(raw)["route_transition_receipt"]["route_applied_actor"][
-            "actor_start_unix_ns"
-        ]
+        _proof(raw)["route_transition_receipt"]["route_applied_actor"]["actor_start_unix_ns"]
     )
 
 
@@ -402,10 +400,18 @@ def _controller_actor_and_span_after_switch(root: Path, raw: dict[str, Any]) -> 
     )
 
 
-def _model_start_after_switch(root: Path, raw: dict[str, Any]) -> None:
+def _triton_model_compute_nesting_mismatch(root: Path, raw: dict[str, Any]) -> None:
     trace_id = raw["request_records"][0]["trace_id"]
     model_name = raw["request_records"][0]["model_name"]
-    start = _route_applied_actor_unix_ns(raw) + 3_000_000
+    trace_reference = raw["observability"]["artifacts"]["trace_export"]
+    original_trace = read_json(_reference_path(root, trace_reference))
+    compute_start = int(
+        next(
+            entry["span"]
+            for entry in original_trace["entries"]
+            if entry["span"].get("traceId") == trace_id and entry["span"].get("name") == "compute"
+        )["startTimeUnixNano"]
+    )
 
     def mutate_trace(payload: dict[str, Any]) -> None:
         model_entry = next(
@@ -414,9 +420,7 @@ def _model_start_after_switch(root: Path, raw: dict[str, Any]) -> None:
             if entry["span"].get("traceId") == trace_id and entry["span"].get("name") == model_name
         )
         span = model_entry["span"]
-        duration = max(1_000, int(span["endTimeUnixNano"]) - int(span["startTimeUnixNano"]))
-        span["startTimeUnixNano"] = str(start)
-        span["endTimeUnixNano"] = str(start + duration)
+        span["startTimeUnixNano"] = str(compute_start + 1)
 
     trace = _rewrite_trace(root, raw, mutate_trace)
     model_entry = next(
@@ -455,45 +459,14 @@ def _model_start_after_switch(root: Path, raw: dict[str, Any]) -> None:
     _refresh(receipt["result"], result_path)
 
 
-def _model_actor_and_spans_after_switch(root: Path, raw: dict[str, Any]) -> None:
-    trace_id = raw["request_records"][0]["trace_id"]
-    model_name = raw["request_records"][0]["model_name"]
-    _set_span_start_after_switch(root, raw, model_name, 3)
-    _set_span_start_after_switch(root, raw, "compute", 4)
-    trace_reference = raw["observability"]["artifacts"]["trace_export"]
-    trace = read_json(_reference_path(root, trace_reference))
-    model_entry = next(
-        entry
-        for entry in trace["entries"]
-        if entry["span"].get("traceId") == trace_id
-        and entry["span"].get("name") == model_name
-    )
-    compute_entry = next(
-        entry
-        for entry in trace["entries"]
-        if entry["span"].get("traceId") == trace_id
-        and entry["span"].get("name") == "compute"
-    )
+def _triton_receipt_start_binding_mismatch(root: Path, raw: dict[str, Any]) -> None:
     receipt = _proof(raw)["triton_start_receipt"]
-
-    def mutate_triton(payload: dict[str, Any]) -> None:
-        payload["raw_model_entry"] = copy.deepcopy(model_entry)
-        payload["raw_compute_entry"] = copy.deepcopy(compute_entry)
-        payload["compute_start_unix_ns"] = int(compute_entry["span"]["startTimeUnixNano"])
-
-    triton_trace = _rewrite_reference(root, receipt["raw_trace"], mutate_triton)
-    receipt["raw_trace_sha256"] = receipt["raw_trace"]["sha256"]
-    receipt["raw_record_sha256"] = canonical_sha256(triton_trace)
-    compute_start = int(compute_entry["span"]["startTimeUnixNano"])
+    actor_start = int(receipt["receipt"]["payload"]["actor_start_unix_ns"])
     event = _rewrite_start_event(
         root,
         raw,
         "triton_backend_compute_entry",
-        lambda payload: payload.update(
-            actor_start_unix_ns=compute_start,
-            raw_trace_artifact_sha256=receipt["raw_trace"]["sha256"],
-            raw_trace_record_sha256=canonical_sha256(triton_trace),
-        ),
+        lambda payload: payload.update(actor_start_unix_ns=actor_start + 1),
     )
     receipt["receipt"]["payload"] = copy.deepcopy(event["payload"])
     receipt["receipt"]["payload_sha256"] = event["payload_sha256"]
@@ -534,17 +507,12 @@ def _clock_drift(root: Path, raw: dict[str, Any]) -> None:
     x_mean = sum((x for x, _ in samples), Fraction(0)) / len(samples)
     y_mean = sum((y for _, y in samples), Fraction(0)) / len(samples)
     denominator = sum(((x - x_mean) ** 2 for x, _ in samples), Fraction(0))
-    slope = (
-        sum(((x - x_mean) * (y - y_mean) for x, y in samples), Fraction(0))
-        / denominator
-    )
+    slope = sum(((x - x_mean) * (y - y_mean) for x, y in samples), Fraction(0)) / denominator
     direction = 1 if slope >= 1 else -1
     target_slope = Fraction(1) + direction * Fraction(101, 1_000_000)
     slope_delta = target_slope - slope
     for item, (midpoint, _) in zip(points, samples, strict=True):
-        item["unix_ns"] = int(item["unix_ns"]) + round(
-            slope_delta * (midpoint - x_mean)
-        )
+        item["unix_ns"] = int(item["unix_ns"]) + round(slope_delta * (midpoint - x_mean))
     _rehash_runner_anchor_chain(raw)
     _rehash_anchor(collector)
     _sync_collector_observation(root, raw)
@@ -570,19 +538,14 @@ def _affine_mutation_metrics(
     x_mean = sum((x for x, _ in samples), Fraction(0)) / count
     y_mean = sum((y for _, y in samples), Fraction(0)) / count
     denominator = sum(((x - x_mean) ** 2 for x, _ in samples), Fraction(0))
-    slope = (
-        sum(((x - x_mean) * (y - y_mean) for x, y in samples), Fraction(0))
-        / denominator
-    )
+    slope = sum(((x - x_mean) * (y - y_mean) for x, y in samples), Fraction(0)) / denominator
     intercept = y_mean - slope * x_mean
     residuals = [y - (intercept + slope * x) for x, y in samples]
     ordered = sorted(zip((x for x, _ in samples), residuals, strict=True))
     max_step = max(
         (
             abs(right_residual - left_residual)
-            for (_, left_residual), (_, right_residual) in zip(
-                ordered, ordered[1:], strict=False
-            )
+            for (_, left_residual), (_, right_residual) in zip(ordered, ordered[1:], strict=False)
         ),
         default=Fraction(0),
     )
@@ -722,9 +685,7 @@ def _transition_fence_mismatch(_root: Path, raw: dict[str, Any]) -> None:
 
 def _transition_timestamp_inversion(_root: Path, raw: dict[str, Any]) -> None:
     receipt = _route_transition_receipt(raw)
-    receipt["route_applied_monotonic_ns"] = (
-        int(receipt["fence_readback_finished_monotonic_ns"]) - 1
-    )
+    receipt["route_applied_monotonic_ns"] = int(receipt["fence_readback_finished_monotonic_ns"]) - 1
 
 
 def _transition_readback_absent(_root: Path, raw: dict[str, Any]) -> None:
@@ -764,9 +725,7 @@ def _effect_database_precedes_switch_ack_delayed(root: Path, raw: dict[str, Any]
     switch = next(
         item for item in events["events"] if item["event_type"] == "blue_to_green_switch_commit"
     )
-    switch_time = datetime.fromisoformat(
-        str(switch["database_recorded_at"]).replace("Z", "+00:00")
-    )
+    switch_time = datetime.fromisoformat(str(switch["database_recorded_at"]).replace("Z", "+00:00"))
     earlier = (
         datetime.fromtimestamp(switch_time.timestamp() - 0.001, UTC)
         .isoformat(timespec="microseconds")
@@ -793,13 +752,9 @@ def _unix_ns_iso(value: int) -> str:
     )
 
 
-def _terminal_effect_before_switch(
-    root: Path, raw: dict[str, Any], config: S6BMConfig
-) -> None:
+def _terminal_effect_before_switch(root: Path, raw: dict[str, Any], config: S6BMConfig) -> None:
     receipt = _effect_receipt(raw)
-    switch = project_switch_fence_commit_interval(
-        _route_transition_receipt(raw), receipt, config
-    )
+    switch = project_switch_fence_commit_interval(_route_transition_receipt(raw), receipt, config)
     fence_lower = int(switch["fence_commit_interval_ns"][0])
     offset_low = int(switch["database_offset_envelope_ns"][0])
     timestamp = _unix_ns_iso(fence_lower + offset_low - 1_000_000)
@@ -816,13 +771,9 @@ def _terminal_effect_before_switch(
     _rewrite_trace(root, raw, mutate)
 
 
-def _terminal_effect_switch_overlap(
-    root: Path, raw: dict[str, Any], config: S6BMConfig
-) -> None:
+def _terminal_effect_switch_overlap(root: Path, raw: dict[str, Any], config: S6BMConfig) -> None:
     receipt = _effect_receipt(raw)
-    switch = project_switch_fence_commit_interval(
-        _route_transition_receipt(raw), receipt, config
-    )
+    switch = project_switch_fence_commit_interval(_route_transition_receipt(raw), receipt, config)
     fence_lower = int(switch["fence_commit_interval_ns"][0])
     offset_low = int(switch["database_offset_envelope_ns"][0])
     timestamp = _unix_ns_iso(fence_lower + offset_low)
@@ -876,34 +827,8 @@ def _effect_xid_mismatch(_root: Path, raw: dict[str, Any]) -> None:
 
 def _unload_before_last_effect(_root: Path, raw: dict[str, Any]) -> None:
     record = raw["request_records"][0]
-    item = _phase(raw, "green_only")
-    anchor = item["clock_anchor"]
-    sequence = int(anchor["sequence"])
-    previous_anchor = max(
-        (
-            candidate["clock_anchor"]
-            for candidate in raw["phase_timeline"]
-            if int(candidate["clock_anchor"]["sequence"]) < sequence
-        ),
-        key=lambda candidate: int(candidate["sequence"]),
-    )
-    previous_after = int(previous_anchor["monotonic_after_ns"])
-    completion_ns = int(float(record["completed_monotonic"]) * 1_000_000_000)
-    if completion_ns - previous_after < 4:
-        raise StrictV4QualificationError("unload_mutation_interval_unavailable")
-    old_before = int(anchor["monotonic_before_ns"])
-    target_phase_ns = previous_after + (completion_ns - previous_after) // 2
-    new_phase = target_phase_ns / 1_000_000_000
-    projected_phase_ns = int(new_phase * 1_000_000_000)
-    if not previous_after < projected_phase_ns < completion_ns:
-        raise StrictV4QualificationError("unload_mutation_interval_unavailable")
-    new_before = projected_phase_ns + 1
-    delta = new_before - old_before
-    item["monotonic_seconds"] = new_phase
-    anchor["monotonic_before_ns"] = new_before
-    anchor["monotonic_after_ns"] = new_before + 1
-    anchor["unix_ns"] = int(anchor["unix_ns"]) + delta
-    _rehash_runner_anchor_chain(raw)
+    unload_lower = int(_phase(raw, "green_only")["clock_anchor"]["monotonic_before_ns"])
+    record["completed_monotonic"] = (unload_lower + 1_000_000) / 1_000_000_000
 
 
 def _stale_blue_admission(_root: Path, raw: dict[str, Any]) -> None:
@@ -1018,9 +943,7 @@ def _candidate_nonminimum(_root: Path, raw: dict[str, Any]) -> None:
         ),
     )
     receipt["database_clock_anchor"] = copy.deepcopy(selected)
-    receipt["database_clock_anchor_selection"]["selected_sequence"] = int(
-        selected["sequence"]
-    )
+    receipt["database_clock_anchor_selection"]["selected_sequence"] = int(selected["sequence"])
     receipt["commit_timestamp_observed_at"] = selected["database_clock_timestamp"]
 
 
@@ -1185,9 +1108,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             _controller_start_after_switch,
         ),
         (
-            "model_span_start_after_switch",
-            "s6bm_v4_triton_model_after_switch",
-            _model_start_after_switch,
+            "triton_model_compute_same_clock_nesting_mismatch",
+            "s6bm_v4_triton_span_order",
+            _triton_model_compute_nesting_mismatch,
         ),
         (
             "server_actor_receipt_and_span_start_after_switch",
@@ -1200,9 +1123,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             _controller_actor_and_span_after_switch,
         ),
         (
-            "triton_actor_receipt_and_spans_start_after_switch",
-            "s6bm_v4_triton_backend_compute_entry_after_switch",
-            _model_actor_and_spans_after_switch,
+            "triton_receipt_compute_start_binding_mismatch",
+            "s6bm_v4_triton_receipt_raw_binding",
+            _triton_receipt_start_binding_mismatch,
         ),
         (
             "per_request_clock_anchor_self_reference",
@@ -1278,16 +1201,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         (
             "terminal_effect_before_switch_outer_completion_after",
             "s6bm_v4_hold_commit_interval_order",
-            lambda root, candidate: _terminal_effect_before_switch(
-                root, candidate, config
-            ),
+            lambda root, candidate: _terminal_effect_before_switch(root, candidate, config),
         ),
         (
             "database_commit_switch_interval_overlap",
             "s6bm_v4_hold_commit_interval_order",
-            lambda root, candidate: _terminal_effect_switch_overlap(
-                root, candidate, config
-            ),
+            lambda root, candidate: _terminal_effect_switch_overlap(root, candidate, config),
         ),
         ("durable_effect_row_absent", "s6bm_v4_durable_effect_count", _durable_effect_absent),
         (

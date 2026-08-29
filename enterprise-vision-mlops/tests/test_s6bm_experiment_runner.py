@@ -92,7 +92,7 @@ def test_strict_v4_nonminimum_mutation_uses_actual_nonminimum_candidate() -> Non
     assert receipt["commit_timestamp_observed_at"] == candidates[0]["database_clock_timestamp"]
 
 
-def test_strict_v4_unload_mutation_preserves_anchor_order() -> None:
+def test_strict_v4_unload_mutation_is_independent_of_prior_completion() -> None:
     validator = load_strict_v4_validator()
 
     def anchor(sequence: int, before: int, phase: str) -> dict[str, object]:
@@ -107,7 +107,7 @@ def test_strict_v4_unload_mutation_preserves_anchor_order() -> None:
         }
 
     raw = {
-        "request_records": [{"completed_monotonic": 10.001}],
+        "request_records": [{"completed_monotonic": 9.5}],
         "phase_timeline": [
             {
                 "phase": "blue_draining",
@@ -127,18 +127,14 @@ def test_strict_v4_unload_mutation_preserves_anchor_order() -> None:
         ],
     }
     validator._rehash_runner_anchor_chain(raw)
+    anchors_before = copy.deepcopy(raw["phase_timeline"])
 
     validator._unload_before_last_effect(Path(), raw)
 
-    green = raw["phase_timeline"][1]
-    green_ns = int(float(green["monotonic_seconds"]) * 1_000_000_000)
-    completion_ns = int(10.001 * 1_000_000_000)
-    assert raw["phase_timeline"][0]["clock_anchor"]["monotonic_after_ns"] < green_ns
-    assert green_ns < completion_ns
-    assert (
-        green["clock_anchor"]["monotonic_before_ns"]
-        < (raw["phase_timeline"][2]["clock_anchor"]["monotonic_before_ns"])
-    )
+    unload_ns = raw["phase_timeline"][1]["clock_anchor"]["monotonic_before_ns"]
+    completion_ns = int(raw["request_records"][0]["completed_monotonic"] * 1_000_000_000)
+    assert completion_ns > unload_ns
+    assert raw["phase_timeline"] == anchors_before
 
 
 def test_continuity_mutation_contract_is_exact_and_frozen() -> None:
