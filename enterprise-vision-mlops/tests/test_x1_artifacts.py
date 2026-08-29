@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import json
@@ -40,6 +42,27 @@ def test_x1_triton_config_profiles_are_exact_and_gpu_only() -> None:
     assert b"max_queue_delay_microseconds: 2000" in enabled
     assert enabled.endswith(b"\n")
     assert len(PROFILE_IDS) == 3
+
+
+def test_x1_artifact_dependencies_load_in_clean_process() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from evm.scale_validation.x1_artifacts import "
+                "_load_artifact_dependencies; "
+                "np, pq, torch = _load_artifact_dependencies(); "
+                "print(torch.__version__, np.__version__, pq.__name__)"
+            ),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(

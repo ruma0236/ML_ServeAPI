@@ -21,6 +21,15 @@ class X1ArtifactError(RuntimeError):
     pass
 
 
+def _load_artifact_dependencies() -> tuple[Any, Any, Any]:
+    # PyArrow can initialize a conflicting Windows DLL before Torch loads c10.dll.
+    import torch
+    import numpy as np
+    import pyarrow.parquet as pq
+
+    return np, pq, torch
+
+
 def render_triton_config(*, model_id: str, feature_count: int, profile_id: str) -> bytes:
     if model_id not in MODEL_IDS or feature_count not in {28, 39}:
         raise X1ArtifactError("x1_artifact_model_contract")
@@ -99,9 +108,7 @@ def prepare_x1_artifacts(
         model_family="heterogeneous",
     )
     try:
-        import numpy as np
-        import pyarrow.parquet as pq
-        import torch
+        np, pq, torch = _load_artifact_dependencies()
     except ImportError as exc:
         raise X1ArtifactError("x1_artifact_dependency_missing") from exc
     if not torch.cuda.is_available() or torch.cuda.device_count() != 1:
