@@ -1288,6 +1288,45 @@ def test_s6bm_v4_continuity_plan_is_exact_and_frozen() -> None:
     ]
 
 
+def test_s6bm_v4_success_projection_validates_final_cleanup_schema() -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    raw = v4_continuity_attempt()
+    raw["cleanup"] = {
+        "b0_cuda_inference": True,
+        "b0_image_exact": True,
+        "b0_uid_exact": True,
+        "container_absent": True,
+        "experiment_schema_absent": True,
+        "gpu_lease_absent": True,
+        "ports_absent": True,
+        "prometheus": {
+            "jobs": [
+                "evm-api",
+                "evm-b0-production",
+                "evm-otel-collector",
+                "evm-task-queue-worker",
+                "prometheus",
+            ],
+            "total": 5,
+            "up": 5,
+        },
+        "prometheus_targets_restored": True,
+        "queue_active_zero": True,
+        "queue_leased_zero": True,
+        "queue_outcome_unknown_zero": True,
+        "temporary_prometheus_targets_absent": True,
+        "vram_delta_mib": -92.0,
+        "vram_restore_seconds": 0.094,
+        "vram_restored": True,
+    }
+
+    assert project_success_attempt(raw, config)["passed"] is True
+
+    raw["cleanup"]["prometheus"]["up"] = 4
+    with pytest.raises(S6BMRuntimeError, match="s6bm_success_cleanup"):
+        project_success_attempt(raw, config)
+
+
 def test_s6bm_v4_continuity_projection_uses_all_durable_terminal_completions() -> None:
     config = S6BMConfig.from_path(V4_CONFIG)
     raw = v4_continuity_attempt()
@@ -1325,6 +1364,80 @@ def test_s6bm_v4_synthetic_runtime_mutation_cases_reject_exact_reasons(
 
     assert len(results) == 24
     assert [item for item in results if item["rejected"] is not True] == []
+
+
+def test_s6bm_v4_terminal_fence_mutation_targets_the_durable_event(
+    tmp_path: Path,
+) -> None:
+    validator = load_continuity_mutation_validator()
+    effect_path = tmp_path / "effects.json"
+    event_path = tmp_path / "events.json"
+    effect_path.write_text(
+        canonical(
+            {
+                "effects": [
+                    {
+                        "idempotency_key": "request-1",
+                        "payload": {"durable_commit": {"causal_sequence": 7}},
+                    }
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    event_path.write_text(
+        canonical(
+            {
+                "events": [
+                    {
+                        "request_id": "request-1",
+                        "event_type": "api_server_handler_entry",
+                        "causal_sequence": 5,
+                    },
+                    {
+                        "request_id": "request-1",
+                        "event_type": "durable_terminal_effect_commit",
+                        "causal_sequence": 7,
+                    },
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    raw = {
+        "continuity_execution": {
+            "pre_switch_terminal_gate": {
+                "expected_terminal_request_ids": ["request-1"],
+                "raw_effect_export": {
+                    "path": effect_path.name,
+                    "bytes": effect_path.stat().st_size,
+                    "sha256": hashlib.sha256(effect_path.read_bytes()).hexdigest(),
+                },
+                "raw_event_export": {
+                    "path": event_path.name,
+                    "bytes": event_path.stat().st_size,
+                    "sha256": hashlib.sha256(event_path.read_bytes()).hexdigest(),
+                },
+            }
+        },
+        "causal_proof": {"route_transition_receipt": {"fence_sequence": 10}},
+    }
+
+    validator.mutate_terminal_effect_after_switch(
+        tmp_path,
+        raw,
+        S6BMConfig.from_path(V4_CONFIG),
+    )
+
+    effects = json.loads(effect_path.read_text(encoding="utf-8"))["effects"]
+    events = json.loads(event_path.read_text(encoding="utf-8"))["events"]
+    assert effects[0]["payload"]["durable_commit"]["causal_sequence"] == 11
+    assert events[0]["causal_sequence"] == 5
+    assert events[1]["causal_sequence"] == 11
 
 
 @pytest.mark.parametrize(

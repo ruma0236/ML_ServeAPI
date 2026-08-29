@@ -112,9 +112,7 @@ SUPERSEDED_CASE_CONTRACT = (
     )
     + CASE_CONTRACT[4:]
 )
-SUPERSEDED_CASE_CONTRACT_SHA256 = (
-    "d75b6bbc0e396151dc581b05b86fffc5f59ae4681f34a42b60e560f99c85d886"
-)
+SUPERSEDED_CASE_CONTRACT_SHA256 = "d75b6bbc0e396151dc581b05b86fffc5f59ae4681f34a42b60e560f99c85d886"
 HISTORICAL_CASE_CONTRACT = SUPERSEDED_CASE_CONTRACT[:9]
 HISTORICAL_CASE_CONTRACT_SHA256 = "c42a6245d1e48152d06c6f1bd31c7fca8de58f201129c99bb7c59abe9356d4d7"
 PREVIOUS_CASE_CONTRACT = SUPERSEDED_CASE_CONTRACT[:19]
@@ -286,8 +284,7 @@ def refresh_crossover_effect_bindings(
         and dict(item.get("payload", {})).get("requires_switch_before_effect") is True
     ]
     eligible_ids = sorted(
-        str(value)
-        for value in switch_event["payload"].get("pending_crossover_request_ids", [])
+        str(value) for value in switch_event["payload"].get("pending_crossover_request_ids", [])
     )
     event_ids = sorted(str(item["request_id"]) for item in effect_events)
     if event_ids != eligible_ids or len(event_ids) != 2:
@@ -297,8 +294,7 @@ def refresh_crossover_effect_bindings(
     effects_path = reference_path(root, effects_reference)
     effects_export = read_json(effects_path)
     effects = {
-        str(item.get("idempotency_key", "")): item
-        for item in effects_export.get("effects", [])
+        str(item.get("idempotency_key", "")): item for item in effects_export.get("effects", [])
     }
     if not set(event_ids).issubset(records) or not set(event_ids).issubset(effects):
         raise ContinuityQualificationError("crossover_effect_artifact_set")
@@ -311,9 +307,7 @@ def refresh_crossover_effect_bindings(
         receipt["causal_payload_sha256"] = event["payload_sha256"]
         stored = effects[request_id]["payload"]
         stored["observed_transition"] = copy.deepcopy(observed_transition)
-        stored["durable_commit"]["observed_transition"] = copy.deepcopy(
-            observed_transition
-        )
+        stored["durable_commit"]["observed_transition"] = copy.deepcopy(observed_transition)
         stored["durable_commit"]["causal_payload_sha256"] = event["payload_sha256"]
         receipt["stored_payload_sha256"] = canonical_sha256(stored)
     canonical_write(effects_path, effects_export)
@@ -577,7 +571,10 @@ def mutate_terminal_effect_after_switch(
 
     def mutate_event(payload: dict[str, Any]) -> None:
         event = next(
-            item for item in payload["events"] if item.get("request_id") == request_id
+            item
+            for item in payload["events"]
+            if item.get("request_id") == request_id
+            and item.get("event_type") == "durable_terminal_effect_commit"
         )
         event["causal_sequence"] = switch_sequence + 1
 
@@ -585,9 +582,7 @@ def mutate_terminal_effect_after_switch(
     rewrite_reference(root, gate["raw_event_export"], mutate_event)
 
 
-def mutate_terminal_effect_missing(
-    root: Path, raw: dict[str, Any], _config: S6BMConfig
-) -> None:
+def mutate_terminal_effect_missing(root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
     gate = raw["continuity_execution"]["pre_switch_terminal_gate"]
     request_id = str(gate["expected_terminal_request_ids"][0])
 
@@ -798,17 +793,13 @@ def _refresh_online_records(gate: dict[str, Any], records: list[dict[str, Any]])
     gate["online_response_records_sha256"] = canonical_sha256(records)
 
 
-def mutate_online_wrong_response_id(
-    _root: Path, raw: dict[str, Any], _config: S6BMConfig
-) -> None:
+def mutate_online_wrong_response_id(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
     gate, records = _online_records(raw)
     records[0]["request_id"] = "attacker-substituted-request"
     _refresh_online_records(gate, records)
 
 
-def mutate_online_stale_generation(
-    _root: Path, raw: dict[str, Any], _config: S6BMConfig
-) -> None:
+def mutate_online_stale_generation(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
     gate, records = _online_records(raw)
     records[0]["route_generation"] = int(records[0]["route_generation"]) - 1
     _refresh_online_records(gate, records)
@@ -831,9 +822,7 @@ def mutate_online_durable_readback_absent(
     _refresh_online_records(gate, records)
 
 
-def mutate_terminal_fence_hash(
-    _root: Path, raw: dict[str, Any], _config: S6BMConfig
-) -> None:
+def mutate_terminal_fence_hash(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
     proof(raw)["route_transition_receipt"]["continuity_terminal_records_sha256"] = "f" * 64
 
 
@@ -1004,8 +993,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if (
         set(MUTATIONS) != set(case_ids)
         or canonical_sha256(CASE_CONTRACT) != CASE_CONTRACT_SHA256
-        or canonical_sha256(SUPERSEDED_CASE_CONTRACT)
-        != SUPERSEDED_CASE_CONTRACT_SHA256
+        or canonical_sha256(SUPERSEDED_CASE_CONTRACT) != SUPERSEDED_CASE_CONTRACT_SHA256
         or canonical_sha256(HISTORICAL_CASE_CONTRACT) != HISTORICAL_CASE_CONTRACT_SHA256
         or canonical_sha256(PREVIOUS_CASE_CONTRACT) != PREVIOUS_CASE_CONTRACT_SHA256
     ):

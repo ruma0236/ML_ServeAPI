@@ -450,6 +450,81 @@ def _require_zero(summary: Mapping[str, Any], names: Sequence[str], prefix: str)
             raise S6BMRuntimeError(f"s6bm_{prefix}:{name}")
 
 
+def _validate_cleanup(
+    cleanup: Mapping[str, Any],
+    config: S6BMConfig,
+    reason: str,
+) -> None:
+    attempt_keys = {
+        "blue_only",
+        "green_unloaded",
+        "queue_zero",
+        "lease_owner_exact",
+    }
+    fault_attempt_keys = {"blue_only", "green_unloaded"}
+    continuity_attempt_keys = attempt_keys | {"controller_pending_crossovers_zero"}
+    final_true_keys = {
+        "b0_cuda_inference",
+        "b0_image_exact",
+        "b0_uid_exact",
+        "container_absent",
+        "experiment_schema_absent",
+        "gpu_lease_absent",
+        "ports_absent",
+        "prometheus_targets_restored",
+        "queue_active_zero",
+        "queue_leased_zero",
+        "queue_outcome_unknown_zero",
+        "temporary_prometheus_targets_absent",
+        "vram_restored",
+    }
+    final_keys = final_true_keys | {
+        "prometheus",
+        "vram_delta_mib",
+        "vram_restore_seconds",
+    }
+    observed_keys = frozenset(cleanup)
+    if observed_keys in {
+        frozenset(fault_attempt_keys),
+        frozenset(attempt_keys),
+        frozenset(continuity_attempt_keys),
+    }:
+        if any(cleanup.get(key) is not True for key in observed_keys):
+            raise S6BMRuntimeError(reason)
+        return
+    if observed_keys != final_keys or any(cleanup.get(key) is not True for key in final_true_keys):
+        raise S6BMRuntimeError(reason)
+    prometheus = cleanup.get("prometheus")
+    expected_jobs = [
+        "evm-api",
+        "evm-b0-production",
+        "evm-otel-collector",
+        "evm-task-queue-worker",
+        "prometheus",
+    ]
+    if (
+        not isinstance(prometheus, Mapping)
+        or set(prometheus) != {"jobs", "total", "up"}
+        or prometheus.get("jobs") != expected_jobs
+        or type(prometheus.get("total")) is not int
+        or type(prometheus.get("up")) is not int
+        or prometheus.get("total") != len(expected_jobs)
+        or prometheus.get("up") != len(expected_jobs)
+    ):
+        raise S6BMRuntimeError(reason)
+    _finite(cleanup.get("vram_delta_mib"), "cleanup_vram_delta_mib")
+    restore_seconds = _finite(
+        cleanup.get("vram_restore_seconds"),
+        "cleanup_vram_restore_seconds",
+    )
+    if (
+        isinstance(cleanup.get("vram_delta_mib"), bool)
+        or isinstance(cleanup.get("vram_restore_seconds"), bool)
+        or not 0 <= restore_seconds <= float(config.procedure["cleanup_timeout_seconds"])
+    ):
+        raise S6BMRuntimeError(reason)
+
+
 def _expected_identity(config: S6BMConfig, role: str) -> dict[str, Any]:
     model = config.blue if role == "blue" else config.green
     return {
@@ -1476,8 +1551,7 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
     ):
         raise S6BMRuntimeError("s6bm_telemetry")
     cleanup = dict(raw.get("cleanup", {}))
-    if not cleanup or not all(value is True for value in cleanup.values()):
-        raise S6BMRuntimeError("s6bm_success_cleanup")
+    _validate_cleanup(cleanup, config, "s6bm_success_cleanup")
     projection = {
         "attempt_id": str(raw["attempt_id"]),
         "repetition": int(raw["repetition"]),
@@ -1570,8 +1644,7 @@ def project_fault_attempt(
     ):
         raise S6BMRuntimeError(f"s6bm_fault_telemetry_identity:{profile}")
     cleanup = dict(raw.get("cleanup", {}))
-    if not cleanup or not all(value is True for value in cleanup.values()):
-        raise S6BMRuntimeError(f"s6bm_fault_cleanup:{profile}")
+    _validate_cleanup(cleanup, config, f"s6bm_fault_cleanup:{profile}")
     return {
         "attempt_id": str(raw["attempt_id"]),
         "repetition": int(raw["repetition"]),
