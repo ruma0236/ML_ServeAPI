@@ -184,6 +184,45 @@ def test_e0_scale_validation_lease_is_exact_and_fail_closed(tmp_path: Path, monk
     assert exc_info.value.status_code == 422
 
 
+def test_x1_scale_validation_lease_requires_heterogeneous_identity(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("EVM_SCENARIO_GPU_LEASE_ROOT", str(tmp_path))
+    lease = acquire_scale_validation_gpu_lease(
+        "s8-v4-x1-calibration-001",
+        source_commit="a" * 40,
+        purpose="scale_validation_inference",
+        scenario_id="X1",
+        model_family="heterogeneous",
+    )
+
+    asserted = assert_scale_validation_gpu_lease_owner(
+        run_id=lease.run_id,
+        lease_id=lease.lease_id,
+        fencing_token=lease.fencing_token,
+        purpose="scale_validation_inference",
+        scenario_id="X1",
+        model_family="heterogeneous",
+    )
+    assert asserted == lease
+    release_scale_validation_gpu_lease(
+        run_id=lease.run_id,
+        lease_id=lease.lease_id,
+        fencing_token=lease.fencing_token,
+        reason="x1_test_complete",
+    )
+
+    with pytest.raises(ScenarioWorkloadError) as exc_info:
+        acquire_scale_validation_gpu_lease(
+            "s8-v4-x1-wrong-family",
+            source_commit="a" * 40,
+            purpose="scale_validation_inference",
+            scenario_id="X1",
+            model_family="tabular",
+        )
+    assert exc_info.value.code == "scale_validation_gpu_lease_identity_invalid"
+
+
 def test_gpu_executor_forms_one_bounded_batch(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         "evm.model_runtime.gpu_batch_probe.assert_scale_validation_gpu_lease_owner",

@@ -19,7 +19,7 @@ from evm.core.config import map_runtime_data_path
 
 
 WorkloadModelFamily = Literal["vlm", "llm"]
-GpuLeaseModelFamily = Literal["image", "vlm", "llm", "tabular"]
+GpuLeaseModelFamily = Literal["image", "vlm", "llm", "tabular", "heterogeneous"]
 WorkloadRunState = Literal[
     "dry_run",
     "queued",
@@ -899,7 +899,7 @@ def acquire_scale_validation_gpu_lease(
     *,
     source_commit: str,
     purpose: Literal["scale_validation_training", "scale_validation_inference"],
-    scenario_id: Literal["S4", "S7", "E0", "S6B-M"] = "S4",
+    scenario_id: Literal["S4", "S7", "E0", "S6B-M", "X1"] = "S4",
     model_family: GpuLeaseModelFamily = "tabular",
     owner_pid: int | None = None,
     ttl_seconds: int = 7200,
@@ -916,6 +916,11 @@ def acquire_scale_validation_gpu_lease(
             scenario_id == "S6B-M"
             and model_family == "tabular"
             and run_id.startswith("s8-v4-s6bm-")
+        )
+        or (
+            scenario_id == "X1"
+            and model_family == "heterogeneous"
+            and run_id.startswith("s8-v4-x1-")
         )
     )
     if not valid_identity or len(source_commit) != 40:
@@ -963,7 +968,7 @@ def assert_scale_validation_gpu_lease_owner(
     lease_id: str,
     fencing_token: str,
     purpose: Literal["scale_validation_training", "scale_validation_inference"],
-    scenario_id: Literal["S4", "S7", "E0", "S6B-M"] = "S4",
+    scenario_id: Literal["S4", "S7", "E0", "S6B-M", "X1"] = "S4",
     model_family: GpuLeaseModelFamily = "tabular",
 ) -> GpuLease:
     lease = read_active_gpu_lease()

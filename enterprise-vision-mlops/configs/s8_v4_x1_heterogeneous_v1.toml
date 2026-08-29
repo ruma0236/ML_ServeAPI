@@ -1,0 +1,178 @@
+schema_version = "evm.s8_v4.x1_contract.v1"
+work_item = "X1"
+tracking = "EVM-301/SCRUM-212"
+seed = 20260830
+models = [
+  "higgs_logistic_regression",
+  "higgs_gaussian_nb",
+  "higgs_tiny_mlp",
+  "criteo_dlrm_lite",
+]
+
+[source]
+contract_base_revision = "7c93ba8db442a992ba4445bf02482b6e89d63048"
+s3_config = "configs/s3_higgs_capacity.toml"
+s4_config = "configs/s4_gpu_batching_runtime.toml"
+s5_config = "configs/s5_spark_data_scale.toml"
+s3_registry = "artifacts/scale_validation/s3/capacity-registry.json"
+s3_split_manifest = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/split-manifest.json"
+s4_train_features = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/train/features.npy"
+s4_train_labels = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/train/labels.npy"
+s4_validation_features = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/validation/features.npy"
+s4_validation_labels = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/validation/labels.npy"
+s4_replay_features = "artifacts/scale_validation/s3/higgs-uci-2014-seed-20260817-v1/splits/replay/features.npy"
+s5_manifest = "datasets/criteo-click-logs/s5/governed/dataset-manifest.json"
+s5_training_shard = "datasets/criteo-click-logs/s5/governed/shard-000.parquet"
+
+[preliminary_isolation]
+branch = "codex/x1-resume-results-20260825-215716"
+amendment = "8ab8c64"
+suite_id = "x1-resume-20260825T171224Z-a35200d8"
+credit = "non_credit"
+reuse_forbidden = true
+merge_forbidden = true
+cherry_pick_forbidden = true
+
+[topology]
+path = "workloads_api_to_api_pods_to_server_workers_to_single_triton_gpu_pod"
+api_replicas = [1, 2]
+cpu_workers = [1, 2, 4]
+triton_gpu_pods = 1
+triton_instances_per_model = 1
+client_lanes = 4
+client_driver_workers = 16
+api_node_port = 31120
+triton_http_node_port = 31121
+triton_metrics_node_port = 31122
+require_all_api_pods_observed = true
+require_all_server_workers_observed = true
+
+[triton]
+image = "nvcr.io/nvidia/tritonserver:25.08-py3"
+image_digest = "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0687a4d2ac9f7a5"
+model_version = 1
+explicit_model_control = true
+gpu_device_index = 0
+gpu_name = "NVIDIA GeForce RTX 4080 SUPER"
+gpu_uuid = "GPU-4eea4bfc-f15e-bd25-c1b8-ed53ade9ad1d"
+
+[calibration]
+repetitions = 3
+warmup_seconds = 10
+measurement_seconds = 30
+cooldown_seconds = 5
+arrival_steps_rps = [25, 50, 100, 200, 400, 800]
+request_deadline_seconds = 5.0
+admission_wait_seconds = 0.05
+max_outstanding = 512
+solo_models = 4
+solo_repetitions_total = 12
+topology_points = 6
+topology_repetitions_total = 18
+capacity_fraction = 0.70
+
+[batching_calibration]
+repetitions = 3
+models = 4
+enabled_candidates_per_model = 2
+total_repetitions = 24
+selection = "highest safe service rate; p99/error/queue/OOM guardrails remain mandatory"
+
+[artifact_training]
+higgs_train_rows = 250000
+higgs_validation_rows = 50000
+higgs_epochs = 5
+higgs_batch_size = 8192
+higgs_learning_rate = 0.001
+higgs_weight_decay = 0.00001
+criteo_train_rows = 50000
+criteo_validation_rows = 10000
+criteo_epochs = 3
+criteo_batch_size = 4096
+criteo_learning_rate = 0.001
+criteo_weight_decay = 0.00001
+criteo_embedding_vocab_size = 4096
+criteo_embedding_dim = 4
+oracle_rows = 64
+
+[credit_matrix]
+repetitions = 3
+serial_points = 6
+serial_repetitions_total = 18
+balanced_points = 6
+balanced_repetitions_total = 18
+hot_points = 6
+hot_repetitions_total = 18
+batch_models = 4
+batch_candidates_per_model = 2
+batch_repetitions_total = 24
+total_repetitions = 78
+
+[mix]
+balanced_gpu_time_shares = [0.25, 0.25, 0.25, 0.25]
+hot_model = "criteo_dlrm_lite"
+hot_gpu_time_shares = [0.10, 0.10, 0.10, 0.70]
+jain_formula = "(sum(a_i)^2)/(4*sum(a_i^2));a_i=service_rps_i/frozen_target_rps_i"
+minimum_balanced_jain = 0.90
+require_balanced_starvation_zero = true
+require_hot_non_hot_terminal_progress = true
+
+[batching.disabled]
+max_batch_size = 0
+preferred_batch_size = []
+max_queue_delay_microseconds = 0
+preserve_ordering = true
+priority_levels = 0
+instance_group_count = 1
+
+[[batching.enabled_candidates]]
+candidate_id = "enabled-4-8-2ms"
+max_batch_size = 16
+preferred_batch_size = [4, 8]
+max_queue_delay_microseconds = 2000
+preserve_ordering = true
+priority_levels = 0
+instance_group_count = 1
+
+[[batching.enabled_candidates]]
+candidate_id = "enabled-8-16-10ms"
+max_batch_size = 32
+preferred_batch_size = [8, 16]
+max_queue_delay_microseconds = 10000
+preserve_ordering = true
+priority_levels = 0
+instance_group_count = 1
+
+[profiler]
+required_for_kernel_overlap_claim = true
+required_identity_fields = ["model_id", "request_id", "kernel_name", "start_ns", "end_ns", "device_id", "stream_id"]
+fallback_verdict = "kernel_overlap_not_evidenced"
+qualification_repetitions = 3
+qualification_mode = "concurrent_balanced"
+qualification_topology = "r1-w4"
+
+[guardrails]
+maximum_error_rate = 0.01
+maximum_p99_ms = 250.0
+maximum_queue_wait_ms = 100.0
+maximum_gpu_temperature_celsius = 84.0
+maximum_gpu_power_watts = 340.0
+require_zero_unexpected_oom = true
+require_zero_silent_fallback = true
+require_zero_illegal_owner_overlap = true
+require_zero_loss = true
+require_zero_duplicate_effect = true
+require_zero_outcome_unknown = true
+
+[cleanup]
+timeout_seconds = 120
+require_b0_exact_cuda = true
+require_prometheus_up = 5
+require_queue_active = 0
+require_queue_leased = 0
+require_queue_outcome_unknown = 0
+require_gpu_lease_absent = true
+require_temporary_runtime_absent = true
+
+[claim]
+boundary = "Controlled measurements on one Windows/WSL2 physical node, one RTX 4080, one Triton GPU runtime, and governed synthetic or public-source inputs. No production SLA, physical HA/DR, multi-node, multi-GPU, MIG, MPS, tenant isolation, model accuracy, or physical zero-downtime claim."

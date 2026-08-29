@@ -56,6 +56,12 @@ from evm.model_runtime.triton_blue_green import (
     expected_causal_identity_for_request,
     manager as triton_blue_green_manager,
 )
+from evm.model_runtime.x1_serving import (
+    X1InferenceRequest,
+    X1InferenceResponse,
+    X1ServingError,
+    manager as x1_serving_manager,
+)
 from evm.control_panel.scenario_workload_control import (
     ScenarioWorkloadApprovalRequest,
     ScenarioWorkloadLaunchRequest,
@@ -88,6 +94,8 @@ router = APIRouter(prefix="/control-panel/v1", tags=["control-panel-workloads"])
 
 _S6BM_TERMINAL_STORE_INIT_LOCK = threading.Lock()
 _S6BM_TERMINAL_STORE: TransactionalControlPlaneStore | None = None
+_X1_TERMINAL_STORE_INIT_LOCK = threading.Lock()
+_X1_TERMINAL_STORE: TransactionalControlPlaneStore | None = None
 
 
 def initialize_s6bm_terminal_store() -> TransactionalControlPlaneStore:
@@ -150,6 +158,107 @@ def _s6bm_terminal_store() -> TransactionalControlPlaneStore:
 
 
 atexit.register(shutdown_s6bm_terminal_store)
+
+
+def initialize_x1_terminal_store() -> TransactionalControlPlaneStore:
+    global _X1_TERMINAL_STORE
+    observed = _X1_TERMINAL_STORE
+    if observed is not None:
+        return observed
+    with _X1_TERMINAL_STORE_INIT_LOCK:
+        observed = _X1_TERMINAL_STORE
+        if observed is not None:
+            return observed
+        dsn = os.getenv("EVM_X1_DATABASE_URL", "").strip()
+        schema = os.getenv("EVM_X1_DATABASE_SCHEMA", "").strip()
+        if not dsn or not schema:
+            raise RuntimeError("X1 durable terminal-effect store is not configured")
+        observed = TransactionalControlPlaneStore(
+            StoreConfiguration(
+                mode="postgres",
+                dsn=dsn,
+                schema=schema,
+                pool_min_size=1,
+                pool_max_size=int(os.getenv("EVM_X1_DATABASE_POOL_MAX_SIZE", "8")),
+                acquire_timeout_seconds=2.0,
+                lock_timeout_seconds=2.0,
+                statement_timeout_seconds=10.0,
+            )
+        )
+        _X1_TERMINAL_STORE = observed
+        return observed
+
+
+def shutdown_x1_terminal_store() -> None:
+    global _X1_TERMINAL_STORE
+    with _X1_TERMINAL_STORE_INIT_LOCK:
+        store = _X1_TERMINAL_STORE
+        _X1_TERMINAL_STORE = None
+    if store is not None:
+        store.close()
+
+
+def _x1_terminal_store() -> TransactionalControlPlaneStore:
+    return initialize_x1_terminal_store()
+
+
+atexit.register(shutdown_x1_terminal_store)
+
+
+def _commit_x1_terminal_effect_sync(
+    request: X1InferenceRequest,
+    response: X1InferenceResponse,
+) -> dict[str, Any]:
+    effect_payload = {
+        "schema_version": "evm.s8_v4.x1_terminal_effect.v1",
+        "suite_id": response.suite_id,
+        "attempt_id": response.attempt_id,
+        "request_id": response.request_id,
+        "trace_id": response.trace_id,
+        "effect_id": response.effect_id,
+        "model_id": response.model_id,
+        "model_version": response.model_version,
+        "artifact_sha256": response.artifact_sha256,
+        "config_sha256": response.config_sha256,
+        "runtime_device": response.runtime_device,
+        "triton_instance_kind": response.triton_instance_kind,
+        "triton_instance_count": response.triton_instance_count,
+        "triton_gpu_device": response.triton_gpu_device,
+        "result_sha256": response.result_sha256,
+        "terminal_outcome": response.terminal_outcome,
+        "topology": response.topology.model_dump(mode="json"),
+        "lease_id": request.lease_id,
+        "fencing_token_sha256": hashlib.sha256(request.fencing_token.encode("utf-8")).hexdigest(),
+    }
+    stored, replayed, receipt = _x1_terminal_store().commit_idempotent_terminal_entity_with_receipt(
+        scope=f"x1.terminal-effect.{request.attempt_id}",
+        idempotency_key=request.request_id,
+        request_payload=request.model_dump(mode="json"),
+        entity_kind="x1_terminal_effect",
+        entity_id=response.effect_id,
+        response_payload=effect_payload,
+        state="completed",
+        causal_payload={
+            "schema_version": "evm.s8_v4.x1_terminal_event.v1",
+            **effect_payload,
+        },
+    )
+    if any(stored.get(key) != value for key, value in effect_payload.items()):
+        raise RuntimeError("X1 durable terminal-effect payload parity failed")
+    return {
+        **receipt,
+        "effect_id": response.effect_id,
+        "replayed": replayed,
+        "committed": True,
+        "readback_visible": True,
+    }
+
+
+async def _commit_x1_terminal_effect(
+    request: X1InferenceRequest,
+    response: X1InferenceResponse,
+) -> dict[str, Any]:
+    return await asyncio.to_thread(_commit_x1_terminal_effect_sync, request, response)
 
 
 def _restore_s6bm_route_revision(
@@ -676,6 +785,50 @@ async def predict_triton_blue_green(
             status_code=exc.status_code,
             detail={"error": exc.code, "message": str(exc)},
         ) from exc
+
+
+@router.post(
+    "/scenario-workloads/x1/predict",
+    response_model=X1InferenceResponse,
+)
+async def predict_x1_heterogeneous(request: X1InferenceRequest) -> X1InferenceResponse:
+    try:
+        return await x1_serving_manager.predict(
+            request,
+            terminal_committer=_commit_x1_terminal_effect,
+        )
+    except X1ServingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.get("/scenario-workloads/x1/ready")
+async def x1_heterogeneous_ready() -> dict[str, Any]:
+    try:
+        return await x1_serving_manager.readiness()
+    except X1ServingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.get("/scenario-workloads/x1/effects/{attempt_id}")
+def x1_terminal_effects(attempt_id: str) -> dict[str, Any]:
+    if not attempt_id or len(attempt_id) > 180:
+        raise HTTPException(status_code=422, detail={"error": "attempt_identity_invalid"})
+    rows = _x1_terminal_store().list_idempotent_terminal_entities(
+        entity_kind="x1_terminal_effect",
+        attempt_id=attempt_id,
+    )
+    return {
+        "schema_version": "evm.s8_v4.x1_terminal_effect_export.v1",
+        "attempt_id": attempt_id,
+        "effect_count": len(rows),
+        "effects": rows,
+    }
 
 
 @router.post("/scenario-workloads/triton-blue-green/causal-receipts/triton")

@@ -57,6 +57,24 @@ scrape_configs:
           - /etc/prometheus/targets/s8-v4-s6bm-api.json
         refresh_interval: 1s
 
+  - job_name: "evm-s8-v4-x1-triton"
+    metrics_path: /metrics
+    scrape_interval: 1s
+    scrape_timeout: 1s
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/s8-v4-x1-triton.json
+        refresh_interval: 1s
+
+  - job_name: "evm-s8-v4-x1-api"
+    metrics_path: /metrics
+    scrape_interval: 1s
+    scrape_timeout: 1s
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/s8-v4-x1-api.json
+        refresh_interval: 1s
+
   - job_name: "evm-b0-production"
     metrics_path: /metrics
     file_sd_configs:

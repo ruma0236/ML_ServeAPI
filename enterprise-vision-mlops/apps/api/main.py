@@ -29,10 +29,13 @@ from apps.api.control_panel_scenarios import router as control_panel_scenarios_r
 from apps.api.control_panel_tasks import router as control_panel_tasks_router
 from apps.api.control_panel_workloads import (
     initialize_s6bm_terminal_store,
+    initialize_x1_terminal_store,
     router as control_panel_workloads_router,
     shutdown_s6bm_terminal_store,
+    shutdown_x1_terminal_store,
 )
 from apps.api.control_panel_runtime import router as control_panel_runtime_router
+from evm.model_runtime.x1_serving import manager as x1_serving_manager
 from apps.api.control_panel import router as control_panel_router
 from apps.api.task_ingress import TaskIngressBodyLimitMiddleware
 from evm.control_panel.operations import (
@@ -282,6 +285,9 @@ async def lifespan(_: FastAPI):
     }
     if s6bm_enabled:
         initialize_s6bm_terminal_store()
+    x1_enabled = os.getenv("EVM_X1_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
+    if x1_enabled:
+        initialize_x1_terminal_store()
     store = get_transactional_store()
     if store.enabled:
         store.verify_task_queue_cutover(
@@ -301,6 +307,8 @@ async def lifespan(_: FastAPI):
             await triton_blue_green_manager.close_inference_client()
         finally:
             shutdown_s6bm_terminal_store()
+            shutdown_x1_terminal_store()
+            await x1_serving_manager.close()
         await shutdown_gpu_batch_probe_executor()
         shutdown_capacity_probe_executor()
         shutdown_tracing()
