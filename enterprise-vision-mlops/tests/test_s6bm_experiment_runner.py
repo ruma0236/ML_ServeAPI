@@ -621,6 +621,75 @@ def test_review_writer_separates_python_and_ui_pass_counts() -> None:
     assert writer.pytest_counts(log) == (59, 0)
 
 
+def test_review_writer_binds_v4_runtime_contract_and_exact_success_set() -> None:
+    writer = load_review_writer()
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=GIT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    cleanup = {key: True for key in writer.REQUIRED_CLEANUP}
+    experiment = {
+        "suite_id": "s6bm-unit",
+        "source_identity": {"revision": revision},
+        "analysis": {
+            "evidence_ready": True,
+            "success_attempts": [
+                {"repetition": repetition, "logical_requests": 1000, "passed": True}
+                for repetition in (1, 2, 3)
+            ],
+        },
+        "cleanup": cleanup,
+    }
+
+    proof = writer.validate_current_runtime(experiment, revision)
+
+    assert proof["logical_requests"] == 3000
+    assert proof["successful_repetitions"] == 3
+    assert "enterprise-vision-mlops/configs/s8_v4_s6bm_blue_green_v4.toml" in (
+        writer.EXECUTION_PATHS
+    )
+    mutated = copy.deepcopy(experiment)
+    mutated["analysis"]["success_attempts"][2]["repetition"] = 2
+    with pytest.raises(writer.S6BMReviewError, match="current_runtime_projection"):
+        writer.validate_current_runtime(mutated, revision)
+
+
+def test_review_writer_rejects_unindexed_private_artifact(tmp_path: Path) -> None:
+    writer = load_review_writer()
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(b"{}\n")
+    entries = [
+        {
+            "path": artifact.name,
+            "bytes": artifact.stat().st_size,
+            "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        }
+    ]
+    index = {
+        "schema_version": "evm.s8_v4.s6bm_private_index.v1",
+        "artifact_count": 1,
+        "total_bytes": artifact.stat().st_size,
+        "aggregate_sha256": hashlib.sha256(writer.canonical(entries).encode("ascii")).hexdigest(),
+        "entries": entries,
+    }
+    (tmp_path / "private-evidence-index.json").write_text(
+        writer.canonical(index) + "\n", encoding="utf-8", newline="\n"
+    )
+
+    assert (
+        writer.validate_indexed_root(tmp_path, allowed_extra="strict-v4-validation.json")[
+            "artifact_count"
+        ]
+        == 1
+    )
+    (tmp_path / "unexpected.json").write_bytes(b"{}\n")
+    with pytest.raises(writer.S6BMReviewError, match="private_index_file_set"):
+        writer.validate_indexed_root(tmp_path, allowed_extra="strict-v4-validation.json")
+
+
 def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
     runner = load_runner()
     created = []

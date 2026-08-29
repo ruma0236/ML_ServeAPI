@@ -34,14 +34,18 @@ REQUIRED_CLEANUP = (
     "vram_restored",
 )
 EXECUTION_PATHS = (
+    "enterprise-vision-mlops/apps/api/main.py",
     "enterprise-vision-mlops/src/evm/model_runtime/triton_blue_green.py",
-    "enterprise-vision-mlops/scripts/dev/run_s8_v4_s6bm_experiment.py",
-    "enterprise-vision-mlops/configs/s8_v4_s6bm_blue_green_v1.toml",
-)
-VALIDATION_PATHS = (
+    "enterprise-vision-mlops/src/evm/scale_validation/s6bm_causal.py",
     "enterprise-vision-mlops/src/evm/scale_validation/s6bm_observability.py",
     "enterprise-vision-mlops/src/evm/scale_validation/s6bm_runtime.py",
+    "enterprise-vision-mlops/scripts/dev/run_s8_v4_s6bm_experiment.py",
+    "enterprise-vision-mlops/configs/s8_v4_s6bm_blue_green_v4.toml",
+)
+VALIDATION_PATHS = (
     "enterprise-vision-mlops/scripts/dev/validate_s8_v4_s6bm.py",
+    "enterprise-vision-mlops/scripts/dev/validate_s8_v4_s6bm_continuity_qualification.py",
+    "enterprise-vision-mlops/scripts/dev/validate_s8_v4_s6bm_strict_v4_qualification.py",
     "enterprise-vision-mlops/scripts/dev/write_s8_v4_s6bm_review.py",
 )
 
@@ -55,33 +59,37 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--experiment",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment-v2.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-experiment-v4.json",
     )
     parser.add_argument(
         "--mutation",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-mutation-validation-v3.json",
+        default=(ROOT / "docs/status/evidence/s8-v4-s6bm-integrated-mutation-validation-v4.json"),
     )
     parser.add_argument(
         "--strict-validation",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-strict-validation-v3.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-integrated-validation-v4.json",
     )
     parser.add_argument(
         "--config",
         type=Path,
-        default=ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml",
+        default=ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml",
     )
     parser.add_argument("--private-root", type=Path, required=True)
-    parser.add_argument("--smoke", type=Path, required=True)
+    parser.add_argument("--ordinary-qualification-root", type=Path, required=True)
+    parser.add_argument("--continuity-qualification-root", type=Path, required=True)
     parser.add_argument("--regression-root", type=Path, required=True)
-    parser.add_argument("--validator-failure", type=Path, required=True)
-    parser.add_argument("--history-amendment", type=Path, required=True)
-    parser.add_argument("--remediation-private-root", type=Path, required=True)
+    parser.add_argument("--regression-failure-rca", type=Path, required=True)
+    parser.add_argument(
+        "--history-amendment",
+        type=Path,
+        default=(ROOT / "docs/status/evidence/s8-v4-s6bm-historical-partial-run-amendment-v3.json"),
+    )
     parser.add_argument(
         "--output",
         type=Path,
-        default=ROOT / "docs/status/evidence/s8-v4-s6bm-review-handoff-v3.json",
+        default=ROOT / "docs/status/evidence/s8-v4-s6bm-review-handoff-v4.json",
     )
     return parser.parse_args()
 
@@ -194,41 +202,198 @@ def validate_regressions(root: Path, revision: str) -> list[dict[str, Any]]:
     return observed
 
 
-def validate_smoke(path: Path, validation_revision: str) -> dict[str, Any]:
-    smoke = read_json(path)
+def validate_indexed_root(root: Path, *, allowed_extra: str) -> dict[str, Any]:
+    index_path = root / "private-evidence-index.json"
+    index = read_json(index_path)
+    entries = list(index.get("entries", []))
     if (
-        smoke.get("passed") is not True
-        or smoke.get("credit") != "non_credit"
-        or smoke.get("acceptance_credit") is not False
-        or smoke.get("diagnostic_only") is not True
-        or smoke.get("failure") is not None
-        or smoke.get("cleanup_errors") != []
+        index.get("schema_version") != "evm.s8_v4.s6bm_private_index.v1"
+        or int(index.get("artifact_count", -1)) != len(entries)
+        or len({str(item.get("path", "")) for item in entries}) != len(entries)
     ):
-        raise S6BMReviewError("smoke_state")
-    projection = dict(smoke.get("projection", {}))
-    if projection.get("passed") is not True or int(projection.get("logical_requests", 0)) != 1000:
-        raise S6BMReviewError("smoke_projection")
-    cleanup = dict(smoke.get("cleanup", {}))
+        raise S6BMReviewError("private_index_contract")
+    for item in entries:
+        relative = Path(str(item.get("path", "")))
+        if relative.is_absolute() or ".." in relative.parts:
+            raise S6BMReviewError("private_index_path")
+        path = root / relative
+        if (
+            not path.is_file()
+            or type(item.get("bytes")) is not int
+            or item["bytes"] != path.stat().st_size
+            or item.get("sha256") != sha256_file(path)
+        ):
+            raise S6BMReviewError(f"private_index_entry:{relative.as_posix()}")
+    expected_paths = {str(item["path"]) for item in entries}
+    actual_paths = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file()
+        and path.name != "private-evidence-index.json"
+        and path.name != allowed_extra
+    }
+    if actual_paths != expected_paths:
+        raise S6BMReviewError("private_index_file_set")
+    aggregate = hashlib.sha256(canonical(entries).encode("ascii")).hexdigest()
+    total_bytes = sum(int(item["bytes"]) for item in entries)
+    if (
+        index.get("aggregate_sha256") != aggregate
+        or int(index.get("total_bytes", -1)) != total_bytes
+    ):
+        raise S6BMReviewError("private_index_projection")
+    return {
+        "artifact_count": len(entries),
+        "total_bytes": total_bytes,
+        "aggregate_sha256": aggregate,
+        "index_sha256": sha256_file(index_path),
+    }
+
+
+def validate_qualifications(
+    ordinary_root: Path,
+    continuity_root: Path,
+    runtime_revision: str,
+) -> dict[str, Any]:
+    causal_path = ordinary_root / "causal-qualification.json"
+    strict_path = ordinary_root / "strict-v4-validation.json"
+    causal = read_json(causal_path)
+    strict = read_json(strict_path)
+    causal_requests = dict(causal.get("requests", {}))
+    if (
+        causal.get("schema_version") != "evm.s8_v4.s6bm_causal_qualification.v1"
+        or causal.get("source_revision") != runtime_revision
+        or causal.get("credit") != "non_credit"
+        or causal.get("acceptance_credit") is not False
+        or causal_requests
+        != {
+            "logical": 1,
+            "accepted": 1,
+            "terminal": 1,
+            "lost": 0,
+            "duplicate_effect": 0,
+            "http_5xx": 0,
+            "transport_failure": 0,
+            "wrong_version": 0,
+        }
+        or any(dict(causal.get("cleanup", {})).get(key) is not True for key in REQUIRED_CLEANUP)
+    ):
+        raise S6BMReviewError("ordinary_qualification")
+    strict_negative = dict(strict.get("strict_v4_negative", {}))
+    historical = dict(strict.get("historical_mutation_prefix", {}))
+    if (
+        strict.get("schema_version") != "evm.s8_v4.s6bm_strict_v4_qualification_mutations.v1"
+        or strict.get("source_revision") != runtime_revision
+        or strict.get("passed") is not True
+        or strict.get("credit") != "non_credit"
+        or strict.get("acceptance_credit") is not False
+        or strict.get("accepted_matrix_started") is not False
+        or strict.get("qualification_sha256") != sha256_file(causal_path)
+        or dict(strict.get("positive", {})).get("passed") is not True
+        or int(dict(strict.get("positive", {})).get("count", 0)) != 1
+        or int(strict_negative.get("count", 0)) != 49
+        or int(strict_negative.get("rejected", 0)) != 49
+        or any(item.get("rejected") is not True for item in strict_negative.get("cases", []))
+        or int(historical.get("case_count", 0)) != 28
+        or historical.get("preserved") is not True
+    ):
+        raise S6BMReviewError("strict_qualification")
+
+    continuity_path = continuity_root / "continuity-qualification.json"
+    continuity_validation_path = continuity_root / "continuity-validation.json"
+    continuity = read_json(continuity_path)
+    continuity_validation = read_json(continuity_validation_path)
+    requests = dict(continuity.get("requests", {}))
+    if (
+        continuity.get("schema_version") != "evm.s8_v4.s6bm_success_private.v1"
+        or continuity.get("source_revision") != runtime_revision
+        or continuity.get("credit") != "non_credit"
+        or continuity.get("acceptance_credit") is not False
+        or requests.get("logical") != 1000
+        or requests.get("accepted") != 1000
+        or requests.get("terminal") != 1000
+        or any(
+            requests.get(key) != 0
+            for key in (
+                "lost",
+                "duplicate_effect",
+                "http_5xx",
+                "transport_failure",
+                "wrong_version",
+            )
+        )
+        or any(dict(continuity.get("cleanup", {})).get(key) is not True for key in REQUIRED_CLEANUP)
+    ):
+        raise S6BMReviewError("continuity_qualification")
+    negative = dict(continuity_validation.get("negative", {}))
+    if (
+        continuity_validation.get("schema_version") != "evm.s8_v4.s6bm_continuity_mutations.v1"
+        or continuity_validation.get("source_revision") != runtime_revision
+        or continuity_validation.get("passed") is not True
+        or continuity_validation.get("credit") != "non_credit"
+        or continuity_validation.get("acceptance_credit") is not False
+        or continuity_validation.get("accepted_matrix_started") is not False
+        or continuity_validation.get("qualification_sha256") != sha256_file(continuity_path)
+        or dict(continuity_validation.get("positive", {})).get("passed") is not True
+        or int(dict(continuity_validation.get("positive", {})).get("count", 0)) != 1
+        or int(negative.get("count", 0)) != 24
+        or int(negative.get("rejected", 0)) != 24
+        or any(item.get("rejected") is not True for item in negative.get("cases", []))
+    ):
+        raise S6BMReviewError("continuity_validation")
+    return {
+        "ordinary": {
+            "attempt_id": causal["attempt_id"],
+            "qualification_sha256": sha256_file(causal_path),
+            "validation_sha256": sha256_file(strict_path),
+            "strict_negative_rejected": 49,
+            "historical_negative_rejected": 28,
+            "private": validate_indexed_root(
+                ordinary_root, allowed_extra="strict-v4-validation.json"
+            ),
+        },
+        "continuity": {
+            "attempt_id": continuity["attempt_id"],
+            "qualification_sha256": sha256_file(continuity_path),
+            "validation_sha256": sha256_file(continuity_validation_path),
+            "logical_requests": 1000,
+            "negative_rejected": 24,
+            "private": validate_indexed_root(
+                continuity_root, allowed_extra="continuity-validation.json"
+            ),
+        },
+    }
+
+
+def validate_current_runtime(
+    experiment: dict[str, Any], validation_revision: str
+) -> dict[str, Any]:
+    analysis = dict(experiment.get("analysis", {}))
+    attempts = list(analysis.get("success_attempts", []))
+    if (
+        analysis.get("evidence_ready") is not True
+        or {int(item.get("repetition", 0)) for item in attempts} != {1, 2, 3}
+        or len(attempts) != 3
+        or any(item.get("passed") is not True for item in attempts)
+        or any(int(item.get("logical_requests", 0)) != 1000 for item in attempts)
+    ):
+        raise S6BMReviewError("current_runtime_projection")
+    cleanup = dict(experiment.get("cleanup", {}))
     if any(cleanup.get(key) is not True for key in REQUIRED_CLEANUP):
-        raise S6BMReviewError("smoke_cleanup")
-    smoke_revision = str(dict(smoke.get("source_identity", {})).get("revision", ""))
+        raise S6BMReviewError("current_runtime_cleanup")
+    smoke_revision = str(dict(experiment.get("source_identity", {})).get("revision", ""))
     ancestry = subprocess.run(
         ["git", "merge-base", "--is-ancestor", smoke_revision, validation_revision],
         cwd=ROOT,
         check=False,
     )
     if ancestry.returncode != 0:
-        raise S6BMReviewError("smoke_revision_ancestry")
+        raise S6BMReviewError("current_runtime_revision_ancestry")
     return {
-        "smoke_id": smoke["smoke_id"],
+        "suite_id": experiment["suite_id"],
         "source_revision": smoke_revision,
-        "sha256": sha256_file(path),
-        "logical_requests": projection["logical_requests"],
-        "p95_ms": projection["p95_ms"],
-        "p99_ms": projection["p99_ms"],
-        "max_inter_completion_gap_ms": projection["max_inter_completion_gap_ms"],
-        "transition_seconds": projection["transition_seconds"],
-        "rollback_seconds": projection["rollback_seconds"],
+        "successful_repetitions": 3,
+        "logical_requests": 3000,
+        "attempts": attempts,
         "cleanup_passed": True,
     }
 
@@ -241,16 +406,14 @@ def main() -> int:
     strict = validate_experiment(args.experiment, args.config, args.private_root)
     strict_validation = read_json(args.strict_validation)
     if (
-        strict_validation.get("schema_version")
-        != "evm.s8_v4.s6bm_strict_v3_validation.v1"
+        strict_validation.get("schema_version") != "evm.s8_v4.s6bm_strict_v3_validation.v1"
         or strict_validation.get("status") != "review_pending"
         or strict_validation.get("credit") != "non_credit_reviewer_pending"
         or strict_validation.get("reviewer_sign_off") != "pending"
         or strict_validation.get("acceptance") != strict["acceptance"]
         or strict_validation.get("strict_raw_drain_timelines")
         != strict["strict_raw_drain_timelines"]
-        or strict_validation.get("private_aggregate_sha256")
-        != strict["private_aggregate_sha256"]
+        or strict_validation.get("private_aggregate_sha256") != strict["private_aggregate_sha256"]
     ):
         raise S6BMReviewError("strict_validation_projection")
     mutation = read_json(args.mutation)
@@ -290,8 +453,7 @@ def main() -> int:
         or int(mutation.get("positive", 0)) != 1
         or int(mutation.get("negative", 0)) != len(expected_mutations)
         or int(mutation.get("negative_rejected", 0)) != len(expected_mutations)
-        or {str(item.get("mutation", "")) for item in mutation_cases}
-        != expected_mutations
+        or {str(item.get("mutation", "")) for item in mutation_cases} != expected_mutations
         or any(item.get("rejected") is not True for item in mutation_cases)
     ):
         raise S6BMReviewError("mutation_result")
@@ -310,25 +472,28 @@ def main() -> int:
         ).returncode:
             raise S6BMReviewError(f"runtime_blob_changed:{path}")
     regressions = validate_regressions(args.regression_root, revision)
-    smoke = validate_smoke(args.smoke, revision)
-    failed_validator = read_json(args.validator_failure)
+    runtime_proof = validate_current_runtime(experiment, revision)
+    qualifications = validate_qualifications(
+        args.ordinary_qualification_root,
+        args.continuity_qualification_root,
+        runtime_revision,
+    )
+    regression_failure = read_json(args.regression_failure_rca)
     if (
-        failed_validator.get("credit") != "non_credit"
-        or failed_validator.get("acceptance_credit") is not False
+        regression_failure.get("credit") != "zero_credit_regression_attempt"
+        or regression_failure.get("acceptance_credit") is not False
+        or regression_failure.get("status") != "remediation_required"
     ):
-        raise S6BMReviewError("validator_failure_credit")
+        raise S6BMReviewError("regression_failure_credit")
     history_amendment = read_json(args.history_amendment)
     if (
         history_amendment.get("credit") != "zero_credit"
         or history_amendment.get("acceptance_credit") is not False
-        or history_amendment.get("independently_verifiable_executed_requests")
-        != "unknown"
+        or history_amendment.get("independently_verifiable_executed_requests") != "unknown"
     ):
         raise S6BMReviewError("history_amendment")
-    remediation_index_path = args.remediation_private_root / "private-evidence-index.json"
-    remediation_index = read_json(remediation_index_path)
     handoff = {
-        "schema_version": "evm.s8_v4.s6bm_review_handoff.v3",
+        "schema_version": "evm.s8_v4.s6bm_review_handoff.v4",
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "status": "review_pending",
         "evidence_ready": True,
@@ -358,6 +523,7 @@ def main() -> int:
             "successful_logical_requests": 3000,
             "wrong_digest_repetitions": 3,
             "supplementary_fault_repetitions": 12,
+            "total_cells": 21,
         },
         "evidence": {
             "experiment_path": args.experiment.relative_to(ROOT).as_posix(),
@@ -370,19 +536,19 @@ def main() -> int:
             "strict_raw_drain_timelines": strict["strict_raw_drain_timelines"],
             "private_artifacts": strict["private_artifacts"],
             "private_aggregate_sha256": strict["private_aggregate_sha256"],
-            "remediation_private_artifacts": remediation_index["artifact_count"],
-            "remediation_private_aggregate_sha256": remediation_index["aggregate_sha256"],
-            "remediation_private_index_sha256": sha256_file(remediation_index_path),
+            "qualification_gates": qualifications,
             "history_amendment_path": args.history_amendment.relative_to(ROOT).as_posix(),
             "history_amendment_sha256": sha256_file(args.history_amendment),
+            "regression_failure_rca_path": args.regression_failure_rca.relative_to(ROOT).as_posix(),
+            "regression_failure_rca_sha256": sha256_file(args.regression_failure_rca),
         },
-        "current_revision_smoke": smoke,
+        "current_revision_runtime_proof": runtime_proof,
         "regressions": regressions,
         "failed_attempts": {
             "runtime_failures": len(experiment.get("failed_attempts", [])),
-            "validator_diagnostics": 1,
+            "regression_diagnostics": 1,
             "all_excluded_from_credit": True,
-            "validator_failure_sha256": sha256_file(args.validator_failure),
+            "regression_failure_sha256": sha256_file(args.regression_failure_rca),
             "historical_181425_executed_requests": "unknown_independently_unverifiable",
         },
         "cleanup": experiment["cleanup"],
@@ -391,7 +557,7 @@ def main() -> int:
             "Independent source-local reviewer sign-off remains pending.",
             "Historical S2 Infinity validator debt remains a separate V4 closure backlog.",
         ],
-        "next_action": "Independent source-local review; do not start X1.",
+        "next_action": "Independent source-local review; do not start X1 or Integrated V4.",
     }
     if not all(handoff["acceptance"].values()):
         raise S6BMReviewError("acceptance_not_all_passed")
