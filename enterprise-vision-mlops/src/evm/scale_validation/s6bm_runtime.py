@@ -1630,6 +1630,153 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
     return projection
 
 
+def _project_fault_route_state(
+    state: Mapping[str, Any],
+    raw: Mapping[str, Any],
+    config: S6BMConfig,
+    profile: str,
+) -> dict[str, Any]:
+    reason = f"s6bm_fault_route_revision:{profile}"
+    phase = state.get("phase")
+    allowed_phases = {"blue_only", "rolled_back"}
+    if (
+        phase not in allowed_phases
+        or dict(state.get("route_weights", {})) != {"blue": 100, "green": 0}
+        or list(state.get("loaded_roles", [])) != ["blue"]
+    ):
+        raise S6BMRuntimeError(f"s6bm_fault_state:{profile}")
+    control_generation = state.get("generation")
+    route_generation = state.get("route_generation")
+    if (
+        type(control_generation) is not int
+        or type(route_generation) is not int
+        or control_generation < 1
+        or route_generation < 1
+        or route_generation > control_generation
+    ):
+        raise S6BMRuntimeError(reason)
+
+    receipt = dict(state.get("route_revision_receipt") or {})
+    payload = dict(receipt.get("payload") or {})
+    receipt_fields = {
+        "schema_version",
+        "payload",
+        "payload_sha256",
+        "transaction_id",
+        "database_recorded_at",
+        "readback_at",
+        "readback_visible",
+        "replayed",
+    }
+    payload_fields = {
+        "schema_version",
+        "run_id",
+        "source_revision",
+        "control_generation",
+        "route_generation",
+        "phase",
+        "route_weights",
+        "loaded_roles",
+        "active_route_identity_sha256",
+        "blue_identity_sha256",
+        "green_identity_sha256",
+        "image_digest",
+        "gpu_uuid",
+        "action",
+        "approval_id",
+        "used_approvals",
+        "route_changed",
+        "lease_id",
+        "fencing_token_sha256",
+        "transition_id",
+        "transition_new_route_generation",
+    }
+    identities = dict(raw.get("identities", {}))
+    lease = dict(identities.get("lease", {}))
+    blue_identity = canonical_sha256(
+        {
+            "role": "blue",
+            "model_name": config.blue.model_name,
+            "model_version": config.blue.model_version,
+            "artifact_sha256": config.blue.artifact_sha256,
+            "config_sha256": config.blue.config_sha256,
+            "expected_output": list(config.blue.expected_output),
+        }
+    )
+    green_identity = canonical_sha256(
+        {
+            "role": "green",
+            "model_name": config.green.model_name,
+            "model_version": config.green.model_version,
+            "artifact_sha256": config.green.artifact_sha256,
+            "config_sha256": config.green.config_sha256,
+            "expected_output": list(config.green.expected_output),
+        }
+    )
+    expected_active_identity = canonical_sha256(
+        {
+            "routes": [
+                {
+                    "role": "blue",
+                    "weight": 100,
+                    "identity_sha256": blue_identity,
+                }
+            ]
+        }
+    )
+    approvals = payload.get("used_approvals")
+    route_changed = payload.get("route_changed")
+    lease_id = payload.get("lease_id")
+    if (
+        set(receipt) != receipt_fields
+        or set(payload) != payload_fields
+        or receipt.get("schema_version") != "evm.s6bm.route_revision_receipt.v1"
+        or receipt.get("readback_visible") is not True
+        or type(receipt.get("replayed")) is not bool
+        or not isinstance(receipt.get("transaction_id"), str)
+        or not receipt["transaction_id"]
+        or not isinstance(receipt.get("database_recorded_at"), str)
+        or not receipt["database_recorded_at"]
+        or not isinstance(receipt.get("readback_at"), str)
+        or not receipt["readback_at"]
+        or receipt.get("payload_sha256") != canonical_sha256(payload)
+        or payload.get("schema_version") != "evm.s6bm.route_revision.v1"
+        or payload.get("run_id") != lease.get("run_id")
+        or payload.get("source_revision") != raw.get("source_revision")
+        or payload.get("control_generation") != control_generation
+        or payload.get("route_generation") != route_generation
+        or payload.get("phase") != phase
+        or payload.get("route_weights") != {"blue": 100, "green": 0}
+        or payload.get("loaded_roles") != ["blue"]
+        or payload.get("active_route_identity_sha256") != expected_active_identity
+        or payload.get("blue_identity_sha256") != blue_identity
+        or payload.get("green_identity_sha256") != green_identity
+        or payload.get("image_digest") != identities.get("image_digest")
+        or payload.get("gpu_uuid") != identities.get("gpu_uuid")
+        or type(route_changed) is not bool
+        or (route_changed and route_generation != control_generation)
+        or not isinstance(lease_id, str)
+        or not lease_id
+        or hashlib.sha256(lease_id.encode("utf-8")).hexdigest() != lease.get("lease_id_sha256")
+        or payload.get("fencing_token_sha256") != lease.get("fencing_token_sha256")
+        or not isinstance(approvals, list)
+        or len(approvals) != len(set(approvals))
+        or any(not isinstance(item, str) or not item for item in approvals)
+        or payload.get("transition_id") is not None
+        or payload.get("transition_new_route_generation") is not None
+    ):
+        raise S6BMRuntimeError(reason)
+    return {
+        "phase": phase,
+        "control_generation": control_generation,
+        "route_generation": route_generation,
+        "receipt_sha256": canonical_sha256(receipt),
+        "route_payload_sha256": str(receipt["payload_sha256"]),
+        "route_action": str(payload["action"]),
+        "route_changed": route_changed,
+    }
+
+
 def project_fault_attempt(
     raw: Mapping[str, Any], config: S6BMConfig, profile: str
 ) -> dict[str, Any]:
@@ -1663,13 +1810,32 @@ def project_fault_attempt(
         raise S6BMRuntimeError(f"s6bm_fault_blue_health:{profile}")
     before = dict(raw.get("before_state", {}))
     final = dict(raw.get("final_state", {}))
-    for state in (before, final):
-        if (
-            state.get("phase") != "blue_only"
-            or dict(state.get("route_weights", {})) != {"blue": 100, "green": 0}
-            or list(state.get("loaded_roles", [])) != ["blue"]
-        ):
-            raise S6BMRuntimeError(f"s6bm_fault_state:{profile}")
+    if config.schema_version.endswith(".v4"):
+        guard = dict(raw.get("guard_state", {}))
+        before_route = _project_fault_route_state(before, raw, config, profile)
+        guard_route = _project_fault_route_state(guard, raw, config, profile)
+        final_route = _project_fault_route_state(final, raw, config, profile)
+        if guard_route != final_route:
+            raise S6BMRuntimeError(f"s6bm_fault_guard_final_mismatch:{profile}")
+        if profile == "green_canary_failure":
+            if (
+                final_route["phase"] != "blue_only"
+                or final_route["control_generation"] != before_route["control_generation"] + 2
+                or final_route["route_generation"] != before_route["route_generation"]
+                or final_route["route_action"] != "green_aborted"
+                or final_route["route_changed"] is not False
+            ):
+                raise S6BMRuntimeError(f"s6bm_fault_abort_route_revision:{profile}")
+        elif before_route != final_route:
+            raise S6BMRuntimeError(f"s6bm_fault_route_changed:{profile}")
+    else:
+        for state in (before, final):
+            if (
+                state.get("phase") != "blue_only"
+                or dict(state.get("route_weights", {})) != {"blue": 100, "green": 0}
+                or list(state.get("loaded_roles", [])) != ["blue"]
+            ):
+                raise S6BMRuntimeError(f"s6bm_fault_state:{profile}")
     observation = dict(raw.get("fault_observation", {}))
     if observation.get("injection_observed") is not True:
         raise S6BMRuntimeError(f"s6bm_fault_injection:{profile}")

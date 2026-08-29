@@ -1693,6 +1693,153 @@ def fault_attempt(profile: str, repetition: int = 1) -> dict[str, object]:
     }
 
 
+def v4_fault_attempt(profile: str, repetition: int = 1) -> dict[str, object]:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    source_revision = "a" * 40
+    run_id = "s8-v4-s6bm-unit-test"
+    lease_id = "lease-fixture"
+    fencing_token_sha256 = "d" * 64
+
+    def model_identity(role: str) -> str:
+        model = config.blue if role == "blue" else config.green
+        return canonical_sha256(
+            {
+                "role": role,
+                "model_name": model.model_name,
+                "model_version": model.model_version,
+                "artifact_sha256": model.artifact_sha256,
+                "config_sha256": model.config_sha256,
+                "expected_output": list(model.expected_output),
+            }
+        )
+
+    blue_identity = model_identity("blue")
+    green_identity = model_identity("green")
+
+    def state(
+        *,
+        phase: str,
+        control_generation: int,
+        route_generation: int,
+        action: str,
+        approval_ids: list[str],
+        replayed: bool,
+    ) -> dict[str, object]:
+        payload = {
+            "schema_version": "evm.s6bm.route_revision.v1",
+            "run_id": run_id,
+            "source_revision": source_revision,
+            "control_generation": control_generation,
+            "route_generation": route_generation,
+            "phase": phase,
+            "route_weights": {"blue": 100, "green": 0},
+            "loaded_roles": ["blue"],
+            "active_route_identity_sha256": canonical_sha256(
+                {
+                    "routes": [
+                        {
+                            "role": "blue",
+                            "weight": 100,
+                            "identity_sha256": blue_identity,
+                        }
+                    ]
+                }
+            ),
+            "blue_identity_sha256": blue_identity,
+            "green_identity_sha256": green_identity,
+            "image_digest": config.image_digest,
+            "gpu_uuid": "GPU-fixture",
+            "action": action,
+            "approval_id": approval_ids[-1] if approval_ids else None,
+            "used_approvals": approval_ids,
+            "route_changed": False,
+            "lease_id": lease_id,
+            "fencing_token_sha256": fencing_token_sha256,
+            "transition_id": None,
+            "transition_new_route_generation": None,
+        }
+        return {
+            "phase": phase,
+            "generation": control_generation,
+            "route_generation": route_generation,
+            "route_weights": {"blue": 100, "green": 0},
+            "loaded_roles": ["blue"],
+            "route_revision_receipt": {
+                "schema_version": "evm.s6bm.route_revision_receipt.v1",
+                "payload": payload,
+                "payload_sha256": canonical_sha256(payload),
+                "transaction_id": str(10_000 + control_generation),
+                "database_recorded_at": "2026-08-29T00:00:00Z",
+                "readback_at": "2026-08-29T00:00:01Z",
+                "readback_visible": True,
+                "replayed": replayed,
+            },
+        }
+
+    raw = fault_attempt(profile, repetition)
+    raw["source_revision"] = source_revision
+    raw["identities"] = {
+        "image_digest": config.image_digest,
+        "repository_sha256": config.repository_sha256,
+        "gpu_uuid": "GPU-fixture",
+        "blue": {
+            "model_name": config.blue.model_name,
+            "model_version": config.blue.model_version,
+            "artifact_sha256": config.blue.artifact_sha256,
+            "config_sha256": config.blue.config_sha256,
+        },
+        "green": {
+            "model_name": config.green.model_name,
+            "model_version": config.green.model_version,
+            "artifact_sha256": config.green.artifact_sha256,
+            "config_sha256": config.green.config_sha256,
+        },
+        "lease": {
+            "run_id": run_id,
+            "lease_id_sha256": hashlib.sha256(lease_id.encode("utf-8")).hexdigest(),
+            "fencing_token_sha256": fencing_token_sha256,
+            "scenario_id": "S6B-M",
+            "model_family": "tabular",
+            "purpose": "scale_validation_inference",
+            "owner_exact": True,
+        },
+    }
+    before = state(
+        phase="rolled_back",
+        control_generation=28,
+        route_generation=26,
+        action="green_unloaded",
+        approval_ids=["approval-green-unloaded"],
+        replayed=True,
+    )
+    if profile == "green_canary_failure":
+        final = state(
+            phase="blue_only",
+            control_generation=30,
+            route_generation=26,
+            action="green_aborted",
+            approval_ids=[
+                "approval-green-unloaded",
+                "approval-green-loaded",
+                "approval-green-aborted",
+            ],
+            replayed=False,
+        )
+    else:
+        final = copy.deepcopy(before)
+    raw["before_state"] = before
+    raw["guard_state"] = copy.deepcopy(final)
+    raw["final_state"] = final
+    raw["cleanup"] = {
+        "blue_only": True,
+        "green_unloaded": True,
+        "controller_in_flight_zero": True,
+        "controller_pending_crossovers_zero": True,
+        "lease_owner_exact": True,
+    }
+    return raw
+
+
 def test_s6bm_config_freezes_canonical_matrix_and_distinct_models() -> None:
     config = S6BMConfig.from_path(CONFIG)
     assert config.procedure["successful_transition_repetitions"] == 3
@@ -1795,6 +1942,70 @@ def test_s6bm_fault_projection_rejects_fail_open_mutations() -> None:
         mutate(raw)
         with pytest.raises(S6BMRuntimeError, match="s6bm_fault_telemetry_identity"):
             project_fault_attempt(raw, config, "wrong_digest")
+
+
+def test_s6bm_v4_fault_projection_accepts_persisted_rollback_and_abort_states() -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    profiles = (
+        "wrong_digest",
+        "green_load_failure",
+        "green_readiness_failure",
+        "green_canary_failure",
+        "vram_preflight_rejection",
+    )
+
+    for profile in profiles:
+        assert project_fault_attempt(v4_fault_attempt(profile), config, profile)["passed"] is True
+
+
+def test_s6bm_v4_fault_projection_rejects_route_revision_mutations() -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+
+    def rehash_state(state: dict[str, object]) -> None:
+        receipt = state["route_revision_receipt"]
+        assert isinstance(receipt, dict)
+        payload = receipt["payload"]
+        assert isinstance(payload, dict)
+        receipt["payload_sha256"] = canonical_sha256(payload)
+
+    unchanged = v4_fault_attempt("wrong_digest")
+    for key in ("guard_state", "final_state"):
+        state = unchanged[key]
+        assert isinstance(state, dict)
+        state["route_generation"] = 27
+        receipt = state["route_revision_receipt"]
+        assert isinstance(receipt, dict)
+        payload = receipt["payload"]
+        assert isinstance(payload, dict)
+        payload["route_generation"] = 27
+        rehash_state(state)
+    with pytest.raises(S6BMRuntimeError, match="s6bm_fault_route_changed:wrong_digest"):
+        project_fault_attempt(unchanged, config, "wrong_digest")
+
+    forged_control = v4_fault_attempt("wrong_digest")
+    final = forged_control["final_state"]
+    assert isinstance(final, dict)
+    final["generation"] = 29
+    with pytest.raises(S6BMRuntimeError, match="s6bm_fault_route_revision:wrong_digest"):
+        project_fault_attempt(forged_control, config, "wrong_digest")
+
+    abort = v4_fault_attempt("green_canary_failure")
+    for key in ("guard_state", "final_state"):
+        state = abort[key]
+        assert isinstance(state, dict)
+        state["route_generation"] = 30
+        receipt = state["route_revision_receipt"]
+        assert isinstance(receipt, dict)
+        payload = receipt["payload"]
+        assert isinstance(payload, dict)
+        payload["route_generation"] = 30
+        payload["route_changed"] = True
+        rehash_state(state)
+    with pytest.raises(
+        S6BMRuntimeError,
+        match="s6bm_fault_abort_route_revision:green_canary_failure",
+    ):
+        project_fault_attempt(abort, config, "green_canary_failure")
 
 
 def test_s6bm_analysis_requires_every_repetition_and_supplementary_guard() -> None:
