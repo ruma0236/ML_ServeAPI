@@ -156,6 +156,58 @@ def test_x1_serving_rejects_wrong_feature_count() -> None:
         X1InferenceRequest.model_validate(payload)
 
 
+def test_x1_readiness_recovers_after_initial_triton_connect_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_environment(monkeypatch, runtime_manifest(tmp_path))
+    manager = X1ServingManager()
+    transports = iter(
+        (
+            httpx.MockTransport(
+                lambda call: (_ for _ in ()).throw(httpx.ConnectError("not ready", request=call))
+            ),
+            httpx.MockTransport(readiness_handler),
+        )
+    )
+    monkeypatch.setattr(
+        manager,
+        "_new_http_client",
+        lambda: httpx.AsyncClient(transport=next(transports), base_url="http://triton"),
+    )
+
+    with pytest.raises(X1ServingError) as error:
+        asyncio.run(manager.readiness())
+    assert error.value.code == "x1_triton_connection_unavailable"
+    assert manager._validated_models == set()
+
+    result = asyncio.run(manager.readiness())
+    assert result["status"] == "ok"
+    assert manager._validated_models == set(MODEL_IDS)
+
+
+def test_x1_readiness_persistent_triton_failure_is_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_environment(monkeypatch, runtime_manifest(tmp_path))
+    manager = X1ServingManager()
+    monkeypatch.setattr(
+        manager,
+        "_new_http_client",
+        lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda call: (_ for _ in ()).throw(httpx.ConnectError("not ready", request=call))
+            ),
+            base_url="http://triton",
+        ),
+    )
+
+    for _ in range(2):
+        with pytest.raises(X1ServingError) as error:
+            asyncio.run(manager.readiness())
+        assert error.value.code == "x1_triton_connection_unavailable"
+        assert manager._validated_models == set()
+
+
 def triton_config(model_id: str) -> dict[str, object]:
     feature_count = 39 if model_id == "criteo_dlrm_lite" else 28
     return {
@@ -184,3 +236,17 @@ def triton_config(model_id: str) -> dict[str, object]:
             }
         ],
     }
+
+
+def readiness_handler(call: httpx.Request) -> httpx.Response:
+    if call.url.path.endswith("/config"):
+        model_id = call.url.path.split("/")[3]
+        return httpx.Response(200, json=triton_config(model_id))
+    assert call.url.path == "/v2/repository/index"
+    return httpx.Response(
+        200,
+        json=[
+            {"name": model_id, "version": "1", "state": "READY", "reason": ""}
+            for model_id in MODEL_IDS
+        ],
+    )

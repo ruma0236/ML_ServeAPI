@@ -162,10 +162,18 @@ class X1ServingManager:
         models = manifest.get("models")
         if not isinstance(models, Mapping) or set(models) != set(MODEL_IDS):
             raise X1ServingError("x1_manifest_model_set", "readiness", status_code=503)
-        for model_id in MODEL_IDS:
-            await self._assert_triton_gpu_config(model_id)
-        index = await self._http_client().post("/v2/repository/index", json={}, timeout=5)
-        index.raise_for_status()
+        try:
+            async with self._new_http_client() as client:
+                for model_id in MODEL_IDS:
+                    await self._assert_triton_gpu_config(model_id, client=client, cache=False)
+                index = await client.post("/v2/repository/index", json={}, timeout=5)
+                index.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise X1ServingError(
+                "x1_triton_connection_unavailable",
+                type(exc).__name__,
+                status_code=503,
+            ) from exc
         entries = index.json()
         expected = sorted(
             (
@@ -179,6 +187,7 @@ class X1ServingManager:
             or sorted(entries, key=lambda item: item.get("name", "")) != expected
         ):
             raise X1ServingError("x1_repository_index_identity", "readiness", status_code=503)
+        self._validated_models.update(MODEL_IDS)
         return {
             "schema_version": "evm.s8_v4.x1_readiness.v1",
             "status": "ok",
@@ -310,11 +319,17 @@ class X1ServingManager:
             ACTIVE.labels(request.model_id, worker_slot).dec()
             semaphore.release()
 
-    async def _assert_triton_gpu_config(self, model_id: str) -> None:
-        if model_id in self._validated_models:
+    async def _assert_triton_gpu_config(
+        self,
+        model_id: str,
+        *,
+        client: httpx.AsyncClient | None = None,
+        cache: bool = True,
+    ) -> None:
+        if cache and model_id in self._validated_models:
             return
         identity = self._model_identity(model_id)
-        response = await self._http_client().get(
+        response = await (client or self._http_client()).get(
             f"/v2/models/{model_id}/versions/1/config",
             timeout=5,
         )
@@ -324,7 +339,8 @@ class X1ServingManager:
             validate_triton_runtime_config(payload, model_id=model_id, identity=identity)
         except RuntimeError as exc:
             raise X1ServingError("x1_triton_gpu_config", model_id, status_code=503) from exc
-        self._validated_models.add(model_id)
+        if cache:
+            self._validated_models.add(model_id)
 
     async def _triton_predict(self, request: X1InferenceRequest) -> tuple[list[float], float]:
         manifest = self._load_manifest()
@@ -399,11 +415,16 @@ class X1ServingManager:
 
     def _http_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(
-                base_url=os.getenv("EVM_X1_TRITON_URL", "http://evm-x1-triton:8000"),
-                limits=httpx.Limits(max_connections=128, max_keepalive_connections=64),
-            )
+            self._client = self._new_http_client()
         return self._client
+
+    @staticmethod
+    def _new_http_client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            base_url=os.getenv("EVM_X1_TRITON_URL", "http://evm-x1-triton:8000"),
+            limits=httpx.Limits(max_connections=128, max_keepalive_connections=64),
+            trust_env=False,
+        )
 
     def _admission_semaphore(self) -> asyncio.Semaphore:
         if self._semaphore is None:
