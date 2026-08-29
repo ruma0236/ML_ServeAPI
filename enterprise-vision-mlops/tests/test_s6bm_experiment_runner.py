@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from evm.scale_validation import s6bm_trace_receipt_collector as trace_collector
+from evm.scale_validation.s6bm_runtime import SUCCESS_PHASES
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +27,7 @@ REVIEW_WRITER = ROOT / "scripts/dev/write_s8_v4_s6bm_review.py"
 CONTINUITY_VALIDATOR = ROOT / "scripts/dev/validate_s8_v4_s6bm_continuity_qualification.py"
 STRICT_V4_VALIDATOR = ROOT / "scripts/dev/validate_s8_v4_s6bm_strict_v4_qualification.py"
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
+V4_CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml"
 
 
 def load_runner():
@@ -72,7 +74,14 @@ def test_full_validator_rewrites_the_complete_seven_span_hold_trace(tmp_path: Pa
                     "sha256": hashlib.sha256(trace_path.read_bytes()).hexdigest(),
                 }
             }
-        }
+        },
+        "causal_proof": {
+            "trace_export": {
+                "path": "observability/trace.json",
+                "bytes": trace_path.stat().st_size,
+                "sha256": hashlib.sha256(trace_path.read_bytes()).hexdigest(),
+            }
+        },
     }
 
     validator._rewrite_trace_times(tmp_path, attempt, trace_id, 25)
@@ -84,6 +93,129 @@ def test_full_validator_rewrites_the_complete_seven_span_hold_trace(tmp_path: Pa
     assert attempt["observability"]["artifacts"]["trace_export"]["sha256"] == (
         hashlib.sha256(trace_path.read_bytes()).hexdigest()
     )
+    assert attempt["causal_proof"]["trace_export"]["sha256"] == (
+        hashlib.sha256(trace_path.read_bytes()).hexdigest()
+    )
+
+
+def test_strict_v4_review_projection_uses_durable_causal_evidence() -> None:
+    validator = load_validator()
+    config = validator.S6BMConfig.from_path(V4_CONFIG)
+    request_id = "s6bm-success-1-unit-causal-hold-blue-00000"
+    trace_id = "1" * 32
+    effect_id = "2" * 64
+    phases = {
+        "blue_only": 1.0,
+        "green_warmup": 2.0,
+        "canary": 2.5,
+        "green_active": 4.0,
+        "blue_draining": 4.1,
+        "green_only": 6.0,
+        "rollback_warmup": 7.0,
+        "blue_active_rollback": 8.0,
+        "green_draining": 9.0,
+        "rolled_back": 10.0,
+    }
+    raw = {
+        "phase_timeline": [],
+        "request_records": [
+            {
+                "request_id": request_id,
+                "trace_id": trace_id,
+                "effect_id": effect_id,
+                "model_role": "blue",
+                "model_name": config.blue.model_name,
+                "model_version": config.blue.model_version,
+                "artifact_sha256": config.blue.artifact_sha256,
+                "route_generation": 3,
+                "attempted_monotonic": 2.0,
+                "completed_monotonic": 4.5,
+            }
+        ],
+        "traffic_plan": {"roles": {"causal_hold": [{"request_id": request_id}]}},
+        "blue_in_flight_before_unload": 0,
+    }
+    raw["phase_timeline"] = [
+        {"phase": phase, "monotonic_seconds": phases[phase]} for phase in SUCCESS_PHASES
+    ]
+    causal = {
+        "passed": True,
+        "crossover": {
+            "request_id": request_id,
+            "trace_id": trace_id,
+            "effect_id": effect_id,
+            "pre_switch_blue_request_count": 1,
+            "switch_fence_commit_interval_ns": [4_000_000_000, 4_001_000_000],
+            "effect_commit_monotonic_interval_ns": [4_200_000_000, 4_201_000_000],
+            "effect_readback_finished_monotonic_ns": 4_300_000_000,
+            "blue_unload_monotonic_lower_ns": 6_000_000_000,
+        },
+    }
+
+    projected = validator.project_strict_v4_drain_timeline(raw, config, causal)
+
+    assert projected["hold_trace_effect_bound"] == 1
+    assert projected["terminal_effect_semantics"].startswith("durable_postgresql")
+    assert projected["controller_span_is_commit_timestamp"] is False
+    assert projected["hold_requests"][0]["effect_commit_monotonic_interval_ns"] == [
+        4_200_000_000,
+        4_201_000_000,
+    ]
+
+
+def test_v4_success_evidence_uses_strict_causal_path_not_legacy_drain(
+    monkeypatch,
+) -> None:
+    validator = load_validator()
+    observed: dict[str, object] = {}
+    config = SimpleNamespace(schema_version="evm.s8_v4.s6bm_config.v4")
+    causal = {"passed": True, "crossover": {}}
+    observability = {
+        "accepted_requests": 1000,
+        "trace_correlation_complete": True,
+        "metric_delta_complete": True,
+    }
+    monkeypatch.setattr(validator, "project_success_attempt", lambda *_args: {})
+    monkeypatch.setattr(validator, "validate_causal_bundle", lambda *_args: causal)
+
+    def fake_observability(*_args, **kwargs):
+        observed["require_drain_timeline"] = kwargs["require_drain_timeline"]
+        return observability
+
+    monkeypatch.setattr(validator, "validate_observability_bundle", fake_observability)
+    monkeypatch.setattr(
+        validator,
+        "project_strict_v4_drain_timeline",
+        lambda *_args: {"strict": True},
+    )
+
+    projected_causal, projected_observability, drain = validator.validate_success_evidence(
+        Path("private"), {}, config
+    )
+
+    assert observed["require_drain_timeline"] is False
+    assert projected_causal is causal
+    assert projected_observability is observability
+    assert drain == {"strict": True}
+
+
+def test_v4_success_evidence_rejects_durable_causal_failure(monkeypatch) -> None:
+    validator = load_validator()
+    config = SimpleNamespace(schema_version="evm.s8_v4.s6bm_config.v4")
+    monkeypatch.setattr(validator, "project_success_attempt", lambda *_args: {})
+    monkeypatch.setattr(
+        validator,
+        "validate_causal_bundle",
+        lambda *_args: (_ for _ in ()).throw(
+            validator.S6BMCausalError("s6bm_v4_effect_commit_readback_order")
+        ),
+    )
+
+    with pytest.raises(
+        validator.S6BMCausalError,
+        match="s6bm_v4_effect_commit_readback_order",
+    ):
+        validator.validate_success_evidence(Path("private"), {}, config)
 
 
 def load_strict_v4_validator():

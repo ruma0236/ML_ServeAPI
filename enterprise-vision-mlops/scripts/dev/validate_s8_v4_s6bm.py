@@ -23,9 +23,14 @@ from evm.scale_validation.s6bm_runtime import (  # noqa: E402
     analyze_attempts,
     canonical,
     canonical_sha256,
+    project_raw_drain_timeline,
     project_fault_attempt,
     project_success_attempt,
     sha256_file,
+)
+from evm.scale_validation.s6bm_causal import (  # noqa: E402
+    S6BMCausalError,
+    validate_causal_bundle,
 )
 from evm.scale_validation.s6bm_observability import (  # noqa: E402
     S6BMObservabilityError,
@@ -118,6 +123,87 @@ def private_index(root: Path) -> dict[str, Any]:
         "aggregate_sha256": hashlib.sha256(canonical(entries).encode("ascii")).hexdigest(),
         "entries": entries,
     }
+
+
+def project_strict_v4_drain_timeline(
+    raw: Mapping[str, Any],
+    config: S6BMConfig,
+    causal: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind the review projection to the durable V4 causal proof."""
+    projection = project_raw_drain_timeline(raw, config)
+    crossover = dict(causal.get("crossover", {}))
+    request_id = str(crossover.get("request_id", ""))
+    matches = [
+        dict(item)
+        for item in raw.get("request_records", [])
+        if str(dict(item).get("request_id", "")) == request_id
+    ]
+    if (
+        causal.get("passed") is not True
+        or len(matches) != 1
+        or request_id not in set(projection["hold_request_ids"])
+        or int(crossover.get("pre_switch_blue_request_count", -1))
+        != int(projection["pre_switch_blue_request_count"])
+    ):
+        raise S6BMValidationError("strict_v4_drain_causal_binding")
+    record = matches[0]
+    if record.get("trace_id") != crossover.get("trace_id") or record.get(
+        "effect_id"
+    ) != crossover.get("effect_id"):
+        raise S6BMValidationError("strict_v4_drain_identity_binding")
+    return {
+        **projection,
+        "blue_in_flight_at_pre_unload_gate": int(raw.get("blue_in_flight_before_unload", -1)),
+        "hold_trace_effect_bound": 1,
+        "hold_requests": [
+            {
+                "request_id": request_id,
+                "trace_id": str(record["trace_id"]),
+                "effect_id": str(record["effect_id"]),
+                "model_name": str(record["model_name"]),
+                "model_version": str(record["model_version"]),
+                "artifact_sha256": str(record["artifact_sha256"]),
+                "route_generation": int(record["route_generation"]),
+                "request_started_monotonic": float(record["attempted_monotonic"]),
+                "request_completed_monotonic": float(record["completed_monotonic"]),
+                "switch_fence_commit_interval_ns": list(
+                    crossover["switch_fence_commit_interval_ns"]
+                ),
+                "effect_commit_monotonic_interval_ns": list(
+                    crossover["effect_commit_monotonic_interval_ns"]
+                ),
+                "effect_readback_finished_monotonic_ns": int(
+                    crossover["effect_readback_finished_monotonic_ns"]
+                ),
+                "blue_unload_monotonic_lower_ns": int(crossover["blue_unload_monotonic_lower_ns"]),
+            }
+        ],
+        "causal_projection_sha256": canonical_sha256(causal),
+        "terminal_effect_semantics": "durable_postgresql_commit_ack_and_independent_readback",
+        "controller_span_is_commit_timestamp": False,
+    }
+
+
+def validate_success_evidence(
+    private_root: Path,
+    attempt: Mapping[str, Any],
+    config: S6BMConfig,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    project_success_attempt(attempt, config)
+    causal = validate_causal_bundle(private_root, attempt, config)
+    observability = validate_observability_bundle(
+        private_root,
+        attempt,
+        config,
+        require_drain_timeline=not config.schema_version.endswith(".v4"),
+    )
+    drain = (
+        project_strict_v4_drain_timeline(attempt, config, causal)
+        if config.schema_version.endswith(".v4")
+        else dict(observability["raw_drain_timeline"])
+    )
+    return causal, observability, drain
 
 
 def load_attempts(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -226,23 +312,24 @@ def validate(experiment_path: Path, config_path: Path, private_root: Path) -> di
     drain_timelines: list[dict[str, Any]] = []
     for attempt in success_attempts:
         try:
-            observability = validate_observability_bundle(
-                private_root, attempt, config, require_drain_timeline=True
-            )
+            causal, observability, drain = validate_success_evidence(private_root, attempt, config)
         except S6BMObservabilityError as exc:
             raise S6BMValidationError(f"observability:{exc}") from exc
+        except S6BMCausalError as exc:
+            raise S6BMValidationError(f"causal:{exc}") from exc
         if (
             observability["accepted_requests"]
             != int(config.procedure["logical_requests_per_transition"])
             or observability["trace_correlation_complete"] is not True
             or observability["metric_delta_complete"] is not True
+            or causal.get("passed") is not True
         ):
-            raise S6BMValidationError("observability_acceptance_projection")
+            raise S6BMValidationError("success_evidence_projection")
         drain_timelines.append(
             {
                 "attempt_id": str(attempt["attempt_id"]),
                 "repetition": int(attempt["repetition"]),
-                **dict(observability["raw_drain_timeline"]),
+                **drain,
             }
         )
     analysis = analyze_attempts(attempts, config)
@@ -321,16 +408,44 @@ def analysis_mutation_result(
     return {"mutation": name, "rejected": False, "reason": "validator_fail_open"}
 
 
-def _copy_observability_artifacts(
+def _artifact_references(payload: Any) -> list[dict[str, Any]]:
+    references: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        if isinstance(payload.get("path"), str) and isinstance(payload.get("sha256"), str):
+            references.append(payload)
+        for value in payload.values():
+            references.extend(_artifact_references(value))
+    elif isinstance(payload, list):
+        for value in payload:
+            references.extend(_artifact_references(value))
+    return references
+
+
+def _copy_attempt_artifacts(
     source_root: Path, target_root: Path, attempt: Mapping[str, Any]
 ) -> None:
-    artifacts = dict(dict(attempt.get("observability", {})).get("artifacts", {}))
-    for reference in artifacts.values():
-        relative = Path(str(dict(reference).get("path", "")))
+    copied: set[str] = set()
+    for reference in _artifact_references(dict(attempt)):
+        relative = Path(str(reference["path"]))
+        if relative.as_posix() in copied:
+            continue
         source = source_root / relative
         target = target_root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+        copied.add(relative.as_posix())
+
+
+def _rebind_artifact_references(
+    attempt: dict[str, Any], relative_path: str, *, sha256: str, bytes_count: int
+) -> None:
+    matched = 0
+    for reference in _artifact_references(attempt):
+        if reference["path"] == relative_path:
+            reference.update(sha256=sha256, bytes=bytes_count)
+            matched += 1
+    if matched == 0:
+        raise S6BMValidationError(f"artifact_reference_absent:{relative_path}")
 
 
 def _rewrite_json_artifact(
@@ -344,8 +459,11 @@ def _rewrite_json_artifact(
     payload = json.loads(path.read_text(encoding="utf-8"))
     mutate(payload)
     canonical_write(path, payload)
-    attempt["observability"]["artifacts"][key].update(
-        sha256=sha256_file(path), bytes=path.stat().st_size
+    _rebind_artifact_references(
+        attempt,
+        str(reference["path"]),
+        sha256=sha256_file(path),
+        bytes_count=path.stat().st_size,
     )
 
 
@@ -359,11 +477,19 @@ def observability_mutation_result(
     candidate = copy.deepcopy(dict(attempt))
     with tempfile.TemporaryDirectory(prefix="s6bm-observability-mutation-") as raw_root:
         root = Path(raw_root)
-        _copy_observability_artifacts(private_root, root, candidate)
+        _copy_attempt_artifacts(private_root, root, candidate)
         mutate(root, candidate)
         try:
-            validate_observability_bundle(root, candidate, config, require_drain_timeline=True)
-        except (S6BMObservabilityError, KeyError, TypeError, ValueError) as exc:
+            validate_success_evidence(root, candidate, config)
+        except (
+            S6BMObservabilityError,
+            S6BMCausalError,
+            S6BMRuntimeError,
+            S6BMValidationError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as exc:
             return {"mutation": name, "rejected": True, "reason": str(exc)}
     return {"mutation": name, "rejected": False, "reason": "validator_fail_open"}
 
@@ -514,9 +640,13 @@ def _move_pre_unload_gate_before_hold_completion(root: Path, attempt: dict[str, 
         .replace("+00:00", "Z")
     )
     canonical_write(path, payload)
-    attempt["observability"]["artifacts"]["prometheus_before_blue_unload"].update(
-        sha256=sha256_file(path), bytes=path.stat().st_size
+    _rebind_artifact_references(
+        attempt,
+        str(reference["path"]),
+        sha256=sha256_file(path),
+        bytes_count=path.stat().st_size,
     )
+    _move_unload_before_last_blue_completion(attempt)
 
 
 def _move_hold_spans_after_pre_unload(root: Path, attempt: dict[str, Any]) -> None:
@@ -530,7 +660,7 @@ def run_mutations(private_root: Path, config: S6BMConfig) -> dict[str, Any]:
     wrong = next(item for item in attempts if item["profile"] == "wrong_digest")
     canary = next(item for item in attempts if item["profile"] == "green_canary_failure")
     vram = next(item for item in attempts if item["profile"] == "vram_preflight_rejection")
-    validate_observability_bundle(private_root, success, config, require_drain_timeline=True)
+    validate_success_evidence(private_root, success, config)
     analyze_attempts(attempts, config)
     cases = [
         mutation_result(
