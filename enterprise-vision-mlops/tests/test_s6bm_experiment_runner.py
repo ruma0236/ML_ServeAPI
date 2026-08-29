@@ -45,6 +45,47 @@ def load_continuity_validator():
     return module
 
 
+def test_full_validator_rewrites_the_complete_seven_span_hold_trace(tmp_path: Path) -> None:
+    validator = load_validator()
+    trace_id = "1" * 32
+    trace_path = tmp_path / "observability" / "trace.json"
+    trace_path.parent.mkdir(parents=True)
+    payload = {
+        "entries": [
+            {
+                "span": {
+                    "traceId": trace_id,
+                    "startTimeUnixNano": str(index * 100),
+                    "endTimeUnixNano": str(index * 100 + 50),
+                }
+            }
+            for index in range(1, 8)
+        ]
+    }
+    trace_path.write_text(json.dumps(payload), encoding="utf-8")
+    attempt = {
+        "observability": {
+            "artifacts": {
+                "trace_export": {
+                    "path": "observability/trace.json",
+                    "bytes": trace_path.stat().st_size,
+                    "sha256": hashlib.sha256(trace_path.read_bytes()).hexdigest(),
+                }
+            }
+        }
+    }
+
+    validator._rewrite_trace_times(tmp_path, attempt, trace_id, 25)
+
+    rewritten = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert [int(item["span"]["startTimeUnixNano"]) for item in rewritten["entries"]] == [
+        index * 100 + 25 for index in range(1, 8)
+    ]
+    assert attempt["observability"]["artifacts"]["trace_export"]["sha256"] == (
+        hashlib.sha256(trace_path.read_bytes()).hexdigest()
+    )
+
+
 def load_strict_v4_validator():
     spec = importlib.util.spec_from_file_location("s6bm_strict_v4_validator", STRICT_V4_VALIDATOR)
     assert spec is not None and spec.loader is not None

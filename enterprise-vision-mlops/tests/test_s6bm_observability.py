@@ -205,6 +205,28 @@ def test_drain_trace_timeline_binds_hold_effect_and_pre_unload_gate() -> None:
     assert result["blue_in_flight_at_switch"] == 1
     assert result["blue_in_flight_at_pre_unload_gate"] == 0
 
+    with_replay = copy.deepcopy(export)
+    replay_server = copy.deepcopy(with_replay["entries"][0])  # type: ignore[index]
+    replay_server["span"]["spanId"] = "6" * 16  # type: ignore[index]
+    replay_server["span"]["startTimeUnixNano"] = "2400000000"  # type: ignore[index]
+    replay_server["span"]["endTimeUnixNano"] = "2600000000"  # type: ignore[index]
+    for attribute in replay_server["span"]["attributes"]:  # type: ignore[index]
+        if attribute["key"] == "evm.request.replayed":
+            attribute["value"] = {"boolValue": True}
+    replay_controller = copy.deepcopy(with_replay["entries"][1])  # type: ignore[index]
+    replay_controller["span"]["spanId"] = "7" * 16  # type: ignore[index]
+    replay_controller["span"]["parentSpanId"] = "6" * 16  # type: ignore[index]
+    replay_controller["span"]["startTimeUnixNano"] = "2450000000"  # type: ignore[index]
+    replay_controller["span"]["endTimeUnixNano"] = "2550000000"  # type: ignore[index]
+    for attribute in replay_controller["span"]["attributes"]:  # type: ignore[index]
+        if attribute["key"] == "evm.request.replayed":
+            attribute["value"] = {"boolValue": True}
+    with_replay["entries"].extend([replay_server, replay_controller])  # type: ignore[union-attr]
+    with_replay["span_count"] = 5
+
+    replay_result = project_drain_trace_timeline(with_replay, raw, config, snapshot)
+    assert replay_result["hold_trace_effect_bound"] == 1
+
     mutated = copy.deepcopy(export)
     for entry in mutated["entries"]:  # type: ignore[index]
         entry["span"]["startTimeUnixNano"] = str(
@@ -375,9 +397,7 @@ def _write_triton_compute_start(
     payload = {
         "resourceSpans": [
             {
-                "resource": {
-                    "attributes": _attributes({"service.name": service_name})
-                },
+                "resource": {"attributes": _attributes({"service.name": service_name})},
                 "scopeSpans": [
                     {
                         "scope": {"name": "triton"},
@@ -410,7 +430,7 @@ def _write_triton_compute_start(
                                         "timeUnixNano": "1001000000",
                                     }
                                 ],
-                            }
+                            },
                         ],
                     }
                 ],

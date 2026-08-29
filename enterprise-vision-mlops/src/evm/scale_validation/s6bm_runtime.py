@@ -854,6 +854,22 @@ def project_raw_drain_timeline(raw: Mapping[str, Any], config: S6BMConfig) -> di
     ]
     if not hold_records:
         raise S6BMRuntimeError("s6bm_drain_hold_request_absent")
+    if config.schema_version.endswith(".v4"):
+        roles = dict(dict(raw.get("traffic_plan", {})).get("roles", {}))
+        causal_hold_ids = [
+            str(item.get("request_id", ""))
+            for item in roles.get("causal_hold", [])
+            if isinstance(item, Mapping)
+        ]
+        if (
+            len(causal_hold_ids) != int(config.continuity["causal_hold_count"])
+            or len(set(causal_hold_ids)) != len(causal_hold_ids)
+            or any(not request_id for request_id in causal_hold_ids)
+        ):
+            raise S6BMRuntimeError("s6bm_drain_causal_hold_contract")
+        observed_hold_ids = {str(item.get("request_id", "")) for item in hold_records}
+        if not set(causal_hold_ids).issubset(observed_hold_ids):
+            raise S6BMRuntimeError("s6bm_drain_causal_hold_switch_order")
     if any(
         item["attempted_monotonic"] >= switch
         or item["completed_monotonic"] <= switch

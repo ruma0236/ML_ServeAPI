@@ -362,9 +362,7 @@ def observability_mutation_result(
         _copy_observability_artifacts(private_root, root, candidate)
         mutate(root, candidate)
         try:
-            validate_observability_bundle(
-                root, candidate, config, require_drain_timeline=True
-            )
+            validate_observability_bundle(root, candidate, config, require_drain_timeline=True)
         except (S6BMObservabilityError, KeyError, TypeError, ValueError) as exc:
             return {"mutation": name, "rejected": True, "reason": str(exc)}
     return {"mutation": name, "rejected": False, "reason": "validator_fail_open"}
@@ -454,7 +452,7 @@ def _rewrite_trace_times(
             span["startTimeUnixNano"] = str(int(span["startTimeUnixNano"]) + delta_nanoseconds)
             span["endTimeUnixNano"] = str(int(span["endTimeUnixNano"]) + delta_nanoseconds)
             changed += 1
-        if changed != 3:
+        if changed != 7:
             raise S6BMValidationError(f"hold_trace_cardinality:{changed}")
 
     _rewrite_json_artifact(root, attempt, "trace_export", mutate)
@@ -495,13 +493,9 @@ def _move_unload_before_last_blue_completion(attempt: dict[str, Any]) -> None:
     raise S6BMValidationError("green_only_phase_absent")
 
 
-def _move_pre_unload_gate_before_hold_completion(
-    root: Path, attempt: dict[str, Any]
-) -> None:
+def _move_pre_unload_gate_before_hold_completion(root: Path, attempt: dict[str, Any]) -> None:
     hold = _hold_record(attempt)
-    reference = dict(
-        attempt["observability"]["artifacts"]["prometheus_before_blue_unload"]
-    )
+    reference = dict(attempt["observability"]["artifacts"]["prometheus_before_blue_unload"])
     path = root / str(reference["path"])
     payload = json.loads(path.read_text(encoding="utf-8"))
     trace_reference = dict(attempt["observability"]["artifacts"]["trace_export"])
@@ -536,9 +530,7 @@ def run_mutations(private_root: Path, config: S6BMConfig) -> dict[str, Any]:
     wrong = next(item for item in attempts if item["profile"] == "wrong_digest")
     canary = next(item for item in attempts if item["profile"] == "green_canary_failure")
     vram = next(item for item in attempts if item["profile"] == "vram_preflight_rejection")
-    validate_observability_bundle(
-        private_root, success, config, require_drain_timeline=True
-    )
+    validate_observability_bundle(private_root, success, config, require_drain_timeline=True)
     analyze_attempts(attempts, config)
     cases = [
         mutation_result(

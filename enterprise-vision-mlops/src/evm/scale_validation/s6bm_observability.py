@@ -176,9 +176,7 @@ def find_triton_compute_start(
             raise S6BMObservabilityError("s6bm_triton_trace_resource_identity")
         model_matches.append(entry)
     if len(model_matches) > 1:
-        raise S6BMObservabilityError(
-            f"s6bm_triton_request_span_ambiguous:{len(model_matches)}"
-        )
+        raise S6BMObservabilityError(f"s6bm_triton_request_span_ambiguous:{len(model_matches)}")
     if not model_matches:
         return None
     model_entry = model_matches[0]
@@ -191,14 +189,10 @@ def find_triton_compute_start(
         and str(entry["span"].get("name", "")).lower() == "compute"
     ]
     if len(compute_matches) != 1:
-        raise S6BMObservabilityError(
-            f"s6bm_triton_compute_span_cardinality:{len(compute_matches)}"
-        )
+        raise S6BMObservabilityError(f"s6bm_triton_compute_span_cardinality:{len(compute_matches)}")
     compute_entry = compute_matches[0]
     compute_span = dict(compute_entry["span"])
-    compute_resource = _attributes(
-        dict(compute_entry.get("resource", {})).get("attributes", [])
-    )
+    compute_resource = _attributes(dict(compute_entry.get("resource", {})).get("attributes", []))
     if first(compute_resource, ("service.name",)) != "triton-inference-server":
         raise S6BMObservabilityError("s6bm_triton_compute_resource_identity")
     events = [
@@ -341,7 +335,11 @@ def project_trace_join(
         if len(controllers) != expected_controller_count:
             raise S6BMObservabilityError(f"s6bm_trace_controller_span:{len(controllers)}")
         controller = _require_one(
-            [item for item in controllers if item["attributes"].get("evm.request.replayed") is False],
+            [
+                item
+                for item in controllers
+                if item["attributes"].get("evm.request.replayed") is False
+            ],
             "s6bm_trace_original_controller_span",
         )
         replay_controllers = [
@@ -439,12 +437,11 @@ def project_trace_join(
                 raise S6BMObservabilityError("s6bm_trace_source_revision")
         original_expected = {**expected, "evm.request.replayed": False}
         if any(
-            controller["attributes"].get(key) != value
-            for key, value in original_expected.items()
+            controller["attributes"].get(key) != value for key, value in original_expected.items()
         ):
             raise S6BMObservabilityError("s6bm_trace_attribute_binding")
         if any(inference["attributes"].get(key) != value for key, value in expected.items()):
-                raise S6BMObservabilityError("s6bm_trace_attribute_binding")
+            raise S6BMObservabilityError("s6bm_trace_attribute_binding")
         for span in (controller, inference):
             if span["resource"].get("service.version") != source_revision:
                 raise S6BMObservabilityError("s6bm_trace_source_revision")
@@ -542,7 +539,12 @@ def project_drain_trace_timeline(
             "s6bm_drain_server_span",
         )
         controller = _require_one(
-            [item for item in candidates if item["name"] == "s6bm.controller.predict"],
+            [
+                item
+                for item in candidates
+                if item["name"] == "s6bm.controller.predict"
+                and item["attributes"].get("evm.request.replayed") is False
+            ],
             "s6bm_drain_controller_span",
         )
         inference = _require_one(

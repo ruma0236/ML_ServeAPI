@@ -1981,6 +1981,25 @@ def test_s6bm_raw_drain_projection_rejects_timeline_consistent_fail_open_cases()
         project_raw_drain_timeline(unload_before_completion, config)
 
 
+def test_s6bm_v4_raw_drain_requires_the_frozen_causal_hold_to_cross_switch() -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    raw = v4_continuity_attempt()
+    assert project_raw_drain_timeline(raw, config)["hold_request_count"] >= 1
+    hold_id = str(raw["traffic_plan"]["roles"]["causal_hold"][0]["request_id"])
+    switch = next(
+        float(item["monotonic_seconds"])
+        for item in raw["phase_timeline"]
+        if item["phase"] == "green_active"
+    )
+    hold = next(item for item in raw["request_records"] if item["request_id"] == hold_id)
+    hold["completed_monotonic"] = switch - 0.001
+    hold["attempted_monotonic"] = hold["completed_monotonic"] - 1.3
+    hold["elapsed_ms"] = 1300.0
+
+    with pytest.raises(S6BMRuntimeError, match="s6bm_drain_causal_hold_switch_order"):
+        project_raw_drain_timeline(raw, config)
+
+
 def test_s6bm_fault_projection_rejects_fail_open_mutations() -> None:
     config = S6BMConfig.from_path(CONFIG)
     assert project_fault_attempt(fault_attempt("wrong_digest"), config, "wrong_digest")
