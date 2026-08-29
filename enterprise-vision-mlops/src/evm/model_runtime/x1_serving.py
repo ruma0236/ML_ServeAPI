@@ -16,7 +16,11 @@ from prometheus_client import Counter, Gauge, Histogram
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from evm.scale_validation.x1_contract import MODEL_IDS, canonical_sha256, sha256_file
-from evm.scale_validation.x1_runtime import validate_triton_runtime_config
+from evm.scale_validation.x1_runtime import (
+    X1RuntimeValidationError,
+    normalize_triton_repository_index,
+    validate_triton_runtime_config,
+)
 
 
 _TRACEPARENT = re.compile(r"^00-([a-f0-9]{32})-([a-f0-9]{16})-(0[01])$")
@@ -168,25 +172,15 @@ class X1ServingManager:
                     await self._assert_triton_gpu_config(model_id, client=client, cache=False)
                 index = await client.post("/v2/repository/index", json={}, timeout=5)
                 index.raise_for_status()
+                normalize_triton_repository_index(index.json())
         except httpx.HTTPError as exc:
             raise X1ServingError(
                 "x1_triton_connection_unavailable",
                 type(exc).__name__,
                 status_code=503,
             ) from exc
-        entries = index.json()
-        expected = sorted(
-            (
-                {"name": model_id, "version": "1", "state": "READY", "reason": ""}
-                for model_id in MODEL_IDS
-            ),
-            key=lambda item: item["name"],
-        )
-        if (
-            not isinstance(entries, list)
-            or sorted(entries, key=lambda item: item.get("name", "")) != expected
-        ):
-            raise X1ServingError("x1_repository_index_identity", "readiness", status_code=503)
+        except X1RuntimeValidationError as exc:
+            raise X1ServingError(str(exc), "readiness", status_code=503) from exc
         self._validated_models.update(MODEL_IDS)
         return {
             "schema_version": "evm.s8_v4.x1_readiness.v1",

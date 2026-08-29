@@ -21,6 +21,46 @@ class X1RuntimeValidationError(RuntimeError):
     pass
 
 
+def normalize_triton_repository_index(payload: Any) -> list[dict[str, str]]:
+    if not isinstance(payload, list):
+        raise X1RuntimeValidationError("x1_repository_index_schema")
+    required = {"name", "version", "state"}
+    allowed = (required, required | {"reason"})
+    normalized: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for record in payload:
+        if not isinstance(record, Mapping) or set(record) not in allowed:
+            raise X1RuntimeValidationError("x1_repository_index_record")
+        if any(type(record.get(key)) is not str for key in required):
+            raise X1RuntimeValidationError("x1_repository_index_record")
+        reason = record.get("reason", "")
+        if type(reason) is not str or reason:
+            raise X1RuntimeValidationError("x1_repository_index_reason")
+        name = record["name"]
+        if name in seen:
+            raise X1RuntimeValidationError("x1_repository_index_duplicate")
+        seen.add(name)
+        normalized.append(
+            {
+                "name": name,
+                "version": record["version"],
+                "state": record["state"],
+                "reason": reason,
+            }
+        )
+    expected = sorted(
+        (
+            {"name": model_id, "version": "1", "state": "READY", "reason": ""}
+            for model_id in MODEL_IDS
+        ),
+        key=lambda item: item["name"],
+    )
+    normalized.sort(key=lambda item: item["name"])
+    if normalized != expected:
+        raise X1RuntimeValidationError("x1_repository_index_identity")
+    return normalized
+
+
 def validate_triton_runtime_config(
     payload: Mapping[str, Any], *, model_id: str, identity: Mapping[str, Any]
 ) -> None:

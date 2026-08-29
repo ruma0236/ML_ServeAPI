@@ -208,6 +208,31 @@ def test_x1_readiness_persistent_triton_failure_is_fail_closed(
         assert manager._validated_models == set()
 
 
+def test_x1_readiness_rejects_nonempty_repository_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_environment(monkeypatch, runtime_manifest(tmp_path))
+    manager = X1ServingManager()
+
+    def handler(call: httpx.Request) -> httpx.Response:
+        response = readiness_handler(call)
+        if call.url.path == "/v2/repository/index":
+            payload = response.json()
+            payload[0]["reason"] = "loading"
+            return httpx.Response(200, json=payload)
+        return response
+
+    monkeypatch.setattr(
+        manager,
+        "_new_http_client",
+        lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://triton"),
+    )
+    with pytest.raises(X1ServingError) as error:
+        asyncio.run(manager.readiness())
+    assert error.value.code == "x1_repository_index_reason"
+    assert manager._validated_models == set()
+
+
 def triton_config(model_id: str) -> dict[str, object]:
     feature_count = 39 if model_id == "criteo_dlrm_lite" else 28
     return {
@@ -245,8 +270,5 @@ def readiness_handler(call: httpx.Request) -> httpx.Response:
     assert call.url.path == "/v2/repository/index"
     return httpx.Response(
         200,
-        json=[
-            {"name": model_id, "version": "1", "state": "READY", "reason": ""}
-            for model_id in MODEL_IDS
-        ],
+        json=[{"name": model_id, "version": "1", "state": "READY"} for model_id in MODEL_IDS],
     )

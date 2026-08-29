@@ -9,6 +9,7 @@ from evm.scale_validation.x1_contract import MODEL_IDS, X1Contract
 from evm.scale_validation.x1_runtime import (
     X1RuntimeValidationError,
     build_runtime_manifest,
+    normalize_triton_repository_index,
     select_batching_profiles,
     validate_triton_runtime_config,
     validate_q0_bundle,
@@ -216,6 +217,47 @@ def test_x1_triton_config_shared_gate_accepts_exact_gpu_batch_profile() -> None:
     validate_triton_runtime_config(
         triton_config(), model_id=MODEL_IDS[0], identity=batch_identity()
     )
+
+
+def repository_index(*, include_reason: bool = False) -> list[dict[str, str]]:
+    records = [{"name": model_id, "version": "1", "state": "READY"} for model_id in MODEL_IDS]
+    if include_reason:
+        for record in records:
+            record["reason"] = ""
+    return records
+
+
+def test_x1_repository_index_normalizes_omitted_or_explicit_empty_reason() -> None:
+    omitted = normalize_triton_repository_index(repository_index())
+    explicit = normalize_triton_repository_index(repository_index(include_reason=True))
+    assert omitted == explicit
+    assert all(record["reason"] == "" for record in omitted)
+
+
+@pytest.mark.parametrize(
+    ("mutator", "reason"),
+    [
+        (lambda value: value[0].__setitem__("reason", "loading"), "x1_repository_index_reason"),
+        (lambda value: value[0].__setitem__("extra", "value"), "x1_repository_index_record"),
+        (lambda value: value[0].__setitem__("version", "2"), "x1_repository_index_identity"),
+        (
+            lambda value: value[0].__setitem__("state", "UNAVAILABLE"),
+            "x1_repository_index_identity",
+        ),
+        (
+            lambda value: value.__setitem__(1, copy.deepcopy(value[0])),
+            "x1_repository_index_duplicate",
+        ),
+        (lambda value: value.pop(), "x1_repository_index_identity"),
+    ],
+)
+def test_x1_repository_index_rejects_identity_or_shape_mutation(
+    mutator: object, reason: str
+) -> None:
+    payload = repository_index()
+    mutator(payload)  # type: ignore[operator]
+    with pytest.raises(X1RuntimeValidationError, match=reason):
+        normalize_triton_repository_index(payload)
 
 
 @pytest.mark.parametrize(

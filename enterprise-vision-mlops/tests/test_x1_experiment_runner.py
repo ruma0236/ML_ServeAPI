@@ -122,3 +122,48 @@ def test_x1_prometheus_cleanup_drains_target_set_before_unlink(
     assert waits == [False, False]
     assert not triton.exists()
     assert not api.exists()
+
+
+def test_x1_runner_repository_index_accepts_omitted_empty_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> list[dict[str, str]]:
+            return [
+                {"name": model_id, "version": "1", "state": "READY"}
+                for model_id in runner.MODEL_IDS
+            ]
+
+    monkeypatch.setattr(runner.requests, "post", lambda *args, **kwargs: Response())
+    records = runner.repository_index()
+    assert len(records) == 4
+    assert all(record["reason"] == "" for record in records)
+
+
+@pytest.mark.parametrize("mutation", ["nonempty_reason", "extra_key"])
+def test_x1_runner_repository_index_rejects_optional_field_mutation(
+    monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> list[dict[str, str]]:
+            records = [
+                {"name": model_id, "version": "1", "state": "READY"}
+                for model_id in runner.MODEL_IDS
+            ]
+            records[0]["reason" if mutation == "nonempty_reason" else "extra"] = "invalid"
+            return records
+
+    monkeypatch.setattr(runner.requests, "post", lambda *args, **kwargs: Response())
+    expected = (
+        "x1_repository_index_reason"
+        if mutation == "nonempty_reason"
+        else "x1_repository_index_record"
+    )
+    with pytest.raises(X1ExperimentError, match=expected):
+        runner.repository_index()

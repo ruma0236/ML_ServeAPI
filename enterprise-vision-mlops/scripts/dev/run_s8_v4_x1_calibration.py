@@ -57,7 +57,9 @@ from evm.scale_validation.x1_contract import (  # noqa: E402
     sha256_file,
 )
 from evm.scale_validation.x1_runtime import (  # noqa: E402
+    X1RuntimeValidationError,
     build_runtime_manifest,
+    normalize_triton_repository_index,
     select_batching_profiles,
     validate_triton_runtime_config,
     validate_q0_bundle,
@@ -627,24 +629,10 @@ def wait_runtime_ready(timeout: float = 180) -> None:
 def repository_index() -> list[dict[str, str]]:
     response = requests.post(f"{TRITON_URL}/v2/repository/index", json={}, timeout=10)
     response.raise_for_status()
-    payload = response.json()
-    if not isinstance(payload, list):
-        raise X1ExperimentError("x1_repository_index_schema")
-    normalized: list[dict[str, str]] = []
-    for item in payload:
-        if not isinstance(item, Mapping) or set(item) != {"name", "version", "state", "reason"}:
-            raise X1ExperimentError("x1_repository_index_record")
-        normalized.append({key: str(item[key]) for key in ("name", "version", "state", "reason")})
-    expected = sorted(
-        (
-            {"name": model_id, "version": "1", "state": "READY", "reason": ""}
-            for model_id in MODEL_IDS
-        ),
-        key=lambda item: item["name"],
-    )
-    if sorted(normalized, key=lambda item: item["name"]) != expected:
-        raise X1ExperimentError(f"x1_repository_index_identity:{normalized}")
-    return normalized
+    try:
+        return normalize_triton_repository_index(response.json())
+    except X1RuntimeValidationError as exc:
+        raise X1ExperimentError(str(exc)) from exc
 
 
 def triton_config_readback(model_id: str) -> dict[str, Any]:
