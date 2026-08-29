@@ -14,6 +14,10 @@ TRITON_IMAGE_DIGEST = "sha256:f836551575df7c9fb71144073845c6b3911de57db91a8c95e0
 NAMESPACE = "evm-platform"
 API_NAME = "evm-x1-api"
 TRITON_NAME = "evm-x1-triton"
+TRITON_WSL_LD_LIBRARY_PATH = (
+    "/usr/lib/wsl/lib:/usr/lib/wsl/drivers:/opt/hpcx/ucc/lib/:/opt/hpcx/ucx/lib/:"
+    "/usr/local/cuda/compat/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64"
+)
 WSL_GPU_VOLUME_MOUNTS = [
     {"name": "wsl-lib", "mountPath": "/usr/lib/wsl/lib", "readOnly": True},
     {"name": "wsl-drivers", "mountPath": "/usr/lib/wsl/drivers", "readOnly": True},
@@ -105,6 +109,10 @@ def kubernetes_resource_list(
                                     {
                                         "name": "NVIDIA_DRIVER_CAPABILITIES",
                                         "value": "compute,utility",
+                                    },
+                                    {
+                                        "name": "LD_LIBRARY_PATH",
+                                        "value": TRITON_WSL_LD_LIBRARY_PATH,
                                     },
                                 ],
                                 "resources": {
@@ -316,6 +324,12 @@ def validate_kubernetes_resource_list(
     triton_container = triton_container[0]
     if triton_container.get("image") != TRITON_IMAGE:
         raise X1TopologyError("x1_triton_image")
+    if _env_map(triton_container.get("env")) != {
+        "LD_LIBRARY_PATH": TRITON_WSL_LD_LIBRARY_PATH,
+        "NVIDIA_DRIVER_CAPABILITIES": "compute,utility",
+        "NVIDIA_VISIBLE_DEVICES": "all",
+    }:
+        raise X1TopologyError("x1_triton_gpu_environment")
     pod_spec = triton["spec"]["template"]["spec"]
     volume_mounts = triton_container.get("volumeMounts")
     if not isinstance(volume_mounts, list):

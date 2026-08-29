@@ -60,6 +60,11 @@ def test_x1_kubernetes_bundle_freezes_real_server_topology() -> None:
     assert "--load-model=higgs_logistic_regression" in serialized
     assert "/usr/lib/wsl/lib" in serialized
     assert "/usr/lib/wsl/drivers" in serialized
+    triton_env = {
+        item["name"]: item["value"]
+        for item in value["items"][0]["spec"]["template"]["spec"]["containers"][0]["env"]
+    }
+    assert triton_env["LD_LIBRARY_PATH"].startswith("/usr/lib/wsl/lib:")
 
 
 @pytest.mark.parametrize(
@@ -70,6 +75,21 @@ def test_x1_kubernetes_bundle_freezes_real_server_topology() -> None:
                 "resources"
             ]["limits"].__setitem__("nvidia.com/gpu", "0"),
             "x1_triton_gpu_limit",
+        ),
+        (
+            lambda value: value["items"][0]["spec"]["template"]["spec"]["containers"][0][
+                "env"
+            ].pop(),
+            "x1_triton_gpu_environment",
+        ),
+        (
+            lambda value: value["items"][0]["spec"]["template"]["spec"]["containers"][0]["env"][
+                2
+            ].__setitem__(
+                "value",
+                "/usr/local/cuda/compat/lib:/usr/lib/wsl/lib:/usr/local/nvidia/lib64",
+            ),
+            "x1_triton_gpu_environment",
         ),
         (
             lambda value: value["items"][0]["spec"]["template"]["spec"]["containers"][0][
