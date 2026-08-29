@@ -93,6 +93,7 @@ runner_synthesized_receipt_forbidden = true
 contract = "existing_control_plane_entities_idempotency_causal_v3"
 synchronous_commit = "on"
 commit_readback_required = true
+route_revision_commit_readback_required = true
 commit_timestamp_tracking_required = true
 commit_timestamp_separate_connection_required = true
 database_clock_anchor_required = true

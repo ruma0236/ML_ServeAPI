@@ -688,6 +688,7 @@ def start_api(
             "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:4318/v1/traces",
             "EVM_S6BM_REQUIRE_DURABLE_EFFECT": "1",
             "EVM_S6BM_REQUIRE_CAUSAL_FENCE": "1",
+            "EVM_S6BM_REQUIRE_ROUTE_REVISION": "1",
             "EVM_S6BM_CAUSAL_SWITCH_TIMEOUT_SECONDS": str(
                 config.continuity["route_switch_barrier_timeout_seconds"]
             ),
@@ -905,8 +906,7 @@ def wait_route_switch_deadline(
             started = int(latest.get("route_switch_deadline_started_monotonic_ns") or 0)
             deadline = int(latest.get("route_switch_deadline_monotonic_ns") or 0)
             frozen_ns = int(
-                float(config.continuity["route_switch_barrier_timeout_seconds"])
-                * 1_000_000_000
+                float(config.continuity["route_switch_barrier_timeout_seconds"]) * 1_000_000_000
             )
             if started <= 0 or deadline - started != frozen_ns:
                 raise S6BMExperimentError("continuity_route_switch_deadline_binding")
@@ -915,9 +915,7 @@ def wait_route_switch_deadline(
                 "owner_request_id": owner_request_id,
                 "started_monotonic_ns": started,
                 "deadline_monotonic_ns": deadline,
-                "timeout_seconds": float(
-                    config.continuity["route_switch_barrier_timeout_seconds"]
-                ),
+                "timeout_seconds": float(config.continuity["route_switch_barrier_timeout_seconds"]),
                 "source": "api_control_plane_designated_crossover_registration",
             }
         time.sleep(0.01)
@@ -1044,6 +1042,7 @@ def expected_role(request_id: str, *, green_weight_percent: int) -> str:
 
 def request_body(
     config: S6BMConfig,
+    lease: GpuLease,
     run_id: str,
     attempt_id: str,
     request_id: str,
@@ -1059,6 +1058,8 @@ def request_body(
     return {
         "schema_version": "evm.s8_v4.s6bm_predict_request.v1",
         "run_id": run_id,
+        "lease_id": lease.lease_id,
+        "fencing_token": lease.fencing_token,
         "attempt_id": attempt_id,
         "request_id": request_id,
         "request_nonce": hashlib.sha256(
@@ -1080,6 +1081,7 @@ def request_body(
 
 def request_bodies_from_plan(
     config: S6BMConfig,
+    lease: GpuLease,
     run_id: str,
     attempt_id: str,
     items: Sequence[Mapping[str, Any]],
@@ -1092,12 +1094,11 @@ def request_bodies_from_plan(
         causal = traffic_role == "causal_hold"
         start_receipt_required = bool(item.get("actor_receipt_required", False))
         causal_crossover = bool(item.get("causal_crossover", causal))
-        route_switch_deadline_owner = bool(
-            item.get("route_switch_deadline_owner", False)
-        )
+        route_switch_deadline_owner = bool(item.get("route_switch_deadline_owner", False))
         bodies.append(
             request_body(
                 config,
+                lease,
                 run_id,
                 attempt_id,
                 str(item["request_id"]),
@@ -1422,24 +1423,18 @@ def bind_pre_switch_terminal_gate(
         if item.get("event_type") == "durable_terminal_effect_commit"
     ]
     if (
-        effects_export.get("schema_version")
-        != "evm.s8_v4.s6bm_terminal_effect_export.v1"
+        effects_export.get("schema_version") != "evm.s8_v4.s6bm_terminal_effect_export.v1"
         or effects_export.get("attempt_id") != attempt_id
         or int(effects_export.get("effect_count", -1)) != len(effects)
-        or events_export.get("schema_version")
-        != "evm.s8_v4.s6bm_causal_event_export.v1"
+        or events_export.get("schema_version") != "evm.s8_v4.s6bm_causal_event_export.v1"
         or events_export.get("attempt_id") != attempt_id
-        or int(events_export.get("event_count", -1))
-        != len(events_export.get("events", []))
+        or int(events_export.get("event_count", -1)) != len(events_export.get("events", []))
     ):
         raise S6BMExperimentError("continuity_pre_switch_terminal_export_identity")
-    effects_by_request = {
-        str(item.get("idempotency_key", "")): item for item in effects
-    }
+    effects_by_request = {str(item.get("idempotency_key", "")): item for item in effects}
     events_by_request = {str(item.get("request_id", "")): item for item in events}
-    if (
-        not set(expected_ids).issubset(effects_by_request)
-        or not set(expected_ids).issubset(events_by_request)
+    if not set(expected_ids).issubset(effects_by_request) or not set(expected_ids).issubset(
+        events_by_request
     ):
         raise S6BMExperimentError("continuity_pre_switch_terminal_durable_missing")
     projected: list[dict[str, Any]] = []
@@ -1454,11 +1449,12 @@ def bind_pre_switch_terminal_gate(
             or response.get("trace_id") != str(body.get("traceparent", ""))[3:35]
             or response.get("model_role") != "blue"
             or response.get("model_name") != body.get("expected_model_name")
-            or str(response.get("model_version"))
-            != str(body.get("expected_model_version"))
+            or str(response.get("model_version")) != str(body.get("expected_model_version"))
             or response.get("artifact_sha256") != body.get("expected_artifact_sha256")
             or int(response.get("route_generation", 0))
             != int(body.get("expected_route_generation", 0))
+            or not isinstance(response.get("route_identity_sha256"), str)
+            or len(response["route_identity_sha256"]) != 64
             or response.get("outcome") != "completed"
             or int(response.get("status_code", 0)) != 200
             or durable.get("readback_visible") is not True
@@ -1470,9 +1466,7 @@ def bind_pre_switch_terminal_gate(
                 effects_by_request[request_id], events_by_request[request_id]
             )
         except ControlPlaneParityError as exc:
-            raise S6BMExperimentError(
-                "continuity_pre_switch_terminal_durable_parity"
-            ) from exc
+            raise S6BMExperimentError("continuity_pre_switch_terminal_durable_parity") from exc
         if (
             record["request_id"] != request_id
             or record["attempt_id"] != attempt_id
@@ -1484,11 +1478,14 @@ def bind_pre_switch_terminal_gate(
             or record["model_version"] != response.get("model_version")
             or record["artifact_sha256"] != response.get("artifact_sha256")
             or record["route_generation"] != response.get("route_generation")
+            or record["route_identity_sha256"] != response.get("route_identity_sha256")
             or record["result_sha256"] != response.get("result_sha256")
             or record["request_sha256"] != durable.get("request_sha256")
             or record["stored_payload_sha256"] != durable.get("stored_payload_sha256")
             or record["causal_sequence"] != durable.get("causal_sequence")
             or record["causal_payload_sha256"] != durable.get("causal_payload_sha256")
+            or record.get("observed_route_revision") != durable.get("observed_route_revision")
+            or durable.get("route_revision_readback_visible") is not True
         ):
             raise S6BMExperimentError("continuity_pre_switch_terminal_readback_binding")
         projected.append(record)
@@ -1561,6 +1558,11 @@ def send_request(
             "model_name": parsed["model_name"],
             "model_version": parsed["model_version"],
             "artifact_sha256": parsed["artifact_sha256"],
+            "route_identity_sha256": parsed["route_identity_sha256"],
+            "lease_id_sha256": hashlib.sha256(str(body["lease_id"]).encode("utf-8")).hexdigest(),
+            "fencing_token_sha256": hashlib.sha256(
+                str(body["fencing_token"]).encode("utf-8")
+            ).hexdigest(),
             "request_nonce": body["request_nonce"],
             "output": parsed["output"],
             "result_sha256": parsed["result_sha256"],
@@ -1587,6 +1589,7 @@ def send_request(
 
 def send_batch(
     config: S6BMConfig,
+    lease: GpuLease,
     run_id: str,
     attempt_id: str,
     prefix: str,
@@ -1605,6 +1608,7 @@ def send_batch(
         bodies.append(
             request_body(
                 config,
+                lease,
                 run_id,
                 attempt_id,
                 request_id,
@@ -1768,9 +1772,7 @@ def run_fixed_bridge_producer(
                             config,
                             owner_request_id=crossover_id,
                         )
-                        barrier_deadline_ns = int(
-                            deadline_state["deadline_monotonic_ns"]
-                        )
+                        barrier_deadline_ns = int(deadline_state["deadline_monotonic_ns"])
                         gate_future = gate_pool.submit(
                             collect_required_actor_receipts,
                             barrier_deadline_ns,
@@ -1848,9 +1850,7 @@ def run_fixed_bridge_producer(
                     for request_id in expected_terminal_ids
                 ]
                 terminal_gate = {
-                    "schema_version": (
-                        "evm.s8_v4.s6bm_pre_switch_bridge_terminal_online_gate.v1"
-                    ),
+                    "schema_version": ("evm.s8_v4.s6bm_pre_switch_bridge_terminal_online_gate.v1"),
                     "crossover_request_id": crossover_id,
                     "expected_terminal_request_ids": expected_terminal_ids,
                     "expected_terminal_request_set_sha256": canonical_sha256(expected_terminal_ids),
@@ -1861,18 +1861,12 @@ def run_fixed_bridge_producer(
                     ),
                     "observed_terminal_count": len(terminal_records),
                     "online_terminal_records": online_terminal_records,
-                    "online_terminal_records_sha256": canonical_sha256(
-                        online_terminal_records
-                    ),
+                    "online_terminal_records_sha256": canonical_sha256(online_terminal_records),
                     "online_response_records": [
-                        terminal_records[request_id]
-                        for request_id in expected_terminal_ids
+                        terminal_records[request_id] for request_id in expected_terminal_ids
                     ],
                     "online_response_records_sha256": canonical_sha256(
-                        [
-                            terminal_records[request_id]
-                            for request_id in expected_terminal_ids
-                        ]
+                        [terminal_records[request_id] for request_id in expected_terminal_ids]
                     ),
                     "all_submitted_monotonic": all_submitted,
                     "all_non_crossover_terminal_monotonic": time.perf_counter(),
@@ -1884,9 +1878,7 @@ def run_fixed_bridge_producer(
                 )
                 remaining_barrier_time()
                 receipt_observed = float(transition["transition_receipt_observed_monotonic"])
-                records = [
-                    future.result(timeout=remaining_barrier_time()) for future in futures
-                ]
+                records = [future.result(timeout=remaining_barrier_time()) for future in futures]
                 producer_finished = time.perf_counter()
     finally:
         for session in sessions:
@@ -2735,6 +2727,7 @@ def run_baseline(
     initialize_controller(config, lease, source)
     records, _ = send_batch(
         config,
+        lease,
         lease.run_id,
         attempt_id,
         f"{attempt_id}-request",
@@ -2811,6 +2804,7 @@ def run_success(
         timeline.append(phase_entry(config, "canary", clock_chain=clock_chain))
         canary_bodies = request_bodies_from_plan(
             config,
+            lease,
             lease.run_id,
             attempt_id,
             traffic_plan["roles"]["canary"],
@@ -2836,9 +2830,10 @@ def run_success(
             "record": replay,
         }
 
-        hold_generation = int(controller_state(config)["generation"])
+        hold_generation = int(controller_state(config)["route_generation"])
         hold_body = request_bodies_from_plan(
             config,
+            lease,
             lease.run_id,
             attempt_id,
             traffic_plan["roles"]["causal_hold"],
@@ -2852,6 +2847,7 @@ def run_success(
             wait_in_flight(config, "blue", 1, 5)
             bridge_bodies = request_bodies_from_plan(
                 config,
+                lease,
                 lease.run_id,
                 attempt_id,
                 traffic_plan["roles"]["bridge"],
@@ -2875,6 +2871,7 @@ def run_success(
                 [str(hold_identity["request_id"]), crossover_bridge_id]
             )
             bridge_bodies_by_id = {str(body["request_id"]): body for body in bridge_bodies}
+
             def collect_bridge_receipt_proof(
                 deadline_monotonic_ns: int,
             ) -> dict[str, Any]:
@@ -2987,19 +2984,17 @@ def run_success(
                     continuity_receipt_request_ids=sorted(required_bridge_ids),
                     continuity_crossover_request_ids=[crossover_bridge_id],
                     pending_crossover_request_ids=expected_pending_crossover_ids,
-                    continuity_terminal_request_ids=terminal_gate[
-                        "expected_terminal_request_ids"
-                    ],
+                    continuity_terminal_request_ids=terminal_gate["expected_terminal_request_ids"],
                     continuity_terminal_request_set_sha256=terminal_gate[
                         "expected_terminal_request_set_sha256"
                     ],
-                    continuity_terminal_records_sha256=terminal_gate[
-                        "terminal_records_sha256"
-                    ],
+                    continuity_terminal_records_sha256=terminal_gate["terminal_records_sha256"],
                 )
                 receipt_observed = time.perf_counter()
                 receipt = dict(switched.get("transition_receipt") or {})
-                if not receipt:
+                route_revision_receipt = dict(switched.get("route_revision_receipt") or {})
+                route_revision_payload = dict(route_revision_receipt.get("payload") or {})
+                if not receipt or not route_revision_receipt:
                     raise S6BMExperimentError("route_transition_receipt_absent")
                 if (
                     receipt.get("continuity_receipt_request_ids") != sorted(required_bridge_ids)
@@ -3016,6 +3011,16 @@ def run_success(
                     != terminal_gate["terminal_records_sha256"]
                     or receipt.get("crossover_release_basis")
                     != "fence_commit_readback_and_route_applied"
+                    or receipt.get("route_revision_payload_sha256")
+                    != route_revision_receipt.get("payload_sha256")
+                    or receipt.get("route_revision_transaction_id")
+                    != route_revision_receipt.get("transaction_id")
+                    or route_revision_receipt.get("readback_visible") is not True
+                    or route_revision_payload.get("action") != "green_switched"
+                    or int(route_revision_payload.get("control_generation", 0))
+                    != int(receipt.get("new_route_generation", 0))
+                    or int(route_revision_payload.get("route_generation", 0))
+                    != int(receipt.get("new_route_generation", 0))
                 ):
                     raise S6BMExperimentError("continuity_crossover_release_receipt")
                 timeline.append(phase_entry(config, "green_active", clock_chain=clock_chain))
@@ -3024,6 +3029,7 @@ def run_success(
                 return {
                     "triton_start_receipt": receipt_proof["triton_start_receipt"],
                     "transition_receipt": receipt,
+                    "route_revision_receipt": route_revision_receipt,
                     "switch_invoked_monotonic": switch_invoked,
                     "transition_receipt_observed_monotonic": receipt_observed,
                     "blue_in_flight_before_switch": int(pre_switch["in_flight"]["blue"]),
@@ -3065,9 +3071,11 @@ def run_success(
             )
             triton_start_receipt = transition["triton_start_receipt"]
             transition_receipt = transition["transition_receipt"]
+            route_revision_receipt = transition["route_revision_receipt"]
             records.extend(bridge_records)
             green_bodies = request_bodies_from_plan(
                 config,
+                lease,
                 lease.run_id,
                 attempt_id,
                 traffic_plan["roles"]["normal"],
@@ -3190,6 +3198,7 @@ def run_success(
             "crossover_identity": hold_identity,
             "triton_start_receipt": triton_start_receipt,
             "route_transition_receipt": transition_receipt,
+            "route_revision_receipt": route_revision_receipt,
             "durable_effect_export": artifact_reference(suite_root, effects_path),
             "causal_event_export": artifact_reference(suite_root, causal_path),
         },
@@ -3286,9 +3295,10 @@ def run_causal_qualification(
     apply_control(config, lease, "canary_started")
     timeline.append(phase_entry(config, "canary", clock_chain=clock_chain))
 
-    hold_generation = int(controller_state(config)["generation"])
+    hold_generation = int(controller_state(config)["route_generation"])
     hold_body = request_body(
         config,
+        lease,
         lease.run_id,
         attempt_id,
         blue_request_id(f"{attempt_id}-hold"),
@@ -3332,7 +3342,15 @@ def run_causal_qualification(
             pending_crossover_request_ids=[str(hold_identity["request_id"])],
         )
         transition_receipt = dict(switch_state.get("transition_receipt") or {})
-        if not transition_receipt:
+        route_revision_receipt = dict(switch_state.get("route_revision_receipt") or {})
+        if (
+            not transition_receipt
+            or not route_revision_receipt
+            or transition_receipt.get("route_revision_payload_sha256")
+            != route_revision_receipt.get("payload_sha256")
+            or int(dict(route_revision_receipt.get("payload") or {}).get("route_generation", 0))
+            != int(transition_receipt.get("new_route_generation", 0))
+        ):
             raise S6BMExperimentError("route_transition_receipt_absent")
         timeline.append(phase_entry(config, "green_active", clock_chain=clock_chain))
         apply_control(config, lease, "blue_drain_started")
@@ -3445,6 +3463,7 @@ def run_causal_qualification(
         "blue_in_flight_before_unload": blue_before_unload,
         "triton_start_receipt": triton_start_receipt,
         "route_transition_receipt": transition_receipt,
+        "route_revision_receipt": route_revision_receipt,
         "durable_effect_export": artifact_reference(suite_root, effects_path),
         "causal_event_export": artifact_reference(suite_root, events_path),
         "causal_event_types": observed_events,

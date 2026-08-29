@@ -47,6 +47,14 @@ def _strict_causal_required() -> bool:
     }
 
 
+def _route_revision_required() -> bool:
+    return os.getenv("EVM_S6BM_REQUIRE_ROUTE_REVISION", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
 def causal_start_observation(actor_identity: str) -> dict[str, Any]:
     monotonic_before_ns = time.perf_counter_ns()
     unix_ns = time.time_ns()
@@ -184,9 +192,7 @@ class TritonBlueGreenControlRequest(ContractModel):
     continuity_terminal_request_set_sha256: str | None = Field(
         default=None, pattern=r"^[a-f0-9]{64}$"
     )
-    continuity_terminal_records_sha256: str | None = Field(
-        default=None, pattern=r"^[a-f0-9]{64}$"
-    )
+    continuity_terminal_records_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
     def validate_causal_action(self) -> "TritonBlueGreenControlRequest":
@@ -255,6 +261,8 @@ class TritonBlueGreenPredictRequest(ContractModel):
         "evm.s8_v4.s6bm_predict_request.v1"
     )
     run_id: str = Field(pattern=r"^s8-v4-s6bm-[a-z0-9-]+$")
+    lease_id: str = Field(min_length=1, max_length=128)
+    fencing_token: str = Field(min_length=1, max_length=128)
     request_id: str = Field(min_length=8, max_length=128, pattern=r"^[a-zA-Z0-9._:-]+$")
     attempt_id: str = Field(
         default="legacy-unbound",
@@ -337,6 +345,7 @@ class TritonBlueGreenPredictResponse(ContractModel):
     model_name: str
     model_version: str
     artifact_sha256: str
+    route_identity_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     route_phase: str
     output: list[float]
     result_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -373,6 +382,8 @@ class TritonBlueGreenDurableEffectReceipt(ContractModel):
     causal_payload_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     observed_transition: dict[str, object] | None = None
     transition_readback_visible: bool | None = None
+    observed_route_revision: dict[str, object] | None = None
+    route_revision_readback_visible: bool | None = None
     write_backend_pid: int | None = Field(default=None, gt=0)
     commit_timestamp: str | None = None
     commit_timestamp_observed_at: str | None = None
@@ -406,6 +417,14 @@ TransitionFenceCommitter = Callable[
     [TritonBlueGreenControlRequest, Mapping[str, Any]],
     Mapping[str, Any],
 ]
+RouteStateRestorer = Callable[
+    [TritonBlueGreenInitializeRequest, Mapping[str, Any]],
+    Mapping[str, Any],
+]
+RouteStateCommitter = Callable[
+    [TritonBlueGreenControlRequest, Mapping[str, Any]],
+    Mapping[str, Any],
+]
 
 TritonBlueGreenPredictResponse.model_rebuild()
 
@@ -417,6 +436,7 @@ class TritonBlueGreenStateResponse(ContractModel):
     initialized: bool
     run_id: str | None = None
     generation: int = 0
+    route_generation: int = 0
     phase: str = "uninitialized"
     route_weights: dict[str, int] = Field(default_factory=dict)
     loaded_roles: list[ModelRole] = Field(default_factory=list)
@@ -431,6 +451,7 @@ class TritonBlueGreenStateResponse(ContractModel):
     route_switch_deadline_started_monotonic_ns: int | None = None
     route_switch_deadline_monotonic_ns: int | None = None
     transition_receipt: dict[str, Any] | None = None
+    route_revision_receipt: dict[str, Any] | None = None
 
 
 @dataclass
@@ -450,6 +471,7 @@ class _State:
     used_approvals: set[str] = field(default_factory=set)
     duplicate_replays: int = 0
     last_transition_receipt: dict[str, Any] | None = None
+    last_route_revision_receipt: dict[str, Any] | None = None
 
 
 def canonical(value: Any) -> str:
@@ -460,6 +482,141 @@ def canonical(value: Any) -> str:
         sort_keys=True,
         separators=(",", ":"),
     )
+
+
+def _fencing_token_sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def model_identity_sha256(identity: TritonModelIdentity) -> str:
+    return hashlib.sha256(canonical(identity.model_dump(mode="json")).encode("ascii")).hexdigest()
+
+
+def _active_route_identity(
+    request: TritonBlueGreenInitializeRequest,
+    weights: Mapping[ModelRole, int],
+) -> dict[str, Any]:
+    identities = {"blue": request.blue, "green": request.green}
+    return {
+        "routes": [
+            {
+                "role": role,
+                "weight": int(weights[role]),
+                "identity_sha256": model_identity_sha256(identities[role]),
+            }
+            for role in ("blue", "green")
+            if int(weights[role]) > 0
+        ]
+    }
+
+
+def active_route_identity_sha256(
+    request: TritonBlueGreenInitializeRequest,
+    weights: Mapping[ModelRole, int],
+) -> str:
+    """Hash the identities that can actually receive traffic at this route revision."""
+
+    return hashlib.sha256(
+        canonical(_active_route_identity(request, weights)).encode("ascii")
+    ).hexdigest()
+
+
+def _route_revision_payload(
+    state: _State,
+    *,
+    action: str,
+    approval_id: str | None,
+    control_generation: int,
+    route_generation: int,
+    phase: str,
+    weights: Mapping[ModelRole, int],
+    loaded: set[ModelRole],
+    used_approvals: set[str],
+    route_changed: bool,
+    transition_receipt: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "evm.s6bm.route_revision.v1",
+        "run_id": state.request.run_id,
+        "source_revision": state.request.source_revision,
+        "control_generation": control_generation,
+        "route_generation": route_generation,
+        "phase": phase,
+        "route_weights": {"blue": int(weights["blue"]), "green": int(weights["green"])},
+        "loaded_roles": sorted(loaded),
+        "active_route_identity_sha256": active_route_identity_sha256(state.request, weights),
+        "blue_identity_sha256": model_identity_sha256(state.request.blue),
+        "green_identity_sha256": model_identity_sha256(state.request.green),
+        "image_digest": state.request.image_digest,
+        "gpu_uuid": state.request.gpu_uuid,
+        "action": action,
+        "approval_id": approval_id,
+        "used_approvals": sorted(used_approvals),
+        "route_changed": route_changed,
+        "lease_id": state.request.lease_id,
+        "fencing_token_sha256": _fencing_token_sha256(state.request.fencing_token),
+        "transition_id": (
+            str(transition_receipt.get("transition_id")) if transition_receipt else None
+        ),
+        "transition_new_route_generation": (
+            int(transition_receipt["new_route_generation"])
+            if transition_receipt is not None
+            else None
+        ),
+    }
+
+
+def _validated_route_revision_receipt(receipt: Mapping[str, Any]) -> dict[str, Any]:
+    if set(receipt) != {
+        "schema_version",
+        "payload",
+        "payload_sha256",
+        "transaction_id",
+        "database_recorded_at",
+        "readback_at",
+        "readback_visible",
+        "replayed",
+    }:
+        raise TritonBlueGreenError("route_revision_receipt_schema", "keys", status_code=503)
+    payload = dict(receipt.get("payload") or {})
+    if (
+        receipt.get("schema_version") != "evm.s6bm.route_revision_receipt.v1"
+        or receipt.get("readback_visible") is not True
+        or not isinstance(receipt.get("transaction_id"), str)
+        or not receipt.get("transaction_id")
+        or not isinstance(receipt.get("database_recorded_at"), str)
+        or not isinstance(receipt.get("readback_at"), str)
+        or not isinstance(receipt.get("replayed"), bool)
+        or receipt.get("payload_sha256")
+        != hashlib.sha256(canonical(payload).encode("ascii")).hexdigest()
+    ):
+        raise TritonBlueGreenError("route_revision_receipt_mismatch", "receipt", status_code=503)
+    required_payload = {
+        "schema_version",
+        "run_id",
+        "source_revision",
+        "control_generation",
+        "route_generation",
+        "phase",
+        "route_weights",
+        "loaded_roles",
+        "active_route_identity_sha256",
+        "blue_identity_sha256",
+        "green_identity_sha256",
+        "image_digest",
+        "gpu_uuid",
+        "action",
+        "approval_id",
+        "used_approvals",
+        "route_changed",
+        "lease_id",
+        "fencing_token_sha256",
+        "transition_id",
+        "transition_new_route_generation",
+    }
+    if set(payload) != required_payload:
+        raise TritonBlueGreenError("route_revision_payload_schema", "keys", status_code=503)
+    return payload
 
 
 def action_digest(request: TritonBlueGreenControlRequest) -> str:
@@ -613,7 +770,12 @@ class TritonBlueGreenManager:
         self._lock = threading.RLock()
         self._state: _State | None = None
 
-    def initialize(self, request: TritonBlueGreenInitializeRequest) -> TritonBlueGreenStateResponse:
+    def initialize(
+        self,
+        request: TritonBlueGreenInitializeRequest,
+        *,
+        route_state_restorer: RouteStateRestorer | None = None,
+    ) -> TritonBlueGreenStateResponse:
         if os.getenv("EVM_S6BM_ENABLED", "0").strip().lower() not in {"1", "true", "yes"}:
             raise TritonBlueGreenError("s6bm_disabled", "S6B-M route is disabled", status_code=503)
         if request.blue.role != "blue" or request.green.role != "green":
@@ -628,7 +790,34 @@ class TritonBlueGreenManager:
                 if self._state.request.model_dump(mode="json") == request.model_dump(mode="json"):
                     return self.snapshot()
                 raise TritonBlueGreenError("controller_already_initialized", request.run_id)
-            self._state = _State(request=request)
+            state = _State(request=request)
+            initial_payload = _route_revision_payload(
+                state,
+                action="initialized",
+                approval_id=None,
+                control_generation=1,
+                route_generation=1,
+                phase=state.phase,
+                weights=state.weights,
+                loaded=state.loaded,
+                used_approvals=state.used_approvals,
+                route_changed=True,
+            )
+            if route_state_restorer is not None:
+                try:
+                    receipt = dict(route_state_restorer(request, initial_payload))
+                except TritonBlueGreenError:
+                    raise
+                except Exception as exc:
+                    raise TritonBlueGreenError(
+                        "route_revision_restore_failed", request.run_id, status_code=503
+                    ) from exc
+                self._restore_route_revision(state, receipt)
+            elif _route_revision_required():
+                raise TritonBlueGreenError(
+                    "route_revision_store_unavailable", request.run_id, status_code=503
+                )
+            self._state = state
             for identity in (request.blue, request.green):
                 for outcome in ("completed", "failed"):
                     REQUESTS.labels(
@@ -647,15 +836,70 @@ class TritonBlueGreenManager:
                 LATENCY.labels(identity.role, identity.model_name, identity.model_version)
             return self.snapshot()
 
+    @staticmethod
+    def _restore_route_revision(state: _State, receipt: Mapping[str, Any]) -> None:
+        payload = _validated_route_revision_receipt(receipt)
+        weights = dict(payload["route_weights"])
+        loaded_roles = list(payload["loaded_roles"])
+        approvals = list(payload["used_approvals"])
+        control_generation = payload["control_generation"]
+        route_generation = payload["route_generation"]
+        if (
+            payload["schema_version"] != "evm.s6bm.route_revision.v1"
+            or payload["run_id"] != state.request.run_id
+            or payload["source_revision"] != state.request.source_revision
+            or type(control_generation) is not int
+            or type(route_generation) is not int
+            or control_generation < 1
+            or route_generation < 1
+            or route_generation > control_generation
+            or set(weights) != {"blue", "green"}
+            or any(type(value) is not int or value < 0 for value in weights.values())
+            or sum(weights.values()) != 100
+            or not isinstance(loaded_roles, list)
+            or len(loaded_roles) != len(set(loaded_roles))
+            or not set(loaded_roles).issubset({"blue", "green"})
+            or any(weights[role] > 0 and role not in loaded_roles for role in weights)
+            or not isinstance(approvals, list)
+            or len(approvals) != len(set(approvals))
+            or any(not isinstance(value, str) or not value for value in approvals)
+            or payload["blue_identity_sha256"] != model_identity_sha256(state.request.blue)
+            or payload["green_identity_sha256"] != model_identity_sha256(state.request.green)
+            or payload["image_digest"] != state.request.image_digest
+            or payload["gpu_uuid"] != state.request.gpu_uuid
+            or payload["lease_id"] != state.request.lease_id
+            or payload["fencing_token_sha256"] != _fencing_token_sha256(state.request.fencing_token)
+            or payload["active_route_identity_sha256"]
+            != active_route_identity_sha256(state.request, weights)
+        ):
+            raise TritonBlueGreenError(
+                "route_revision_restore_mismatch", state.request.run_id, status_code=409
+            )
+        state.generation = control_generation
+        state.route_generation = route_generation
+        state.phase = str(payload["phase"])
+        state.weights = {"blue": int(weights["blue"]), "green": int(weights["green"])}
+        state.loaded = set(loaded_roles)
+        state.used_approvals = set(approvals)
+        state.last_route_revision_receipt = dict(receipt)
+
     def control(
         self,
         request: TritonBlueGreenControlRequest,
         *,
         transition_fence_committer: TransitionFenceCommitter | None = None,
+        route_state_committer: RouteStateCommitter | None = None,
     ) -> TritonBlueGreenStateResponse:
         self._assert_lease(request.run_id, request.lease_id, request.fencing_token)
         with self._lock:
             state = self._require_state(request.run_id)
+            if (
+                request.lease_id != state.request.lease_id
+                or request.fencing_token != state.request.fencing_token
+            ):
+                raise TritonBlueGreenError(
+                    "route_revision_lease_binding_mismatch", request.run_id, status_code=409
+                )
             if request.expected_generation != state.generation:
                 TRANSITIONS.labels(request.action, "rejected_generation").inc()
                 raise TritonBlueGreenError("route_generation_conflict", request.run_id)
@@ -776,13 +1020,9 @@ class TritonBlueGreenManager:
                         or (
                             bool(request.continuity_terminal_request_ids)
                             and (
-                                fence_receipt.get(
-                                    "continuity_terminal_request_set_sha256"
-                                )
+                                fence_receipt.get("continuity_terminal_request_set_sha256")
                                 != request.continuity_terminal_request_set_sha256
-                                or fence_receipt.get(
-                                    "continuity_terminal_records_sha256"
-                                )
+                                or fence_receipt.get("continuity_terminal_records_sha256")
                                 != request.continuity_terminal_records_sha256
                             )
                         )
@@ -796,13 +1036,66 @@ class TritonBlueGreenManager:
                         )
             if request.action == "green_switched":
                 state.last_transition_receipt = None
-            previous_weights = dict(state.weights)
+            next_phase, next_weights, next_loaded = self._project_transition(state, request.action)
+            current_route_identity = active_route_identity_sha256(state.request, state.weights)
+            next_route_identity = active_route_identity_sha256(state.request, next_weights)
+            route_changed = current_route_identity != next_route_identity
+            next_control_generation = state.generation + 1
+            next_route_generation = (
+                next_control_generation if route_changed else state.route_generation
+            )
+            next_approvals = set(state.used_approvals)
+            next_approvals.add(request.approval_id)
+            revision_payload = _route_revision_payload(
+                state,
+                action=request.action,
+                approval_id=request.approval_id,
+                control_generation=next_control_generation,
+                route_generation=next_route_generation,
+                phase=next_phase,
+                weights=next_weights,
+                loaded=next_loaded,
+                used_approvals=next_approvals,
+                route_changed=route_changed,
+                transition_receipt=(fence_receipt if request.action == "green_switched" else None),
+            )
             self._apply_model_control(state, request.action)
-            self._transition(state, request.action)
-            state.used_approvals.add(request.approval_id)
-            state.generation += 1
-            if state.weights != previous_weights:
-                state.route_generation = state.generation
+            if route_state_committer is not None:
+                try:
+                    route_revision_receipt = dict(
+                        route_state_committer(
+                            request,
+                            {
+                                "previous_control_generation": state.generation,
+                                "previous_route_generation": state.route_generation,
+                                "payload": revision_payload,
+                            },
+                        )
+                    )
+                except TritonBlueGreenError:
+                    raise
+                except Exception as exc:
+                    raise TritonBlueGreenError(
+                        "route_revision_commit_failed", request.action, status_code=503
+                    ) from exc
+                stored_revision = _validated_route_revision_receipt(route_revision_receipt)
+                if stored_revision != revision_payload:
+                    raise TritonBlueGreenError(
+                        "route_revision_commit_mismatch", request.action, status_code=503
+                    )
+            elif _route_revision_required():
+                raise TritonBlueGreenError(
+                    "route_revision_store_unavailable", request.action, status_code=503
+                )
+            else:
+                route_revision_receipt = None
+            state.phase = next_phase
+            state.weights = next_weights
+            state.loaded = next_loaded
+            state.used_approvals = next_approvals
+            state.generation = next_control_generation
+            state.route_generation = next_route_generation
+            state.last_route_revision_receipt = route_revision_receipt
             if request.action == "green_switched" and crossover is not None:
                 if fence_receipt is None:
                     raise TritonBlueGreenError(
@@ -827,6 +1120,7 @@ class TritonBlueGreenManager:
                     or state.route_switch_deadline_monotonic_ns is None
                     or route_applied_monotonic_ns >= state.route_switch_deadline_monotonic_ns
                     or state.generation != request.expected_generation + 1
+                    or state.route_generation != request.expected_generation + 1
                     or state.phase != "green_active"
                     or state.weights != {"blue": 0, "green": 100}
                 ):
@@ -866,10 +1160,21 @@ class TritonBlueGreenManager:
                     "route_applied_actor": route_applied_actor,
                     "state_readback": {
                         "generation": state.generation,
+                        "route_generation": state.route_generation,
                         "phase": state.phase,
                         "route_weights": dict(state.weights),
                         "loaded_roles": sorted(state.loaded),
                     },
+                    "route_revision_payload_sha256": (
+                        route_revision_receipt["payload_sha256"]
+                        if route_revision_receipt is not None
+                        else None
+                    ),
+                    "route_revision_transaction_id": (
+                        route_revision_receipt["transaction_id"]
+                        if route_revision_receipt is not None
+                        else None
+                    ),
                     "continuity_crossover_request_ids": list(
                         request.continuity_crossover_request_ids
                     ),
@@ -967,10 +1272,20 @@ class TritonBlueGreenManager:
         terminal_effect_committer: TerminalEffectCommitter | None = None,
         start_receipt_committer: StartReceiptCommitter | None = None,
     ) -> TritonBlueGreenPredictResponse:
+        self._assert_lease(request.run_id, request.lease_id, request.fencing_token)
         controller_entry = causal_start_observation("s6bm-controller")
         switch_event: threading.Event | None = None
         with self._lock:
             state = self._require_state(request.run_id)
+            if (
+                request.lease_id != state.request.lease_id
+                or request.fencing_token != state.request.fencing_token
+            ):
+                raise TritonBlueGreenError(
+                    "route_revision_lease_binding_mismatch",
+                    request.request_id,
+                    status_code=409,
+                )
             digest = _request_digest(request)
             cached = state.responses.get(request.request_id)
             if cached is not None:
@@ -1183,9 +1498,7 @@ class TritonBlueGreenManager:
                             status_code=503,
                         )
                     remaining = (deadline - time.perf_counter_ns()) / 1_000_000_000
-                    if remaining <= 0 or not await asyncio.to_thread(
-                        switch_event.wait, remaining
-                    ):
+                    if remaining <= 0 or not await asyncio.to_thread(switch_event.wait, remaining):
                         raise TritonBlueGreenError(
                             "causal_switch_wait_timeout",
                             request.request_id,
@@ -1218,6 +1531,7 @@ class TritonBlueGreenManager:
                     model_name=identity.model_name,
                     model_version=identity.model_version,
                     artifact_sha256=identity.artifact_sha256,
+                    route_identity_sha256=model_identity_sha256(identity),
                     route_phase=phase,
                     output=values,
                     result_sha256=_result_digest(
@@ -1423,6 +1737,7 @@ class TritonBlueGreenManager:
                 initialized=True,
                 run_id=state.request.run_id,
                 generation=state.generation,
+                route_generation=state.route_generation,
                 phase=state.phase,
                 route_weights=dict(state.weights),
                 loaded_roles=sorted(state.loaded),
@@ -1443,6 +1758,11 @@ class TritonBlueGreenManager:
                 transition_receipt=(
                     dict(state.last_transition_receipt)
                     if state.last_transition_receipt is not None
+                    else None
+                ),
+                route_revision_receipt=(
+                    dict(state.last_route_revision_receipt)
+                    if state.last_route_revision_receipt is not None
                     else None
                 ),
             )
@@ -1505,6 +1825,7 @@ class TritonBlueGreenManager:
             ("green_draining", "green_unloaded"),
             ("green_warmup", "green_aborted"),
             ("canary", "green_aborted"),
+            ("rolled_back", "green_loaded"),
             ("rolled_back", "closed"),
         }
         if (state.phase, action) not in legal:
@@ -1565,7 +1886,9 @@ class TritonBlueGreenManager:
             ) from exc
 
     @staticmethod
-    def _transition(state: _State, action: ControlAction) -> None:
+    def _project_transition(
+        state: _State, action: ControlAction
+    ) -> tuple[str, dict[ModelRole, int], set[ModelRole]]:
         expected = {
             ("blue_only", "green_loaded"): "green_warmup",
             ("green_warmup", "canary_started"): "canary",
@@ -1578,26 +1901,36 @@ class TritonBlueGreenManager:
             ("green_draining", "green_unloaded"): "rolled_back",
             ("green_warmup", "green_aborted"): "blue_only",
             ("canary", "green_aborted"): "blue_only",
+            ("rolled_back", "green_loaded"): "green_warmup",
             ("rolled_back", "closed"): "closed",
         }
         target = expected[(state.phase, action)]
+        weights = dict(state.weights)
+        loaded = set(state.loaded)
         if action == "green_loaded":
-            state.loaded.add("green")
+            loaded.add("green")
         elif action == "canary_started":
-            state.weights = {"blue": 90, "green": 10}
+            weights = {"blue": 90, "green": 10}
         elif action == "green_switched":
-            state.weights = {"blue": 0, "green": 100}
+            weights = {"blue": 0, "green": 100}
         elif action == "blue_unloaded":
-            state.loaded.discard("blue")
+            loaded.discard("blue")
         elif action == "blue_loaded":
-            state.loaded.add("blue")
+            loaded.add("blue")
         elif action == "blue_switched":
-            state.weights = {"blue": 100, "green": 0}
+            weights = {"blue": 100, "green": 0}
         elif action == "green_unloaded":
-            state.loaded.discard("green")
+            loaded.discard("green")
         elif action == "green_aborted":
-            state.weights = {"blue": 100, "green": 0}
-            state.loaded.discard("green")
+            weights = {"blue": 100, "green": 0}
+            loaded.discard("green")
+        return target, weights, loaded
+
+    @classmethod
+    def _transition(cls, state: _State, action: ControlAction) -> None:
+        target, weights, loaded = cls._project_transition(state, action)
+        state.weights = weights
+        state.loaded = loaded
         state.phase = target
 
 

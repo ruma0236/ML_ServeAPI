@@ -78,9 +78,7 @@ def test_strict_v4_nonminimum_mutation_uses_actual_nonminimum_candidate() -> Non
                     "database_clock_anchor_selection": {
                         "selected_sequence": 2,
                     },
-                    "commit_timestamp_observed_at": candidates[1][
-                        "database_clock_timestamp"
-                    ],
+                    "commit_timestamp_observed_at": candidates[1]["database_clock_timestamp"],
                 }
             }
         ]
@@ -91,9 +89,7 @@ def test_strict_v4_nonminimum_mutation_uses_actual_nonminimum_candidate() -> Non
     receipt = raw["request_records"][0]["durable_effect"]
     assert receipt["database_clock_anchor_selection"]["selected_sequence"] == 1
     assert receipt["database_clock_anchor"] == candidates[0]
-    assert receipt["commit_timestamp_observed_at"] == candidates[0][
-        "database_clock_timestamp"
-    ]
+    assert receipt["commit_timestamp_observed_at"] == candidates[0]["database_clock_timestamp"]
 
 
 def test_strict_v4_unload_mutation_preserves_anchor_order() -> None:
@@ -139,8 +135,9 @@ def test_strict_v4_unload_mutation_preserves_anchor_order() -> None:
     completion_ns = int(10.001 * 1_000_000_000)
     assert raw["phase_timeline"][0]["clock_anchor"]["monotonic_after_ns"] < green_ns
     assert green_ns < completion_ns
-    assert green["clock_anchor"]["monotonic_before_ns"] < (
-        raw["phase_timeline"][2]["clock_anchor"]["monotonic_before_ns"]
+    assert (
+        green["clock_anchor"]["monotonic_before_ns"]
+        < (raw["phase_timeline"][2]["clock_anchor"]["monotonic_before_ns"])
     )
 
 
@@ -168,6 +165,7 @@ def test_all_bridge_requests_are_pinned_to_the_observed_blue_generation() -> Non
     plan = runner.build_continuity_plan(config, "s6bm-success-generation-unit")
     bodies = runner.request_bodies_from_plan(
         config,
+        SimpleNamespace(lease_id="lease-unit", fencing_token="fence-unit"),
         "s6bm-run-generation-unit",
         "s6bm-success-generation-unit",
         plan["roles"]["bridge"],
@@ -176,6 +174,8 @@ def test_all_bridge_requests_are_pinned_to_the_observed_blue_generation() -> Non
 
     assert len(bodies) == 40
     assert {body["expected_route_generation"] for body in bodies} == {7}
+    assert {body["lease_id"] for body in bodies} == {"lease-unit"}
+    assert {body["fencing_token"] for body in bodies} == {"fence-unit"}
 
 
 def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: Path) -> None:
@@ -203,9 +203,7 @@ def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: P
         "replica_id": "replica-unit",
         "pending_crossover_request_ids": [hold_id, request_id],
         "continuity_receipt_sequences": {request_id: {stage: 1}},
-        "continuity_receipt_payload_sha256": {
-            request_id: {stage: start_event["payload_sha256"]}
-        },
+        "continuity_receipt_payload_sha256": {request_id: {stage: start_event["payload_sha256"]}},
         "continuity_receipt_transaction_ids": {request_id: {stage: "1001"}},
     }
     switch_event = {
@@ -306,8 +304,9 @@ def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: P
     rebound = validator.read_json(causal_path)
     rebound_start, rebound_switch, *rebound_effects = rebound["events"]
     transition = raw["causal_proof"]["route_transition_receipt"]
-    assert rebound_switch["payload"]["continuity_receipt_payload_sha256"][request_id][stage] == (
-        rebound_start["payload_sha256"]
+    assert (
+        rebound_switch["payload"]["continuity_receipt_payload_sha256"][request_id][stage]
+        == (rebound_start["payload_sha256"])
     )
     assert transition["fence_receipt"]["payload"] == rebound_switch["payload"]
     assert transition["fence_receipt"]["payload_sha256"] == rebound_switch["payload_sha256"]
@@ -317,13 +316,11 @@ def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: P
     expected_transition = validator.observed_transition_from_switch(rebound_switch)
     assert len(rebound_effects) == 2
     assert all(
-        item["payload"]["observed_transition"] == expected_transition
-        for item in rebound_effects
+        item["payload"]["observed_transition"] == expected_transition for item in rebound_effects
     )
     rebound_stored = validator.read_json(effects_path)["effects"]
     assert all(
-        item["payload"]["observed_transition"] == expected_transition
-        for item in rebound_stored
+        item["payload"]["observed_transition"] == expected_transition for item in rebound_stored
     )
     assert all(
         item["durable_effect"]["observed_transition"] == expected_transition
@@ -422,6 +419,7 @@ def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
 
     monkeypatch.setattr(runner.requests, "Session", FakeSession)
     monkeypatch.setattr(runner, "send_request", fake_send)
+
     class Model:
         model_name = "s6bm_blue"
         model_version = "1"
@@ -433,6 +431,7 @@ def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
 
     records, bodies = runner.send_batch(
         Config(),
+        SimpleNamespace(lease_id="lease-unit", fencing_token="fence-unit"),
         "run-id",
         "attempt-id",
         "batch",
@@ -760,6 +759,65 @@ def test_bridge_receipt_gate_preserves_exact_pre_switch_readback(
 def _terminal_gate_fixture(runner, count: int = 2):
     attempt_id = "s6bm-success-terminal-gate"
     run_id = "run-terminal-gate"
+    blue_identity_sha256 = "b" * 64
+    green_identity_sha256 = "c" * 64
+    active_identity_sha256 = runner.canonical_sha256(
+        {
+            "routes": [
+                {
+                    "role": "blue",
+                    "weight": 100,
+                    "identity_sha256": blue_identity_sha256,
+                }
+            ]
+        }
+    )
+    route_payload = {
+        "schema_version": "evm.s6bm.route_revision.v1",
+        "run_id": run_id,
+        "source_revision": "d" * 40,
+        "control_generation": 2,
+        "route_generation": 2,
+        "phase": "blue_active_rollback",
+        "route_weights": {"blue": 100, "green": 0},
+        "loaded_roles": ["blue", "green"],
+        "active_route_identity_sha256": active_identity_sha256,
+        "blue_identity_sha256": blue_identity_sha256,
+        "green_identity_sha256": green_identity_sha256,
+        "image_digest": "sha256:" + "e" * 64,
+        "gpu_uuid": "GPU-terminal-gate",
+        "action": "blue_switched",
+        "approval_id": "approval-terminal-gate",
+        "used_approvals": ["approval-terminal-gate"],
+        "route_changed": True,
+        "lease_id": "lease-terminal-gate",
+        "fencing_token_sha256": "f" * 64,
+        "transition_id": None,
+        "transition_new_route_generation": None,
+    }
+    observed_route_revision = {
+        "schema_version": "evm.s6bm.observed_route_revision.v1",
+        "run_id": run_id,
+        "route_generation": 2,
+        "route_source_control_generation": 2,
+        "route_source_action": route_payload["action"],
+        "route_source_phase": route_payload["phase"],
+        "route_source_payload_sha256": runner.canonical_sha256(route_payload),
+        "route_source_transaction_id": "199",
+        "route_source_database_recorded_at": "2026-08-25T00:00:00Z",
+        "route_source_payload": route_payload,
+        "active_route_identity_sha256": active_identity_sha256,
+        "blue_identity_sha256": blue_identity_sha256,
+        "green_identity_sha256": green_identity_sha256,
+        "transition_id": None,
+        "transition_new_route_generation": None,
+        "lease_binding_control_generation": 2,
+        "lease_binding_payload_sha256": runner.canonical_sha256(route_payload),
+        "lease_binding_transaction_id": "199",
+        "lease_binding_payload": route_payload,
+        "lease_id": route_payload["lease_id"],
+        "fencing_token_sha256": route_payload["fencing_token_sha256"],
+    }
     bodies: dict[str, dict[str, object]] = {}
     responses: dict[str, dict[str, object]] = {}
     effects: list[dict[str, object]] = []
@@ -782,8 +840,13 @@ def _terminal_gate_fixture(runner, count: int = 2):
             "model_version": "1",
             "artifact_sha256": "a" * 64,
             "route_generation": 2,
+            "route_identity_sha256": blue_identity_sha256,
+            "route_revision_binding_required": True,
+            "lease_id": route_payload["lease_id"],
+            "fencing_token_sha256": route_payload["fencing_token_sha256"],
             "result_sha256": result_sha,
             "requires_switch_before_effect": False,
+            "observed_route_revision": copy.deepcopy(observed_route_revision),
         }
         causal_sha = runner.canonical_sha256(causal_payload)
         payload = {
@@ -800,12 +863,15 @@ def _terminal_gate_fixture(runner, count: int = 2):
                 "artifact_sha256": "a" * 64,
             },
             "route_generation": 2,
+            "route_identity_sha256": blue_identity_sha256,
             "result_sha256": result_sha,
             "terminal_outcome": "completed",
             "durable_commit": {
                 "causal_sequence": 100 + index,
                 "transaction_id": str(200 + index),
+                "observed_route_revision": copy.deepcopy(observed_route_revision),
             },
+            "observed_route_revision": copy.deepcopy(observed_route_revision),
         }
         stored_sha = runner.canonical_sha256(payload)
         bodies[request_id] = {
@@ -829,6 +895,7 @@ def _terminal_gate_fixture(runner, count: int = 2):
             "model_version": "1",
             "artifact_sha256": "a" * 64,
             "route_generation": 2,
+            "route_identity_sha256": blue_identity_sha256,
             "result_sha256": result_sha,
             "outcome": "completed",
             "status_code": 200,
@@ -840,6 +907,8 @@ def _terminal_gate_fixture(runner, count: int = 2):
                 "causal_payload_sha256": causal_sha,
                 "transaction_id": str(200 + index),
                 "readback_visible": True,
+                "observed_route_revision": copy.deepcopy(observed_route_revision),
+                "route_revision_readback_visible": True,
             },
         }
         effects.append(
@@ -923,9 +992,7 @@ def test_pre_switch_terminal_gate_binds_online_response_to_durable_exports(
     assert result["schema_version"] == "evm.s8_v4.s6bm_pre_switch_bridge_terminal_gate.v2"
     assert result["observed_terminal_request_ids"] == ids
     assert result["durable_readback_complete"] is True
-    assert result["terminal_records_sha256"] == runner.canonical_sha256(
-        result["terminal_records"]
-    )
+    assert result["terminal_records_sha256"] == runner.canonical_sha256(result["terminal_records"])
     assert (tmp_path / result["raw_effect_export"]["path"]).is_file()
     assert (tmp_path / result["raw_event_export"]["path"]).is_file()
 

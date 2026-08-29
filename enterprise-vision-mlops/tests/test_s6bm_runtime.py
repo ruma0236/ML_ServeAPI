@@ -28,6 +28,7 @@ from evm.scale_validation.s6bm_causal import (
     _unix_nano,
     _validate_continuity_bridge_span_timing,
     _validate_continuity_receipt_switch_fence,
+    _validate_effect_route_revision,
     _validate_hold_effect_span_order,
     validate_causal_bundle,
 )
@@ -38,9 +39,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
 V3_CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v3.toml"
 V4_CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml"
-CONTINUITY_MUTATION_VALIDATOR = (
-    ROOT / "scripts/dev/validate_s8_v4_s6bm_continuity_qualification.py"
-)
+CONTINUITY_MUTATION_VALIDATOR = ROOT / "scripts/dev/validate_s8_v4_s6bm_continuity_qualification.py"
 
 
 def load_continuity_mutation_validator():
@@ -112,9 +111,7 @@ def test_s6bm_v4_continuity_rejects_post_switch_compute_with_valid_triton_anchor
         "model_span": {"start_unix_ns": 120, "end_unix_ns": 150},
         "compute_span": {"start_unix_ns": 130, "end_unix_ns": 140},
     }
-    with pytest.raises(
-        S6BMCausalError, match="s6bm_v4_continuity_model_after_switch"
-    ):
+    with pytest.raises(S6BMCausalError, match="s6bm_v4_continuity_model_after_switch"):
         _validate_continuity_bridge_span_timing(
             **spans,
             switch_fence_lower=100,
@@ -168,6 +165,120 @@ def test_s6bm_v4_causal_bundle_accepts_unanchored_triton_tail_discontinuity(
     reference["sha256"] = hashlib.sha256(trace_path.read_bytes()).hexdigest()
 
     assert validate_causal_bundle(root, raw, config, compare_projection=False)["passed"] is True
+
+
+def test_s6bm_v4_route_revision_receipt_rejects_control_generation_substitution(
+    tmp_path: Path,
+) -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    root = tmp_path / "route-revision-substitution"
+    raw = materialize_causal_mutation_bundle(root, v4_continuity_attempt(), config)
+    receipt = raw["causal_proof"]["route_revision_receipt"]
+    receipt["payload"]["control_generation"] = 4
+    receipt["payload"]["route_generation"] = 4
+    receipt["payload"]["transition_new_route_generation"] = 4
+    receipt["payload_sha256"] = canonical_sha256(receipt["payload"])
+    raw["causal_proof"]["route_transition_receipt"]["route_revision_payload_sha256"] = receipt[
+        "payload_sha256"
+    ]
+
+    with pytest.raises(S6BMCausalError) as rejected:
+        validate_causal_bundle(root, raw, config, compare_projection=False)
+    assert str(rejected.value) == "s6bm_v4_route_revision_binding"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["route_source_control", "route_identity", "lease_fence", "readback"],
+)
+def test_s6bm_v4_effect_route_revision_mutations_fail_closed(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    root = tmp_path / f"effect-route-revision-{mutation}"
+    raw = materialize_causal_mutation_bundle(root, v4_continuity_attempt(), config)
+    record = copy.deepcopy(raw["request_records"][0])
+    effect_export = json.loads(
+        (root / raw["causal_proof"]["durable_effect_export"]["path"]).read_text(encoding="utf-8")
+    )
+    event_export = json.loads(
+        (root / raw["causal_proof"]["causal_event_export"]["path"]).read_text(encoding="utf-8")
+    )
+    effect = next(
+        item for item in effect_export["effects"] if item["idempotency_key"] == record["request_id"]
+    )
+    event = next(
+        item
+        for item in event_export["events"]
+        if item.get("request_id") == record["request_id"]
+        and item.get("event_type") == "durable_terminal_effect_commit"
+    )
+    effect_payload = copy.deepcopy(effect["payload"])
+    event_payload = copy.deepcopy(event["payload"])
+    durable_commit = copy.deepcopy(effect_payload["durable_commit"])
+    receipt = copy.deepcopy(record["durable_effect"])
+    references = [
+        effect_payload["observed_route_revision"],
+        event_payload["observed_route_revision"],
+        durable_commit["observed_route_revision"],
+        receipt["observed_route_revision"],
+    ]
+
+    if mutation == "route_source_control":
+        for reference in references:
+            reference["route_source_control_generation"] = 3
+            reference["route_source_payload"]["control_generation"] = 3
+            reference["route_source_payload_sha256"] = canonical_sha256(
+                reference["route_source_payload"]
+            )
+    elif mutation == "route_identity":
+        forged = "e" * 64
+        record["route_identity_sha256"] = forged
+        effect_payload["route_identity_sha256"] = forged
+        event_payload["route_identity_sha256"] = forged
+        for reference in references:
+            reference["blue_identity_sha256"] = forged
+            for payload_name in ("route_source_payload", "lease_binding_payload"):
+                payload = reference[payload_name]
+                payload["blue_identity_sha256"] = forged
+                payload["active_route_identity_sha256"] = canonical_sha256(
+                    {"routes": [{"role": "blue", "weight": 100, "identity_sha256": forged}]}
+                )
+            reference["active_route_identity_sha256"] = reference["route_source_payload"][
+                "active_route_identity_sha256"
+            ]
+            reference["route_source_payload_sha256"] = canonical_sha256(
+                reference["route_source_payload"]
+            )
+            reference["lease_binding_payload_sha256"] = canonical_sha256(
+                reference["lease_binding_payload"]
+            )
+    elif mutation == "lease_fence":
+        forged = "f" * 64
+        record["fencing_token_sha256"] = forged
+        event_payload["fencing_token_sha256"] = forged
+        for reference in references:
+            reference["fencing_token_sha256"] = forged
+            reference["lease_binding_payload"]["fencing_token_sha256"] = forged
+            reference["lease_binding_payload_sha256"] = canonical_sha256(
+                reference["lease_binding_payload"]
+            )
+    else:
+        receipt["route_revision_readback_visible"] = False
+
+    with pytest.raises(S6BMCausalError) as rejected:
+        _validate_effect_route_revision(
+            record=record,
+            effect_payload=effect_payload,
+            event_payload=event_payload,
+            durable_commit=durable_commit,
+            receipt=receipt,
+            raw=raw,
+            config=config,
+        )
+    assert str(rejected.value) == "s6bm_v4_effect_route_revision_binding"
+
 
 def test_s6bm_v4_same_clock_nested_span_closures_allow_equality() -> None:
     effect = {"start_unix_ns": 200, "end_unix_ns": 400}
@@ -263,13 +374,9 @@ def test_s6bm_v4_continuity_switch_fence_rejects_binding_mutations(
     if mutation == "source_set":
         payload["source_payload"]["continuity_receipt_request_ids"].pop()
     elif mutation == "sequence":
-        payload["continuity_receipt_sequences"]["bridge-00"][
-            "api_server_handler_entry"
-        ] += 1
+        payload["continuity_receipt_sequences"]["bridge-00"]["api_server_handler_entry"] += 1
     elif mutation == "payload_hash":
-        payload["continuity_receipt_payload_sha256"]["bridge-00"][
-            "controller_entry"
-        ] = "f" * 64
+        payload["continuity_receipt_payload_sha256"]["bridge-00"]["controller_entry"] = "f" * 64
     elif mutation == "transaction":
         payload["continuity_receipt_transaction_ids"]["bridge-00"][
             "triton_backend_compute_entry"
@@ -322,6 +429,7 @@ def identities() -> dict[str, object]:
     return {
         "image_digest": config.image_digest,
         "repository_sha256": config.repository_sha256,
+        "gpu_uuid": "GPU-fixture",
         "blue": {
             "model_name": config.blue.model_name,
             "model_version": config.blue.model_version,
@@ -336,6 +444,8 @@ def identities() -> dict[str, object]:
         },
         "lease": {
             "run_id": "s8-v4-s6bm-unit-test",
+            "lease_id_sha256": hashlib.sha256(b"lease-fixture").hexdigest(),
+            "fencing_token_sha256": "d" * 64,
             "scenario_id": "S6B-M",
             "model_family": "tabular",
             "purpose": "scale_validation_inference",
@@ -377,6 +487,7 @@ def test_s6bm_v4_contract_freezes_auditor_hard_gates() -> None:
     assert config.triton_actor_receipt["registration_actor"] == ("dedicated_collector_process")
     assert config.triton_actor_receipt["runner_synthesized_receipt_forbidden"] is True
     assert config.durable_effect["commit_timestamp_tracking_required"] is True
+    assert config.durable_effect["route_revision_commit_readback_required"] is True
     assert config.durable_effect["commit_timestamp_separate_connection_required"] is True
     assert config.durable_effect["database_clock_anchor_required"] is True
     assert config.durable_effect["commit_timestamp_readback_lane"] == (
@@ -710,9 +821,7 @@ def v4_continuity_attempt() -> dict[str, object]:
         payload_sha = hashlib.sha256(f"payload:{request_id}".encode("ascii")).hexdigest()
         result_sha = hashlib.sha256(f"result:{request_id}".encode("ascii")).hexdigest()
         stored_sha = hashlib.sha256(f"stored:{request_id}".encode("ascii")).hexdigest()
-        causal_payload_sha = hashlib.sha256(
-            f"causal:{request_id}".encode("ascii")
-        ).hexdigest()
+        causal_payload_sha = hashlib.sha256(f"causal:{request_id}".encode("ascii")).hexdigest()
         records.append(
             {
                 "run_id": "s8-v4-s6bm-unit-test",
@@ -835,14 +944,10 @@ def v4_continuity_attempt() -> dict[str, object]:
                 "entity_state": "completed",
                 "idempotency_key": request_id,
                 "request_sha256": record["durable_effect"]["request_sha256"],
-                "stored_payload_sha256": record["durable_effect"][
-                    "stored_payload_sha256"
-                ],
+                "stored_payload_sha256": record["durable_effect"]["stored_payload_sha256"],
                 "causal_sequence": record["durable_effect"]["causal_sequence"],
                 "causal_transaction_id": record["durable_effect"]["transaction_id"],
-                "causal_payload_sha256": record["durable_effect"][
-                    "causal_payload_sha256"
-                ],
+                "causal_payload_sha256": record["durable_effect"]["causal_payload_sha256"],
             }
         )
     bridge_gate_events = []
@@ -924,9 +1029,7 @@ def v4_continuity_attempt() -> dict[str, object]:
                 "owner_request_id": crossover_bridge_ids[0],
                 "started_monotonic_ns": deadline_started_ns,
                 "deadline_monotonic_ns": deadline_ns,
-                "timeout_seconds": float(
-                    config.continuity["route_switch_barrier_timeout_seconds"]
-                ),
+                "timeout_seconds": float(config.continuity["route_switch_barrier_timeout_seconds"]),
                 "source": "api_control_plane_designated_crossover_registration",
             },
             "route_switch_deadline_monotonic_ns": deadline_ns,
@@ -1038,12 +1141,8 @@ def v4_continuity_attempt() -> dict[str, object]:
                 "pending_crossover_request_set_sha256": canonical_sha256(pending_crossover_ids),
                 "released_crossover_request_ids": list(pending_crossover_ids),
                 "continuity_terminal_request_ids": pre_switch_terminal_ids,
-                "continuity_terminal_request_set_sha256": canonical_sha256(
-                    pre_switch_terminal_ids
-                ),
-                "continuity_terminal_records_sha256": canonical_sha256(
-                    pre_switch_terminal_records
-                ),
+                "continuity_terminal_request_set_sha256": canonical_sha256(pre_switch_terminal_ids),
+                "continuity_terminal_records_sha256": canonical_sha256(pre_switch_terminal_records),
                 "crossover_release_monotonic_ns": int(93.002 * 1e9),
                 "crossover_release_basis": ("fence_commit_readback_and_route_applied"),
                 "route_switch_deadline_owner_request_id": crossover_bridge_ids[0],
@@ -1139,9 +1238,7 @@ def test_s6bm_v4_continuity_plan_is_exact_and_frozen() -> None:
     deadline_owners = [
         item for item in plan["roles"]["bridge"] if item["route_switch_deadline_owner"] is True
     ]
-    assert [item["request_id"] for item in deadline_owners] == [
-        required_bridge[0]["request_id"]
-    ]
+    assert [item["request_id"] for item in deadline_owners] == [required_bridge[0]["request_id"]]
     assert set(plan["bridge_subsets"]) == {
         "receipt_required",
         "held",
@@ -1177,19 +1274,16 @@ def test_s6bm_v4_synthetic_runtime_mutation_cases_reject_exact_reasons(
     causal_raw = materialize_causal_mutation_bundle(causal_root, raw, config)
 
     assert project_success_attempt(raw, config)["passed"] is True
-    assert validate_causal_bundle(
-        causal_root, causal_raw, config, compare_projection=False
-    )["passed"] is True
+    assert (
+        validate_causal_bundle(causal_root, causal_raw, config, compare_projection=False)["passed"]
+        is True
+    )
     results = []
     for case_id, (_reason, _mutate, kind) in validator.MUTATIONS.items():
         source_root, source_raw = (
-            (causal_root, causal_raw)
-            if kind == "causal"
-            else (runtime_root, raw)
+            (causal_root, causal_raw) if kind == "causal" else (runtime_root, raw)
         )
-        results.append(
-            validator.run_case(source_root, source_raw, config, case_id)
-        )
+        results.append(validator.run_case(source_root, source_raw, config, case_id))
 
     assert len(results) == 24
     assert [item for item in results if item["rejected"] is not True] == []
@@ -1276,9 +1370,9 @@ def test_s6bm_v4_continuity_mutations_fail_closed(mutation: str, reason: str) ->
         terminal_gate["terminal_records_sha256"] = canonical_sha256(
             terminal_gate["terminal_records"]
         )
-        raw["causal_proof"]["route_transition_receipt"][
-            "continuity_terminal_records_sha256"
-        ] = terminal_gate["terminal_records_sha256"]
+        raw["causal_proof"]["route_transition_receipt"]["continuity_terminal_records_sha256"] = (
+            terminal_gate["terminal_records_sha256"]
+        )
     elif mutation == "last_future_green_routed":
         last_id = raw["continuity_execution"]["pre_switch_terminal_gate"][
             "expected_terminal_request_ids"

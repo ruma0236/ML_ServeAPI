@@ -73,7 +73,9 @@ def _entry(
             "attributes": _attributes(
                 {
                     "service.name": service_name,
-                    "telemetry.sdk.language": "cpp" if service_name == "triton-inference-server" else "python",
+                    "telemetry.sdk.language": "cpp"
+                    if service_name == "triton-inference-server"
+                    else "python",
                 }
             )
         },
@@ -232,7 +234,9 @@ def _clock_anchor(
     return anchor
 
 
-def _database_candidates(transaction_id: str, base_ns: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _database_candidates(
+    transaction_id: str, base_ns: int
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     candidates = []
     schema = "evm_s6bm_v4_fixture"
     for sequence in range(1, 9):
@@ -259,7 +263,9 @@ def _database_candidates(transaction_id: str, base_ns: int) -> tuple[list[dict[s
     return candidates, candidates[0]
 
 
-def _event(identity: dict[str, Any], event_type: str, sequence: int, payload: dict[str, Any]) -> dict[str, Any]:
+def _event(
+    identity: dict[str, Any], event_type: str, sequence: int, payload: dict[str, Any]
+) -> dict[str, Any]:
     database_ns = int(payload.get("fixture_database_ns", 90_000_000_000))
     event_payload = {key: value for key, value in payload.items() if key != "fixture_database_ns"}
     return {
@@ -271,9 +277,7 @@ def _event(identity: dict[str, Any], event_type: str, sequence: int, payload: di
         "database_recorded_at": _iso(database_ns + OFFSET_NS),
         "captured_at": _iso(database_ns + 500_000 + OFFSET_NS),
         "payload": event_payload,
-    } | {
-        "payload_sha256": canonical_sha256(event_payload)
-    }
+    } | {"payload_sha256": canonical_sha256(event_payload)}
 
 
 def _collector(
@@ -308,7 +312,9 @@ def _collector(
     }
     spec_ref = _write(root, f"{relative_root}/collector-spec.json", spec)
     trace_ref = _write(root, f"{relative_root}/triton-compute-start.json", raw_trace)
-    collector_nonce = hashlib.sha256(f"collector:{record['request_id']}".encode("ascii")).hexdigest()[:32]
+    collector_nonce = hashlib.sha256(
+        f"collector:{record['request_id']}".encode("ascii")
+    ).hexdigest()[:32]
     collector_observation = {
         "schema_version": "evm.s8_v4.s6bm_dual_clock_anchor.v3",
         "sequence": 1,
@@ -336,10 +342,22 @@ def _collector(
     }
     payload = {
         "schema_version": "evm.s8_v4.s6bm_triton_actor_receipt.v1",
-        **{key: record[key] for key in (
-            "attempt_id", "run_id", "request_id", "request_nonce", "trace_id", "effect_id",
-            "model_role", "model_name", "model_version", "artifact_sha256", "route_generation",
-        )},
+        **{
+            key: record[key]
+            for key in (
+                "attempt_id",
+                "run_id",
+                "request_id",
+                "request_nonce",
+                "trace_id",
+                "effect_id",
+                "model_role",
+                "model_name",
+                "model_version",
+                "artifact_sha256",
+                "route_generation",
+            )
+        },
         "actor_identity": "triton:fixture",
         "actor_start_unix_ns": int(compute_entry["span"]["startTimeUnixNano"]),
         "backend_identity": backend_identity,
@@ -360,12 +378,28 @@ def _collector(
     event = _event(record, "triton_backend_compute_entry", sequence, payload)
     receipt = {
         "schema_version": "evm.s6bm.causal_receipt.v1",
-        **{key: event[key] for key in (
-            "event_type", "attempt_id", "run_id", "request_id", "request_nonce", "trace_id",
-            "effect_id", "model_role", "model_name", "model_version", "artifact_sha256",
-            "route_generation", "causal_sequence", "transaction_id", "payload", "payload_sha256",
-            "database_recorded_at",
-        )},
+        **{
+            key: event[key]
+            for key in (
+                "event_type",
+                "attempt_id",
+                "run_id",
+                "request_id",
+                "request_nonce",
+                "trace_id",
+                "effect_id",
+                "model_role",
+                "model_name",
+                "model_version",
+                "artifact_sha256",
+                "route_generation",
+                "causal_sequence",
+                "transaction_id",
+                "payload",
+                "payload_sha256",
+                "database_recorded_at",
+            )
+        },
         "actor_identity": "triton:fixture",
         "readback_at": _iso(91_000_000_000 + OFFSET_NS),
         "readback_visible": True,
@@ -387,7 +421,11 @@ def _collector(
         "spec": spec_ref,
         "raw_trace": trace_ref,
     }
-    result_payload = {key: value for key, value in collector.items() if key not in {"spec", "result", "raw_trace", "stdout", "stderr"}}
+    result_payload = {
+        key: value
+        for key, value in collector.items()
+        if key not in {"spec", "result", "raw_trace", "stdout", "stderr"}
+    }
     collector["result"] = _write(root, f"{relative_root}/collector-result.json", result_payload)
     return collector, event
 
@@ -413,9 +451,89 @@ def materialize_causal_mutation_bundle(
     raw["request_records"] = records
     by_request = {str(item["request_id"]): item for item in records}
     hold = by_request[hold_id]
+    blue_identity_payload = {
+        "role": "blue",
+        "model_name": config.blue.model_name,
+        "model_version": config.blue.model_version,
+        "artifact_sha256": config.blue.artifact_sha256,
+        "config_sha256": config.blue.config_sha256,
+        "expected_output": list(config.blue.expected_output),
+    }
+    green_identity_payload = {
+        "role": "green",
+        "model_name": config.green.model_name,
+        "model_version": config.green.model_version,
+        "artifact_sha256": config.green.artifact_sha256,
+        "config_sha256": config.green.config_sha256,
+        "expected_output": list(config.green.expected_output),
+    }
+    blue_identity_sha256 = canonical_sha256(blue_identity_payload)
+    green_identity_sha256 = canonical_sha256(green_identity_payload)
+    lease_id = "lease-fixture"
+    fencing_token_sha256 = "d" * 64
+    active_blue_sha256 = canonical_sha256(
+        {
+            "routes": [
+                {
+                    "role": "blue",
+                    "weight": 100,
+                    "identity_sha256": blue_identity_sha256,
+                }
+            ]
+        }
+    )
+    route_source_payload = {
+        "schema_version": "evm.s6bm.route_revision.v1",
+        "run_id": hold["run_id"],
+        "source_revision": SOURCE_REVISION,
+        "control_generation": 2,
+        "route_generation": 2,
+        "phase": "blue_active_rollback",
+        "route_weights": {"blue": 100, "green": 0},
+        "loaded_roles": ["blue", "green"],
+        "active_route_identity_sha256": active_blue_sha256,
+        "blue_identity_sha256": blue_identity_sha256,
+        "green_identity_sha256": green_identity_sha256,
+        "image_digest": raw["identities"]["image_digest"],
+        "gpu_uuid": raw["identities"]["gpu_uuid"],
+        "action": "blue_switched",
+        "approval_id": "approval-blue-switched-fixture",
+        "used_approvals": ["approval-blue-switched-fixture"],
+        "route_changed": True,
+        "lease_id": lease_id,
+        "fencing_token_sha256": fencing_token_sha256,
+        "transition_id": None,
+        "transition_new_route_generation": None,
+    }
+    observed_route_revision = {
+        "schema_version": "evm.s6bm.observed_route_revision.v1",
+        "run_id": hold["run_id"],
+        "route_generation": 2,
+        "route_source_control_generation": 2,
+        "route_source_action": route_source_payload["action"],
+        "route_source_phase": route_source_payload["phase"],
+        "route_source_payload_sha256": canonical_sha256(route_source_payload),
+        "route_source_transaction_id": "49002",
+        "route_source_database_recorded_at": "2026-08-25T00:00:00.490Z",
+        "route_source_payload": route_source_payload,
+        "active_route_identity_sha256": active_blue_sha256,
+        "blue_identity_sha256": blue_identity_sha256,
+        "green_identity_sha256": green_identity_sha256,
+        "transition_id": None,
+        "transition_new_route_generation": None,
+        "lease_binding_control_generation": 2,
+        "lease_binding_payload_sha256": canonical_sha256(route_source_payload),
+        "lease_binding_transaction_id": "49002",
+        "lease_binding_payload": route_source_payload,
+        "lease_id": lease_id,
+        "fencing_token_sha256": fencing_token_sha256,
+    }
     for ordinal, record in enumerate(records, start=1):
         record["fixture_transaction_id"] = str(50_000 + ordinal)
         record["route_generation"] = 2
+        record["route_identity_sha256"] = blue_identity_sha256
+        record["lease_id_sha256"] = hashlib.sha256(lease_id.encode("utf-8")).hexdigest()
+        record["fencing_token_sha256"] = fencing_token_sha256
 
     previous = None
     for sequence, item in enumerate(raw["phase_timeline"], start=1):
@@ -454,16 +572,31 @@ def materialize_causal_mutation_bundle(
         record = by_request[request_id]
         entries = spans_by_request[request_id]
         for stage, span_name in (
-            ("api_server_handler_entry", "POST /control-panel/v1/scenario-workloads/triton-blue-green/predict"),
+            (
+                "api_server_handler_entry",
+                "POST /control-panel/v1/scenario-workloads/triton-blue-green/predict",
+            ),
             ("controller_entry", "s6bm.controller.predict"),
         ):
             span = next(item for item in entries if item["span"]["name"] == span_name)
             start_ns = int(span["span"]["startTimeUnixNano"])
             payload = {
-                **{key: record[key] for key in (
-                    "attempt_id", "run_id", "request_id", "request_nonce", "trace_id", "effect_id",
-                    "model_role", "model_name", "model_version", "artifact_sha256", "route_generation",
-                )},
+                **{
+                    key: record[key]
+                    for key in (
+                        "attempt_id",
+                        "run_id",
+                        "request_id",
+                        "request_nonce",
+                        "trace_id",
+                        "effect_id",
+                        "model_role",
+                        "model_name",
+                        "model_version",
+                        "artifact_sha256",
+                        "route_generation",
+                    )
+                },
                 "schema_version": "evm.s6bm.actor_start_observation.v1",
                 "actor_identity": f"fixture:{stage}",
                 "actor_start_unix_ns": start_ns,
@@ -491,18 +624,37 @@ def materialize_causal_mutation_bundle(
     effect_rows: list[dict[str, Any]] = []
     effect_events: list[dict[str, Any]] = []
 
-    def add_effect(record: dict[str, Any], *, requires_switch: bool, observed: dict[str, Any] | None) -> None:
+    def add_effect(
+        record: dict[str, Any], *, requires_switch: bool, observed: dict[str, Any] | None
+    ) -> None:
         nonlocal sequence
         commit_ns = int(float(record["completed_monotonic"]) * 1_000_000_000) - 5_000_000
         transaction_id = str(record["fixture_transaction_id"])
         event_payload = {
-            **{key: record[key] for key in (
-                "attempt_id", "run_id", "request_id", "request_nonce", "trace_id", "effect_id",
-                "model_role", "model_name", "model_version", "artifact_sha256", "route_generation",
-            )},
+            **{
+                key: record[key]
+                for key in (
+                    "attempt_id",
+                    "run_id",
+                    "request_id",
+                    "request_nonce",
+                    "trace_id",
+                    "effect_id",
+                    "model_role",
+                    "model_name",
+                    "model_version",
+                    "artifact_sha256",
+                    "route_generation",
+                )
+            },
             "schema_version": "evm.s8_v4.s6bm_terminal_causal_event.v1",
             "result_sha256": record["result_sha256"],
+            "route_identity_sha256": record["route_identity_sha256"],
+            "route_revision_binding_required": True,
+            "lease_id": lease_id,
+            "fencing_token_sha256": fencing_token_sha256,
             "requires_switch_before_effect": requires_switch,
+            "observed_route_revision": copy.deepcopy(observed_route_revision),
             **({"observed_transition": observed} if observed is not None else {}),
         }
         event = _event(
@@ -522,6 +674,7 @@ def materialize_causal_mutation_bundle(
             "causal_sequence": sequence,
             "causal_payload_sha256": event["payload_sha256"],
             "observed_transition": observed,
+            "observed_route_revision": copy.deepcopy(observed_route_revision),
         }
         entity_payload = {
             "schema_version": "evm.s8_v4.s6bm_terminal_effect.v1",
@@ -533,9 +686,11 @@ def materialize_causal_mutation_bundle(
             "offered_identity": copy.deepcopy(record["offered_identity"]),
             "served_identity": copy.deepcopy(record["offered_identity"]),
             "route_generation": record["route_generation"],
+            "route_identity_sha256": record["route_identity_sha256"],
             "result_sha256": record["result_sha256"],
             "terminal_outcome": "completed",
             "durable_commit": durable_commit,
+            "observed_route_revision": copy.deepcopy(observed_route_revision),
             **({"observed_transition": observed} if observed is not None else {}),
         }
         request_sha = hashlib.sha256(f"request:{record['request_id']}".encode("ascii")).hexdigest()
@@ -587,6 +742,8 @@ def materialize_causal_mutation_bundle(
             },
             "observed_transition": observed,
             "transition_readback_visible": requires_switch,
+            "observed_route_revision": copy.deepcopy(observed_route_revision),
+            "route_revision_readback_visible": True,
         }
         record["durable_effect"] = receipt
         effect_rows.append(
@@ -617,13 +774,14 @@ def materialize_causal_mutation_bundle(
     start_events = {
         str(item["request_id"]): {}
         for item in events
-        if item["event_type"] in {
-            "api_server_handler_entry", "controller_entry", "triton_backend_compute_entry"
-        }
+        if item["event_type"]
+        in {"api_server_handler_entry", "controller_entry", "triton_backend_compute_entry"}
     }
     for item in events:
         if item["event_type"] in {
-            "api_server_handler_entry", "controller_entry", "triton_backend_compute_entry"
+            "api_server_handler_entry",
+            "controller_entry",
+            "triton_backend_compute_entry",
         }:
             start_events[str(item["request_id"])][str(item["event_type"])] = item
     pending_ids = sorted([hold_id, crossover_id])
@@ -641,10 +799,22 @@ def materialize_causal_mutation_bundle(
         "preflight_vram_passed": True,
         "readiness_passed": True,
         "canary_passed": True,
-        "causal_crossover": {key: hold[key] for key in (
-            "attempt_id", "run_id", "request_id", "request_nonce", "trace_id", "effect_id",
-            "model_role", "model_name", "model_version", "artifact_sha256", "route_generation",
-        )},
+        "causal_crossover": {
+            key: hold[key]
+            for key in (
+                "attempt_id",
+                "run_id",
+                "request_id",
+                "request_nonce",
+                "trace_id",
+                "effect_id",
+                "model_role",
+                "model_name",
+                "model_version",
+                "artifact_sha256",
+                "route_generation",
+            )
+        },
         "continuity_receipt_request_ids": required_ids,
         "continuity_crossover_request_ids": [crossover_id],
         "pending_crossover_request_ids": pending_ids,
@@ -656,15 +826,24 @@ def materialize_causal_mutation_bundle(
     source_payload["action_digest"] = action_digest(control)
     receipt_maps = {
         "continuity_receipt_sequences": {
-            request_id: {stage: int(start_events[request_id][stage]["causal_sequence"]) for stage in sorted(start_events[request_id])}
+            request_id: {
+                stage: int(start_events[request_id][stage]["causal_sequence"])
+                for stage in sorted(start_events[request_id])
+            }
             for request_id in required_ids
         },
         "continuity_receipt_payload_sha256": {
-            request_id: {stage: start_events[request_id][stage]["payload_sha256"] for stage in sorted(start_events[request_id])}
+            request_id: {
+                stage: start_events[request_id][stage]["payload_sha256"]
+                for stage in sorted(start_events[request_id])
+            }
             for request_id in required_ids
         },
         "continuity_receipt_transaction_ids": {
-            request_id: {stage: str(start_events[request_id][stage]["transaction_id"]) for stage in sorted(start_events[request_id])}
+            request_id: {
+                stage: str(start_events[request_id][stage]["transaction_id"])
+                for stage in sorted(start_events[request_id])
+            }
             for request_id in required_ids
         },
     }
@@ -692,7 +871,9 @@ def materialize_causal_mutation_bundle(
         "cell_id": raw["attempt_id"],
         "replica_id": "fixture-replica",
     }
-    transition_id = canonical_sha256({"schema_version": "evm.s6bm.route_transition_identity.v1", **core})
+    transition_id = canonical_sha256(
+        {"schema_version": "evm.s6bm.route_transition_identity.v1", **core}
+    )
     fence_id = canonical_sha256(
         {
             "schema_version": "evm.s6bm.route_fence_identity.v1",
@@ -703,10 +884,22 @@ def materialize_causal_mutation_bundle(
     )
     switch_payload = {
         "schema_version": "evm.s6bm.route_switch_fence.v2",
-        **{key: hold[key] for key in (
-            "attempt_id", "run_id", "request_id", "request_nonce", "trace_id", "effect_id",
-            "model_role", "model_name", "model_version", "artifact_sha256", "route_generation",
-        )},
+        **{
+            key: hold[key]
+            for key in (
+                "attempt_id",
+                "run_id",
+                "request_id",
+                "request_nonce",
+                "trace_id",
+                "effect_id",
+                "model_role",
+                "model_name",
+                "model_version",
+                "artifact_sha256",
+                "route_generation",
+            )
+        },
         **core,
         "transition_id": transition_id,
         "fence_id": fence_id,
@@ -767,12 +960,26 @@ def materialize_causal_mutation_bundle(
     add_effect(by_request[crossover_id], requires_switch=True, observed=observed)
 
     pre_switch_ids = sorted(str(item["request_id"]) for item in records)
-    pre_switch_effects = sorted((str(item["request_id"]), str(item["effect_id"])) for item in records)
+    pre_switch_effects = sorted(
+        (str(item["request_id"]), str(item["effect_id"])) for item in records
+    )
     unload_payload = {
-        **{key: hold[key] for key in (
-            "attempt_id", "run_id", "request_id", "request_nonce", "trace_id", "effect_id",
-            "model_role", "model_name", "model_version", "artifact_sha256", "route_generation",
-        )},
+        **{
+            key: hold[key]
+            for key in (
+                "attempt_id",
+                "run_id",
+                "request_id",
+                "request_nonce",
+                "trace_id",
+                "effect_id",
+                "model_role",
+                "model_name",
+                "model_version",
+                "artifact_sha256",
+                "route_generation",
+            )
+        },
         "schema_version": "evm.s6bm.unload_intent.v1",
         "switch_sequence": switch["causal_sequence"],
         "last_terminal_effect_sequence": max(item["causal_sequence"] for item in effect_events),
@@ -803,7 +1010,9 @@ def materialize_causal_mutation_bundle(
     }
     event_ref = _write(root, "causal/causal-events.json", event_export)
     effect_ref = _write(root, "causal/durable-effects.json", effect_export)
-    pre_switch_events = [item for item in events if int(item["causal_sequence"]) < int(switch["causal_sequence"])]
+    pre_switch_events = [
+        item for item in events if int(item["causal_sequence"]) < int(switch["causal_sequence"])
+    ]
     pre_switch_ref = _write(
         root,
         "causal/bridge-start-receipts-pre-switch.json",
@@ -837,11 +1046,27 @@ def materialize_causal_mutation_bundle(
 
     fence_receipt = {
         "schema_version": "evm.s6bm.route_switch_receipt.v2",
-        **{key: switch[key] for key in (
-            "attempt_id", "run_id", "request_id", "request_nonce", "trace_id", "effect_id",
-            "model_role", "model_name", "model_version", "artifact_sha256", "route_generation",
-            "causal_sequence", "transaction_id", "database_recorded_at", "payload", "payload_sha256",
-        )},
+        **{
+            key: switch[key]
+            for key in (
+                "attempt_id",
+                "run_id",
+                "request_id",
+                "request_nonce",
+                "trace_id",
+                "effect_id",
+                "model_role",
+                "model_name",
+                "model_version",
+                "artifact_sha256",
+                "route_generation",
+                "causal_sequence",
+                "transaction_id",
+                "database_recorded_at",
+                "payload",
+                "payload_sha256",
+            )
+        },
         "transition_id": transition_id,
         "fence_id": fence_id,
         "fence_sequence": switch["causal_sequence"],
@@ -858,6 +1083,53 @@ def materialize_causal_mutation_bundle(
         "commit_ack_monotonic_ns": 92_991_000_000,
         "readback_started_monotonic_ns": 92_991_500_000,
         "readback_finished_monotonic_ns": 92_992_000_000,
+        "readback_visible": True,
+        "replayed": False,
+    }
+    route_revision_payload = {
+        "schema_version": "evm.s6bm.route_revision.v1",
+        "run_id": hold["run_id"],
+        "source_revision": SOURCE_REVISION,
+        "control_generation": 3,
+        "route_generation": 3,
+        "phase": "green_active",
+        "route_weights": {"blue": 0, "green": 100},
+        "loaded_roles": ["blue", "green"],
+        "active_route_identity_sha256": canonical_sha256(
+            {
+                "routes": [
+                    {
+                        "role": "green",
+                        "weight": 100,
+                        "identity_sha256": green_identity_sha256,
+                    }
+                ]
+            }
+        ),
+        "blue_identity_sha256": blue_identity_sha256,
+        "green_identity_sha256": green_identity_sha256,
+        "image_digest": raw["identities"]["image_digest"],
+        "gpu_uuid": raw["identities"]["gpu_uuid"],
+        "action": "green_switched",
+        "approval_id": "approval-green-switched-fixture",
+        "used_approvals": [
+            "approval-canary-started-fixture",
+            "approval-green-loaded-fixture",
+            "approval-green-switched-fixture",
+        ],
+        "route_changed": True,
+        "lease_id": lease_id,
+        "fencing_token_sha256": fencing_token_sha256,
+        "transition_id": transition_id,
+        "transition_new_route_generation": 3,
+    }
+    route_revision_receipt = {
+        "schema_version": "evm.s6bm.route_revision_receipt.v1",
+        "payload": route_revision_payload,
+        "payload_sha256": canonical_sha256(route_revision_payload),
+        "transaction_id": "902",
+        "database_recorded_at": "2026-08-25T00:00:00.902Z",
+        "readback_at": "2026-08-25T00:00:00.903Z",
         "readback_visible": True,
         "replayed": False,
     }
@@ -897,10 +1169,13 @@ def materialize_causal_mutation_bundle(
         },
         "state_readback": {
             "generation": 3,
+            "route_generation": 3,
             "phase": "green_active",
             "route_weights": {"blue": 0, "green": 100},
             "loaded_roles": ["blue", "green"],
         },
+        "route_revision_payload_sha256": route_revision_receipt["payload_sha256"],
+        "route_revision_transaction_id": route_revision_receipt["transaction_id"],
         "continuity_receipt_request_ids": required_ids,
         "continuity_receipt_request_set_sha256": canonical_sha256(required_ids),
         "continuity_crossover_request_ids": [crossover_id],
@@ -913,8 +1188,12 @@ def materialize_causal_mutation_bundle(
         "continuity_terminal_records_sha256": terminal_records_sha,
         "crossover_release_monotonic_ns": 93_001_000_000,
         "route_switch_deadline_owner_request_id": crossover_id,
-        "route_switch_deadline_started_monotonic_ns": raw["continuity_execution"]["route_switch_deadline"]["started_monotonic_ns"],
-        "route_switch_deadline_monotonic_ns": raw["continuity_execution"]["route_switch_deadline"]["deadline_monotonic_ns"],
+        "route_switch_deadline_started_monotonic_ns": raw["continuity_execution"][
+            "route_switch_deadline"
+        ]["started_monotonic_ns"],
+        "route_switch_deadline_monotonic_ns": raw["continuity_execution"]["route_switch_deadline"][
+            "deadline_monotonic_ns"
+        ],
     }
 
     selected_gate_events = sorted(
@@ -923,10 +1202,23 @@ def materialize_causal_mutation_bundle(
                 **{
                     key: event[key]
                     for key in (
-                        "causal_sequence", "event_type", "attempt_id", "run_id", "request_id",
-                        "request_nonce", "trace_id", "effect_id", "model_role", "model_name",
-                        "model_version", "artifact_sha256", "route_generation", "actor_identity",
-                        "payload_sha256", "transaction_id", "database_recorded_at",
+                        "causal_sequence",
+                        "event_type",
+                        "attempt_id",
+                        "run_id",
+                        "request_id",
+                        "request_nonce",
+                        "trace_id",
+                        "effect_id",
+                        "model_role",
+                        "model_name",
+                        "model_version",
+                        "artifact_sha256",
+                        "route_generation",
+                        "actor_identity",
+                        "payload_sha256",
+                        "transaction_id",
+                        "database_recorded_at",
                     )
                 },
                 "readback_at": event["captured_at"],
@@ -950,7 +1242,9 @@ def materialize_causal_mutation_bundle(
         "raw_readback_export": pre_switch_ref,
         "raw_readback_event_count": len(pre_switch_events),
         "selected_event_set_sha256": canonical_sha256(selected_gate_events),
-        "maximum_visible_causal_sequence": max(item["causal_sequence"] for item in selected_gate_events),
+        "maximum_visible_causal_sequence": max(
+            item["causal_sequence"] for item in selected_gate_events
+        ),
         "events": selected_gate_events,
         "collector_request_ids": required_ids,
         "collector_request_set_sha256": canonical_sha256(required_ids),
@@ -971,6 +1265,7 @@ def materialize_causal_mutation_bundle(
         "causal_event_export": event_ref,
         "durable_effect_export": effect_ref,
         "route_transition_receipt": transition,
+        "route_revision_receipt": route_revision_receipt,
         "triton_start_receipt": collectors[hold_id],
     }
     raw["observability"] = {"artifacts": {"trace_export": trace_ref}}

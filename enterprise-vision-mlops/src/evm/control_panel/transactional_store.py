@@ -36,6 +36,7 @@ SCHEMA_VERSIONS = (
     "005_task_queue_operational_safety",
     "006_s6bm_causal_receipts",
     "007_s6bm_transition_fence_identity",
+    "008_s6bm_route_revision_history",
 )
 CONTROL_PLANE_DB_POOL_ACQUIRE_SECONDS = Histogram(
     "evm_control_plane_db_pool_acquire_seconds",
@@ -334,6 +335,238 @@ def _validate_s6bm_causal_identity(payload: Mapping[str, Any]) -> dict[str, Any]
     return identity
 
 
+_S6BM_ROUTE_REVISION_FIELDS = {
+    "schema_version",
+    "run_id",
+    "source_revision",
+    "control_generation",
+    "route_generation",
+    "phase",
+    "route_weights",
+    "loaded_roles",
+    "active_route_identity_sha256",
+    "blue_identity_sha256",
+    "green_identity_sha256",
+    "image_digest",
+    "gpu_uuid",
+    "action",
+    "approval_id",
+    "used_approvals",
+    "route_changed",
+    "lease_id",
+    "fencing_token_sha256",
+    "transition_id",
+    "transition_new_route_generation",
+}
+
+
+def _validate_s6bm_route_revision_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    value = dict(payload)
+    weights = value.get("route_weights")
+    loaded = value.get("loaded_roles")
+    approvals = value.get("used_approvals")
+    control_generation = value.get("control_generation")
+    route_generation = value.get("route_generation")
+    if (
+        set(value) != _S6BM_ROUTE_REVISION_FIELDS
+        or value.get("schema_version") != "evm.s6bm.route_revision.v1"
+        or not isinstance(value.get("run_id"), str)
+        or not value["run_id"]
+        or not isinstance(value.get("source_revision"), str)
+        or len(value["source_revision"]) != 40
+        or type(control_generation) is not int
+        or type(route_generation) is not int
+        or control_generation < 1
+        or route_generation < 1
+        or route_generation > control_generation
+        or not isinstance(value.get("phase"), str)
+        or not value["phase"]
+        or not isinstance(weights, Mapping)
+        or set(weights) != {"blue", "green"}
+        or any(type(item) is not int or item < 0 for item in weights.values())
+        or sum(weights.values()) != 100
+        or not isinstance(loaded, list)
+        or len(loaded) != len(set(loaded))
+        or not set(loaded).issubset({"blue", "green"})
+        or any(weights[role] > 0 and role not in loaded for role in weights)
+        or not isinstance(approvals, list)
+        or len(approvals) != len(set(approvals))
+        or any(not isinstance(item, str) or not item for item in approvals)
+        or any(
+            not isinstance(value.get(field), str) or len(value[field]) != 64
+            for field in (
+                "active_route_identity_sha256",
+                "blue_identity_sha256",
+                "green_identity_sha256",
+                "fencing_token_sha256",
+            )
+        )
+        or not isinstance(value.get("image_digest"), str)
+        or not value["image_digest"].startswith("sha256:")
+        or not isinstance(value.get("gpu_uuid"), str)
+        or not value["gpu_uuid"]
+        or not isinstance(value.get("action"), str)
+        or not value["action"]
+        or (value.get("approval_id") is not None and not isinstance(value["approval_id"], str))
+        or type(value.get("route_changed")) is not bool
+        or not isinstance(value.get("lease_id"), str)
+        or not value["lease_id"]
+    ):
+        raise ControlPlaneParityError("S6B-M route revision payload is invalid")
+    if value["action"] == "green_switched":
+        if (
+            not isinstance(value.get("transition_id"), str)
+            or len(value["transition_id"]) != 64
+            or type(value.get("transition_new_route_generation")) is not int
+            or value["transition_new_route_generation"] != route_generation
+            or value["route_changed"] is not True
+        ):
+            raise ControlPlaneParityError(
+                "S6B-M Green switch route revision lacks its durable transition"
+            )
+    elif (
+        value.get("transition_id") is not None
+        or value.get("transition_new_route_generation") is not None
+    ):
+        raise ControlPlaneParityError("S6B-M non-switch route revision has transition data")
+    if value["active_route_identity_sha256"] != _s6bm_active_route_identity_sha256(
+        weights,
+        blue_identity_sha256=value["blue_identity_sha256"],
+        green_identity_sha256=value["green_identity_sha256"],
+    ):
+        raise ControlPlaneParityError("S6B-M active route identity hash is invalid")
+    return value
+
+
+def _s6bm_active_route_identity_sha256(
+    weights: Mapping[str, Any], *, blue_identity_sha256: str, green_identity_sha256: str
+) -> str:
+    identities = {"blue": blue_identity_sha256, "green": green_identity_sha256}
+    return canonical_digest(
+        {
+            "routes": [
+                {
+                    "role": role,
+                    "weight": int(weights[role]),
+                    "identity_sha256": identities[role],
+                }
+                for role in ("blue", "green")
+                if int(weights[role]) > 0
+            ]
+        }
+    )
+
+
+_S6BM_OBSERVED_ROUTE_REVISION_FIELDS = {
+    "schema_version",
+    "run_id",
+    "route_generation",
+    "route_source_control_generation",
+    "route_source_action",
+    "route_source_phase",
+    "route_source_payload_sha256",
+    "route_source_transaction_id",
+    "route_source_database_recorded_at",
+    "route_source_payload",
+    "active_route_identity_sha256",
+    "blue_identity_sha256",
+    "green_identity_sha256",
+    "transition_id",
+    "transition_new_route_generation",
+    "lease_binding_control_generation",
+    "lease_binding_payload_sha256",
+    "lease_binding_transaction_id",
+    "lease_binding_payload",
+    "lease_id",
+    "fencing_token_sha256",
+}
+
+
+def _validate_s6bm_observed_route_revision(value: Mapping[str, Any]) -> dict[str, Any]:
+    reference = dict(value)
+    route_source_payload = reference.get("route_source_payload")
+    lease_binding_payload = reference.get("lease_binding_payload")
+    route_generation = reference.get("route_generation")
+    route_source_control = reference.get("route_source_control_generation")
+    lease_control = reference.get("lease_binding_control_generation")
+    if (
+        set(reference) != _S6BM_OBSERVED_ROUTE_REVISION_FIELDS
+        or reference.get("schema_version") != "evm.s6bm.observed_route_revision.v1"
+        or not isinstance(reference.get("run_id"), str)
+        or not reference["run_id"]
+        or type(route_generation) is not int
+        or type(route_source_control) is not int
+        or type(lease_control) is not int
+        or route_generation < 1
+        or route_source_control != route_generation
+        or lease_control < route_source_control
+        or not isinstance(reference.get("route_source_action"), str)
+        or not reference["route_source_action"]
+        or not isinstance(reference.get("route_source_phase"), str)
+        or not reference["route_source_phase"]
+        or not isinstance(reference.get("route_source_transaction_id"), str)
+        or not reference["route_source_transaction_id"]
+        or not isinstance(reference.get("route_source_database_recorded_at"), str)
+        or not reference["route_source_database_recorded_at"]
+        or not isinstance(route_source_payload, Mapping)
+        or not isinstance(reference.get("lease_binding_transaction_id"), str)
+        or not reference["lease_binding_transaction_id"]
+        or not isinstance(lease_binding_payload, Mapping)
+        or not isinstance(reference.get("lease_id"), str)
+        or not reference["lease_id"]
+        or any(
+            not isinstance(reference.get(field), str) or len(reference[field]) != 64
+            for field in (
+                "route_source_payload_sha256",
+                "active_route_identity_sha256",
+                "blue_identity_sha256",
+                "green_identity_sha256",
+                "lease_binding_payload_sha256",
+                "fencing_token_sha256",
+            )
+        )
+    ):
+        raise ControlPlaneParityError("S6B-M observed route revision is invalid")
+    route_payload = _validate_s6bm_route_revision_payload(route_source_payload)
+    lease_payload = _validate_s6bm_route_revision_payload(lease_binding_payload)
+    if (
+        route_payload["run_id"] != reference["run_id"]
+        or route_payload["control_generation"] != route_source_control
+        or route_payload["route_generation"] != route_generation
+        or route_payload["route_changed"] is not True
+        or route_payload["action"] != reference["route_source_action"]
+        or route_payload["phase"] != reference["route_source_phase"]
+        or canonical_digest(route_payload) != reference["route_source_payload_sha256"]
+        or route_payload["active_route_identity_sha256"]
+        != reference["active_route_identity_sha256"]
+        or route_payload["blue_identity_sha256"] != reference["blue_identity_sha256"]
+        or route_payload["green_identity_sha256"] != reference["green_identity_sha256"]
+        or route_payload["transition_id"] != reference["transition_id"]
+        or route_payload["transition_new_route_generation"]
+        != reference["transition_new_route_generation"]
+        or lease_payload["run_id"] != reference["run_id"]
+        or lease_payload["control_generation"] != lease_control
+        or lease_payload["route_generation"] != route_generation
+        or canonical_digest(lease_payload) != reference["lease_binding_payload_sha256"]
+        or lease_payload["lease_id"] != reference["lease_id"]
+        or lease_payload["fencing_token_sha256"] != reference["fencing_token_sha256"]
+    ):
+        raise ControlPlaneParityError("S6B-M observed route revision payload parity failed")
+    if reference["route_source_action"] == "green_switched":
+        if (
+            not isinstance(reference.get("transition_id"), str)
+            or len(reference["transition_id"]) != 64
+            or reference.get("transition_new_route_generation") != route_generation
+        ):
+            raise ControlPlaneParityError("S6B-M switch route revision reference is invalid")
+    elif (
+        reference.get("transition_id") is not None
+        or reference.get("transition_new_route_generation") is not None
+    ):
+        raise ControlPlaneParityError("S6B-M non-switch route revision reference is invalid")
+    return reference
+
+
 def s6bm_terminal_fence_record(
     entity: Mapping[str, Any],
     event: Mapping[str, Any],
@@ -341,8 +574,24 @@ def s6bm_terminal_fence_record(
     """Project one durable terminal entity and causal event for the switch fence."""
     payload = dict(entity.get("payload", {}))
     served = dict(payload.get("served_identity", {}))
+    served_role = str(served.get("model_role", ""))
     durable = dict(payload.get("durable_commit", {}))
     event_payload = dict(event.get("payload", {}))
+    route_reference_values = (
+        payload.get("observed_route_revision"),
+        event_payload.get("observed_route_revision"),
+        durable.get("observed_route_revision"),
+    )
+    observed_route_revision = None
+    if any(value is not None for value in route_reference_values):
+        if (
+            any(value is None for value in route_reference_values)
+            or len({canonical_digest(value) for value in route_reference_values}) != 1
+        ):
+            raise ControlPlaneParityError("S6B-M terminal route revision parity failed")
+        observed_route_revision = _validate_s6bm_observed_route_revision(
+            dict(route_reference_values[0])
+        )
     request_id = str(payload.get("request_id", ""))
     effect_id = str(payload.get("effect_id", ""))
     if (
@@ -362,15 +611,23 @@ def s6bm_terminal_fence_record(
             for field in ("model_role", "model_name", "model_version", "artifact_sha256")
         )
         or int(event.get("route_generation", 0)) != int(payload.get("route_generation", 0))
+        or (
+            observed_route_revision is not None
+            and (
+                served_role not in {"blue", "green"}
+                or int(observed_route_revision["route_generation"])
+                != int(payload.get("route_generation", 0))
+                or observed_route_revision[f"{served_role}_identity_sha256"]
+                != payload.get("route_identity_sha256")
+            )
+        )
         or event.get("payload_sha256") != canonical_digest(event_payload)
-        or int(event.get("causal_sequence", 0))
-        != int(durable.get("causal_sequence", -1))
-        or str(event.get("transaction_id", ""))
-        != str(durable.get("transaction_id", ""))
+        or int(event.get("causal_sequence", 0)) != int(durable.get("causal_sequence", -1))
+        or str(event.get("transaction_id", "")) != str(durable.get("transaction_id", ""))
         or not str(entity.get("request_sha256", ""))
     ):
         raise ControlPlaneParityError("S6B-M terminal fence record parity failed")
-    return {
+    record = {
         "attempt_id": payload["attempt_id"],
         "run_id": payload["run_id"],
         "request_id": request_id,
@@ -381,6 +638,7 @@ def s6bm_terminal_fence_record(
         "model_version": served["model_version"],
         "artifact_sha256": served["artifact_sha256"],
         "route_generation": int(payload["route_generation"]),
+        "route_identity_sha256": payload.get("route_identity_sha256"),
         "result_sha256": payload["result_sha256"],
         "terminal_outcome": payload["terminal_outcome"],
         "entity_state": entity["state"],
@@ -391,6 +649,9 @@ def s6bm_terminal_fence_record(
         "causal_transaction_id": str(event["transaction_id"]),
         "causal_payload_sha256": event["payload_sha256"],
     }
+    if observed_route_revision is not None:
+        record["observed_route_revision"] = observed_route_revision
+    return record
 
 
 def _advisory_key(scope: str) -> int:
@@ -1277,6 +1538,339 @@ class TransactionalControlPlaneStore:
             "replayed": replayed,
         }
 
+    def _readback_s6bm_route_revision(
+        self, *, run_id: str, control_generation: int
+    ) -> dict[str, Any]:
+        schema = _safe_identifier(self.configuration.schema)
+        with self.transaction("s6bm_route_revision_readback") as connection:
+            row = connection.execute(
+                f"""
+                SELECT revision.*, clock_timestamp() AS readback_at
+                FROM {schema}.s6bm_route_revisions revision
+                WHERE run_id=%s AND control_generation=%s
+                """,
+                (run_id, control_generation),
+            ).fetchone()
+        if row is None:
+            raise ControlPlaneParityError("S6B-M route revision disappeared after commit")
+        payload = _validate_s6bm_route_revision_payload(dict(row["payload"]))
+        if (
+            int(row["route_generation"]) != int(payload["route_generation"])
+            or bool(row["route_changed"]) is not payload["route_changed"]
+            or str(row["action"]) != payload["action"]
+            or str(row["lease_id"]) != payload["lease_id"]
+            or str(row["fencing_token_sha256"]) != payload["fencing_token_sha256"]
+            or str(row["payload_sha256"]) != canonical_digest(payload)
+        ):
+            raise ControlPlaneParityError("S6B-M route revision readback parity failed")
+        return {
+            "schema_version": "evm.s6bm.route_revision_receipt.v1",
+            "payload": payload,
+            "payload_sha256": str(row["payload_sha256"]),
+            "transaction_id": str(row["transaction_id"]),
+            "database_recorded_at": _utc_iso(row["database_recorded_at"]),
+            "readback_at": _utc_iso(row["readback_at"]),
+            "readback_visible": True,
+            "replayed": False,
+        }
+
+    @staticmethod
+    def _s6bm_route_revision_reference(
+        route_row: Mapping[str, Any], lease_row: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        route_payload = _validate_s6bm_route_revision_payload(dict(route_row["payload"]))
+        lease_payload = _validate_s6bm_route_revision_payload(dict(lease_row["payload"]))
+        return _validate_s6bm_observed_route_revision(
+            {
+                "schema_version": "evm.s6bm.observed_route_revision.v1",
+                "run_id": route_payload["run_id"],
+                "route_generation": int(route_payload["route_generation"]),
+                "route_source_control_generation": int(route_payload["control_generation"]),
+                "route_source_action": route_payload["action"],
+                "route_source_phase": route_payload["phase"],
+                "route_source_payload_sha256": str(route_row["payload_sha256"]),
+                "route_source_transaction_id": str(route_row["transaction_id"]),
+                "route_source_database_recorded_at": _utc_iso(route_row["database_recorded_at"]),
+                "route_source_payload": route_payload,
+                "active_route_identity_sha256": route_payload["active_route_identity_sha256"],
+                "blue_identity_sha256": route_payload["blue_identity_sha256"],
+                "green_identity_sha256": route_payload["green_identity_sha256"],
+                "transition_id": route_payload["transition_id"],
+                "transition_new_route_generation": route_payload["transition_new_route_generation"],
+                "lease_binding_control_generation": int(lease_payload["control_generation"]),
+                "lease_binding_payload_sha256": str(lease_row["payload_sha256"]),
+                "lease_binding_transaction_id": str(lease_row["transaction_id"]),
+                "lease_binding_payload": lease_payload,
+                "lease_id": lease_payload["lease_id"],
+                "fencing_token_sha256": lease_payload["fencing_token_sha256"],
+            }
+        )
+
+    def _lock_s6bm_effect_route_revision(
+        self,
+        connection: Any,
+        *,
+        identity: Mapping[str, Any],
+        causal_payload: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        if causal_payload.get("route_revision_binding_required") is not True:
+            return None
+        route_generation = int(identity["route_generation"])
+        route_identity_sha256 = causal_payload.get("route_identity_sha256")
+        lease_id = causal_payload.get("lease_id")
+        fencing_token_sha256 = causal_payload.get("fencing_token_sha256")
+        if (
+            not isinstance(route_identity_sha256, str)
+            or len(route_identity_sha256) != 64
+            or not isinstance(lease_id, str)
+            or not lease_id
+            or not isinstance(fencing_token_sha256, str)
+            or len(fencing_token_sha256) != 64
+        ):
+            raise ControlPlaneParityError("S6B-M effect route revision identity is incomplete")
+        schema = _safe_identifier(self.configuration.schema)
+        route_rows = connection.execute(
+            f"""
+            SELECT * FROM {schema}.s6bm_route_revisions
+            WHERE run_id=%s AND control_generation=%s
+              AND route_generation=%s AND route_changed=TRUE
+            FOR SHARE
+            """,
+            (identity["run_id"], route_generation, route_generation),
+        ).fetchall()
+        if len(route_rows) != 1:
+            raise ControlPlaneParityError("S6B-M effect route revision source is ambiguous")
+        route_row = route_rows[0]
+        route_payload = _validate_s6bm_route_revision_payload(dict(route_row["payload"]))
+        role = str(identity["model_role"])
+        identity_field = f"{role}_identity_sha256"
+        if (
+            role not in {"blue", "green"}
+            or int(route_payload["route_weights"].get(role, 0)) <= 0
+            or route_payload.get(identity_field) != route_identity_sha256
+            or str(route_row["payload_sha256"]) != canonical_digest(route_payload)
+        ):
+            raise ControlPlaneParityError("S6B-M effect route revision model binding failed")
+        lease_row = connection.execute(
+            f"""
+            SELECT * FROM {schema}.s6bm_route_revisions
+            WHERE run_id=%s AND route_generation=%s
+              AND lease_id=%s AND fencing_token_sha256=%s
+            ORDER BY control_generation DESC LIMIT 1 FOR SHARE
+            """,
+            (identity["run_id"], route_generation, lease_id, fencing_token_sha256),
+        ).fetchone()
+        if lease_row is None:
+            raise ControlPlaneParityError("S6B-M effect lease fence lacks a route revision")
+        lease_payload = _validate_s6bm_route_revision_payload(dict(lease_row["payload"]))
+        if (
+            lease_payload["lease_id"] != lease_id
+            or lease_payload["fencing_token_sha256"] != fencing_token_sha256
+            or int(lease_payload["route_generation"]) != route_generation
+            or str(lease_row["payload_sha256"]) != canonical_digest(lease_payload)
+        ):
+            raise ControlPlaneParityError("S6B-M effect lease route binding failed")
+        return self._s6bm_route_revision_reference(route_row, lease_row)
+
+    def restore_or_initialize_s6bm_route_revision(
+        self, *, initial_payload: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Restore the last control revision, or append the initial/rebind revision."""
+
+        if not self.enabled:
+            raise ControlPlaneStoreUnavailable("S6B-M route revisions require PostgreSQL")
+        initial = _validate_s6bm_route_revision_payload(initial_payload)
+        if (
+            initial["action"] != "initialized"
+            or initial["control_generation"] != 1
+            or initial["route_generation"] != 1
+            or initial["route_changed"] is not True
+        ):
+            raise ControlPlaneParityError("S6B-M initial route revision is invalid")
+        schema = _safe_identifier(self.configuration.schema)
+        replayed = False
+        with self.serialized(f"s6bm-route-revision:{initial['run_id']}") as connection:
+            connection.execute("SELECT set_config('synchronous_commit', 'on', true)")
+            latest = connection.execute(
+                f"""
+                SELECT * FROM {schema}.s6bm_route_revisions
+                WHERE run_id=%s ORDER BY control_generation DESC LIMIT 1 FOR UPDATE
+                """,
+                (initial["run_id"],),
+            ).fetchone()
+            if latest is None:
+                payload = initial
+            else:
+                previous = _validate_s6bm_route_revision_payload(dict(latest["payload"]))
+                immutable_fields = (
+                    "run_id",
+                    "source_revision",
+                    "image_digest",
+                    "gpu_uuid",
+                )
+                if any(previous[field] != initial[field] for field in immutable_fields):
+                    raise ControlPlaneParityError(
+                        "S6B-M route revision source identity changed during restore"
+                    )
+                identity_changed = any(
+                    previous[field] != initial[field]
+                    for field in ("blue_identity_sha256", "green_identity_sha256")
+                )
+                lease_changed = any(
+                    previous[field] != initial[field]
+                    for field in ("lease_id", "fencing_token_sha256")
+                )
+                if not identity_changed and not lease_changed:
+                    replayed = True
+                    payload = previous
+                else:
+                    next_control = int(previous["control_generation"]) + 1
+                    rebound_active_identity = _s6bm_active_route_identity_sha256(
+                        previous["route_weights"],
+                        blue_identity_sha256=initial["blue_identity_sha256"],
+                        green_identity_sha256=initial["green_identity_sha256"],
+                    )
+                    active_identity_changed = (
+                        previous["active_route_identity_sha256"] != rebound_active_identity
+                    )
+                    payload = {
+                        **previous,
+                        "control_generation": next_control,
+                        "route_generation": (
+                            next_control
+                            if active_identity_changed
+                            else int(previous["route_generation"])
+                        ),
+                        "active_route_identity_sha256": rebound_active_identity,
+                        "blue_identity_sha256": initial["blue_identity_sha256"],
+                        "green_identity_sha256": initial["green_identity_sha256"],
+                        "action": (
+                            "active_identity_rebound"
+                            if active_identity_changed
+                            else "lease_rebound"
+                        ),
+                        "approval_id": None,
+                        "route_changed": active_identity_changed,
+                        "lease_id": initial["lease_id"],
+                        "fencing_token_sha256": initial["fencing_token_sha256"],
+                        "transition_id": None,
+                        "transition_new_route_generation": None,
+                    }
+            if not replayed:
+                payload = _validate_s6bm_route_revision_payload(payload)
+                connection.execute(
+                    f"""
+                    INSERT INTO {schema}.s6bm_route_revisions
+                        (run_id, control_generation, route_generation, route_changed,
+                         action, lease_id, fencing_token_sha256, payload_sha256,
+                         payload, transaction_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, txid_current())
+                    """,
+                    (
+                        payload["run_id"],
+                        payload["control_generation"],
+                        payload["route_generation"],
+                        payload["route_changed"],
+                        payload["action"],
+                        payload["lease_id"],
+                        payload["fencing_token_sha256"],
+                        canonical_digest(payload),
+                        self._json(payload),
+                    ),
+                )
+        receipt = self._readback_s6bm_route_revision(
+            run_id=str(payload["run_id"]),
+            control_generation=int(payload["control_generation"]),
+        )
+        receipt["replayed"] = replayed
+        return receipt
+
+    def commit_s6bm_route_revision(
+        self,
+        *,
+        previous_control_generation: int,
+        previous_route_generation: int,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Append one fenced control revision and preserve the last route-changing revision."""
+
+        if not self.enabled:
+            raise ControlPlaneStoreUnavailable("S6B-M route revisions require PostgreSQL")
+        revision = _validate_s6bm_route_revision_payload(payload)
+        schema = _safe_identifier(self.configuration.schema)
+        with self.serialized(f"s6bm-route-revision:{revision['run_id']}") as connection:
+            connection.execute("SELECT set_config('synchronous_commit', 'on', true)")
+            latest = connection.execute(
+                f"""
+                SELECT * FROM {schema}.s6bm_route_revisions
+                WHERE run_id=%s ORDER BY control_generation DESC LIMIT 1 FOR UPDATE
+                """,
+                (revision["run_id"],),
+            ).fetchone()
+            if latest is None:
+                raise ControlPlaneParityError("S6B-M route revision has no initialized state")
+            previous = _validate_s6bm_route_revision_payload(dict(latest["payload"]))
+            changed = (
+                revision["active_route_identity_sha256"] != previous["active_route_identity_sha256"]
+            )
+            expected_control = int(previous["control_generation"]) + 1
+            expected_route = expected_control if changed else int(previous["route_generation"])
+            if (
+                int(previous["control_generation"]) != previous_control_generation
+                or int(previous["route_generation"]) != previous_route_generation
+                or int(revision["control_generation"]) != expected_control
+                or int(revision["route_generation"]) != expected_route
+                or revision["route_changed"] is not changed
+                or revision["used_approvals"]
+                != sorted([*previous["used_approvals"], revision["approval_id"]])
+                or revision["source_revision"] != previous["source_revision"]
+                or revision["blue_identity_sha256"] != previous["blue_identity_sha256"]
+                or revision["green_identity_sha256"] != previous["green_identity_sha256"]
+                or revision["image_digest"] != previous["image_digest"]
+                or revision["gpu_uuid"] != previous["gpu_uuid"]
+                or revision["lease_id"] != previous["lease_id"]
+                or revision["fencing_token_sha256"] != previous["fencing_token_sha256"]
+            ):
+                raise ControlPlaneParityError("S6B-M route revision continuity failed")
+            if revision["action"] == "green_switched":
+                transition = connection.execute(
+                    f"""
+                    SELECT payload FROM {schema}.s6bm_causal_events
+                    WHERE event_type='blue_to_green_switch_commit'
+                      AND payload->>'transition_id'=%s
+                    FOR SHARE
+                    """,
+                    (revision["transition_id"],),
+                ).fetchone()
+                if transition is None or int(
+                    transition["payload"].get("new_route_generation", 0)
+                ) != int(revision["route_generation"]):
+                    raise ControlPlaneParityError("S6B-M route revision transition binding failed")
+            connection.execute(
+                f"""
+                INSERT INTO {schema}.s6bm_route_revisions
+                    (run_id, control_generation, route_generation, route_changed,
+                     action, lease_id, fencing_token_sha256, payload_sha256,
+                     payload, transaction_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, txid_current())
+                """,
+                (
+                    revision["run_id"],
+                    revision["control_generation"],
+                    revision["route_generation"],
+                    revision["route_changed"],
+                    revision["action"],
+                    revision["lease_id"],
+                    revision["fencing_token_sha256"],
+                    canonical_digest(revision),
+                    self._json(revision),
+                ),
+            )
+        return self._readback_s6bm_route_revision(
+            run_id=str(revision["run_id"]),
+            control_generation=int(revision["control_generation"]),
+        )
+
     def commit_s6bm_route_switch_fence(
         self,
         *,
@@ -1364,8 +1958,7 @@ class TransactionalControlPlaneStore:
                     != sorted([identity["request_id"], continuity_crossover_ids[0]])
                     or len(continuity_terminal_ids) != 39
                     or set(continuity_terminal_ids) & set(continuity_crossover_ids)
-                    or continuity_terminal_set_sha256
-                    != canonical_digest(continuity_terminal_ids)
+                    or continuity_terminal_set_sha256 != canonical_digest(continuity_terminal_ids)
                     or len(continuity_terminal_records_sha256) != 64
                 )
             )
@@ -1517,17 +2110,12 @@ class TransactionalControlPlaneStore:
                 ).fetchall()
                 terminal_events = {
                     str(event["request_id"]): event
-                    for event in (
-                        self._s6bm_causal_row(row) for row in terminal_event_rows
-                    )
+                    for event in (self._s6bm_causal_row(row) for row in terminal_event_rows)
                 }
-                if (
-                    len(terminal_rows) != len(continuity_terminal_ids)
-                    or len(terminal_events) != len(continuity_terminal_ids)
-                ):
-                    raise ControlPlaneParityError(
-                        "S6B-M continuity terminal set is incomplete"
-                    )
+                if len(terminal_rows) != len(continuity_terminal_ids) or len(
+                    terminal_events
+                ) != len(continuity_terminal_ids):
+                    raise ControlPlaneParityError("S6B-M continuity terminal set is incomplete")
                 for row in terminal_rows:
                     request_id = str(row["idempotency_key"])
                     event = terminal_events.get(request_id)
@@ -1553,23 +2141,17 @@ class TransactionalControlPlaneStore:
                         or record["model_name"] != identity["model_name"]
                         or record["model_version"] != identity["model_version"]
                         or record["artifact_sha256"] != identity["artifact_sha256"]
-                        or record["route_generation"]
-                        != transition_core["old_route_generation"]
+                        or record["route_generation"] != transition_core["old_route_generation"]
                     ):
-                        raise ControlPlaneParityError(
-                            "S6B-M continuity terminal identity mismatch"
-                        )
+                        raise ControlPlaneParityError("S6B-M continuity terminal identity mismatch")
                     terminal_records.append(record)
                 terminal_records.sort(key=lambda item: item["request_id"])
-                if (
-                    [item["request_id"] for item in terminal_records]
-                    != continuity_terminal_ids
-                    or canonical_digest(terminal_records)
-                    != continuity_terminal_records_sha256
-                ):
-                    raise ControlPlaneParityError(
-                        "S6B-M continuity terminal record hash mismatch"
-                    )
+                if [
+                    item["request_id"] for item in terminal_records
+                ] != continuity_terminal_ids or canonical_digest(
+                    terminal_records
+                ) != continuity_terminal_records_sha256:
+                    raise ControlPlaneParityError("S6B-M continuity terminal record hash mismatch")
             switch_payload = {
                 **identity,
                 "schema_version": "evm.s6bm.route_switch_fence.v2",
@@ -1603,8 +2185,7 @@ class TransactionalControlPlaneStore:
                     continuity_terminal_records_sha256 or canonical_digest([])
                 ),
                 "continuity_terminal_sequences": {
-                    item["request_id"]: item["causal_sequence"]
-                    for item in terminal_records
+                    item["request_id"]: item["causal_sequence"] for item in terminal_records
                 },
                 "continuity_receipt_sequences": {
                     request_id: {
@@ -1634,16 +2215,20 @@ class TransactionalControlPlaneStore:
                 payload=switch_payload,
                 actor_identity="control-plane-route-switch",
             )
-            if any(
-                int(sequence) >= switch["causal_sequence"]
-                for sequence in switch_payload["receipt_sequences"].values()
-            ) or any(
-                int(sequence) >= switch["causal_sequence"]
-                for request_sequences in switch_payload["continuity_receipt_sequences"].values()
-                for sequence in request_sequences.values()
-            ) or any(
-                int(sequence) >= switch["causal_sequence"]
-                for sequence in switch_payload["continuity_terminal_sequences"].values()
+            if (
+                any(
+                    int(sequence) >= switch["causal_sequence"]
+                    for sequence in switch_payload["receipt_sequences"].values()
+                )
+                or any(
+                    int(sequence) >= switch["causal_sequence"]
+                    for request_sequences in switch_payload["continuity_receipt_sequences"].values()
+                    for sequence in request_sequences.values()
+                )
+                or any(
+                    int(sequence) >= switch["causal_sequence"]
+                    for sequence in switch_payload["continuity_terminal_sequences"].values()
+                )
             ):
                 raise ControlPlaneParityError("S6B-M route switch causal sequence regressed")
         commit_ack_monotonic_ns = time.perf_counter_ns()
@@ -2070,6 +2655,7 @@ class TransactionalControlPlaneStore:
         replayed = False
         causal_event: dict[str, Any] | None = None
         observed_transition: dict[str, Any] | None = None
+        observed_route_revision: dict[str, Any] | None = None
         effective_causal_payload = dict(causal_payload) if causal_payload is not None else None
         effective_response_payload = dict(response_payload)
         with self.serialized(f"idempotent-terminal:{scope}:{idempotency_key}") as connection:
@@ -2096,13 +2682,27 @@ class TransactionalControlPlaneStore:
                 replayed = True
                 if causal_payload is not None:
                     causal_identity = _validate_s6bm_causal_identity(causal_payload)
+                    observed_route_revision = self._lock_s6bm_effect_route_revision(
+                        connection,
+                        identity=causal_identity,
+                        causal_payload=causal_payload,
+                    )
+                    if observed_route_revision is not None:
+                        effective_causal_payload = {
+                            **dict(effective_causal_payload or {}),
+                            "observed_route_revision": observed_route_revision,
+                        }
+                        if stored.get("observed_route_revision") != observed_route_revision:
+                            raise ControlPlaneParityError(
+                                "S6B-M replayed effect route revision changed"
+                            )
                     if causal_payload.get("requires_switch_before_effect") is True:
                         _switch_event, observed_transition = self._lock_s6bm_committed_transition(
                             connection,
                             identity=causal_identity,
                         )
                         effective_causal_payload = {
-                            **dict(causal_payload),
+                            **dict(effective_causal_payload or {}),
                             "observed_transition": observed_transition,
                         }
                         if stored.get("observed_transition") != observed_transition:
@@ -2142,6 +2742,20 @@ class TransactionalControlPlaneStore:
                 ).fetchone()
                 if causal_payload is not None:
                     causal_identity = _validate_s6bm_causal_identity(causal_payload)
+                    observed_route_revision = self._lock_s6bm_effect_route_revision(
+                        connection,
+                        identity=causal_identity,
+                        causal_payload=causal_payload,
+                    )
+                    if observed_route_revision is not None:
+                        effective_causal_payload = {
+                            **dict(effective_causal_payload or {}),
+                            "observed_route_revision": observed_route_revision,
+                        }
+                        effective_response_payload = {
+                            **effective_response_payload,
+                            "observed_route_revision": observed_route_revision,
+                        }
                     switch_event: dict[str, Any] | None = None
                     if causal_payload.get("requires_switch_before_effect") is True:
                         switch_event, observed_transition = self._lock_s6bm_committed_transition(
@@ -2149,11 +2763,11 @@ class TransactionalControlPlaneStore:
                             identity=causal_identity,
                         )
                         effective_causal_payload = {
-                            **dict(causal_payload),
+                            **dict(effective_causal_payload or {}),
                             "observed_transition": observed_transition,
                         }
                         effective_response_payload = {
-                            **dict(response_payload),
+                            **effective_response_payload,
                             "observed_transition": observed_transition,
                         }
                     causal_event, causal_replayed = self._insert_s6bm_causal_event(
@@ -2187,6 +2801,7 @@ class TransactionalControlPlaneStore:
                             causal_event["payload_sha256"] if causal_event is not None else None
                         ),
                         "observed_transition": observed_transition,
+                        "observed_route_revision": observed_route_revision,
                     },
                 }
                 connection.execute(
@@ -2265,6 +2880,7 @@ class TransactionalControlPlaneStore:
             ).fetchone()
             causal_row = None
             transition_readback = None
+            route_revision_readback = None
             if causal_payload is not None:
                 identity = _validate_s6bm_causal_identity(causal_payload)
                 causal_row = connection.execute(
@@ -2275,6 +2891,11 @@ class TransactionalControlPlaneStore:
                     """,
                     (identity["attempt_id"], identity["request_id"]),
                 ).fetchone()
+                route_revision_readback = self._lock_s6bm_effect_route_revision(
+                    connection,
+                    identity=identity,
+                    causal_payload=causal_payload,
+                )
                 if causal_payload.get("requires_switch_before_effect") is True:
                     transition_readback, _transition_reference = (
                         self._lock_s6bm_committed_transition(
@@ -2326,6 +2947,21 @@ class TransactionalControlPlaneStore:
                 ):
                     raise ControlPlaneParityError(
                         "terminal effect transition readback parity failed"
+                    )
+            if (
+                causal_payload is not None
+                and causal_payload.get("route_revision_binding_required") is True
+            ):
+                if (
+                    route_revision_readback is None
+                    or observed_route_revision != route_revision_readback
+                    or stored.get("observed_route_revision") != route_revision_readback
+                    or durable_commit.get("observed_route_revision") != route_revision_readback
+                    or dict(causal_readback["payload"]).get("observed_route_revision")
+                    != route_revision_readback
+                ):
+                    raise ControlPlaneParityError(
+                        "terminal effect route revision readback parity failed"
                     )
         receipt = {
             "schema_version": "evm.s6bm.durable_effect_receipt.v4",
@@ -2386,6 +3022,10 @@ class TransactionalControlPlaneStore:
             "observed_transition": observed_transition,
             "transition_readback_visible": (
                 transition_readback is not None if observed_transition is not None else None
+            ),
+            "observed_route_revision": observed_route_revision,
+            "route_revision_readback_visible": (
+                route_revision_readback is not None if observed_route_revision is not None else None
             ),
         }
         return stored, replayed, receipt
@@ -5539,6 +6179,33 @@ def _schema_statements(schema: str) -> tuple[str, ...]:
         CREATE UNIQUE INDEX IF NOT EXISTS s6bm_route_transition_identity_idx
         ON {schema}.s6bm_causal_events((payload->>'transition_id'))
         WHERE event_type='blue_to_green_switch_commit'
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS {schema}.s6bm_route_revisions (
+            run_id text NOT NULL,
+            control_generation bigint NOT NULL CHECK (control_generation >= 1),
+            route_generation bigint NOT NULL CHECK (
+                route_generation >= 1 AND route_generation <= control_generation
+            ),
+            route_changed boolean NOT NULL,
+            action text NOT NULL,
+            lease_id text NOT NULL,
+            fencing_token_sha256 char(64) NOT NULL,
+            payload_sha256 char(64) NOT NULL,
+            payload jsonb NOT NULL,
+            transaction_id bigint NOT NULL,
+            database_recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+            PRIMARY KEY (run_id, control_generation)
+        )
+        """,
+        f"""
+        CREATE UNIQUE INDEX IF NOT EXISTS s6bm_route_revision_changed_idx
+        ON {schema}.s6bm_route_revisions(run_id, route_generation)
+        WHERE route_changed
+        """,
+        f"""
+        CREATE INDEX IF NOT EXISTS s6bm_route_revision_latest_idx
+        ON {schema}.s6bm_route_revisions(run_id, control_generation DESC)
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {schema}.lifecycle_claims (

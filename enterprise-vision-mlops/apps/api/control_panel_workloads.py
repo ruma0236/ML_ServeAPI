@@ -152,10 +152,38 @@ def _s6bm_terminal_store() -> TransactionalControlPlaneStore:
 atexit.register(shutdown_s6bm_terminal_store)
 
 
+def _restore_s6bm_route_revision(
+    _request: TritonBlueGreenInitializeRequest,
+    initial_payload: dict[str, Any],
+) -> dict[str, Any]:
+    return _s6bm_terminal_store().restore_or_initialize_s6bm_route_revision(
+        initial_payload=initial_payload
+    )
+
+
+def _commit_s6bm_route_revision(
+    _request: TritonBlueGreenControlRequest,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    return _s6bm_terminal_store().commit_s6bm_route_revision(
+        previous_control_generation=int(context["previous_control_generation"]),
+        previous_route_generation=int(context["previous_route_generation"]),
+        payload=dict(context["payload"]),
+    )
+
+
 def _commit_s6bm_terminal_effect_sync(
     request: TritonBlueGreenPredictRequest,
     response: TritonBlueGreenPredictResponse,
 ) -> dict[str, Any]:
+    route_revision_binding_required = request.expected_route_generation > 0
+    if (
+        route_revision_binding_required
+        and request.expected_route_generation != response.route_generation
+    ):
+        raise RuntimeError("S6B-M request/response route revision parity failed")
+    if route_revision_binding_required and response.route_identity_sha256 is None:
+        raise RuntimeError("S6B-M runtime response lacks its route identity digest")
     request_payload = request.model_dump(mode="json")
     response_core = response.model_dump(mode="json", exclude={"durable_effect"})
     effect_payload = {
@@ -178,6 +206,7 @@ def _commit_s6bm_terminal_effect_sync(
             "artifact_sha256": response.artifact_sha256,
         },
         "route_generation": response.route_generation,
+        "route_identity_sha256": response.route_identity_sha256,
         "route_phase": response.route_phase,
         "result_sha256": response.result_sha256,
         "result_payload_sha256": canonical_digest(response_core),
@@ -196,6 +225,10 @@ def _commit_s6bm_terminal_effect_sync(
         "model_version": response.model_version,
         "artifact_sha256": response.artifact_sha256,
         "route_generation": response.route_generation,
+        "route_identity_sha256": response.route_identity_sha256,
+        "route_revision_binding_required": route_revision_binding_required,
+        "lease_id": request.lease_id,
+        "fencing_token_sha256": hashlib.sha256(request.fencing_token.encode("utf-8")).hexdigest(),
         "route_phase": response.route_phase,
         "result_sha256": response.result_sha256,
         "requires_switch_before_effect": request.causal_crossover,
@@ -564,7 +597,12 @@ async def predict_scenario_gpu_batch_probe(
 def initialize_triton_blue_green(
     request: TritonBlueGreenInitializeRequest,
 ) -> TritonBlueGreenStateResponse:
-    return triton_blue_green_operation(lambda: triton_blue_green_manager.initialize(request))
+    return triton_blue_green_operation(
+        lambda: triton_blue_green_manager.initialize(
+            request,
+            route_state_restorer=_restore_s6bm_route_revision,
+        )
+    )
 
 
 @router.post(
@@ -578,6 +616,7 @@ def control_triton_blue_green(
         lambda: triton_blue_green_manager.control(
             request,
             transition_fence_committer=_commit_s6bm_transition_fence,
+            route_state_committer=_commit_s6bm_route_revision,
         )
     )
 

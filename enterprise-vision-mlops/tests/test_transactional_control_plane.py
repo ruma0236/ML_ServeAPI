@@ -445,13 +445,9 @@ def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
 
     terminal_ids = [f"s6bm-bridge-terminal-{index:02d}" for index in range(39)]
     for ordinal, request_id in enumerate(terminal_ids, start=100):
-        effect_id = hashlib.sha256(
-            f"{attempt_id}:{request_id}".encode("ascii")
-        ).hexdigest()
+        effect_id = hashlib.sha256(f"{attempt_id}:{request_id}".encode("ascii")).hexdigest()
         trace_id = f"{ordinal + 1:032x}"
-        result_sha256 = hashlib.sha256(
-            f"result:{request_id}".encode("ascii")
-        ).hexdigest()
+        result_sha256 = hashlib.sha256(f"result:{request_id}".encode("ascii")).hexdigest()
         effect_identity = {
             "attempt_id": attempt_id,
             "run_id": run_id,
@@ -509,9 +505,7 @@ def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
         if item["event_type"] == "durable_terminal_effect_commit"
     }
     terminal_records = [
-        s6bm_terminal_fence_record(
-            terminal_entities[request_id], terminal_events[request_id]
-        )
+        s6bm_terminal_fence_record(terminal_entities[request_id], terminal_events[request_id])
         for request_id in terminal_ids
     ]
     terminal_records_sha256 = canonical_digest(terminal_records)
@@ -524,9 +518,7 @@ def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
                 hold,
                 continuity_receipt_request_ids=bridge_ids,
                 continuity_crossover_request_ids=[bridge_ids[0]],
-                pending_crossover_request_ids=sorted(
-                    [str(hold["request_id"]), bridge_ids[0]]
-                ),
+                pending_crossover_request_ids=sorted([str(hold["request_id"]), bridge_ids[0]]),
                 continuity_terminal_request_ids=missing_terminal_ids,
                 continuity_terminal_records_sha256=terminal_records_sha256,
             ),
@@ -538,9 +530,7 @@ def test_s6bm_bridge_actor_receipts_are_visible_before_switch_in_real_postgres(
                 hold,
                 continuity_receipt_request_ids=bridge_ids,
                 continuity_crossover_request_ids=[bridge_ids[0]],
-                pending_crossover_request_ids=sorted(
-                    [str(hold["request_id"]), bridge_ids[0]]
-                ),
+                pending_crossover_request_ids=sorted([str(hold["request_id"]), bridge_ids[0]]),
                 continuity_terminal_request_ids=terminal_ids,
                 continuity_terminal_records_sha256="f" * 64,
             ),
@@ -660,6 +650,8 @@ def test_s6bm_cold_store_commits_frozen_concurrency_without_pool_starvation(
         trace_id = hashlib.sha256(request_id.encode("ascii")).hexdigest()[:32]
         request = TritonBlueGreenPredictRequest(
             run_id="s8-v4-s6bm-cold-concurrency",
+            lease_id="lease-test",
+            fencing_token="fence-test",
             attempt_id="s6bm-frozen-concurrency",
             request_id=request_id,
             request_nonce=f"nonce-{index:08d}",
@@ -728,6 +720,631 @@ def test_s6bm_cold_store_commits_frozen_concurrency_without_pool_starvation(
 
         with psycopg.connect(postgres_dsn, autocommit=True) as connection:
             connection.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+
+
+def test_s6bm_terminal_effect_rejects_forged_route_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api import control_panel_workloads as api
+    from evm.model_runtime.triton_blue_green import (
+        TritonBlueGreenPredictRequest,
+        TritonBlueGreenPredictResponse,
+    )
+
+    request = TritonBlueGreenPredictRequest(
+        run_id="s8-v4-s6bm-route-binding",
+        lease_id="lease-route-binding",
+        fencing_token="fence-route-binding",
+        attempt_id="s6bm-route-binding-attempt",
+        request_id="s6bm-route-binding-request",
+        request_nonce="s6bm-route-binding-nonce",
+        traceparent="00-" + "1" * 32 + "-" + "2" * 16 + "-01",
+        input_values=[1, 2, 3, 4],
+        expected_model_role="green",
+        expected_model_name="s6bm_green",
+        expected_model_version="1",
+        expected_artifact_sha256="3" * 64,
+        expected_route_generation=4,
+    )
+    response = TritonBlueGreenPredictResponse(
+        run_id=request.run_id,
+        attempt_id=request.attempt_id,
+        request_id=request.request_id,
+        trace_id="1" * 32,
+        effect_id="4" * 64,
+        route_generation=5,
+        model_role="green",
+        model_name="s6bm_green",
+        model_version="1",
+        artifact_sha256="3" * 64,
+        route_phase="blue_draining",
+        output=[4, 6, 8, 10],
+        result_sha256="5" * 64,
+        elapsed_ms=1,
+    )
+    monkeypatch.setattr(
+        api,
+        "_s6bm_terminal_store",
+        lambda: pytest.fail("forged route revision reached durable storage"),
+    )
+    with pytest.raises(RuntimeError, match="request/response route revision parity"):
+        api._commit_s6bm_terminal_effect_sync(request, response)
+
+
+def test_s6bm_route_revision_restore_is_monotonic_and_aba_safe(
+    store: TransactionalControlPlaneStore,
+) -> None:
+    from evm.model_runtime.triton_blue_green import (
+        TritonBlueGreenInitializeRequest,
+        TritonModelIdentity,
+        active_route_identity_sha256,
+    )
+
+    request = TritonBlueGreenInitializeRequest(
+        run_id="s8-v4-s6bm-route-store",
+        source_revision="a" * 40,
+        triton_http_url="http://127.0.0.1:18100",
+        image_digest="sha256:" + "b" * 64,
+        gpu_uuid="GPU-route-store",
+        lease_id="lease-route-1",
+        fencing_token="fence-route-1",
+        blue=TritonModelIdentity(
+            role="blue",
+            model_name="s6bm_blue",
+            model_version="1",
+            artifact_sha256="c" * 64,
+            config_sha256="d" * 64,
+            expected_output=[3, 5, 7, 9],
+        ),
+        green=TritonModelIdentity(
+            role="green",
+            model_name="s6bm_green",
+            model_version="1",
+            artifact_sha256="e" * 64,
+            config_sha256="f" * 64,
+            expected_output=[4, 6, 8, 10],
+        ),
+    )
+
+    def payload(
+        current: TritonBlueGreenInitializeRequest,
+        *,
+        control: int,
+        route: int,
+        weights: dict[str, int],
+        action: str,
+        approval: str | None,
+        approvals: list[str],
+        changed: bool,
+    ) -> dict[str, object]:
+        return {
+            "schema_version": "evm.s6bm.route_revision.v1",
+            "run_id": current.run_id,
+            "source_revision": current.source_revision,
+            "control_generation": control,
+            "route_generation": route,
+            "phase": "canary" if weights == {"blue": 90, "green": 10} else "blue_only",
+            "route_weights": weights,
+            "loaded_roles": ["blue", "green"] if weights["green"] else ["blue"],
+            "active_route_identity_sha256": active_route_identity_sha256(current, weights),
+            "blue_identity_sha256": canonical_digest(current.blue.model_dump(mode="json")),
+            "green_identity_sha256": canonical_digest(current.green.model_dump(mode="json")),
+            "image_digest": current.image_digest,
+            "gpu_uuid": current.gpu_uuid,
+            "action": action,
+            "approval_id": approval,
+            "used_approvals": approvals,
+            "route_changed": changed,
+            "lease_id": current.lease_id,
+            "fencing_token_sha256": hashlib.sha256(
+                current.fencing_token.encode("utf-8")
+            ).hexdigest(),
+            "transition_id": None,
+            "transition_new_route_generation": None,
+        }
+
+    initial = payload(
+        request,
+        control=1,
+        route=1,
+        weights={"blue": 100, "green": 0},
+        action="initialized",
+        approval=None,
+        approvals=[],
+        changed=True,
+    )
+    assert (
+        store.restore_or_initialize_s6bm_route_revision(initial_payload=initial)["payload"]
+        == initial
+    )
+
+    loaded = payload(
+        request,
+        control=2,
+        route=1,
+        weights={"blue": 100, "green": 0},
+        action="green_loaded",
+        approval="approval-green-loaded",
+        approvals=["approval-green-loaded"],
+        changed=False,
+    )
+    store.commit_s6bm_route_revision(
+        previous_control_generation=1,
+        previous_route_generation=1,
+        payload=loaded,
+    )
+    canary = payload(
+        request,
+        control=3,
+        route=3,
+        weights={"blue": 90, "green": 10},
+        action="canary_started",
+        approval="approval-canary",
+        approvals=["approval-canary", "approval-green-loaded"],
+        changed=True,
+    )
+    store.commit_s6bm_route_revision(
+        previous_control_generation=2,
+        previous_route_generation=1,
+        payload=canary,
+    )
+
+    rebound_lease = request.model_copy(
+        update={"lease_id": "lease-route-2", "fencing_token": "fence-route-2"}
+    )
+    lease_receipt = store.restore_or_initialize_s6bm_route_revision(
+        initial_payload=payload(
+            rebound_lease,
+            control=1,
+            route=1,
+            weights={"blue": 100, "green": 0},
+            action="initialized",
+            approval=None,
+            approvals=[],
+            changed=True,
+        )
+    )
+    assert lease_receipt["payload"]["action"] == "lease_rebound"
+    assert (
+        lease_receipt["payload"]["control_generation"],
+        lease_receipt["payload"]["route_generation"],
+    ) == (4, 3)
+
+    changed_blue = rebound_lease.model_copy(
+        update={
+            "blue": rebound_lease.blue.model_copy(
+                update={"model_version": "2", "artifact_sha256": "1" * 64}
+            )
+        }
+    )
+    identity_receipt = store.restore_or_initialize_s6bm_route_revision(
+        initial_payload=payload(
+            changed_blue,
+            control=1,
+            route=1,
+            weights={"blue": 100, "green": 0},
+            action="initialized",
+            approval=None,
+            approvals=[],
+            changed=True,
+        )
+    )
+    assert identity_receipt["payload"]["action"] == "active_identity_rebound"
+    assert (
+        identity_receipt["payload"]["control_generation"],
+        identity_receipt["payload"]["route_generation"],
+    ) == (5, 5)
+
+    original_again = request.model_copy(
+        update={"lease_id": "lease-route-2", "fencing_token": "fence-route-2"}
+    )
+    aba_receipt = store.restore_or_initialize_s6bm_route_revision(
+        initial_payload=payload(
+            original_again,
+            control=1,
+            route=1,
+            weights={"blue": 100, "green": 0},
+            action="initialized",
+            approval=None,
+            approvals=[],
+            changed=True,
+        )
+    )
+    assert (
+        aba_receipt["payload"]["control_generation"],
+        aba_receipt["payload"]["route_generation"],
+    ) == (6, 6)
+
+    schema = store.configuration.schema
+    with store.transaction("route_revision_history_test") as connection:
+        rows = connection.execute(
+            f"""
+            SELECT control_generation, route_generation, route_changed
+            FROM {schema}.s6bm_route_revisions
+            WHERE run_id=%s ORDER BY control_generation
+            """,
+            (request.run_id,),
+        ).fetchall()
+    assert [int(row["control_generation"]) for row in rows] == [1, 2, 3, 4, 5, 6]
+    assert [int(row["route_generation"]) for row in rows] == [1, 1, 3, 3, 5, 6]
+    assert [bool(row["route_changed"]) for row in rows] == [True, False, True, False, True, True]
+
+
+def test_s6bm_terminal_effect_binds_switch_route_revision_and_lease_fence(
+    store: TransactionalControlPlaneStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api import control_panel_workloads as api
+    from evm.model_runtime.triton_blue_green import (
+        TritonBlueGreenInitializeRequest,
+        TritonBlueGreenPredictRequest,
+        TritonBlueGreenPredictResponse,
+        TritonModelIdentity,
+        active_route_identity_sha256,
+        model_identity_sha256,
+    )
+
+    initialize = TritonBlueGreenInitializeRequest(
+        run_id="s8-v4-s6bm-route-effect-binding",
+        source_revision="a" * 40,
+        triton_http_url="http://127.0.0.1:18100",
+        image_digest="sha256:" + "b" * 64,
+        gpu_uuid="GPU-route-effect-binding",
+        lease_id="lease-route-effect-binding",
+        fencing_token="fence-route-effect-binding",
+        blue=TritonModelIdentity(
+            role="blue",
+            model_name="s6bm_blue",
+            model_version="1",
+            artifact_sha256="c" * 64,
+            config_sha256="d" * 64,
+            expected_output=[3, 5, 7, 9],
+        ),
+        green=TritonModelIdentity(
+            role="green",
+            model_name="s6bm_green",
+            model_version="1",
+            artifact_sha256="e" * 64,
+            config_sha256="f" * 64,
+            expected_output=[4, 6, 8, 10],
+        ),
+    )
+
+    def revision(
+        *,
+        control: int,
+        route: int,
+        phase: str,
+        weights: dict[str, int],
+        action: str,
+        approval: str | None,
+        approvals: list[str],
+        changed: bool,
+        transition: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        return {
+            "schema_version": "evm.s6bm.route_revision.v1",
+            "run_id": initialize.run_id,
+            "source_revision": initialize.source_revision,
+            "control_generation": control,
+            "route_generation": route,
+            "phase": phase,
+            "route_weights": weights,
+            "loaded_roles": ["blue", "green"] if control > 1 else ["blue"],
+            "active_route_identity_sha256": active_route_identity_sha256(initialize, weights),
+            "blue_identity_sha256": model_identity_sha256(initialize.blue),
+            "green_identity_sha256": model_identity_sha256(initialize.green),
+            "image_digest": initialize.image_digest,
+            "gpu_uuid": initialize.gpu_uuid,
+            "action": action,
+            "approval_id": approval,
+            "used_approvals": approvals,
+            "route_changed": changed,
+            "lease_id": initialize.lease_id,
+            "fencing_token_sha256": hashlib.sha256(
+                initialize.fencing_token.encode("utf-8")
+            ).hexdigest(),
+            "transition_id": transition["transition_id"] if transition else None,
+            "transition_new_route_generation": (
+                transition["new_route_generation"] if transition else None
+            ),
+        }
+
+    initial = revision(
+        control=1,
+        route=1,
+        phase="blue_only",
+        weights={"blue": 100, "green": 0},
+        action="initialized",
+        approval=None,
+        approvals=[],
+        changed=True,
+    )
+    store.restore_or_initialize_s6bm_route_revision(initial_payload=initial)
+    approvals = ["approval-load"]
+    store.commit_s6bm_route_revision(
+        previous_control_generation=1,
+        previous_route_generation=1,
+        payload=revision(
+            control=2,
+            route=1,
+            phase="green_loaded",
+            weights={"blue": 100, "green": 0},
+            action="green_loaded",
+            approval="approval-load",
+            approvals=approvals,
+            changed=False,
+        ),
+    )
+    approvals = sorted([*approvals, "approval-canary"])
+    store.commit_s6bm_route_revision(
+        previous_control_generation=2,
+        previous_route_generation=1,
+        payload=revision(
+            control=3,
+            route=3,
+            phase="canary",
+            weights={"blue": 90, "green": 10},
+            action="canary_started",
+            approval="approval-canary",
+            approvals=approvals,
+            changed=True,
+        ),
+    )
+    crossover = {
+        "attempt_id": "s6bm-route-effect-crossover",
+        "run_id": initialize.run_id,
+        "request_id": "s6bm-route-effect-hold",
+        "request_nonce": "nonce-route-effect-hold",
+        "trace_id": "1" * 32,
+        "effect_id": "2" * 64,
+        "model_role": "blue",
+        "model_name": initialize.blue.model_name,
+        "model_version": initialize.blue.model_version,
+        "artifact_sha256": initialize.blue.artifact_sha256,
+        "route_generation": 3,
+    }
+    for index, stage in enumerate(
+        ("api_server_handler_entry", "controller_entry", "triton_backend_compute_entry"),
+        start=1,
+    ):
+        before = time.perf_counter_ns()
+        anchor = {
+            "monotonic_before_ns": before,
+            "monotonic_after_ns": time.perf_counter_ns(),
+        }
+        store.commit_s6bm_start_receipt(
+            event_type=stage,
+            payload={
+                **crossover,
+                "actor_start_unix_ns": time.time_ns() - (10_000_000 - index),
+                "stage": stage,
+                **(anchor if stage != "triton_backend_compute_entry" else {}),
+                **(
+                    {"collector_observation": anchor}
+                    if stage == "triton_backend_compute_entry"
+                    else {}
+                ),
+            },
+            actor_identity=f"route-effect-actor-{index}",
+        )
+    switch = store.commit_s6bm_route_switch_fence(
+        crossover_identity=crossover,
+        transition_context=s6bm_transition_context(crossover),
+    )
+    approvals = sorted([*approvals, "approval-switch"])
+    store.commit_s6bm_route_revision(
+        previous_control_generation=3,
+        previous_route_generation=3,
+        payload=revision(
+            control=4,
+            route=4,
+            phase="green_active",
+            weights={"blue": 0, "green": 100},
+            action="green_switched",
+            approval="approval-switch",
+            approvals=approvals,
+            changed=True,
+            transition=switch,
+        ),
+    )
+    approvals = sorted([*approvals, "approval-drain"])
+    store.commit_s6bm_route_revision(
+        previous_control_generation=4,
+        previous_route_generation=4,
+        payload=revision(
+            control=5,
+            route=4,
+            phase="blue_draining",
+            weights={"blue": 0, "green": 100},
+            action="blue_drain_started",
+            approval="approval-drain",
+            approvals=approvals,
+            changed=False,
+        ),
+    )
+
+    monkeypatch.setattr(api, "_s6bm_terminal_store", lambda: store)
+    request = TritonBlueGreenPredictRequest(
+        run_id=initialize.run_id,
+        lease_id=initialize.lease_id,
+        fencing_token=initialize.fencing_token,
+        attempt_id="s6bm-route-effect-request-attempt",
+        request_id="s6bm-route-effect-request-0001",
+        request_nonce="nonce-route-effect-request-0001",
+        traceparent="00-" + "3" * 32 + "-" + "4" * 16 + "-01",
+        input_values=[1, 2, 3, 4],
+        expected_model_role="green",
+        expected_model_name=initialize.green.model_name,
+        expected_model_version=initialize.green.model_version,
+        expected_artifact_sha256=initialize.green.artifact_sha256,
+        expected_route_generation=4,
+    )
+    response = TritonBlueGreenPredictResponse(
+        run_id=request.run_id,
+        attempt_id=request.attempt_id,
+        request_id=request.request_id,
+        trace_id="3" * 32,
+        effect_id="5" * 64,
+        route_generation=4,
+        model_role="green",
+        model_name=initialize.green.model_name,
+        model_version=initialize.green.model_version,
+        artifact_sha256=initialize.green.artifact_sha256,
+        route_identity_sha256=model_identity_sha256(initialize.green),
+        route_phase="blue_draining",
+        output=[4, 6, 8, 10],
+        result_sha256="6" * 64,
+        elapsed_ms=1,
+    )
+    receipt = api._commit_s6bm_terminal_effect_sync(request, response)
+    observed = receipt["observed_route_revision"]
+    assert observed["route_generation"] == 4
+    assert observed["route_source_control_generation"] == 4
+    assert observed["route_source_action"] == "green_switched"
+    assert observed["transition_id"] == switch["transition_id"]
+    assert observed["lease_binding_control_generation"] == 5
+    assert receipt["route_revision_readback_visible"] is True
+
+    forged_identity = response.model_copy(
+        update={
+            "request_id": "s6bm-route-effect-request-0002",
+            "effect_id": "7" * 64,
+            "route_identity_sha256": "8" * 64,
+        }
+    )
+    with pytest.raises(ControlPlaneParityError, match="route revision model binding"):
+        api._commit_s6bm_terminal_effect_sync(
+            request.model_copy(update={"request_id": forged_identity.request_id}),
+            forged_identity,
+        )
+
+    forged_route = response.model_copy(
+        update={
+            "request_id": "s6bm-route-effect-request-0003",
+            "effect_id": "9" * 64,
+            "route_generation": 5,
+        }
+    )
+    with pytest.raises(ControlPlaneParityError, match="route revision source is ambiguous"):
+        api._commit_s6bm_terminal_effect_sync(
+            request.model_copy(
+                update={"request_id": forged_route.request_id, "expected_route_generation": 5}
+            ),
+            forged_route,
+        )
+
+    stale_lease_request = request.model_copy(
+        update={
+            "request_id": "s6bm-route-effect-request-0004",
+            "fencing_token": "stale-fence-route-effect-binding",
+        }
+    )
+    with pytest.raises(ControlPlaneParityError, match="lease fence lacks a route revision"):
+        api._commit_s6bm_terminal_effect_sync(
+            stale_lease_request,
+            response.model_copy(
+                update={
+                    "request_id": stale_lease_request.request_id,
+                    "effect_id": "a" * 64,
+                }
+            ),
+        )
+
+
+def test_s6bm_manager_reinitializes_from_durable_route_revision(
+    store: TransactionalControlPlaneStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from evm.model_runtime.triton_blue_green import (
+        TritonBlueGreenControlRequest,
+        TritonBlueGreenInitializeRequest,
+        TritonBlueGreenManager,
+        TritonModelIdentity,
+        action_digest,
+    )
+
+    monkeypatch.setenv("EVM_S6BM_ENABLED", "1")
+    manager = TritonBlueGreenManager()
+    monkeypatch.setattr(manager, "_assert_lease", lambda *_args, **_kwargs: None)
+    request = TritonBlueGreenInitializeRequest(
+        run_id="s8-v4-s6bm-route-restore",
+        source_revision="a" * 40,
+        triton_http_url="http://127.0.0.1:18100",
+        image_digest="sha256:" + "b" * 64,
+        gpu_uuid="GPU-route-restore",
+        lease_id="lease-route-restore",
+        fencing_token="fence-route-restore",
+        blue=TritonModelIdentity(
+            role="blue",
+            model_name="s6bm_blue",
+            model_version="1",
+            artifact_sha256="c" * 64,
+            config_sha256="d" * 64,
+            expected_output=[3, 5, 7, 9],
+        ),
+        green=TritonModelIdentity(
+            role="green",
+            model_name="s6bm_green",
+            model_version="1",
+            artifact_sha256="e" * 64,
+            config_sha256="f" * 64,
+            expected_output=[4, 6, 8, 10],
+        ),
+    )
+
+    def restore(
+        _request: TritonBlueGreenInitializeRequest, payload: dict[str, object]
+    ) -> dict[str, object]:
+        return store.restore_or_initialize_s6bm_route_revision(initial_payload=payload)
+
+    def commit(
+        _request: TritonBlueGreenControlRequest, context: dict[str, object]
+    ) -> dict[str, object]:
+        return store.commit_s6bm_route_revision(
+            previous_control_generation=int(context["previous_control_generation"]),
+            previous_route_generation=int(context["previous_route_generation"]),
+            payload=dict(context["payload"]),
+        )
+
+    def control(action: str) -> None:
+        value = TritonBlueGreenControlRequest(
+            run_id=request.run_id,
+            action=action,
+            expected_generation=manager.snapshot().generation,
+            lease_id=request.lease_id,
+            fencing_token=request.fencing_token,
+            blue_artifact_sha256=request.blue.artifact_sha256,
+            green_artifact_sha256=request.green.artifact_sha256,
+            approval_id=f"approval-{action}-{manager.snapshot().generation}",
+            action_digest="0" * 64,
+        )
+        value = value.model_copy(update={"action_digest": action_digest(value)})
+        manager.control(value, route_state_committer=commit)
+
+    manager.initialize(request, route_state_restorer=restore)
+    control("green_loaded")
+    control("canary_started")
+    control("green_aborted")
+    assert (
+        manager.snapshot().generation,
+        manager.snapshot().route_generation,
+        manager.snapshot().phase,
+    ) == (4, 4, "blue_only")
+    manager.reset(request.run_id, request.lease_id, request.fencing_token)
+    restored = manager.initialize(request, route_state_restorer=restore)
+    assert (restored.generation, restored.route_generation, restored.phase) == (4, 4, "blue_only")
+
+    manager.reset(request.run_id, request.lease_id, request.fencing_token)
+    changed = request.model_copy(
+        update={
+            "blue": request.blue.model_copy(
+                update={"model_version": "2", "artifact_sha256": "1" * 64}
+            )
+        }
+    )
+    rebound = manager.initialize(changed, route_state_restorer=restore)
+    assert (rebound.generation, rebound.route_generation) == (5, 5)
 
 
 def test_s6bm_causal_fence_rejects_missing_receipt_and_early_effect(

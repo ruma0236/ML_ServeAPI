@@ -311,6 +311,7 @@ class S6BMConfig:
                 "contract": "existing_control_plane_entities_idempotency_causal_v3",
                 "synchronous_commit": "on",
                 "commit_readback_required": True,
+                "route_revision_commit_readback_required": True,
                 "commit_timestamp_tracking_required": True,
                 "commit_timestamp_separate_connection_required": True,
                 "commit_timestamp_readback_lane": "bounded_parallel_post_commit_v1",
@@ -585,9 +586,7 @@ def build_continuity_plan(config: S6BMConfig, attempt_id: str) -> dict[str, Any]
         str(item["request_id"]) for item in bridge if item["causal_crossover"] is True
     ]
     deadline_owner_request_ids = [
-        str(item["request_id"])
-        for item in bridge
-        if item["route_switch_deadline_owner"] is True
+        str(item["request_id"]) for item in bridge if item["route_switch_deadline_owner"] is True
     ]
     bridge_subsets = {
         "receipt_required": {
@@ -961,14 +960,12 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
     if (
         len(deadline_owner_ids) != 1
         or deadline_evidence.get("owner_request_id") != deadline_owner_ids[0]
-        or deadline_evidence.get("source")
-        != "api_control_plane_designated_crossover_registration"
+        or deadline_evidence.get("source") != "api_control_plane_designated_crossover_registration"
         or deadline_started_ns <= int(producer_started * 1e9)
         or deadline_ns - deadline_started_ns != frozen_deadline_ns
         or int(execution.get("route_switch_deadline_monotonic_ns", 0)) != deadline_ns
         or int(receipt_observed * 1e9) >= deadline_ns
-        or transition.get("route_switch_deadline_owner_request_id")
-        != deadline_owner_ids[0]
+        or transition.get("route_switch_deadline_owner_request_id") != deadline_owner_ids[0]
         or int(transition.get("route_switch_deadline_started_monotonic_ns", 0))
         != deadline_started_ns
         or int(transition.get("route_switch_deadline_monotonic_ns", 0)) != deadline_ns
@@ -1207,6 +1204,10 @@ def project_continuity_contract(raw: Mapping[str, Any], config: S6BMConfig) -> d
             "causal_transaction_id": durable.get("transaction_id"),
             "causal_payload_sha256": durable.get("causal_payload_sha256"),
         }
+        if terminal_record.get("route_identity_sha256") is not None:
+            expected_projection["route_identity_sha256"] = final_record.get("route_identity_sha256")
+        if terminal_record.get("observed_route_revision") is not None:
+            expected_projection["observed_route_revision"] = durable.get("observed_route_revision")
         if (
             terminal_record != expected_projection
             or terminal_record.get("model_role") != "blue"

@@ -131,6 +131,8 @@ def test_generation_pinned_request_rejects_before_in_flight_accounting(
 ) -> None:
     request = TritonBlueGreenPredictRequest(
         run_id="s8-v4-s6bm-test",
+        lease_id="lease-test",
+        fencing_token="fence-test",
         attempt_id="s6bm-success-generation-test",
         request_id="request-blue-generation-0001",
         request_nonce="nonce-blue-generation-0001",
@@ -182,6 +184,8 @@ def test_route_generation_remains_at_switch_epoch_during_blue_drain(
 
     request = TritonBlueGreenPredictRequest(
         run_id="s8-v4-s6bm-test",
+        lease_id="lease-test",
+        fencing_token="fence-test",
         attempt_id="s6bm-success-route-epoch",
         request_id="request-green-route-epoch",
         request_nonce="nonce-green-route-epoch",
@@ -197,6 +201,179 @@ def test_route_generation_remains_at_switch_epoch_during_blue_drain(
 
     assert result.route_generation == switch_generation
     assert result.route_phase == "blue_draining"
+
+
+def test_route_revision_is_last_route_changing_control_revision(
+    manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"outputs": [{"name": "OUTPUT__0", "data": [4, 6, 8, 10]}]}
+
+    class Client:
+        async def __aenter__(self) -> "Client":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, *_args: object, **_kwargs: object) -> Response:
+            return Response()
+
+    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    assert (manager.snapshot().generation, manager.snapshot().route_generation) == (1, 1)
+    manager.control(control_request(manager, "green_loaded"))
+    assert (manager.snapshot().generation, manager.snapshot().route_generation) == (2, 1)
+    manager.control(control_request(manager, "canary_started"))
+    assert (manager.snapshot().generation, manager.snapshot().route_generation) == (3, 3)
+    manager.control(control_request(manager, "green_switched"))
+    assert (manager.snapshot().generation, manager.snapshot().route_generation) == (4, 4)
+    manager.control(control_request(manager, "blue_drain_started"))
+    assert (manager.snapshot().generation, manager.snapshot().route_generation) == (5, 4)
+
+    base = TritonBlueGreenPredictRequest(
+        run_id="s8-v4-s6bm-test",
+        lease_id="lease-test",
+        fencing_token="fence-test",
+        attempt_id="s6bm-route-revision-drain",
+        request_id="request-green-route-revision",
+        request_nonce="nonce-green-route-revision",
+        traceparent="00-" + "8" * 32 + "-" + "9" * 16 + "-01",
+        input_values=[1, 2, 3, 4],
+        expected_model_role="green",
+        expected_model_name="s6bm_green",
+        expected_model_version="1",
+        expected_artifact_sha256="e" * 64,
+        expected_route_generation=4,
+    )
+    assert asyncio.run(manager.predict(base)).route_generation == 4
+    for forged in (3, 5):
+        changed = base.model_copy(
+            update={
+                "request_id": f"request-green-route-forged-{forged}",
+                "request_nonce": f"nonce-green-route-forged-{forged}",
+                "expected_route_generation": forged,
+            }
+        )
+        with pytest.raises(TritonBlueGreenError) as rejected:
+            asyncio.run(manager.predict(changed))
+        assert rejected.value.code == "causal_route_generation_mismatch"
+
+    stale = control_request(manager, "blue_unloaded").model_copy(update={"expected_generation": 4})
+    stale = stale.model_copy(update={"action_digest": action_digest(stale)})
+    with pytest.raises(TritonBlueGreenError) as stale_control:
+        manager.control(stale)
+    assert stale_control.value.code == "route_generation_conflict"
+
+
+def test_route_revision_is_monotonic_across_rollback_abort_and_second_rollout(
+    manager: TritonBlueGreenManager,
+) -> None:
+    observed = [manager.snapshot().route_generation]
+    for action in (
+        "green_loaded",
+        "canary_started",
+        "green_switched",
+        "blue_drain_started",
+        "blue_unloaded",
+        "blue_loaded",
+        "blue_switched",
+        "green_drain_started",
+        "green_unloaded",
+        "green_loaded",
+        "canary_started",
+        "green_aborted",
+        "green_loaded",
+        "canary_started",
+        "green_switched",
+    ):
+        manager.control(control_request(manager, action))
+        observed.append(manager.snapshot().route_generation)
+
+    assert observed == [1, 1, 3, 4, 4, 4, 4, 8, 8, 8, 8, 12, 13, 13, 15, 16]
+    changed = [value for left, value in zip(observed, observed[1:]) if value != left]
+    assert changed == [3, 4, 8, 12, 13, 15, 16]
+    assert len(changed) == len(set(changed))
+    assert observed[3] == observed[2] + 1
+    assert observed[-1] == observed[-2] + 1
+
+    warmup_abort = TritonBlueGreenManager()
+    warmup_abort._assert_lease = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    warmup_abort.initialize(initialize_request())
+    warmup_abort.control(control_request(warmup_abort, "green_loaded"))
+    warmup_abort.control(control_request(warmup_abort, "green_aborted"))
+    assert (
+        warmup_abort.snapshot().generation,
+        warmup_abort.snapshot().route_generation,
+    ) == (3, 1)
+
+
+def test_active_model_identity_changes_route_signature_without_weight_change() -> None:
+    original = initialize_request()
+    changed_blue = original.model_copy(
+        update={
+            "blue": original.blue.model_copy(
+                update={"model_version": "2", "artifact_sha256": "1" * 64}
+            )
+        }
+    )
+    changed_standby = original.model_copy(
+        update={
+            "green": original.green.model_copy(
+                update={"model_version": "2", "artifact_sha256": "2" * 64}
+            )
+        }
+    )
+    blue_only = {"blue": 100, "green": 0}
+    assert module.active_route_identity_sha256(original, blue_only) != (
+        module.active_route_identity_sha256(changed_blue, blue_only)
+    )
+    assert module.active_route_identity_sha256(original, blue_only) == (
+        module.active_route_identity_sha256(changed_standby, blue_only)
+    )
+
+
+def test_predict_uses_gpu_lease_fence_independently_of_route_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EVM_S6BM_ENABLED", "1")
+    owner = {"lease_id": "lease-test", "fencing_token": "fence-test"}
+
+    def assert_owner(*, lease_id: str, fencing_token: str, **_kwargs: object) -> None:
+        if (lease_id, fencing_token) != (owner["lease_id"], owner["fencing_token"]):
+            raise RuntimeError("stale GPU lease")
+
+    monkeypatch.setattr(module, "assert_scale_validation_gpu_lease_owner", assert_owner)
+    value = TritonBlueGreenManager()
+    value.initialize(initialize_request())
+    request = TritonBlueGreenPredictRequest(
+        run_id="s8-v4-s6bm-test",
+        lease_id="lease-test",
+        fencing_token="fence-test",
+        attempt_id="s6bm-lease-fence-test",
+        request_id="request-blue-lease-fence",
+        request_nonce="nonce-blue-lease-fence",
+        traceparent="00-" + "a" * 32 + "-" + "b" * 16 + "-01",
+        input_values=[1, 2, 3, 4],
+        expected_model_role="blue",
+        expected_model_name="s6bm_blue",
+        expected_model_version="1",
+        expected_artifact_sha256="c" * 64,
+        expected_route_generation=1,
+    )
+    owner.update(lease_id="lease-next", fencing_token="fence-next")
+    with pytest.raises(RuntimeError, match="stale GPU lease"):
+        asyncio.run(value.predict(request))
+    rebound = request.model_copy(update={"lease_id": "lease-next", "fencing_token": "fence-next"})
+    with pytest.raises(TritonBlueGreenError) as stale_state:
+        asyncio.run(value.predict(rebound))
+    assert stale_state.value.code == "route_revision_lease_binding_mismatch"
+    assert value.snapshot().route_generation == 1
 
 
 def test_s6bm_external_effect_is_idempotent_and_drain_blocks_in_flight(
@@ -224,6 +401,8 @@ def test_s6bm_external_effect_is_idempotent_and_drain_blocks_in_flight(
     monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
     request = TritonBlueGreenPredictRequest(
         run_id="s8-v4-s6bm-test",
+        lease_id="lease-test",
+        fencing_token="fence-test",
         request_id="request-blue-0001",
         traceparent="00-" + "1" * 32 + "-" + "2" * 16 + "-01",
         input_values=[1, 2, 3, 4],
@@ -287,6 +466,8 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
     manager.control(control_request(manager, "canary_started"))
     request = TritonBlueGreenPredictRequest(
         run_id="s8-v4-s6bm-test",
+        lease_id="lease-test",
+        fencing_token="fence-test",
         attempt_id="s6bm-success-causal-test",
         request_id="request-blue-causal-0001",
         request_nonce="nonce-blue-causal-0001",
@@ -425,6 +606,7 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
         assert switched.transition_receipt["new_route_generation"] == 4
         assert switched.transition_receipt["state_readback"] == {
             "generation": 4,
+            "route_generation": 4,
             "phase": "green_active",
             "route_weights": {"blue": 0, "green": 100},
             "loaded_roles": ["blue", "green"],
@@ -480,6 +662,8 @@ def test_s6bm_crossover_waits_for_switch_and_times_out_fail_closed(
     manager.control(control_request(manager, "canary_started"))
     request = TritonBlueGreenPredictRequest(
         run_id="s8-v4-s6bm-test",
+        lease_id="lease-test",
+        fencing_token="fence-test",
         attempt_id="s6bm-success-causal-timeout",
         request_id="request-blue-causal-timeout",
         request_nonce="nonce-blue-causal-timeout",
@@ -549,6 +733,8 @@ def test_s6bm_bridge_start_receipt_does_not_wait_for_route_switch(
     generation = manager.snapshot().generation
     request = TritonBlueGreenPredictRequest(
         run_id="s8-v4-s6bm-test",
+        lease_id="lease-test",
+        fencing_token="fence-test",
         attempt_id="s6bm-success-bridge-receipt",
         request_id="request-blue-bridge-receipt",
         request_nonce="nonce-blue-bridge-receipt",
@@ -612,6 +798,8 @@ def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
     ) -> TritonBlueGreenPredictRequest:
         return TritonBlueGreenPredictRequest(
             run_id="s8-v4-s6bm-test",
+            lease_id="lease-test",
+            fencing_token="fence-test",
             attempt_id="s6bm-success-exact-pending",
             request_id=request_id,
             request_nonce=f"nonce-{request_id}",
@@ -654,9 +842,7 @@ def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
     )
     pending_ids = sorted([hold_request.request_id, bridge_request.request_id])
     terminal_ids = [f"terminal-bridge-{index:02d}" for index in range(39)]
-    terminal_set_sha = hashlib.sha256(
-        module.canonical(terminal_ids).encode("ascii")
-    ).hexdigest()
+    terminal_set_sha = hashlib.sha256(module.canonical(terminal_ids).encode("ascii")).hexdigest()
     terminal_records_sha = "f" * 64
 
     async def start_committer(
