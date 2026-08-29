@@ -529,6 +529,9 @@ def _validate_s6bm_observed_route_revision(value: Mapping[str, Any]) -> dict[str
         raise ControlPlaneParityError("S6B-M observed route revision is invalid")
     route_payload = _validate_s6bm_route_revision_payload(route_source_payload)
     lease_payload = _validate_s6bm_route_revision_payload(lease_binding_payload)
+    lease_route_generation = int(lease_payload["route_generation"])
+    reference_route_generation = route_generation if type(route_generation) is int else -1
+    crossed_switch_into_drain = lease_route_generation == reference_route_generation + 1
     if (
         route_payload["run_id"] != reference["run_id"]
         or route_payload["control_generation"] != route_source_control
@@ -546,12 +549,24 @@ def _validate_s6bm_observed_route_revision(value: Mapping[str, Any]) -> dict[str
         != reference["transition_new_route_generation"]
         or lease_payload["run_id"] != reference["run_id"]
         or lease_payload["control_generation"] != lease_control
-        or lease_payload["route_generation"] != route_generation
+        or lease_route_generation < route_generation
         or canonical_digest(lease_payload) != reference["lease_binding_payload_sha256"]
         or lease_payload["lease_id"] != reference["lease_id"]
         or lease_payload["fencing_token_sha256"] != reference["fencing_token_sha256"]
     ):
         raise ControlPlaneParityError("S6B-M observed route revision payload parity failed")
+    if crossed_switch_into_drain:
+        if (
+            lease_payload["control_generation"] != lease_route_generation + 1
+            or lease_payload["action"] != "blue_drain_started"
+            or lease_payload["phase"] != "blue_draining"
+            or lease_payload["route_changed"] is not False
+            or lease_payload["route_weights"] != {"blue": 0, "green": 100}
+            or lease_payload["loaded_roles"] != ["blue", "green"]
+        ):
+            raise ControlPlaneParityError("S6B-M crossover drain revision is invalid")
+    elif lease_route_generation != route_generation:
+        raise ControlPlaneParityError("S6B-M observed route revision skipped a route epoch")
     if reference["route_source_action"] == "green_switched":
         if (
             not isinstance(reference.get("transition_id"), str)
@@ -1612,6 +1627,7 @@ class TransactionalControlPlaneStore:
         *,
         identity: Mapping[str, Any],
         causal_payload: Mapping[str, Any],
+        observed_transition: Mapping[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         if causal_payload.get("route_revision_binding_required") is not True:
             return None
@@ -1654,20 +1670,42 @@ class TransactionalControlPlaneStore:
         lease_row = connection.execute(
             f"""
             SELECT * FROM {schema}.s6bm_route_revisions
-            WHERE run_id=%s AND route_generation=%s
-              AND lease_id=%s AND fencing_token_sha256=%s
+            WHERE run_id=%s
             ORDER BY control_generation DESC LIMIT 1 FOR SHARE
             """,
-            (identity["run_id"], route_generation, lease_id, fencing_token_sha256),
+            (identity["run_id"],),
         ).fetchone()
         if lease_row is None:
             raise ControlPlaneParityError("S6B-M effect lease fence lacks a route revision")
         lease_payload = _validate_s6bm_route_revision_payload(dict(lease_row["payload"]))
+        requires_switch = causal_payload.get("requires_switch_before_effect") is True
         if (
             lease_payload["lease_id"] != lease_id
             or lease_payload["fencing_token_sha256"] != fencing_token_sha256
-            or int(lease_payload["route_generation"]) != route_generation
             or str(lease_row["payload_sha256"]) != canonical_digest(lease_payload)
+        ):
+            raise ControlPlaneParityError("S6B-M effect current lease fence changed")
+        if requires_switch:
+            transition = dict(observed_transition or {})
+            if (
+                int(transition.get("old_route_generation", 0)) != route_generation
+                or int(transition.get("new_route_generation", 0)) != route_generation + 1
+                or int(lease_payload["route_generation"]) != int(transition["new_route_generation"])
+                or int(lease_payload["control_generation"])
+                != int(transition["new_route_generation"]) + 1
+                or lease_payload["action"] != "blue_drain_started"
+                or lease_payload["phase"] != "blue_draining"
+                or lease_payload["route_changed"] is not False
+                or lease_payload["route_weights"] != {"blue": 0, "green": 100}
+                or lease_payload["loaded_roles"] != ["blue", "green"]
+            ):
+                raise ControlPlaneParityError(
+                    "S6B-M crossover effect lacks the committed drain revision"
+                )
+        elif (
+            int(lease_payload["route_generation"]) != route_generation
+            or lease_payload["active_route_identity_sha256"]
+            != route_payload["active_route_identity_sha256"]
         ):
             raise ControlPlaneParityError("S6B-M effect lease route binding failed")
         return self._s6bm_route_revision_reference(route_row, lease_row)
@@ -2682,20 +2720,6 @@ class TransactionalControlPlaneStore:
                 replayed = True
                 if causal_payload is not None:
                     causal_identity = _validate_s6bm_causal_identity(causal_payload)
-                    observed_route_revision = self._lock_s6bm_effect_route_revision(
-                        connection,
-                        identity=causal_identity,
-                        causal_payload=causal_payload,
-                    )
-                    if observed_route_revision is not None:
-                        effective_causal_payload = {
-                            **dict(effective_causal_payload or {}),
-                            "observed_route_revision": observed_route_revision,
-                        }
-                        if stored.get("observed_route_revision") != observed_route_revision:
-                            raise ControlPlaneParityError(
-                                "S6B-M replayed effect route revision changed"
-                            )
                     if causal_payload.get("requires_switch_before_effect") is True:
                         _switch_event, observed_transition = self._lock_s6bm_committed_transition(
                             connection,
@@ -2708,6 +2732,21 @@ class TransactionalControlPlaneStore:
                         if stored.get("observed_transition") != observed_transition:
                             raise ControlPlaneParityError(
                                 "S6B-M replayed effect transition reference changed"
+                            )
+                    observed_route_revision = self._lock_s6bm_effect_route_revision(
+                        connection,
+                        identity=causal_identity,
+                        causal_payload=causal_payload,
+                        observed_transition=observed_transition,
+                    )
+                    if observed_route_revision is not None:
+                        effective_causal_payload = {
+                            **dict(effective_causal_payload or {}),
+                            "observed_route_revision": observed_route_revision,
+                        }
+                        if stored.get("observed_route_revision") != observed_route_revision:
+                            raise ControlPlaneParityError(
+                                "S6B-M replayed effect route revision changed"
                             )
                     causal_event, causal_replayed = self._insert_s6bm_causal_event(
                         connection,
@@ -2742,20 +2781,6 @@ class TransactionalControlPlaneStore:
                 ).fetchone()
                 if causal_payload is not None:
                     causal_identity = _validate_s6bm_causal_identity(causal_payload)
-                    observed_route_revision = self._lock_s6bm_effect_route_revision(
-                        connection,
-                        identity=causal_identity,
-                        causal_payload=causal_payload,
-                    )
-                    if observed_route_revision is not None:
-                        effective_causal_payload = {
-                            **dict(effective_causal_payload or {}),
-                            "observed_route_revision": observed_route_revision,
-                        }
-                        effective_response_payload = {
-                            **effective_response_payload,
-                            "observed_route_revision": observed_route_revision,
-                        }
                     switch_event: dict[str, Any] | None = None
                     if causal_payload.get("requires_switch_before_effect") is True:
                         switch_event, observed_transition = self._lock_s6bm_committed_transition(
@@ -2769,6 +2794,21 @@ class TransactionalControlPlaneStore:
                         effective_response_payload = {
                             **effective_response_payload,
                             "observed_transition": observed_transition,
+                        }
+                    observed_route_revision = self._lock_s6bm_effect_route_revision(
+                        connection,
+                        identity=causal_identity,
+                        causal_payload=causal_payload,
+                        observed_transition=observed_transition,
+                    )
+                    if observed_route_revision is not None:
+                        effective_causal_payload = {
+                            **dict(effective_causal_payload or {}),
+                            "observed_route_revision": observed_route_revision,
+                        }
+                        effective_response_payload = {
+                            **effective_response_payload,
+                            "observed_route_revision": observed_route_revision,
                         }
                     causal_event, causal_replayed = self._insert_s6bm_causal_event(
                         connection,
@@ -2880,6 +2920,7 @@ class TransactionalControlPlaneStore:
             ).fetchone()
             causal_row = None
             transition_readback = None
+            transition_reference = None
             route_revision_readback = None
             if causal_payload is not None:
                 identity = _validate_s6bm_causal_identity(causal_payload)
@@ -2891,18 +2932,19 @@ class TransactionalControlPlaneStore:
                     """,
                     (identity["attempt_id"], identity["request_id"]),
                 ).fetchone()
-                route_revision_readback = self._lock_s6bm_effect_route_revision(
-                    connection,
-                    identity=identity,
-                    causal_payload=causal_payload,
-                )
                 if causal_payload.get("requires_switch_before_effect") is True:
-                    transition_readback, _transition_reference = (
+                    transition_readback, transition_reference = (
                         self._lock_s6bm_committed_transition(
                             connection,
                             identity=identity,
                         )
                     )
+                route_revision_readback = self._lock_s6bm_effect_route_revision(
+                    connection,
+                    identity=identity,
+                    causal_payload=causal_payload,
+                    observed_transition=transition_reference,
+                )
         readback_finished_monotonic_ns = time.perf_counter_ns()
         if row is None:
             raise ControlPlaneParityError("terminal effect was not visible after commit ACK")

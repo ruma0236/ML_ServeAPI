@@ -50,6 +50,7 @@ from evm.scale_validation.s6bm_runtime import (  # noqa: E402
     build_continuity_plan,
     canonical,
     canonical_sha256,
+    project_success_attempt,
     sha256_file,
 )
 from evm.scale_validation.s6bm_causal import validate_causal_bundle  # noqa: E402
@@ -3281,6 +3282,7 @@ def run_success(
         config,
         compare_projection=False,
     )
+    project_success_attempt(result, config)
     reset_controller(config, lease)
     return result
 

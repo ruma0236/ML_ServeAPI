@@ -1185,6 +1185,27 @@ def _validate_effect_route_revision(
     route_generation = record.get("route_generation")
     identities = dict(raw.get("identities", {}))
     lease_identity = dict(identities.get("lease", {}))
+    requires_switch = event_payload.get("requires_switch_before_effect") is True
+    transition = dict(receipt.get("observed_transition") or {})
+    if requires_switch:
+        lease_binding_valid = (
+            type(route_generation) is int
+            and int(transition.get("old_route_generation", 0)) == route_generation
+            and int(transition.get("new_route_generation", 0)) == route_generation + 1
+            and lease_payload["route_generation"] == transition["new_route_generation"]
+            and lease_payload["control_generation"] == transition["new_route_generation"] + 1
+            and lease_payload["action"] == "blue_drain_started"
+            and lease_payload["phase"] == "blue_draining"
+            and lease_payload["route_changed"] is False
+            and lease_payload["route_weights"] == {"blue": 0, "green": 100}
+            and lease_payload["loaded_roles"] == ["blue", "green"]
+        )
+    else:
+        lease_binding_valid = (
+            lease_payload["route_generation"] == route_generation
+            and lease_payload["active_route_identity_sha256"]
+            == route_payload["active_route_identity_sha256"]
+        )
     if (
         set(reference) != _OBSERVED_ROUTE_REVISION_FIELDS
         or reference.get("schema_version") != "evm.s6bm.observed_route_revision.v1"
@@ -1225,9 +1246,7 @@ def _validate_effect_route_revision(
         or lease_payload["run_id"] != record.get("run_id")
         or lease_payload["source_revision"] != raw.get("source_revision")
         or lease_payload["control_generation"] != reference["lease_binding_control_generation"]
-        or lease_payload["route_generation"] != route_generation
-        or lease_payload["active_route_identity_sha256"]
-        != route_payload["active_route_identity_sha256"]
+        or not lease_binding_valid
         or lease_payload["blue_identity_sha256"] != route_payload["blue_identity_sha256"]
         or lease_payload["green_identity_sha256"] != route_payload["green_identity_sha256"]
         or lease_payload["image_digest"] != route_payload["image_digest"]

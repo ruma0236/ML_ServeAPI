@@ -317,6 +317,73 @@ def test_s6bm_v4_effect_route_revision_mutations_fail_closed(
     assert str(rejected.value) == "s6bm_v4_effect_route_revision_binding"
 
 
+@pytest.mark.parametrize("mutation", ["drain_action", "drain_control", "drain_route"])
+def test_s6bm_v4_crossover_effect_binds_the_committed_drain_revision(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    root = tmp_path / f"crossover-drain-revision-{mutation}"
+    raw = materialize_causal_mutation_bundle(root, v4_continuity_attempt(), config)
+    hold_id = str(raw["traffic_plan"]["roles"]["causal_hold"][0]["request_id"])
+    record = copy.deepcopy(
+        next(item for item in raw["request_records"] if item["request_id"] == hold_id)
+    )
+    effect_export = json.loads(
+        (root / raw["causal_proof"]["durable_effect_export"]["path"]).read_text(encoding="utf-8")
+    )
+    event_export = json.loads(
+        (root / raw["causal_proof"]["causal_event_export"]["path"]).read_text(encoding="utf-8")
+    )
+    effect = next(item for item in effect_export["effects"] if item["idempotency_key"] == hold_id)
+    event = next(
+        item
+        for item in event_export["events"]
+        if item.get("request_id") == hold_id
+        and item.get("event_type") == "durable_terminal_effect_commit"
+    )
+    effect_payload = copy.deepcopy(effect["payload"])
+    event_payload = copy.deepcopy(event["payload"])
+    durable_commit = copy.deepcopy(effect_payload["durable_commit"])
+    receipt = copy.deepcopy(record["durable_effect"])
+    references = [
+        effect_payload["observed_route_revision"],
+        event_payload["observed_route_revision"],
+        durable_commit["observed_route_revision"],
+        receipt["observed_route_revision"],
+    ]
+    assert all(reference["route_generation"] == 2 for reference in references)
+    assert all(
+        reference["lease_binding_control_generation"] == 4
+        and reference["lease_binding_payload"]["route_generation"] == 3
+        and reference["lease_binding_payload"]["action"] == "blue_drain_started"
+        for reference in references
+    )
+
+    for reference in references:
+        lease_payload = reference["lease_binding_payload"]
+        if mutation == "drain_action":
+            lease_payload["action"] = "green_switched"
+        elif mutation == "drain_control":
+            lease_payload["control_generation"] = 5
+            reference["lease_binding_control_generation"] = 5
+        else:
+            lease_payload["route_generation"] = 4
+        reference["lease_binding_payload_sha256"] = canonical_sha256(lease_payload)
+
+    with pytest.raises(S6BMCausalError) as rejected:
+        _validate_effect_route_revision(
+            record=record,
+            effect_payload=effect_payload,
+            event_payload=event_payload,
+            durable_commit=durable_commit,
+            receipt=receipt,
+            raw=raw,
+            config=config,
+        )
+    assert str(rejected.value) == "s6bm_v4_effect_route_revision_binding"
+
+
 def test_s6bm_v4_same_clock_nested_span_closures_allow_equality() -> None:
     effect = {"start_unix_ns": 200, "end_unix_ns": 400}
     controller = {"start_unix_ns": 100, "end_unix_ns": 400}

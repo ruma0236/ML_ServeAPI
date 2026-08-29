@@ -611,6 +611,8 @@ def test_s6bm_strict_causal_transition_requires_receipts_and_fence(
             "route_weights": {"blue": 0, "green": 100},
             "loaded_roles": ["blue", "green"],
         }
+        await asyncio.sleep(0.01)
+        assert task.done() is False
         manager.control(control_request(manager, "blue_drain_started"))
         result = await task
         assert result.effect_id == identity.effect_id
@@ -930,6 +932,10 @@ def test_s6bm_green_switch_releases_exact_hold_and_designated_bridge_set(
             switched.transition_receipt["route_switch_deadline_owner_request_id"]
             == bridge_request.request_id
         )
+        await asyncio.sleep(0.01)
+        assert hold_task.done() is False
+        assert bridge_task.done() is False
+        manager.control(control_request(manager, "blue_drain_started"))
         await asyncio.gather(hold_task, bridge_task)
         final = manager.snapshot()
         assert final.pending_crossover_count == 0

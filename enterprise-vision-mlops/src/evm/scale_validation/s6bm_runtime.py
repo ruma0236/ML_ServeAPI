@@ -858,7 +858,10 @@ def project_raw_drain_timeline(raw: Mapping[str, Any], config: S6BMConfig) -> di
         item["attempted_monotonic"] >= switch
         or item["completed_monotonic"] <= switch
         or item["attempted_monotonic"] >= drain_started
-        or item["completed_monotonic"] <= drain_started
+        or (
+            not config.schema_version.endswith(".v4")
+            and item["completed_monotonic"] <= drain_started
+        )
         for item in hold_records
     ):
         raise S6BMRuntimeError("s6bm_drain_hold_switch_order")

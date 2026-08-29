@@ -1206,6 +1206,53 @@ def test_s6bm_terminal_effect_binds_switch_route_revision_and_lease_fence(
     assert observed["lease_binding_control_generation"] == 5
     assert receipt["route_revision_readback_visible"] is True
 
+    crossover_request = TritonBlueGreenPredictRequest(
+        run_id=initialize.run_id,
+        lease_id=initialize.lease_id,
+        fencing_token=initialize.fencing_token,
+        attempt_id=crossover["attempt_id"],
+        request_id=crossover["request_id"],
+        request_nonce=crossover["request_nonce"],
+        traceparent="00-" + crossover["trace_id"] + "-" + "2" * 16 + "-01",
+        input_values=[1, 2, 3, 4],
+        hold_ms=1,
+        expected_model_role="blue",
+        expected_model_name=initialize.blue.model_name,
+        expected_model_version=initialize.blue.model_version,
+        expected_artifact_sha256=initialize.blue.artifact_sha256,
+        expected_route_generation=3,
+        causal_crossover=True,
+    )
+    crossover_response = TritonBlueGreenPredictResponse(
+        run_id=crossover_request.run_id,
+        attempt_id=crossover_request.attempt_id,
+        request_id=crossover_request.request_id,
+        trace_id=crossover["trace_id"],
+        effect_id=crossover["effect_id"],
+        route_generation=3,
+        model_role="blue",
+        model_name=initialize.blue.model_name,
+        model_version=initialize.blue.model_version,
+        artifact_sha256=initialize.blue.artifact_sha256,
+        route_identity_sha256=model_identity_sha256(initialize.blue),
+        route_phase="canary",
+        output=[3, 5, 7, 9],
+        result_sha256="b" * 64,
+        elapsed_ms=1,
+    )
+    crossover_receipt = api._commit_s6bm_terminal_effect_sync(
+        crossover_request,
+        crossover_response,
+    )
+    crossover_revision = crossover_receipt["observed_route_revision"]
+    assert crossover_revision["route_generation"] == 3
+    assert crossover_revision["route_source_control_generation"] == 3
+    assert crossover_revision["route_source_action"] == "canary_started"
+    assert crossover_revision["lease_binding_control_generation"] == 5
+    assert crossover_revision["lease_binding_payload"]["route_generation"] == 4
+    assert crossover_revision["lease_binding_payload"]["action"] == "blue_drain_started"
+    assert crossover_receipt["observed_transition"]["transition_id"] == switch["transition_id"]
+
     forged_identity = response.model_copy(
         update={
             "request_id": "s6bm-route-effect-request-0002",
@@ -1240,7 +1287,7 @@ def test_s6bm_terminal_effect_binds_switch_route_revision_and_lease_fence(
             "fencing_token": "stale-fence-route-effect-binding",
         }
     )
-    with pytest.raises(ControlPlaneParityError, match="lease fence lacks a route revision"):
+    with pytest.raises(ControlPlaneParityError, match="effect current lease fence changed"):
         api._commit_s6bm_terminal_effect_sync(
             stale_lease_request,
             response.model_copy(

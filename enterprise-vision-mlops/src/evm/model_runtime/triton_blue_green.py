@@ -1519,6 +1519,34 @@ class TritonBlueGreenManager:
                                 request.request_id,
                                 status_code=503,
                             )
+                    while True:
+                        with self._lock:
+                            current = self._require_state(request.run_id)
+                            current_phase = current.phase
+                            current_route_generation = current.route_generation
+                            deadline = current.route_switch_deadline_monotonic_ns
+                        if current_phase == "blue_draining":
+                            if current_route_generation != int(transition["new_route_generation"]):
+                                raise TritonBlueGreenError(
+                                    "causal_drain_route_revision_mismatch",
+                                    request.request_id,
+                                    status_code=503,
+                                )
+                            break
+                        if current_phase != "green_active" or deadline is None:
+                            raise TritonBlueGreenError(
+                                "causal_drain_state_mismatch",
+                                request.request_id,
+                                status_code=503,
+                            )
+                        remaining = (deadline - time.perf_counter_ns()) / 1_000_000_000
+                        if remaining <= 0:
+                            raise TritonBlueGreenError(
+                                "causal_drain_wait_timeout",
+                                request.request_id,
+                                status_code=503,
+                            )
+                        await asyncio.sleep(min(0.002, remaining))
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 result = TritonBlueGreenPredictResponse(
                     run_id=request.run_id,

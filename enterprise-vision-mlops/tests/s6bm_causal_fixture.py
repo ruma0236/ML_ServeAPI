@@ -528,6 +528,39 @@ def materialize_causal_mutation_bundle(
         "lease_id": lease_id,
         "fencing_token_sha256": fencing_token_sha256,
     }
+    drain_binding_payload = {
+        **route_source_payload,
+        "control_generation": 4,
+        "route_generation": 3,
+        "phase": "blue_draining",
+        "route_weights": {"blue": 0, "green": 100},
+        "active_route_identity_sha256": canonical_sha256(
+            {
+                "routes": [
+                    {
+                        "role": "green",
+                        "weight": 100,
+                        "identity_sha256": green_identity_sha256,
+                    }
+                ]
+            }
+        ),
+        "action": "blue_drain_started",
+        "approval_id": "approval-blue-drain-fixture",
+        "used_approvals": [
+            "approval-blue-drain-fixture",
+            "approval-blue-switched-fixture",
+            "approval-green-switched-fixture",
+        ],
+        "route_changed": False,
+    }
+    crossover_observed_route_revision = {
+        **observed_route_revision,
+        "lease_binding_control_generation": 4,
+        "lease_binding_payload_sha256": canonical_sha256(drain_binding_payload),
+        "lease_binding_transaction_id": "49004",
+        "lease_binding_payload": drain_binding_payload,
+    }
     for ordinal, record in enumerate(records, start=1):
         record["fixture_transaction_id"] = str(50_000 + ordinal)
         record["route_generation"] = 2
@@ -628,6 +661,9 @@ def materialize_causal_mutation_bundle(
         record: dict[str, Any], *, requires_switch: bool, observed: dict[str, Any] | None
     ) -> None:
         nonlocal sequence
+        route_revision_reference = (
+            crossover_observed_route_revision if requires_switch else observed_route_revision
+        )
         commit_ns = int(float(record["completed_monotonic"]) * 1_000_000_000) - 5_000_000
         transaction_id = str(record["fixture_transaction_id"])
         event_payload = {
@@ -654,7 +690,7 @@ def materialize_causal_mutation_bundle(
             "lease_id": lease_id,
             "fencing_token_sha256": fencing_token_sha256,
             "requires_switch_before_effect": requires_switch,
-            "observed_route_revision": copy.deepcopy(observed_route_revision),
+            "observed_route_revision": copy.deepcopy(route_revision_reference),
             **({"observed_transition": observed} if observed is not None else {}),
         }
         event = _event(
@@ -674,7 +710,7 @@ def materialize_causal_mutation_bundle(
             "causal_sequence": sequence,
             "causal_payload_sha256": event["payload_sha256"],
             "observed_transition": observed,
-            "observed_route_revision": copy.deepcopy(observed_route_revision),
+            "observed_route_revision": copy.deepcopy(route_revision_reference),
         }
         entity_payload = {
             "schema_version": "evm.s8_v4.s6bm_terminal_effect.v1",
@@ -690,7 +726,7 @@ def materialize_causal_mutation_bundle(
             "result_sha256": record["result_sha256"],
             "terminal_outcome": "completed",
             "durable_commit": durable_commit,
-            "observed_route_revision": copy.deepcopy(observed_route_revision),
+            "observed_route_revision": copy.deepcopy(route_revision_reference),
             **({"observed_transition": observed} if observed is not None else {}),
         }
         request_sha = hashlib.sha256(f"request:{record['request_id']}".encode("ascii")).hexdigest()
@@ -742,7 +778,7 @@ def materialize_causal_mutation_bundle(
             },
             "observed_transition": observed,
             "transition_readback_visible": requires_switch,
-            "observed_route_revision": copy.deepcopy(observed_route_revision),
+            "observed_route_revision": copy.deepcopy(route_revision_reference),
             "route_revision_readback_visible": True,
         }
         record["durable_effect"] = receipt
