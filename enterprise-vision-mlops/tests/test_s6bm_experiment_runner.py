@@ -149,6 +149,9 @@ def test_continuity_mutation_contract_is_exact_and_frozen() -> None:
     assert len(validator.CASE_CONTRACT) == len(validator.MUTATIONS) == 24
     assert len({case_id for case_id, _reason in validator.CASE_CONTRACT}) == 24
     assert validator.canonical_sha256(validator.CASE_CONTRACT) == (
+        "9613d11a2f68b801780d88fd9fe7197ce48685a5879e3e47c45d21c00a432500"
+    )
+    assert validator.canonical_sha256(validator.SUPERSEDED_CASE_CONTRACT) == (
         "d75b6bbc0e396151dc581b05b86fffc5f59ae4681f34a42b60e560f99c85d886"
     )
     assert validator.canonical_sha256(validator.PREVIOUS_CASE_CONTRACT) == (

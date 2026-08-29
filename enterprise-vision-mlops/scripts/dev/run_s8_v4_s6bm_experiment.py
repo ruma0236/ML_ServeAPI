@@ -3071,6 +3071,7 @@ def run_success(
                 lease.run_id,
                 attempt_id,
                 traffic_plan["roles"]["normal"],
+                route_generation=int(transition_receipt["new_route_generation"]),
             )
             green_records = send_bodies(
                 config,

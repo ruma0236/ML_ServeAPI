@@ -42,12 +42,12 @@ CASE_CONTRACT = (
         "s6bm_v4_continuity_controller_after_switch",
     ),
     (
-        "bridge_model_start_after_switch_fence",
-        "s6bm_v4_continuity_model_after_switch",
+        "pre_switch_terminal_effect_after_switch_fence",
+        "s6bm_v4_continuity_terminal_fence",
     ),
     (
-        "bridge_compute_start_after_switch_fence",
-        "s6bm_v4_continuity_compute_after_switch",
+        "pre_switch_terminal_effect_missing",
+        "s6bm_v4_continuity_terminal_durable_binding",
     ),
     ("normal_request_bound_to_old_blue", "s6bm_continuity_role_binding"),
     (
@@ -97,10 +97,27 @@ CASE_CONTRACT = (
         "s6bm_continuity_pre_switch_terminal_set",
     ),
 )
-CASE_CONTRACT_SHA256 = "d75b6bbc0e396151dc581b05b86fffc5f59ae4681f34a42b60e560f99c85d886"
-HISTORICAL_CASE_CONTRACT = CASE_CONTRACT[:9]
+CASE_CONTRACT_SHA256 = "9613d11a2f68b801780d88fd9fe7197ce48685a5879e3e47c45d21c00a432500"
+SUPERSEDED_CASE_CONTRACT = (
+    CASE_CONTRACT[:2]
+    + (
+        (
+            "bridge_model_start_after_switch_fence",
+            "s6bm_v4_continuity_model_after_switch",
+        ),
+        (
+            "bridge_compute_start_after_switch_fence",
+            "s6bm_v4_continuity_compute_after_switch",
+        ),
+    )
+    + CASE_CONTRACT[4:]
+)
+SUPERSEDED_CASE_CONTRACT_SHA256 = (
+    "d75b6bbc0e396151dc581b05b86fffc5f59ae4681f34a42b60e560f99c85d886"
+)
+HISTORICAL_CASE_CONTRACT = SUPERSEDED_CASE_CONTRACT[:9]
 HISTORICAL_CASE_CONTRACT_SHA256 = "c42a6245d1e48152d06c6f1bd31c7fca8de58f201129c99bb7c59abe9356d4d7"
-PREVIOUS_CASE_CONTRACT = CASE_CONTRACT[:19]
+PREVIOUS_CASE_CONTRACT = SUPERSEDED_CASE_CONTRACT[:19]
 PREVIOUS_CASE_CONTRACT_SHA256 = "230ff21035dace5eb498d649d69a1bb063c377c95808d8d9bcae5903edd13a6e"
 
 
@@ -545,6 +562,44 @@ def mutate_compute(root: Path, raw: dict[str, Any], config: S6BMConfig) -> None:
     sync_bridge_collector_trace(root, raw, config, update_model=False, update_compute=True)
 
 
+def mutate_terminal_effect_after_switch(
+    root: Path, raw: dict[str, Any], _config: S6BMConfig
+) -> None:
+    gate = raw["continuity_execution"]["pre_switch_terminal_gate"]
+    request_id = str(gate["expected_terminal_request_ids"][0])
+    switch_sequence = int(proof(raw)["route_transition_receipt"]["fence_sequence"])
+
+    def mutate_effect(payload: dict[str, Any]) -> None:
+        effect = next(
+            item for item in payload["effects"] if item.get("idempotency_key") == request_id
+        )
+        effect["payload"]["durable_commit"]["causal_sequence"] = switch_sequence + 1
+
+    def mutate_event(payload: dict[str, Any]) -> None:
+        event = next(
+            item for item in payload["events"] if item.get("request_id") == request_id
+        )
+        event["causal_sequence"] = switch_sequence + 1
+
+    rewrite_reference(root, gate["raw_effect_export"], mutate_effect)
+    rewrite_reference(root, gate["raw_event_export"], mutate_event)
+
+
+def mutate_terminal_effect_missing(
+    root: Path, raw: dict[str, Any], _config: S6BMConfig
+) -> None:
+    gate = raw["continuity_execution"]["pre_switch_terminal_gate"]
+    request_id = str(gate["expected_terminal_request_ids"][0])
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["effects"] = [
+            item for item in payload["effects"] if item.get("idempotency_key") != request_id
+        ]
+        payload["effect_count"] = len(payload["effects"])
+
+    rewrite_reference(root, gate["raw_effect_export"], mutate)
+
+
 def mutate_normal_old_blue(_root: Path, raw: dict[str, Any], _config: S6BMConfig) -> None:
     request_id = str(raw["traffic_plan"]["roles"]["normal"][0]["request_id"])
     record = record_for(raw, request_id)
@@ -793,14 +848,14 @@ MUTATIONS: dict[str, tuple[str, Mutation, str]] = {
         mutate_controller,
         "causal",
     ),
-    "bridge_model_start_after_switch_fence": (
+    "pre_switch_terminal_effect_after_switch_fence": (
         CASE_CONTRACT[2][1],
-        mutate_model,
+        mutate_terminal_effect_after_switch,
         "causal",
     ),
-    "bridge_compute_start_after_switch_fence": (
+    "pre_switch_terminal_effect_missing": (
         CASE_CONTRACT[3][1],
-        mutate_compute,
+        mutate_terminal_effect_missing,
         "causal",
     ),
     "normal_request_bound_to_old_blue": (
@@ -949,6 +1004,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if (
         set(MUTATIONS) != set(case_ids)
         or canonical_sha256(CASE_CONTRACT) != CASE_CONTRACT_SHA256
+        or canonical_sha256(SUPERSEDED_CASE_CONTRACT)
+        != SUPERSEDED_CASE_CONTRACT_SHA256
         or canonical_sha256(HISTORICAL_CASE_CONTRACT) != HISTORICAL_CASE_CONTRACT_SHA256
         or canonical_sha256(PREVIOUS_CASE_CONTRACT) != PREVIOUS_CASE_CONTRACT_SHA256
     ):
@@ -974,6 +1031,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             ],
             "historical_prefix_count": len(HISTORICAL_CASE_CONTRACT),
             "historical_prefix_sha256": HISTORICAL_CASE_CONTRACT_SHA256,
+            "superseded_count": len(SUPERSEDED_CASE_CONTRACT),
+            "superseded_sha256": SUPERSEDED_CASE_CONTRACT_SHA256,
         },
         "positive": {
             "count": 1,

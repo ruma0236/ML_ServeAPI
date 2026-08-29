@@ -150,6 +150,55 @@ def test_generation_pinned_request_rejects_before_in_flight_accounting(
     assert manager.snapshot().in_flight == {"blue": 0, "green": 0}
 
 
+def test_route_generation_remains_at_switch_epoch_during_blue_drain(
+    manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"outputs": [{"name": "OUTPUT__0", "data": [4, 6, 8, 10]}]}
+
+    class Client:
+        async def __aenter__(self) -> "Client":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, *_args: object, **_kwargs: object) -> Response:
+            return Response()
+
+    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: Client())
+    manager.control(control_request(manager, "green_loaded"))
+    manager.control(control_request(manager, "canary_started"))
+    switched = manager.control(control_request(manager, "green_switched"))
+    switch_generation = switched.generation
+    manager.control(control_request(manager, "blue_drain_started"))
+    assert manager.snapshot().generation == switch_generation + 1
+
+    request = TritonBlueGreenPredictRequest(
+        run_id="s8-v4-s6bm-test",
+        attempt_id="s6bm-success-route-epoch",
+        request_id="request-green-route-epoch",
+        request_nonce="nonce-green-route-epoch",
+        traceparent="00-" + "a" * 32 + "-" + "b" * 16 + "-01",
+        input_values=[1, 2, 3, 4],
+        expected_model_role="green",
+        expected_model_name="s6bm_green",
+        expected_model_version="1",
+        expected_artifact_sha256="e" * 64,
+        expected_route_generation=switch_generation,
+    )
+    result = asyncio.run(manager.predict(request))
+
+    assert result.route_generation == switch_generation
+    assert result.route_phase == "blue_draining"
+
+
 def test_s6bm_external_effect_is_idempotent_and_drain_blocks_in_flight(
     manager: TritonBlueGreenManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:

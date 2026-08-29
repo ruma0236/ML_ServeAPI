@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from evm.scale_validation.s6bm_causal import (
     _database_clock_envelope,
     _fit_affine_clock_model,
     _unix_nano,
+    _validate_continuity_bridge_span_timing,
     _validate_continuity_receipt_switch_fence,
     _validate_hold_effect_span_order,
     validate_causal_bundle,
@@ -86,6 +88,86 @@ def test_s6bm_v4_affine_clock_exact_boundaries() -> None:
     with pytest.raises(S6BMCausalError, match="s6bm_v4_clock_affine_step"):
         _fit_affine_clock_model(affine_points([-333_334, 1_000_001, -1_000_000, 333_333]), config)
 
+
+def test_s6bm_v4_continuity_accepts_unanchored_triton_clock_discontinuity() -> None:
+    spans = {
+        "server_span": {"start_unix_ns": 10, "end_unix_ns": 80},
+        "controller_span": {"start_unix_ns": 20, "end_unix_ns": 70},
+        "infer_request_span": {"start_unix_ns": 110, "end_unix_ns": 160},
+        "model_span": {"start_unix_ns": 120, "end_unix_ns": 150},
+        "compute_span": {"start_unix_ns": 130, "end_unix_ns": 140},
+    }
+    _validate_continuity_bridge_span_timing(
+        **spans,
+        switch_fence_lower=100,
+        envelope=(0, 0),
+    )
+
+
+def test_s6bm_v4_continuity_rejects_post_switch_compute_with_valid_triton_anchor() -> None:
+    spans = {
+        "server_span": {"start_unix_ns": 10, "end_unix_ns": 80},
+        "controller_span": {"start_unix_ns": 20, "end_unix_ns": 70},
+        "infer_request_span": {"start_unix_ns": 110, "end_unix_ns": 160},
+        "model_span": {"start_unix_ns": 120, "end_unix_ns": 150},
+        "compute_span": {"start_unix_ns": 130, "end_unix_ns": 140},
+    }
+    with pytest.raises(
+        S6BMCausalError, match="s6bm_v4_continuity_model_after_switch"
+    ):
+        _validate_continuity_bridge_span_timing(
+            **spans,
+            switch_fence_lower=100,
+            envelope=(0, 0),
+            triton_switch_envelope=(0, 0),
+        )
+
+
+def test_s6bm_v4_continuity_backend_spans_preserve_same_clock_nesting() -> None:
+    with pytest.raises(S6BMCausalError, match="s6bm_v4_continuity_triton_span_order"):
+        _validate_continuity_bridge_span_timing(
+            server_span={"start_unix_ns": 10, "end_unix_ns": 80},
+            controller_span={"start_unix_ns": 20, "end_unix_ns": 70},
+            infer_request_span={"start_unix_ns": 110, "end_unix_ns": 160},
+            model_span={"start_unix_ns": 120, "end_unix_ns": 150},
+            compute_span={"start_unix_ns": 119, "end_unix_ns": 140},
+            switch_fence_lower=100,
+            envelope=(0, 0),
+        )
+
+
+def test_s6bm_v4_causal_bundle_accepts_unanchored_triton_tail_discontinuity(
+    tmp_path: Path,
+) -> None:
+    config = S6BMConfig.from_path(V4_CONFIG)
+    root = tmp_path / "causal-tail-discontinuity"
+    raw = materialize_causal_mutation_bundle(root, v4_continuity_attempt(), config)
+    required_ids = set(
+        raw["continuity_execution"]["bridge_actor_receipt_gate"]["required_request_ids"]
+    )
+    bridge_id = next(
+        str(item["request_id"])
+        for item in raw["traffic_plan"]["roles"]["bridge"]
+        if item["request_id"] not in required_ids
+    )
+    record = next(item for item in raw["request_records"] if item["request_id"] == bridge_id)
+    reference = raw["observability"]["artifacts"]["trace_export"]
+    trace_path = root / reference["path"]
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    for entry in trace["entries"]:
+        span = entry["span"]
+        if (
+            span.get("traceId") == record["trace_id"]
+            and entry["resource"]["attributes"][0]["value"].get("stringValue")
+            == "triton-inference-server"
+        ):
+            span["startTimeUnixNano"] = str(int(span["startTimeUnixNano"]) + 1_100_000_000)
+            span["endTimeUnixNano"] = str(int(span["endTimeUnixNano"]) + 1_100_000_000)
+    trace_path.write_text(canonical(trace) + "\n", encoding="utf-8", newline="\n")
+    reference["bytes"] = trace_path.stat().st_size
+    reference["sha256"] = hashlib.sha256(trace_path.read_bytes()).hexdigest()
+
+    assert validate_causal_bundle(root, raw, config, compare_projection=False)["passed"] is True
 
 def test_s6bm_v4_same_clock_nested_span_closures_allow_equality() -> None:
     effect = {"start_unix_ns": 200, "end_unix_ns": 400}

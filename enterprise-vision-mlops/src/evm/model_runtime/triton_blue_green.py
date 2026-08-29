@@ -437,6 +437,7 @@ class TritonBlueGreenStateResponse(ContractModel):
 class _State:
     request: TritonBlueGreenInitializeRequest
     generation: int = 1
+    route_generation: int = 1
     phase: str = "blue_only"
     weights: dict[ModelRole, int] = field(default_factory=lambda: {"blue": 100, "green": 0})
     loaded: set[ModelRole] = field(default_factory=lambda: {"blue"})
@@ -795,10 +796,13 @@ class TritonBlueGreenManager:
                         )
             if request.action == "green_switched":
                 state.last_transition_receipt = None
+            previous_weights = dict(state.weights)
             self._apply_model_control(state, request.action)
             self._transition(state, request.action)
             state.used_approvals.add(request.approval_id)
             state.generation += 1
+            if state.weights != previous_weights:
+                state.route_generation = state.generation
             if request.action == "green_switched" and crossover is not None:
                 if fence_receipt is None:
                     raise TritonBlueGreenError(
@@ -1011,7 +1015,7 @@ class TritonBlueGreenManager:
                         request.request_id,
                         status_code=409,
                     )
-                generation = state.generation
+                generation = state.route_generation
                 phase = state.phase
                 if (
                     request.expected_route_generation > 0

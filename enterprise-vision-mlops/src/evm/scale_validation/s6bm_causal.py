@@ -506,6 +506,52 @@ def _validate_hold_effect_span_order(
         raise S6BMCausalError("s6bm_v4_server_controller_span_order")
 
 
+def _validate_continuity_bridge_span_timing(
+    *,
+    server_span: Mapping[str, Any],
+    controller_span: Mapping[str, Any],
+    infer_request_span: Mapping[str, Any],
+    model_span: Mapping[str, Any],
+    compute_span: Mapping[str, Any],
+    switch_fence_lower: int,
+    envelope: tuple[int, int],
+    triton_switch_envelope: tuple[int, int] | None = None,
+) -> None:
+    for actor_span, code in (
+        (server_span, "server"),
+        (controller_span, "controller"),
+    ):
+        if _project_unix(int(actor_span["start_unix_ns"]), envelope)[1] >= switch_fence_lower:
+            raise S6BMCausalError(f"s6bm_v4_continuity_{code}_after_switch")
+
+    # Triton child spans share one process clock. Preserve their raw nesting when
+    # an observed OTLP timestamp discontinuity makes runner-clock comparison invalid.
+    if not (
+        int(infer_request_span["start_unix_ns"])
+        <= int(model_span["start_unix_ns"])
+        <= int(compute_span["start_unix_ns"])
+        <= int(compute_span["end_unix_ns"])
+        <= int(model_span["end_unix_ns"])
+        <= int(infer_request_span["end_unix_ns"])
+    ):
+        raise S6BMCausalError("s6bm_v4_continuity_triton_span_order")
+
+    # A Triton-local dual-clock anchor is optional evidence. Never project Triton
+    # timestamps through the runner/collector envelope when that anchor is absent.
+    if triton_switch_envelope is not None:
+        for actor_span, code in (
+            (model_span, "model"),
+            (compute_span, "compute"),
+        ):
+            if (
+                _project_unix(
+                    int(actor_span["start_unix_ns"]), triton_switch_envelope
+                )[1]
+                >= switch_fence_lower
+            ):
+                raise S6BMCausalError(f"s6bm_v4_continuity_{code}_after_switch")
+
+
 def _validate_route_transition_receipt(
     *,
     receipt: Mapping[str, Any],
@@ -1417,36 +1463,43 @@ def validate_causal_bundle(
     for stage, event in starts.items():
         payload = dict(event.get("payload", {}))
         start_unix = int(payload.get("actor_start_unix_ns", 0))
+        if start_unix <= 0:
+            raise S6BMCausalError(f"s6bm_v4_{stage}_timestamp")
+        if stage == "triton_backend_compute_entry":
+            if int(actor_spans[stage]["start_unix_ns"]) != start_unix:
+                raise S6BMCausalError(f"s6bm_v4_{stage}_span_receipt_gap")
+            continue
         projected = _project_unix(start_unix, envelope)
         actor_intervals[stage] = [projected[0], projected[1]]
         if projected[1] >= switch_fence_lower:
             raise S6BMCausalError(f"s6bm_v4_{stage}_after_switch")
-        span_interval = _project_unix(actor_spans[stage]["start_unix_ns"], envelope)
+        span_interval = _project_unix(int(actor_spans[stage]["start_unix_ns"]), envelope)
         if span_interval[1] >= switch_fence_lower:
             raise S6BMCausalError(f"s6bm_v4_{stage}_span_after_switch")
-        if abs(actor_spans[stage]["start_unix_ns"] - start_unix) > int(
+        if abs(int(actor_spans[stage]["start_unix_ns"]) - start_unix) > int(
             config.clock["max_phase_interval_ns"]
         ):
             raise S6BMCausalError(f"s6bm_v4_{stage}_span_receipt_gap")
-        if stage != "triton_backend_compute_entry":
-            local_before = int(payload.get("monotonic_before_ns", 0))
-            local_after = int(payload.get("monotonic_after_ns", 0))
-            if (
-                local_before <= 0
-                or not local_before <= local_after < switch_fence_lower
-                or local_after - local_before > int(config.clock["max_anchor_width_ns"])
-                or max(projected[0], local_before) - min(projected[1], local_after)
-                > int(config.clock["max_offset_spread_ns"])
-            ):
-                raise S6BMCausalError(f"s6bm_v4_{stage}_local_clock")
+        local_before = int(payload.get("monotonic_before_ns", 0))
+        local_after = int(payload.get("monotonic_after_ns", 0))
+        if (
+            local_before <= 0
+            or not local_before <= local_after < switch_fence_lower
+            or local_after - local_before > int(config.clock["max_anchor_width_ns"])
+            or max(projected[0], local_before) - min(projected[1], local_after)
+            > int(config.clock["max_offset_spread_ns"])
+        ):
+            raise S6BMCausalError(f"s6bm_v4_{stage}_local_clock")
 
-    for backend_span, code in (
-        (infer_request_span, "infer_request"),
-        (model_span, "model"),
-        (compute_span, "compute"),
+    if not (
+        int(infer_request_span["start_unix_ns"])
+        <= int(model_span["start_unix_ns"])
+        <= int(compute_span["start_unix_ns"])
+        <= int(compute_span["end_unix_ns"])
+        <= int(model_span["end_unix_ns"])
+        <= int(infer_request_span["end_unix_ns"])
     ):
-        if _project_unix(backend_span["start_unix_ns"], envelope)[1] >= route_applied_lower:
-            raise S6BMCausalError(f"s6bm_v4_triton_{code}_after_switch")
+        raise S6BMCausalError("s6bm_v4_triton_span_order")
 
     bridge_actor_count = 0
     required_bridge_ids: list[str] = []
@@ -1835,17 +1888,15 @@ def validate_causal_bundle(
                 or bridge_effect["parent_span_id"] != bridge_controller["span_id"]
             ):
                 raise S6BMCausalError("s6bm_v4_continuity_trace_topology")
-            for actor_span, code in (
-                (bridge_server, "server"),
-                (bridge_controller, "controller"),
-                (bridge_model, "model"),
-                (bridge_compute, "compute"),
-            ):
-                if (
-                    _project_unix(actor_span["start_unix_ns"], envelope)[1]
-                    >= switch_fence_lower
-                ):
-                    raise S6BMCausalError(f"s6bm_v4_continuity_{code}_after_switch")
+            _validate_continuity_bridge_span_timing(
+                server_span=bridge_server,
+                controller_span=bridge_controller,
+                infer_request_span=bridge_infer_request,
+                model_span=bridge_model,
+                compute_span=bridge_compute,
+                switch_fence_lower=switch_fence_lower,
+                envelope=envelope,
+            )
             bridge_expected = {
                 "evm.attempt.id": attempt_id,
                 "evm.run.id": str(crossover["run_id"]),
@@ -1890,12 +1941,22 @@ def validate_causal_bundle(
                     start_unix_ns = int(start_payload.get("actor_start_unix_ns", 0))
                     if (
                         start_unix_ns <= 0
-                        or _project_unix(start_unix_ns, envelope)[1]
-                        >= switch_fence_lower
-                        or abs(stage_spans[stage]["start_unix_ns"] - start_unix_ns)
-                        > int(config.clock["max_phase_interval_ns"])
                         or start_payload.get("route_generation")
                         != int(transition_projection["old_route_generation"])
+                    ):
+                        raise S6BMCausalError(
+                            "s6bm_v4_continuity_actor_receipt_order"
+                        )
+                    if stage == "triton_backend_compute_entry":
+                        if int(stage_spans[stage]["start_unix_ns"]) != start_unix_ns:
+                            raise S6BMCausalError(
+                                "s6bm_v4_continuity_actor_receipt_order"
+                            )
+                    elif (
+                        _project_unix(start_unix_ns, envelope)[1]
+                        >= switch_fence_lower
+                        or abs(int(stage_spans[stage]["start_unix_ns"]) - start_unix_ns)
+                        > int(config.clock["max_phase_interval_ns"])
                     ):
                         raise S6BMCausalError(
                             "s6bm_v4_continuity_actor_receipt_order"
@@ -2053,6 +2114,8 @@ def validate_causal_bundle(
             "effect_sequence": int(hold_effect["causal_sequence"]),
             "unload_sequence": int(unload["causal_sequence"]),
             "actor_start_monotonic_intervals_ns": actor_intervals,
+            "triton_start_same_clock_unix_ns": int(compute_span["start_unix_ns"]),
+            "triton_physical_start_before_switch_claimed": False,
             "switch_fence_commit_interval_ns": [switch_fence_lower, switch_fence_upper],
             "switch_fence_projection": switch_fence,
             "route_applied_monotonic_interval_ns": [
