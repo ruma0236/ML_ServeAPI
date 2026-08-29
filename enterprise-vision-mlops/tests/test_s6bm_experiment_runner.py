@@ -24,6 +24,7 @@ RUNNER = ROOT / "scripts/dev/run_s8_v4_s6bm_experiment.py"
 VALIDATOR = ROOT / "scripts/dev/validate_s8_v4_s6bm.py"
 REVIEW_WRITER = ROOT / "scripts/dev/write_s8_v4_s6bm_review.py"
 CONTINUITY_VALIDATOR = ROOT / "scripts/dev/validate_s8_v4_s6bm_continuity_qualification.py"
+STRICT_V4_VALIDATOR = ROOT / "scripts/dev/validate_s8_v4_s6bm_strict_v4_qualification.py"
 CONFIG = ROOT / "configs/s8_v4_s6bm_blue_green_v1.toml"
 
 
@@ -42,6 +43,105 @@ def load_continuity_validator():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_strict_v4_validator():
+    spec = importlib.util.spec_from_file_location("s6bm_strict_v4_validator", STRICT_V4_VALIDATOR)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_strict_v4_nonminimum_mutation_uses_actual_nonminimum_candidate() -> None:
+    validator = load_strict_v4_validator()
+    candidates = [
+        {
+            "sequence": 1,
+            "monotonic_before_ns": 100,
+            "monotonic_after_ns": 1_100,
+            "database_clock_timestamp": "2026-08-29T00:00:00Z",
+        },
+        {
+            "sequence": 2,
+            "monotonic_before_ns": 2_000,
+            "monotonic_after_ns": 2_100,
+            "database_clock_timestamp": "2026-08-29T00:00:01Z",
+        },
+    ]
+    raw = {
+        "request_records": [
+            {
+                "durable_effect": {
+                    "database_clock_anchor_candidates": candidates,
+                    "database_clock_anchor": copy.deepcopy(candidates[1]),
+                    "database_clock_anchor_selection": {
+                        "selected_sequence": 2,
+                    },
+                    "commit_timestamp_observed_at": candidates[1][
+                        "database_clock_timestamp"
+                    ],
+                }
+            }
+        ]
+    }
+
+    validator._candidate_nonminimum(Path(), raw)
+
+    receipt = raw["request_records"][0]["durable_effect"]
+    assert receipt["database_clock_anchor_selection"]["selected_sequence"] == 1
+    assert receipt["database_clock_anchor"] == candidates[0]
+    assert receipt["commit_timestamp_observed_at"] == candidates[0][
+        "database_clock_timestamp"
+    ]
+
+
+def test_strict_v4_unload_mutation_preserves_anchor_order() -> None:
+    validator = load_strict_v4_validator()
+
+    def anchor(sequence: int, before: int, phase: str) -> dict[str, object]:
+        return {
+            "sequence": sequence,
+            "phase": phase,
+            "monotonic_before_ns": before,
+            "monotonic_after_ns": before + 100,
+            "unix_ns": before + 1_000_000_000,
+            "previous_anchor_hash": None,
+            "anchor_hash": "",
+        }
+
+    raw = {
+        "request_records": [{"completed_monotonic": 10.001}],
+        "phase_timeline": [
+            {
+                "phase": "blue_draining",
+                "monotonic_seconds": 10.0,
+                "clock_anchor": anchor(1, 10_000_000_000, "blue_draining"),
+            },
+            {
+                "phase": "green_only",
+                "monotonic_seconds": 11.0,
+                "clock_anchor": anchor(2, 11_000_000_000, "green_only"),
+            },
+            {
+                "phase": "rolled_back",
+                "monotonic_seconds": 12.0,
+                "clock_anchor": anchor(3, 12_000_000_000, "rolled_back"),
+            },
+        ],
+    }
+    validator._rehash_runner_anchor_chain(raw)
+
+    validator._unload_before_last_effect(Path(), raw)
+
+    green = raw["phase_timeline"][1]
+    green_ns = int(float(green["monotonic_seconds"]) * 1_000_000_000)
+    completion_ns = int(10.001 * 1_000_000_000)
+    assert raw["phase_timeline"][0]["clock_anchor"]["monotonic_after_ns"] < green_ns
+    assert green_ns < completion_ns
+    assert green["clock_anchor"]["monotonic_before_ns"] < (
+        raw["phase_timeline"][2]["clock_anchor"]["monotonic_before_ns"]
+    )
 
 
 def test_continuity_mutation_contract_is_exact_and_frozen() -> None:

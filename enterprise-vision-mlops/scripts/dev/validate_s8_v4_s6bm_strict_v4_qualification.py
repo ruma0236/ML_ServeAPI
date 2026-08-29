@@ -878,13 +878,30 @@ def _unload_before_last_effect(_root: Path, raw: dict[str, Any]) -> None:
     record = raw["request_records"][0]
     item = _phase(raw, "green_only")
     anchor = item["clock_anchor"]
+    sequence = int(anchor["sequence"])
+    previous_anchor = max(
+        (
+            candidate["clock_anchor"]
+            for candidate in raw["phase_timeline"]
+            if int(candidate["clock_anchor"]["sequence"]) < sequence
+        ),
+        key=lambda candidate: int(candidate["sequence"]),
+    )
+    previous_after = int(previous_anchor["monotonic_after_ns"])
+    completion_ns = int(float(record["completed_monotonic"]) * 1_000_000_000)
+    if completion_ns - previous_after < 4:
+        raise StrictV4QualificationError("unload_mutation_interval_unavailable")
     old_before = int(anchor["monotonic_before_ns"])
-    new_phase = float(record["completed_monotonic"]) - 0.001
-    new_before = int(new_phase * 1_000_000_000) + 500
+    target_phase_ns = previous_after + (completion_ns - previous_after) // 2
+    new_phase = target_phase_ns / 1_000_000_000
+    projected_phase_ns = int(new_phase * 1_000_000_000)
+    if not previous_after < projected_phase_ns < completion_ns:
+        raise StrictV4QualificationError("unload_mutation_interval_unavailable")
+    new_before = projected_phase_ns + 1
     delta = new_before - old_before
     item["monotonic_seconds"] = new_phase
     anchor["monotonic_before_ns"] = new_before
-    anchor["monotonic_after_ns"] = new_before + 500
+    anchor["monotonic_after_ns"] = new_before + 1
     anchor["unix_ns"] = int(anchor["unix_ns"]) + delta
     _rehash_runner_anchor_chain(raw)
 
@@ -993,9 +1010,17 @@ def _candidate_wrong_index(_root: Path, raw: dict[str, Any]) -> None:
 
 def _candidate_nonminimum(_root: Path, raw: dict[str, Any]) -> None:
     receipt = _effect_receipt(raw)
-    selected = receipt["database_clock_anchor_candidates"][1]
+    selected = max(
+        receipt["database_clock_anchor_candidates"],
+        key=lambda item: (
+            int(item["monotonic_after_ns"]) - int(item["monotonic_before_ns"]),
+            int(item["sequence"]),
+        ),
+    )
     receipt["database_clock_anchor"] = copy.deepcopy(selected)
-    receipt["database_clock_anchor_selection"]["selected_sequence"] = 2
+    receipt["database_clock_anchor_selection"]["selected_sequence"] = int(
+        selected["sequence"]
+    )
     receipt["commit_timestamp_observed_at"] = selected["database_clock_timestamp"]
 
 
