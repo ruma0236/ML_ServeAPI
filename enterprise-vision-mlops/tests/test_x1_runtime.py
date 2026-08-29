@@ -173,7 +173,7 @@ def triton_config() -> dict[str, object]:
         "name": model_id,
         "backend": "pytorch",
         "max_batch_size": 16,
-        "version_policy": {"specific": {"versions": ["1"]}},
+        "version_policy": {"specific": {"versions": [1]}},
         "instance_group": [{"name": f"{model_id}_0", "kind": "KIND_GPU", "count": 1, "gpus": [0]}],
         "input": [
             {
@@ -232,6 +232,10 @@ def test_x1_triton_config_shared_gate_accepts_exact_gpu_batch_profile() -> None:
         (
             lambda value: value.__setitem__("response_cache", {"enable": True}),
             "x1_triton_config_response_cache",
+        ),
+        (
+            lambda value: value.__setitem__("version_policy", {"specific": {"versions": ["1"]}}),
+            "x1_triton_config_identity",
         ),
     ],
 )

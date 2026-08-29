@@ -38,7 +38,7 @@ def validate_triton_runtime_config(
         payload.get("name") != model_id
         or payload.get("backend") != "pytorch"
         or payload.get("max_batch_size") != max_batch_size
-        or payload.get("version_policy") != {"specific": {"versions": ["1"]}}
+        or payload.get("version_policy") != {"specific": {"versions": [1]}}
     ):
         raise X1RuntimeValidationError("x1_triton_config_identity")
     groups = payload.get("instance_group")

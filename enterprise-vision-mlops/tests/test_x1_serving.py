@@ -162,7 +162,7 @@ def triton_config(model_id: str) -> dict[str, object]:
         "name": model_id,
         "backend": "pytorch",
         "max_batch_size": 0,
-        "version_policy": {"specific": {"versions": ["1"]}},
+        "version_policy": {"specific": {"versions": [1]}},
         "instance_group": [{"name": f"{model_id}_0", "kind": "KIND_GPU", "count": 1, "gpus": [0]}],
         "input": [
             {
