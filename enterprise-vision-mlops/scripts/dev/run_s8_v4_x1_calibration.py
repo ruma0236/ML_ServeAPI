@@ -99,6 +99,8 @@ PROMETHEUS_URL = "http://127.0.0.1:9090"
 API_URL = "http://127.0.0.1:31120"
 TRITON_URL = "http://127.0.0.1:31121"
 TRITON_METRICS_URL = "http://127.0.0.1:31122/metrics"
+Q0_DIAGNOSTIC_HTTP_PORT = 32121
+Q0_DIAGNOSTIC_METRICS_PORT = 32122
 OTEL_TRACE_FILE = DATA_ROOT / "artifacts/scale_validation/otel/traces.json"
 CONTROL_PLANE_DATABASE_URL = (
     "postgresql://evm_control_plane:evm_control_plane_local@"
@@ -716,18 +718,7 @@ def _direct_infer(
     try:
         response = session.post(
             f"{TRITON_URL}/v2/models/{model_id}/versions/1/infer",
-            json={
-                "id": request_id,
-                "inputs": [
-                    {
-                        "name": "INPUT__0",
-                        "shape": [len(features)],
-                        "datatype": "FP32",
-                        "data": list(features),
-                    }
-                ],
-                "outputs": [{"name": "OUTPUT__0"}],
-            },
+            json=_direct_infer_payload(features, request_id=request_id),
             timeout=10,
         )
         response.raise_for_status()
@@ -745,6 +736,221 @@ def _direct_infer(
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise X1ExperimentError("x1_q0_output_value")
     return float(value)
+
+
+def _direct_infer_payload(features: Sequence[float], *, request_id: str) -> dict[str, Any]:
+    return {
+        "id": request_id,
+        "inputs": [
+            {
+                "name": "INPUT__0",
+                "shape": [len(features)],
+                "datatype": "FP32",
+                "data": list(features),
+            }
+        ],
+        "outputs": [{"name": "OUTPUT__0"}],
+    }
+
+
+def _bounded_command_snapshot(command: Sequence[str], *, timeout: float = 30) -> dict[str, Any]:
+    try:
+        result = run(command, check=False, timeout=timeout)
+        return {
+            "command": list(command),
+            "exit_code": result.returncode,
+            "stdout": result.stdout[-200_000:],
+            "stderr": result.stderr[-200_000:],
+        }
+    except Exception as exc:  # noqa: BLE001 - preserve diagnostic failure
+        return {
+            "command": list(command),
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
+
+def _bounded_http_snapshot(
+    session: requests.Session,
+    method: str,
+    url: str,
+    *,
+    payload: Mapping[str, Any] | None = None,
+    timeout: float = 10,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    try:
+        response = session.request(method, url, json=payload, timeout=timeout)
+        body = response.text
+        return {
+            "url": url,
+            "method": method,
+            "status_code": response.status_code,
+            "elapsed_ms": (time.perf_counter() - started) * 1000,
+            "headers": dict(sorted(response.headers.items())),
+            "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+            "body": body[-200_000:],
+        }
+    except requests.RequestException as exc:
+        return {
+            "url": url,
+            "method": method,
+            "elapsed_ms": (time.perf_counter() - started) * 1000,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
+
+def capture_q0_transport_diagnostic(
+    *,
+    suite_id: str,
+    model_id: str,
+    request_id: str,
+    features: Sequence[float],
+    original_error: str,
+) -> dict[str, Any]:
+    diagnostic: dict[str, Any] = {
+        "schema_version": "evm.s8_v4.x1_q0_transport_diagnostic.v1",
+        "suite_id": suite_id,
+        "captured_at": utc_now(),
+        "credit": "zero_credit",
+        "acceptance_credit": False,
+        "scope": "failure-time transport localization only; never Q0 retry credit",
+        "failed_request": {
+            "model_id": model_id,
+            "request_id": request_id,
+            "original_error": original_error,
+            "payload_sha256": canonical_sha256(
+                _direct_infer_payload(features, request_id=request_id)
+            ),
+        },
+        "commands": {
+            "service": _bounded_command_snapshot(
+                ["kubectl", "-n", NAMESPACE, "get", f"service/{TRITON_NAME}", "-o", "json"]
+            ),
+            "endpoints": _bounded_command_snapshot(
+                ["kubectl", "-n", NAMESPACE, "get", f"endpoints/{TRITON_NAME}", "-o", "json"]
+            ),
+            "pods": _bounded_command_snapshot(
+                [
+                    "kubectl",
+                    "-n",
+                    NAMESPACE,
+                    "get",
+                    "pods",
+                    "-l",
+                    f"app.kubernetes.io/name={TRITON_NAME}",
+                    "-o",
+                    "json",
+                ]
+            ),
+            "triton_logs": _bounded_command_snapshot(
+                ["kubectl", "-n", NAMESPACE, "logs", f"deployment/{TRITON_NAME}", "--tail=500"]
+            ),
+            "windows_tcp": _bounded_command_snapshot(["netstat", "-ano", "-p", "tcp"]),
+        },
+    }
+    with requests.Session() as session:
+        session.trust_env = False
+        diagnostic["nodeport_after_failure"] = {
+            "live": _bounded_http_snapshot(
+                session, "GET", f"{TRITON_URL}/v2/health/live", timeout=2
+            ),
+            "ready": _bounded_http_snapshot(
+                session, "GET", f"{TRITON_URL}/v2/health/ready", timeout=2
+            ),
+            "metrics": _bounded_http_snapshot(session, "GET", TRITON_METRICS_URL, timeout=5),
+        }
+
+    process: subprocess.Popen[str] | None = None
+    stdout = ""
+    stderr = ""
+    try:
+        if port_open(Q0_DIAGNOSTIC_HTTP_PORT) or port_open(Q0_DIAGNOSTIC_METRICS_PORT):
+            raise X1ExperimentError("x1_q0_diagnostic_port_in_use")
+        process = subprocess.Popen(
+            [
+                "kubectl",
+                "-n",
+                NAMESPACE,
+                "port-forward",
+                f"deployment/{TRITON_NAME}",
+                f"{Q0_DIAGNOSTIC_HTTP_PORT}:8000",
+                f"{Q0_DIAGNOSTIC_METRICS_PORT}:8002",
+                "--address=127.0.0.1",
+            ],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                break
+            if port_open(Q0_DIAGNOSTIC_HTTP_PORT) and port_open(Q0_DIAGNOSTIC_METRICS_PORT):
+                break
+            time.sleep(0.1)
+        ready = (
+            process.poll() is None
+            and port_open(Q0_DIAGNOSTIC_HTTP_PORT)
+            and port_open(Q0_DIAGNOSTIC_METRICS_PORT)
+        )
+        diagnostic["port_forward_ready"] = ready
+        if ready:
+            with requests.Session() as session:
+                session.trust_env = False
+                diagnostic["port_forward"] = {
+                    "live": _bounded_http_snapshot(
+                        session,
+                        "GET",
+                        f"http://127.0.0.1:{Q0_DIAGNOSTIC_HTTP_PORT}/v2/health/live",
+                        timeout=2,
+                    ),
+                    "infer": _bounded_http_snapshot(
+                        session,
+                        "POST",
+                        (
+                            f"http://127.0.0.1:{Q0_DIAGNOSTIC_HTTP_PORT}/v2/models/"
+                            f"{model_id}/versions/1/infer"
+                        ),
+                        payload=_direct_infer_payload(
+                            features, request_id=f"{request_id}-portforward-diagnostic"
+                        ),
+                        timeout=10,
+                    ),
+                    "metrics": _bounded_http_snapshot(
+                        session,
+                        "GET",
+                        f"http://127.0.0.1:{Q0_DIAGNOSTIC_METRICS_PORT}/metrics",
+                        timeout=5,
+                    ),
+                }
+    except Exception as exc:  # noqa: BLE001 - preserve diagnostic failure
+        diagnostic["port_forward_error"] = {
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                process.terminate()
+            try:
+                stdout, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate(timeout=5)
+            diagnostic["port_forward_process"] = {
+                "exit_code": process.returncode,
+                "stdout": stdout[-20_000:],
+                "stderr": stderr[-20_000:],
+            }
+    diagnostic["port_forward_ports_released"] = not (
+        port_open(Q0_DIAGNOSTIC_HTTP_PORT) or port_open(Q0_DIAGNOSTIC_METRICS_PORT)
+    )
+    return diagnostic
 
 
 def run_q0(
@@ -778,12 +984,28 @@ def run_q0(
             for sequence, (features, expected) in enumerate(
                 zip(oracle["input"], oracle["output"], strict=True)
             ):
-                observed = _direct_infer(
-                    model_id,
-                    features,
-                    request_id=f"{suite_id}-q0-{model_id}-{sequence:04d}",
-                    session=session,
-                )
+                request_id = f"{suite_id}-q0-{model_id}-{sequence:04d}"
+                try:
+                    observed = _direct_infer(
+                        model_id,
+                        features,
+                        request_id=request_id,
+                        session=session,
+                    )
+                except X1ExperimentError as exc:
+                    if str(exc).startswith("x1_q0_transport:"):
+                        diagnostic = capture_q0_transport_diagnostic(
+                            suite_id=suite_id,
+                            model_id=model_id,
+                            request_id=request_id,
+                            features=features,
+                            original_error=str(exc),
+                        )
+                        canonical_write(
+                            artifact_root.parent / "q0-transport-diagnostic.json",
+                            diagnostic,
+                        )
+                    raise
                 expected_value = float(expected[0])
                 if math.isclose(
                     observed,

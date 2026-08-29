@@ -264,3 +264,81 @@ def test_x1_q0_transport_failure_is_contextual_and_fail_closed() -> None:
             request_id="request-7",
             session=Session(),
         )
+
+
+def test_x1_q0_transport_failure_writes_non_credit_diagnostic(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class Session:
+        trust_env = True
+
+        def __enter__(self) -> Session:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    monkeypatch.setattr(runner, "MODEL_IDS", ("model",))
+    monkeypatch.setattr(runner.requests, "Session", Session)
+    monkeypatch.setattr(runner, "repository_index", lambda: [])
+    monkeypatch.setattr(
+        runner,
+        "_oracle",
+        lambda *args: {
+            "input": [[1.0]],
+            "output": [[1.0]],
+            "relative_tolerance": 0.0,
+            "absolute_tolerance": 0.0,
+        },
+    )
+    monkeypatch.setattr(runner, "triton_config_readback", lambda model_id: {})
+    monkeypatch.setattr(runner, "validate_triton_runtime_config", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "triton_metrics_text", lambda: "")
+    monkeypatch.setattr(runner, "capture_gpu", lambda: {"uuid": runner.GPU_UUID})
+
+    def fail_transport(*args: object, **kwargs: object) -> float:
+        raise X1ExperimentError("x1_q0_transport:model:suite-q0-model-0000:ReadTimeout")
+
+    captured: dict[str, object] = {}
+
+    def diagnostic(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "schema_version": "evm.s8_v4.x1_q0_transport_diagnostic.v1",
+            "credit": "zero_credit",
+            "acceptance_credit": False,
+        }
+
+    monkeypatch.setattr(runner, "_direct_infer", fail_transport)
+    monkeypatch.setattr(runner, "capture_q0_transport_diagnostic", diagnostic)
+    artifact_root = tmp_path / "artifacts"
+    manifest = {"models": {"model": {"artifact_sha256": "b" * 64}}}
+
+    with pytest.raises(X1ExperimentError, match="x1_q0_transport"):
+        runner.run_q0(
+            object(),
+            suite_id="suite",
+            artifact_root=artifact_root,
+            artifact_manifest=manifest,
+        )
+
+    written = json.loads((tmp_path / "q0-transport-diagnostic.json").read_text())
+    assert written["credit"] == "zero_credit"
+    assert written["acceptance_credit"] is False
+    assert captured["request_id"] == "suite-q0-model-0000"
+    assert captured["features"] == [1.0]
+
+
+def test_x1_q0_infer_payload_is_versioned_and_identity_bound() -> None:
+    assert runner._direct_infer_payload([1.0, 2.0], request_id="request-9") == {
+        "id": "request-9",
+        "inputs": [
+            {
+                "name": "INPUT__0",
+                "shape": [2],
+                "datatype": "FP32",
+                "data": [1.0, 2.0],
+            }
+        ],
+        "outputs": [{"name": "OUTPUT__0"}],
+    }
