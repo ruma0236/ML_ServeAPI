@@ -308,6 +308,62 @@
           "strict_raw_drain_passed": true,
           "regression_suites_passed": 9,
           "current_cleanup_passed": true
+        },
+        {
+          "attempt_id": "s6bm-causal-qualification-ed0bcc2546",
+          "suite_id": "s6bm-20260829t155100z-b8907722",
+          "credit": "non_credit",
+          "passed": true,
+          "acceptance_credit": false,
+          "qualification_only": true,
+          "strict_v4_negative_rejected": 49,
+          "historical_negative_rejected": 28,
+          "private_artifacts": 34,
+          "private_evidence_sha256": "753925e5c40065452e8291eba9a6c1f38c37629e07aa7e512e1eef0de774671c"
+        },
+        {
+          "attempt_id": "s6bm-success-0-b5f12fba65",
+          "suite_id": "s6bm-20260829t155258z-44c5f46f",
+          "credit": "non_credit",
+          "passed": true,
+          "acceptance_credit": false,
+          "qualification_only": true,
+          "logical_requests": 1000,
+          "continuity_negative_rejected": 24,
+          "private_artifacts": 58,
+          "private_evidence_sha256": "06bce83b3ab37e83dc3070c30c24e4f7074cd498b411f58bc64f7f12a06f336b"
+        },
+        {
+          "attempt_id": "s6bm-20260829t155604z-12d55e24",
+          "credit": "non_credit",
+          "passed": true,
+          "evidence_ready": true,
+          "acceptance_credit": false,
+          "baseline_repetitions": 3,
+          "successful_transition_repetitions": 3,
+          "logical_requests": 3000,
+          "fault_repetitions": 15,
+          "private_artifacts": 168,
+          "private_evidence_sha256": "f1057121fa6b3401e899caaa9294a6854dd13ac0c68df8400842f8eacfef8b2e",
+          "public_evidence": "docs/status/evidence/s8-v4-s6bm-experiment-v4.json"
+        },
+        {
+          "attempt_id": "s6bm-regression-s7-manifest-drift-20260829",
+          "credit": "zero_credit",
+          "passed": false,
+          "acceptance_credit": false,
+          "failure_class": "current_revision_s7_manifest_drift",
+          "public_evidence": "docs/status/evidence/s8-v4-s6bm-s7-manifest-drift-regression-rca.json",
+          "public_evidence_sha256": "154be9c7575f77d7497775759c3c9ffa568a20793389116fb47481a6fa76da7d"
+        },
+        {
+          "attempt_id": "s6bm-review-path-invocation-20260829",
+          "credit": "zero_credit",
+          "passed": false,
+          "acceptance_credit": false,
+          "failure_class": "review_handoff_relative_path",
+          "public_evidence": "docs/status/evidence/s8-v4-s6bm-review-path-invocation-rca.json",
+          "public_evidence_sha256": "191b1b6fbafed21110233d8ea61c06ffc67dfcb65a206dc6afbe6c1d0cdfcd9e"
         }
       ],
       "reviewer_sign_off": "pending",
@@ -372,12 +428,67 @@
           "changed_file_lint": "passed"
         },
         "strict_v3_git_handoff_revision": "bf095d3eba8890dedce6a107f43a1d20cfeaa045",
-        "strict_v3_git_handoff_role": "immutable canonical review package; external systems bind the later final sync HEAD"
+        "strict_v3_git_handoff_role": "immutable canonical review package; external systems bind the later final sync HEAD",
+        "strict_v4": {
+          "runtime_revision": "1f631c19174008c379c4802d20482ca6ed878d11",
+          "validation_revision": "fc9766644007bef2203bcdd80de4743aa2439e2b",
+          "experiment_path": "docs/status/evidence/s8-v4-s6bm-experiment-v4.json",
+          "experiment_sha256": "da38ea5a796e038ced3e58b3ca954df9c80d25af39554a79e630c2ba46c0bdb8",
+          "integrated_mutation_path": "docs/status/evidence/s8-v4-s6bm-integrated-mutation-validation-v4.json",
+          "integrated_mutation_sha256": "9219a95d790ba0504233408ce12bd70b980723fcdd3c628fdbafc2f6d21f40fc",
+          "integrated_validation_path": "docs/status/evidence/s8-v4-s6bm-integrated-validation-v4.json",
+          "integrated_validation_sha256": "8c3135ede22f6eb67bdf34174f9a9d84115187a3c18bd163abc7885af26dbee0",
+          "review_handoff_path": "docs/status/evidence/s8-v4-s6bm-review-handoff-v4.json",
+          "review_handoff_sha256": "a763789d3bc60ec8e2b18219aebda036201b550b16f57e5cd7b6c8ecaa4ec4fb",
+          "private_artifacts": 168,
+          "private_total_bytes": 192998712,
+          "private_index_sha256": "8661988da27edce5743982aaa07f465a1d6a59663ae5bd8d60580965ae29887c",
+          "private_aggregate_sha256": "f1057121fa6b3401e899caaa9294a6854dd13ac0c68df8400842f8eacfef8b2e",
+          "ordinary_qualification": {
+            "attempt_id": "s6bm-causal-qualification-ed0bcc2546",
+            "strict_negative_rejected": 49,
+            "historical_negative_rejected": 28,
+            "qualification_sha256": "4ceaa16ec275a01a8b43fe7a19253a30647a1454ecec62829d2c90795aeb962a",
+            "validation_sha256": "55683b61be41b76e37914a1b1f60243760e3a5f9ff0671576a2859f596494973",
+            "private_artifacts": 34,
+            "private_aggregate_sha256": "753925e5c40065452e8291eba9a6c1f38c37629e07aa7e512e1eef0de774671c",
+            "private_index_sha256": "330882acb9f4461d396bf823c8cc60cf1afacae55118771d5d272d92a1f0a2da"
+          },
+          "continuity_qualification": {
+            "attempt_id": "s6bm-success-0-b5f12fba65",
+            "logical_requests": 1000,
+            "negative_rejected": 24,
+            "qualification_sha256": "6027ea3a4f085c825064c06ab0f4050a5305d42130ceeae3b728c7a26bebc75c",
+            "validation_sha256": "f93d35a6b78628be7d80935fc4cd526945c47a05fed20e0027a3656a282dd9d3",
+            "private_artifacts": 58,
+            "private_aggregate_sha256": "06bce83b3ab37e83dc3070c30c24e4f7074cd498b411f58bc64f7f12a06f336b",
+            "private_index_sha256": "16ddaf796a736273dca22e146239f628385151bba6fc720c92da371ba9c0d8be"
+          },
+          "regressions": {
+            "source_revision": "fc9766644007bef2203bcdd80de4743aa2439e2b",
+            "focused_s6bm": 141,
+            "focused_s8": 25,
+            "full_python_passed": 1077,
+            "full_python_skipped": 0,
+            "real_postgresql": 48,
+            "lifecycle_host": 144,
+            "control_panel_python": 77,
+            "control_panel_ui": 59,
+            "status_evidence": 105,
+            "frontend_modules": 1803,
+            "changed_file_lint": "passed",
+            "private_artifacts": 18,
+            "private_total_bytes": 6949,
+            "private_aggregate_sha256": "b594061076446b6646381d3619da489e491eccf02445a74aa521e2fe8ad4e69f",
+            "private_index_sha256": "773bd1608b58655dfe8c390866826e0bd109d1baedfbd3a83903f428d921f968"
+          }
+        }
       },
       "claim_boundary": "one Windows/WSL2 physical node, one RTX 4080, one Triton GPU container, controlled traffic; not production SLA, physical HA, node failover, multi-node, multi-GPU, MIG, MPS, or a zero-interruption guarantee",
       "unresolved_items": [
         "Independent source-local reviewer sign-off remains pending.",
-        "Historical S2 Infinity validator debt remains a separate V4 closure backlog."
+        "Historical S2 Infinity validator debt remains a separate V4 closure backlog.",
+        "X1 and Integrated V4 remain planned/not_run until S6B-M is independently approved and verified."
       ]
     },
     {
