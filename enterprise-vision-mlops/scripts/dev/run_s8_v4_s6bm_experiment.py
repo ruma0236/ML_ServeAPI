@@ -1086,8 +1086,10 @@ def request_bodies_from_plan(
     attempt_id: str,
     items: Sequence[Mapping[str, Any]],
     *,
-    route_generation: int = 0,
+    route_generation: int,
 ) -> list[dict[str, Any]]:
+    if route_generation < 1:
+        raise S6BMExperimentError("route_generation_required")
     bodies = []
     for item in items:
         traffic_role = str(item["traffic_role"])
@@ -1596,9 +1598,12 @@ def send_batch(
     count: int,
     concurrency: int,
     *,
+    route_generation: int,
     expected_model_role: str | None = None,
     green_weight_percent: int = 0,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if route_generation < 1:
+        raise S6BMExperimentError("route_generation_required")
     bodies = []
     for index in range(count):
         request_id = f"{prefix}-{index:05d}"
@@ -1613,6 +1618,7 @@ def send_batch(
                 attempt_id,
                 request_id,
                 expected_model_role=role,
+                expected_route_generation=route_generation,
             )
         )
     return send_bodies(config, bodies, concurrency), bodies
@@ -2733,6 +2739,7 @@ def run_baseline(
         f"{attempt_id}-request",
         int(config.procedure["baseline_requests"]),
         int(config.procedure["request_concurrency"]),
+        route_generation=int(controller_state(config)["route_generation"]),
         expected_model_role="blue",
     )
     summary = request_projection(records)
@@ -2802,12 +2809,14 @@ def run_success(
             direct_infer(config, "green")
         apply_control(config, lease, "canary_started")
         timeline.append(phase_entry(config, "canary", clock_chain=clock_chain))
+        canary_generation = int(controller_state(config)["route_generation"])
         canary_bodies = request_bodies_from_plan(
             config,
             lease,
             lease.run_id,
             attempt_id,
             traffic_plan["roles"]["canary"],
+            route_generation=canary_generation,
         )
         canary_records = send_bodies(
             config,

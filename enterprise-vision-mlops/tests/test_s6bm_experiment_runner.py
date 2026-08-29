@@ -174,6 +174,35 @@ def test_all_bridge_requests_are_pinned_to_the_observed_blue_generation() -> Non
     assert {body["fencing_token"] for body in bodies} == {"fence-unit"}
 
 
+def test_canonical_request_batches_reject_an_unbound_route_generation() -> None:
+    runner = load_runner()
+    config = runner.S6BMConfig.from_path(ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml")
+    plan = runner.build_continuity_plan(config, "s6bm-success-generation-zero")
+    lease = SimpleNamespace(lease_id="lease-unit", fencing_token="fence-unit")
+
+    with pytest.raises(runner.S6BMExperimentError, match="route_generation_required"):
+        runner.request_bodies_from_plan(
+            config,
+            lease,
+            "s6bm-run-generation-zero",
+            "s6bm-success-generation-zero",
+            plan["roles"]["canary"],
+            route_generation=0,
+        )
+    with pytest.raises(runner.S6BMExperimentError, match="route_generation_required"):
+        runner.send_batch(
+            config,
+            lease,
+            "s6bm-run-generation-zero",
+            "s6bm-baseline-generation-zero",
+            "batch",
+            1,
+            1,
+            route_generation=0,
+            expected_model_role="blue",
+        )
+
+
 def test_continuity_mutation_rebinds_switch_event_and_readback_chain(tmp_path: Path) -> None:
     validator = load_continuity_validator()
     request_id = "bridge-0001"
@@ -433,10 +462,12 @@ def test_send_batch_reuses_bounded_per_worker_sessions(monkeypatch) -> None:
         "batch",
         24,
         3,
+        route_generation=7,
         expected_model_role="blue",
     )
 
     assert len(records) == len(bodies) == 24
+    assert {body["expected_route_generation"] for body in bodies} == {7}
     assert 1 <= len(created) <= 3
     assert set(seen) == {id(session) for session in created}
     assert all(session.closed for session in created)
