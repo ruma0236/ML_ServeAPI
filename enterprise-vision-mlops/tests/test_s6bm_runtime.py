@@ -13,6 +13,7 @@ from evm.scale_validation.s6bm_runtime import (
     S6BMConfig,
     S6BMRuntimeError,
     SUCCESS_PHASES,
+    _validate_success_route_revision_chain,
     analyze_attempts,
     build_continuity_plan,
     canonical_sha256,
@@ -1032,9 +1033,15 @@ def v4_continuity_attempt() -> dict[str, object]:
         "repetition": 1,
         "identities": identities(),
         "phase_timeline": [
-            {"phase": phase, "monotonic_seconds": monotonic}
-            for phase, monotonic in zip(
+            {
+                "phase": phase,
+                "controller_phase": phase,
+                "route_generation": route_generation,
+                "monotonic_seconds": monotonic,
+            }
+            for phase, route_generation, monotonic in zip(
                 SUCCESS_PHASES,
+                (1, 1, 3, 4, 4, 4, 4, 8, 8, 8),
                 (80.0, 81.0, 84.0, 93.0, 93.01, 95.0, 96.0, 97.0, 98.0, 99.0),
                 strict=True,
             )
@@ -1238,10 +1245,12 @@ def v4_continuity_attempt() -> dict[str, object]:
         },
         "cleanup": {
             "blue_only": True,
-            "green_unloaded": True,
-            "queue_zero": True,
-            "lease_owner_exact": True,
+            "controller_in_flight_zero": True,
             "controller_pending_crossovers_zero": True,
+            "green_unloaded": True,
+            "lease_owner_exact": True,
+            "prometheus_targets_up": True,
+            "queue_zero": True,
         },
     }
 
@@ -1337,6 +1346,46 @@ def test_s6bm_v4_continuity_projection_uses_all_durable_terminal_completions() -
     assert (
         projection["max_inter_completion_gap_ms"] == raw["latency"]["max_inter_completion_gap_ms"]
     )
+
+
+def test_s6bm_v4_success_route_revision_chain_rejects_restart_aba() -> None:
+    attempts = []
+    for repetition, start_route in enumerate((1, 8, 15), start=1):
+        route_revisions = (
+            start_route,
+            start_route,
+            start_route + 2,
+            start_route + 3,
+            start_route + 3,
+            start_route + 3,
+            start_route + 3,
+            start_route + 7,
+            start_route + 7,
+            start_route + 7,
+        )
+        attempts.append(
+            {
+                "repetition": repetition,
+                "phase_timeline": [
+                    {
+                        "phase": phase,
+                        "controller_phase": (
+                            "rolled_back" if index == 0 and repetition > 1 else phase
+                        ),
+                        "route_generation": route_generation,
+                    }
+                    for index, (phase, route_generation) in enumerate(
+                        zip(SUCCESS_PHASES, route_revisions, strict=True)
+                    )
+                ],
+            }
+        )
+
+    _validate_success_route_revision_chain(attempts, 3)
+
+    attempts[1]["phase_timeline"][0]["route_generation"] = 7
+    with pytest.raises(S6BMRuntimeError, match="s6bm_route_revision_restart_aba"):
+        _validate_success_route_revision_chain(attempts, 3)
 
 
 def test_s6bm_v4_synthetic_runtime_mutation_cases_reject_exact_reasons(

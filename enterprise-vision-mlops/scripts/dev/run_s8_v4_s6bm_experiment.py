@@ -2054,14 +2054,18 @@ def phase_entry(
     phase: str,
     *,
     clock_chain: DualClockAnchorChain | None = None,
+    accepted_controller_phases: Sequence[str] = (),
 ) -> dict[str, Any]:
     state = controller_state(config)
-    if state["phase"] != phase:
+    controller_phase = str(state["phase"])
+    if controller_phase not in {phase, *accepted_controller_phases}:
         raise S6BMExperimentError(f"phase_identity_mismatch:{phase}:{state['phase']}")
     entry = {
         "phase": phase,
+        "controller_phase": controller_phase,
         "monotonic_seconds": time.perf_counter(),
         "generation": state["generation"],
+        "route_generation": state["route_generation"],
         "route_weights": state["route_weights"],
         "loaded_roles": state["loaded_roles"],
         "in_flight": state["in_flight"],
@@ -2791,7 +2795,14 @@ def run_success(
     )
     initialize_controller(config, lease, source)
     controller_initialized_monotonic = time.perf_counter()
-    timeline = [phase_entry(config, "blue_only", clock_chain=clock_chain)]
+    timeline = [
+        phase_entry(
+            config,
+            "blue_only",
+            clock_chain=clock_chain,
+            accepted_controller_phases=("rolled_back",),
+        )
+    ]
     owner_samples = [owner_sample(lease)]
     physical: dict[str, bool] = {}
     records: list[dict[str, Any]] = []

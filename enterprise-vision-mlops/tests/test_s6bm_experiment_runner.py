@@ -174,6 +174,35 @@ def test_all_bridge_requests_are_pinned_to_the_observed_blue_generation() -> Non
     assert {body["fencing_token"] for body in bodies} == {"fence-unit"}
 
 
+def test_rollout_start_records_the_exact_rolled_back_controller_phase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = load_runner()
+    config = runner.S6BMConfig.from_path(ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml")
+    state = {
+        "phase": "rolled_back",
+        "generation": 9,
+        "route_generation": 8,
+        "route_weights": {"blue": 100, "green": 0},
+        "loaded_roles": ["blue"],
+        "in_flight": {"blue": 0, "green": 0},
+    }
+    monkeypatch.setattr(runner, "controller_state", lambda _config: state)
+
+    entry = runner.phase_entry(
+        config,
+        "blue_only",
+        accepted_controller_phases=("rolled_back",),
+    )
+
+    assert entry["phase"] == "blue_only"
+    assert entry["controller_phase"] == "rolled_back"
+    assert entry["route_generation"] == 8
+
+    with pytest.raises(runner.S6BMExperimentError, match="phase_identity_mismatch"):
+        runner.phase_entry(config, "canary")
+
+
 def test_canonical_request_batches_reject_an_unbound_route_generation() -> None:
     runner = load_runner()
     config = runner.S6BMConfig.from_path(ROOT / "configs/s8_v4_s6bm_blue_green_v4.toml")

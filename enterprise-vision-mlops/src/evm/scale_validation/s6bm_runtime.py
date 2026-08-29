@@ -454,15 +454,26 @@ def _validate_cleanup(
     cleanup: Mapping[str, Any],
     config: S6BMConfig,
     reason: str,
+    *,
+    profile: str,
 ) -> None:
-    attempt_keys = {
+    legacy_success_keys = {
         "blue_only",
         "green_unloaded",
         "queue_zero",
         "lease_owner_exact",
     }
-    fault_attempt_keys = {"blue_only", "green_unloaded"}
-    continuity_attempt_keys = attempt_keys | {"controller_pending_crossovers_zero"}
+    v4_success_keys = legacy_success_keys | {
+        "controller_in_flight_zero",
+        "controller_pending_crossovers_zero",
+        "prometheus_targets_up",
+    }
+    legacy_fault_keys = {"blue_only", "green_unloaded"}
+    v4_fault_keys = legacy_fault_keys | {
+        "controller_in_flight_zero",
+        "controller_pending_crossovers_zero",
+        "lease_owner_exact",
+    }
     final_true_keys = {
         "b0_cuda_inference",
         "b0_image_exact",
@@ -484,11 +495,11 @@ def _validate_cleanup(
         "vram_restore_seconds",
     }
     observed_keys = frozenset(cleanup)
-    if observed_keys in {
-        frozenset(fault_attempt_keys),
-        frozenset(attempt_keys),
-        frozenset(continuity_attempt_keys),
-    }:
+    if config.schema_version.endswith(".v4"):
+        expected_attempt_keys = v4_success_keys if profile == "success" else v4_fault_keys
+    else:
+        expected_attempt_keys = legacy_success_keys if profile == "success" else legacy_fault_keys
+    if observed_keys == frozenset(expected_attempt_keys):
         if any(cleanup.get(key) is not True for key in observed_keys):
             raise S6BMRuntimeError(reason)
         return
@@ -512,17 +523,50 @@ def _validate_cleanup(
         or prometheus.get("up") != len(expected_jobs)
     ):
         raise S6BMRuntimeError(reason)
-    _finite(cleanup.get("vram_delta_mib"), "cleanup_vram_delta_mib")
+    vram_delta = cleanup.get("vram_delta_mib")
+    if isinstance(vram_delta, bool) or not isinstance(vram_delta, (int, float)):
+        raise S6BMRuntimeError(reason)
+    _finite(vram_delta, "cleanup_vram_delta_mib")
+    restore_value = cleanup.get("vram_restore_seconds")
+    if isinstance(restore_value, bool) or not isinstance(restore_value, (int, float)):
+        raise S6BMRuntimeError(reason)
     restore_seconds = _finite(
-        cleanup.get("vram_restore_seconds"),
+        restore_value,
         "cleanup_vram_restore_seconds",
     )
-    if (
-        isinstance(cleanup.get("vram_delta_mib"), bool)
-        or isinstance(cleanup.get("vram_restore_seconds"), bool)
-        or not 0 <= restore_seconds <= float(config.procedure["cleanup_timeout_seconds"])
-    ):
+    if not 0 <= restore_seconds <= float(config.procedure["cleanup_timeout_seconds"]):
         raise S6BMRuntimeError(reason)
+
+
+def _validate_success_route_revision_chain(
+    raw_attempts: Sequence[Mapping[str, Any]],
+    expected_repetitions: int,
+) -> None:
+    ordered = sorted(raw_attempts, key=lambda item: int(item.get("repetition", 0)))
+    if len(ordered) != expected_repetitions:
+        raise S6BMRuntimeError("s6bm_route_revision_attempt_set")
+    previous_final_route: int | None = None
+    for index, attempt in enumerate(ordered):
+        timeline = [dict(item) for item in attempt.get("phase_timeline", [])]
+        if [str(item.get("phase", "")) for item in timeline] != SUCCESS_PHASES:
+            raise S6BMRuntimeError("s6bm_success_phase_order")
+        controller_phases = [str(item.get("controller_phase", "")) for item in timeline]
+        expected_start = "blue_only" if index == 0 else "rolled_back"
+        if controller_phases != [expected_start, *SUCCESS_PHASES[1:]]:
+            raise S6BMRuntimeError("s6bm_rollout_start_phase_chain")
+        route_revisions = [item.get("route_generation") for item in timeline]
+        if any(type(value) is not int or value < 1 for value in route_revisions):
+            raise S6BMRuntimeError("s6bm_route_revision_timeline")
+        projected = [int(value) for value in route_revisions]
+        if projected != sorted(projected):
+            raise S6BMRuntimeError("s6bm_route_revision_timeline")
+        if projected[3] != projected[2] + 1:
+            raise S6BMRuntimeError("s6bm_switch_route_revision_increment")
+        if projected[-1] <= projected[0]:
+            raise S6BMRuntimeError("s6bm_route_revision_not_advanced")
+        if previous_final_route is not None and projected[0] != previous_final_route:
+            raise S6BMRuntimeError("s6bm_route_revision_restart_aba")
+        previous_final_route = projected[-1]
 
 
 def _expected_identity(config: S6BMConfig, role: str) -> dict[str, Any]:
@@ -1466,6 +1510,23 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
     phases = [str(item["phase"]) for item in timeline]
     if phases != SUCCESS_PHASES:
         raise S6BMRuntimeError("s6bm_success_phase_order")
+    if config.schema_version.endswith(".v4"):
+        controller_phases = [str(item.get("controller_phase", "")) for item in timeline]
+        if (
+            controller_phases[0] not in {"blue_only", "rolled_back"}
+            or controller_phases[1:] != SUCCESS_PHASES[1:]
+        ):
+            raise S6BMRuntimeError("s6bm_rollout_start_phase_chain")
+        route_revisions = [item.get("route_generation") for item in timeline]
+        if any(type(value) is not int or value < 1 for value in route_revisions):
+            raise S6BMRuntimeError("s6bm_route_revision_timeline")
+        projected_routes = [int(value) for value in route_revisions]
+        if (
+            projected_routes != sorted(projected_routes)
+            or projected_routes[3] != projected_routes[2] + 1
+            or projected_routes[-1] <= projected_routes[0]
+        ):
+            raise S6BMRuntimeError("s6bm_route_revision_timeline")
     monotonic = [_finite(item.get("monotonic_seconds"), "phase_monotonic") for item in timeline]
     if monotonic != sorted(monotonic) or len(set(monotonic)) != len(monotonic):
         raise S6BMRuntimeError("s6bm_phase_monotonic")
@@ -1551,7 +1612,7 @@ def project_success_attempt(raw: Mapping[str, Any], config: S6BMConfig) -> dict[
     ):
         raise S6BMRuntimeError("s6bm_telemetry")
     cleanup = dict(raw.get("cleanup", {}))
-    _validate_cleanup(cleanup, config, "s6bm_success_cleanup")
+    _validate_cleanup(cleanup, config, "s6bm_success_cleanup", profile="success")
     projection = {
         "attempt_id": str(raw["attempt_id"]),
         "repetition": int(raw["repetition"]),
@@ -1644,7 +1705,12 @@ def project_fault_attempt(
     ):
         raise S6BMRuntimeError(f"s6bm_fault_telemetry_identity:{profile}")
     cleanup = dict(raw.get("cleanup", {}))
-    _validate_cleanup(cleanup, config, f"s6bm_fault_cleanup:{profile}")
+    _validate_cleanup(
+        cleanup,
+        config,
+        f"s6bm_fault_cleanup:{profile}",
+        profile="fault",
+    )
     return {
         "attempt_id": str(raw["attempt_id"]),
         "repetition": int(raw["repetition"]),
@@ -1696,6 +1762,12 @@ def analyze_attempts(
         "vram_preflight_rejection",
     ):
         require_repetitions(profile, supplemental_repetitions)
+
+    if config.schema_version.endswith(".v4"):
+        _validate_success_route_revision_chain(
+            [item for item in raw_attempts if item.get("profile") == "successful_transition"],
+            repetitions,
+        )
 
     success = [
         project_success_attempt(item, config)
