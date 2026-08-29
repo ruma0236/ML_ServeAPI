@@ -10,6 +10,8 @@ from evm.scale_validation.x1_artifacts import (
     MODEL_IDS,
     PROFILE_IDS,
     X1ArtifactError,
+    _build_dlrm_lite,
+    _build_gaussian_nb,
     _entries,
     _freeze_model,
     _load_artifact_dependencies,
@@ -66,6 +68,27 @@ def test_x1_artifact_dependencies_load_in_clean_process() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_x1_probabilistic_and_dlrm_artifacts_support_disabled_and_batched_shapes() -> None:
+    _np, _pq, torch = _load_artifact_dependencies()
+    gaussian = _build_gaussian_nb(
+        torch,
+        {
+            "model": {
+                "theta": [[0.0] * 28, [1.0] * 28],
+                "variance": [[1.0] * 28, [1.0] * 28],
+                "class_log_prior": [-0.6931471805599453, -0.6931471805599453],
+            }
+        },
+    ).eval()
+    dlrm = _build_dlrm_lite(torch, vocab_size=32, embedding_dim=2).eval()
+    for model, feature_count in ((gaussian, 28), (dlrm, 39)):
+        traced = torch.jit.trace(model, torch.zeros((2, feature_count)), strict=True)
+        disabled = traced(torch.zeros(feature_count))
+        batched = traced(torch.zeros((2, feature_count)))
+        assert disabled.numel() == 1
+        assert batched.shape == (2, 1)
 
 
 def test_x1_freeze_restores_shared_runtime_model_to_cuda(tmp_path: Path) -> None:

@@ -540,7 +540,7 @@ def _build_gaussian_nb(torch: Any, payload: Mapping[str, Any]) -> Any:
             )
 
         def forward(self, value: Any) -> Any:
-            expanded = value.unsqueeze(1)
+            expanded = value.reshape(-1, 28).unsqueeze(1)
             log_likelihood = -0.5 * (
                 torch.log(2.0 * math.pi * self.variance)
                 + ((expanded - self.theta) ** 2) / self.variance
@@ -549,6 +549,32 @@ def _build_gaussian_nb(torch: Any, payload: Mapping[str, Any]) -> Any:
             return probability.unsqueeze(-1)
 
     return GaussianNb()
+
+
+def _build_dlrm_lite(torch: Any, *, vocab_size: int, embedding_dim: int) -> Any:
+    class DlrmLite(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.bottom = torch.nn.Sequential(
+                torch.nn.Linear(13, 32), torch.nn.ReLU(), torch.nn.Linear(32, 16), torch.nn.ReLU()
+            )
+            self.embeddings = torch.nn.ModuleList(
+                [torch.nn.Embedding(vocab_size, embedding_dim) for _ in range(26)]
+            )
+            self.top = torch.nn.Sequential(
+                torch.nn.Linear(16 + 26 * embedding_dim, 32),
+                torch.nn.ReLU(),
+                torch.nn.Linear(32, 1),
+            )
+
+        def forward(self, value: Any) -> Any:
+            matrix = value.reshape(-1, 39)
+            dense = self.bottom(matrix[:, :13])
+            categorical = matrix[:, 13:].to(dtype=torch.long).remainder(vocab_size)
+            embedded = [self.embeddings[index](categorical[:, index]) for index in range(26)]
+            return torch.sigmoid(self.top(torch.cat([dense, *embedded], dim=1)))
+
+    return DlrmLite()
 
 
 def _train_tiny_mlp(
@@ -677,28 +703,11 @@ def _train_dlrm_lite(
     vocab_size = int(training["criteo_embedding_vocab_size"])
     embedding_dim = int(training["criteo_embedding_dim"])
 
-    class DlrmLite(torch.nn.Module):
-        def __init__(self) -> None:
-            super().__init__()
-            self.bottom = torch.nn.Sequential(
-                torch.nn.Linear(13, 32), torch.nn.ReLU(), torch.nn.Linear(32, 16), torch.nn.ReLU()
-            )
-            self.embeddings = torch.nn.ModuleList(
-                [torch.nn.Embedding(vocab_size, embedding_dim) for _ in range(26)]
-            )
-            self.top = torch.nn.Sequential(
-                torch.nn.Linear(16 + 26 * embedding_dim, 32),
-                torch.nn.ReLU(),
-                torch.nn.Linear(32, 1),
-            )
-
-        def forward(self, value: Any) -> Any:
-            dense = self.bottom(value[:, :13])
-            categorical = value[:, 13:].to(dtype=torch.long).remainder(vocab_size)
-            embedded = [self.embeddings[index](categorical[:, index]) for index in range(26)]
-            return torch.sigmoid(self.top(torch.cat([dense, *embedded], dim=1)))
-
-    model = DlrmLite().cuda()
+    model = _build_dlrm_lite(
+        torch,
+        vocab_size=vocab_size,
+        embedding_dim=embedding_dim,
+    ).cuda()
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(training["criteo_learning_rate"]),
