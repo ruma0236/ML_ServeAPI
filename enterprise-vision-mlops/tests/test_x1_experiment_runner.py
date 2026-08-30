@@ -205,6 +205,8 @@ def test_x1_runtime_readiness_waits_for_exact_worker_set_after_transient_failure
     monkeypatch.setattr(runner, "capture_topology_readback", lambda **_kwargs: dict(snapshot))
     monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
     api_calls = 0
+    api_call_lock = threading.Lock()
+    round_barrier = threading.Barrier(16)
 
     class Response:
         def __init__(self, status_code: int, payload: dict[str, object] | None = None) -> None:
@@ -214,13 +216,19 @@ def test_x1_runtime_readiness_waits_for_exact_worker_set_after_transient_failure
         def json(self) -> dict[str, object]:
             return self._payload
 
+        def close(self) -> None:
+            return None
+
     def fake_get(url: str, **_kwargs: object) -> Response:
         nonlocal api_calls
         if url.endswith("/control-panel/v1/scenario-workloads/x1/ready"):
-            api_calls += 1
-            if api_calls == 1:
+            round_barrier.wait(timeout=2)
+            with api_call_lock:
+                api_calls += 1
+                call_number = api_calls
+            if call_number == 1:
                 return Response(503)
-            worker_pid = 8 if api_calls % 2 == 0 else 9
+            worker_pid = 8 if call_number % 2 == 0 else 9
             return Response(
                 200,
                 {
@@ -244,6 +252,58 @@ def test_x1_runtime_readiness_waits_for_exact_worker_set_after_transient_failure
 
     assert observed["observed_worker_slots_by_pod"] == {"pod-a": ["pod-a:8", "pod-a:9"]}
     assert api_calls == 48
+
+
+def test_x1_readiness_identity_round_uses_bounded_parallel_connections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    barrier = threading.Barrier(16)
+    thread_ids: set[int] = set()
+    lock = threading.Lock()
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, worker_pid: int) -> None:
+            self.worker_pid = worker_pid
+
+        def json(self) -> dict[str, object]:
+            return {
+                "schema_version": "evm.s8_v4.x1_readiness.v1",
+                "status": "ok",
+                "runtime_device": "cuda",
+                "topology": {
+                    "pod_uid": "pod-a",
+                    "service_instance_id": "pod-a",
+                    "worker_pid": self.worker_pid,
+                    "worker_slot": f"pod-a:{self.worker_pid}",
+                    "api_replicas_expected": 1,
+                    "cpu_workers_expected": 2,
+                },
+            }
+
+        @staticmethod
+        def close() -> None:
+            return None
+
+    def fake_get(_url: str, **_kwargs: object) -> Response:
+        with lock:
+            thread_ids.add(threading.get_ident())
+            worker_pid = 8 if len(thread_ids) % 2 == 0 else 9
+        barrier.wait(timeout=2)
+        return Response(worker_pid)
+
+    monkeypatch.setattr(runner.requests, "get", fake_get)
+    statuses, workers = runner._readiness_identity_round(
+        pod_uids={"pod-a"},
+        expected_replicas=1,
+        expected_workers=2,
+        probe_count=16,
+    )
+
+    assert statuses == [200] * 16
+    assert len(thread_ids) == 16
+    assert workers == {"pod-a": {"pod-a:8", "pod-a:9"}}
 
 
 def test_x1_readiness_worker_identity_rejects_stale_topology() -> None:

@@ -655,6 +655,48 @@ def _readiness_worker_identity(
     return pod_uid, worker_slot
 
 
+def _readiness_identity_round(
+    *,
+    pod_uids: set[str],
+    expected_replicas: int,
+    expected_workers: int,
+    probe_count: int,
+) -> tuple[list[int], dict[str, set[str]]]:
+    def probe() -> tuple[int, tuple[str, str] | None]:
+        response = requests.get(
+            f"{API_URL}/control-panel/v1/scenario-workloads/x1/ready",
+            headers={"Connection": "close"},
+            timeout=2,
+        )
+        try:
+            identity = None
+            if response.status_code == 200:
+                identity = _readiness_worker_identity(
+                    response.json(),
+                    pod_uids=pod_uids,
+                    expected_replicas=expected_replicas,
+                    expected_workers=expected_workers,
+                )
+            return response.status_code, identity
+        finally:
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
+
+    workers_by_pod = {pod_uid: set() for pod_uid in pod_uids}
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=probe_count,
+        thread_name_prefix="x1-readiness",
+    ) as executor:
+        observations = list(executor.map(lambda _index: probe(), range(probe_count)))
+    statuses: list[int] = []
+    for status, identity in observations:
+        statuses.append(status)
+        if identity is not None:
+            workers_by_pod[identity[0]].add(identity[1])
+    return statuses, workers_by_pod
+
+
 def wait_runtime_ready(
     *, expected_replicas: int, expected_workers: int, timeout: float = 180
 ) -> dict[str, Any]:
@@ -687,25 +729,12 @@ def wait_runtime_ready(
                 ).status_code
                 for model_id in MODEL_IDS
             ]
-            workers_by_pod = {pod_uid: set() for pod_uid in pod_uids}
-            api_statuses: list[int] = []
-            for _index in range(probes_per_round):
-                api = requests.get(
-                    f"{API_URL}/control-panel/v1/scenario-workloads/x1/ready",
-                    headers={"Connection": "close"},
-                    timeout=2,
-                )
-                api_statuses.append(api.status_code)
-                if api.status_code != 200:
-                    continue
-                identity = _readiness_worker_identity(
-                    api.json(),
-                    pod_uids=pod_uids,
-                    expected_replicas=expected_replicas,
-                    expected_workers=expected_workers,
-                )
-                if identity is not None:
-                    workers_by_pod[identity[0]].add(identity[1])
+            api_statuses, workers_by_pod = _readiness_identity_round(
+                pod_uids=pod_uids,
+                expected_replicas=expected_replicas,
+                expected_workers=expected_workers,
+                probe_count=probes_per_round,
+            )
             latest = (
                 f"topology={topology_settled}:api={api_statuses}:live={triton_live.status_code}:"
                 f"ready={triton_ready.status_code}:models={model_states}:workers={workers_by_pod}"
