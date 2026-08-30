@@ -114,6 +114,56 @@ def test_x1_serving_binds_topology_model_trace_and_durable_effect(
     asyncio.run(manager.close())
 
 
+def test_x1_serving_accepts_confirmed_effect_when_wall_clock_observation_regresses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_environment(monkeypatch, runtime_manifest(tmp_path))
+    manager = X1ServingManager()
+    manager._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda call: httpx.Response(200, json=triton_config(MODEL_IDS[0]))
+            if call.url.path.endswith("/config")
+            else httpx.Response(
+                200,
+                json={
+                    "outputs": [
+                        {
+                            "name": "OUTPUT__0",
+                            "datatype": "FP32",
+                            "shape": [1],
+                            "data": [0.5],
+                        }
+                    ]
+                },
+            )
+        ),
+        base_url="http://triton",
+    )
+
+    async def commit(offered: object, response: Any) -> dict[str, object]:
+        del offered
+        return {
+            "effect_id": response.effect_id,
+            "replayed": False,
+            "committed": True,
+            "readback_visible": True,
+            "separate_transaction_readback": True,
+            "wall_clock_causal_authority": False,
+            "wall_clock_delta_ns": -589_864_000,
+            "wall_clock_nondecreasing": False,
+        }
+
+    result = asyncio.run(manager.predict(request(), terminal_committer=commit))
+
+    assert result.terminal_outcome == "completed"
+    assert result.durable_effect is not None
+    assert result.durable_effect.committed is True
+    assert result.durable_effect.readback_visible is True
+    assert result.durable_effect.receipt["wall_clock_causal_authority"] is False
+    assert result.durable_effect.receipt["wall_clock_nondecreasing"] is False
+    asyncio.run(manager.close())
+
+
 def test_x1_serving_rejects_unconfirmed_effect(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

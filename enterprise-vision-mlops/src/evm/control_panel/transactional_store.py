@@ -294,6 +294,27 @@ def _utc_iso(value: datetime) -> str:
     return observed.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _terminal_effect_wall_clock_observation(
+    database_recorded_at: datetime,
+    readback_at: datetime,
+) -> dict[str, Any]:
+    delta = readback_at - database_recorded_at
+    delta_ns = ((delta.days * 86_400) + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
+    return {
+        "delta_ns": delta_ns,
+        "nondecreasing": delta_ns >= 0,
+    }
+
+
+def _enforce_terminal_effect_wall_clock_contract(
+    observation: Mapping[str, Any],
+    *,
+    causal_payload_present: bool,
+) -> None:
+    if causal_payload_present and observation.get("nondecreasing") is not True:
+        raise ControlPlaneParityError("terminal effect readback clock regressed")
+
+
 def canonical_digest(payload: object) -> str:
     encoded = json.dumps(
         payload,
@@ -2954,8 +2975,14 @@ class TransactionalControlPlaneStore:
         if durable_commit.get("synchronous_commit") != "on":
             raise ControlPlaneParityError("terminal effect did not use synchronous_commit=on")
         database_recorded_at = _parse_datetime(str(durable_commit.get("database_recorded_at", "")))
-        if row["readback_at"] < database_recorded_at:
-            raise ControlPlaneParityError("terminal effect readback clock regressed")
+        wall_clock_observation = _terminal_effect_wall_clock_observation(
+            database_recorded_at,
+            row["readback_at"],
+        )
+        _enforce_terminal_effect_wall_clock_contract(
+            wall_clock_observation,
+            causal_payload_present=causal_payload is not None,
+        )
         causal_readback = self._s6bm_causal_row(causal_row) if causal_row is not None else None
         if causal_payload is not None:
             if causal_readback is None:
@@ -3028,6 +3055,9 @@ class TransactionalControlPlaneStore:
                     "synchronous_commit": "on",
                     "commit_ack_monotonic_ns": commit_ack_monotonic_ns,
                     "commit_timestamp_required": False,
+                    "wall_clock_causal_authority": False,
+                    "wall_clock_delta_ns": wall_clock_observation["delta_ns"],
+                    "wall_clock_nondecreasing": wall_clock_observation["nondecreasing"],
                     "separate_transaction_readback": True,
                     "readback_transaction_id": readback_transaction_id,
                     "readback_backend_pid": readback_backend_pid,

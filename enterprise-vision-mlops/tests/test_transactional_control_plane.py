@@ -13,6 +13,7 @@ import pytest
 
 from evm.control_panel import lifecycle_runs
 from evm.control_panel import operations
+from evm.control_panel import transactional_store as transactional_store_module
 from evm.control_panel.lifecycle_runs import (
     LifecycleActionRequest,
     LifecycleRunRequest,
@@ -255,10 +256,106 @@ def test_generic_terminal_receipt_does_not_require_s6bm_causal_identity(
     assert receipt["schema_version"] == "evm.control_plane.durable_effect_receipt.v1"
     assert receipt["readback_visible"] is True
     assert receipt["commit_timestamp_required"] is False
+    assert receipt["wall_clock_causal_authority"] is False
+    assert isinstance(receipt["wall_clock_delta_ns"], int)
+    assert isinstance(receipt["wall_clock_nondecreasing"], bool)
     assert receipt["separate_transaction_readback"] is True
     assert receipt["readback_transaction_id"] != receipt["transaction_id"]
     assert receipt["causal_sequence"] is None
     assert receipt["causal_payload_sha256"] is None
+
+
+@pytest.mark.parametrize(
+    ("readback_offset", "expected_nondecreasing"),
+    [
+        (timedelta(seconds=-2), False),
+        (timedelta(0), True),
+        (timedelta(seconds=2), True),
+    ],
+)
+def test_generic_terminal_receipt_wall_clock_is_observability_only(
+    store: TransactionalControlPlaneStore,
+    monkeypatch: pytest.MonkeyPatch,
+    readback_offset: timedelta,
+    expected_nondecreasing: bool,
+) -> None:
+    observed_at = datetime(2026, 8, 30, 8, 36, 37, tzinfo=UTC)
+
+    def observe(_recorded: datetime, _readback: datetime) -> dict[str, object]:
+        return {
+            "delta_ns": int(readback_offset.total_seconds() * 1_000_000_000),
+            "nondecreasing": expected_nondecreasing,
+        }
+
+    monkeypatch.setattr(
+        transactional_store_module,
+        "_terminal_effect_wall_clock_observation",
+        observe,
+    )
+    request_id = f"x1-wall-observation-{expected_nondecreasing}-{readback_offset.total_seconds()}"
+    effect_id = hashlib.sha256(f"{request_id}:effect".encode("ascii")).hexdigest()
+    stored, replayed, receipt = store.commit_idempotent_terminal_entity_with_receipt(
+        scope="x1.terminal-effect.x1-wall-observation",
+        idempotency_key=request_id,
+        request_payload={"request_id": request_id, "observed_at": observed_at.isoformat()},
+        entity_kind="x1_terminal_effect",
+        entity_id=effect_id,
+        response_payload={
+            "schema_version": "evm.s8_v4.x1_terminal_effect.v1",
+            "attempt_id": "x1-wall-observation",
+            "request_id": request_id,
+            "effect_id": effect_id,
+            "terminal_outcome": "completed",
+        },
+        state="completed",
+    )
+
+    assert replayed is False
+    assert stored["effect_id"] == effect_id
+    assert receipt["readback_visible"] is True
+    assert receipt["separate_transaction_readback"] is True
+    assert receipt["wall_clock_causal_authority"] is False
+    assert receipt["wall_clock_nondecreasing"] is expected_nondecreasing
+    assert receipt["wall_clock_delta_ns"] == int(readback_offset.total_seconds() * 1_000_000_000)
+    replayed_stored, replayed, replayed_receipt = (
+        store.commit_idempotent_terminal_entity_with_receipt(
+            scope="x1.terminal-effect.x1-wall-observation",
+            idempotency_key=request_id,
+            request_payload={"request_id": request_id, "observed_at": observed_at.isoformat()},
+            entity_kind="x1_terminal_effect",
+            entity_id=effect_id,
+            response_payload={
+                "schema_version": "evm.s8_v4.x1_terminal_effect.v1",
+                "attempt_id": "x1-wall-observation",
+                "request_id": request_id,
+                "effect_id": effect_id,
+                "terminal_outcome": "completed",
+            },
+            state="completed",
+        )
+    )
+    assert replayed is True
+    assert replayed_stored == stored
+    assert replayed_receipt["entity_id"] == effect_id
+    assert len(store.list_entities("x1_terminal_effect")) == 1
+
+
+def test_s6bm_wall_clock_observation_remains_fail_closed() -> None:
+    observation = transactional_store_module._terminal_effect_wall_clock_observation(
+        datetime(2026, 8, 30, 8, 36, 38, tzinfo=UTC),
+        datetime(2026, 8, 30, 8, 36, 37, tzinfo=UTC),
+    )
+
+    assert observation == {"delta_ns": -1_000_000_000, "nondecreasing": False}
+    with pytest.raises(ControlPlaneParityError, match="readback clock regressed"):
+        transactional_store_module._enforce_terminal_effect_wall_clock_contract(
+            observation,
+            causal_payload_present=True,
+        )
+    transactional_store_module._enforce_terminal_effect_wall_clock_contract(
+        observation,
+        causal_payload_present=False,
+    )
 
 
 def test_generic_terminal_receipt_commits_frozen_concurrency_without_clock_lane_starvation(
