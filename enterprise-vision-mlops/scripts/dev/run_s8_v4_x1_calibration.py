@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -116,6 +117,7 @@ EXPECTED_BASELINE_PROMETHEUS_JOBS = {
     "evm-otel-collector",
     "prometheus",
 }
+RUNTIME_ATTEMPT_ID = re.compile(r"^x1-[a-z0-9-]{8,160}$")
 
 
 class X1ExperimentError(RuntimeError):
@@ -1469,6 +1471,30 @@ def validate_warmup(window: Mapping[str, Any], effects: Sequence[Mapping[str, An
         raise X1ExperimentError("x1_warmup_effect_join")
 
 
+def canonical_attempt_id(cell_id: str) -> str:
+    value = f"x1-{cell_id.replace('_', '-')}"
+    if RUNTIME_ATTEMPT_ID.fullmatch(value) is None:
+        raise X1ExperimentError(f"x1_runtime_attempt_id:{cell_id}")
+    return value
+
+
+def validate_and_persist_warmup(
+    *,
+    suite_root: Path,
+    warmup_attempt_id: str,
+    window: Mapping[str, Any],
+    effects: Sequence[Mapping[str, Any]],
+) -> None:
+    try:
+        validate_warmup(window, effects)
+    except X1ExperimentError:
+        canonical_write(
+            suite_root / "failed-warmups" / f"{warmup_attempt_id}.json",
+            {**dict(window), "durable_effects": list(effects)},
+        )
+        raise
+
+
 def _response_topology(records: Sequence[Mapping[str, Any]]) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
     for record in records:
@@ -1502,7 +1528,7 @@ def run_calibration_attempt(
     lease: GpuLease,
     batch_candidate: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    attempt_id = f"x1-{cell_id}"
+    attempt_id = canonical_attempt_id(cell_id)
     steps: list[dict[str, Any]] = []
     topology_workers: dict[str, set[str]] = {}
     for step_index, offered_rps in enumerate(contract.payload["calibration"]["arrival_steps_rps"]):
@@ -1522,7 +1548,12 @@ def run_calibration_attempt(
             phase="warmup",
         )
         warmup_effects = export_effects(warmup_attempt_id)
-        validate_warmup(warmup, warmup_effects)
+        validate_and_persist_warmup(
+            suite_root=suite_root,
+            warmup_attempt_id=warmup_attempt_id,
+            window=warmup,
+            effects=warmup_effects,
+        )
         runtime_attempt_id = f"{attempt_id}-step-{step_index:02d}"
         metrics_before = triton_metrics_text()
         trace_offset = OTEL_TRACE_FILE.stat().st_size

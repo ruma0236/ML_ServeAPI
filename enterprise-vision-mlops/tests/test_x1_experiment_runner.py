@@ -6,13 +6,16 @@ from pathlib import Path
 import pytest
 import requests
 
+from evm.model_runtime.x1_serving import X1InferenceRequest
 from scripts.dev import run_s8_v4_x1_calibration as runner
 from scripts.dev.run_s8_v4_x1_calibration import (
     X1ExperimentError,
     _iter_otlp_entries,
+    canonical_attempt_id,
     canonical_write,
     deterministic_model_schedule,
     remove_prometheus_targets,
+    validate_and_persist_warmup,
     validate_warmup,
 )
 
@@ -53,6 +56,59 @@ def test_x1_warmup_requires_completed_accepted_effect_exact_join() -> None:
     effects[0]["payload"]["request_id"] = "x1-warmup-other"
     with pytest.raises(X1ExperimentError, match="x1_warmup_effect_join"):
         validate_warmup(window, effects)
+
+
+def test_x1_runtime_attempt_id_matches_api_schema() -> None:
+    attempt_id = canonical_attempt_id(
+        "solo_calibration-r1-w1-higgs_logistic_regression-disabled-rep1"
+    )
+    request_id = f"{attempt_id}-w00-00000000"
+    request = X1InferenceRequest(
+        schema_version="evm.s8_v4.x1_inference_request.v1",
+        suite_id="x1-canonical-20260830t001821z-12bffcd6",
+        attempt_id=f"{attempt_id}-warmup-00",
+        request_id=request_id,
+        traceparent="00-" + "a" * 32 + "-" + "b" * 16 + "-01",
+        model_id="higgs_logistic_regression",
+        model_version="1",
+        artifact_sha256="c" * 64,
+        config_sha256="d" * 64,
+        features=[0.0] * 28,
+        deadline_unix_ns=1,
+        lease_id="lease-id",
+        fencing_token="fencing-token-123",
+    )
+
+    assert "_" not in attempt_id
+    assert request.attempt_id.endswith("-warmup-00")
+
+
+def test_x1_failed_warmup_is_preserved_before_rejection(tmp_path: Path) -> None:
+    window = {
+        "phase": "warmup",
+        "requests": [
+            {
+                "request_id": "x1-attempt-w00-00000000",
+                "admission_outcome": "accepted",
+                "status_code": 422,
+                "terminal_outcome": "failed",
+                "outcome_unknown": False,
+                "oom_detected": False,
+            }
+        ],
+    }
+    attempt_id = "x1-attempt-warmup-00"
+
+    with pytest.raises(X1ExperimentError, match="x1_warmup_terminal_invariant"):
+        validate_and_persist_warmup(
+            suite_root=tmp_path,
+            warmup_attempt_id=attempt_id,
+            window=window,
+            effects=[],
+        )
+
+    preserved = json.loads((tmp_path / "failed-warmups" / f"{attempt_id}.json").read_text())
+    assert preserved == {**window, "durable_effects": []}
 
 
 def test_x1_canonical_write_is_write_once(tmp_path: Path) -> None:
