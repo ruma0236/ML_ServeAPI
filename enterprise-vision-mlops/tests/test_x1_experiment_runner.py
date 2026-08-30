@@ -83,6 +83,20 @@ def test_x1_runtime_attempt_id_matches_api_schema() -> None:
     assert request.attempt_id.endswith("-warmup-00")
 
 
+def test_x1_failure_detail_preserves_bounded_private_rca_message() -> None:
+    payload = {
+        "detail": {
+            "error": "x1_durable_effect_commit_failed",
+            "message": "post-commit readback failed",
+        }
+    }
+
+    assert runner._response_error(payload) == "x1_durable_effect_commit_failed"
+    assert runner._response_failure_detail(payload) == "post-commit readback failed"
+    payload["detail"]["message"] = "x" * 600
+    assert runner._response_failure_detail(payload) == "x" * 500
+
+
 def test_x1_failed_warmup_is_preserved_before_rejection(tmp_path: Path) -> None:
     window = {
         "phase": "warmup",

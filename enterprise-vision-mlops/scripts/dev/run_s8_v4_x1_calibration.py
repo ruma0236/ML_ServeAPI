@@ -1182,6 +1182,14 @@ def _response_error(payload: Any) -> str:
     return "http_error"
 
 
+def _response_failure_detail(payload: Any) -> str:
+    if isinstance(payload, Mapping):
+        detail = payload.get("detail")
+        if isinstance(detail, Mapping) and isinstance(detail.get("message"), str):
+            return str(detail["message"]).strip()[:500]
+    return ""
+
+
 def _send_request(
     *,
     suite_id: str,
@@ -1268,6 +1276,7 @@ def _send_request(
             "oom_detected": "oom" in reason.lower(),
             "outcome_unknown": False,
             "failure_reason": reason,
+            "failure_detail": _response_failure_detail(payload),
         }
     except requests.RequestException as exc:
         finished_ns = time.perf_counter_ns()

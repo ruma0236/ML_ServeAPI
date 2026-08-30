@@ -223,7 +223,12 @@ def test_idempotent_terminal_entity_commits_one_effect_in_real_postgres(
 
 def test_generic_terminal_receipt_does_not_require_s6bm_causal_identity(
     store: TransactionalControlPlaneStore,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def fail_if_called(**_kwargs: object) -> dict[str, object]:
+        raise AssertionError("generic receipt entered the S6B-M clock-anchor path")
+
+    monkeypatch.setattr(store, "_collect_s6bm_commit_timestamp_receipt", fail_if_called)
     request = {"request_id": "x1-generic-request-0001"}
     response = {
         "schema_version": "evm.s8_v4.x1_terminal_effect.v1",
@@ -245,10 +250,82 @@ def test_generic_terminal_receipt_does_not_require_s6bm_causal_identity(
 
     assert replayed is False
     assert stored["request_id"] == request["request_id"]
+    assert stored["durable_commit"]["schema_version"] == "evm.control_plane.durable_commit.v1"
     assert stored["durable_commit"]["causal_sequence"] is None
+    assert receipt["schema_version"] == "evm.control_plane.durable_effect_receipt.v1"
     assert receipt["readback_visible"] is True
+    assert receipt["commit_timestamp_required"] is False
+    assert receipt["separate_transaction_readback"] is True
+    assert receipt["readback_transaction_id"] != receipt["transaction_id"]
     assert receipt["causal_sequence"] is None
     assert receipt["causal_payload_sha256"] is None
+
+
+def test_generic_terminal_receipt_commits_frozen_concurrency_without_clock_lane_starvation(
+    postgres_dsn: str,
+) -> None:
+    schema = f"evm_x1_generic_concurrency_{uuid4().hex[:12]}"
+    instance = TransactionalControlPlaneStore(
+        StoreConfiguration(
+            mode="postgres",
+            dsn=postgres_dsn,
+            schema=schema,
+            pool_min_size=1,
+            pool_max_size=8,
+            acquire_timeout_seconds=2.0,
+            commit_timestamp_readback_max_concurrency=2,
+            commit_timestamp_readback_acquire_timeout_seconds=0.01,
+        )
+    )
+    barrier = threading.Barrier(16)
+
+    def commit(index: int) -> dict[str, object]:
+        request_id = f"x1-generic-concurrency-{index:02d}"
+        effect_id = hashlib.sha256(f"{request_id}:effect".encode("ascii")).hexdigest()
+        barrier.wait(timeout=5)
+        stored, replayed, receipt = instance.commit_idempotent_terminal_entity_with_receipt(
+            scope="x1.terminal-effect.x1-generic-concurrency",
+            idempotency_key=request_id,
+            request_payload={"request_id": request_id},
+            entity_kind="x1_terminal_effect",
+            entity_id=effect_id,
+            response_payload={
+                "schema_version": "evm.s8_v4.x1_terminal_effect.v1",
+                "attempt_id": "x1-generic-concurrency",
+                "request_id": request_id,
+                "effect_id": effect_id,
+                "terminal_outcome": "completed",
+            },
+            state="completed",
+        )
+        assert replayed is False
+        assert stored["request_id"] == request_id
+        return receipt
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+            receipts = list(pool.map(commit, range(16)))
+        assert len(receipts) == 16
+        assert len({receipt["entity_id"] for receipt in receipts}) == 16
+        assert all(receipt["readback_visible"] is True for receipt in receipts)
+        assert all(receipt["separate_transaction_readback"] is True for receipt in receipts)
+        assert all(
+            receipt["readback_transaction_id"] != receipt["transaction_id"] for receipt in receipts
+        )
+        assert len(instance.list_entities("x1_terminal_effect")) == 16
+        assert instance.telemetry().timeouts == 0
+        readback = instance.commit_timestamp_readback_telemetry()
+        assert readback.acquisitions == 0
+        assert readback.timeouts == 0
+        pool_stats = instance._pool.get_stats()
+        assert pool_stats["requests_waiting"] == 0
+        assert pool_stats["pool_available"] == pool_stats["pool_size"]
+    finally:
+        instance.close()
+        import psycopg
+
+        with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+            connection.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
 
 
 def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(

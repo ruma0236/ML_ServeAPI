@@ -2679,8 +2679,8 @@ class TransactionalControlPlaneStore:
 
         The write transaction binds the entity and idempotency response with
         ``synchronous_commit=on``. A separate transaction then reads both rows
-        back. The two database clock samples form a conservative interval around
-        the commit; the controller span end remains only an upper-bound signal.
+        back. S6B-M causal effects additionally collect the frozen database-clock
+        anchor bundle; generic effects do not enter that bounded S6B-M-only lane.
         """
         if not self.enabled:
             raise ControlPlaneStoreUnavailable(
@@ -2829,7 +2829,11 @@ class TransactionalControlPlaneStore:
                 stored = {
                     **effective_response_payload,
                     "durable_commit": {
-                        "schema_version": "evm.s6bm.durable_commit.v3",
+                        "schema_version": (
+                            "evm.s6bm.durable_commit.v3"
+                            if causal_payload is not None
+                            else "evm.control_plane.durable_commit.v1"
+                        ),
                         "database_recorded_at": _utc_iso(write_identity["database_recorded_at"]),
                         "transaction_id": str(write_identity["transaction_id"]),
                         "write_backend_pid": int(write_identity["backend_pid"]),
@@ -2873,30 +2877,18 @@ class TransactionalControlPlaneStore:
         durable_commit = dict(stored.get("durable_commit", {}))
         transaction_id = str(durable_commit.get("transaction_id", ""))
         write_backend_pid = int(durable_commit.get("write_backend_pid", 0))
-        if causal_payload is not None and (not transaction_id or write_backend_pid <= 0):
+        if not transaction_id or write_backend_pid <= 0:
             raise ControlPlaneParityError(
                 "terminal effect lacks its write transaction or backend identity"
             )
 
-        commit_timestamp_receipt = self._collect_s6bm_commit_timestamp_receipt(
-            transaction_id=transaction_id,
-            write_backend_pid=write_backend_pid,
-            schema=schema,
-        )
-        commit_timestamp_started_monotonic_ns = int(
-            commit_timestamp_receipt["commit_timestamp_started_monotonic_ns"]
-        )
-        commit_timestamp_finished_monotonic_ns = int(
-            commit_timestamp_receipt["commit_timestamp_finished_monotonic_ns"]
-        )
-        commit_timestamp_backend_pid = int(commit_timestamp_receipt["commit_timestamp_backend_pid"])
-        commit_timestamp_row = dict(commit_timestamp_receipt["commit_timestamp_row"])
-        database_clock_anchor = dict(commit_timestamp_receipt["database_clock_anchor"])
-        database_clock_anchor_candidates = list(
-            commit_timestamp_receipt["database_clock_anchor_candidates"]
-        )
-        selected_sequence = int(commit_timestamp_receipt["selected_sequence"])
-        readback_lane = dict(commit_timestamp_receipt["readback_lane"])
+        commit_timestamp_receipt: dict[str, Any] | None = None
+        if causal_payload is not None:
+            commit_timestamp_receipt = self._collect_s6bm_commit_timestamp_receipt(
+                transaction_id=transaction_id,
+                write_backend_pid=write_backend_pid,
+                schema=schema,
+            )
 
         readback_started_monotonic_ns = time.perf_counter_ns()
         with self.transaction("terminal_effect_readback") as connection:
@@ -2908,7 +2900,9 @@ class TransactionalControlPlaneStore:
                        identity.response_payload AS idempotency_payload,
                        identity.request_sha256,
                        identity.created_at AS idempotency_created_at,
-                       clock_timestamp() AS readback_at
+                       clock_timestamp() AS readback_at,
+                       pg_current_xact_id()::text AS readback_transaction_id,
+                       pg_backend_pid() AS readback_backend_pid
                 FROM {schema}.entities entity
                 JOIN {schema}.idempotency_keys identity
                   ON identity.entity_kind=entity.entity_kind
@@ -3005,6 +2999,63 @@ class TransactionalControlPlaneStore:
                     raise ControlPlaneParityError(
                         "terminal effect route revision readback parity failed"
                     )
+        if causal_payload is None:
+            readback_transaction_id = str(row["readback_transaction_id"])
+            readback_backend_pid = int(row["readback_backend_pid"])
+            if (
+                not readback_transaction_id
+                or readback_transaction_id == transaction_id
+                or readback_backend_pid <= 0
+            ):
+                raise ControlPlaneParityError(
+                    "generic terminal effect did not use a separate readback transaction"
+                )
+            return (
+                stored,
+                replayed,
+                {
+                    "schema_version": "evm.control_plane.durable_effect_receipt.v1",
+                    "entity_kind": entity_kind,
+                    "entity_id": entity_id,
+                    "request_sha256": request_sha256,
+                    "stored_payload_sha256": canonical_digest(stored),
+                    "database_recorded_at": _utc_iso(database_recorded_at),
+                    "entity_created_at": _utc_iso(row["entity_created_at"]),
+                    "idempotency_created_at": _utc_iso(row["idempotency_created_at"]),
+                    "readback_at": _utc_iso(row["readback_at"]),
+                    "transaction_id": transaction_id,
+                    "write_backend_pid": write_backend_pid,
+                    "synchronous_commit": "on",
+                    "commit_ack_monotonic_ns": commit_ack_monotonic_ns,
+                    "commit_timestamp_required": False,
+                    "separate_transaction_readback": True,
+                    "readback_transaction_id": readback_transaction_id,
+                    "readback_backend_pid": readback_backend_pid,
+                    "readback_started_monotonic_ns": readback_started_monotonic_ns,
+                    "readback_finished_monotonic_ns": readback_finished_monotonic_ns,
+                    "readback_visible": True,
+                    "replayed": replayed,
+                    "causal_sequence": None,
+                    "causal_payload_sha256": None,
+                },
+            )
+
+        if commit_timestamp_receipt is None:
+            raise ControlPlaneParityError("S6B-M terminal effect lacks commit timestamp evidence")
+        commit_timestamp_started_monotonic_ns = int(
+            commit_timestamp_receipt["commit_timestamp_started_monotonic_ns"]
+        )
+        commit_timestamp_finished_monotonic_ns = int(
+            commit_timestamp_receipt["commit_timestamp_finished_monotonic_ns"]
+        )
+        commit_timestamp_backend_pid = int(commit_timestamp_receipt["commit_timestamp_backend_pid"])
+        commit_timestamp_row = dict(commit_timestamp_receipt["commit_timestamp_row"])
+        database_clock_anchor = dict(commit_timestamp_receipt["database_clock_anchor"])
+        database_clock_anchor_candidates = list(
+            commit_timestamp_receipt["database_clock_anchor_candidates"]
+        )
+        selected_sequence = int(commit_timestamp_receipt["selected_sequence"])
+        readback_lane = dict(commit_timestamp_receipt["readback_lane"])
         receipt = {
             "schema_version": "evm.s6bm.durable_effect_receipt.v4",
             "entity_kind": entity_kind,
