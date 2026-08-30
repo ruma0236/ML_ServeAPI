@@ -1511,6 +1511,26 @@ def _response_topology(records: Sequence[Mapping[str, Any]]) -> dict[str, set[st
     return result
 
 
+def _persist_calibration_result(
+    *,
+    suite_root: Path,
+    mode: str,
+    cell_id: str,
+    raw: Mapping[str, Any],
+    contract: X1Contract,
+    batch_candidate: str | None,
+) -> dict[str, Any]:
+    raw_path = suite_root / "calibration" / mode / f"{cell_id}.json"
+    canonical_write(raw_path, raw)
+    projection = project_calibration_attempt(raw, contract)
+    if batch_candidate is not None:
+        projection["batch_candidate"] = batch_candidate
+        projection["guardrails_passed"] = _guardrails_pass(projection, contract)
+    projection_path = suite_root / "projections" / mode / f"{cell_id}.json"
+    canonical_write(projection_path, projection)
+    return projection
+
+
 def run_calibration_attempt(
     contract: X1Contract,
     *,
@@ -1643,14 +1663,14 @@ def run_calibration_attempt(
         "model_weights": dict(model_weights),
         "steps": steps,
     }
-    projection = project_calibration_attempt(raw, contract)
-    if batch_candidate is not None:
-        projection["batch_candidate"] = batch_candidate
-        projection["guardrails_passed"] = _guardrails_pass(projection, contract)
-    raw_path = suite_root / "calibration" / mode / f"{cell_id}.json"
-    canonical_write(raw_path, raw)
-    projection_path = suite_root / "projections" / mode / f"{cell_id}.json"
-    canonical_write(projection_path, projection)
+    projection = _persist_calibration_result(
+        suite_root=suite_root,
+        mode=mode,
+        cell_id=cell_id,
+        raw=raw,
+        contract=contract,
+        batch_candidate=batch_candidate,
+    )
     return raw, projection
 
 

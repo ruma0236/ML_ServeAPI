@@ -119,6 +119,30 @@ def test_x1_canonical_write_is_write_once(tmp_path: Path) -> None:
         canonical_write(path, {"value": 2})
 
 
+def test_x1_raw_calibration_is_preserved_before_projection_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw = {"attempt_id": "x1-calibration-attempt", "steps": [{"offered_rps": 25}]}
+
+    def fail_projection(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise RuntimeError("projection-failed")
+
+    monkeypatch.setattr(runner, "project_calibration_attempt", fail_projection)
+    with pytest.raises(RuntimeError, match="projection-failed"):
+        runner._persist_calibration_result(
+            suite_root=tmp_path,
+            mode="solo_calibration",
+            cell_id="solo-cell-rep1",
+            raw=raw,
+            contract=object(),  # type: ignore[arg-type]
+            batch_candidate=None,
+        )
+
+    raw_path = tmp_path / "calibration/solo_calibration/solo-cell-rep1.json"
+    assert json.loads(raw_path.read_text(encoding="utf-8")) == raw
+    assert not (tmp_path / "projections/solo_calibration/solo-cell-rep1.json").exists()
+
+
 def test_x1_otlp_reader_skips_partial_record_at_snapshot_offset(tmp_path: Path) -> None:
     path = tmp_path / "traces.json"
     prefix = b'{"resourceSpans":[]}'
