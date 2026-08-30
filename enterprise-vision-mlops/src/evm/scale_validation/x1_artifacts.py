@@ -6,6 +6,8 @@ import math
 import os
 import shutil
 import stat
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -15,6 +17,8 @@ from evm.scale_validation.x1_contract import MODEL_IDS, X1Contract, canonical_sh
 
 
 PROFILE_IDS = ("disabled", "enabled-4-8-2ms", "enabled-8-16-10ms")
+CUDA_REPEATABILITY_REQUESTS = 64
+CUDA_REPEATABILITY_TIMEOUT_SECONDS = 30
 
 
 class X1ArtifactError(RuntimeError):
@@ -223,6 +227,8 @@ def prepare_x1_artifacts(
         dlrm_model,
         source_root / f"{MODEL_IDS[3]}.pt",
         feature_count=39,
+        repeatability_input=criteo_values[0].tolist(),
+        expected_device_name=str(contract.payload["triton"]["gpu_name"]),
         source_artifact={
             "path": dlrm_checkpoint.relative_to(root).as_posix(),
             "sha256": sha256_file(dlrm_checkpoint),
@@ -392,7 +398,7 @@ def validate_x1_artifacts(
     expected_features = dict(zip(MODEL_IDS, (28, 28, 28, 39), strict=True))
     for model_id in MODEL_IDS:
         identity = models[model_id]
-        if not isinstance(identity, Mapping) or set(identity) != {
+        expected_model_keys = {
             "feature_count",
             "dtype",
             "backend",
@@ -400,7 +406,10 @@ def validate_x1_artifacts(
             "artifact_path",
             "artifact_sha256",
             "source_artifact",
-        }:
+        }
+        if model_id == MODEL_IDS[3]:
+            expected_model_keys.add("cuda_repeatability")
+        if not isinstance(identity, Mapping) or set(identity) != expected_model_keys:
             raise X1ArtifactError(f"x1_artifact_model_schema:{model_id}")
         if (
             identity["feature_count"] != expected_features[model_id]
@@ -414,6 +423,11 @@ def validate_x1_artifacts(
         artifact = _contained(root, f"source-artifacts/{model_id}.pt")
         if identity["artifact_sha256"] != sha256_file(artifact):
             raise X1ArtifactError(f"x1_artifact_model_sha:{model_id}")
+        if model_id == MODEL_IDS[3]:
+            _validate_cuda_repeatability_record(
+                identity["cuda_repeatability"],
+                expected_device_name=str(contract.payload["triton"]["gpu_name"]),
+            )
     repositories = manifest["repositories"]
     if not isinstance(repositories, Mapping) or set(repositories) != set(PROFILE_IDS):
         raise X1ArtifactError("x1_artifact_repository_set")
@@ -477,6 +491,21 @@ def validate_x1_artifacts(
             or len(oracle["output"]) != expected_rows
         ):
             raise X1ArtifactError(f"x1_artifact_oracle_payload:{model_id}")
+        if model_id == MODEL_IDS[3]:
+            repeatability = models[model_id]["cuda_repeatability"]
+            if repeatability["input_sha256"] != canonical_sha256(oracle["input"][0]):
+                raise X1ArtifactError("x1_artifact_cuda_repeatability_input")
+            expected_output = float(oracle["output"][0][0])
+            if any(
+                not math.isclose(
+                    float(value),
+                    expected_output,
+                    rel_tol=float(oracle["relative_tolerance"]),
+                    abs_tol=float(oracle["absolute_tolerance"]),
+                )
+                for value in repeatability["output_values"]
+            ):
+                raise X1ArtifactError("x1_artifact_cuda_repeatability_oracle")
     inventory = _entries(root, excluded={manifest_path.resolve()})
     expected_inventory_paths = {
         *(f"source-artifacts/{model_id}.pt" for model_id in MODEL_IDS),
@@ -759,6 +788,8 @@ def _freeze_model(
     *,
     feature_count: int,
     source_artifact: Mapping[str, Any],
+    repeatability_input: list[float] | None = None,
+    expected_device_name: str | None = None,
 ) -> dict[str, Any]:
     model.eval()
     example = torch.zeros((2, feature_count), dtype=torch.float32, device="cuda")
@@ -769,7 +800,7 @@ def _freeze_model(
     runtime_tensors = [*runtime_model.parameters(), *runtime_model.buffers()]
     if not runtime_tensors or any(tensor.device.type != "cuda" for tensor in runtime_tensors):
         raise X1ArtifactError("x1_artifact_runtime_model_cuda")
-    return {
+    frozen = {
         "feature_count": feature_count,
         "dtype": "float32",
         "backend": "pytorch",
@@ -779,6 +810,154 @@ def _freeze_model(
         "source_artifact": dict(source_artifact),
         "runtime_model": runtime_model,
     }
+    if repeatability_input is not None:
+        if expected_device_name is None:
+            raise X1ArtifactError("x1_artifact_cuda_repeatability_device")
+        frozen["cuda_repeatability"] = _run_frozen_cuda_repeatability(
+            output_path,
+            repeatability_input,
+            expected_device_name=expected_device_name,
+        )
+    return frozen
+
+
+def _run_frozen_cuda_repeatability(
+    artifact_path: Path,
+    input_values: list[float],
+    *,
+    expected_device_name: str,
+) -> dict[str, Any]:
+    if len(input_values) != 39 or any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        for value in input_values
+    ):
+        raise X1ArtifactError("x1_artifact_cuda_repeatability_input")
+    child = """
+import json
+import math
+import sys
+import torch
+
+artifact_path = sys.argv[1]
+request_count = int(sys.argv[2])
+values = json.loads(sys.stdin.read())
+if not torch.cuda.is_available() or torch.cuda.device_count() != 1:
+    raise RuntimeError("cuda_device_contract")
+torch.cuda.set_device(0)
+model = torch.jit.load(artifact_path, map_location="cuda:0").eval()
+value = torch.tensor([values], dtype=torch.float32, device="cuda:0")
+outputs = []
+with torch.inference_mode():
+    for _ in range(request_count):
+        output = float(model(value).detach().reshape(-1)[0].cpu())
+        torch.cuda.synchronize(0)
+        if not math.isfinite(output):
+            raise RuntimeError("nonfinite_output")
+        outputs.append(output)
+print(json.dumps({
+    "device_count": torch.cuda.device_count(),
+    "device_index": torch.cuda.current_device(),
+    "device_name": torch.cuda.get_device_name(0),
+    "device_type": "cuda",
+    "output_values": outputs,
+    "request_count": request_count,
+}, sort_keys=True, separators=(",", ":")))
+"""
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                child,
+                str(artifact_path.resolve()),
+                str(CUDA_REPEATABILITY_REQUESTS),
+            ],
+            input=json.dumps(input_values, separators=(",", ":")),
+            capture_output=True,
+            text=True,
+            timeout=CUDA_REPEATABILITY_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise X1ArtifactError("x1_artifact_cuda_repeatability_timeout") from exc
+    if completed.returncode != 0:
+        raise X1ArtifactError("x1_artifact_cuda_repeatability_process")
+    try:
+        payload = json.loads(completed.stdout)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise X1ArtifactError("x1_artifact_cuda_repeatability_output") from exc
+    if not isinstance(payload, Mapping):
+        raise X1ArtifactError("x1_artifact_cuda_repeatability_output")
+    record = {
+        "schema_version": "evm.s8_v4.x1_cuda_repeatability.v1",
+        "request_count": payload.get("request_count"),
+        "timeout_seconds": CUDA_REPEATABILITY_TIMEOUT_SECONDS,
+        "device_type": payload.get("device_type"),
+        "device_count": payload.get("device_count"),
+        "device_index": payload.get("device_index"),
+        "device_name": payload.get("device_name"),
+        "cpu_fallback_detected": False,
+        "input_sha256": canonical_sha256(input_values),
+        "output_values": payload.get("output_values"),
+    }
+    try:
+        record["output_sequence_sha256"] = canonical_sha256(record["output_values"])
+    except (TypeError, ValueError) as exc:
+        raise X1ArtifactError("x1_artifact_cuda_repeatability_contract") from exc
+    _validate_cuda_repeatability_record(record, expected_device_name=expected_device_name)
+    return record
+
+
+def _validate_cuda_repeatability_record(
+    record: Any,
+    *,
+    expected_device_name: str,
+) -> None:
+    expected_keys = {
+        "schema_version",
+        "request_count",
+        "timeout_seconds",
+        "device_type",
+        "device_count",
+        "device_index",
+        "device_name",
+        "cpu_fallback_detected",
+        "input_sha256",
+        "output_values",
+        "output_sequence_sha256",
+    }
+    if not isinstance(record, Mapping) or set(record) != expected_keys:
+        raise X1ArtifactError("x1_artifact_cuda_repeatability_schema")
+    outputs = record["output_values"]
+    if (
+        record["schema_version"] != "evm.s8_v4.x1_cuda_repeatability.v1"
+        or type(record["request_count"]) is not int
+        or record["request_count"] != CUDA_REPEATABILITY_REQUESTS
+        or type(record["timeout_seconds"]) is not int
+        or record["timeout_seconds"] != CUDA_REPEATABILITY_TIMEOUT_SECONDS
+        or record["device_type"] != "cuda"
+        or type(record["device_count"]) is not int
+        or record["device_count"] != 1
+        or type(record["device_index"]) is not int
+        or record["device_index"] != 0
+        or record["device_name"] != expected_device_name
+        or record["cpu_fallback_detected"] is not False
+        or not isinstance(record["input_sha256"], str)
+        or len(record["input_sha256"]) != 64
+        or not isinstance(outputs, list)
+        or len(outputs) != CUDA_REPEATABILITY_REQUESTS
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in outputs
+        )
+        or not all(float(value) == float(outputs[0]) for value in outputs[1:])
+        or record["output_sequence_sha256"] != canonical_sha256(outputs)
+    ):
+        raise X1ArtifactError("x1_artifact_cuda_repeatability_contract")
 
 
 def _source_manifest(

@@ -7,6 +7,8 @@ from pathlib import Path
 import json
 
 from evm.scale_validation.x1_artifacts import (
+    CUDA_REPEATABILITY_REQUESTS,
+    CUDA_REPEATABILITY_TIMEOUT_SECONDS,
     MODEL_IDS,
     PROFILE_IDS,
     X1ArtifactError,
@@ -16,6 +18,7 @@ from evm.scale_validation.x1_artifacts import (
     _freeze_model,
     _load_artifact_dependencies,
     _preprocess_criteo,
+    _run_frozen_cuda_repeatability,
     _source_manifest,
     _write_json,
     prepare_x1_artifacts,
@@ -183,6 +186,96 @@ def test_x1_freeze_restores_shared_runtime_model_to_cuda(tmp_path: Path) -> None
     assert model.weight.device.type == "cuda"
 
 
+def test_x1_frozen_cuda_repeatability_is_bounded_and_source_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = tmp_path / "model.pt"
+    artifact.write_bytes(b"frozen")
+    values = [float(index) for index in range(39)]
+    outputs = [0.25] * CUDA_REPEATABILITY_REQUESTS
+
+    def run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert kwargs["timeout"] == CUDA_REPEATABILITY_TIMEOUT_SECONDS
+        assert json.loads(str(kwargs["input"])) == values
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "device_count": 1,
+                    "device_index": 0,
+                    "device_name": "NVIDIA GeForce RTX 4080 SUPER",
+                    "device_type": "cuda",
+                    "output_values": outputs,
+                    "request_count": CUDA_REPEATABILITY_REQUESTS,
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("evm.scale_validation.x1_artifacts.subprocess.run", run)
+    result = _run_frozen_cuda_repeatability(
+        artifact,
+        values,
+        expected_device_name="NVIDIA GeForce RTX 4080 SUPER",
+    )
+
+    assert result["request_count"] == 64
+    assert result["input_sha256"] == canonical_sha256(values)
+    assert result["output_sequence_sha256"] == canonical_sha256(outputs)
+    assert result["cpu_fallback_detected"] is False
+
+
+def test_x1_frozen_cuda_repeatability_timeout_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = tmp_path / "model.pt"
+    artifact.write_bytes(b"frozen")
+
+    def timeout(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired("unit", CUDA_REPEATABILITY_TIMEOUT_SECONDS)
+
+    monkeypatch.setattr("evm.scale_validation.x1_artifacts.subprocess.run", timeout)
+    with pytest.raises(X1ArtifactError, match="x1_artifact_cuda_repeatability_timeout"):
+        _run_frozen_cuda_repeatability(
+            artifact,
+            [0.0] * 39,
+            expected_device_name="NVIDIA GeForce RTX 4080 SUPER",
+        )
+
+
+def test_x1_frozen_cuda_repeatability_nonfinite_output_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = tmp_path / "model.pt"
+    artifact.write_bytes(b"frozen")
+
+    def run(*args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "device_count": 1,
+                    "device_index": 0,
+                    "device_name": "NVIDIA GeForce RTX 4080 SUPER",
+                    "device_type": "cuda",
+                    "output_values": [0.5] * 63 + [float("nan")],
+                    "request_count": CUDA_REPEATABILITY_REQUESTS,
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("evm.scale_validation.x1_artifacts.subprocess.run", run)
+    with pytest.raises(X1ArtifactError, match="x1_artifact_cuda_repeatability_contract"):
+        _run_frozen_cuda_repeatability(
+            artifact,
+            [0.0] * 39,
+            expected_device_name="NVIDIA GeForce RTX 4080 SUPER",
+        )
+
+
 def test_x1_criteo_preprocessing_uses_governed_shard_schema() -> None:
     np, pq, _torch = _load_artifact_dependencies()
     shard = DATA_ROOT / "datasets/criteo-click-logs/s5/governed/shard-000.parquet"
@@ -280,6 +373,21 @@ def artifact_fixture(tmp_path: Path) -> tuple[Path, X1Contract]:
             "artifact_sha256": sha256_file(artifact),
             "source_artifact": {},
         }
+        if model_id == MODEL_IDS[3]:
+            outputs = [0.5] * CUDA_REPEATABILITY_REQUESTS
+            models[model_id]["cuda_repeatability"] = {
+                "schema_version": "evm.s8_v4.x1_cuda_repeatability.v1",
+                "request_count": CUDA_REPEATABILITY_REQUESTS,
+                "timeout_seconds": CUDA_REPEATABILITY_TIMEOUT_SECONDS,
+                "device_type": "cuda",
+                "device_count": 1,
+                "device_index": 0,
+                "device_name": "NVIDIA GeForce RTX 4080 SUPER",
+                "cpu_fallback_detected": False,
+                "input_sha256": canonical_sha256([0.0] * 39),
+                "output_values": outputs,
+                "output_sequence_sha256": canonical_sha256(outputs),
+            }
     (source / "higgs_tiny_mlp-training.pt").write_bytes(b"tiny-training")
     (source / "criteo_dlrm_lite-training.pt").write_bytes(b"dlrm-training")
     repositories: dict[str, object] = {}
@@ -388,4 +496,32 @@ def test_x1_artifact_validator_rejects_extra_or_coherently_rehashed_config(
     manifest["artifact_identity_sha256"] = canonical_sha256(manifest)
     _write_json(path, manifest)
     with pytest.raises(X1ArtifactError, match="x1_artifact_config_bytes"):
+        validate_fixture(path, loaded)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("request_count", 63),
+        ("request_count", True),
+        ("device_name", "wrong-device"),
+        ("cpu_fallback_detected", True),
+        ("output_values", [0.5] * 63),
+        ("output_values", [0.5] * 63 + [0.25]),
+    ],
+)
+def test_x1_artifact_validator_rejects_cuda_repeatability_mutations(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    path, loaded = artifact_fixture(tmp_path)
+    manifest = json.loads(path.read_bytes())
+    repeatability = manifest["models"][MODEL_IDS[3]]["cuda_repeatability"]
+    repeatability[field] = value
+    if field == "output_values":
+        repeatability["output_sequence_sha256"] = canonical_sha256(value)
+    manifest.pop("artifact_identity_sha256")
+    manifest["artifact_identity_sha256"] = canonical_sha256(manifest)
+    _write_json(path, manifest)
+
+    with pytest.raises(X1ArtifactError, match="x1_artifact_cuda_repeatability_contract"):
         validate_fixture(path, loaded)
