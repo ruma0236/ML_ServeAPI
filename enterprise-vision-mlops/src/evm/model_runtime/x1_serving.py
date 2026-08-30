@@ -230,7 +230,12 @@ class X1ServingManager:
         started = time.perf_counter_ns()
         try:
             await self._assert_triton_gpu_config(request.model_id)
-            output, prediction_ms = await self._triton_predict(request)
+            try:
+                output, prediction_ms = await self._triton_predict(request)
+            except X1ServingError:
+                raise
+            except Exception as exc:
+                raise X1ServingError("x1_triton_request_failed", str(exc), status_code=503) from exc
             effect_id = hashlib.sha256(
                 f"{request.attempt_id}:{request.request_id}".encode("utf-8")
             ).hexdigest()
@@ -269,7 +274,14 @@ class X1ServingManager:
                 terminal_outcome="completed",
                 effect_id=effect_id,
             )
-            receipt = dict(await terminal_committer(request, response))
+            try:
+                receipt = dict(await terminal_committer(request, response))
+            except X1ServingError:
+                raise
+            except Exception as exc:
+                raise X1ServingError(
+                    "x1_durable_effect_commit_failed", str(exc), status_code=503
+                ) from exc
             if (
                 receipt.get("committed") is not True
                 or receipt.get("readback_visible") is not True
@@ -308,7 +320,7 @@ class X1ServingManager:
             raise
         except Exception as exc:
             REQUESTS.labels(request.model_id, "failed").inc()
-            raise X1ServingError("x1_triton_request_failed", str(exc), status_code=503) from exc
+            raise X1ServingError("x1_request_processing_failed", str(exc), status_code=503) from exc
         finally:
             ACTIVE.labels(request.model_id, worker_slot).dec()
             semaphore.release()

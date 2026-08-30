@@ -238,10 +238,6 @@ def _commit_x1_terminal_effect_sync(
         entity_id=response.effect_id,
         response_payload=effect_payload,
         state="completed",
-        causal_payload={
-            "schema_version": "evm.s8_v4.x1_terminal_event.v1",
-            **effect_payload,
-        },
     )
     if any(stored.get(key) != value for key, value in effect_payload.items()):
         raise RuntimeError("X1 durable terminal-effect payload parity failed")

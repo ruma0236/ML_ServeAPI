@@ -1,13 +1,77 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import HTTPException
 
 from apps.api.control_panel_workloads import scenario_workload_run, scenario_workload_runs
+from apps.api import control_panel_workloads
+from evm.model_runtime.x1_serving import X1InferenceResponse, X1TopologyIdentity
 from evm.control_panel.scenario_workload_control import read_worker_health
+
+
+def test_x1_terminal_effect_uses_generic_durable_receipt(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+
+    class Store:
+        def commit_idempotent_terminal_entity_with_receipt(self, **kwargs):
+            observed.update(kwargs)
+            return ({**kwargs["response_payload"], "durable_commit": {}}, False, {})
+
+    monkeypatch.setattr(control_panel_workloads, "_x1_terminal_store", lambda: Store())
+    request = SimpleNamespace(
+        attempt_id="x1-unit-attempt-0001",
+        request_id="x1-unit-request-0001",
+        lease_id="lease-unit-0001",
+        fencing_token="fencing-token-unit-0001",
+        model_dump=lambda **kwargs: {"request_id": "x1-unit-request-0001"},
+    )
+    response = X1InferenceResponse(
+        schema_version="evm.s8_v4.x1_inference_response.v1",
+        suite_id="x1-unit-suite-0001",
+        attempt_id=request.attempt_id,
+        request_id=request.request_id,
+        trace_id="a" * 32,
+        model_id="higgs_logistic_regression",
+        model_version="1",
+        artifact_sha256="b" * 64,
+        config_sha256="c" * 64,
+        runtime_device="cuda",
+        triton_instance_kind="KIND_GPU",
+        triton_instance_count=1,
+        triton_gpu_device=0,
+        output=[0.5],
+        result_sha256="d" * 64,
+        topology=X1TopologyIdentity(
+            pod_uid="pod-unit",
+            pod_name="pod-unit",
+            service_instance_id="pod-unit",
+            worker_pid=1,
+            worker_thread_id=1,
+            worker_slot="pod-unit:1:1",
+            api_replicas_expected=1,
+            cpu_workers_expected=1,
+        ),
+        queue_wait_ms=0.1,
+        prediction_ms=0.2,
+        total_ms=0.3,
+        terminal_outcome="completed",
+        effect_id="e" * 64,
+    )
+
+    receipt = control_panel_workloads._commit_x1_terminal_effect_sync(request, response)
+
+    assert "causal_payload" not in observed
+    assert observed["entity_kind"] == "x1_terminal_effect"
+    assert receipt == {
+        "effect_id": response.effect_id,
+        "replayed": False,
+        "committed": True,
+        "readback_visible": True,
+    }
 
 
 def test_scenario_workload_api_lists_persisted_runs(tmp_path: Path, monkeypatch) -> None:

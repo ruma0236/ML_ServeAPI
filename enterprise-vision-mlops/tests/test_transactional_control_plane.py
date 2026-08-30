@@ -221,6 +221,36 @@ def test_idempotent_terminal_entity_commits_one_effect_in_real_postgres(
         )
 
 
+def test_generic_terminal_receipt_does_not_require_s6bm_causal_identity(
+    store: TransactionalControlPlaneStore,
+) -> None:
+    request = {"request_id": "x1-generic-request-0001"}
+    response = {
+        "schema_version": "evm.s8_v4.x1_terminal_effect.v1",
+        "attempt_id": "x1-generic-attempt-0001",
+        "request_id": request["request_id"],
+        "effect_id": "a" * 64,
+        "terminal_outcome": "completed",
+    }
+
+    stored, replayed, receipt = store.commit_idempotent_terminal_entity_with_receipt(
+        scope="x1.terminal-effect.x1-generic-attempt-0001",
+        idempotency_key=request["request_id"],
+        request_payload=request,
+        entity_kind="x1_terminal_effect",
+        entity_id=response["effect_id"],
+        response_payload=response,
+        state="completed",
+    )
+
+    assert replayed is False
+    assert stored["request_id"] == request["request_id"]
+    assert stored["durable_commit"]["causal_sequence"] is None
+    assert receipt["readback_visible"] is True
+    assert receipt["causal_sequence"] is None
+    assert receipt["causal_payload_sha256"] is None
+
+
 def test_s6bm_causal_fence_effect_and_unload_are_ordered_in_real_postgres(
     store: TransactionalControlPlaneStore,
 ) -> None:

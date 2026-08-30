@@ -149,6 +149,43 @@ def test_x1_serving_rejects_unconfirmed_effect(
     asyncio.run(manager.close())
 
 
+def test_x1_serving_distinguishes_durable_commit_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure_environment(monkeypatch, runtime_manifest(tmp_path))
+    manager = X1ServingManager()
+    manager._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda call: httpx.Response(200, json=triton_config(MODEL_IDS[0]))
+            if call.url.path.endswith("/config")
+            else httpx.Response(
+                200,
+                json={
+                    "outputs": [
+                        {
+                            "name": "OUTPUT__0",
+                            "datatype": "FP32",
+                            "shape": [1],
+                            "data": [0.5],
+                        }
+                    ]
+                },
+            )
+        ),
+        base_url="http://triton",
+    )
+
+    async def commit(offered: object, response: Any) -> dict[str, object]:
+        del offered, response
+        raise RuntimeError("database receipt failed")
+
+    with pytest.raises(X1ServingError) as error:
+        asyncio.run(manager.predict(request(), terminal_committer=commit))
+    assert error.value.code == "x1_durable_effect_commit_failed"
+    assert str(error.value) == "database receipt failed"
+    asyncio.run(manager.close())
+
+
 def test_x1_serving_rejects_wrong_feature_count() -> None:
     payload = request().model_dump(mode="json")
     payload["features"] = [0.0] * 27
