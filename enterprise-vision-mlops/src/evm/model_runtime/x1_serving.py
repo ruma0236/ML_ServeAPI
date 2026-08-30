@@ -182,6 +182,7 @@ class X1ServingManager:
         except X1RuntimeValidationError as exc:
             raise X1ServingError(str(exc), "readiness", status_code=503) from exc
         self._validated_models.update(MODEL_IDS)
+        topology = _topology_identity()
         return {
             "schema_version": "evm.s8_v4.x1_readiness.v1",
             "status": "ok",
@@ -191,6 +192,7 @@ class X1ServingManager:
             "model_count": len(MODEL_IDS),
             "runtime_device": "cuda",
             "lease_id": manifest.get("lease", {}).get("lease_id"),
+            "topology": topology.model_dump(mode="json"),
         }
 
     async def predict(

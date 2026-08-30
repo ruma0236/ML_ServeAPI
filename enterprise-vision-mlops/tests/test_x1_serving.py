@@ -219,6 +219,8 @@ def test_x1_readiness_recovers_after_initial_triton_connect_error(
 
     result = asyncio.run(manager.readiness())
     assert result["status"] == "ok"
+    assert result["topology"]["pod_uid"] == "pod-uid-unit"
+    assert result["topology"]["worker_slot"].startswith("pod-uid-unit:")
     assert manager._validated_models == set(MODEL_IDS)
 
 

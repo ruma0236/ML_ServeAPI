@@ -139,7 +139,11 @@ def test_x1_runtime_readback_requires_each_pod_and_each_server_worker() -> None:
         "triton_pods_ready": 1,
         "triton_gpu_limits": 1,
         "api_pods_ready": 2,
+        "api_pod_count": 2,
+        "terminating_api_pod_uids": [],
         "observed_api_pod_uids": ["pod-a", "pod-b"],
+        "api_endpoint_pod_uids": ["pod-a", "pod-b"],
+        "not_ready_api_endpoint_pod_uids": [],
         "observed_worker_slots_by_pod": {
             "pod-a": ["pod-a:1", "pod-a:2"],
             "pod-b": ["pod-b:3", "pod-b:4"],
@@ -149,4 +153,36 @@ def test_x1_runtime_readback_requires_each_pod_and_each_server_worker() -> None:
     validate_runtime_topology_readback(snapshot, expected_replicas=2, expected_workers=2)
     snapshot["observed_worker_slots_by_pod"]["pod-b"].pop()
     with pytest.raises(X1TopologyError, match="x1_runtime_worker_count"):
+        validate_runtime_topology_readback(snapshot, expected_replicas=2, expected_workers=2)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("api_pod_count", 3, "x1_runtime_api_pod_count"),
+        ("terminating_api_pod_uids", ["pod-old"], "x1_runtime_api_terminating"),
+        ("api_endpoint_pod_uids", ["pod-a", "pod-old"], "x1_runtime_api_endpoint_attribution"),
+        ("not_ready_api_endpoint_pod_uids", ["pod-b"], "x1_runtime_api_endpoint_not_ready"),
+    ],
+)
+def test_x1_runtime_readback_rejects_unsettled_rollout(
+    field: str, value: object, reason: str
+) -> None:
+    snapshot = {
+        "triton_pods_ready": 1,
+        "triton_gpu_limits": 1,
+        "api_pods_ready": 2,
+        "api_pod_count": 2,
+        "terminating_api_pod_uids": [],
+        "observed_api_pod_uids": ["pod-a", "pod-b"],
+        "api_endpoint_pod_uids": ["pod-a", "pod-b"],
+        "not_ready_api_endpoint_pod_uids": [],
+        "observed_worker_slots_by_pod": {
+            "pod-a": ["pod-a:1", "pod-a:2"],
+            "pod-b": ["pod-b:3", "pod-b:4"],
+        },
+        "client_lanes_are_server_workers": False,
+    }
+    snapshot[field] = value
+    with pytest.raises(X1TopologyError, match=reason):
         validate_runtime_topology_readback(snapshot, expected_replicas=2, expected_workers=2)

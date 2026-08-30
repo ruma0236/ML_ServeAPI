@@ -187,6 +187,91 @@ def test_x1_window_http_sessions_are_thread_local_reused_and_closed(
     assert all(session.closed for session in created)
 
 
+def test_x1_runtime_readiness_waits_for_exact_worker_set_after_transient_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot = {
+        "triton_pods_ready": 1,
+        "triton_gpu_limits": 1,
+        "api_pods_ready": 1,
+        "api_pod_count": 1,
+        "terminating_api_pod_uids": [],
+        "observed_api_pod_uids": ["pod-a"],
+        "api_endpoint_pod_uids": ["pod-a"],
+        "not_ready_api_endpoint_pod_uids": [],
+        "observed_worker_slots_by_pod": {"pod-a": []},
+        "client_lanes_are_server_workers": False,
+    }
+    monkeypatch.setattr(runner, "capture_topology_readback", lambda **_kwargs: dict(snapshot))
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+    api_calls = 0
+
+    class Response:
+        def __init__(self, status_code: int, payload: dict[str, object] | None = None) -> None:
+            self.status_code = status_code
+            self._payload = payload or {}
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    def fake_get(url: str, **_kwargs: object) -> Response:
+        nonlocal api_calls
+        if url.endswith("/control-panel/v1/scenario-workloads/x1/ready"):
+            api_calls += 1
+            if api_calls == 1:
+                return Response(503)
+            worker_pid = 8 if api_calls % 2 == 0 else 9
+            return Response(
+                200,
+                {
+                    "schema_version": "evm.s8_v4.x1_readiness.v1",
+                    "status": "ok",
+                    "runtime_device": "cuda",
+                    "topology": {
+                        "pod_uid": "pod-a",
+                        "service_instance_id": "pod-a",
+                        "worker_pid": worker_pid,
+                        "worker_slot": f"pod-a:{worker_pid}",
+                        "api_replicas_expected": 1,
+                        "cpu_workers_expected": 2,
+                    },
+                },
+            )
+        return Response(200)
+
+    monkeypatch.setattr(runner.requests, "get", fake_get)
+    observed = runner.wait_runtime_ready(expected_replicas=1, expected_workers=2, timeout=2)
+
+    assert observed["observed_worker_slots_by_pod"] == {"pod-a": ["pod-a:8", "pod-a:9"]}
+    assert api_calls == 48
+
+
+def test_x1_readiness_worker_identity_rejects_stale_topology() -> None:
+    payload = {
+        "schema_version": "evm.s8_v4.x1_readiness.v1",
+        "status": "ok",
+        "runtime_device": "cuda",
+        "topology": {
+            "pod_uid": "pod-old",
+            "service_instance_id": "pod-old",
+            "worker_pid": 8,
+            "worker_slot": "pod-old:8",
+            "api_replicas_expected": 1,
+            "cpu_workers_expected": 1,
+        },
+    }
+
+    assert (
+        runner._readiness_worker_identity(
+            payload,
+            pod_uids={"pod-new"},
+            expected_replicas=1,
+            expected_workers=2,
+        )
+        is None
+    )
+
+
 def test_x1_failed_warmup_is_preserved_before_rejection(tmp_path: Path) -> None:
     window = {
         "phase": "warmup",

@@ -411,6 +411,10 @@ def validate_runtime_topology_readback(
         raise X1TopologyError("x1_runtime_triton_topology")
     if snapshot.get("api_pods_ready") != expected_replicas:
         raise X1TopologyError("x1_runtime_api_replicas")
+    if snapshot.get("api_pod_count") != expected_replicas:
+        raise X1TopologyError("x1_runtime_api_pod_count")
+    if snapshot.get("terminating_api_pod_uids") != []:
+        raise X1TopologyError("x1_runtime_api_terminating")
     pod_uids = snapshot.get("observed_api_pod_uids")
     if (
         not isinstance(pod_uids, list)
@@ -418,6 +422,10 @@ def validate_runtime_topology_readback(
         or len(set(pod_uids)) != len(pod_uids)
     ):
         raise X1TopologyError("x1_runtime_api_pod_attribution")
+    if snapshot.get("api_endpoint_pod_uids") != pod_uids:
+        raise X1TopologyError("x1_runtime_api_endpoint_attribution")
+    if snapshot.get("not_ready_api_endpoint_pod_uids") != []:
+        raise X1TopologyError("x1_runtime_api_endpoint_not_ready")
     workers = snapshot.get("observed_worker_slots_by_pod")
     if not isinstance(workers, Mapping) or set(workers) != set(pod_uids):
         raise X1TopologyError("x1_runtime_worker_attribution")

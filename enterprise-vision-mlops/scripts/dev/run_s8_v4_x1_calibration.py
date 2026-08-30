@@ -474,15 +474,36 @@ def capture_topology_readback(*, expected_replicas: int, expected_workers: int) 
         ]
     )
     api_items = pods.get("items", [])
-    pod_uids = sorted(
+    active_api_items = [
+        item for item in api_items if not item.get("metadata", {}).get("deletionTimestamp")
+    ]
+    terminating_pod_uids = sorted(
         str(item["metadata"]["uid"])
         for item in api_items
+        if item.get("metadata", {}).get("deletionTimestamp")
+    )
+    pod_uids = sorted(
+        str(item["metadata"]["uid"])
+        for item in active_api_items
         if item.get("status", {}).get("phase") == "Running"
         and all(
             condition.get("status") == "True"
             for condition in item.get("status", {}).get("conditions", [])
             if condition.get("type") == "Ready"
         )
+    )
+    endpoints = run_json(["kubectl", "-n", NAMESPACE, "get", f"endpoints/{API_NAME}", "-o", "json"])
+    endpoint_uids = sorted(
+        str(address.get("targetRef", {}).get("uid", ""))
+        for subset in endpoints.get("subsets", [])
+        for address in subset.get("addresses", [])
+        if address.get("targetRef", {}).get("uid")
+    )
+    not_ready_endpoint_uids = sorted(
+        str(address.get("targetRef", {}).get("uid", ""))
+        for subset in endpoints.get("subsets", [])
+        for address in subset.get("notReadyAddresses", [])
+        if address.get("targetRef", {}).get("uid")
     )
     snapshot = {
         "triton_pods_ready": int(triton.get("status", {}).get("readyReplicas", 0)),
@@ -492,7 +513,11 @@ def capture_topology_readback(*, expected_replicas: int, expected_workers: int) 
             )
         ),
         "api_pods_ready": int(api.get("status", {}).get("readyReplicas", 0)),
+        "api_pod_count": len(active_api_items),
+        "terminating_api_pod_uids": terminating_pod_uids,
         "observed_api_pod_uids": pod_uids,
+        "api_endpoint_pod_uids": endpoint_uids,
+        "not_ready_api_endpoint_pod_uids": not_ready_endpoint_uids,
         "observed_worker_slots_by_pod": {pod_uid: [] for pod_uid in pod_uids},
         "client_lanes_are_server_workers": False,
     }
@@ -595,12 +620,65 @@ def write_runtime_manifest(
     return path
 
 
-def wait_runtime_ready(timeout: float = 180) -> None:
+def _readiness_worker_identity(
+    payload: Mapping[str, Any],
+    *,
+    pod_uids: set[str],
+    expected_replicas: int,
+    expected_workers: int,
+) -> tuple[str, str] | None:
+    if (
+        payload.get("schema_version") != "evm.s8_v4.x1_readiness.v1"
+        or payload.get("status") != "ok"
+        or payload.get("runtime_device") != "cuda"
+    ):
+        return None
+    topology = payload.get("topology")
+    if not isinstance(topology, Mapping):
+        return None
+    pod_uid = topology.get("pod_uid")
+    service_instance_id = topology.get("service_instance_id")
+    worker_pid = topology.get("worker_pid")
+    worker_slot = topology.get("worker_slot")
+    if (
+        not isinstance(pod_uid, str)
+        or pod_uid not in pod_uids
+        or service_instance_id != pod_uid
+        or isinstance(worker_pid, bool)
+        or not isinstance(worker_pid, int)
+        or worker_pid <= 0
+        or worker_slot != f"{pod_uid}:{worker_pid}"
+        or topology.get("api_replicas_expected") != expected_replicas
+        or topology.get("cpu_workers_expected") != expected_workers
+    ):
+        return None
+    return pod_uid, worker_slot
+
+
+def wait_runtime_ready(
+    *, expected_replicas: int, expected_workers: int, timeout: float = 180
+) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     latest = ""
+    stable_rounds = 0
+    probes_per_round = max(16, expected_replicas * expected_workers * 8)
     while time.monotonic() < deadline:
         try:
-            api = requests.get(f"{API_URL}/control-panel/v1/scenario-workloads/x1/ready", timeout=2)
+            snapshot = capture_topology_readback(
+                expected_replicas=expected_replicas,
+                expected_workers=expected_workers,
+            )
+            pod_uids = set(snapshot["observed_api_pod_uids"])
+            topology_settled = (
+                snapshot["triton_pods_ready"] == 1
+                and snapshot["triton_gpu_limits"] == 1
+                and snapshot["api_pods_ready"] == expected_replicas
+                and snapshot["api_pod_count"] == expected_replicas
+                and len(pod_uids) == expected_replicas
+                and snapshot["terminating_api_pod_uids"] == []
+                and snapshot["api_endpoint_pod_uids"] == sorted(pod_uids)
+                and snapshot["not_ready_api_endpoint_pod_uids"] == []
+            )
             triton_live = requests.get(f"{TRITON_URL}/v2/health/live", timeout=2)
             triton_ready = requests.get(f"{TRITON_URL}/v2/health/ready", timeout=2)
             model_states = [
@@ -609,19 +687,56 @@ def wait_runtime_ready(timeout: float = 180) -> None:
                 ).status_code
                 for model_id in MODEL_IDS
             ]
+            workers_by_pod = {pod_uid: set() for pod_uid in pod_uids}
+            api_statuses: list[int] = []
+            for _index in range(probes_per_round):
+                api = requests.get(
+                    f"{API_URL}/control-panel/v1/scenario-workloads/x1/ready",
+                    headers={"Connection": "close"},
+                    timeout=2,
+                )
+                api_statuses.append(api.status_code)
+                if api.status_code != 200:
+                    continue
+                identity = _readiness_worker_identity(
+                    api.json(),
+                    pod_uids=pod_uids,
+                    expected_replicas=expected_replicas,
+                    expected_workers=expected_workers,
+                )
+                if identity is not None:
+                    workers_by_pod[identity[0]].add(identity[1])
             latest = (
-                f"api={api.status_code}:live={triton_live.status_code}:"
-                f"ready={triton_ready.status_code}:models={model_states}"
+                f"topology={topology_settled}:api={api_statuses}:live={triton_live.status_code}:"
+                f"ready={triton_ready.status_code}:models={model_states}:workers={workers_by_pod}"
+            )
+            workers_complete = bool(workers_by_pod) and all(
+                len(slots) == expected_workers for slots in workers_by_pod.values()
             )
             if (
-                api.status_code == 200
+                topology_settled
+                and api_statuses == [200] * probes_per_round
+                and workers_complete
                 and triton_live.status_code == 200
                 and triton_ready.status_code == 200
                 and model_states == [200, 200, 200, 200]
             ):
-                return
-        except requests.RequestException as exc:
+                snapshot["observed_worker_slots_by_pod"] = {
+                    pod_uid: sorted(slots) for pod_uid, slots in workers_by_pod.items()
+                }
+                validate_runtime_topology_readback(
+                    snapshot,
+                    expected_replicas=expected_replicas,
+                    expected_workers=expected_workers,
+                )
+                stable_rounds += 1
+                if stable_rounds >= 2:
+                    return snapshot
+            else:
+                stable_rounds = 0
+        except (KeyError, ValueError, requests.RequestException, X1ExperimentError) as exc:
             latest = type(exc).__name__
+            stable_rounds = 0
         time.sleep(1)
     logs = run(
         ["kubectl", "-n", NAMESPACE, "logs", f"deployment/{TRITON_NAME}", "--tail=200"],
@@ -2036,7 +2151,7 @@ def main() -> int:
             database_schema=database_schema,
             lease=inference_lease,
         )
-        wait_runtime_ready()
+        wait_runtime_ready(expected_replicas=1, expected_workers=1)
         wait_x1_prometheus(present=True)
         q0 = run_q0(
             contract,
@@ -2083,7 +2198,7 @@ def main() -> int:
                     database_schema=database_schema,
                     lease=inference_lease,
                 )
-                wait_runtime_ready()
+                wait_runtime_ready(expected_replicas=replicas, expected_workers=workers)
                 for repetition in REPETITIONS:
                     cell_id = f"topology_calibration-r{replicas}-w{workers}-rep{repetition}"
                     _, projection = run_calibration_attempt(
@@ -2128,7 +2243,7 @@ def main() -> int:
                 database_schema=database_schema,
                 lease=inference_lease,
             )
-            wait_runtime_ready()
+            wait_runtime_ready(expected_replicas=1, expected_workers=1)
             for model_id in MODEL_IDS:
                 for repetition in REPETITIONS:
                     cell_id = f"batching_calibration-r1-w1-{model_id}-{profile_id}-rep{repetition}"
