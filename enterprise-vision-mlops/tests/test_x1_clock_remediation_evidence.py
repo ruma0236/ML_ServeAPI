@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -13,7 +14,9 @@ from evm.scale_validation.clock_remediation import (
 from evm.scale_validation.clock_remediation_evidence import (
     ClockRemediationEvidenceError,
     canonical_bytes,
+    project_cleanup_correction,
     project_no_go,
+    validate_cleanup_correction,
     validate_no_go,
     write_private_index,
 )
@@ -183,3 +186,203 @@ def test_raw_analysis_cannot_hide_clock_step(tmp_path: Path) -> None:
 
     with pytest.raises(ClockRemediationEvidenceError, match="clock_docker_off_raw_projection"):
         validate_no_go(public, private)
+
+
+def _cleanup_correction_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
+    private = tmp_path / "correction"
+    private.mkdir()
+    payload = {
+        "amendment_id": (
+            "x1-clock-remediation-20260830T113944Z-34eec036-post-checkpoint-correction-01"
+        ),
+        "cleanup_transaction": {
+            "command": "BEGIN; DROP SCHEMA evm_x1_diag_ready CASCADE; COMMIT;",
+            "exact_target": "evm_x1_diag_ready",
+            "exit_code": 0,
+            "result": ["BEGIN", "DROP SCHEMA", "COMMIT"],
+        },
+        "credit": "non_credit",
+        "decision": "x1_clock_remediation_no_go",
+        "execution_boundary": {
+            "calibration_started": False,
+            "full_stack_windows_executed": 0,
+            "integrated_v4_started": False,
+            "new_experiment_started": False,
+            "q0_started": False,
+            "runs_78_started": False,
+        },
+        "historical_evidence_preservation": {
+            "original_files_modified": False,
+            "original_private_index_sha256": "a" * 64,
+            "temporal_limitation": "point-in-time capture",
+        },
+        "post_cleanup_readback": {
+            "baseline_serving": {
+                "actual_cuda_inference": True,
+                "replicas": 1,
+            },
+            "gpu": {"allocatable": 1, "capacity": 1},
+            "ports": {
+                "baseline_b0_30800_open": True,
+                "s6bm_triton_http_18100_open": False,
+                "x1_api_31120_open": False,
+            },
+            "postgresql": {
+                "healthy": True,
+                "is_in_recovery": False,
+                "matching_temporary_schema_count": 0,
+            },
+            "prometheus": {"total": 5, "up": 5},
+            "queue": {"active": 0, "leased": 0, "outcome_unknown": 0},
+            "temporary_containers": [],
+            "temporary_file_sd_targets": [],
+            "temporary_kubernetes_resources": [],
+            "temporary_residue_count": 0,
+            "x1_runtime_absent": True,
+        },
+        "pre_cleanup_discovery": {
+            "active_lock_count": 0,
+            "active_session_count": 0,
+            "business_data_rows": 0,
+            "owner": "evm_control_plane",
+            "tables": {
+                "collections": 0,
+                "entities": 0,
+                "idempotency_keys": 0,
+                "lifecycle_claims": 0,
+                "s6bm_causal_events": 0,
+                "s6bm_route_revisions": 0,
+                "schema_migrations": 8,
+                "side_effect_outbox": 0,
+                "task_admission_queue": 0,
+                "task_dispatch_effects": 0,
+                "task_history_rollups": 0,
+                "task_retry_budget": 0,
+            },
+            "target_schema": "evm_x1_diag_ready",
+        },
+        "schema_version": "evm.s8_v4.x1_clock_remediation_post_checkpoint_cleanup.v1",
+        "source_checkpoint": {"revision": "b" * 40, "tree_sha": "c" * 40},
+    }
+    artifact = private / "schema-cleanup-correction-v1.json"
+    _write(artifact, payload)
+    entries = [
+        {
+            "bytes": artifact.stat().st_size,
+            "path": artifact.name,
+            "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        }
+    ]
+    _write(
+        private / "private-evidence-index.json",
+        {
+            "aggregate_sha256": hashlib.sha256(
+                json.dumps(
+                    entries,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("ascii")
+            ).hexdigest(),
+            "artifact_count": 1,
+            "entries": entries,
+            "run_id": payload["amendment_id"],
+            "schema_version": ("evm.s8_v4.x1_clock_remediation_private_correction_index.v1"),
+            "total_bytes": artifact.stat().st_size,
+        },
+    )
+    return private, project_cleanup_correction(private)
+
+
+def _rewrite_cleanup_correction_index(private: Path) -> None:
+    artifact = private / "schema-cleanup-correction-v1.json"
+    entries = [
+        {
+            "bytes": artifact.stat().st_size,
+            "path": artifact.name,
+            "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        }
+    ]
+    _write(
+        private / "private-evidence-index.json",
+        {
+            "aggregate_sha256": hashlib.sha256(
+                json.dumps(
+                    entries,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("ascii")
+            ).hexdigest(),
+            "artifact_count": 1,
+            "entries": entries,
+            "run_id": (
+                "x1-clock-remediation-20260830T113944Z-34eec036-post-checkpoint-correction-01"
+            ),
+            "schema_version": ("evm.s8_v4.x1_clock_remediation_private_correction_index.v1"),
+            "total_bytes": artifact.stat().st_size,
+        },
+    )
+
+
+def test_cleanup_correction_recomputes_private_and_public_projection(tmp_path: Path) -> None:
+    private, public = _cleanup_correction_fixture(tmp_path)
+
+    validated = validate_cleanup_correction(public, private)
+
+    assert validated["schema_cleanup"]["discovery"]["business_data_rows"] == 0
+    assert validated["cleanup"]["postgresql"]["matching_temporary_schema_count"] == 0
+    assert validated["private_correction"]["artifact_count"] == 1
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("decision",), "go"),
+        (("cleanup", "postgresql", "matching_temporary_schema_count"), 1),
+        (("cleanup", "temporary_containers"), ["unexpected"]),
+    ],
+)
+def test_cleanup_correction_rejects_public_mutation(
+    tmp_path: Path, path: tuple[str, ...], value: object
+) -> None:
+    private, public = _cleanup_correction_fixture(tmp_path)
+    mutated = copy.deepcopy(public)
+    target = mutated
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+
+    with pytest.raises(
+        ClockRemediationEvidenceError,
+        match="clock_cleanup_correction_public_projection",
+    ):
+        validate_cleanup_correction(mutated, private)
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "reason"),
+    [
+        (("pre_cleanup_discovery", "active_session_count"), 1, "activity"),
+        (("pre_cleanup_discovery", "tables", "entities"), 1, "rows"),
+        (("cleanup_transaction", "exit_code"), 1, "transaction"),
+    ],
+)
+def test_cleanup_correction_rejects_coherent_private_mutation(
+    tmp_path: Path,
+    path: tuple[str, ...],
+    value: object,
+    reason: str,
+) -> None:
+    private, public = _cleanup_correction_fixture(tmp_path)
+    artifact = private / "schema-cleanup-correction-v1.json"
+    payload = json.loads(artifact.read_bytes())
+    target = payload
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    _write(artifact, payload)
+    _rewrite_cleanup_correction_index(private)
+
+    with pytest.raises(ClockRemediationEvidenceError, match=reason):
+        validate_cleanup_correction(public, private)

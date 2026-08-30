@@ -20,6 +20,9 @@ ETW_STATUS_FILE = "official-wsl-etw-collection-status.json"
 ETW_COLLECTOR_FILE = "official-collect-wsl-logs.ps1"
 RUNTIME_READINESS_FILE = "final-runtime-readiness.json"
 PRIVATE_INDEX_FILE = "private-evidence-index.json"
+CORRECTION_RUN_ID = "x1-clock-remediation-20260830T113944Z-34eec036-post-checkpoint-correction-01"
+CORRECTION_FILE = "schema-cleanup-correction-v1.json"
+CORRECTION_INDEX_SCHEMA = "evm.s8_v4.x1_clock_remediation_private_correction_index.v1"
 
 
 class ClockRemediationEvidenceError(RuntimeError):
@@ -368,4 +371,188 @@ def validate_no_go(public: Mapping[str, Any], private_root: Path) -> dict[str, A
     )
     if dict(public) != expected:
         raise ClockRemediationEvidenceError("clock_public_projection")
+    return expected
+
+
+def _validate_cleanup_correction_index(private_root: Path) -> dict[str, Any]:
+    observed = _load_json(private_root / PRIVATE_INDEX_FILE)
+    entries = private_entries(private_root)
+    expected = {
+        "aggregate_sha256": hashlib.sha256(canonical(entries).encode("ascii")).hexdigest(),
+        "artifact_count": 1,
+        "entries": entries,
+        "run_id": CORRECTION_RUN_ID,
+        "schema_version": CORRECTION_INDEX_SCHEMA,
+        "total_bytes": sum(int(entry["bytes"]) for entry in entries),
+    }
+    if observed != expected:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_index")
+    if len(entries) != 1 or entries[0].get("path") != CORRECTION_FILE:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_artifact_set")
+    return observed
+
+
+def _validate_cleanup_correction_private(
+    private_root: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    index = _validate_cleanup_correction_index(private_root)
+    payload = _load_json(private_root / CORRECTION_FILE)
+    if (
+        payload.get("schema_version")
+        != ("evm.s8_v4.x1_clock_remediation_post_checkpoint_cleanup.v1")
+        or payload.get("amendment_id") != CORRECTION_RUN_ID
+    ):
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_identity")
+
+    discovery = payload.get("pre_cleanup_discovery")
+    tables = discovery.get("tables") if isinstance(discovery, Mapping) else None
+    expected_tables = {
+        "collections",
+        "entities",
+        "idempotency_keys",
+        "lifecycle_claims",
+        "s6bm_causal_events",
+        "s6bm_route_revisions",
+        "schema_migrations",
+        "side_effect_outbox",
+        "task_admission_queue",
+        "task_dispatch_effects",
+        "task_history_rollups",
+        "task_retry_budget",
+    }
+    if not isinstance(tables, Mapping) or set(tables) != expected_tables:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_table_set")
+    if discovery.get("target_schema") != "evm_x1_diag_ready":
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_target")
+    if discovery.get("owner") != "evm_control_plane":
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_owner")
+    if discovery.get("active_session_count") != 0 or discovery.get("active_lock_count") != 0:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_activity")
+    if discovery.get("business_data_rows") != 0:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_business_rows")
+    if tables.get("schema_migrations") != 8 or any(
+        value != 0 for key, value in tables.items() if key != "schema_migrations"
+    ):
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_rows")
+
+    transaction = payload.get("cleanup_transaction")
+    if not isinstance(transaction, Mapping) or (
+        transaction.get("exact_target"),
+        transaction.get("command"),
+        transaction.get("exit_code"),
+        transaction.get("result"),
+    ) != (
+        "evm_x1_diag_ready",
+        "BEGIN; DROP SCHEMA evm_x1_diag_ready CASCADE; COMMIT;",
+        0,
+        ["BEGIN", "DROP SCHEMA", "COMMIT"],
+    ):
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_transaction")
+
+    post = payload.get("post_cleanup_readback")
+    if not isinstance(post, Mapping):
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_post_shape")
+    postgresql = post.get("postgresql")
+    prometheus = post.get("prometheus")
+    queue = post.get("queue")
+    gpu = post.get("gpu")
+    serving = post.get("baseline_serving")
+    ports = post.get("ports")
+    if not all(
+        isinstance(value, Mapping) for value in (postgresql, prometheus, queue, gpu, serving, ports)
+    ):
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_post_shape")
+    if postgresql != {
+        "healthy": True,
+        "is_in_recovery": False,
+        "matching_temporary_schema_count": 0,
+    }:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_postgresql")
+    if prometheus.get("up") != 5 or prometheus.get("total") != 5:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_prometheus")
+    if queue != {"active": 0, "leased": 0, "outcome_unknown": 0}:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_queue")
+    if (gpu.get("capacity"), gpu.get("allocatable")) != (1, 1):
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_gpu")
+    if serving.get("replicas") != 1 or serving.get("actual_cuda_inference") is not True:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_b0")
+    temporary_ports = [value for key, value in ports.items() if not key.startswith("baseline_")]
+    if any(value is not False for value in temporary_ports):
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_ports")
+    if ports.get("baseline_b0_30800_open") is not True:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_baseline_port")
+    if (
+        any(
+            post.get(key) != []
+            for key in (
+                "temporary_containers",
+                "temporary_kubernetes_resources",
+                "temporary_file_sd_targets",
+            )
+        )
+        or post.get("temporary_residue_count") != 0
+    ):
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_residue")
+    if post.get("x1_runtime_absent") is not True:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_runtime")
+
+    boundary = payload.get("execution_boundary")
+    if not isinstance(boundary, Mapping) or boundary != {
+        "calibration_started": False,
+        "full_stack_windows_executed": 0,
+        "integrated_v4_started": False,
+        "new_experiment_started": False,
+        "q0_started": False,
+        "runs_78_started": False,
+    }:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_execution")
+    if payload.get("decision") != "x1_clock_remediation_no_go" or payload.get("credit") != (
+        "non_credit"
+    ):
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_decision")
+    return payload, index
+
+
+def project_cleanup_correction(private_root: Path) -> dict[str, Any]:
+    private, index = _validate_cleanup_correction_private(private_root)
+    return {
+        "acceptance_credit": False,
+        "amendment_id": private["amendment_id"],
+        "claim_boundary": (
+            "One Windows/WSL2 physical node, one RTX 4080, Docker Desktop, one local "
+            "PostgreSQL control plane, and controlled cleanup; no production SLA, HA/DR, "
+            "multi-node, multi-GPU, or root-cause attribution claim."
+        ),
+        "cleanup": private["post_cleanup_readback"],
+        "credit": "non_credit",
+        "decision": "x1_clock_remediation_no_go",
+        "execution_boundary": private["execution_boundary"],
+        "historical_evidence_preservation": private["historical_evidence_preservation"],
+        "private_correction": {
+            "aggregate_sha256": index["aggregate_sha256"],
+            "artifact_count": index["artifact_count"],
+            "artifact_sha256": index["entries"][0]["sha256"],
+            "index_sha256": sha256_file(private_root / PRIVATE_INDEX_FILE),
+            "run_id": CORRECTION_RUN_ID,
+            "total_bytes": index["total_bytes"],
+        },
+        "schema_cleanup": {
+            "discovery": private["pre_cleanup_discovery"],
+            "transaction": private["cleanup_transaction"],
+        },
+        "schema_version": "evm.s8_v4.x1_clock_remediation_cleanup_correction.v1",
+        "source_identity": private["source_checkpoint"],
+        "status": "remediation_required",
+        "temporal_correction": (
+            "The original final-runtime-readiness.json is preserved as a point-in-time "
+            "capture. A later audit found and removed one empty diagnostic schema; this "
+            "append-only correction supplies the later residue-zero proof."
+        ),
+    }
+
+
+def validate_cleanup_correction(public: Mapping[str, Any], private_root: Path) -> dict[str, Any]:
+    expected = project_cleanup_correction(private_root)
+    if dict(public) != expected:
+        raise ClockRemediationEvidenceError("clock_cleanup_correction_public_projection")
     return expected

@@ -1,0 +1,132 @@
+{
+  "acceptance_credit": false,
+  "amendment_id": "x1-clock-remediation-20260830T113944Z-34eec036-post-checkpoint-correction-01",
+  "claim_boundary": "One Windows/WSL2 physical node, one RTX 4080, Docker Desktop, one local PostgreSQL control plane, and controlled cleanup; no production SLA, HA/DR, multi-node, multi-GPU, or root-cause attribution claim.",
+  "cleanup": {
+    "captured_at": "2026-08-30T12:47:21.5409075Z",
+    "postgresql": {
+      "healthy": true,
+      "is_in_recovery": false,
+      "matching_temporary_schema_count": 0
+    },
+    "baseline_serving": {
+      "holder_name": "evm-b0-production",
+      "holder_namespace": "evm-production",
+      "holder_uid": "cfdab424-dcc5-4d5f-a46f-ae7530441ef4",
+      "holder_image": "enterprise-vision-mlops-efficientnet-serving@sha256:227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a",
+      "replicas": 1,
+      "actual_cuda_inference": true,
+      "device": "cuda"
+    },
+    "gpu": {
+      "capacity": 1,
+      "allocatable": 1,
+      "name": "NVIDIA GeForce RTX 4080 SUPER",
+      "uuid": "GPU-4eea4bfc-f15e-bd25-c1b8-ed53ade9ad1d"
+    },
+    "prometheus": {
+      "up": 5,
+      "total": 5,
+      "jobs": [
+        "evm-api",
+        "evm-b0-production",
+        "evm-otel-collector",
+        "evm-task-queue-worker",
+        "prometheus"
+      ]
+    },
+    "queue": {
+      "active": 0,
+      "leased": 0,
+      "outcome_unknown": 0
+    },
+    "temporary_containers": [],
+    "temporary_kubernetes_resources": [],
+    "temporary_file_sd_targets": [],
+    "ports": {
+      "s6bm_triton_http_18100_open": false,
+      "s6bm_triton_grpc_18101_open": false,
+      "s6bm_triton_metrics_18102_open": false,
+      "x1_api_31120_open": false,
+      "x1_triton_http_31121_open": false,
+      "x1_triton_metrics_31122_open": false,
+      "baseline_b0_30800_open": true
+    },
+    "x1_runtime_absent": true,
+    "temporary_residue_count": 0
+  },
+  "credit": "non_credit",
+  "decision": "x1_clock_remediation_no_go",
+  "execution_boundary": {
+    "new_experiment_started": false,
+    "full_stack_windows_executed": 0,
+    "q0_started": false,
+    "calibration_started": false,
+    "runs_78_started": false,
+    "integrated_v4_started": false
+  },
+  "historical_evidence_preservation": {
+    "original_private_run_id": "x1-clock-remediation-20260830T113944Z-34eec036",
+    "original_private_artifact_count": 17,
+    "original_private_total_bytes": 5820112,
+    "original_private_aggregate_sha256": "8548570bf97a1a1a7680cb333610330abc3d6ffd1af8877faa6df5731b5a777a",
+    "original_private_index_sha256": "b5b98f5892f65467a449fa311099b6f8d1bd4e5368d8d8846f2ef45efc037a4f",
+    "original_public_rca_sha256": "ca0bc72d11020f019e980c9b1b0b699f4bb856b61ea3a1a38f4e7c8119db66aa",
+    "original_manifest_amendment_sha256": "48d7b88e2dad6f875d0a454743ea1165dc47957c661736c65e7ce5d25700ea5f",
+    "original_runtime_readiness_sha256": "8b965339a001249a41db46200dd039f95f7795c209f58ace145889d75ffc669e",
+    "original_files_modified": false,
+    "temporal_limitation": "The original final-runtime-readiness.json was a valid point-in-time capture at 2026-08-30T12:26:02.905612Z. A later read-only audit found one diagnostic schema, so its residue-zero statement was not sufficient evidence for the later post-checkpoint state."
+  },
+  "private_correction": {
+    "aggregate_sha256": "e888d9caf3a4d231dbd3b4ebc017529dd644303fd24e648e9489fd6d2e5e65dc",
+    "artifact_count": 1,
+    "artifact_sha256": "e0c0a644880318d84e4a6488867e32d467acd63d0d32aa10f35815acd7751e9a",
+    "index_sha256": "b53fdafee5f6552c54c9573b080f1a1407c07e60d20a164b6facabb23f8509ee",
+    "run_id": "x1-clock-remediation-20260830T113944Z-34eec036-post-checkpoint-correction-01",
+    "total_bytes": 4598
+  },
+  "schema_cleanup": {
+    "discovery": {
+      "observation_timing": "Observed in the active audit turn after the first final-check preflight and before this append-only artifact was materialized; no exact database creation or drop timestamp is inferred.",
+      "target_schema": "evm_x1_diag_ready",
+      "owner": "evm_control_plane",
+      "active_session_count": 0,
+      "active_lock_count": 0,
+      "tables": {
+        "collections": 0,
+        "entities": 0,
+        "idempotency_keys": 0,
+        "lifecycle_claims": 0,
+        "s6bm_causal_events": 0,
+        "s6bm_route_revisions": 0,
+        "schema_migrations": 8,
+        "side_effect_outbox": 0,
+        "task_admission_queue": 0,
+        "task_dispatch_effects": 0,
+        "task_history_rollups": 0,
+        "task_retry_budget": 0
+      },
+      "business_data_rows": 0,
+      "classification": "empty_historical_x1_diagnostic_schema_residue"
+    },
+    "transaction": {
+      "exact_target": "evm_x1_diag_ready",
+      "command": "BEGIN; DROP SCHEMA evm_x1_diag_ready CASCADE; COMMIT;",
+      "exit_code": 0,
+      "result": [
+        "BEGIN",
+        "DROP SCHEMA",
+        "COMMIT"
+      ],
+      "cascade_object_count": 12,
+      "scope": "The exact named diagnostic schema only; no other schema, image, volume, deployment, evidence file, or user file was changed."
+    }
+  },
+  "schema_version": "evm.s8_v4.x1_clock_remediation_cleanup_correction.v1",
+  "source_identity": {
+    "revision": "386a13c24cd9b39fd42f8592d572088515a90441",
+    "tree_sha": "8e421597951e52556f4f365fbc6d193832fddec6"
+  },
+  "status": "remediation_required",
+  "temporal_correction": "The original final-runtime-readiness.json is preserved as a point-in-time capture. A later audit found and removed one empty diagnostic schema; this append-only correction supplies the later residue-zero proof."
+}
