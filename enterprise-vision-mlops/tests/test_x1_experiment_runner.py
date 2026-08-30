@@ -360,6 +360,103 @@ def test_x1_failed_warmup_is_preserved_before_rejection(tmp_path: Path) -> None:
     assert preserved == {**window, "durable_effects": []}
 
 
+def test_x1_schedule_window_rejects_end_boundary_with_raw_diagnostics() -> None:
+    window = {
+        "phase": "measurement",
+        "offered_rps": 2,
+        "offered_count": 2,
+        "model_schedule_sha256": "a" * 64,
+        "model_schedule_counts": {"higgs_gaussian_nb": 2},
+        "window": {"start_ns": 1_000_000_000, "end_ns": 2_000_000_000},
+        "requests": [
+            {
+                "request_id": "x1-attempt-s00-00000000",
+                "enqueued_ns": 1_000_000_000,
+            },
+            {
+                "request_id": "x1-attempt-s00-00000001",
+                "enqueued_ns": 2_000_000_000,
+            },
+        ],
+    }
+
+    violations = runner._traffic_schedule_violations(
+        window["requests"],
+        started_window_ns=window["window"]["start_ns"],
+        ended_window_ns=window["window"]["end_ns"],
+        offered_rps=window["offered_rps"],
+    )
+    error = runner.X1TrafficWindowError(window, violations)
+
+    assert str(error) == "x1_traffic_schedule_window"
+    assert error.window == window
+    assert len(error.violations) == 1
+    assert error.violations[0]["enqueued_ns"] == window["window"]["end_ns"]
+    assert error.violations[0]["target_ns"] == 1_500_000_000
+
+
+def test_x1_failed_schedule_window_preserves_client_and_observability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = {
+        "request_id": "x1-attempt-s05-00000000",
+        "enqueued_ns": 2_000_000_000,
+        "admission_outcome": "accepted",
+        "status_code": 200,
+        "terminal_outcome": "completed",
+    }
+    window = {
+        "phase": "measurement",
+        "offered_rps": 800,
+        "offered_count": 1,
+        "model_schedule_sha256": "a" * 64,
+        "model_schedule_counts": {"higgs_gaussian_nb": 1},
+        "window": {"start_ns": 1_000_000_000, "end_ns": 2_000_000_000},
+        "requests": [request],
+    }
+    error = runner.X1TrafficWindowError(
+        window,
+        [
+            {
+                "sequence": 0,
+                "request_id": request["request_id"],
+                "enqueued_ns": request["enqueued_ns"],
+                "target_ns": 1_000_000_000,
+            }
+        ],
+    )
+    effect = {"payload": {"request_id": request["request_id"]}}
+    trace = {"trace_id": "b" * 32, "request_id": request["request_id"]}
+    monkeypatch.setattr(runner, "export_effects", lambda _attempt_id: [effect])
+    monkeypatch.setattr(runner, "collect_trace_export", lambda **_kwargs: [trace])
+
+    runner.persist_failed_traffic_window(
+        suite_root=tmp_path,
+        runtime_attempt_id="x1-attempt-step-05",
+        error=error,
+        warmup={"phase": "warmup", "requests": []},
+        warmup_effects=[],
+        metrics_before="before",
+        metrics_after="after",
+        trace_offset=123,
+        gpu_samples=[{"utilization_percent": 10.0}],
+    )
+
+    client = json.loads(
+        (tmp_path / "failed-traffic-windows/x1-attempt-step-05-client.json").read_text()
+    )
+    observability = json.loads(
+        (tmp_path / "failed-traffic-windows/x1-attempt-step-05-observability.json").read_text()
+    )
+    assert client["error"] == "x1_traffic_schedule_window"
+    assert client["measurement"] == window
+    assert client["schedule_violations"] == error.violations
+    assert observability["completed_request_count"] == 1
+    assert observability["durable_effects"] == [effect]
+    assert observability["trace_export"] == [trace]
+    assert observability["collection_errors"] == []
+
+
 def test_x1_canonical_write_is_write_once(tmp_path: Path) -> None:
     path = tmp_path / "evidence.json"
     canonical_write(path, {"value": 1})

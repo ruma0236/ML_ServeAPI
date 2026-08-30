@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import queue
 import re
 import socket
 import subprocess
@@ -123,6 +124,13 @@ RUNTIME_ATTEMPT_ID = re.compile(r"^x1-[a-z0-9-]{8,160}$")
 
 class X1ExperimentError(RuntimeError):
     pass
+
+
+class X1TrafficWindowError(X1ExperimentError):
+    def __init__(self, window: Mapping[str, Any], violations: Sequence[Mapping[str, Any]]) -> None:
+        super().__init__("x1_traffic_schedule_window")
+        self.window = dict(window)
+        self.violations = [dict(violation) for violation in violations]
 
 
 def parse_args() -> argparse.Namespace:
@@ -1494,6 +1502,26 @@ def _local_rejection(*, request_id: str, model_id: str, enqueued_ns: int) -> dic
     }
 
 
+def _traffic_schedule_violations(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    started_window_ns: int,
+    ended_window_ns: int,
+    offered_rps: int,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "sequence": sequence,
+            "request_id": str(record["request_id"]),
+            "enqueued_ns": int(record["enqueued_ns"]),
+            "target_ns": started_window_ns + (sequence * 1_000_000_000) // offered_rps,
+        }
+        for sequence, record in enumerate(records)
+        if int(record["enqueued_ns"]) < started_window_ns
+        or int(record["enqueued_ns"]) >= ended_window_ns
+    ]
+
+
 def run_traffic_window(
     contract: X1Contract,
     *,
@@ -1521,8 +1549,22 @@ def run_traffic_window(
     started_window_ns = time.perf_counter_ns()
     ended_window_ns = started_window_ns + duration_seconds * 1_000_000_000
     pending: dict[concurrent.futures.Future[dict[str, Any]], int] = {}
+    completed_futures: queue.SimpleQueue[concurrent.futures.Future[dict[str, Any]]] = (
+        queue.SimpleQueue()
+    )
     records: dict[int, dict[str, Any]] = {}
     request_prefix = "w" if phase == "warmup" else "s"
+
+    def collect_completed() -> None:
+        while True:
+            try:
+                future = completed_futures.get_nowait()
+            except queue.Empty:
+                return
+            sequence = pending.pop(future, None)
+            if sequence is not None:
+                records[sequence] = future.result()
+
     with (
         _ThreadLocalHttpSessions() as session_pool,
         concurrent.futures.ThreadPoolExecutor(
@@ -1535,9 +1577,7 @@ def run_traffic_window(
             delay = (target_ns - time.perf_counter_ns()) / 1_000_000_000
             if delay > 0:
                 time.sleep(delay)
-            for future in tuple(pending):
-                if future.done():
-                    records[pending.pop(future)] = future.result()
+            collect_completed()
             enqueued_ns = time.perf_counter_ns()
             request_id = f"{outer_attempt_id}-{request_prefix}{step_index:02d}-{sequence:08d}"
             if len(pending) >= maximum_outstanding:
@@ -1570,18 +1610,14 @@ def run_traffic_window(
                 session_pool=session_pool,
             )
             pending[future] = sequence
+            future.add_done_callback(completed_futures.put)
+        collect_completed()
         for future in concurrent.futures.as_completed(pending):
             records[pending[future]] = future.result()
     if len(records) != total or set(records) != set(range(total)):
         raise X1ExperimentError("x1_traffic_record_set")
     ordered = [records[index] for index in range(total)]
-    if phase == "measurement" and any(
-        int(record["enqueued_ns"]) < started_window_ns
-        or int(record["enqueued_ns"]) >= ended_window_ns
-        for record in ordered
-    ):
-        raise X1ExperimentError("x1_traffic_schedule_window")
-    return {
+    window = {
         "phase": phase,
         "offered_rps": offered_rps,
         "offered_count": total,
@@ -1590,6 +1626,15 @@ def run_traffic_window(
         "window": {"start_ns": started_window_ns, "end_ns": ended_window_ns},
         "requests": ordered,
     }
+    violations = _traffic_schedule_violations(
+        ordered,
+        started_window_ns=started_window_ns,
+        ended_window_ns=ended_window_ns,
+        offered_rps=offered_rps,
+    )
+    if phase == "measurement" and violations:
+        raise X1TrafficWindowError(window, violations)
+    return window
 
 
 def _active_profile_from_attempt(attempt_id: str) -> str:
@@ -1694,6 +1739,67 @@ def validate_and_persist_warmup(
         raise
 
 
+def persist_failed_traffic_window(
+    *,
+    suite_root: Path,
+    runtime_attempt_id: str,
+    error: X1TrafficWindowError,
+    warmup: Mapping[str, Any],
+    warmup_effects: Sequence[Mapping[str, Any]],
+    metrics_before: str,
+    metrics_after: str,
+    trace_offset: int,
+    gpu_samples: Sequence[Mapping[str, Any]],
+) -> None:
+    failure_root = suite_root / "failed-traffic-windows"
+    canonical_write(
+        failure_root / f"{runtime_attempt_id}-client.json",
+        {
+            "schema_version": "evm.s8_v4.x1_failed_traffic_window.v1",
+            "error": str(error),
+            "runtime_attempt_id": runtime_attempt_id,
+            "schedule_violations": error.violations,
+            "measurement": error.window,
+            "warmup": {**dict(warmup), "durable_effects": list(warmup_effects)},
+        },
+    )
+    completed = sum(
+        record.get("admission_outcome") == "accepted"
+        and record.get("status_code") == 200
+        and record.get("terminal_outcome") == "completed"
+        for record in error.window["requests"]
+    )
+    effects: list[Mapping[str, Any]] = []
+    traces: list[Mapping[str, Any]] = []
+    observability_errors: list[str] = []
+    try:
+        effects = export_effects(runtime_attempt_id)
+    except Exception as exc:  # noqa: BLE001 - preserve the primary schedule failure.
+        observability_errors.append(f"effect_export:{type(exc).__name__}:{exc}")
+    try:
+        traces = collect_trace_export(
+            path=OTEL_TRACE_FILE,
+            offset=trace_offset,
+            runtime_attempt_id=runtime_attempt_id,
+            expected_completed=completed,
+        )
+    except Exception as exc:  # noqa: BLE001 - preserve the primary schedule failure.
+        observability_errors.append(f"trace_export:{type(exc).__name__}:{exc}")
+    canonical_write(
+        failure_root / f"{runtime_attempt_id}-observability.json",
+        {
+            "schema_version": "evm.s8_v4.x1_failed_traffic_observability.v1",
+            "runtime_attempt_id": runtime_attempt_id,
+            "completed_request_count": completed,
+            "durable_effects": effects,
+            "trace_export": traces,
+            "triton_metrics": {"before_raw": metrics_before, "after_raw": metrics_after},
+            "gpu_samples": list(gpu_samples),
+            "collection_errors": observability_errors,
+        },
+    )
+
+
 def _response_topology(records: Sequence[Mapping[str, Any]]) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
     for record in records:
@@ -1785,25 +1891,43 @@ def run_calibration_attempt(
             daemon=True,
         )
         sampler.start()
+        traffic_error: X1TrafficWindowError | None = None
         try:
-            measured = run_traffic_window(
-                contract,
-                suite_id=suite_id,
-                outer_attempt_id=attempt_id,
-                runtime_attempt_id=runtime_attempt_id,
-                step_index=step_index,
-                offered_rps=int(offered_rps),
-                duration_seconds=int(contract.payload["calibration"]["measurement_seconds"]),
-                model_weights=model_weights,
-                artifact_manifest=artifact_manifest,
-                artifact_root=artifact_root,
-                lease=lease,
-                phase="measurement",
-            )
+            try:
+                measured = run_traffic_window(
+                    contract,
+                    suite_id=suite_id,
+                    outer_attempt_id=attempt_id,
+                    runtime_attempt_id=runtime_attempt_id,
+                    step_index=step_index,
+                    offered_rps=int(offered_rps),
+                    duration_seconds=int(contract.payload["calibration"]["measurement_seconds"]),
+                    model_weights=model_weights,
+                    artifact_manifest=artifact_manifest,
+                    artifact_root=artifact_root,
+                    lease=lease,
+                    phase="measurement",
+                )
+            except X1TrafficWindowError as exc:
+                measured = exc.window
+                traffic_error = exc
         finally:
             stop.set()
             sampler.join(timeout=5)
         metrics_after = triton_metrics_text()
+        if traffic_error is not None:
+            persist_failed_traffic_window(
+                suite_root=suite_root,
+                runtime_attempt_id=runtime_attempt_id,
+                error=traffic_error,
+                warmup=warmup,
+                warmup_effects=warmup_effects,
+                metrics_before=metrics_before,
+                metrics_after=metrics_after,
+                trace_offset=trace_offset,
+                gpu_samples=gpu_samples,
+            )
+            raise traffic_error
         effects = export_effects(runtime_attempt_id)
         completed = sum(
             record.get("admission_outcome") == "accepted"
