@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -98,15 +99,19 @@ def test_x1_failure_detail_preserves_bounded_private_rca_message() -> None:
     assert runner._response_failure_detail(payload) == "x" * 500
 
 
-def test_x1_transport_failure_preserves_bounded_private_rca_message(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_x1_transport_failure_preserves_bounded_private_rca_message() -> None:
     message = "connection reset: " + ("x" * 600)
+    headers: dict[str, str] = {}
 
-    def fail_request(*_args: object, **_kwargs: object) -> None:
-        raise requests.ConnectionError(message)
+    class FailingSession:
+        def post(self, *_args: object, **kwargs: object) -> None:
+            headers.update(kwargs["headers"])
+            raise requests.ConnectionError(message)
 
-    monkeypatch.setattr(runner.requests, "post", fail_request)
+    class SessionPool:
+        def current(self) -> FailingSession:
+            return FailingSession()
+
     result = runner._send_request(
         suite_id="x1-canonical-test",
         runtime_attempt_id="x1-solo-calibration-test",
@@ -117,11 +122,69 @@ def test_x1_transport_failure_preserves_bounded_private_rca_message(
         lease=SimpleNamespace(lease_id="lease-id", fencing_token="fencing-token"),
         enqueued_ns=runner.time.perf_counter_ns(),
         deadline_seconds=1.0,
+        session_pool=SessionPool(),
     )
 
     assert result["failure_reason"] == "ConnectionError"
     assert result["failure_detail"] == message[:500]
     assert result["outcome_unknown"] is True
+    assert set(headers) == {"traceparent"}
+
+
+def test_x1_window_http_sessions_are_thread_local_reused_and_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created: list[object] = []
+
+    class Session:
+        trust_env = True
+
+        def __init__(self) -> None:
+            self.closed = False
+            self.mounts: list[tuple[str, object]] = []
+            created.append(self)
+
+        def mount(self, prefix: str, adapter: object) -> None:
+            self.mounts.append((prefix, adapter))
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(runner.requests, "Session", Session)
+    pool = runner._ThreadLocalHttpSessions()
+    barrier = threading.Barrier(4)
+
+    def use_session() -> tuple[int, int]:
+        first = pool.current()
+        barrier.wait(timeout=2)
+        second = pool.current()
+        return id(first), id(second)
+
+    with runner.concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        identities = list(executor.map(lambda _index: use_session(), range(4)))
+    pool.close()
+
+    assert len(created) == 4
+    assert len({first for first, _second in identities}) == 4
+    assert all(first == second for first, second in identities)
+    assert all(session.trust_env is False for session in created)
+    assert all(
+        [prefix for prefix, _adapter in session.mounts] == ["http://", "https://"]
+        for session in created
+    )
+    assert all(
+        all(adapter.max_retries.total == 0 for _prefix, adapter in session.mounts)
+        for session in created
+    )
+    assert all(
+        all(
+            adapter.poolmanager.connection_pool_kw["maxsize"] == 1
+            and adapter.poolmanager.connection_pool_kw["block"] is True
+            for _prefix, adapter in session.mounts
+        )
+        for session in created
+    )
+    assert all(session.closed for session in created)
 
 
 def test_x1_failed_warmup_is_preserved_before_rejection(tmp_path: Path) -> None:

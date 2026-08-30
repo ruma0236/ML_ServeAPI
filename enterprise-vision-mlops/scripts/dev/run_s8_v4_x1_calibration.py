@@ -20,6 +20,7 @@ from typing import Any, Callable, Mapping, Sequence
 from uuid import uuid4
 
 import requests
+from requests.adapters import HTTPAdapter
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1190,6 +1191,44 @@ def _response_failure_detail(payload: Any) -> str:
     return ""
 
 
+class _ThreadLocalHttpSessions:
+    def __init__(self) -> None:
+        self._local = threading.local()
+        self._lock = threading.Lock()
+        self._sessions: list[requests.Session] = []
+
+    def __enter__(self) -> _ThreadLocalHttpSessions:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
+
+    def current(self) -> requests.Session:
+        session = getattr(self._local, "session", None)
+        if session is None:
+            session = requests.Session()
+            session.trust_env = False
+            adapter = HTTPAdapter(
+                pool_connections=1,
+                pool_maxsize=1,
+                max_retries=0,
+                pool_block=True,
+            )
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            self._local.session = session
+            with self._lock:
+                self._sessions.append(session)
+        return session
+
+    def close(self) -> None:
+        with self._lock:
+            sessions = list(self._sessions)
+            self._sessions.clear()
+        for session in sessions:
+            session.close()
+
+
 def _send_request(
     *,
     suite_id: str,
@@ -1201,6 +1240,7 @@ def _send_request(
     lease: GpuLease,
     enqueued_ns: int,
     deadline_seconds: float,
+    session_pool: _ThreadLocalHttpSessions | None = None,
 ) -> dict[str, Any]:
     started_ns = time.perf_counter_ns()
     traceparent = _traceparent(request_id)
@@ -1220,10 +1260,11 @@ def _send_request(
         "fencing_token": lease.fencing_token,
     }
     try:
-        response = requests.post(
+        client = session_pool.current() if session_pool is not None else requests
+        response = client.post(
             f"{API_URL}/control-panel/v1/scenario-workloads/x1/predict",
             json=body,
-            headers={"traceparent": traceparent, "Connection": "close"},
+            headers={"traceparent": traceparent},
             timeout=deadline_seconds + 1,
         )
         finished_ns = time.perf_counter_ns()
@@ -1338,10 +1379,13 @@ def run_traffic_window(
     pending: dict[concurrent.futures.Future[dict[str, Any]], int] = {}
     records: dict[int, dict[str, Any]] = {}
     request_prefix = "w" if phase == "warmup" else "s"
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=int(contract.payload["topology"]["client_driver_workers"]),
-        thread_name_prefix="x1-client",
-    ) as executor:
+    with (
+        _ThreadLocalHttpSessions() as session_pool,
+        concurrent.futures.ThreadPoolExecutor(
+            max_workers=int(contract.payload["topology"]["client_driver_workers"]),
+            thread_name_prefix="x1-client",
+        ) as executor,
+    ):
         for sequence, model_id in enumerate(schedule):
             target_ns = started_window_ns + (sequence * 1_000_000_000) // offered_rps
             delay = (target_ns - time.perf_counter_ns()) / 1_000_000_000
@@ -1379,6 +1423,7 @@ def run_traffic_window(
                 lease=lease,
                 enqueued_ns=enqueued_ns,
                 deadline_seconds=deadline_seconds,
+                session_pool=session_pool,
             )
             pending[future] = sequence
         for future in concurrent.futures.as_completed(pending):
