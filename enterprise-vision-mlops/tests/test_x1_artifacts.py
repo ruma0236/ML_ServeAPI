@@ -91,6 +91,20 @@ def test_x1_probabilistic_and_dlrm_artifacts_support_disabled_and_batched_shapes
         assert batched.shape == (2, 1)
 
 
+def test_x1_dlrm_uses_one_field_offset_embedding_table_and_repeats() -> None:
+    _np, _pq, torch = _load_artifact_dependencies()
+    model = _build_dlrm_lite(torch, vocab_size=32, embedding_dim=2).eval()
+    embeddings = [module for module in model.modules() if isinstance(module, torch.nn.Embedding)]
+    assert len(embeddings) == 1
+    assert embeddings[0].num_embeddings == 32 * 26
+    assert embeddings[0].embedding_dim == 2
+    assert model.categorical_offsets.tolist() == [index * 32 for index in range(26)]
+    traced = torch.jit.trace(model, torch.zeros((2, 39)), strict=True)
+    outputs = [traced(torch.zeros((1, 39))) for _ in range(64)]
+    assert all(output.shape == (1, 1) for output in outputs)
+    assert all(torch.equal(output, outputs[0]) for output in outputs[1:])
+
+
 def test_x1_freeze_restores_shared_runtime_model_to_cuda(tmp_path: Path) -> None:
     class Device:
         def __init__(self, kind: str) -> None:

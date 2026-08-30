@@ -558,8 +558,10 @@ def _build_dlrm_lite(torch: Any, *, vocab_size: int, embedding_dim: int) -> Any:
             self.bottom = torch.nn.Sequential(
                 torch.nn.Linear(13, 32), torch.nn.ReLU(), torch.nn.Linear(32, 16), torch.nn.ReLU()
             )
-            self.embeddings = torch.nn.ModuleList(
-                [torch.nn.Embedding(vocab_size, embedding_dim) for _ in range(26)]
+            self.embedding = torch.nn.Embedding(vocab_size * 26, embedding_dim)
+            self.register_buffer(
+                "categorical_offsets",
+                torch.arange(26, dtype=torch.long) * vocab_size,
             )
             self.top = torch.nn.Sequential(
                 torch.nn.Linear(16 + 26 * embedding_dim, 32),
@@ -571,8 +573,8 @@ def _build_dlrm_lite(torch: Any, *, vocab_size: int, embedding_dim: int) -> Any:
             matrix = value.reshape(-1, 39)
             dense = self.bottom(matrix[:, :13])
             categorical = matrix[:, 13:].to(dtype=torch.long).remainder(vocab_size)
-            embedded = [self.embeddings[index](categorical[:, index]) for index in range(26)]
-            return torch.sigmoid(self.top(torch.cat([dense, *embedded], dim=1)))
+            embedded = self.embedding(categorical + self.categorical_offsets).flatten(1)
+            return torch.sigmoid(self.top(torch.cat([dense, embedded], dim=1)))
 
     return DlrmLite()
 
@@ -738,7 +740,7 @@ def _train_dlrm_lite(
         predicted = (model(torch.from_numpy(validation).cuda()).squeeze(-1) >= 0.5).cpu().numpy()
     summary = {
         "seed": seed,
-        "architecture": "dlrm-lite-dense13-32-16-cat26x4-top32-fp32",
+        "architecture": "dlrm-lite-dense13-32-16-cat26x4-offset-table-top32-fp32",
         "epochs": int(training["criteo_epochs"]),
         "train_rows": train_rows,
         "validation_rows": validation_rows,
