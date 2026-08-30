@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import requests
@@ -95,6 +96,32 @@ def test_x1_failure_detail_preserves_bounded_private_rca_message() -> None:
     assert runner._response_failure_detail(payload) == "post-commit readback failed"
     payload["detail"]["message"] = "x" * 600
     assert runner._response_failure_detail(payload) == "x" * 500
+
+
+def test_x1_transport_failure_preserves_bounded_private_rca_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = "connection reset: " + ("x" * 600)
+
+    def fail_request(*_args: object, **_kwargs: object) -> None:
+        raise requests.ConnectionError(message)
+
+    monkeypatch.setattr(runner.requests, "post", fail_request)
+    result = runner._send_request(
+        suite_id="x1-canonical-test",
+        runtime_attempt_id="x1-solo-calibration-test",
+        request_id="x1-solo-calibration-test-s00-00000000",
+        model_id="higgs_logistic_regression",
+        features=[0.0] * 28,
+        identity={"artifact_sha256": "a" * 64, "config_sha256": "b" * 64},
+        lease=SimpleNamespace(lease_id="lease-id", fencing_token="fencing-token"),
+        enqueued_ns=runner.time.perf_counter_ns(),
+        deadline_seconds=1.0,
+    )
+
+    assert result["failure_reason"] == "ConnectionError"
+    assert result["failure_detail"] == message[:500]
+    assert result["outcome_unknown"] is True
 
 
 def test_x1_failed_warmup_is_preserved_before_rejection(tmp_path: Path) -> None:

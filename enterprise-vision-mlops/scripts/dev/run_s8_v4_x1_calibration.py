@@ -1295,6 +1295,7 @@ def _send_request(
             "oom_detected": False,
             "outcome_unknown": True,
             "failure_reason": type(exc).__name__,
+            "failure_detail": str(exc).strip()[:500],
         }
 
 
