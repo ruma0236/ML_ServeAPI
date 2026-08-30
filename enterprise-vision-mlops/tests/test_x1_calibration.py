@@ -210,6 +210,21 @@ def test_x1_calibration_recomputes_raw_counts_latency_metrics_and_topology() -> 
     assert projected["steps"][-1]["formed_batch_mean"] == 2.0
 
 
+def test_x1_calibration_separates_measured_cohort_from_completed_drain_tail() -> None:
+    value = raw_attempt()
+    for step in value["steps"]:  # type: ignore[index]
+        request = step["requests"][-1]
+        request["started_ns"] = 2_000_000_000
+        request["finished_ns"] = 2_005_000_000
+
+    projected = project_calibration_attempt(value, contract())
+
+    assert projected["safe_service_rps"] == 3.0
+    assert all(step["late_terminal"] == 1 for step in projected["steps"])
+    assert all(step["terminal"] == step["accepted"] for step in projected["steps"])
+    assert all(step["lost"] == 0 for step in projected["steps"])
+
+
 @pytest.mark.parametrize(
     ("mutator", "reason"),
     [

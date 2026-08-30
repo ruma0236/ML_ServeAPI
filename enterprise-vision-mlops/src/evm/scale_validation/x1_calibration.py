@@ -64,7 +64,6 @@ def project_calibration_attempt(raw: Mapping[str, Any], contract: X1Contract) ->
         if step["error_rate"] <= float(contract.payload["guardrails"]["maximum_error_rate"])
         and step["p99_ms"] <= float(contract.payload["guardrails"]["maximum_p99_ms"])
         and step["lost"] == 0
-        and step["late_terminal"] == 0
         and step["duplicate_effects"] == 0
         and step["outcome_unknown"] == 0
         and step["silent_fallback"] == 0
