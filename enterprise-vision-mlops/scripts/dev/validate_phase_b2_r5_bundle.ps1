@@ -101,11 +101,14 @@ function Get-GitBlobOid(
     throw "bundle_validation_failed:runtime_path_outside_git_tree:$fullPath"
   }
   $relativePath = $fullPath.Substring($prefix.Length).Replace('\', '/')
-  $entry = Invoke-GitRead @('ls-tree', $Revision, '--', $relativePath)
-  if ($entry -notmatch '^[0-9]{6}\s+blob\s+([0-9a-f]{40})\t') {
+  # A repository may expose the application from a subdirectory below the Git
+  # top-level. Revision:path is always top-relative, unlike an ls-tree pathspec
+  # evaluated from the current -C directory.
+  $entry = (Invoke-GitRead @('rev-parse', "${Revision}:$relativePath")).ToLowerInvariant()
+  if ($entry -notmatch '^[0-9a-f]{40}$') {
     throw "bundle_validation_failed:git_blob_missing:$relativePath"
   }
-  return $Matches[1].ToLowerInvariant()
+  return $entry
 }
 
 function Get-AmpersandInvocationCount(

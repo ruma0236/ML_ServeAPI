@@ -78,16 +78,18 @@ def fixture_repository(tmp_path_factory: pytest.TempPathFactory) -> FixtureRepos
     if not POWERSHELL.is_file() or shutil.which("git") is None:
         pytest.skip("Windows PowerShell 5.1 and git are required")
 
-    root = tmp_path_factory.mktemp("phase_b2_r5_validator_repo") / "repo"
-    remote = root.parent / "remote.git"
-    root.mkdir()
+    fixture_parent = tmp_path_factory.mktemp("phase_b2_r5_validator_repo")
+    git_root = fixture_parent / "repo"
+    root = git_root / "enterprise-vision-mlops"
+    remote = fixture_parent / "remote.git"
+    root.mkdir(parents=True)
     branch = "codex/r5-validator-test"
     assert _run("git", "init", "--bare", remote).returncode == 0
-    init = _run("git", "init", "-b", branch, root)
+    init = _run("git", "init", "-b", branch, git_root)
     assert init.returncode == 0, init.stderr
-    _git(root, "config", "user.email", "r5-validator@example.invalid")
-    _git(root, "config", "user.name", "R5 Validator Test")
-    _git(root, "config", "core.autocrlf", "false")
+    _git(git_root, "config", "user.email", "r5-validator@example.invalid")
+    _git(git_root, "config", "user.name", "R5 Validator Test")
+    _git(git_root, "config", "core.autocrlf", "false")
 
     component_paths = {
         "core": root / "src" / "evm" / "scale_validation" / "phase_b2_r5.py",
@@ -123,12 +125,12 @@ def fixture_repository(tmp_path_factory: pytest.TempPathFactory) -> FixtureRepos
     )
     _write(component_paths["validator"], VALIDATOR.read_bytes())
 
-    _git(root, "add", ".")
-    _git(root, "commit", "-m", "fixture r5 runtime")
-    _git(root, "remote", "add", "origin", str(remote))
-    _git(root, "push", "-u", "origin", branch)
-    revision = _git(root, "rev-parse", "HEAD")
-    tree = _git(root, "rev-parse", "HEAD^{tree}")
+    _git(git_root, "add", ".")
+    _git(git_root, "commit", "-m", "fixture r5 runtime")
+    _git(git_root, "remote", "add", "origin", str(remote))
+    _git(git_root, "push", "-u", "origin", branch)
+    revision = _git(git_root, "rev-parse", "HEAD")
+    tree = _git(git_root, "rev-parse", "HEAD^{tree}")
     assert revision != OLD_R4_REVISION
 
     runtime: dict[str, dict[str, str]] = {}
@@ -136,13 +138,13 @@ def fixture_repository(tmp_path_factory: pytest.TempPathFactory) -> FixtureRepos
         runtime[name] = {
             "path": str(path.resolve()),
             "sha256": _sha256(path),
-            "blob_oid": _blob_oid(root, revision, path),
+            "blob_oid": _blob_oid(git_root, revision, path),
         }
 
     # Production r4 checkpoint paths contain the old revision prefix. The
     # validator must allow that immutable historical reference while still
     # rejecting e48c1d8 as any executable/runtime revision pin.
-    checkpoint_root = root.parent / f"r4-checkpoint-{OLD_R4_REVISION[:8]}"
+    checkpoint_root = fixture_parent / f"r4-checkpoint-{OLD_R4_REVISION[:8]}"
     checkpoint_seal = checkpoint_root / "failure-seal.json"
     checkpoint_index = checkpoint_root / "failure-evidence-index.json"
     restore_report = checkpoint_root / "restore-only-report.json"
