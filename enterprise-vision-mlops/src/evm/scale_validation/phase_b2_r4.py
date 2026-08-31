@@ -950,7 +950,10 @@ class RestoreHarness:
                     latest = ProbeResult(
                         False,
                         last_error=f"probe_retry_limit_exhausted:{latest.last_error or stage.value}",
+                        details=latest.details,
+                        residual_pids=latest.residual_pids,
                         manual_intervention_required=True,
+                        invariants=latest.invariants,
                     )
                     break
                 remaining_after = deadline.remaining_seconds
@@ -959,7 +962,10 @@ class RestoreHarness:
                     latest = ProbeResult(
                         False,
                         last_error="restore_budget_prevents_retry_probe",
+                        details=latest.details,
+                        residual_pids=latest.residual_pids,
                         manual_intervention_required=True,
+                        invariants=latest.invariants,
                     )
                     break
                 self.sleep(min(self.retry_interval_seconds, remaining_after))

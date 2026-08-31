@@ -144,6 +144,35 @@ try {
   ) @{ verify_index = $bridgeVerifyIndex; invoke_index = $runnerInvokeIndex }
   Assert-Check 'outer_exact_one_bridge_call_site' (($outerText.Split(@('# R4_BRIDGE_INVOKE'), [StringSplitOptions]::None).Count - 1) -eq 1) 'one'
   Assert-Check 'bridge_exact_one_runner_call_site' (($bridgeText.Split(@('# R4_RUNNER_INVOKE'), [StringSplitOptions]::None).Count - 1) -eq 1) 'one'
+  $outerBridgeCalls = @($outerAst.FindAll({
+        param($node)
+        if ($node -isnot [Management.Automation.Language.CommandAst] -or
+          $node.InvocationOperator -ne [Management.Automation.Language.TokenKind]::Ampersand -or
+          $node.CommandElements.Count -lt 1) { return $false }
+        $target = $node.CommandElements[0]
+        return $target -is [Management.Automation.Language.VariableExpressionAst] -and
+          $target.VariablePath.UserPath -eq 'bridgePath'
+      }, $true))
+  $bridgeRunnerCalls = @($bridgeAst.FindAll({
+        param($node)
+        if ($node -isnot [Management.Automation.Language.CommandAst] -or
+          $node.InvocationOperator -ne [Management.Automation.Language.TokenKind]::Ampersand -or
+          $node.CommandElements.Count -lt 1) { return $false }
+        $target = $node.CommandElements[0]
+        return $target -is [Management.Automation.Language.VariableExpressionAst] -and
+          $target.VariablePath.UserPath -eq 'PythonPath'
+      }, $true))
+  Assert-Check 'outer_ast_exact_one_bridge_invocation' ($outerBridgeCalls.Count -eq 1) $outerBridgeCalls.Count
+  Assert-Check 'bridge_ast_exact_one_runner_invocation' ($bridgeRunnerCalls.Count -eq 1) $bridgeRunnerCalls.Count
+  Assert-Check 'outer_hash_guard_exact' ($outerText.Contains('if ($outerObserved -ne $outerExpected) { throw ''outer_sha256_mismatch'' }')) 'exact guard'
+  Assert-Check 'outer_bridge_guard_exact' ($outerText.Contains('if ($bridgeObserved -ne $ExpectedBridgeSha256) { throw ''bridge_sha256_mismatch'' }')) 'exact guard'
+  Assert-Check 'bridge_manifest_guard_exact' ($bridgeText.Contains('if ((Get-Sha256 $ManifestPath) -ne $ExpectedManifestSha256) { throw ''manifest_sha256_mismatch'' }')) 'exact guard'
+  Assert-Check 'bridge_runner_guard_exact' ($bridgeText.Contains('if ((Get-Sha256 $RunnerPath) -ne $ExpectedRunnerSha256) { throw ''runner_sha256_mismatch'' }')) 'exact guard'
+  Assert-Check 'bridge_core_guard_exact' ($bridgeText.Contains('if ((Get-Sha256 $CorePath) -ne $ExpectedCoreSha256) { throw ''core_sha256_mismatch'' }')) 'exact guard'
+  Assert-Check 'bridge_admin_gate_before_runner' (
+    $bridgeText.IndexOf('administrator_token_required', [StringComparison]::Ordinal) -ge 0 -and
+    $bridgeText.IndexOf('administrator_token_required', [StringComparison]::Ordinal) -lt $runnerInvokeIndex
+  ) 'token gate precedes runner'
 
   Assert-Check 'manifest_schema' ($manifest.schema_version -eq 'evm.s8_v4.x1_phase_b2_r4_work_order.v1') $manifest.schema_version
   Assert-Check 'manifest_revision_full' ([string]$manifest.canonical_revision -match '^[0-9a-f]{40}$') $manifest.canonical_revision
@@ -153,12 +182,18 @@ try {
 
   $runnerPath = [IO.Path]::GetFullPath([string]$manifest.runtime.runner_path)
   $corePath = [IO.Path]::GetFullPath([string]$manifest.runtime.core_path)
+  $validatorPath = [IO.Path]::GetFullPath([string]$manifest.runtime.validator_path)
   Assert-Check 'runner_is_inside_repository' ($runnerPath.StartsWith($repo + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) $runnerPath
   Assert-Check 'core_is_inside_repository' ($corePath.StartsWith($repo + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) $corePath
+  Assert-Check 'validator_is_inside_repository' ($validatorPath.StartsWith($repo + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) $validatorPath
   $runnerSha = Get-Sha256 $runnerPath
   $coreSha = Get-Sha256 $corePath
+  $validatorSha = Get-Sha256 $validatorPath
+  $coreText = [IO.File]::ReadAllText($corePath)
+  $runnerText = [IO.File]::ReadAllText($runnerPath)
   Assert-Check 'manifest_runner_sha' ($runnerSha -eq ([string]$manifest.runtime.runner_sha256).ToLowerInvariant()) $runnerSha
   Assert-Check 'manifest_core_sha' ($coreSha -eq ([string]$manifest.runtime.core_sha256).ToLowerInvariant()) $coreSha
+  Assert-Check 'manifest_validator_sha' ($validatorSha -eq ([string]$manifest.runtime.validator_sha256).ToLowerInvariant()) $validatorSha
   Assert-Check 'bridge_runner_sha' ($runnerSha -eq (Get-LiteralAssignment $bridgeAst 'ExpectedRunnerSha256').ToLowerInvariant()) $runnerSha
   Assert-Check 'bridge_core_sha' ($coreSha -eq (Get-LiteralAssignment $bridgeAst 'ExpectedCoreSha256').ToLowerInvariant()) $coreSha
   Assert-Check 'bridge_revision_pin' ([string]$manifest.canonical_revision -eq (Get-LiteralAssignment $bridgeAst 'PinnedRevision')) $manifest.canonical_revision
@@ -225,6 +260,75 @@ try {
   Assert-Check 'git_tracked_clean' ([string]::IsNullOrWhiteSpace($trackedStatus)) $trackedStatus
   Assert-Check 'git_untracked_preserved' ($untrackedCount -eq [int]$manifest.repository.preserved_untracked_count) $untrackedCount
 
+  $expectedComposeServices = @(
+    'airflow-postgres', 'airflow-scheduler', 'airflow-webserver', 'api',
+    'control-panel', 'control-plane-postgres', 'grafana', 'minio', 'mlflow',
+    'otel-collector', 'postgres', 'prometheus', 'task-queue-worker'
+  )
+  $actualComposeServices = @($manifest.expected_state.compose_services | ForEach-Object { [string]$_ })
+  $composeDifference = @(Compare-Object -ReferenceObject $expectedComposeServices -DifferenceObject $actualComposeServices)
+  Assert-Check 'expected_compose_services_exact' (
+    $actualComposeServices.Count -eq $expectedComposeServices.Count -and $composeDifference.Count -eq 0
+  ) $actualComposeServices
+  Assert-Check 'expected_b0_uid_exact' (
+    [string]$manifest.expected_state.b0.uid -eq 'cfdab424-dcc5-4d5f-ae7530441ef4'
+  ) $manifest.expected_state.b0.uid
+  Assert-Check 'expected_b0_image_exact' (
+    [string]$manifest.expected_state.b0.image -eq 'enterprise-vision-mlops-efficientnet-serving@sha256:227b483f466678e00fbf13fd6b3ad1059ca2c6771239d204494fb610fa7d9f7a'
+  ) $manifest.expected_state.b0.image
+  Assert-Check 'expected_b0_endpoints_exact' (
+    [string]$manifest.expected_state.b0.ready_url -eq 'http://127.0.0.1:30800/ready' -and
+    [string]$manifest.expected_state.b0.predict_url -eq 'http://127.0.0.1:30800/predict'
+  ) $manifest.expected_state.b0
+  Assert-Check 'expected_b0_sample_exact' (
+    [string]$manifest.expected_state.b0.sample_image_uri -eq '/mnt/evm-data/data/raw/industrial/visa/candle/Data/Images/Anomaly/000.JPG'
+  ) $manifest.expected_state.b0.sample_image_uri
+  $expectedPrometheusJobs = @('evm-api', 'evm-b0-production', 'evm-otel-collector', 'evm-task-queue-worker', 'prometheus')
+  $actualPrometheusJobs = @($manifest.expected_state.prometheus_jobs | ForEach-Object { [string]$_ })
+  $prometheusDifference = @(Compare-Object -ReferenceObject $expectedPrometheusJobs -DifferenceObject $actualPrometheusJobs)
+  Assert-Check 'expected_prometheus_jobs_exact' (
+    $actualPrometheusJobs.Count -eq $expectedPrometheusJobs.Count -and $prometheusDifference.Count -eq 0
+  ) $actualPrometheusJobs
+  Assert-Check 'expected_service_urls_exact' (
+    [string]$manifest.expected_state.prometheus_targets_url -eq 'http://127.0.0.1:9090/api/v1/targets' -and
+    [string]$manifest.expected_state.api_base_url -eq 'http://127.0.0.1:8000'
+  ) $manifest.expected_state
+  $selectors = @($manifest.expected_state.x1_kubernetes_selectors | ForEach-Object { [string]$_ })
+  Assert-Check 'expected_x1_selector_exact' (
+    $selectors.Count -eq 1 -and $selectors[0] -eq 'evm.openai.local/scenario=s8-v4-x1'
+  ) $selectors
+  $ports = @($manifest.expected_state.x1_ports | ForEach-Object { [int]$_ })
+  Assert-Check 'expected_x1_ports_exact' (
+    $ports.Count -eq 3 -and $ports[0] -eq 31120 -and $ports[1] -eq 31121 -and $ports[2] -eq 31122
+  ) $ports
+  Assert-Check 'expected_x1_docker_filter_exact' (
+    [string]$manifest.expected_state.x1_docker_name_filter -eq 'name=evm-x1'
+  ) $manifest.expected_state.x1_docker_name_filter
+  Assert-Check 'expected_gpu_lease_path_exact' (
+    [string]$manifest.expected_state.gpu_lease_path -eq 'F:/EnterpriseMLOps_Data/enterprise-vision-mlops/runtime/gpu-lease/active.json'
+  ) $manifest.expected_state.gpu_lease_path
+  $expectedResiduePaths = @(
+    'F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/prometheus-targets/s8-v4-x1-triton.json',
+    'F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/w7/prometheus-targets/s8-v4-x1-api.json'
+  )
+  $actualResiduePaths = @($manifest.expected_state.x1_residue_paths | ForEach-Object { [string]$_ })
+  Assert-Check 'expected_x1_residue_paths_exact' (
+    $actualResiduePaths.Count -eq 2 -and
+    @(Compare-Object -ReferenceObject $expectedResiduePaths -DifferenceObject $actualResiduePaths).Count -eq 0
+  ) $actualResiduePaths
+  Assert-Check 'expected_nonvacuous_queue_job_claim_checks' (
+    @($manifest.expected_state.active_job_roots).Count -eq 0 -and
+    @($manifest.expected_state.active_claim_roots).Count -eq 0 -and
+    $runnerText.Contains('self._kubectl_command("get", "jobs", "-A", "-o", "json")') -and
+    $runnerText.Contains('FROM evm_control_plane.lifecycle_claims')
+  ) 'Kubernetes jobs plus database claims'
+  Assert-Check 'r3_checkpoint_pin_exact' (
+    [string]$manifest.checkpoint.path -eq 'F:\EnterpriseMLOps_Data\enterprise-vision-mlops\artifacts\scale_validation\private\s8-v4\x1-clock-phase-b2\x1-clock-phase-b2-20260831T114427Z-0a68addf-r3\outcome.json' -and
+    [string]$manifest.checkpoint.sha256 -eq '8b424add49fe59b07da0e0c1685b3d136a7f71b3126c55595ff441e5eb1de5a8' -and
+    $manifest.checkpoint.docker_off_probe_must_not_repeat -eq $true -and
+    $manifest.checkpoint.lifecycle_calls_must_not_repeat -eq $true
+  ) $manifest.checkpoint
+
   $phase = $manifest.phase_b2_contract
   Assert-Check 'phase_mode_docker_off' ($phase.mode -eq 'docker-off') $phase.mode
   Assert-Check 'phase_duration_180' ([int]$phase.duration_seconds -eq 180) $phase.duration_seconds
@@ -232,6 +336,10 @@ try {
   Assert-Check 'phase_samples_1800_each' (
     [int]$phase.windows_samples -eq 1800 -and [int]$phase.wsl_samples -eq 1800
   ) @{ windows = $phase.windows_samples; wsl = $phase.wsl_samples }
+  foreach ($name in @('windows_discontinuity', 'wsl_discontinuity', 'backward_step', 'unclassified_gap', 'bracket_violation', 'residual_pid')) {
+    Assert-Check "phase_exact_zero_$name" ([int](Get-PropertyValue $phase $name) -eq 0) (Get-PropertyValue $phase $name)
+  }
+  Assert-Check 'phase_maximum_invocations_one' ([int]$phase.maximum_invocations -eq 1) $phase.maximum_invocations
 
   $callNames = @('probe', 'compose_stop', 'docker_desktop_stop', 'wsl_shutdown', 'docker_desktop_start', 'compose_start')
   foreach ($name in $callNames) {
@@ -244,10 +352,16 @@ try {
   Assert-Check 'evidence_create_exclusive_contract' ($manifest.evidence.write_mode -eq 'create-exclusive') $manifest.evidence.write_mode
   Assert-Check 'failure_forbids_success_marker' ($manifest.evidence.failure_creates_completion_marker -eq $false) $manifest.evidence.failure_creates_completion_marker
   Assert-Check 'success_requires_all_invariants' ($manifest.evidence.success_requires_all_invariants -eq $true) $manifest.evidence.success_requires_all_invariants
-  $coreText = [IO.File]::ReadAllText($corePath)
-  $runnerText = [IO.File]::ReadAllText($runnerPath)
   Assert-Check 'runtime_uses_os_exclusive_create' ($coreText.Contains('os.O_EXCL')) 'os.O_EXCL'
   Assert-Check 'runtime_deadline_budget_guard_present' ($coreText.Contains('probe_launch_budget_seconds')) 'probe_launch_budget_seconds'
+  Assert-Check 'runtime_timeout_manual_latch_present' (
+    $runnerText.Contains('outcome.manual_intervention_required or outcome.timed_out') -and
+    $runnerText.Contains('"timeout_manual_latch": outcome.timed_out')
+  ) 'all timeouts block subsequent probes'
+  Assert-Check 'runtime_compound_probe_fail_closed_present' (
+    $runnerText.Contains('def _failed_process_chain(') -and
+    $runnerText.Contains('"process_chain_stopped": True')
+  ) 'compound child chain stops on first failure'
   Assert-Check 'runtime_phase_b2_marker_guard_present' (
     $coreText.Contains('report.mode != "phase-b2"') -and $coreText.Contains('report.decision != "phase_b2_pass"')
   ) 'phase-b2 decision guard'
@@ -271,7 +385,10 @@ try {
       $combinedSource,
       '(?i)scale_validation[\\/]+staging[\\/]+[^\r\n''"]+-r[23]'
     )) 'r2/r3 staging path absent'
-  $forbiddenAstCommands = @('Remove-Item', 'Clear-Content', 'Set-Content', 'Out-File', 'Add-Content', 'Stop-Process')
+  $forbiddenAstCommands = @(
+    'Remove-Item', 'Clear-Content', 'Set-Content', 'Out-File', 'Add-Content',
+    'Stop-Process', 'Start-Process', 'Invoke-Expression', 'Invoke-Command'
+  )
   foreach ($entry in @(@{ name = 'outer'; ast = $outerAst }, @{ name = 'bridge'; ast = $bridgeAst })) {
     $commandNames = @($entry.ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() } | Where-Object { $_ })
     foreach ($forbidden in $forbiddenAstCommands) {

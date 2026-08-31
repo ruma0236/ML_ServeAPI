@@ -158,7 +158,14 @@ class RestoreOnlyProbeSet:
             "passed": passed,
             "last_error": error,
             "residual_pids": list(outcome.residual_pids),
-            "manual_intervention_required": outcome.manual_intervention_required,
+            # A timed-out root can create and reparent a descendant between
+            # polling observations.  Even when every observed process exits
+            # naturally inside 120 seconds, latch the restore path closed so
+            # no later probe can race an unobserved descendant.
+            "manual_intervention_required": (
+                outcome.manual_intervention_required or outcome.timed_out
+            ),
+            "timeout_manual_latch": outcome.timed_out,
             "process_evidence": outcome.to_dict(),
             "stdout": outcome.stdout,
             "stderr": outcome.stderr,
@@ -298,8 +305,22 @@ class RestoreOnlyProbeSet:
             name="kubernetes-readyz",
         )
         ready = bool(result["passed"] and str(result["stdout"]).strip().lower() == "ok")
+        failure_text = (
+            f"{result.get('last_error') or ''}\n{result.get('stderr') or ''}"
+        ).lower()
+        retryable_markers = (
+            "eof",
+            "connection refused",
+            "i/o timeout",
+            "tls handshake timeout",
+            "server is currently unable",
+        )
         result["passed"] = ready
-        result["retryable"] = not ready
+        result["retryable"] = (
+            not ready
+            and not result.get("manual_intervention_required")
+            and any(marker in failure_text for marker in retryable_markers)
+        )
         result["last_error"] = None if ready else result.get("last_error") or "readyz_not_ok"
         result["invariants"] = {"kubernetes_readyz": ready}
         return result

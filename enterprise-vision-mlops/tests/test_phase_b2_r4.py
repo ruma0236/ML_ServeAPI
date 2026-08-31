@@ -747,6 +747,11 @@ def test_bundle_validator_does_not_leak_list_add_index_to_pipeline() -> None:
     assert "literal_assignment_${VariableName}:count=" in validator
     assert "sort_keys=True))" in validator
     assert 'separators=(",",":")' not in validator
+    assert "outer_ast_exact_one_bridge_invocation" in validator
+    assert "bridge_ast_exact_one_runner_invocation" in validator
+    assert "expected_b0_uid_exact" in validator
+    assert "expected_x1_selector_exact" in validator
+    assert 'phase_exact_zero_$name' in validator
 
 
 def _bare_restore_probe_set(expected: dict[str, object] | None = None) -> object:
@@ -1004,3 +1009,50 @@ def test_b0_failed_ready_never_starts_prediction(
     assert http_calls == ["GET"]
     assert result["passed"] is False
     assert result["invariants"]["b0_actual_cuda"] is False
+
+
+def test_restore_probe_latches_natural_exit_timeout_before_any_followup() -> None:
+    probe = _bare_restore_probe_set()
+    probe.repository_root = Path(".")
+    outcome = r4.ProcessOutcome(
+        name="timed-out-natural-exit",
+        command=("python.exe", "probe.py"),
+        pid=36768,
+        ppid=2288,
+        creation_time=1_700_000_000.0,
+        descendants=(),
+        started_at="2026-08-31T00:00:00Z",
+        ended_at="2026-08-31T00:02:00Z",
+        duration_seconds=120.0,
+        return_code=0,
+        timed_out=True,
+        residual_pids=(),
+        residual_observations=(),
+        stdout="",
+        stderr="",
+        stdout_drained=True,
+        stderr_drained=True,
+        streams_drained=True,
+        natural_exit_after_timeout=True,
+        manual_intervention_required=False,
+        wrapper_timeout_seconds=15.0,
+        residual_repoll_seconds=120.0,
+        forced_termination_attempts=0,
+    )
+
+    class OutcomeRunner:
+        @staticmethod
+        def run(*_args: object, **_kwargs: object) -> r4.ProcessOutcome:
+            return outcome
+
+    probe.runner = OutcomeRunner()
+    result = probe._run(
+        r4.RestoreDeadline(600.0),
+        ["python.exe", "probe.py"],
+        name="timed-out-natural-exit",
+    )
+
+    assert result["passed"] is False
+    assert result["residual_pids"] == []
+    assert result["timeout_manual_latch"] is True
+    assert result["manual_intervention_required"] is True
