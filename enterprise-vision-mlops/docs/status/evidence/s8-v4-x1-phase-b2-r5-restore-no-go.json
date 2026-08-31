@@ -1,0 +1,177 @@
+{
+  "schema": "evm.s8_v4.x1_phase_b2_r5_restore_no_go.v1",
+  "work_item": "X1",
+  "occurred_at": "2026-08-31T19:23:42.278939Z",
+  "decision": "manual_intervention_required",
+  "credit": "zero_credit",
+  "acceptance_credit": false,
+  "source": {
+    "branch": "codex/distributed-scale-validation-plan",
+    "revision": "0c4f415b87b2baa769ccf12b163abe89f34f9821",
+    "tree": "837ebcbd9264fae0b8906884eea360dc26b5b5de",
+    "local_origin_remote_match": true,
+    "tracked_changes": 0,
+    "user_untracked_preserved": 4244
+  },
+  "administrator_gate": {
+    "captured_at": "2026-08-31T19:23:33.2943753Z",
+    "administrator": true,
+    "integrity": "High",
+    "token_elevation_type": "Full",
+    "token_elevation_type_value": 2,
+    "codex_pid": 30508,
+    "codex_ppid": 20408,
+    "codex_session_id": 1,
+    "execution_powershell_pid": 25468,
+    "execution_powershell_session_id": 1,
+    "danger_full_access_command_line_readback": true,
+    "approval_policy_never_command_line_readback": true
+  },
+  "historical_immutability": {
+    "r3_run": {
+      "files": 45,
+      "bytes": 2597702,
+      "aggregate_sha256": "241b334af48f4f01e61887d161b4eac2dcea9c8d998926d9c240d7e1fc46e780",
+      "inventory_mismatches": 0
+    },
+    "r3_failure": {
+      "files": 8,
+      "bytes": 24961,
+      "failure_seal_sha256": "e7d4b968d3761cb11bd29df43acfbf4cf5b4a0e51b01f2145d1fb3cc64d43623",
+      "failure_index_sha256": "c5e12808b3e9161444b6840f5f112a90f02617c248974f227918324e07f1ca0c"
+    },
+    "r4_restore": {
+      "failure_seal_sha256": "3bbaa2740796a9debad9bb1c86e11326fb0020304d4e003c1bc3d37a552b9136",
+      "failure_index_sha256": "71401af5de7f765e95dac55ce9e60a4569f3906d16191530cff33a191cfc3922",
+      "success_marker_present": false
+    },
+    "r3_r4_modified_or_reexecuted": false
+  },
+  "kubernetes_eof_rca_and_remediation": {
+    "observed_before_change": "Docker engine and TCP endpoint were reachable while the Kubernetes TLS/API path returned EOF and the control plane was not ready.",
+    "context_or_endpoint_mismatch_proven": false,
+    "resource_exhaustion_proven": false,
+    "kubernetes_only_restart_available": false,
+    "docker_desktop_restart_count": 1,
+    "force_termination_count": 0,
+    "post_restart_kubernetes_livez": true,
+    "post_restart_kubernetes_readyz": true,
+    "operational_failure_seal_sha256": "f0aebae5f0d884876545fa19e5fa8e365a36f2eb1a4e5bc0e7eae5901be37158",
+    "operational_failure_index_sha256": "7504a961beb04550d91551f8d0655e4c153790dc53046693b8d0104e650f10cd",
+    "etw_invocations": 0,
+    "etw_contract_amendment_sha256": "71ddc50a2a91f707b8183a19c87f490bdad8421ab18446dceb21622bc3439715"
+  },
+  "r5_implementation": {
+    "focused_tests": {
+      "passed": 130,
+      "skipped": 1,
+      "skip_scope": "non-Windows refusal case superseded by Windows adversarial execution"
+    },
+    "staging_validator_passed": 210,
+    "ruff": "passed",
+    "formatting": "passed",
+    "py_compile": "passed",
+    "powershell_ast": "passed",
+    "git_diff_check": "passed",
+    "code_verification_report_sha256": "e9eb30c4286152209fb8f76e46d7900e3f50faac58481ce1e4c2dd8797d04783",
+    "code_verification_index_sha256": "1bd1b009e741d0b336ec2c3c6f64992b162a7d405f63753ad6d8fd2f186e4c37",
+    "sha_chain": {
+      "outer": "19fff949bfc834732e8db49eed70c8b965409ff87e647117bb7d651e96873e23",
+      "bridge": "260276a6adfc0c6836116a8860c35141a4358d7bf402f55a402a5fea1a8ca25b",
+      "manifest": "4e16c2b88ffa766879e4b1faede0f7cfebd8bc304c50c60d4b3319a4b37a0733",
+      "runner": "0af29c066c8b7985b86b90d4a232bd6b9c4ca648098b9eeac9fb932d741de3c6",
+      "core": "7f3ea488bdea660b7ce3e7dc89f64f0a62dd0d402ea469c9e287585de74cd6f3",
+      "process": "388aabb3d87881ef44919176c617d70456215875551f180210cd83d3cc20266c",
+      "fresh": "5efa37cfe007f5fabcf7bc7a8ad913e660e41684190b7f9499d357d0fc9b6f66",
+      "validator": "53cd9af8c5dda811d0cd47548978736157947b6001147a8d6ed0e39f8ce0ab9f"
+    },
+    "post_run_independent_fresh_audit": {
+      "fresh_reuse_authorized": false,
+      "unresolved_findings": [
+        "Collector provenance and process-containment attestation are not evidence-bound; source_kind is assigned internally.",
+        "The dual sampler loop lacks a per-domain dispatch bracket and a strict 180-second upper-bound, so slow callback overrun is not fully rejected.",
+        "Late metadata/index serialization failure can leave an unsealed partial evidence directory after four base files are created.",
+        "No real 180-second dual-collector integration test has yet closed the synthetic-scheduler coverage gap."
+      ]
+    }
+  },
+  "restore_only": {
+    "run_id": "x1-clock-phase-b2-r5-restore-20260831T191730Z-0c4f415",
+    "mode": "restore-only",
+    "outer_bridge_runner_invocations": [1, 1, 1],
+    "automatic_retries": 0,
+    "duration_seconds": 6.921999999998661,
+    "outer_process_duration_seconds": 11.3075625,
+    "outer_exit_code": 2,
+    "lifecycle_call_counts": {
+      "docker_off_probe": 0,
+      "compose_stop": 0,
+      "desktop_stop": 0,
+      "wsl_shutdown": 0,
+      "desktop_start": 0,
+      "compose_start": 0
+    },
+    "passed": false,
+    "phase_b2_executed": false,
+    "deadline_exceeded": false,
+    "residual_pids": [],
+    "forced_termination_attempts": 0,
+    "process_containment": {
+      "kind": "windows_job_object",
+      "external_probe_jobs": 8,
+      "tracked_process_identities": 18,
+      "create_suspended_membership_before_resume": true,
+      "identity_coverage_complete": true,
+      "final_active_process_count": 0,
+      "stdout_stderr_drained": true,
+      "force_termination_attempts": 0
+    },
+    "invariants": {
+      "docker_engine": true,
+      "compose_13_of_13": false,
+      "compose_healthy": false,
+      "kubernetes_livez": true,
+      "kubernetes_readyz": true,
+      "node_ready_1_of_1": true,
+      "device_plugin_ready_1_of_1": true,
+      "gpu_capacity_1": true,
+      "gpu_allocatable_1": true,
+      "b0_exact_uid": true,
+      "b0_exact_image": true,
+      "b0_replica_1_of_1": true,
+      "b0_actual_cuda": true,
+      "prometheus_5_of_5": false,
+      "api_health_200": false,
+      "api_ready_200": false,
+      "api_revision_exact": false,
+      "api_runtime_revision_matches": false,
+      "queue_active_zero": false,
+      "queue_leased_zero": false,
+      "queue_outcome_unknown_zero": false,
+      "active_jobs_zero": false,
+      "active_claims_zero": false,
+      "gpu_lease_zero": false,
+      "x1_residue_zero": false
+    },
+    "observations": {
+      "compose": "Twelve expected services were absent; task-queue-worker was restarting.",
+      "prometheus": "The 127.0.0.1:9090 endpoint refused the connection; target status was 0/5.",
+      "api": "The 127.0.0.1:8000 health and ready endpoints refused the connection; runtime provenance remained unproven.",
+      "queue_jobs_lease_residue": "The control-plane PostgreSQL container was not running, so all values are fail-closed/unproven rather than observed nonzero."
+    },
+    "failure_seal_sha256": "dc45c64a0503a2e38c9c6dad5612cc05f39d5e95c7421a8e459d899a5f8d6730",
+    "failure_index_sha256": "3831da42e188c48209783f8060d2963c0975e7b7d8c44d51140b1d34e31377dc",
+    "outer_invocation_journal_sha256": "02a463c23fc3f9a2a7fc2512d2ed4d4a929280acfc6377d9454de5109b1bbf58",
+    "completion_marker_present": false,
+    "private_success_index_present": false
+  },
+  "downstream_invocations": {
+    "fresh_phase_b2": 0,
+    "full_stack_3180": 0,
+    "q0": 0,
+    "calibration_54": 0,
+    "matrix_78": 0,
+    "integrated_v4": 0
+  },
+  "next_action": "Keep X1 in remediation_required. Do not reuse this r5 bundle. Restore the existing Compose/API/Prometheus/control-plane services through a separately authorized, non-destructive remediation, close the four fresh-runner audit findings in a new revision and new identity, then require a new restore-only PASS before any fresh Phase B2 attempt."
+}
