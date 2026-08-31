@@ -712,3 +712,15 @@ def test_runtime_source_has_no_forbidden_destructive_command() -> None:
                 source_path,
                 pattern,
             )
+
+
+def test_actual_restore_runner_non_vacuously_checks_jobs_and_claims() -> None:
+    runner = (
+        Path(__file__).parents[1] / "scripts" / "dev" / "run_x1_phase_b2_r4.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'self._kubectl_command("get", "jobs", "-A", "-o", "json")' in runner
+    assert "FROM evm_control_plane.lifecycle_claims" in runner
+    assert "released_at IS NULL AND expires_at > clock_timestamp()" in runner
+    assert '"active_jobs_zero": kubernetes_active_jobs == 0' in runner
+    assert '"active_claims_zero": database_active_claims == 0' in runner

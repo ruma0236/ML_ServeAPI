@@ -462,11 +462,16 @@ class RestoreOnlyProbeSet:
 
     def queue_jobs_lease_residue(self, deadline: RestoreDeadline) -> dict[str, Any]:
         sql = (
-            "SELECT count(*) FILTER (WHERE state IN "
-            "('available','retry_wait','leased','runtime_pending','outcome_unknown')),"
-            "count(*) FILTER (WHERE state='leased'),"
-            "count(*) FILTER (WHERE state='outcome_unknown') "
-            "FROM evm_control_plane.task_admission_queue;"
+            "SELECT "
+            "(SELECT count(*) FILTER (WHERE state IN "
+            "('available','retry_wait','leased','runtime_pending','outcome_unknown')) "
+            "FROM evm_control_plane.task_admission_queue),"
+            "(SELECT count(*) FILTER (WHERE state='leased') "
+            "FROM evm_control_plane.task_admission_queue),"
+            "(SELECT count(*) FILTER (WHERE state='outcome_unknown') "
+            "FROM evm_control_plane.task_admission_queue),"
+            "(SELECT count(*) FROM evm_control_plane.lifecycle_claims "
+            "WHERE released_at IS NULL AND expires_at > clock_timestamp());"
         )
         queue_result = self._run(
             deadline,
@@ -495,8 +500,20 @@ class RestoreOnlyProbeSet:
                 values = [int(item) for item in str(queue_result["stdout"]).strip().split("|")]
             except ValueError:
                 values = []
-        queues_valid = len(values) == 3
-        queues = values if queues_valid else [-1, -1, -1]
+        queues_valid = len(values) == 4
+        queues = values[:3] if queues_valid else [-1, -1, -1]
+        database_active_claims = values[3] if queues_valid else -1
+
+        jobs_result = self._run(
+            deadline,
+            self._kubectl_command("get", "jobs", "-A", "-o", "json"),
+            name="active-jobs-readback",
+        )
+        jobs_payload = self._json_stdout(jobs_result, "active_jobs")
+        job_items = list(jobs_payload.get("items", []))
+        kubernetes_active_jobs = sum(
+            int(item.get("status", {}).get("active", 0) or 0) for item in job_items
+        )
 
         active_job_roots = [Path(str(item)) for item in self.expected.get("active_job_roots", [])]
         claim_roots = [Path(str(item)) for item in self.expected.get("active_claim_roots", [])]
@@ -509,10 +526,10 @@ class RestoreOnlyProbeSet:
             )
         )
         residue_paths = [Path(str(item)) for item in self.expected.get("x1_residue_paths", [])]
-        active_jobs = sum(
+        file_active_jobs = sum(
             1 for root in active_job_roots if root.exists() for item in root.iterdir() if item.is_file()
         )
-        active_claims = sum(
+        file_active_claims = sum(
             1 for root in claim_roots if root.exists() for item in root.iterdir() if item.is_file()
         )
         residue = [str(path) for path in residue_paths if path.exists()]
@@ -540,8 +557,8 @@ class RestoreOnlyProbeSet:
             "queue_active_zero": queues_valid and queues[0] == 0,
             "queue_leased_zero": queues_valid and queues[1] == 0,
             "queue_outcome_unknown_zero": queues_valid and queues[2] == 0,
-            "active_jobs_zero": active_jobs == 0,
-            "active_claims_zero": active_claims == 0,
+            "active_jobs_zero": kubernetes_active_jobs == 0 and file_active_jobs == 0,
+            "active_claims_zero": database_active_claims == 0 and file_active_claims == 0,
             "gpu_lease_zero": not lease_path.exists(),
             "x1_residue_zero": not residue and k8s_residue_count == 0,
         }
@@ -555,13 +572,25 @@ class RestoreOnlyProbeSet:
                 "leased": queues[1],
                 "outcome_unknown": queues[2],
             },
-            "active_jobs": active_jobs,
-            "active_claims": active_claims,
+            "active_jobs": {
+                "kubernetes_active": kubernetes_active_jobs,
+                "kubernetes_total": len(job_items),
+                "file_markers": file_active_jobs,
+            },
+            "active_claims": {
+                "database_active": database_active_claims,
+                "file_markers": file_active_claims,
+            },
             "gpu_lease_path": str(lease_path),
             "residue_paths": residue,
             "kubernetes_residue": residue_queries,
-            "process_evidence": queue_result["process_evidence"],
-            "residual_pids": queue_result["residual_pids"],
+            "process_evidence": [
+                queue_result["process_evidence"],
+                jobs_result["process_evidence"],
+            ],
+            "residual_pids": sorted(
+                set(queue_result["residual_pids"]) | set(jobs_result["residual_pids"])
+            ),
         }
 
     def probes(self) -> dict[str, Any]:
