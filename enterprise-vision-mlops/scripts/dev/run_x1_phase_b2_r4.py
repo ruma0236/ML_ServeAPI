@@ -22,7 +22,6 @@ if str(SRC) not in sys.path:
 from evm.scale_validation.phase_b2_r4 import (  # noqa: E402
     BoundedProcessRunner,
     ContractValidationError,
-    PhaseB2R4Error,
     RestoreCheckpoint,
     RestoreDeadline,
     RestoreHarness,
@@ -170,13 +169,63 @@ class RestoreOnlyProbeSet:
         return [self.kubectl, f"--request-timeout={seconds}s", *arguments]
 
     @staticmethod
-    def _json_stdout(result: Mapping[str, Any], name: str) -> Any:
+    def _json_object(
+        result: Mapping[str, Any], name: str
+    ) -> tuple[Mapping[str, Any] | None, str | None]:
         if not result.get("passed"):
-            raise PhaseB2R4Error(str(result.get("last_error")))
+            return None, str(result.get("last_error") or f"{name}_command_failed")
         try:
-            return json.loads(str(result["stdout"]))
-        except json.JSONDecodeError as exc:
-            raise PhaseB2R4Error(f"{name}_json_invalid") from exc
+            value = json.loads(str(result["stdout"]))
+        except json.JSONDecodeError:
+            return None, f"{name}_json_invalid"
+        if not isinstance(value, Mapping):
+            return None, f"{name}_json_object_required"
+        return value, None
+
+    @staticmethod
+    def _failed_process_chain(
+        results: Sequence[Mapping[str, Any]],
+        *,
+        last_error: str | None = None,
+        invariant_names: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        """Stop a compound probe before another child can race a residual."""
+
+        residual_pids = sorted(
+            {
+                int(pid)
+                for result in results
+                for pid in result.get("residual_pids", ())
+            }
+        )
+        manual = bool(residual_pids) or any(
+            bool(result.get("manual_intervention_required")) for result in results
+        )
+        process_evidence = [
+            result.get("process_evidence")
+            for result in results
+            if result.get("process_evidence") is not None
+        ]
+        error = last_error or ";".join(
+            str(result.get("last_error"))
+            for result in results
+            if result.get("last_error")
+        )
+        if not error:
+            error = "process_chain_failed"
+        return {
+            "passed": False,
+            "retryable": not manual and "eof" in error.lower(),
+            "last_error": error,
+            "manual_intervention_required": manual,
+            "residual_pids": residual_pids,
+            "invariants": {str(name): False for name in invariant_names},
+            "process_evidence": process_evidence,
+            "completed_process_count": sum(
+                bool(result.get("passed")) for result in results
+            ),
+            "process_chain_stopped": True,
+        }
 
     def docker_engine(self, deadline: RestoreDeadline) -> dict[str, Any]:
         result = self._run(
@@ -256,12 +305,59 @@ class RestoreOnlyProbeSet:
         return result
 
     def node_device_plugin_gpu(self, deadline: RestoreDeadline) -> dict[str, Any]:
+        invariant_names = (
+            "node_ready_1_of_1",
+            "device_plugin_ready_1_of_1",
+            "gpu_capacity_1",
+            "gpu_allocatable_1",
+        )
         node_result = self._run(
             deadline,
             self._kubectl_command("get", "nodes", "-o", "json"),
             name="kubernetes-node-readback",
         )
-        nodes = self._json_stdout(node_result, "nodes")
+        nodes, node_error = self._json_object(node_result, "nodes")
+        if node_error:
+            return self._failed_process_chain(
+                [node_result],
+                last_error=node_error,
+                invariant_names=invariant_names,
+            )
+        assert nodes is not None
+        items = list(nodes.get("items", []))
+        node = items[0] if len(items) == 1 else {}
+        conditions = {
+            str(item.get("type")): str(item.get("status"))
+            for item in node.get("status", {}).get("conditions", [])
+        }
+        capacity = str(
+            node.get("status", {}).get("capacity", {}).get("nvidia.com/gpu", "0")
+        )
+        allocatable = str(
+            node.get("status", {})
+            .get("allocatable", {})
+            .get("nvidia.com/gpu", "0")
+        )
+        node_invariants = {
+            "node_ready_1_of_1": len(items) == 1
+            and conditions.get("Ready") == "True",
+            "gpu_capacity_1": capacity == "1",
+            "gpu_allocatable_1": allocatable == "1",
+        }
+        if not all(node_invariants.values()):
+            return {
+                "passed": False,
+                "last_error": f"node_gpu_invariant:{node_invariants}",
+                "manual_intervention_required": False,
+                "residual_pids": list(node_result["residual_pids"]),
+                "invariants": {
+                    **node_invariants,
+                    "device_plugin_ready_1_of_1": False,
+                },
+                "node": node,
+                "process_evidence": [node_result["process_evidence"]],
+                "process_chain_stopped": True,
+            }
         plugin_result = self._run(
             deadline,
             self._kubectl_command(
@@ -274,25 +370,20 @@ class RestoreOnlyProbeSet:
             ),
             name="device-plugin-readback",
         )
-        plugin = self._json_stdout(plugin_result, "device_plugin")
-        items = list(nodes.get("items", []))
-        node = items[0] if len(items) == 1 else {}
-        conditions = {
-            str(item.get("type")): str(item.get("status"))
-            for item in node.get("status", {}).get("conditions", [])
-        }
-        capacity = str(node.get("status", {}).get("capacity", {}).get("nvidia.com/gpu", "0"))
-        allocatable = str(
-            node.get("status", {}).get("allocatable", {}).get("nvidia.com/gpu", "0")
-        )
+        plugin, plugin_error = self._json_object(plugin_result, "device_plugin")
+        if plugin_error:
+            return self._failed_process_chain(
+                [node_result, plugin_result],
+                last_error=plugin_error,
+                invariant_names=invariant_names,
+            )
+        assert plugin is not None
         plugin_status = plugin.get("status", {})
         invariants = {
-            "node_ready_1_of_1": len(items) == 1 and conditions.get("Ready") == "True",
+            **node_invariants,
             "device_plugin_ready_1_of_1": int(plugin_status.get("desiredNumberScheduled", 0))
             == 1
             and int(plugin_status.get("numberReady", 0)) == 1,
-            "gpu_capacity_1": capacity == "1",
-            "gpu_allocatable_1": allocatable == "1",
         }
         passed = all(invariants.values())
         return {
@@ -312,11 +403,13 @@ class RestoreOnlyProbeSet:
 
     def _http_json(
         self,
+        deadline: RestoreDeadline,
         method: str,
         url: str,
         *,
         body: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        deadline.assert_can_launch(self.contract.kubectl_timeout_seconds)
         started_at = time.monotonic()
         try:
             response = requests.request(
@@ -351,6 +444,12 @@ class RestoreOnlyProbeSet:
             }
 
     def b0_identity_cuda(self, deadline: RestoreDeadline) -> dict[str, Any]:
+        invariant_names = (
+            "b0_exact_uid",
+            "b0_exact_image",
+            "b0_replica_1_of_1",
+            "b0_actual_cuda",
+        )
         deployment_result = self._run(
             deadline,
             self._kubectl_command(
@@ -363,33 +462,77 @@ class RestoreOnlyProbeSet:
             ),
             name="b0-deployment-readback",
         )
-        deployment = self._json_stdout(deployment_result, "b0_deployment")
+        deployment, deployment_error = self._json_object(
+            deployment_result, "b0_deployment"
+        )
+        if deployment_error:
+            return self._failed_process_chain(
+                [deployment_result],
+                last_error=deployment_error,
+                invariant_names=invariant_names,
+            )
+        assert deployment is not None
         expected_b0 = self._required_mapping(self.expected, "b0")
         metadata = deployment.get("metadata", {})
         spec = deployment.get("spec", {})
         status = deployment.get("status", {})
         containers = spec.get("template", {}).get("spec", {}).get("containers", [])
         image = str(containers[0].get("image", "")) if len(containers) == 1 else ""
-        ready = self._http_json("GET", str(expected_b0.get("ready_url", "http://127.0.0.1:30800/ready")))
-        prediction = self._http_json(
-            "POST",
-            str(expected_b0.get("predict_url", "http://127.0.0.1:30800/predict")),
-            body={"image_uri": str(expected_b0["sample_image_uri"])},
-        )
-        ready_body = ready["body"] if isinstance(ready["body"], Mapping) else {}
-        prediction_body = (
-            prediction["body"] if isinstance(prediction["body"], Mapping) else {}
-        )
-        invariants = {
+        identity_invariants = {
             "b0_exact_uid": str(metadata.get("uid", "")) == str(expected_b0["uid"]),
             "b0_exact_image": image == str(expected_b0["image"]),
             "b0_replica_1_of_1": int(spec.get("replicas", 0)) == 1
             and int(status.get("readyReplicas", 0)) == 1
             and int(status.get("availableReplicas", 0)) == 1,
-            "b0_actual_cuda": ready["status"] == 200
-            and prediction["status"] == 200
+        }
+        if not all(identity_invariants.values()):
+            invariants = {**identity_invariants, "b0_actual_cuda": False}
+            return {
+                "passed": False,
+                "last_error": f"b0_identity_invariant:{invariants}",
+                "manual_intervention_required": False,
+                "invariants": invariants,
+                "deployment": deployment,
+                "process_evidence": [deployment_result["process_evidence"]],
+                "residual_pids": list(deployment_result["residual_pids"]),
+                "process_chain_stopped": True,
+            }
+        ready = self._http_json(
+            deadline,
+            "GET",
+            str(expected_b0.get("ready_url", "http://127.0.0.1:30800/ready")),
+        )
+        ready_body = ready["body"] if isinstance(ready["body"], Mapping) else {}
+        ready_cuda = (
+            ready["status"] == 200
             and ready_body.get("status") == "ok"
             and ready_body.get("device") == "cuda"
+        )
+        if not ready_cuda:
+            invariants = {**identity_invariants, "b0_actual_cuda": False}
+            return {
+                "passed": False,
+                "last_error": f"b0_ready_cuda_invariant:{ready}",
+                "manual_intervention_required": False,
+                "invariants": invariants,
+                "deployment": deployment,
+                "ready": ready,
+                "process_evidence": [deployment_result["process_evidence"]],
+                "residual_pids": list(deployment_result["residual_pids"]),
+                "process_chain_stopped": True,
+            }
+        prediction = self._http_json(
+            deadline,
+            "POST",
+            str(expected_b0.get("predict_url", "http://127.0.0.1:30800/predict")),
+            body={"image_uri": str(expected_b0["sample_image_uri"])},
+        )
+        prediction_body = (
+            prediction["body"] if isinstance(prediction["body"], Mapping) else {}
+        )
+        invariants = {
+            **identity_invariants,
+            "b0_actual_cuda": prediction["status"] == 200
             and prediction_body.get("device") == "cuda"
             and bool(prediction_body.get("prediction")),
         }
@@ -401,19 +544,18 @@ class RestoreOnlyProbeSet:
             "deployment": deployment,
             "ready": ready,
             "prediction": prediction,
-            "process_evidence": deployment_result["process_evidence"],
+            "process_evidence": [deployment_result["process_evidence"]],
             "residual_pids": deployment_result["residual_pids"],
         }
 
     def prometheus(self, deadline: RestoreDeadline) -> dict[str, Any]:
-        del deadline
         url = str(
             self.expected.get(
                 "prometheus_targets_url",
                 "http://127.0.0.1:9090/api/v1/targets",
             )
         )
-        readback = self._http_json("GET", url)
+        readback = self._http_json(deadline, "GET", url)
         body = readback["body"] if isinstance(readback["body"], Mapping) else {}
         targets = body.get("data", {}).get("activeTargets", [])
         jobs = sorted(str(item.get("labels", {}).get("job")) for item in targets)
@@ -439,10 +581,9 @@ class RestoreOnlyProbeSet:
         }
 
     def api_release_identity(self, deadline: RestoreDeadline) -> dict[str, Any]:
-        del deadline
         base_url = str(self.expected.get("api_base_url", "http://127.0.0.1:8000"))
-        health = self._http_json("GET", f"{base_url}/health")
-        ready = self._http_json("GET", f"{base_url}/ready")
+        health = self._http_json(deadline, "GET", f"{base_url}/health")
+        ready = self._http_json(deadline, "GET", f"{base_url}/ready")
         ready_body = ready["body"] if isinstance(ready["body"], Mapping) else {}
         revision = validate_release_readiness(
             int(ready["status"] or 0), ready_body, self.expected_revision
@@ -462,6 +603,16 @@ class RestoreOnlyProbeSet:
         }
 
     def queue_jobs_lease_residue(self, deadline: RestoreDeadline) -> dict[str, Any]:
+        invariant_names = (
+            "queue_active_zero",
+            "queue_leased_zero",
+            "queue_outcome_unknown_zero",
+            "active_jobs_zero",
+            "active_claims_zero",
+            "gpu_lease_zero",
+            "x1_residue_zero",
+        )
+        process_results: list[Mapping[str, Any]] = []
         sql = (
             "SELECT "
             "(SELECT count(*) FILTER (WHERE state IN "
@@ -495,26 +646,88 @@ class RestoreOnlyProbeSet:
             ],
             name="queue-readback",
         )
-        values: list[int] = []
-        if queue_result["passed"]:
-            try:
-                values = [int(item) for item in str(queue_result["stdout"]).strip().split("|")]
-            except ValueError:
-                values = []
+        process_results.append(queue_result)
+        if not queue_result["passed"]:
+            return self._failed_process_chain(
+                process_results, invariant_names=invariant_names
+            )
+        try:
+            values = [
+                int(item)
+                for item in str(queue_result["stdout"]).strip().split("|")
+            ]
+        except ValueError:
+            return self._failed_process_chain(
+                process_results,
+                last_error="queue_readback_values_invalid",
+                invariant_names=invariant_names,
+            )
         queues_valid = len(values) == 4
+        if not queues_valid:
+            return self._failed_process_chain(
+                process_results,
+                last_error="queue_readback_field_count_invalid",
+                invariant_names=invariant_names,
+            )
         queues = values[:3] if queues_valid else [-1, -1, -1]
         database_active_claims = values[3] if queues_valid else -1
+        queue_invariants = {
+            "queue_active_zero": queues[0] == 0,
+            "queue_leased_zero": queues[1] == 0,
+            "queue_outcome_unknown_zero": queues[2] == 0,
+            "active_claims_zero": database_active_claims == 0,
+        }
+        if not all(queue_invariants.values()):
+            failure = self._failed_process_chain(
+                process_results,
+                last_error=f"queue_or_database_claim_nonzero:{queue_invariants}",
+                invariant_names=invariant_names,
+            )
+            failure.update(
+                {
+                    "invariants": {
+                        **failure["invariants"],
+                        **queue_invariants,
+                    },
+                    "queues": {
+                        "active": queues[0],
+                        "leased": queues[1],
+                        "outcome_unknown": queues[2],
+                    },
+                    "database_active_claims": database_active_claims,
+                }
+            )
+            return failure
 
         jobs_result = self._run(
             deadline,
             self._kubectl_command("get", "jobs", "-A", "-o", "json"),
             name="active-jobs-readback",
         )
-        jobs_payload = self._json_stdout(jobs_result, "active_jobs")
+        process_results.append(jobs_result)
+        jobs_payload, jobs_error = self._json_object(jobs_result, "active_jobs")
+        if jobs_error:
+            return self._failed_process_chain(
+                process_results,
+                last_error=jobs_error,
+                invariant_names=invariant_names,
+            )
+        assert jobs_payload is not None
         job_items = list(jobs_payload.get("items", []))
         kubernetes_active_jobs = sum(
             int(item.get("status", {}).get("active", 0) or 0) for item in job_items
         )
+        if kubernetes_active_jobs != 0:
+            failure = self._failed_process_chain(
+                process_results,
+                last_error=f"kubernetes_active_jobs_nonzero:{kubernetes_active_jobs}",
+                invariant_names=invariant_names,
+            )
+            failure["active_jobs"] = {
+                "kubernetes_active": kubernetes_active_jobs,
+                "kubernetes_total": len(job_items),
+            }
+            return failure
 
         active_job_roots = [Path(str(item)) for item in self.expected.get("active_job_roots", [])]
         claim_roots = [Path(str(item)) for item in self.expected.get("active_claim_roots", [])]
@@ -534,6 +747,25 @@ class RestoreOnlyProbeSet:
             1 for root in claim_roots if root.exists() for item in root.iterdir() if item.is_file()
         )
         residue = [str(path) for path in residue_paths if path.exists()]
+        if file_active_jobs or file_active_claims or lease_path.exists() or residue:
+            failure = self._failed_process_chain(
+                process_results,
+                last_error=(
+                    "file_job_claim_lease_or_residue_nonzero:"
+                    f"jobs={file_active_jobs}:claims={file_active_claims}:"
+                    f"lease={lease_path.exists()}:residue={residue}"
+                ),
+                invariant_names=invariant_names,
+            )
+            failure.update(
+                {
+                    "file_active_jobs": file_active_jobs,
+                    "file_active_claims": file_active_claims,
+                    "gpu_lease_path": str(lease_path),
+                    "residue_paths": residue,
+                }
+            )
+            return failure
 
         container_result = self._run(
             deadline,
@@ -548,17 +780,38 @@ class RestoreOnlyProbeSet:
             ],
             name="x1-docker-residue-readback",
         )
+        process_results.append(container_result)
+        if not container_result["passed"]:
+            return self._failed_process_chain(
+                process_results, invariant_names=invariant_names
+            )
         container_lines = [
             line for line in str(container_result["stdout"]).splitlines() if line.strip()
         ]
-        x1_containers = [json.loads(line) for line in container_lines]
+        try:
+            x1_containers = [json.loads(line) for line in container_lines]
+        except json.JSONDecodeError:
+            return self._failed_process_chain(
+                process_results,
+                last_error="x1_docker_residue_json_invalid",
+                invariant_names=invariant_names,
+            )
         open_ports: list[int] = []
         for raw_port in self.expected.get("x1_ports", [31120, 31121, 31122]):
+            deadline.assert_can_launch(0.5)
             port = int(raw_port)
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe_socket:
                 probe_socket.settimeout(0.5)
                 if probe_socket.connect_ex(("127.0.0.1", port)) == 0:
                     open_ports.append(port)
+        if open_ports:
+            failure = self._failed_process_chain(
+                process_results,
+                last_error=f"x1_ports_open:{open_ports}",
+                invariant_names=invariant_names,
+            )
+            failure["open_ports"] = open_ports
+            return failure
 
         # K8s residue is required whenever the manifest supplies selectors.  An
         # unreadable query is a failure, never proof of absence.
@@ -569,7 +822,17 @@ class RestoreOnlyProbeSet:
                 self._kubectl_command("get", "all", "-A", "-l", str(selector), "-o", "json"),
                 name=f"x1-residue-readback-{index}",
             )
-            payload = self._json_stdout(result, f"x1_residue_{index}")
+            process_results.append(result)
+            payload, payload_error = self._json_object(
+                result, f"x1_residue_{index}"
+            )
+            if payload_error:
+                return self._failed_process_chain(
+                    process_results,
+                    last_error=payload_error,
+                    invariant_names=invariant_names,
+                )
+            assert payload is not None
             count = len(payload.get("items", []))
             residue_queries.append(
                 {
@@ -578,6 +841,14 @@ class RestoreOnlyProbeSet:
                     "process_evidence": result["process_evidence"],
                 }
             )
+            if count != 0:
+                failure = self._failed_process_chain(
+                    process_results,
+                    last_error=f"x1_kubernetes_residue_nonzero:{selector}:{count}",
+                    invariant_names=invariant_names,
+                )
+                failure["kubernetes_residue"] = residue_queries
+                return failure
         k8s_residue_count = sum(item["count"] for item in residue_queries)
         invariants = {
             "queue_active_zero": queues_valid and queues[0] == 0,
@@ -618,14 +889,14 @@ class RestoreOnlyProbeSet:
             "docker_residue": x1_containers,
             "open_ports": open_ports,
             "process_evidence": [
-                queue_result["process_evidence"],
-                jobs_result["process_evidence"],
-                container_result["process_evidence"],
+                result["process_evidence"] for result in process_results
             ],
             "residual_pids": sorted(
-                set(queue_result["residual_pids"])
-                | set(jobs_result["residual_pids"])
-                | set(container_result["residual_pids"])
+                {
+                    int(pid)
+                    for result in process_results
+                    for pid in result["residual_pids"]
+                }
             ),
         }
 

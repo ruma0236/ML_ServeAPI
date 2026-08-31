@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from evm.scale_validation import phase_b2_r4 as r4
+from scripts.dev import run_x1_phase_b2_r4 as runner_r4
 
 
 R3_DISRUPTIVE_COUNTS = {
@@ -318,6 +319,9 @@ def test_docker_and_compose_up_with_persistent_kubernetes_eof_is_partial_failure
     assert probes["kubernetes_api"].calls == 1
     assert probes["node_device_plugin_gpu"].calls == 0
     assert "EOF" in report.last_error
+    stage = report.stages[-1]
+    assert stage.manual_intervention_required is True
+    assert stage.attempts[-1]["manual_intervention_required"] is True
 
 
 def test_residual_child_naturally_exits_inside_120_seconds() -> None:
@@ -738,3 +742,265 @@ def test_bundle_validator_does_not_leak_list_add_index_to_pipeline() -> None:
     ).read_text(encoding="utf-8")
 
     assert "[void]$checks.Add(" in validator
+    assert "$right = $matches[0].Right" in validator
+    assert "$right = $right.Expression" in validator
+    assert "literal_assignment_${VariableName}:count=" in validator
+    assert "sort_keys=True))" in validator
+    assert 'separators=(",",":")' not in validator
+
+
+def _bare_restore_probe_set(expected: dict[str, object] | None = None) -> object:
+    probe = object.__new__(runner_r4.RestoreOnlyProbeSet)
+    probe.contract = _contract()
+    probe.expected = expected or {}
+    probe.docker = "docker.exe"
+    probe.kubectl = "kubectl.exe"
+    return probe
+
+
+def _command_probe_result(
+    *,
+    passed: bool,
+    stdout: str = "",
+    residual_pids: tuple[int, ...] = (),
+    manual: bool = False,
+    name: str = "child",
+) -> dict[str, object]:
+    return {
+        "passed": passed,
+        "last_error": None if passed else f"{name}:unexpected EOF",
+        "residual_pids": list(residual_pids),
+        "manual_intervention_required": manual,
+        "process_evidence": {
+            "name": name,
+            "pid": 36768,
+            "ppid": 2288,
+            "creation_time": 1_700_000_000.0,
+            "descendants": [
+                {
+                    "pid": 26288,
+                    "ppid": 36768,
+                    "creation_time": 1_700_000_001.0,
+                }
+            ],
+            "stdout_drained": not manual,
+            "stderr_drained": not manual,
+        },
+        "stdout": stdout,
+        "stderr": "",
+    }
+
+
+def test_queue_residual_stops_all_followup_children_and_preserves_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _bare_restore_probe_set()
+    calls: list[str] = []
+
+    def fake_run(*_args: object, name: str, **_kwargs: object) -> dict[str, object]:
+        calls.append(name)
+        return _command_probe_result(
+            passed=False,
+            residual_pids=(26288,),
+            manual=True,
+            name=name,
+        )
+
+    monkeypatch.setattr(probe, "_run", fake_run)
+    result = probe.queue_jobs_lease_residue(r4.RestoreDeadline(600.0))
+
+    assert calls == ["queue-readback"]
+    assert result["manual_intervention_required"] is True
+    assert result["residual_pids"] == [26288]
+    assert result["process_chain_stopped"] is True
+    evidence = result["process_evidence"][0]
+    assert evidence["pid"] == 36768
+    assert evidence["descendants"][0]["pid"] == 26288
+
+
+def test_container_residual_stops_kubernetes_residue_children(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    probe = _bare_restore_probe_set(
+        {
+            "active_job_roots": [],
+            "active_claim_roots": [],
+            "gpu_lease_path": str(tmp_path / "gpu-lease.json"),
+            "x1_residue_paths": [],
+            "x1_ports": [],
+            "x1_kubernetes_selectors": ["scenario=x1-a", "scenario=x1-b"],
+        }
+    )
+    calls: list[str] = []
+
+    def fake_run(*_args: object, name: str, **_kwargs: object) -> dict[str, object]:
+        calls.append(name)
+        if name == "queue-readback":
+            return _command_probe_result(passed=True, stdout="0|0|0|0", name=name)
+        if name == "active-jobs-readback":
+            return _command_probe_result(passed=True, stdout='{"items":[]}', name=name)
+        return _command_probe_result(
+            passed=False,
+            residual_pids=(26288,),
+            manual=True,
+            name=name,
+        )
+
+    monkeypatch.setattr(probe, "_run", fake_run)
+    result = probe.queue_jobs_lease_residue(r4.RestoreDeadline(600.0))
+
+    assert calls == [
+        "queue-readback",
+        "active-jobs-readback",
+        "x1-docker-residue-readback",
+    ]
+    assert result["residual_pids"] == [26288]
+    assert len(result["process_evidence"]) == 3
+
+
+def test_container_nonzero_with_empty_stdout_cannot_prove_zero_residue(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    probe = _bare_restore_probe_set(
+        {
+            "active_job_roots": [],
+            "active_claim_roots": [],
+            "gpu_lease_path": str(tmp_path / "gpu-lease.json"),
+            "x1_residue_paths": [],
+            "x1_ports": [],
+            "x1_kubernetes_selectors": ["scenario=x1"],
+        }
+    )
+    calls: list[str] = []
+
+    def fake_run(*_args: object, name: str, **_kwargs: object) -> dict[str, object]:
+        calls.append(name)
+        if name == "queue-readback":
+            return _command_probe_result(passed=True, stdout="0|0|0|0", name=name)
+        if name == "active-jobs-readback":
+            return _command_probe_result(passed=True, stdout='{"items":[]}', name=name)
+        return _command_probe_result(passed=False, stdout="", name=name)
+
+    monkeypatch.setattr(probe, "_run", fake_run)
+    result = probe.queue_jobs_lease_residue(r4.RestoreDeadline(600.0))
+
+    assert result["passed"] is False
+    assert calls[-1] == "x1-docker-residue-readback"
+    assert not any(name.startswith("x1-residue-readback-") for name in calls)
+
+
+def test_first_selector_residual_stops_later_selector_and_is_in_pid_union(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    probe = _bare_restore_probe_set(
+        {
+            "active_job_roots": [],
+            "active_claim_roots": [],
+            "gpu_lease_path": str(tmp_path / "gpu-lease.json"),
+            "x1_residue_paths": [],
+            "x1_ports": [],
+            "x1_kubernetes_selectors": ["scenario=x1-a", "scenario=x1-b"],
+        }
+    )
+    calls: list[str] = []
+
+    def fake_run(*_args: object, name: str, **_kwargs: object) -> dict[str, object]:
+        calls.append(name)
+        if name == "queue-readback":
+            return _command_probe_result(passed=True, stdout="0|0|0|0", name=name)
+        if name == "active-jobs-readback":
+            return _command_probe_result(passed=True, stdout='{"items":[]}', name=name)
+        if name == "x1-docker-residue-readback":
+            return _command_probe_result(passed=True, stdout="", name=name)
+        return _command_probe_result(
+            passed=False,
+            residual_pids=(26288,),
+            manual=True,
+            name=name,
+        )
+
+    monkeypatch.setattr(probe, "_run", fake_run)
+    result = probe.queue_jobs_lease_residue(r4.RestoreDeadline(600.0))
+
+    assert calls[-1] == "x1-residue-readback-1"
+    assert "x1-residue-readback-2" not in calls
+    assert result["residual_pids"] == [26288]
+    assert len(result["process_evidence"]) == 4
+
+
+def test_node_residual_stops_plugin_and_survives_restore_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = _bare_restore_probe_set()
+    calls: list[str] = []
+
+    def fake_run(*_args: object, name: str, **_kwargs: object) -> dict[str, object]:
+        calls.append(name)
+        return _command_probe_result(
+            passed=False,
+            residual_pids=(26288,),
+            manual=True,
+            name=name,
+        )
+
+    monkeypatch.setattr(probe, "_run", fake_run)
+    result = probe.node_device_plugin_gpu(r4.RestoreDeadline(600.0))
+    assert calls == ["kubernetes-node-readback"]
+
+    clock = FakeClock()
+    probes = _passing_probes(clock)
+    probes["node_device_plugin_gpu"] = ScriptedProbe(clock, [result])
+    report = _run_restore(clock=clock, probes=probes)
+    stage = report.stages[-1]
+
+    assert report.residual_pids == (26288,)
+    assert stage.manual_intervention_required is True
+    assert stage.attempts[0]["manual_intervention_required"] is True
+    assert stage.details["process_evidence"][0]["pid"] == 36768
+
+
+def test_b0_failed_ready_never_starts_prediction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected_b0 = {
+        "uid": "expected-uid",
+        "image": "expected-image@sha256:abc",
+        "sample_image_uri": "/data/sample.jpg",
+        "ready_url": "http://127.0.0.1:30800/ready",
+        "predict_url": "http://127.0.0.1:30800/predict",
+    }
+    probe = _bare_restore_probe_set({"b0": expected_b0})
+    deployment = {
+        "metadata": {"uid": expected_b0["uid"]},
+        "spec": {
+            "replicas": 1,
+            "template": {
+                "spec": {"containers": [{"image": expected_b0["image"]}]}
+            },
+        },
+        "status": {"readyReplicas": 1, "availableReplicas": 1},
+    }
+    monkeypatch.setattr(
+        probe,
+        "_run",
+        lambda *_args, **_kwargs: _command_probe_result(
+            passed=True, stdout=json.dumps(deployment), name="b0-deployment-readback"
+        ),
+    )
+    http_calls: list[str] = []
+
+    def fake_http(
+        _deadline: object,
+        method: str,
+        _url: str,
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        http_calls.append(method)
+        return {"status": 503, "body": {"status": "not_ready"}, "error": None}
+
+    monkeypatch.setattr(probe, "_http_json", fake_http)
+    result = probe.b0_identity_cuda(r4.RestoreDeadline(600.0))
+
+    assert http_calls == ["GET"]
+    assert result["passed"] is False
+    assert result["invariants"]["b0_actual_cuda"] is False

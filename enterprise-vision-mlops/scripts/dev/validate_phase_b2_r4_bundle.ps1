@@ -53,13 +53,17 @@ function Get-LiteralAssignment(
         return $node.Left.VariablePath.UserPath -eq $VariableName
       }, $true))
   if ($matches.Count -ne 1) {
-    throw "bundle_validation_failed:literal_assignment_$VariableName:count=$($matches.Count)"
+    throw "bundle_validation_failed:literal_assignment_${VariableName}:count=$($matches.Count)"
+  }
+  $right = $matches[0].Right
+  if ($right -is [Management.Automation.Language.CommandExpressionAst]) {
+    $right = $right.Expression
   }
   try {
-    return [string]$matches[0].Right.SafeGetValue()
+    return [string]$right.SafeGetValue()
   }
   catch {
-    throw "bundle_validation_failed:literal_assignment_$VariableName:not_constant"
+    throw "bundle_validation_failed:literal_assignment_${VariableName}:not_constant"
   }
 }
 
@@ -192,7 +196,7 @@ try {
   $previousPythonPath = $env:PYTHONPATH
   try {
     $env:PYTHONPATH = Join-Path $repo 'src'
-    $runtimeOutput = @(& $Python -c 'import json;from evm.scale_validation.phase_b2_r4 import TimeoutContract;print(json.dumps(TimeoutContract().to_dict(),sort_keys=True,separators=(",",":")))' 2>&1)
+    $runtimeOutput = @(& $Python -c 'import json;from evm.scale_validation.phase_b2_r4 import TimeoutContract;print(json.dumps(TimeoutContract().to_dict(),sort_keys=True))' 2>&1)
     if ($LASTEXITCODE -ne 0) {
       throw "bundle_validation_failed:runtime_contract_read:$($runtimeOutput -join [Environment]::NewLine)"
     }

@@ -767,6 +767,7 @@ class RestoreStageEvidence:
     remaining_at_end_seconds: float
     probe_launches: int
     passed: bool
+    manual_intervention_required: bool
     last_error: str | None
     attempts: list[dict[str, Any]]
     details: Mapping[str, Any]
@@ -934,6 +935,7 @@ class RestoreHarness:
                         "remaining_after_seconds": deadline.remaining_seconds,
                         "passed": latest.passed,
                         "retryable": latest.retryable,
+                        "manual_intervention_required": latest.manual_intervention_required,
                         "last_error": latest.last_error,
                         "details": dict(latest.details),
                         "residual_pids": list(latest.residual_pids),
@@ -973,6 +975,7 @@ class RestoreHarness:
             remaining_at_end_seconds=deadline.remaining_seconds,
             probe_launches=launches,
             passed=latest.passed,
+            manual_intervention_required=latest.manual_intervention_required,
             last_error=latest.last_error,
             attempts=attempts,
             details=dict(latest.details),
