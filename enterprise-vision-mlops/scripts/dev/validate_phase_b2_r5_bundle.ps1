@@ -229,10 +229,18 @@ try {
   Assert-Check 'old_e48_revision_rejected' (
     $revision -ne $oldR4Revision -and -not $revision.StartsWith($oldR4RevisionPrefix, [StringComparison]::OrdinalIgnoreCase)
   ) $revision
-  Assert-Check 'old_e48_pin_absent_from_launchers' (
+  # The restore checkpoint is intentionally an immutable r4 artifact and its
+  # historical directory name may contain e48c1d8. Remove only those two
+  # parsed path literals before proving that no executable/runtime pin reuses
+  # the old revision.
+  $historicalCheckpointPath = Get-LiteralAssignment $bridgeAst 'CheckpointPath'
+  $historicalCheckpointIndexPath = Get-LiteralAssignment $bridgeAst 'CheckpointIndexPath'
+  $bridgeWithoutHistoricalCheckpointPaths = $bridgeText.Replace($historicalCheckpointPath, '')
+  $bridgeWithoutHistoricalCheckpointPaths = $bridgeWithoutHistoricalCheckpointPaths.Replace($historicalCheckpointIndexPath, '')
+  Assert-Check 'old_e48_runtime_pin_absent_from_launchers' (
     $outerText.IndexOf($oldR4RevisionPrefix, [StringComparison]::OrdinalIgnoreCase) -lt 0 -and
-    $bridgeText.IndexOf($oldR4RevisionPrefix, [StringComparison]::OrdinalIgnoreCase) -lt 0
-  ) 'absent'
+    $bridgeWithoutHistoricalCheckpointPaths.IndexOf($oldR4RevisionPrefix, [StringComparison]::OrdinalIgnoreCase) -lt 0
+  ) 'absent except immutable checkpoint paths'
 
   $mode = [string](Get-PropertyValue $manifest 'execution_mode')
   Assert-Check 'execution_mode_explicit' ($mode -cin @('restore-only', 'fresh')) $mode

@@ -139,7 +139,10 @@ def fixture_repository(tmp_path_factory: pytest.TempPathFactory) -> FixtureRepos
             "blob_oid": _blob_oid(root, revision, path),
         }
 
-    checkpoint_root = root.parent / "r4-checkpoint"
+    # Production r4 checkpoint paths contain the old revision prefix. The
+    # validator must allow that immutable historical reference while still
+    # rejecting e48c1d8 as any executable/runtime revision pin.
+    checkpoint_root = root.parent / f"r4-checkpoint-{OLD_R4_REVISION[:8]}"
     checkpoint_seal = checkpoint_root / "failure-seal.json"
     checkpoint_index = checkpoint_root / "failure-evidence-index.json"
     restore_report = checkpoint_root / "restore-only-report.json"
