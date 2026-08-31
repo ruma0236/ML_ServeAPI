@@ -727,3 +727,14 @@ def test_actual_restore_runner_non_vacuously_checks_jobs_and_claims() -> None:
     assert '"name=evm-x1"' in runner
     assert "[31120, 31121, 31122]" in runner
     assert 'self._kubectl_command("get", "all", "-A"' in runner
+
+
+def test_bundle_validator_does_not_leak_list_add_index_to_pipeline() -> None:
+    validator = (
+        Path(__file__).parents[1]
+        / "scripts"
+        / "dev"
+        / "validate_phase_b2_r4_bundle.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert "[void]$checks.Add(" in validator

@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 $checks = [Collections.Generic.List[object]]::new()
 
 function Add-Pass([string]$Name, [object]$Detail) {
-  $checks.Add([ordered]@{ name = $Name; status = 'PASS'; detail = $Detail })
+  [void]$checks.Add([ordered]@{ name = $Name; status = 'PASS'; detail = $Detail })
 }
 
 function Assert-Check([string]$Name, [bool]$Condition, [object]$Detail) {
