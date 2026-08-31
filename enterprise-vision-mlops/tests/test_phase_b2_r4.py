@@ -724,3 +724,6 @@ def test_actual_restore_runner_non_vacuously_checks_jobs_and_claims() -> None:
     assert "released_at IS NULL AND expires_at > clock_timestamp()" in runner
     assert '"active_jobs_zero": kubernetes_active_jobs == 0' in runner
     assert '"active_claims_zero": database_active_claims == 0' in runner
+    assert '"name=evm-x1"' in runner
+    assert "[31120, 31121, 31122]" in runner
+    assert 'self._kubectl_command("get", "all", "-A"' in runner

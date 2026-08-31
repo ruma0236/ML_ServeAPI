@@ -5,6 +5,7 @@ import base64
 import binascii
 import json
 import shutil
+import socket
 import sys
 import time
 from pathlib import Path
@@ -534,6 +535,31 @@ class RestoreOnlyProbeSet:
         )
         residue = [str(path) for path in residue_paths if path.exists()]
 
+        container_result = self._run(
+            deadline,
+            [
+                self.docker,
+                "ps",
+                "-a",
+                "--filter",
+                str(self.expected.get("x1_docker_name_filter", "name=evm-x1")),
+                "--format",
+                "{{json .}}",
+            ],
+            name="x1-docker-residue-readback",
+        )
+        container_lines = [
+            line for line in str(container_result["stdout"]).splitlines() if line.strip()
+        ]
+        x1_containers = [json.loads(line) for line in container_lines]
+        open_ports: list[int] = []
+        for raw_port in self.expected.get("x1_ports", [31120, 31121, 31122]):
+            port = int(raw_port)
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe_socket:
+                probe_socket.settimeout(0.5)
+                if probe_socket.connect_ex(("127.0.0.1", port)) == 0:
+                    open_ports.append(port)
+
         # K8s residue is required whenever the manifest supplies selectors.  An
         # unreadable query is a failure, never proof of absence.
         residue_queries: list[dict[str, Any]] = []
@@ -560,7 +586,12 @@ class RestoreOnlyProbeSet:
             "active_jobs_zero": kubernetes_active_jobs == 0 and file_active_jobs == 0,
             "active_claims_zero": database_active_claims == 0 and file_active_claims == 0,
             "gpu_lease_zero": not lease_path.exists(),
-            "x1_residue_zero": not residue and k8s_residue_count == 0,
+            "x1_residue_zero": (
+                not residue
+                and k8s_residue_count == 0
+                and not x1_containers
+                and not open_ports
+            ),
         }
         passed = all(invariants.values())
         return {
@@ -584,12 +615,17 @@ class RestoreOnlyProbeSet:
             "gpu_lease_path": str(lease_path),
             "residue_paths": residue,
             "kubernetes_residue": residue_queries,
+            "docker_residue": x1_containers,
+            "open_ports": open_ports,
             "process_evidence": [
                 queue_result["process_evidence"],
                 jobs_result["process_evidence"],
+                container_result["process_evidence"],
             ],
             "residual_pids": sorted(
-                set(queue_result["residual_pids"]) | set(jobs_result["residual_pids"])
+                set(queue_result["residual_pids"])
+                | set(jobs_result["residual_pids"])
+                | set(container_result["residual_pids"])
             ),
         }
 
