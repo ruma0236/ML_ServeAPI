@@ -200,7 +200,7 @@ def _toolchain(
             "path": str(git_attributes_path.resolve()),
             "sha256": git_attributes_sha,
             "bytes": git_attributes_bytes,
-            "rule_count": 15,
+            "rule_count": 20,
             "pattern_sha256": list(builder.GIT_ATTRIBUTES_PATTERN_SHA256),
             "attribute_tokens": ["text", "eol=lf"],
             "forbidden_attributes_absent": True,
@@ -925,7 +925,7 @@ def validator_fixture(tmp_path_factory: pytest.TempPathFactory) -> ValidatorFixt
         f"[int64]$gitRepositoryConfigPin.bytes -eq {git_config_bytes}",
     )
     validator_text = validator_text.replace(
-        "[int64]$gitRepositoryAttributesPin.bytes -eq 577",
+        (f"[int64]$gitRepositoryAttributesPin.bytes -eq {builder.EXPECTED_GIT_ATTRIBUTES_BYTES}"),
         f"[int64]$gitRepositoryAttributesPin.bytes -eq {git_attributes_bytes}",
     )
     _write(paths["validator"], validator_text)

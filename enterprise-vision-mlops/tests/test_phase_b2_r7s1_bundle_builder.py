@@ -873,7 +873,7 @@ def _toolchain(tmp_path: Path) -> dict[str, object]:
             "path": str(git_attributes_path),
             "sha256": builder.EXPECTED_GIT_ATTRIBUTES_SHA256,
             "bytes": builder.EXPECTED_GIT_ATTRIBUTES_BYTES,
-            "rule_count": 15,
+            "rule_count": 20,
             "pattern_sha256": list(builder.GIT_ATTRIBUTES_PATTERN_SHA256),
             "attribute_tokens": ["text", "eol=lf"],
             "forbidden_attributes_absent": True,
@@ -1810,3 +1810,92 @@ def test_source_pin_rejects_normalized_head_mismatch(
 
     with pytest.raises(builder.BundleBuildError, match="runtime_source_normalized_blob_mismatch"):
         builder.source_pin(project, relative)
+
+
+def _attributes_pin_for_test(path: Path, payload: bytes) -> dict[str, object]:
+    return {
+        "path": str(path.resolve()),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "bytes": len(payload),
+        "policy": copy.deepcopy(builder.GIT_REPOSITORY_ATTRIBUTES_POLICY),
+        "readback": {"path": str(path.with_suffix(".readback.json")), "sha256": "0" * 64},
+    }
+
+
+def _redirect_attributes_anchors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    attributes_path: Path,
+    payload: bytes,
+) -> None:
+    (tmp_path / ".git" / "info").mkdir(parents=True)
+    monkeypatch.setattr(builder, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(builder, "EXPECTED_GIT_ATTRIBUTES_PATH", attributes_path)
+    monkeypatch.setattr(
+        builder,
+        "EXPECTED_GIT_ATTRIBUTES_SHA256",
+        hashlib.sha256(payload).hexdigest(),
+    )
+    monkeypatch.setattr(builder, "EXPECTED_GIT_ATTRIBUTES_BYTES", len(payload))
+    monkeypatch.setattr(builder, "EXPECTED_GIT_TOP_ATTRIBUTES_PATH", tmp_path / "top.attributes")
+    monkeypatch.setattr(
+        builder,
+        "EXPECTED_GIT_INFO_ATTRIBUTES_PATH",
+        tmp_path / ".git" / "info" / "attributes",
+    )
+
+
+@pytest.mark.parametrize("mutation", ["remove", "add"])
+def test_git_attributes_self_consistent_rule_repin_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    rules = [
+        line
+        for line in (PROJECT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    if mutation == "remove":
+        rules.remove("configs/s4_gpu_batching_runtime.toml text eol=lf")
+    else:
+        rules.append("configs/unapproved-runtime.toml text eol=lf")
+    payload = ("\r\n".join(rules) + "\r\n").encode("utf-8")
+    attributes_path = tmp_path / ".gitattributes"
+    attributes_path.write_bytes(payload)
+    _redirect_attributes_anchors(tmp_path, monkeypatch, attributes_path, payload)
+
+    with pytest.raises(
+        builder.BundleBuildError,
+        match="toolchain_git_repository_attributes_pattern_policy_mismatch",
+    ):
+        builder._verify_git_repository_attributes_pin(
+            _attributes_pin_for_test(attributes_path, payload)
+        )
+
+
+def test_git_attributes_self_consistent_crlf_rewrite_repin_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    canonical_payload = (PROJECT / ".gitattributes").read_bytes()
+    assert hashlib.sha256(canonical_payload).hexdigest() == (builder.EXPECTED_GIT_ATTRIBUTES_SHA256)
+    assert len(canonical_payload) == builder.EXPECTED_GIT_ATTRIBUTES_BYTES
+    lf_payload = canonical_payload.replace(b"\r\n", b"\n")
+    assert lf_payload != canonical_payload
+    attributes_path = tmp_path / ".gitattributes"
+    attributes_path.write_bytes(lf_payload)
+    (tmp_path / ".git" / "info").mkdir(parents=True)
+    monkeypatch.setattr(builder, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(builder, "EXPECTED_GIT_ATTRIBUTES_PATH", attributes_path)
+    monkeypatch.setattr(builder, "EXPECTED_GIT_TOP_ATTRIBUTES_PATH", tmp_path / "top.attributes")
+    monkeypatch.setattr(
+        builder,
+        "EXPECTED_GIT_INFO_ATTRIBUTES_PATH",
+        tmp_path / ".git" / "info" / "attributes",
+    )
+
+    with pytest.raises(
+        builder.BundleBuildError,
+        match="toolchain_git_repository_attributes_pin_mismatch",
+    ):
+        builder._verify_git_repository_attributes_pin(
+            _attributes_pin_for_test(attributes_path, lf_payload)
+        )

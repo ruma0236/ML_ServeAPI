@@ -559,7 +559,14 @@ def _toolchain(tmp_path: Path) -> dict[str, object]:
     }
 
 
-def _materialized_toolchain(tmp_path: Path) -> dict[str, object]:
+def _materialized_toolchain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    attributes_path = (tmp_path / "project" / ".gitattributes").resolve()
+    attributes_path.parent.mkdir(parents=True)
+    attributes_payload = (Path(__file__).parents[1] / ".gitattributes").read_bytes()
+    assert len(attributes_payload) == r7s1.CANONICAL_GIT_ATTRIBUTES_BYTES
+    assert hashlib.sha256(attributes_payload).hexdigest() == r7s1.CANONICAL_GIT_ATTRIBUTES_SHA256
+    attributes_path.write_bytes(attributes_payload)
+    monkeypatch.setattr(r7s1, "CANONICAL_GIT_ATTRIBUTES_PATH", attributes_path)
     toolchain = _toolchain(tmp_path)
     for role in r7s1.HOST_TOOLCHAIN_ROLES:
         pin = toolchain[role]
@@ -635,7 +642,7 @@ def _materialized_toolchain(tmp_path: Path) -> dict[str, object]:
             "path": toolchain["git_repository_attributes"]["path"],
             "sha256": toolchain["git_repository_attributes"]["sha256"],
             "bytes": toolchain["git_repository_attributes"]["bytes"],
-            "rule_count": 15,
+            "rule_count": 20,
             "pattern_sha256": list(r7s1.GIT_ATTRIBUTES_PATTERN_SHA256),
             "attribute_tokens": ["text", "eol=lf"],
             "forbidden_attributes_absent": True,
@@ -1310,7 +1317,7 @@ def test_git_repository_config_role_is_mandatory(tmp_path: Path) -> None:
             "git_repository_attributes_bytes_mismatch",
         ),
         (
-            lambda attributes: attributes["policy"].update(rule_count=16),
+            lambda attributes: attributes["policy"].update(rule_count=21),
             "git_repository_attributes_policy_mismatch",
         ),
         (
@@ -1403,6 +1410,19 @@ def test_client_config_roles_are_mandatory(tmp_path: Path, role: str) -> None:
         r7s1.validate_toolchain_contract(value["toolchain"], verify_files=False)
 
 
+def test_git_attributes_policy_binds_exact_twenty_rule_projection() -> None:
+    assert r7s1.CANONICAL_GIT_ATTRIBUTES_BYTES == 873
+    assert r7s1.CANONICAL_GIT_ATTRIBUTES_SHA256 == (
+        "b88aa1f439520fb303392a13f0a0a07642c8a5449bd7c409597ebd791f6d4c28"
+    )
+    assert len(r7s1.GIT_ATTRIBUTES_PATTERN_SHA256) == 20
+    assert r7s1.GIT_REPOSITORY_ATTRIBUTES_POLICY["rule_count"] == 20
+    assert (
+        hashlib.sha256(r7s1.canonical_json_bytes(r7s1.GIT_REPOSITORY_ATTRIBUTES_POLICY)).hexdigest()
+        == "d55970cd3e48ec400efcd4ac07930763128f87c65a5d104b40e032530a56420c"
+    )
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -1483,9 +1503,13 @@ def test_container_psql_toolchain_rejects_scope_or_psqlrc_policy_weakening(
     ],
 )
 def test_toolchain_readbacks_are_exactly_bound_to_manifest_projection(
-    tmp_path: Path, label: str, field: str, value: object
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    label: str,
+    field: str,
+    value: object,
 ) -> None:
-    toolchain = _materialized_toolchain(tmp_path)
+    toolchain = _materialized_toolchain(tmp_path, monkeypatch)
     r7s1.validate_toolchain_contract(toolchain, verify_files=True)
     pin_key = (
         "evidence"

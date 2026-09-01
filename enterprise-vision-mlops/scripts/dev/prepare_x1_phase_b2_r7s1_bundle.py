@@ -266,8 +266,11 @@ GIT_REPOSITORY_CONFIG_POLICY = {
 EXPECTED_GIT_ATTRIBUTES_PATH = Path(
     r"C:\Users\mlops\EnterpriseMLOps_Project\enterprise-vision-mlops\.gitattributes"
 )
-EXPECTED_GIT_ATTRIBUTES_SHA256 = "d7303b6f3a537f1a8382adcf72c0ef49e4aa15261263d8f2c70a475f24f57fa5"
-EXPECTED_GIT_ATTRIBUTES_BYTES = 577
+# Expected clean core.autocrlf=true Windows checkout projection. Never pin the
+# mixed-EOL bytes of an isolated development clone; a production bundle still
+# requires final canonical worktree read-back after fast-forward.
+EXPECTED_GIT_ATTRIBUTES_SHA256 = "b88aa1f439520fb303392a13f0a0a07642c8a5449bd7c409597ebd791f6d4c28"
+EXPECTED_GIT_ATTRIBUTES_BYTES = 873
 EXPECTED_GIT_TOP_ATTRIBUTES_PATH = Path(r"C:\Users\mlops\EnterpriseMLOps_Project\.gitattributes")
 EXPECTED_GIT_INFO_ATTRIBUTES_PATH = Path(
     r"C:\Users\mlops\EnterpriseMLOps_Project\.git\info\attributes"
@@ -283,15 +286,20 @@ GIT_ATTRIBUTES_PATTERN_SHA256 = (
     "a0e09a0bd20e893dfd512fdf009dfad0937a4d2687d83ee789a912320cd2d623",
     "64999824d016021f7f629ff79b4d5930fb2a3956dda7b990e38a1e41aaaedc00",
     "751ce4b25fd592d4e0f86a8fb008f16c5705e59a73663d2a39405fc3a3030d39",
+    "4585a571715524fa51c7212e37013ea45634dfa2bae08894fa3cc616fc694add",
     "2b60b4c1a1cd70e2f4ade33310be82c61d8a4503ae8d55074fc752bbc9486e11",
     "2ca964ae17fe6f2b7f47f16540a299c0f7b3380f796e7ac8493bfcee7893378a",
+    "d33a66b3cae54c120aa43622305add50f90408cd5fe13c352a23842484f0463c",
     "21eb880d14a0ccc39dd9fc3798fbfb2d8e82101187e434e6020a575662c3c7d0",
+    "67910a034a8bd148c4dd7ebf77290d683b472f41e0439930e9abafb5f3814687",
+    "aee6486c93d6663b5bc80d06084d239fca28441a9d855c772a1aced1308e3298",
+    "3626f6d223bdcfed5091b89663ef5361d01c467ee8b1eea504f5a9b79320a9ad",
     "36313b00defa02c2145da13d795d2d4201ed45a044b952084d5638806c8d429b",
     "d539d33f0ac4e88605ec0ced396b039f8743174ddbed63c54b9792542dc729f3",
 )
 GIT_REPOSITORY_ATTRIBUTES_POLICY = {
     "schema": "s8-v4-x1-phase-b2-r7s1-git-attributes-policy/v1",
-    "rule_count": 15,
+    "rule_count": 20,
     "pattern_sha256": list(GIT_ATTRIBUTES_PATTERN_SHA256),
     "attribute_tokens": ["text", "eol=lf"],
     "forbidden_attributes": ["filter", "diff", "merge", "working-tree-encoding"],
@@ -1000,7 +1008,7 @@ def _verify_git_repository_attributes_pin(pin: Mapping[str, Any]) -> dict[str, A
         if len(fields) != 3 or fields[1:] != ["text", "eol=lf"]:
             raise BundleBuildError("toolchain_git_repository_attributes_rule_policy_mismatch")
         pattern_sha256.append(hashlib.sha256(fields[0].encode("utf-8")).hexdigest())
-    if len(rules) != 15 or pattern_sha256 != list(GIT_ATTRIBUTES_PATTERN_SHA256):
+    if len(rules) != 20 or pattern_sha256 != list(GIT_ATTRIBUTES_PATTERN_SHA256):
         raise BundleBuildError("toolchain_git_repository_attributes_pattern_policy_mismatch")
     for label, absent_path in (
         ("git_top_level_attributes", EXPECTED_GIT_TOP_ATTRIBUTES_PATH.resolve()),
@@ -1013,7 +1021,7 @@ def _verify_git_repository_attributes_pin(pin: Mapping[str, Any]) -> dict[str, A
         "path": str(attributes_path),
         "sha256": EXPECTED_GIT_ATTRIBUTES_SHA256,
         "bytes": EXPECTED_GIT_ATTRIBUTES_BYTES,
-        "rule_count": 15,
+        "rule_count": 20,
         "pattern_sha256": pattern_sha256,
         "attribute_tokens": ["text", "eol=lf"],
         "forbidden_attributes_absent": True,

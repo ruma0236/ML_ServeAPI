@@ -1052,8 +1052,8 @@ try {
   ) $gitAttributesPath
   Assert-Check 'git_repository_attributes_production_pin_exact' (
     ([string]$gitRepositoryAttributesPin.sha256).ToLowerInvariant() -ceq
-      'd7303b6f3a537f1a8382adcf72c0ef49e4aa15261263d8f2c70a475f24f57fa5' -and
-    [int64]$gitRepositoryAttributesPin.bytes -eq 577 -and
+      'b88aa1f439520fb303392a13f0a0a07642c8a5449bd7c409597ebd791f6d4c28' -and
+    [int64]$gitRepositoryAttributesPin.bytes -eq 873 -and
     [IO.File]::Exists($gitAttributesPath) -and
     [IO.FileInfo]::new($gitAttributesPath).Length -eq [int64]$gitRepositoryAttributesPin.bytes -and
     (Get-Sha256 $gitAttributesPath) -ceq
@@ -1080,9 +1080,14 @@ try {
     'a0e09a0bd20e893dfd512fdf009dfad0937a4d2687d83ee789a912320cd2d623',
     '64999824d016021f7f629ff79b4d5930fb2a3956dda7b990e38a1e41aaaedc00',
     '751ce4b25fd592d4e0f86a8fb008f16c5705e59a73663d2a39405fc3a3030d39',
+    '4585a571715524fa51c7212e37013ea45634dfa2bae08894fa3cc616fc694add',
     '2b60b4c1a1cd70e2f4ade33310be82c61d8a4503ae8d55074fc752bbc9486e11',
     '2ca964ae17fe6f2b7f47f16540a299c0f7b3380f796e7ac8493bfcee7893378a',
+    'd33a66b3cae54c120aa43622305add50f90408cd5fe13c352a23842484f0463c',
     '21eb880d14a0ccc39dd9fc3798fbfb2d8e82101187e434e6020a575662c3c7d0',
+    '67910a034a8bd148c4dd7ebf77290d683b472f41e0439930e9abafb5f3814687',
+    'aee6486c93d6663b5bc80d06084d239fca28441a9d855c772a1aced1308e3298',
+    '3626f6d223bdcfed5091b89663ef5361d01c467ee8b1eea504f5a9b79320a9ad',
     '36313b00defa02c2145da13d795d2d4201ed45a044b952084d5638806c8d429b',
     'd539d33f0ac4e88605ec0ced396b039f8743174ddbed63c54b9792542dc729f3'
   )
@@ -1097,7 +1102,7 @@ try {
   Assert-Check 'git_repository_attributes_policy_exact' (
     [string]$gitAttributesPolicy.schema -ceq
       's8-v4-x1-phase-b2-r7s1-git-attributes-policy/v1' -and
-    [int]$gitAttributesPolicy.rule_count -eq 15 -and
+    [int]$gitAttributesPolicy.rule_count -eq 20 -and
     (@($gitAttributesPolicy.pattern_sha256) -join [char]31) -ceq
       ($expectedGitAttributePatternSha256 -join [char]31) -and
     (@($gitAttributesPolicy.attribute_tokens) -join [char]31) -ceq
@@ -1133,7 +1138,7 @@ try {
     [void]$measuredGitAttributePatternSha256.Add($patternDigest)
   }
   Assert-Check 'git_repository_attributes_measured_rules_exact' (
-    $measuredGitAttributePatternSha256.Count -eq 15 -and
+    $measuredGitAttributePatternSha256.Count -eq 20 -and
     ($measuredGitAttributePatternSha256.ToArray() -join [char]31) -ceq
       ($expectedGitAttributePatternSha256 -join [char]31)
   ) $measuredGitAttributePatternSha256.ToArray()
@@ -1173,7 +1178,7 @@ try {
     [string]$gitAttributesReadback.sha256 -ceq
       ([string]$gitRepositoryAttributesPin.sha256).ToLowerInvariant() -and
     [int64]$gitAttributesReadback.bytes -eq [int64]$gitRepositoryAttributesPin.bytes -and
-    [int]$gitAttributesReadback.rule_count -eq 15 -and
+    [int]$gitAttributesReadback.rule_count -eq 20 -and
     (@($gitAttributesReadback.pattern_sha256) -join [char]31) -ceq
       ($expectedGitAttributePatternSha256 -join [char]31) -and
     (@($gitAttributesReadback.attribute_tokens) -join [char]31) -ceq
@@ -1183,7 +1188,7 @@ try {
     $gitAttributesReadback.git_info_attributes_absent -eq $true -and
     $gitAttributesReadback.system_attributes_disabled -eq $true -and
     [string]$gitAttributesReadback.policy_sha256 -ceq
-      'db24c3f5727a22a0bf36060f7fbd5cae9a4d466d38f436bc05f135b2639777c5'
+      'd55970cd3e48ec400efcd4ac07930763128f87c65a5d104b40e032530a56420c'
   ) $gitAttributesReadback
   Set-GitEnvironmentFence
   $windowsTcbPin = Get-PropertyValue $manifest.toolchain 'windows_tcb'

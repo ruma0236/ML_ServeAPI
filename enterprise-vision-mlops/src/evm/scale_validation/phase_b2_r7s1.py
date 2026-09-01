@@ -105,8 +105,12 @@ GIT_REPOSITORY_CONFIG_POLICY = {
 CANONICAL_GIT_ATTRIBUTES_PATH = Path(
     "C:/Users/mlops/EnterpriseMLOps_Project/enterprise-vision-mlops/.gitattributes"
 ).resolve()
-CANONICAL_GIT_ATTRIBUTES_SHA256 = "d7303b6f3a537f1a8382adcf72c0ef49e4aa15261263d8f2c70a475f24f57fa5"
-CANONICAL_GIT_ATTRIBUTES_BYTES = 577
+# Deterministic Windows checkout projection produced by the canonical
+# repository's core.autocrlf=true policy (20 LF-enforced rules), not the
+# mixed-EOL bytes of an intermediate development clone. Production authority
+# still requires a post-fast-forward canonical worktree read-back.
+CANONICAL_GIT_ATTRIBUTES_SHA256 = "b88aa1f439520fb303392a13f0a0a07642c8a5449bd7c409597ebd791f6d4c28"
+CANONICAL_GIT_ATTRIBUTES_BYTES = 873
 CANONICAL_GIT_TOP_ATTRIBUTES_PATH = Path(
     "C:/Users/mlops/EnterpriseMLOps_Project/.gitattributes"
 ).resolve()
@@ -124,15 +128,20 @@ GIT_ATTRIBUTES_PATTERN_SHA256 = (
     "a0e09a0bd20e893dfd512fdf009dfad0937a4d2687d83ee789a912320cd2d623",
     "64999824d016021f7f629ff79b4d5930fb2a3956dda7b990e38a1e41aaaedc00",
     "751ce4b25fd592d4e0f86a8fb008f16c5705e59a73663d2a39405fc3a3030d39",
+    "4585a571715524fa51c7212e37013ea45634dfa2bae08894fa3cc616fc694add",
     "2b60b4c1a1cd70e2f4ade33310be82c61d8a4503ae8d55074fc752bbc9486e11",
     "2ca964ae17fe6f2b7f47f16540a299c0f7b3380f796e7ac8493bfcee7893378a",
+    "d33a66b3cae54c120aa43622305add50f90408cd5fe13c352a23842484f0463c",
     "21eb880d14a0ccc39dd9fc3798fbfb2d8e82101187e434e6020a575662c3c7d0",
+    "67910a034a8bd148c4dd7ebf77290d683b472f41e0439930e9abafb5f3814687",
+    "aee6486c93d6663b5bc80d06084d239fca28441a9d855c772a1aced1308e3298",
+    "3626f6d223bdcfed5091b89663ef5361d01c467ee8b1eea504f5a9b79320a9ad",
     "36313b00defa02c2145da13d795d2d4201ed45a044b952084d5638806c8d429b",
     "d539d33f0ac4e88605ec0ced396b039f8743174ddbed63c54b9792542dc729f3",
 )
 GIT_REPOSITORY_ATTRIBUTES_POLICY = {
     "schema": "s8-v4-x1-phase-b2-r7s1-git-attributes-policy/v1",
-    "rule_count": 15,
+    "rule_count": 20,
     "pattern_sha256": list(GIT_ATTRIBUTES_PATTERN_SHA256),
     "attribute_tokens": ["text", "eol=lf"],
     "forbidden_attributes": ["filter", "diff", "merge", "working-tree-encoding"],
@@ -2062,7 +2071,7 @@ def validate_toolchain_contract(value: Any, *, verify_files: bool) -> dict[str, 
                     payload["path"] != normalized["git_repository_attributes"]["path"]
                     or payload["sha256"] != normalized["git_repository_attributes"]["sha256"]
                     or payload["bytes"] != normalized["git_repository_attributes"]["bytes"]
-                    or payload["rule_count"] != 15
+                    or payload["rule_count"] != 20
                     or payload["pattern_sha256"] != list(GIT_ATTRIBUTES_PATTERN_SHA256)
                     or payload["attribute_tokens"] != ["text", "eol=lf"]
                     or payload["forbidden_attributes_absent"] is not True
