@@ -6,10 +6,12 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 MANIFEST_FAMILIES = ("image", "vlm", "llm")
 MANIFEST_SNAPSHOT_CONTRACT_SCHEMA = "evm.s7_manifest_snapshot_contract.v1"
+TRUSTED_MANIFEST_ENVELOPE_SCHEMA = "evm.s7_manifest_trusted_envelope.v1"
 MANIFEST_SEMANTIC_CONTRACT = {
     "schema_version": "evm.s7_manifest_semantic_identity.v1",
     "encoding": "utf-8",
@@ -97,6 +99,103 @@ def _write_exclusive(path: Path, raw: bytes) -> None:
             os.fsync(stream.fileno())
     finally:
         os.close(descriptor)
+
+
+def publish_exclusive_atomic_bytes(path: Path, raw: bytes) -> dict[str, Any]:
+    """Publish complete bytes without ever replacing an existing final path."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canonical_path = str(path.parent.resolve(strict=True) / path.name)
+    identity = {
+        "path": canonical_path,
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.publish")
+    _write_exclusive(temporary, raw)
+    if temporary.read_bytes() != raw:
+        temporary.unlink(missing_ok=True)
+        raise S7ManifestContractError("exclusive_publish_precommit_readback")
+    linked = False
+    temporary_cleanup_error: str | None = None
+    try:
+        os.link(temporary, path)
+        linked = True
+    finally:
+        try:
+            temporary.unlink()
+        except OSError as exc:
+            if not linked:
+                raise S7ManifestContractError("exclusive_publish_temp_cleanup") from exc
+            temporary_cleanup_error = type(exc).__name__
+    return {
+        **identity,
+        "temporary_cleanup_error": temporary_cleanup_error,
+    }
+
+
+def build_trusted_manifest_envelope(
+    *,
+    suite_id: str,
+    source_revision: str,
+    manifest_snapshot_binding_sha256: str,
+    private_evidence_index_sha256: str,
+    public_evidence_sha256: str,
+) -> dict[str, Any]:
+    values = (
+        manifest_snapshot_binding_sha256,
+        private_evidence_index_sha256,
+        public_evidence_sha256,
+    )
+    if any(
+        len(value) != 64 or any(character not in "0123456789abcdef" for character in value)
+        for value in values
+    ):
+        raise S7ManifestContractError("trusted_manifest_envelope_sha256")
+    if len(source_revision) != 40 or any(
+        character not in "0123456789abcdef" for character in source_revision
+    ):
+        raise S7ManifestContractError("trusted_manifest_envelope_revision")
+    if not suite_id:
+        raise S7ManifestContractError("trusted_manifest_envelope_suite")
+    return {
+        "schema_version": TRUSTED_MANIFEST_ENVELOPE_SCHEMA,
+        "suite_id": suite_id,
+        "source_revision": source_revision,
+        "manifest_snapshot_binding_sha256": manifest_snapshot_binding_sha256,
+        "private_evidence_index_sha256": private_evidence_index_sha256,
+        "public_evidence_sha256": public_evidence_sha256,
+        "acceptance_credit": False,
+    }
+
+
+def validate_trusted_manifest_envelope(
+    envelope: Mapping[str, Any],
+    *,
+    suite_id: str,
+    source_revision: str,
+) -> dict[str, Any]:
+    if set(envelope) != {
+        "schema_version",
+        "suite_id",
+        "source_revision",
+        "manifest_snapshot_binding_sha256",
+        "private_evidence_index_sha256",
+        "public_evidence_sha256",
+        "acceptance_credit",
+    }:
+        raise S7ManifestContractError("trusted_manifest_envelope_keys")
+    expected = build_trusted_manifest_envelope(
+        suite_id=suite_id,
+        source_revision=source_revision,
+        manifest_snapshot_binding_sha256=str(
+            envelope.get("manifest_snapshot_binding_sha256") or ""
+        ),
+        private_evidence_index_sha256=str(envelope.get("private_evidence_index_sha256") or ""),
+        public_evidence_sha256=str(envelope.get("public_evidence_sha256") or ""),
+    )
+    if dict(envelope) != expected:
+        raise S7ManifestContractError("trusted_manifest_envelope_identity")
+    return expected
 
 
 def create_run_scoped_manifest_snapshots(

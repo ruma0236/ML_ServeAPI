@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import concurrent.futures
 import hashlib
 import json
@@ -36,25 +37,25 @@ from evm.control_panel.scenario_workloads import (  # noqa: E402
     read_active_gpu_lease,
     release_scale_validation_gpu_lease,
 )
-from evm.scale_validation.evidence import write_public_json  # noqa: E402
+from evm.scale_validation.evidence import canonical_public_json_bytes  # noqa: E402
 from evm.scale_validation.s7_evidence import (  # noqa: E402
     SMOKE_CLAIM_BOUNDARY,
     project_profile,
     source_git_identity,
 )
 from evm.scale_validation.s7_manifest_contract import (  # noqa: E402
+    build_trusted_manifest_envelope,
     create_run_scoped_manifest_snapshots,
     manifest_snapshot_binding_sha256,
+    publish_exclusive_atomic_bytes,
 )
 from evm.scale_validation.s7_runtime import (  # noqa: E402
     S7RuntimeConfig,
     S7RuntimeError,
-    analyze_s7_profiles,
     canonical_sha256,
     file_sha256,
     host_image_data_environment,
     profile_family,
-    restore_file_sd_target,
     source_identity,
 )
 
@@ -62,6 +63,7 @@ from evm.scale_validation.s7_runtime import (  # noqa: E402
 PROMETHEUS_URL = "http://127.0.0.1:9090"
 TARGET_JOB = "evm-s7-family"
 EXPECTED_BASELINE_TARGET_COUNT = 5
+S7_V3_KERNEL_CONTAINMENT_IMPLEMENTED = False
 SCENARIO_CONTRACT_PATHS = {
     "image": "configs/scenarios/manufacturing-visual-inspection.json",
     "vlm": "configs/scenarios/scienceqa-vlm-evaluation.json",
@@ -110,6 +112,14 @@ class ServiceProcess:
     log_handle: Any
     log_path: Path
     base_url: str
+    run_uuid: str
+    root_created_at: float
+
+
+class S7ManualInterventionRequired(S7RuntimeError):
+    def __init__(self, message: str, *, process_evidence: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.process_evidence = process_evidence
 
 
 @dataclass(frozen=True)
@@ -142,7 +152,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=ROOT / "docs/status/evidence/s7-auxiliary-admission-experiment.json",
+        required=True,
+        help="New absent append-only public evidence path; existing paths are rejected.",
     )
     parser.add_argument("--maintenance-approved", action="store_true")
     parser.add_argument(
@@ -171,18 +182,38 @@ def main() -> int:
     families = tuple(value.strip() for value in args.families.split(",") if value.strip())
     if any(family not in {"image", "vlm", "llm"} for family in families):
         raise S7RuntimeError("s7_family_selection_invalid")
-    if not args.diagnostic and families != ("image", "vlm", "llm"):
-        raise S7RuntimeError("s7_acceptance_requires_all_families")
+    if not args.diagnostic:
+        raise S7RuntimeError("s7_acceptance_mode_disabled_pending_independent_review")
+    if families != ("image", "vlm", "llm"):
+        raise S7RuntimeError("s7_v3_diagnostic_requires_all_families")
+    if not args.acknowledge_diagnostic_manifest_drift:
+        raise S7RuntimeError("s7_v3_diagnostic_requires_explicit_manifest_drift_acknowledgement")
+    if not S7_V3_KERNEL_CONTAINMENT_IMPLEMENTED:
+        raise S7RuntimeError("s7_v3_execution_blocked_kernel_containment_required")
     if not args.cuda_python.is_file():
         raise S7RuntimeError("s7_cuda_python_missing")
     suite_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{revision[:8]}"
     suite_root = args.private_root / suite_id
     suite_root.mkdir(parents=True, exist_ok=False)
     (suite_root / "profiles").mkdir()
+    trusted_envelope_output = args.output.with_name(f"{args.output.stem}.trusted-envelope.json")
+    if args.output.exists() or trusted_envelope_output.exists():
+        publish_failure_seal(
+            suite_root,
+            failure_seal_payload(
+                suite_id=suite_id,
+                stage="success_output_preflight",
+                error=S7RuntimeError("s7_success_output_exists"),
+                manual_intervention_required=False,
+                process_evidence=None,
+                pre_mutation_checkpoint=None,
+                restore_checkpoint=None,
+            ),
+        )
+        raise S7RuntimeError("s7_success_output_exists")
     assets = load_assets(args.config, args.data_root)
     runtime_asset_overrides: dict[str, dict[str, Any]] = {}
-    if args.diagnostic and args.acknowledge_diagnostic_manifest_drift:
-        assets, runtime_asset_overrides = resolve_diagnostic_manifest_drift(assets)
+    assets, runtime_asset_overrides = resolve_diagnostic_manifest_drift(assets)
     validate_assets(assets)
     manifest_snapshot_contract = create_run_scoped_manifest_snapshots(
         suite_root=suite_root,
@@ -247,16 +278,34 @@ def main() -> int:
             "started_at": utc_now(),
         },
     )
+    pre_mutation_checkpoint = {
+        "schema_version": "evm.s7_lifecycle_checkpoint.v1",
+        "stage": "pre_mutation",
+        "suite_id": suite_id,
+        "holder": holder.__dict__,
+        "active_gpu_lease": None,
+        "file_sd": file_state(target_path),
+        "file_sd_restore_bytes_base64": (
+            base64.b64encode(prior_target).decode("ascii") if prior_target is not None else None
+        ),
+        "prometheus": prometheus_before,
+        "mutations_started": False,
+        "recorded_at": utc_now(),
+    }
+    canonical_write(suite_root / "lifecycle-pre-mutation.json", pre_mutation_checkpoint)
     profile_results: list[dict[str, Any]] = []
     ready_identities: dict[str, dict[str, Any]] = {}
     failed: dict[str, Any] | None = None
     failure_exc: Exception | None = None
     family_cleanup: list[dict[str, Any]] = []
     final_target_cleanup: dict[str, Any] | None = None
+    restore_checkpoint: dict[str, Any] | None = None
+    manual_latch_evidence: dict[str, Any] | None = None
+    owned_lease: GpuLease | None = None
     holder_scaled_down = False
     try:
-        scale_holder(holder, replicas=0, require_ready=False)
         holder_scaled_down = True
+        scale_holder(holder, replicas=0, require_ready=False)
         for family in families:
             lease = acquire_scale_validation_gpu_lease(
                 f"s7-{family}-{suite_id}",
@@ -266,6 +315,11 @@ def main() -> int:
                 model_family=family,  # type: ignore[arg-type]
                 owner_pid=os.getpid(),
                 ttl_seconds=7200,
+            )
+            owned_lease = lease
+            canonical_write(
+                suite_root / f"{family}-lease-acquired.json",
+                lease_checkpoint(lease, stage="acquired"),
             )
             service: ServiceProcess | None = None
             family_started = time.monotonic()
@@ -319,14 +373,39 @@ def main() -> int:
                         )
                         time.sleep(config.cooldown_seconds)
             finally:
+                stop_evidence: dict[str, Any] | None = None
                 if service is not None:
-                    stop_service(service)
+                    try:
+                        stop_evidence = stop_service(service)
+                    except S7ManualInterventionRequired as exc:
+                        manual_latch_evidence = exc.process_evidence
+                        manual_latch_evidence["owned_gpu_lease"] = lease_checkpoint(
+                            lease, stage="preserved_for_manual_intervention"
+                        )
+                        family_cleanup.append(
+                            {
+                                "family": family,
+                                "lease_state": "preserved_for_manual_intervention",
+                                "elapsed_seconds": time.monotonic() - family_started,
+                                "service_process_stopped": False,
+                                "process_evidence": manual_latch_evidence,
+                                "active_lease_zero": False,
+                                "followup_probe_count": 0,
+                            }
+                        )
+                        canonical_write(suite_root / f"{family}-cleanup.json", family_cleanup[-1])
+                        raise
                 released = release_scale_validation_gpu_lease(
                     run_id=lease.run_id,
                     lease_id=lease.lease_id,
                     fencing_token=lease.fencing_token,
                     reason=f"S7 {family} family profiles completed",
                 )
+                canonical_write(
+                    suite_root / f"{family}-lease-released.json",
+                    lease_checkpoint(released, stage="released"),
+                )
+                owned_lease = None
                 family_cleanup.append(
                     {
                         "family": family,
@@ -334,6 +413,7 @@ def main() -> int:
                         "elapsed_seconds": time.monotonic() - family_started,
                         "service_process_stopped": service is None
                         or service.process.poll() is not None,
+                        "process_evidence": stop_evidence,
                         "active_lease_zero": read_active_gpu_lease() is None,
                         "gpu_after": gpu_snapshot(),
                     }
@@ -347,50 +427,97 @@ def main() -> int:
             "error": str(exc),
             "completed_profile_repetitions": len(profile_results),
             "acceptance_credit": False,
-            "action": "Stopped new family load and entered exact holder/lease cleanup.",
+            "action": "Stopped new family load and entered bounded fail-closed handling.",
             "recorded_at": utc_now(),
         }
-        canonical_write(suite_root / "failed-attempt.json", failed)
+        if isinstance(exc, S7ManualInterventionRequired):
+            manual_latch_evidence = exc.process_evidence
         failure_exc = exc
     finally:
-        active = read_active_gpu_lease()
-        if active is not None and active.state == "active" and active.run_id.startswith("s7-"):
-            release_scale_validation_gpu_lease(
-                run_id=active.run_id,
-                lease_id=active.lease_id,
-                fencing_token=active.fencing_token,
-                reason="S7 fail-closed final cleanup",
-            )
-        if holder_scaled_down:
-            scale_holder(holder, replicas=holder.replicas, require_ready=True)
-        restore_file_sd_target(target_path, prior_target)
-        try:
-            final_target_cleanup = refresh_prometheus_target_absent(
-                timeout=45,
-                expected_baseline_target_count=EXPECTED_BASELINE_TARGET_COUNT,
-            )
-        except Exception as exc:
-            final_target_cleanup = {
-                "restored": False,
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
-            if failure_exc is None:
-                failure_exc = exc
-                failed = {
-                    "schema_version": "evm.s7_failed_attempt.v1",
-                    "suite_id": suite_id,
+        followup_policy = lifecycle_followup_policy(manual_latch_evidence)
+        if followup_policy["automatic_restore_allowed"]:
+            try:
+                final_target_cleanup = restore_runtime_state(
+                    holder=holder,
+                    holder_scaled_down=holder_scaled_down,
+                    target_path=target_path,
+                    prior_target=prior_target,
+                    owned_lease=owned_lease,
+                )
+            except Exception as exc:
+                final_target_cleanup = {
+                    "restored": False,
                     "error_type": type(exc).__name__,
                     "error": str(exc),
-                    "completed_profile_repetitions": len(profile_results),
-                    "acceptance_credit": False,
-                    "action": "Prometheus cleanup did not restore the frozen baseline.",
-                    "recorded_at": utc_now(),
                 }
+                if failure_exc is None:
+                    failure_exc = exc
+                    failed = {
+                        "schema_version": "evm.s7_failed_attempt.v1",
+                        "suite_id": suite_id,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                        "completed_profile_repetitions": len(profile_results),
+                        "acceptance_credit": False,
+                        "action": "Exact lifecycle restore did not complete.",
+                        "recorded_at": utc_now(),
+                    }
+        else:
+            final_target_cleanup = {
+                "restored": False,
+                "automatic_restore_skipped": True,
+                "reason": "residual_process_manual_intervention_required",
+                "followup_probe_count": 0,
+                "followup_policy": followup_policy,
+            }
+    if manual_latch_evidence is not None:
+        manual_error = failure_exc or S7ManualInterventionRequired(
+            "s7_residual_manual_intervention_required",
+            process_evidence=manual_latch_evidence,
+        )
+        publish_failure_seal(
+            suite_root,
+            failure_seal_payload(
+                suite_id=suite_id,
+                stage="service_residual_latch",
+                error=manual_error,
+                manual_intervention_required=True,
+                process_evidence=manual_latch_evidence,
+                pre_mutation_checkpoint=pre_mutation_checkpoint,
+                restore_checkpoint=None,
+            ),
+        )
+        raise manual_error
+    if not final_target_cleanup or final_target_cleanup.get("restored") is not True:
+        restore_error = failure_exc or S7RuntimeError("s7_exact_restore_incomplete")
+        restore_checkpoint = {
+            "schema_version": "evm.s7_lifecycle_checkpoint.v1",
+            "stage": "restore_failed",
+            "suite_id": suite_id,
+            "restore": final_target_cleanup,
+            "success_probe_count_after_failure": 0,
+            "recorded_at": utc_now(),
+        }
+        publish_failure_seal(
+            suite_root,
+            failure_seal_payload(
+                suite_id=suite_id,
+                stage="exact_restore_failure",
+                error=restore_error,
+                manual_intervention_required=True,
+                process_evidence=None,
+                pre_mutation_checkpoint=pre_mutation_checkpoint,
+                restore_checkpoint=restore_checkpoint,
+            ),
+        )
+        raise restore_error
     source_after = source_serving_probe(holder, manifest=image_manifest_snapshot)
+    holder_after = capture_holder()
     cleanup = {
         "schema_version": "evm.s7_cleanup.v1",
-        "holder_uid_exact": capture_holder().uid == holder.uid,
+        "holder_uid_exact": holder_after.uid == holder.uid,
+        "holder_image_exact": holder_after.image == holder.image,
+        "holder_replicas_exact": holder_after.replicas == holder.replicas,
         "source_model_sha256_exact": source_after.get("model_sha256") == holder.model_sha256,
         "source_candidate_exact": source_after.get("candidate_id") == holder.candidate_id,
         "source_cuda_inference": source_after.get("device") == "cuda",
@@ -405,6 +532,23 @@ def main() -> int:
         cleanup,
         expected_baseline_target_count=EXPECTED_BASELINE_TARGET_COUNT,
     )
+    restore_checkpoint = {
+        "schema_version": "evm.s7_lifecycle_checkpoint.v1",
+        "stage": "post_restore",
+        "suite_id": suite_id,
+        "holder": holder_after.__dict__,
+        "holder_uid_exact": cleanup["holder_uid_exact"],
+        "holder_image_exact": cleanup["holder_image_exact"],
+        "holder_replicas_exact": cleanup["holder_replicas_exact"],
+        "active_gpu_lease": None if cleanup["gpu_lease_zero"] else "nonzero",
+        "file_sd": file_state(target_path),
+        "file_sd_matches_pre_mutation": file_state(target_path)
+        == pre_mutation_checkpoint["file_sd"],
+        "prometheus": cleanup["prometheus_baseline"],
+        "restore_complete": cleanup["cleanup_passed"],
+        "recorded_at": utc_now(),
+    }
+    canonical_write(suite_root / "lifecycle-post-restore.json", restore_checkpoint)
     canonical_write(suite_root / "cleanup.json", cleanup)
     if failure_exc is None and cleanup["cleanup_passed"] is not True:
         failure_exc = S7RuntimeError("s7_cleanup_contract_failed")
@@ -420,27 +564,43 @@ def main() -> int:
         }
     if failure_exc is not None:
         assert failed is not None
-        failed["action"] = "Fail-closed cleanup completed; no acceptance credit was assigned."
-        failed["cleanup"] = {
-            "source_model_sha256_exact": cleanup["source_model_sha256_exact"],
-            "source_candidate_exact": cleanup["source_candidate_exact"],
-            "source_cuda_inference": cleanup["source_cuda_inference"],
-            "gpu_lease_zero": cleanup["gpu_lease_zero"],
-            "prometheus_baseline": cleanup["prometheus_baseline"],
-        }
-        canonical_write(suite_root / "failed-attempt.json", failed)
+        publish_failure_seal(
+            suite_root,
+            failure_seal_payload(
+                suite_id=suite_id,
+                stage="runtime_or_restore_failure",
+                error=failure_exc,
+                manual_intervention_required=False,
+                process_evidence=None,
+                pre_mutation_checkpoint=pre_mutation_checkpoint,
+                restore_checkpoint=restore_checkpoint,
+            ),
+        )
         raise failure_exc
     if args.diagnostic:
         index = private_evidence_index(
             suite_root, manifest_snapshot_contract=manifest_snapshot_contract
         )
-        canonical_write(suite_root / "private-evidence-index.json", index)
         errors: list[str] = []
         projected = [
             project_profile(item, config=config, errors=errors) for item in profile_results
         ]
         if errors or set(ready_identities) != set(families):
-            raise S7RuntimeError("s7_diagnostic_projection_failed:" + ",".join(errors))
+            projection_error = S7RuntimeError("s7_diagnostic_projection_failed:" + ",".join(errors))
+            publish_failure_seal(
+                suite_root,
+                failure_seal_payload(
+                    suite_id=suite_id,
+                    stage="diagnostic_projection",
+                    error=projection_error,
+                    manual_intervention_required=False,
+                    process_evidence=None,
+                    pre_mutation_checkpoint=pre_mutation_checkpoint,
+                    restore_checkpoint=restore_checkpoint,
+                ),
+            )
+            raise projection_error
+        canonical_write(suite_root / "private-evidence-index.json", index)
         index_raw = (suite_root / "private-evidence-index.json").read_bytes()
         public = {
             "schema_version": "evm.s7_current_revision_cuda_smoke.v3",
@@ -508,60 +668,38 @@ def main() -> int:
             "claim_boundary": SMOKE_CLAIM_BOUNDARY,
             "generated_at": utc_now(),
         }
-        write_public_json(args.output, public)
+        public_raw = canonical_public_json_bytes(public)
+        trusted_envelope = build_trusted_manifest_envelope(
+            suite_id=suite_id,
+            source_revision=revision,
+            manifest_snapshot_binding_sha256=manifest_snapshot_binding,
+            private_evidence_index_sha256=hashlib.sha256(index_raw).hexdigest(),
+            public_evidence_sha256=hashlib.sha256(public_raw).hexdigest(),
+        )
+        try:
+            publish_exclusive_atomic_bytes(args.output, public_raw)
+            # The independently pinned envelope is the final and sole success
+            # commit.  Nothing fallible may be published after it: a public-only
+            # orphan remains untrusted, while a committed envelope must never be
+            # followed by a contradictory failure artifact.
+            write_public_json_exclusive(trusted_envelope_output, trusted_envelope)
+        except Exception as exc:
+            publish_failure_seal(
+                suite_root,
+                failure_seal_payload(
+                    suite_id=suite_id,
+                    stage="diagnostic_success_publication",
+                    error=exc,
+                    manual_intervention_required=False,
+                    process_evidence=None,
+                    pre_mutation_checkpoint=pre_mutation_checkpoint,
+                    restore_checkpoint=restore_checkpoint,
+                ),
+            )
+            raise
         print(json.dumps({"status": "diagnostic_passed", "suite_root": str(suite_root)}))
         return 0
-    index = private_evidence_index(
-        suite_root, manifest_snapshot_contract=manifest_snapshot_contract
-    )
-    canonical_write(suite_root / "private-evidence-index.json", index)
-    errors: list[str] = []
-    projected = [project_profile(item, config=config, errors=errors) for item in profile_results]
-    analysis = analyze_s7_profiles(projected, config)
-    if errors or analysis["runtime_verdict"] != "passed":
-        canonical_write(
-            suite_root / "acceptance-failure.json",
-            {"errors": errors, "analysis": analysis, "acceptance_credit": False},
-        )
-        raise S7RuntimeError("s7_acceptance_failed:" + ",".join(errors))
-    index_raw = (suite_root / "private-evidence-index.json").read_bytes()
-    public = {
-        "schema_version": "evm.s7_auxiliary_admission_experiment.v1",
-        "status": "verified",
-        "verdict": "passed",
-        "suite_id": suite_id,
-        "source_identity": {
-            "revision": revision,
-            "branch": branch,
-            "config_sha256": config.sha256,
-            "git_blobs": source_git_identity(args.root.parent, revision),
-        },
-        "runtime_contract": config.public_dict(),
-        "profiles": projected,
-        "analysis": analysis,
-        "private_evidence": {
-            "artifact_count": len(index["artifacts"]),
-            "total_bytes": sum(int(item["bytes"]) for item in index["artifacts"]),
-            "aggregate_sha256": index["aggregate_sha256"],
-            "index_sha256": hashlib.sha256(index_raw).hexdigest(),
-            "location": "outside_git_private_evidence_root",
-        },
-        "cleanup_summary": {
-            "source_serving_ready": cleanup["source_model_sha256_exact"]
-            and cleanup["source_cuda_inference"],
-            "gpu_lease_zero": cleanup["gpu_lease_zero"],
-            "family_count": len(family_cleanup),
-            "prometheus_up": cleanup["prometheus_baseline"]["all_up"],
-        },
-        "failed_attempts": [] if failed is None else [failed],
-        "claim_boundary": config.claim_boundary,
-        "generated_at": utc_now(),
-    }
-    write_public_json(args.output, public)
-    print(
-        json.dumps({"status": "passed", "output": str(args.output), "suite_root": str(suite_root)})
-    )
-    return 0
+    raise S7RuntimeError("s7_acceptance_mode_unreachable")
 
 
 def load_assets(config_path: Path, data_root: Path) -> dict[str, AssetSpec]:
@@ -913,7 +1051,7 @@ def run_profile(
         "final_admission": final_admission,
         "prometheus_up": prometheus_up,
         "prometheus_recovery_seconds": float(prometheus_recovery["elapsed_seconds"]),
-        "prometheus_refresh_restart_used": bool(prometheus_recovery["restart_used"]),
+        "prometheus_refresh_restart_used": bool(prometheus_recovery["container_restart_count"]),
         "lease_identity_exact": True,
         "lease": {
             "run_id": lease.run_id,
@@ -1022,6 +1160,7 @@ def start_service(
     lease: GpuLease,
 ) -> ServiceProcess:
     env = os.environ.copy()
+    service_run_uuid = str(uuid4())
     env.update(
         {
             "PYTHONPATH": os.pathsep.join([str(args.root), str(args.root / "src")]),
@@ -1033,6 +1172,7 @@ def start_service(
             "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:4318/v1/traces",
             "OTEL_SERVICE_NAMESPACE": "enterprise-mlops-scale-validation",
             "OTEL_SERVICE_INSTANCE_ID": f"s7-{family}-{suite_id}",
+            "EVM_S7_SERVICE_RUN_UUID": service_run_uuid,
         }
     )
     if family == "image":
@@ -1111,39 +1251,140 @@ def start_service(
         stderr=subprocess.STDOUT,
         text=True,
         creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0),
+        start_new_session=os.name != "nt",
     )
-    return ServiceProcess(family, process, handle, log_path, f"http://127.0.0.1:{asset.port}")
+    root_created_at = psutil.Process(process.pid).create_time()
+    return ServiceProcess(
+        family,
+        process,
+        handle,
+        log_path,
+        f"http://127.0.0.1:{asset.port}",
+        service_run_uuid,
+        root_created_at,
+    )
 
 
-def stop_service(service: ServiceProcess) -> None:
+def _process_record(process: psutil.Process) -> dict[str, Any]:
     try:
-        process = psutil.Process(service.process.pid)
-        children = process.children(recursive=True)
-    except psutil.Error:
-        children = []
+        command = "\0".join(process.cmdline()).encode("utf-8", errors="replace")
+        return {
+            "pid": process.pid,
+            "ppid": process.ppid(),
+            "created_at": process.create_time(),
+            "status": process.status(),
+            "cmdline_sha256": hashlib.sha256(command).hexdigest(),
+        }
+    except psutil.Error as exc:
+        raise S7RuntimeError(f"s7_process_identity_unavailable:{process.pid}") from exc
+
+
+def _live_service_processes(
+    service: ServiceProcess,
+    known: dict[tuple[int, float], dict[str, Any]],
+) -> list[dict[str, Any]]:
+    try:
+        root = psutil.Process(service.process.pid)
+        if root.create_time() == service.root_created_at:
+            for process in [root, *root.children(recursive=True)]:
+                record = _process_record(process)
+                known[(record["pid"], record["created_at"])] = record
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        pass
+    except psutil.Error as exc:
+        raise S7RuntimeError("s7_process_scope_scan_uncertain:root") from exc
+    live: list[dict[str, Any]] = []
+    for (pid, created_at), recorded in sorted(known.items()):
+        try:
+            process = psutil.Process(pid)
+            if process.create_time() != created_at or process.status() == psutil.STATUS_ZOMBIE:
+                continue
+            current = _process_record(process)
+            known[(pid, created_at)] = current
+            live.append(current)
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            continue
+        except psutil.Error as exc:
+            raise S7RuntimeError(f"s7_process_scope_scan_uncertain:{pid}") from exc
+    return live
+
+
+def _send_graceful_signal(service: ServiceProcess) -> None:
+    if os.name == "nt":
+        service.process.send_signal(signal.CTRL_BREAK_EVENT)
+    else:
+        os.killpg(os.getpgid(service.process.pid), signal.SIGTERM)
+
+
+def stop_service(
+    service: ServiceProcess,
+    *,
+    residual_timeout: float = 30.0,
+    poll_interval: float = 0.1,
+) -> dict[str, Any]:
+    known: dict[tuple[int, float], dict[str, Any]] = {}
+    try:
+        initial = _live_service_processes(service, known)
+    except S7RuntimeError as exc:
+        service.log_handle.flush()
+        service.log_handle.close()
+        raise S7ManualInterventionRequired(
+            f"s7_service_process_scope_uncertain:{service.family}",
+            process_evidence={
+                "schema_version": "evm.s7_cooperative_service_stop.v1",
+                "family": service.family,
+                "run_uuid": service.run_uuid,
+                "root_pid": service.process.pid,
+                "scan_error": str(exc),
+                "residual_process_count": -1,
+                "forced_termination_attempts": 0,
+                "automatic_retry_count": 0,
+                "subsequent_probe_after_residual": 0,
+            },
+        ) from exc
+    graceful_signal_count = 0
+    signal_error: str | None = None
     if service.process.poll() is None:
-        if os.name == "nt":
-            subprocess.run(
-                ["taskkill", "/PID", str(service.process.pid), "/T", "/F"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=30,
-            )
-        else:
-            os.killpg(os.getpgid(service.process.pid), signal.SIGTERM)
         try:
-            service.process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            service.process.kill()
-            service.process.wait(timeout=10)
-    for child in children:
+            _send_graceful_signal(service)
+            graceful_signal_count = 1
+        except (OSError, ProcessLookupError) as exc:
+            signal_error = f"{type(exc).__name__}:{exc}"
+    deadline = time.monotonic() + residual_timeout
+    residual = initial
+    while residual and time.monotonic() < deadline:
+        time.sleep(poll_interval)
         try:
-            child.wait(timeout=2)
-        except psutil.Error:
-            pass
+            residual = _live_service_processes(service, known)
+        except S7RuntimeError as exc:
+            signal_error = f"process_scope_uncertain:{exc}"
+            break
     service.log_handle.flush()
     service.log_handle.close()
+    evidence = {
+        "schema_version": "evm.s7_cooperative_service_stop.v1",
+        "family": service.family,
+        "run_uuid": service.run_uuid,
+        "root_pid": service.process.pid,
+        "root_created_at": service.root_created_at,
+        "graceful_signal_count": graceful_signal_count,
+        "signal_error": signal_error,
+        "bounded_residual_wait_seconds": residual_timeout,
+        "known_processes": sorted(
+            known.values(), key=lambda item: (item["pid"], item["created_at"])
+        ),
+        "residual_processes": residual,
+        "residual_process_count": len(residual),
+        "forced_termination_attempts": 0,
+        "automatic_retry_count": 0,
+        "subsequent_probe_after_residual": 0,
+    }
+    if signal_error is not None or residual:
+        raise S7ManualInterventionRequired(
+            f"s7_service_residual_manual_intervention_required:{service.family}",
+            process_evidence=evidence,
+        )
+    return evidence
 
 
 def wait_ready(base_url: str, *, timeout: float) -> dict[str, Any]:
@@ -1405,7 +1646,7 @@ def source_serving_probe(holder: HolderSnapshot, *, manifest: Path) -> dict[str,
 
 
 def write_target(path: Path, port: int, family: str, suite_id: str) -> None:
-    canonical_write(
+    replace_mutable_json(
         path,
         [
             {
@@ -1425,12 +1666,12 @@ def reload_prometheus() -> None:
 def refresh_prometheus_target(family: str, *, timeout: float) -> dict[str, Any]:
     started = time.monotonic()
     reload_prometheus()
-    if wait_until(lambda: prometheus_target_up(family), timeout=min(5.0, timeout)):
-        return {"elapsed_seconds": time.monotonic() - started, "restart_used": False}
-    restart_prometheus()
-    remaining = max(1.0, timeout - (time.monotonic() - started))
-    if wait_until(lambda: prometheus_target_up(family), timeout=remaining):
-        return {"elapsed_seconds": time.monotonic() - started, "restart_used": True}
+    if wait_until(lambda: prometheus_target_up(family), timeout=timeout):
+        return {
+            "elapsed_seconds": time.monotonic() - started,
+            "reload_count": 1,
+            "container_restart_count": 0,
+        }
     raise S7RuntimeError(f"s7_prometheus_target_timeout:{family}")
 
 
@@ -1458,24 +1699,13 @@ def refresh_prometheus_target_absent(
     reload_prometheus()
     if wait_until(
         lambda: prometheus_cleanup_restored(expected_baseline_target_count),
-        timeout=min(5.0, timeout),
+        timeout=timeout,
     ):
         return {
             "restored": True,
             "elapsed_seconds": time.monotonic() - started,
-            "restart_used": False,
-            "prometheus_baseline": prometheus_health(),
-        }
-    restart_prometheus()
-    remaining = max(1.0, timeout - (time.monotonic() - started))
-    if wait_until(
-        lambda: prometheus_cleanup_restored(expected_baseline_target_count),
-        timeout=remaining,
-    ):
-        return {
-            "restored": True,
-            "elapsed_seconds": time.monotonic() - started,
-            "restart_used": True,
+            "reload_count": 1,
+            "container_restart_count": 0,
             "prometheus_baseline": prometheus_health(),
         }
     raise S7RuntimeError("s7_prometheus_target_cleanup_timeout")
@@ -1511,6 +1741,8 @@ def cleanup_contract_passed(
     target_cleanup = cleanup.get("s7_target_cleanup") or {}
     return (
         cleanup.get("holder_uid_exact") is True
+        and cleanup.get("holder_image_exact") is True
+        and cleanup.get("holder_replicas_exact") is True
         and cleanup.get("source_model_sha256_exact") is True
         and cleanup.get("source_candidate_exact") is True
         and cleanup.get("source_cuda_inference") is True
@@ -1530,10 +1762,6 @@ def prometheus_target_count() -> int:
         return -1
     targets = payload.get("data", {}).get("activeTargets", [])
     return sum(item.get("labels", {}).get("job") == TARGET_JOB for item in targets)
-
-
-def restart_prometheus() -> None:
-    run_checked(["docker", "restart", "evm-prometheus"], timeout=60)
 
 
 def wait_until(predicate: Callable[[], bool], *, timeout: float) -> bool:
@@ -1733,11 +1961,205 @@ def trace_id_from_header(value: str | None) -> str | None:
     return parts[1] if len(parts) == 4 else None
 
 
-def canonical_write(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(
-        (json.dumps(payload, sort_keys=True, indent=2, allow_nan=False) + "\n").encode("utf-8")
+def canonical_write(path: Path, payload: Any) -> dict[str, Any]:
+    return publish_exclusive_atomic_bytes(
+        path,
+        (json.dumps(payload, sort_keys=True, indent=2, allow_nan=False) + "\n").encode("utf-8"),
     )
+
+
+def restore_runtime_state(
+    *,
+    holder: HolderSnapshot,
+    holder_scaled_down: bool,
+    target_path: Path,
+    prior_target: bytes | None,
+    owned_lease: GpuLease | None,
+) -> dict[str, Any]:
+    active = read_active_gpu_lease()
+    if active is not None and active.state == "active":
+        if owned_lease is None or (
+            active.run_id,
+            active.lease_id,
+            active.fencing_token,
+        ) != (
+            owned_lease.run_id,
+            owned_lease.lease_id,
+            owned_lease.fencing_token,
+        ):
+            raise S7ManualInterventionRequired(
+                "s7_restore_refuses_unowned_gpu_lease",
+                process_evidence={
+                    "residual_process_count": 0,
+                    "unowned_active_lease": True,
+                    "automatic_retry_count": 0,
+                    "subsequent_probe_after_residual": 0,
+                },
+            )
+        release_scale_validation_gpu_lease(
+            run_id=owned_lease.run_id,
+            lease_id=owned_lease.lease_id,
+            fencing_token=owned_lease.fencing_token,
+            reason="S7 fail-closed final cleanup",
+        )
+    if holder_scaled_down:
+        scale_holder(holder, replicas=holder.replicas, require_ready=True)
+    restored_file_sd = restore_file_sd_target_exact(target_path, prior_target)
+    target_cleanup = refresh_prometheus_target_absent(
+        timeout=45,
+        expected_baseline_target_count=EXPECTED_BASELINE_TARGET_COUNT,
+    )
+    target_cleanup["file_sd_exact"] = restored_file_sd
+    return target_cleanup
+
+
+def lifecycle_followup_policy(
+    manual_latch_evidence: dict[str, Any] | None,
+) -> dict[str, Any]:
+    latched = manual_latch_evidence is not None
+    return {
+        "manual_latch": latched,
+        "automatic_restore_allowed": not latched,
+        "subsequent_service_probe_allowed": not latched,
+        "automatic_retry_count": 0,
+        "forced_termination_attempts": 0,
+    }
+
+
+def lease_checkpoint(lease: GpuLease, *, stage: str) -> dict[str, Any]:
+    return {
+        "schema_version": "evm.s7_gpu_lease_checkpoint.v1",
+        "stage": stage,
+        "run_id": lease.run_id,
+        "lease_id": lease.lease_id,
+        "fencing_token_sha256": hashlib.sha256(lease.fencing_token.encode("utf-8")).hexdigest(),
+        "scenario_id": lease.scenario_id,
+        "model_family": lease.model_family,
+        "lease_purpose": lease.lease_purpose,
+        "source_commit": lease.source_commit,
+        "owner_pid": lease.owner_pid,
+        "acquired_at": lease.acquired_at,
+        "expires_at": lease.expires_at,
+        "state": lease.state,
+        "released_at": lease.released_at,
+        "release_reason": lease.release_reason,
+    }
+
+
+def failure_seal_payload(
+    *,
+    suite_id: str,
+    stage: str,
+    error: BaseException,
+    manual_intervention_required: bool,
+    process_evidence: dict[str, Any] | None,
+    pre_mutation_checkpoint: dict[str, Any] | None,
+    restore_checkpoint: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "evm.s7_atomic_failure_seal.v1",
+        "suite_id": suite_id,
+        "status": "failed",
+        "verdict": "zero_credit",
+        "acceptance_credit": False,
+        "failure_stage": stage,
+        "exception": {"type": type(error).__name__, "message": str(error)},
+        "manual_intervention_required": manual_intervention_required,
+        "automatic_retry_count": 0,
+        "success_publication_count": 0,
+        "completion_marker_created": False,
+        "process_evidence": process_evidence,
+        "pre_mutation_checkpoint": pre_mutation_checkpoint,
+        "restore_checkpoint": restore_checkpoint,
+        "recorded_at": utc_now(),
+    }
+
+
+def publish_failure_seal(suite_root: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    primary = suite_root / "failure-seal.json"
+    try:
+        return canonical_write(primary, payload)
+    except FileExistsError:
+        existing = file_state(primary)
+        amendment = {
+            "schema_version": "evm.s7_atomic_failure_amendment.v1",
+            "suite_id": payload.get("suite_id"),
+            "status": "failed",
+            "verdict": "zero_credit",
+            "acceptance_credit": False,
+            "primary_failure_seal": existing,
+            "followup_failure": payload,
+            "automatic_retry_count": 0,
+            "completion_marker_created": False,
+            "recorded_at": utc_now(),
+        }
+        amendment_path = suite_root / f"failure-amendment-{uuid4().hex}.json"
+        return canonical_write(amendment_path, amendment)
+
+
+def write_public_json_exclusive(path: Path, payload: Any) -> dict[str, Any]:
+    return publish_exclusive_atomic_bytes(path, canonical_public_json_bytes(payload))
+
+
+def replace_mutable_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.s7-target")
+    raw = (json.dumps(payload, sort_keys=True, indent=2, allow_nan=False) + "\n").encode("utf-8")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        os.close(descriptor)
+    os.replace(temporary, path)
+
+
+def file_state(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"exists": False, "bytes": 0, "sha256": None}
+    if path.is_symlink() or not path.is_file():
+        raise S7RuntimeError(f"s7_file_state_unsafe:{path.name}")
+    raw = path.read_bytes()
+    return {
+        "exists": True,
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+
+
+def restore_file_sd_target_exact(path: Path, prior: bytes | None) -> dict[str, Any]:
+    expected = {
+        "exists": prior is not None,
+        "bytes": len(prior or b""),
+        "sha256": hashlib.sha256(prior).hexdigest() if prior is not None else None,
+    }
+    if prior is None:
+        if path.exists():
+            path.unlink()
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.s7-restore")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        descriptor = os.open(temporary, flags, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                stream.write(prior)
+                stream.flush()
+                os.fsync(stream.fileno())
+        finally:
+            os.close(descriptor)
+        os.replace(temporary, path)
+    observed = file_state(path)
+    if observed != expected:
+        raise S7RuntimeError("s7_file_sd_exact_restore_failed")
+    return observed
 
 
 def kubectl_json(command: list[str]) -> dict[str, Any]:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import re
@@ -11,6 +13,7 @@ from typing import Any, Mapping
 from evm.scale_validation.s7_manifest_contract import (
     S7ManifestContractError,
     validate_manifest_snapshot_contract,
+    validate_trusted_manifest_envelope,
 )
 from evm.scale_validation.s7_runtime import (
     GENERATION_SCHEMAS,
@@ -453,6 +456,7 @@ def validate_s7_closure(
     runtime_smoke: Mapping[str, Any],
     runtime_smoke_sha256: str,
     runtime_smoke_private_root: Path,
+    runtime_smoke_trusted_envelope: Mapping[str, Any] | None = None,
     data_root: Path,
     regression_evidence: Mapping[str, Any],
     regression_evidence_sha256: str,
@@ -501,6 +505,8 @@ def validate_s7_closure(
         config=config,
         private_root=runtime_smoke_private_root,
         data_root=data_root,
+        trusted_manifest_envelope=runtime_smoke_trusted_envelope,
+        trusted_public_evidence_sha256=runtime_smoke_sha256,
         git_root=git_root,
         validation_revision=validation_revision,
     )
@@ -655,6 +661,8 @@ def validate_s7_runtime_smoke(
     config: S7RuntimeConfig,
     private_root: Path,
     data_root: Path,
+    trusted_manifest_envelope: Mapping[str, Any] | None = None,
+    trusted_public_evidence_sha256: str | None = None,
     git_root: Path | None = None,
     validation_revision: str = "HEAD",
 ) -> dict[str, Any]:
@@ -698,17 +706,45 @@ def validate_s7_runtime_smoke(
         except (OSError, subprocess.CalledProcessError):
             errors.append("smoke_git_identity_unavailable")
 
+    trusted_envelope: dict[str, Any] = {}
+    if trusted_manifest_envelope is None:
+        errors.append("smoke_trusted_manifest_envelope_missing")
+    else:
+        try:
+            trusted_envelope = validate_trusted_manifest_envelope(
+                trusted_manifest_envelope,
+                suite_id=str(payload.get("suite_id") or ""),
+                source_revision=revision,
+            )
+            if (
+                trusted_public_evidence_sha256 is None
+                or trusted_envelope.get("public_evidence_sha256") != trusted_public_evidence_sha256
+            ):
+                errors.append("smoke_trusted_public_evidence_sha256")
+        except S7ManifestContractError as exc:
+            errors.append(f"smoke_trusted_manifest_envelope:{exc}")
+
     private = validate_private_evidence(
         private_root,
         errors,
         trusted_manifest_snapshot_binding_sha256=str(
-            source.get("manifest_snapshot_binding_sha256") or ""
+            trusted_envelope.get("manifest_snapshot_binding_sha256") or ""
         ),
     )
     documents = dict(private.get("documents", {}))
+    _validate_lifecycle_checkpoints(
+        documents,
+        errors,
+        suite_id=str(payload.get("suite_id") or ""),
+        source_revision=revision,
+    )
     preflight = dict(documents.get("preflight.json", {}))
     snapshot_contract = private.get("manifest_snapshot_contract")
     snapshot_binding_sha256 = private.get("manifest_snapshot_binding_sha256")
+    if private.get("summary", {}).get("index_sha256") != trusted_envelope.get(
+        "private_evidence_index_sha256"
+    ):
+        errors.append("smoke_trusted_private_index_sha256")
     if not isinstance(snapshot_contract, Mapping):
         errors.append("smoke_manifest_snapshot_missing")
         snapshot_contract = {}
@@ -1202,6 +1238,17 @@ def validate_private_evidence(
     }:
         errors.append("private_index_v2_keys")
     entries = list(index.get("artifacts", []))
+    indexed_paths = {str(entry.get("path") or "") for entry in entries}
+    actual_paths = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() and path.name != "private-evidence-index.json"
+    }
+    if actual_paths != indexed_paths:
+        for relative in sorted(actual_paths - indexed_paths):
+            errors.append(f"private_unindexed_artifact:{relative}")
+        for relative in sorted(indexed_paths - actual_paths):
+            errors.append(f"private_indexed_artifact_absent:{relative}")
     observed: list[dict[str, Any]] = []
     profiles: list[dict[str, Any]] = []
     documents: dict[str, dict[str, Any]] = {}
@@ -1271,6 +1318,147 @@ def validate_private_evidence(
         "manifest_snapshot_binding_sha256": snapshot_binding_sha256,
         "legacy_snapshot_absent": index_schema == "evm.s7_private_evidence_index.v1",
     }
+
+
+def _validate_lifecycle_checkpoints(
+    documents: Mapping[str, Mapping[str, Any]],
+    errors: list[str],
+    *,
+    suite_id: str,
+    source_revision: str,
+) -> None:
+    pre = dict(documents.get("lifecycle-pre-mutation.json", {}))
+    post = dict(documents.get("lifecycle-post-restore.json", {}))
+    if (
+        pre.get("schema_version") != "evm.s7_lifecycle_checkpoint.v1"
+        or pre.get("stage") != "pre_mutation"
+        or pre.get("suite_id") != suite_id
+        or pre.get("mutations_started") is not False
+        or pre.get("active_gpu_lease") is not None
+    ):
+        errors.append("smoke_lifecycle_pre_mutation")
+    pre_holder = dict(pre.get("holder", {}))
+    try:
+        pre_replicas = int(pre_holder.get("replicas", -1))
+    except (TypeError, ValueError):
+        pre_replicas = -1
+    if (
+        not str(pre_holder.get("uid") or "")
+        or not str(pre_holder.get("image") or "")
+        or pre_replicas < 1
+    ):
+        errors.append("smoke_lifecycle_pre_holder")
+    pre_file_sd = dict(pre.get("file_sd", {}))
+    if set(pre_file_sd) != {"exists", "bytes", "sha256"}:
+        errors.append("smoke_lifecycle_pre_file_sd_schema")
+    else:
+        encoded = pre.get("file_sd_restore_bytes_base64")
+        if pre_file_sd.get("exists") is True:
+            try:
+                restored_raw = base64.b64decode(str(encoded), validate=True)
+                expected_bytes = int(pre_file_sd.get("bytes", -1))
+            except (TypeError, ValueError, binascii.Error):
+                errors.append("smoke_lifecycle_pre_file_sd_base64")
+            else:
+                if len(restored_raw) != expected_bytes or hashlib.sha256(
+                    restored_raw
+                ).hexdigest() != pre_file_sd.get("sha256"):
+                    errors.append("smoke_lifecycle_pre_file_sd_identity")
+        elif pre_file_sd != {"exists": False, "bytes": 0, "sha256": None} or encoded is not None:
+            errors.append("smoke_lifecycle_pre_file_sd_absent")
+
+    post_prometheus = dict(post.get("prometheus", {}))
+    if (
+        post.get("schema_version") != "evm.s7_lifecycle_checkpoint.v1"
+        or post.get("stage") != "post_restore"
+        or post.get("suite_id") != suite_id
+        or _canonical(post.get("holder")) != _canonical(pre_holder)
+        or post.get("holder_uid_exact") is not True
+        or post.get("holder_image_exact") is not True
+        or post.get("holder_replicas_exact") is not True
+        or post.get("active_gpu_lease") is not None
+        or _canonical(post.get("file_sd")) != _canonical(pre_file_sd)
+        or post.get("file_sd_matches_pre_mutation") is not True
+        or post.get("restore_complete") is not True
+        or post_prometheus != {"target_count": 5, "up_count": 5, "all_up": True}
+    ):
+        errors.append("smoke_lifecycle_post_restore")
+
+    lease_keys = {
+        "schema_version",
+        "stage",
+        "run_id",
+        "lease_id",
+        "fencing_token_sha256",
+        "scenario_id",
+        "model_family",
+        "lease_purpose",
+        "source_commit",
+        "owner_pid",
+        "acquired_at",
+        "expires_at",
+        "state",
+        "released_at",
+        "release_reason",
+    }
+    for family in ("image", "vlm", "llm"):
+        acquired = dict(documents.get(f"{family}-lease-acquired.json", {}))
+        released = dict(documents.get(f"{family}-lease-released.json", {}))
+        cleanup = dict(documents.get(f"{family}-cleanup.json", {}))
+        common = (
+            "run_id",
+            "lease_id",
+            "fencing_token_sha256",
+            "scenario_id",
+            "model_family",
+            "lease_purpose",
+            "source_commit",
+            "owner_pid",
+            "acquired_at",
+            "expires_at",
+        )
+        expected_run_id = f"s7-{family}-{suite_id}"
+        if (
+            set(acquired) != lease_keys
+            or acquired.get("schema_version") != "evm.s7_gpu_lease_checkpoint.v1"
+            or acquired.get("stage") != "acquired"
+            or acquired.get("run_id") != expected_run_id
+            or acquired.get("scenario_id") != "S7"
+            or acquired.get("model_family") != family
+            or acquired.get("lease_purpose") != "scale_validation_inference"
+            or acquired.get("source_commit") != source_revision
+            or not re.fullmatch(r"[0-9a-f]{64}", str(acquired.get("fencing_token_sha256") or ""))
+            or acquired.get("state") != "active"
+            or acquired.get("released_at") is not None
+            or acquired.get("release_reason") is not None
+        ):
+            errors.append(f"smoke_lifecycle_lease_acquired:{family}")
+        if (
+            set(released) != lease_keys
+            or released.get("schema_version") != "evm.s7_gpu_lease_checkpoint.v1"
+            or released.get("stage") != "released"
+            or any(released.get(key) != acquired.get(key) for key in common)
+            or released.get("state") != "released"
+            or not str(released.get("released_at") or "")
+            or released.get("release_reason") != f"S7 {family} family profiles completed"
+        ):
+            errors.append(f"smoke_lifecycle_lease_released:{family}")
+        process = dict(cleanup.get("process_evidence", {}))
+        if (
+            cleanup.get("family") != family
+            or cleanup.get("lease_state") != "released"
+            or cleanup.get("service_process_stopped") is not True
+            or cleanup.get("active_lease_zero") is not True
+            or process.get("schema_version") != "evm.s7_cooperative_service_stop.v1"
+            or process.get("family") != family
+            or process.get("signal_error") is not None
+            or process.get("residual_process_count") != 0
+            or process.get("residual_processes") != []
+            or process.get("forced_termination_attempts") != 0
+            or process.get("automatic_retry_count") != 0
+            or process.get("subsequent_probe_after_residual") != 0
+        ):
+            errors.append(f"smoke_lifecycle_cleanup:{family}")
 
 
 def profile_projection_by_identity(

@@ -12,12 +12,15 @@ from evm.scale_validation.s7_evidence import validate_private_evidence
 from evm.scale_validation.s7_manifest_contract import (
     MANIFEST_FAMILIES,
     S7ManifestContractError,
+    build_trusted_manifest_envelope,
     canonical_sha256,
     classify_live_manifest_drift,
     create_run_scoped_manifest_snapshots,
     manifest_semantic_identity,
     manifest_snapshot_binding_sha256,
+    publish_exclusive_atomic_bytes,
     validate_manifest_snapshot_contract,
+    validate_trusted_manifest_envelope,
 )
 
 
@@ -321,6 +324,26 @@ def test_private_index_v2_rejects_snapshot_removal(tmp_path: Path) -> None:
     assert any(item.startswith("private_manifest_snapshot:") for item in errors)
 
 
+def test_private_index_v2_rejects_unindexed_failure_artifact(tmp_path: Path) -> None:
+    _, suite_root, _, _, contract, _ = _create_contract(tmp_path)
+    index = _private_index(suite_root, contract)
+    (suite_root / "private-evidence-index.json").write_text(
+        json.dumps(index, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (suite_root / "failure-seal.json").write_text(
+        '{"status":"failed","verdict":"zero_credit"}\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    errors: list[str] = []
+
+    validate_private_evidence(suite_root, errors)
+
+    assert "private_unindexed_artifact:failure-seal.json" in errors
+
+
 def test_private_index_v2_rejects_self_consistent_repin_against_trusted_public_binding(
     tmp_path: Path,
 ) -> None:
@@ -361,3 +384,104 @@ def test_runner_uses_immutable_image_snapshot_for_both_source_probes() -> None:
 
     assert runner.count("source_serving_probe(holder, manifest=image_manifest_snapshot)") == 2
     assert "source_serving_probe(holder, data_root=" not in runner
+
+
+def test_atomic_publication_is_exclusive_and_preserves_original(tmp_path: Path) -> None:
+    target = tmp_path / "result.json"
+    first = b'{"status":"first"}\n'
+
+    identity = publish_exclusive_atomic_bytes(target, first)
+    with pytest.raises(FileExistsError):
+        publish_exclusive_atomic_bytes(target, b'{"status":"replay"}\n')
+
+    assert target.read_bytes() == first
+    assert identity["sha256"] == hashlib.sha256(first).hexdigest()
+    assert not list(tmp_path.glob("*.publish"))
+
+
+def test_atomic_publication_has_no_fallible_final_readback_after_commit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    target = tmp_path / "result.json"
+    raw = b'{"status":"committed"}\n'
+    original_read_bytes = Path.read_bytes
+
+    def reject_final_readback(path: Path) -> bytes:
+        if path == target:
+            raise PermissionError("simulated post-commit final readback failure")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", reject_final_readback)
+
+    identity = publish_exclusive_atomic_bytes(target, raw)
+
+    assert identity["bytes"] == len(raw)
+    assert identity["sha256"] == hashlib.sha256(raw).hexdigest()
+    assert original_read_bytes(target) == raw
+
+
+def test_atomic_publication_cleanup_error_does_not_downgrade_committed_result(
+    tmp_path: Path, monkeypatch
+) -> None:
+    target = tmp_path / "result.json"
+    raw = b'{"status":"committed"}\n'
+    original_unlink = Path.unlink
+
+    def fail_temporary_cleanup(path: Path, *args, **kwargs) -> None:
+        if path.name.endswith(".publish"):
+            raise PermissionError("simulated temporary cleanup failure")
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_temporary_cleanup)
+
+    identity = publish_exclusive_atomic_bytes(target, raw)
+
+    assert identity["temporary_cleanup_error"] == "PermissionError"
+    assert target.read_bytes() == raw
+
+
+def test_trusted_envelope_is_an_independent_binding_anchor() -> None:
+    envelope = build_trusted_manifest_envelope(
+        suite_id="20260901T000000Z-abcdef12",
+        source_revision="a" * 40,
+        manifest_snapshot_binding_sha256="b" * 64,
+        private_evidence_index_sha256="c" * 64,
+        public_evidence_sha256="d" * 64,
+    )
+
+    assert (
+        validate_trusted_manifest_envelope(
+            envelope,
+            suite_id="20260901T000000Z-abcdef12",
+            source_revision="a" * 40,
+        )
+        == envelope
+    )
+    with pytest.raises(S7ManifestContractError, match="envelope_identity"):
+        validate_trusted_manifest_envelope(
+            {**envelope, "acceptance_credit": True},
+            suite_id="20260901T000000Z-abcdef12",
+            source_revision="a" * 40,
+        )
+
+
+def test_self_consistent_public_repin_cannot_replace_out_of_band_envelope() -> None:
+    trusted = build_trusted_manifest_envelope(
+        suite_id="20260901T000000Z-abcdef12",
+        source_revision="a" * 40,
+        manifest_snapshot_binding_sha256="b" * 64,
+        private_evidence_index_sha256="c" * 64,
+        public_evidence_sha256="d" * 64,
+    )
+    self_consistent_public_repin = {
+        **trusted,
+        "manifest_snapshot_binding_sha256": "e" * 64,
+        "private_evidence_index_sha256": "f" * 64,
+        "public_evidence_sha256": "0" * 64,
+    }
+
+    assert (
+        trusted["manifest_snapshot_binding_sha256"]
+        != self_consistent_public_repin["manifest_snapshot_binding_sha256"]
+    )
+    assert canonical_sha256(trusted) != canonical_sha256(self_consistent_public_repin)

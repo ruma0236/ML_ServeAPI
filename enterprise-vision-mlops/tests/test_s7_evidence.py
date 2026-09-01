@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -8,6 +10,7 @@ import pytest
 
 from evm.scale_validation.s7_evidence import (
     S7EvidenceValidationError,
+    _validate_lifecycle_checkpoints,
     _ready_identity_projection,
     asset_contract_projection,
     profile_projection_by_identity,
@@ -23,6 +26,138 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def config() -> S7RuntimeConfig:
     return S7RuntimeConfig.from_path(ROOT / "configs/s7_family_admission.toml")
+
+
+def lifecycle_documents() -> dict[str, dict]:
+    suite_id = "20260901T000000Z-abcdef12"
+    revision = "a" * 40
+    file_sd_raw = b'{"targets":["127.0.0.1:39001"]}\n'
+    file_sd = {
+        "exists": True,
+        "bytes": len(file_sd_raw),
+        "sha256": hashlib.sha256(file_sd_raw).hexdigest(),
+    }
+    holder = {"uid": "holder-uid", "image": "image@sha256:digest", "replicas": 1}
+    documents: dict[str, dict] = {
+        "lifecycle-pre-mutation.json": {
+            "schema_version": "evm.s7_lifecycle_checkpoint.v1",
+            "stage": "pre_mutation",
+            "suite_id": suite_id,
+            "holder": holder,
+            "active_gpu_lease": None,
+            "file_sd": file_sd,
+            "file_sd_restore_bytes_base64": base64.b64encode(file_sd_raw).decode("ascii"),
+            "mutations_started": False,
+        },
+        "lifecycle-post-restore.json": {
+            "schema_version": "evm.s7_lifecycle_checkpoint.v1",
+            "stage": "post_restore",
+            "suite_id": suite_id,
+            "holder": holder,
+            "holder_uid_exact": True,
+            "holder_image_exact": True,
+            "holder_replicas_exact": True,
+            "active_gpu_lease": None,
+            "file_sd": file_sd,
+            "file_sd_matches_pre_mutation": True,
+            "prometheus": {"target_count": 5, "up_count": 5, "all_up": True},
+            "restore_complete": True,
+        },
+    }
+    for family in ("image", "vlm", "llm"):
+        acquired = {
+            "schema_version": "evm.s7_gpu_lease_checkpoint.v1",
+            "stage": "acquired",
+            "run_id": f"s7-{family}-{suite_id}",
+            "lease_id": f"lease-{family}",
+            "fencing_token_sha256": "b" * 64,
+            "scenario_id": "S7",
+            "model_family": family,
+            "lease_purpose": "scale_validation_inference",
+            "source_commit": revision,
+            "owner_pid": 1234,
+            "acquired_at": "2026-09-01T00:00:00Z",
+            "expires_at": "2026-09-01T02:00:00Z",
+            "state": "active",
+            "released_at": None,
+            "release_reason": None,
+        }
+        documents[f"{family}-lease-acquired.json"] = acquired
+        documents[f"{family}-lease-released.json"] = {
+            **acquired,
+            "stage": "released",
+            "state": "released",
+            "released_at": "2026-09-01T00:01:00Z",
+            "release_reason": f"S7 {family} family profiles completed",
+        }
+        documents[f"{family}-cleanup.json"] = {
+            "family": family,
+            "lease_state": "released",
+            "service_process_stopped": True,
+            "active_lease_zero": True,
+            "process_evidence": {
+                "schema_version": "evm.s7_cooperative_service_stop.v1",
+                "family": family,
+                "signal_error": None,
+                "residual_process_count": 0,
+                "residual_processes": [],
+                "forced_termination_attempts": 0,
+                "automatic_retry_count": 0,
+                "subsequent_probe_after_residual": 0,
+            },
+        }
+    return documents
+
+
+def test_lifecycle_checkpoints_bind_restore_lease_and_process_safety() -> None:
+    errors: list[str] = []
+
+    _validate_lifecycle_checkpoints(
+        lifecycle_documents(),
+        errors,
+        suite_id="20260901T000000Z-abcdef12",
+        source_revision="a" * 40,
+    )
+
+    assert errors == []
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        (
+            lambda docs: docs["image-lease-released.json"].__setitem__(
+                "fencing_token_sha256", "c" * 64
+            ),
+            "smoke_lifecycle_lease_released:image",
+        ),
+        (
+            lambda docs: docs["vlm-cleanup.json"]["process_evidence"].__setitem__(
+                "forced_termination_attempts", 1
+            ),
+            "smoke_lifecycle_cleanup:vlm",
+        ),
+        (
+            lambda docs: docs["lifecycle-post-restore.json"].__setitem__(
+                "file_sd_matches_pre_mutation", False
+            ),
+            "smoke_lifecycle_post_restore",
+        ),
+    ],
+)
+def test_lifecycle_checkpoint_safety_mutations_fail_closed(mutation, expected: str) -> None:
+    documents = lifecycle_documents()
+    mutation(documents)
+    errors: list[str] = []
+
+    _validate_lifecycle_checkpoints(
+        documents,
+        errors,
+        suite_id="20260901T000000Z-abcdef12",
+        source_revision="a" * 40,
+    )
+
+    assert expected in errors
 
 
 def image_profile() -> dict:
@@ -341,3 +476,28 @@ def test_legacy_current_s7_smoke_cannot_be_retroactively_promoted(mutation, tmp_
     assert result["classification"] == "legacy_snapshot_absent"
     assert result["acceptance_credit"] is False
     assert result["live_manifest_rehashed"] is False
+
+
+def test_v3_smoke_requires_out_of_band_trusted_envelope(tmp_path: Path) -> None:
+    payload = {
+        "schema_version": "evm.s7_current_revision_cuda_smoke.v3",
+        "status": "verified",
+        "verdict": "passed",
+        "acceptance_credit": False,
+        "suite_id": "20260901T000000Z-abcdef12",
+        "source_identity": {
+            "revision": "a" * 40,
+            "config_sha256": config().sha256,
+        },
+    }
+
+    with pytest.raises(
+        S7EvidenceValidationError,
+        match="smoke_trusted_manifest_envelope_missing",
+    ):
+        validate_s7_runtime_smoke(
+            payload,
+            config=config(),
+            private_root=tmp_path / "missing-private",
+            data_root=tmp_path / "missing-data",
+        )

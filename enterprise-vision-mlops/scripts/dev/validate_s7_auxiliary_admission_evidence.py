@@ -46,6 +46,8 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "docs/status/evidence/s7-current-revision-cuda-smoke.json",
     )
     parser.add_argument("--runtime-smoke-private-root", type=Path)
+    parser.add_argument("--runtime-smoke-trusted-envelope", type=Path)
+    parser.add_argument("--runtime-smoke-trusted-envelope-sha256")
     parser.add_argument(
         "--regression-evidence",
         type=Path,
@@ -103,15 +105,34 @@ def main() -> int:
         regression_raw = load_bytes(args.regression_evidence, args.git_revision, git_root)
         require_canonical(smoke_raw, "s7_runtime_smoke")
         require_canonical(regression_raw, "s7_regression")
+        smoke_payload = json.loads(smoke_raw)
+        trusted_envelope = None
+        if smoke_payload.get("schema_version") == "evm.s7_current_revision_cuda_smoke.v3":
+            if (
+                args.runtime_smoke_trusted_envelope is None
+                or args.runtime_smoke_trusted_envelope_sha256 is None
+            ):
+                raise S7EvidenceValidationError(
+                    "s7_v3_requires_out_of_band_trusted_manifest_envelope"
+                )
+            envelope_raw = args.runtime_smoke_trusted_envelope.read_bytes()
+            require_canonical(envelope_raw, "s7_runtime_smoke_trusted_envelope")
+            if (
+                hashlib.sha256(envelope_raw).hexdigest()
+                != args.runtime_smoke_trusted_envelope_sha256
+            ):
+                raise S7EvidenceValidationError("s7_trusted_manifest_envelope_sha256")
+            trusted_envelope = json.loads(envelope_raw)
         result["closure"] = validate_s7_closure(
             json.loads(closure_raw),
             experiment=payload,
             experiment_sha256=result["evidence_sha256"],
             config=config,
             private_root=args.private_root,
-            runtime_smoke=json.loads(smoke_raw),
+            runtime_smoke=smoke_payload,
             runtime_smoke_sha256=hashlib.sha256(smoke_raw).hexdigest(),
             runtime_smoke_private_root=args.runtime_smoke_private_root,
+            runtime_smoke_trusted_envelope=trusted_envelope,
             data_root=args.data_root,
             regression_evidence=json.loads(regression_raw),
             regression_evidence_sha256=hashlib.sha256(regression_raw).hexdigest(),
