@@ -44,7 +44,7 @@ PARENT_ROLES = {
     "attempt_2_failure",
     "pre_r8_r7s1_no_go_seal",
 }
-HOST_BINARY_ROLES = {"system32_wsl", "store_wsl", "wslhost"}
+HOST_BINARY_ROLES = {"python", "system32_wsl", "store_wsl", "wslhost"}
 LINUX_BINARY_ROLES = {"python3", "env", "setsid"}
 
 TimeoutContract: Any = None
@@ -448,6 +448,12 @@ def load_contract(
         raise R7S2QualificationError("store_wsl_filename_mismatch")
     if Path(host_binaries["wslhost"].path).name.lower() != "wslhost.exe":
         raise R7S2QualificationError("wslhost_filename_mismatch")
+    if (
+        Path(host_binaries["python"].path).name.lower() != "python.exe"
+        or not _path_equal(Path(host_binaries["python"].path), Path(sys.executable))
+        or host_binaries["python"].version != host_platform.python_version()
+    ):
+        raise R7S2QualificationError("host_python_identity_mismatch")
     if _path_equal(Path(host_binaries["system32_wsl"].path), Path(host_binaries["store_wsl"].path)):
         raise R7S2QualificationError("wsl_launcher_paths_must_differ")
 

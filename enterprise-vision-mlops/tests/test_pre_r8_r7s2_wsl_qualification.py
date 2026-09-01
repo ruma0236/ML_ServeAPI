@@ -4,6 +4,7 @@ import copy
 import hashlib
 import inspect
 import json
+import sys
 import threading
 from pathlib import Path
 from typing import Any
@@ -88,6 +89,9 @@ def _write_contract(tmp_path: Path) -> tuple[Path, Path, dict[str, Any]]:
         "evidence_root": str(evidence_root.resolve()),
         "distribution": "Ubuntu",
         "host_binaries": {
+            "python": _file_pin(
+                Path(sys.executable), version=qualifier.host_platform.python_version()
+            ),
             "system32_wsl": _file_pin(system_wsl, version="2.7.11.0"),
             "store_wsl": _file_pin(store_wsl, version="2.7.11.0"),
             "wslhost": _file_pin(wslhost, version="2.7.11.0"),
