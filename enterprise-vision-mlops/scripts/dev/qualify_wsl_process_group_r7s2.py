@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__" and not (
+    sys.flags.isolated
+    and sys.flags.no_site
+    and sys.flags.no_user_site
+    and sys.flags.ignore_environment
+    and sys.flags.dont_write_bytecode
+    and sys.flags.safe_path
+):
+    raise SystemExit("isolated_interpreter_flags_required:-I -S -B")
+
 import argparse
 import hashlib
 import json
@@ -7,7 +19,6 @@ import os
 import platform as host_platform
 import re
 import stat
-import sys
 import threading
 import time
 import types
@@ -26,6 +37,7 @@ RESERVATION_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s2.invocation-reservation.v
 EVIDENCE_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s2.wsl-qualification.v1"
 FAILURE_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s2.failure-seal.v1"
 INDEX_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s2.evidence-index.v1"
+EMERGENCY_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s2.emergency-seal.v1"
 LINUX_READBACK_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s2.linux-toolchain.v1"
 FIXTURE_ACK_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s2.detached-descendant.v1"
 
@@ -198,6 +210,7 @@ class QualificationContract:
     attempt_id: str
     evidence_root: Path
     run_directory: Path
+    emergency_directory: Path
     distribution: str
     host_binaries: dict[str, BinaryPin]
     linux_binaries: dict[str, BinaryPin]
@@ -417,6 +430,7 @@ def load_contract(
         raise R7S2QualificationError("evidence_root_mismatch")
     _assert_no_reparse_chain(evidence_root)
     run_directory = evidence_root / evidence_leaf
+    emergency_directory = evidence_root / f"{evidence_leaf}-emergency-seal"
     _assert_path_budget(run_directory)
     for leaf in (
         "invocation-reservation.json",
@@ -427,9 +441,14 @@ def load_contract(
         "failure-index.json",
     ):
         _assert_path_budget(run_directory / leaf)
+    _assert_path_budget(emergency_directory)
+    _assert_path_budget(emergency_directory / "emergency-seal.json")
     _assert_no_reparse_chain(run_directory, allow_missing_leaf=True)
+    _assert_no_reparse_chain(emergency_directory, allow_missing_leaf=True)
     if run_directory.exists():
         raise R7S2QualificationError("qualification_run_directory_exists")
+    if emergency_directory.exists():
+        raise R7S2QualificationError("qualification_emergency_directory_exists")
 
     distribution = str(contract["distribution"])
     if distribution != "Ubuntu":
@@ -576,6 +595,7 @@ def load_contract(
         attempt_id=attempt_id,
         evidence_root=evidence_root,
         run_directory=run_directory,
+        emergency_directory=emergency_directory,
         distribution=distribution,
         host_binaries=host_binaries,
         linux_binaries=linux_binaries,
@@ -610,7 +630,12 @@ def _atomic_exclusive_json(path: Path, value: Mapping[str, Any]) -> dict[str, An
         os.link(temporary, path, follow_symlinks=False)
     finally:
         temporary.unlink(missing_ok=True)
-    return {"path": str(path), "sha256": _sha256_bytes(raw), "bytes": len(raw)}
+    _assert_no_reparse_chain(path)
+    readback = path.read_bytes()
+    expected_sha256 = _sha256_bytes(raw)
+    if readback != raw or len(readback) != len(raw) or _sha256_bytes(readback) != expected_sha256:
+        raise R7S2QualificationError("atomic_publication_readback_mismatch")
+    return {"path": str(path), "sha256": expected_sha256, "bytes": len(raw)}
 
 
 def _make_contract(
@@ -1450,11 +1475,119 @@ def _index_payload(
     }
 
 
+def _primary_partial_inventory(run_directory: Path) -> list[dict[str, Any]]:
+    _assert_no_reparse_chain(run_directory, allow_missing_leaf=True)
+    if not run_directory.exists():
+        return []
+    _assert_no_reparse_chain(run_directory)
+    inventory: list[dict[str, Any]] = []
+    for path in sorted(run_directory.iterdir(), key=lambda item: item.name):
+        _assert_no_reparse_chain(path)
+        if not path.is_file():
+            raise R7S2QualificationError("primary_partial_non_file_forbidden")
+        inventory.append(
+            {
+                "name": path.name,
+                "path": str(path),
+                "sha256": _sha256_file(path),
+                "bytes": path.stat().st_size,
+            }
+        )
+    return inventory
+
+
+def _publish_emergency_seal(
+    contract: QualificationContract,
+    *,
+    expected_contract_sha256: str,
+    failed_stage: str,
+    exception: Exception,
+    qualification: ConcurrentQualification | None,
+    child_launch_attempted: bool,
+) -> dict[str, Any]:
+    try:
+        partial = qualification.partial_evidence if qualification is not None else {}
+        summary = _partial_process_summary(partial)
+        inventory = _primary_partial_inventory(contract.run_directory)
+        _assert_no_reparse_chain(contract.emergency_directory, allow_missing_leaf=True)
+        os.mkdir(contract.emergency_directory)
+        _assert_no_reparse_chain(contract.emergency_directory)
+        payload = {
+            "schema": EMERGENCY_SCHEMA,
+            "qualification_id": contract.qualification_id,
+            "run_uuid": contract.run_uuid,
+            "attempt_id": contract.attempt_id,
+            "sealed_at_utc": datetime.now(UTC).isoformat(),
+            "status": "manual_intervention_required",
+            "credit": "zero_credit",
+            "failed_stage": failed_stage,
+            "exception_type": type(exception).__name__,
+            "exception": str(exception),
+            "expected_contract_sha256": _hex64(
+                expected_contract_sha256, "expected_contract_sha256"
+            ),
+            "primary_run_directory": str(contract.run_directory),
+            "emergency_directory": str(contract.emergency_directory),
+            "partial_inventory": inventory,
+            "partial_evidence": partial,
+            "partial_process_summary": summary,
+            "child_launch_attempted": child_launch_attempted,
+            "automatic_retry_count": 0,
+            "forced_termination_attempts": summary["forced_termination_attempts"],
+            "lifecycle_calls": 0,
+            "completion_marker_created": False,
+            "r8_started": False,
+        }
+        return _atomic_exclusive_json(contract.emergency_directory / "emergency-seal.json", payload)
+    except Exception as emergency_exc:
+        raise R7S2QualificationError(
+            "emergency_seal_publication_failed_no_retry"
+        ) from emergency_exc
+
+
+def _emergency_result(
+    contract: QualificationContract,
+    *,
+    expected_contract_sha256: str,
+    failed_stage: str,
+    exception: Exception,
+    qualification: ConcurrentQualification | None,
+    child_launch_attempted: bool,
+) -> dict[str, Any]:
+    emergency = _publish_emergency_seal(
+        contract,
+        expected_contract_sha256=expected_contract_sha256,
+        failed_stage=failed_stage,
+        exception=exception,
+        qualification=qualification,
+        child_launch_attempted=child_launch_attempted,
+    )
+    return {
+        "emergency_seal": emergency,
+        "passed": False,
+        "manual_intervention_required": True,
+        "irrecoverable_primary_publication_failure": True,
+        "failed_stage": failed_stage,
+    }
+
+
 def execute_once(
     contract: QualificationContract, *, expected_contract_sha256: str
 ) -> dict[str, Any]:
-    os.mkdir(contract.run_directory)
-    _assert_no_reparse_chain(contract.run_directory)
+    try:
+        os.mkdir(contract.run_directory)
+        _assert_no_reparse_chain(contract.run_directory)
+    except FileExistsError:
+        raise
+    except Exception as directory_exc:
+        return _emergency_result(
+            contract,
+            expected_contract_sha256=expected_contract_sha256,
+            failed_stage="primary_run_directory_creation",
+            exception=directory_exc,
+            qualification=None,
+            child_launch_attempted=False,
+        )
     reservation = {
         "schema": RESERVATION_SCHEMA,
         "qualification_id": contract.qualification_id,
@@ -1468,22 +1601,92 @@ def execute_once(
         "forced_termination_budget": 0,
         "credit": "non_credit_only",
     }
-    reservation_pin = _atomic_exclusive_json(
-        contract.run_directory / "invocation-reservation.json", reservation
-    )
-    qualification = ConcurrentQualification(contract)
-    seal_attempted = False
-    seal_published = False
+    try:
+        reservation_pin = _atomic_exclusive_json(
+            contract.run_directory / "invocation-reservation.json", reservation
+        )
+    except Exception as reservation_exc:
+        return _emergency_result(
+            contract,
+            expected_contract_sha256=expected_contract_sha256,
+            failed_stage="invocation_reservation_publication",
+            exception=reservation_exc,
+            qualification=None,
+            child_launch_attempted=False,
+        )
+    try:
+        qualification = ConcurrentQualification(contract)
+    except Exception as initialization_exc:
+        return _emergency_result(
+            contract,
+            expected_contract_sha256=expected_contract_sha256,
+            failed_stage="qualification_initialization",
+            exception=initialization_exc,
+            qualification=None,
+            child_launch_attempted=False,
+        )
     try:
         evidence = qualification.run()
-        evidence["reservation"] = reservation_pin
-        leaf = (
-            "qualification-evidence.json"
-            if evidence["analysis"]["passed"]
-            else "failure-evidence.json"
+    except Exception as operation_exc:
+        failure = _failure_seal_payload(
+            contract,
+            reservation_pin=reservation_pin,
+            qualification=qualification,
+            failed_stage="concurrent_wsl_qualification",
+            exception=operation_exc,
+            failure_evidence=None,
+            include_partial_evidence=True,
         )
-        publication = _atomic_exclusive_json(contract.run_directory / leaf, evidence)
-        if evidence["analysis"]["passed"]:
+        try:
+            seal = _atomic_exclusive_json(contract.run_directory / "failure-seal.json", failure)
+        except Exception as seal_exc:
+            return _emergency_result(
+                contract,
+                expected_contract_sha256=expected_contract_sha256,
+                failed_stage="primary_failure_seal_publication",
+                exception=seal_exc,
+                qualification=qualification,
+                child_launch_attempted=qualification.call_counts["adversary_launches"] > 0,
+            )
+        try:
+            index = _atomic_exclusive_json(
+                contract.run_directory / "failure-index.json",
+                _index_payload(
+                    contract,
+                    reservation_pin=reservation_pin,
+                    report_pin=seal,
+                    failure_seal_pin=seal,
+                    status="zero_credit_failure",
+                ),
+            )
+        except Exception as index_exc:
+            return _emergency_result(
+                contract,
+                expected_contract_sha256=expected_contract_sha256,
+                failed_stage="primary_failure_index_publication",
+                exception=index_exc,
+                qualification=qualification,
+                child_launch_attempted=qualification.call_counts["adversary_launches"] > 0,
+            )
+        return {"failure_seal": seal, "index": index, "passed": False}
+
+    evidence["reservation"] = reservation_pin
+    child_launch_attempted = qualification.call_counts["adversary_launches"] > 0
+    if evidence["analysis"]["passed"]:
+        try:
+            publication = _atomic_exclusive_json(
+                contract.run_directory / "qualification-evidence.json", evidence
+            )
+        except Exception as report_exc:
+            return _emergency_result(
+                contract,
+                expected_contract_sha256=expected_contract_sha256,
+                failed_stage="qualification_report_publication",
+                exception=report_exc,
+                qualification=qualification,
+                child_launch_attempted=child_launch_attempted,
+            )
+        try:
             index = _atomic_exclusive_json(
                 contract.run_directory / "qualification-index.json",
                 _index_payload(
@@ -1494,19 +1697,51 @@ def execute_once(
                     status="qualified_non_credit",
                 ),
             )
-            return {"evidence": publication, "index": index, "passed": True}
-        failure = _failure_seal_payload(
-            contract,
-            reservation_pin=reservation_pin,
-            qualification=qualification,
-            failed_stage="concurrent_wsl_qualification_analysis",
-            exception=None,
-            failure_evidence=publication,
-            include_partial_evidence=False,
+        except Exception as index_exc:
+            return _emergency_result(
+                contract,
+                expected_contract_sha256=expected_contract_sha256,
+                failed_stage="qualification_index_publication",
+                exception=index_exc,
+                qualification=qualification,
+                child_launch_attempted=child_launch_attempted,
+            )
+        return {"evidence": publication, "index": index, "passed": True}
+
+    try:
+        publication = _atomic_exclusive_json(
+            contract.run_directory / "failure-evidence.json", evidence
         )
-        seal_attempted = True
+    except Exception as report_exc:
+        return _emergency_result(
+            contract,
+            expected_contract_sha256=expected_contract_sha256,
+            failed_stage="failure_report_publication",
+            exception=report_exc,
+            qualification=qualification,
+            child_launch_attempted=child_launch_attempted,
+        )
+    failure = _failure_seal_payload(
+        contract,
+        reservation_pin=reservation_pin,
+        qualification=qualification,
+        failed_stage="concurrent_wsl_qualification_analysis",
+        exception=None,
+        failure_evidence=publication,
+        include_partial_evidence=False,
+    )
+    try:
         seal = _atomic_exclusive_json(contract.run_directory / "failure-seal.json", failure)
-        seal_published = True
+    except Exception as seal_exc:
+        return _emergency_result(
+            contract,
+            expected_contract_sha256=expected_contract_sha256,
+            failed_stage="primary_failure_seal_publication",
+            exception=seal_exc,
+            qualification=qualification,
+            child_launch_attempted=child_launch_attempted,
+        )
+    try:
         index = _atomic_exclusive_json(
             contract.run_directory / "failure-index.json",
             _index_payload(
@@ -1517,50 +1752,21 @@ def execute_once(
                 status="zero_credit_failure",
             ),
         )
-        return {
-            "evidence": publication,
-            "failure_seal": seal,
-            "index": index,
-            "passed": False,
-        }
-    except Exception as exc:
-        if seal_attempted:
-            message = (
-                "failure_index_publication_failed_no_retry"
-                if seal_published
-                else "failure_seal_publication_failed_no_retry"
-            )
-            raise R7S2QualificationError(message) from exc
-        failure = _failure_seal_payload(
+    except Exception as index_exc:
+        return _emergency_result(
             contract,
-            reservation_pin=reservation_pin,
+            expected_contract_sha256=expected_contract_sha256,
+            failed_stage="primary_failure_index_publication",
+            exception=index_exc,
             qualification=qualification,
-            failed_stage="concurrent_wsl_qualification",
-            exception=exc,
-            failure_evidence=None,
-            include_partial_evidence=True,
+            child_launch_attempted=child_launch_attempted,
         )
-        seal_attempted = True
-        try:
-            publication = _atomic_exclusive_json(
-                contract.run_directory / "failure-seal.json", failure
-            )
-        except Exception as seal_exc:
-            raise R7S2QualificationError("failure_seal_publication_failed_no_retry") from seal_exc
-        try:
-            index = _atomic_exclusive_json(
-                contract.run_directory / "failure-index.json",
-                _index_payload(
-                    contract,
-                    reservation_pin=reservation_pin,
-                    report_pin=publication,
-                    failure_seal_pin=publication,
-                    status="zero_credit_failure",
-                ),
-            )
-        except Exception as index_exc:
-            raise R7S2QualificationError("failure_index_publication_failed_no_retry") from index_exc
-        return {"failure_seal": publication, "index": index, "passed": False}
+    return {
+        "evidence": publication,
+        "failure_seal": seal,
+        "index": index,
+        "passed": False,
+    }
 
 
 def _parser() -> argparse.ArgumentParser:

@@ -4,6 +4,8 @@ import copy
 import hashlib
 import inspect
 import json
+import os
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -664,10 +666,34 @@ def test_atomic_publication_never_overwrites_and_uses_short_temp(tmp_path: Path)
     assert not list(tmp_path.glob(".t-*.tmp"))
 
 
+def test_atomic_publication_reopens_and_rejects_corrupt_final_readback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "evidence.json"
+    real_link = qualifier.os.link
+
+    def corrupt_after_link(source: Path, destination: Path, **kwargs: Any) -> None:
+        real_link(source, destination, **kwargs)
+        Path(destination).write_bytes(b"corrupt-after-link")
+
+    monkeypatch.setattr(qualifier.os, "link", corrupt_after_link)
+    with pytest.raises(
+        qualifier.R7S2QualificationError,
+        match="atomic_publication_readback_mismatch",
+    ):
+        qualifier._atomic_exclusive_json(path, {"value": 1})
+    assert path.read_bytes() == b"corrupt-after-link"
+    assert not list(tmp_path.glob(".t-*.tmp"))
+
+
 def test_canonical_evidence_paths_fit_budget_with_short_leaf_and_temp() -> None:
     run_directory = qualifier.CANONICAL_EVIDENCE_ROOT / "wsl-12345678"
+    emergency_directory = qualifier.CANONICAL_EVIDENCE_ROOT / "wsl-12345678-emergency-seal"
     paths = [
         run_directory,
+        emergency_directory,
+        emergency_directory / "emergency-seal.json",
+        emergency_directory / ".t-12345678.tmp",
         *(
             run_directory / leaf
             for leaf in (
@@ -717,6 +743,44 @@ def test_execute_requires_explicit_flag_before_contract_read_or_write(
             ]
         )
     assert not list(tmp_path.iterdir())
+
+
+def test_entrypoint_rejects_ambient_stdlib_shadow_before_import(
+    tmp_path: Path,
+) -> None:
+    script = Path(qualifier.__file__).resolve()
+    marker = tmp_path / "shadow-imported.txt"
+    (tmp_path / "argparse.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('bad')\n",
+        encoding="utf-8",
+    )
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(tmp_path)
+    rejected = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert rejected.returncode != 0
+    assert "isolated_interpreter_flags_required:-I -S -B" in (rejected.stdout + rejected.stderr)
+    assert not marker.exists()
+
+    isolated = subprocess.run(
+        [sys.executable, "-I", "-S", "-B", str(script), "--help"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert isolated.returncode == 0
+    assert "--execute-non-credit-once" in isolated.stdout
+    assert not marker.exists()
 
 
 def test_manual_latch_stops_observer_and_performs_no_post_launch_scan(
@@ -1046,6 +1110,93 @@ def test_qualified_non_credit_report_gets_atomic_non_phase_b2_index(
     assert index["private_phase_b2_success_index_created"] is False
 
 
+def test_reservation_publication_failure_uses_parent_emergency_seal_before_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contract, _path, _raw = _load(tmp_path)
+    real_publish = qualifier._atomic_exclusive_json
+    reservation_attempts = 0
+    constructor_calls = 0
+
+    class MustNotConstruct:
+        def __init__(self, _contract: Any) -> None:
+            nonlocal constructor_calls
+            constructor_calls += 1
+            raise AssertionError("child-capable qualification constructed before reservation")
+
+    def fail_reservation(path: Path, value: dict[str, Any]) -> dict[str, Any]:
+        nonlocal reservation_attempts
+        if path.name == "invocation-reservation.json":
+            reservation_attempts += 1
+            raise PermissionError("synthetic_reservation_denied")
+        return real_publish(path, value)
+
+    monkeypatch.setattr(qualifier, "ConcurrentQualification", MustNotConstruct)
+    monkeypatch.setattr(qualifier, "_atomic_exclusive_json", fail_reservation)
+    result = qualifier.execute_once(contract, expected_contract_sha256="e" * 64)
+    assert result["passed"] is False
+    assert result["irrecoverable_primary_publication_failure"] is True
+    assert result["failed_stage"] == "invocation_reservation_publication"
+    assert reservation_attempts == 1
+    assert constructor_calls == 0
+    emergency_path = contract.emergency_directory / "emergency-seal.json"
+    payload = json.loads(emergency_path.read_text(encoding="utf-8"))
+    assert payload["failed_stage"] == "invocation_reservation_publication"
+    assert payload["child_launch_attempted"] is False
+    assert payload["partial_inventory"] == []
+    assert payload["automatic_retry_count"] == 0
+    assert payload["forced_termination_attempts"] == 0
+    assert payload["lifecycle_calls"] == 0
+    assert result["emergency_seal"]["sha256"] == _sha256(emergency_path)
+
+
+def test_qualified_report_publication_failure_uses_parent_emergency_seal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contract, _path, _raw = _load(tmp_path)
+
+    class Qualified:
+        def __init__(self, _contract: Any) -> None:
+            self.call_counts = {"adversary_launches": 1}
+            self.partial_evidence = {
+                "launch": {
+                    "forced_termination_attempts": 0,
+                    "residual_pids": [],
+                    "events": [],
+                    "accounting": [],
+                }
+            }
+
+        def run(self) -> dict[str, Any]:
+            return {
+                "schema": qualifier.EVIDENCE_SCHEMA,
+                "analysis": {"passed": True, "forced_termination_attempts": 0},
+            }
+
+    real_publish = qualifier._atomic_exclusive_json
+    report_attempts = 0
+
+    def fail_report(path: Path, value: dict[str, Any]) -> dict[str, Any]:
+        nonlocal report_attempts
+        if path.name == "qualification-evidence.json":
+            report_attempts += 1
+            raise OSError("synthetic_report_write_failure")
+        return real_publish(path, value)
+
+    monkeypatch.setattr(qualifier, "ConcurrentQualification", Qualified)
+    monkeypatch.setattr(qualifier, "_atomic_exclusive_json", fail_report)
+    result = qualifier.execute_once(contract, expected_contract_sha256="f" * 64)
+    assert result["passed"] is False
+    assert result["failed_stage"] == "qualification_report_publication"
+    assert report_attempts == 1
+    payload = json.loads(
+        (contract.emergency_directory / "emergency-seal.json").read_text(encoding="utf-8")
+    )
+    assert payload["child_launch_attempted"] is True
+    assert payload["automatic_retry_count"] == 0
+    assert payload["completion_marker_created"] is False
+
+
 def test_failure_seal_writer_failure_is_not_retried(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1084,12 +1235,73 @@ def test_failure_seal_writer_failure_is_not_retried(
 
     monkeypatch.setattr(qualifier, "ConcurrentQualification", AnalysisFailure)
     monkeypatch.setattr(qualifier, "_atomic_exclusive_json", fail_seal)
+    result = qualifier.execute_once(contract, expected_contract_sha256="c" * 64)
+    assert result["passed"] is False
+    assert result["failed_stage"] == "primary_failure_seal_publication"
+    assert seal_attempts == 1
+    emergency_path = contract.emergency_directory / "emergency-seal.json"
+    payload = json.loads(emergency_path.read_text(encoding="utf-8"))
+    assert payload["failed_stage"] == "primary_failure_seal_publication"
+    assert payload["automatic_retry_count"] == 0
+    assert {item["name"] for item in payload["partial_inventory"]} == {
+        "failure-evidence.json",
+        "invocation-reservation.json",
+    }
+
+
+def test_emergency_seal_failure_is_distinct_and_never_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contract, _path, _raw = _load(tmp_path)
+    real_publish = qualifier._atomic_exclusive_json
+    attempts = {"reservation": 0, "emergency": 0}
+
+    def fail_primary_and_emergency(path: Path, value: dict[str, Any]) -> dict[str, Any]:
+        if path.name == "invocation-reservation.json":
+            attempts["reservation"] += 1
+            raise PermissionError("synthetic_reservation_denied")
+        if path.name == "emergency-seal.json":
+            attempts["emergency"] += 1
+            raise OSError("synthetic_emergency_denied")
+        return real_publish(path, value)
+
+    monkeypatch.setattr(qualifier, "_atomic_exclusive_json", fail_primary_and_emergency)
     with pytest.raises(
         qualifier.R7S2QualificationError,
-        match="failure_seal_publication_failed_no_retry",
+        match="emergency_seal_publication_failed_no_retry",
     ):
-        qualifier.execute_once(contract, expected_contract_sha256="c" * 64)
-    assert seal_attempts == 1
+        qualifier.execute_once(contract, expected_contract_sha256="9" * 64)
+    assert attempts == {"reservation": 1, "emergency": 1}
+    assert not (contract.emergency_directory / "emergency-seal.json").exists()
+
+
+def test_emergency_seal_is_exclusive_and_never_overwritten(tmp_path: Path) -> None:
+    contract, _path, _raw = _load(tmp_path)
+    contract.run_directory.mkdir()
+    first = qualifier._publish_emergency_seal(
+        contract,
+        expected_contract_sha256="8" * 64,
+        failed_stage="synthetic_primary_failure",
+        exception=RuntimeError("first"),
+        qualification=None,
+        child_launch_attempted=False,
+    )
+    emergency_path = contract.emergency_directory / "emergency-seal.json"
+    before = emergency_path.read_bytes()
+    with pytest.raises(
+        qualifier.R7S2QualificationError,
+        match="emergency_seal_publication_failed_no_retry",
+    ):
+        qualifier._publish_emergency_seal(
+            contract,
+            expected_contract_sha256="8" * 64,
+            failed_stage="synthetic_second_failure",
+            exception=RuntimeError("second"),
+            qualification=None,
+            child_launch_attempted=False,
+        )
+    assert emergency_path.read_bytes() == before
+    assert first["sha256"] == hashlib.sha256(before).hexdigest()
 
 
 def test_source_contains_no_service_or_process_termination_path() -> None:
