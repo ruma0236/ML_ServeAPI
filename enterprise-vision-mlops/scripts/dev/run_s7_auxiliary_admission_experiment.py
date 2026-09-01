@@ -42,6 +42,10 @@ from evm.scale_validation.s7_evidence import (  # noqa: E402
     project_profile,
     source_git_identity,
 )
+from evm.scale_validation.s7_manifest_contract import (  # noqa: E402
+    create_run_scoped_manifest_snapshots,
+    manifest_snapshot_binding_sha256,
+)
 from evm.scale_validation.s7_runtime import (  # noqa: E402
     S7RuntimeConfig,
     S7RuntimeError,
@@ -180,13 +184,23 @@ def main() -> int:
     if args.diagnostic and args.acknowledge_diagnostic_manifest_drift:
         assets, runtime_asset_overrides = resolve_diagnostic_manifest_drift(assets)
     validate_assets(assets)
+    manifest_snapshot_contract = create_run_scoped_manifest_snapshots(
+        suite_root=suite_root,
+        suite_id=suite_id,
+        sources={family: assets[family].manifest for family in ("image", "vlm", "llm")},
+        expected_raw_sha256={
+            family: assets[family].manifest_sha256 for family in ("image", "vlm", "llm")
+        },
+    )
+    manifest_snapshot_binding = manifest_snapshot_binding_sha256(manifest_snapshot_contract)
+    image_manifest_snapshot = suite_root / manifest_snapshot_contract["families"]["image"]["path"]
     asset_provenance = capture_asset_provenance(
         root=args.root,
         suite_root=suite_root,
         assets=assets,
     )
     holder = capture_holder()
-    source_before = source_serving_probe(holder, data_root=args.data_root)
+    source_before = source_serving_probe(holder, manifest=image_manifest_snapshot)
     active_lease = read_active_gpu_lease()
     if active_lease is not None and active_lease.state == "active":
         raise S7RuntimeError(f"s7_gpu_lease_already_active:{active_lease.run_id}")
@@ -201,7 +215,10 @@ def main() -> int:
         expected_target_count=EXPECTED_BASELINE_TARGET_COUNT,
     ):
         raise S7RuntimeError("s7_prometheus_baseline_not_ready")
-    records = {family: read_jsonl(assets[family].manifest) for family in families}
+    records = {
+        family: read_jsonl(suite_root / manifest_snapshot_contract["families"][family]["path"])
+        for family in families
+    }
     input_catalog = prepare_inputs(
         suite_root=suite_root,
         data_root=args.data_root,
@@ -223,6 +240,8 @@ def main() -> int:
             "expected_prometheus_baseline_target_count": EXPECTED_BASELINE_TARGET_COUNT,
             "assets": public_asset_identity(assets),
             "runtime_asset_overrides": runtime_asset_overrides,
+            "manifest_snapshot_contract": manifest_snapshot_contract,
+            "manifest_snapshot_binding_sha256": manifest_snapshot_binding,
             "asset_provenance": public_asset_provenance(asset_provenance),
             "input_catalog_sha256": canonical_sha256(public_input_catalog(input_catalog)),
             "started_at": utc_now(),
@@ -368,7 +387,7 @@ def main() -> int:
                     "action": "Prometheus cleanup did not restore the frozen baseline.",
                     "recorded_at": utc_now(),
                 }
-    source_after = source_serving_probe(holder, data_root=args.data_root)
+    source_after = source_serving_probe(holder, manifest=image_manifest_snapshot)
     cleanup = {
         "schema_version": "evm.s7_cleanup.v1",
         "holder_uid_exact": capture_holder().uid == holder.uid,
@@ -412,18 +431,19 @@ def main() -> int:
         canonical_write(suite_root / "failed-attempt.json", failed)
         raise failure_exc
     if args.diagnostic:
-        index = private_evidence_index(suite_root)
+        index = private_evidence_index(
+            suite_root, manifest_snapshot_contract=manifest_snapshot_contract
+        )
         canonical_write(suite_root / "private-evidence-index.json", index)
         errors: list[str] = []
         projected = [
-            project_profile(item, config=config, errors=errors)
-            for item in profile_results
+            project_profile(item, config=config, errors=errors) for item in profile_results
         ]
         if errors or set(ready_identities) != set(families):
             raise S7RuntimeError("s7_diagnostic_projection_failed:" + ",".join(errors))
         index_raw = (suite_root / "private-evidence-index.json").read_bytes()
         public = {
-            "schema_version": "evm.s7_current_revision_cuda_smoke.v2",
+            "schema_version": "evm.s7_current_revision_cuda_smoke.v3",
             "status": "verified",
             "verdict": "passed",
             "acceptance_credit": False,
@@ -432,8 +452,12 @@ def main() -> int:
                 "revision": revision,
                 "branch": branch,
                 "config_sha256": config.sha256,
-                "git_blobs": source_git_identity(args.root.parent, revision),
+                "git_blobs": source_git_identity(
+                    args.root.parent, revision, include_manifest_contract=True
+                ),
                 "runtime_asset_overrides": runtime_asset_overrides,
+                "manifest_snapshot_contract": manifest_snapshot_contract,
+                "manifest_snapshot_binding_sha256": manifest_snapshot_binding,
             },
             "families": list(families),
             "profiles": projected,
@@ -451,9 +475,7 @@ def main() -> int:
                     else item.get("device") == "cuda"
                     for family, item in ready_identities.items()
                 ),
-                "trace_identity_complete": all(
-                    item["trace_complete"] for item in projected
-                ),
+                "trace_identity_complete": all(item["trace_complete"] for item in projected),
                 "oom_count": sum(item["oom_count"] for item in projected),
                 "admitted_starvation_count": sum(
                     item["admitted_starvation_count"] for item in projected
@@ -473,12 +495,8 @@ def main() -> int:
                 "s7_prometheus_target_zero": bool(
                     dict(cleanup["s7_target_cleanup"]).get("restored")
                 ),
-                "prometheus_baseline_target_count": cleanup["prometheus_baseline"][
-                    "target_count"
-                ],
-                "prometheus_baseline_up_count": cleanup["prometheus_baseline"][
-                    "up_count"
-                ],
+                "prometheus_baseline_target_count": cleanup["prometheus_baseline"]["target_count"],
+                "prometheus_baseline_up_count": cleanup["prometheus_baseline"]["up_count"],
             },
             "private_evidence": {
                 "artifact_count": len(index["artifacts"]),
@@ -493,7 +511,9 @@ def main() -> int:
         write_public_json(args.output, public)
         print(json.dumps({"status": "diagnostic_passed", "suite_root": str(suite_root)}))
         return 0
-    index = private_evidence_index(suite_root)
+    index = private_evidence_index(
+        suite_root, manifest_snapshot_contract=manifest_snapshot_contract
+    )
     canonical_write(suite_root / "private-evidence-index.json", index)
     errors: list[str] = []
     projected = [project_profile(item, config=config, errors=errors) for item in profile_results]
@@ -1201,9 +1221,7 @@ def assert_ready_identity(
         "quantization_requested": asset.quantization,
         "quantization_observed": quantization["observed"],
         "loaded_in_4bit": quantization["loaded_in_4bit"],
-        "linear_4bit_module_count": int(
-            quantization["linear_4bit_module_count"]
-        ),
+        "linear_4bit_module_count": int(quantization["linear_4bit_module_count"]),
         "runtime": {
             "cuda_available": dict(ready["runtime"])["cuda_available"],
             "torch": dict(ready["runtime"]).get("torch"),
@@ -1362,18 +1380,16 @@ def wait_holder(
     raise S7RuntimeError(f"s7_holder_scale_timeout:{expected}")
 
 
-def source_serving_probe(holder: HolderSnapshot, *, data_root: Path) -> dict[str, Any]:
+def source_serving_probe(holder: HolderSnapshot, *, manifest: Path) -> dict[str, Any]:
     ready = requests.get("http://127.0.0.1:30800/ready", timeout=10)
     ready.raise_for_status()
     payload = ready.json()
     if payload.get("model_sha256") != holder.model_sha256 or payload.get("device") != "cuda":
         raise S7RuntimeError("s7_source_serving_probe_failed")
-    manifest = read_jsonl(
-        data_root / "data/validated/visa/curation/curated_eval_manifest.jsonl"
-    )
+    records = read_jsonl(manifest)
     response = requests.post(
         "http://127.0.0.1:30800/predict",
-        json={"image_uri": manifest[0]["image_uri"]},
+        json={"image_uri": records[0]["image_uri"]},
         timeout=30,
     )
     response.raise_for_status()
@@ -1570,9 +1586,7 @@ def capture_asset_provenance(
         dataset = dict(contract.get("dataset", {}))
         asset = assets[family]
         cache_roots = (
-            [asset.model_artifact]
-            if family == "image"
-            else [asset.base_model, asset.adapter]
+            [asset.model_artifact] if family == "image" else [asset.base_model, asset.adapter]
         )
         cache_entries: list[dict[str, Any]] = []
         for cache_root in cache_roots:
@@ -1584,9 +1598,7 @@ def capture_asset_provenance(
                     continue
                 cache_entries.append(
                     {
-                        "scope": "model_artifact"
-                        if cache_root.is_file()
-                        else cache_root.name,
+                        "scope": "model_artifact" if cache_root.is_file() else cache_root.name,
                         "path": path.name
                         if cache_root.is_file()
                         else path.relative_to(cache_root).as_posix(),
@@ -1632,9 +1644,7 @@ def capture_asset_provenance(
     return result
 
 
-def public_asset_provenance(
-    provenance: dict[str, dict[str, Any]]
-) -> dict[str, dict[str, Any]]:
+def public_asset_provenance(provenance: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {
         family: {
             "scenario_contract_path": payload["scenario_contract_path"],
@@ -1661,7 +1671,9 @@ def public_input_catalog(catalog: dict[str, dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def private_evidence_index(root: Path) -> dict[str, Any]:
+def private_evidence_index(
+    root: Path, *, manifest_snapshot_contract: dict[str, Any] | None = None
+) -> dict[str, Any]:
     artifacts = []
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.name == "private-evidence-index.json":
@@ -1673,8 +1685,20 @@ def private_evidence_index(root: Path) -> dict[str, Any]:
                 "bytes": path.stat().st_size,
             }
         )
+    if manifest_snapshot_contract is None:
+        return {
+            "schema_version": "evm.s7_private_evidence_index.v1",
+            "artifacts": artifacts,
+            "aggregate_sha256": canonical_sha256(artifacts),
+            "generated_at": utc_now(),
+        }
     return {
-        "schema_version": "evm.s7_private_evidence_index.v1",
+        "schema_version": "evm.s7_private_evidence_index.v2",
+        "suite_id": root.name,
+        "manifest_snapshot_contract": manifest_snapshot_contract,
+        "manifest_snapshot_binding_sha256": manifest_snapshot_binding_sha256(
+            manifest_snapshot_contract
+        ),
         "artifacts": artifacts,
         "aggregate_sha256": canonical_sha256(artifacts),
         "generated_at": utc_now(),

@@ -154,8 +154,7 @@ def test_project_profile_rejects_over_limit_oom_or_wrong_reason() -> None:
         lambda profiles: next(
             item
             for item in profiles
-            if item["profile_id"] == "image-over-limit"
-            and item["repetition"] == 1
+            if item["profile_id"] == "image-over-limit" and item["repetition"] == 1
         ).update({"oom_count": 1}),
     ],
 )
@@ -289,66 +288,56 @@ def test_asset_contract_binds_scienceqa_noncommercial_license() -> None:
     assert projected["llm"]["dataset"]["license_id"] == "CC-BY-SA-3.0"
 
 
-def test_current_s7_smoke_recomputes_raw_success_and_manifest_identity() -> None:
-    smoke = json.loads(
-        (ROOT / "docs/status/evidence/s7-current-revision-cuda-smoke.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    private_root = (
-        Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/")
-        / "scale_validation/private/s7"
-        / smoke["suite_id"]
-    )
-    result = validate_s7_runtime_smoke(
-        smoke,
-        config=config(),
-        private_root=private_root,
-        data_root=Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops"),
-    )
-
-    assert result["status"] == "valid"
-    assert result["families"] == 3
-
-
-@pytest.mark.parametrize(
-    ("mutation", "expected"),
-    [
-        (
-            lambda value: value.__setitem__("acceptance_credit", True),
-            "smoke_verdict",
-        ),
-        (
-            lambda value: value["profiles"][0].__setitem__("completed", 5),
-            "smoke_profile_projection",
-        ),
-        (
-            lambda value: value["source_identity"]["runtime_asset_overrides"][
-                "image"
-            ].__setitem__("observed_manifest_sha256", "0" * 64),
-            "smoke_runtime_manifest_sha256:image",
-        ),
-    ],
-)
-def test_current_s7_smoke_fails_closed_on_summary_or_manifest_mutation(
-    mutation, expected: str
+def test_legacy_current_s7_smoke_is_explicit_remediation_without_live_rehash(
+    tmp_path: Path,
 ) -> None:
     smoke = json.loads(
         (ROOT / "docs/status/evidence/s7-current-revision-cuda-smoke.json").read_text(
             encoding="utf-8"
         )
     )
-    private_root = (
-        Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops/artifacts/")
-        / "scale_validation/private/s7"
-        / smoke["suite_id"]
+    result = validate_s7_runtime_smoke(
+        smoke,
+        config=config(),
+        private_root=tmp_path / "private-root-is-intentionally-absent",
+        data_root=tmp_path / "live-data-root-is-intentionally-absent",
+    )
+
+    assert result == {
+        "status": "remediation_required",
+        "classification": "legacy_snapshot_absent",
+        "acceptance_credit": False,
+        "suite_id": "20260829T160726Z-1f631c19",
+        "legacy_schema_version": "evm.s7_current_revision_cuda_smoke.v2",
+        "live_manifest_rehashed": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda value: value.__setitem__("acceptance_credit", True),
+        lambda value: value["profiles"][0].__setitem__("completed", 5),
+        lambda value: value["source_identity"]["runtime_asset_overrides"]["image"].__setitem__(
+            "observed_manifest_sha256", "0" * 64
+        ),
+    ],
+)
+def test_legacy_current_s7_smoke_cannot_be_retroactively_promoted(mutation, tmp_path: Path) -> None:
+    smoke = json.loads(
+        (ROOT / "docs/status/evidence/s7-current-revision-cuda-smoke.json").read_text(
+            encoding="utf-8"
+        )
     )
     mutation(smoke)
 
-    with pytest.raises(S7EvidenceValidationError, match=expected):
-        validate_s7_runtime_smoke(
-            smoke,
-            config=config(),
-            private_root=private_root,
-            data_root=Path("F:/EnterpriseMLOps_Data/enterprise-vision-mlops"),
-        )
+    result = validate_s7_runtime_smoke(
+        smoke,
+        config=config(),
+        private_root=tmp_path / "missing-private-root",
+        data_root=tmp_path / "missing-data-root",
+    )
+    assert result["status"] == "remediation_required"
+    assert result["classification"] == "legacy_snapshot_absent"
+    assert result["acceptance_credit"] is False
+    assert result["live_manifest_rehashed"] is False
