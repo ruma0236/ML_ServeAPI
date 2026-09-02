@@ -31,6 +31,7 @@ EXPECTED_NORMALIZED_WORKFLOW_SHA256 = (
 )
 REQUIREMENTS_RELATIVE_PATH = "ci/pre-r8-r7s4-uv-bootstrap.txt"
 ATTRIBUTES_RULES = (
+    "/.gitattributes text eol=lf",
     "/.github/workflows/enterprise-vision-mlops-ci.yml text eol=lf",
     "/enterprise-vision-mlops/ci/pre-r8-r7s4-uv-bootstrap.txt text eol=lf",
 )
