@@ -27,7 +27,7 @@ UV_WHEEL_BYTES = 23_657_089
 UV_EXECUTABLE_SHA256 = "b65f23a420c4acc96427efb30e5ed9bc0f7e25d2d712000f6ede77c1a0de5f46"
 UV_EXECUTABLE_BYTES = 59_019_440
 EXPECTED_NORMALIZED_WORKFLOW_SHA256 = (
-    "59480d0e050c690517ba4c5fb4adb00f62b4bfe574b73e7134241e7fbba2579f"
+    "0ed5eac6aa04326280f83e3bc5d9cce50ee3f45fba956052ca1425410792d360"
 )
 REQUIREMENTS_RELATIVE_PATH = "ci/pre-r8-r7s4-uv-bootstrap.txt"
 ATTRIBUTES_RULES = (
@@ -63,7 +63,7 @@ uv_executable_sha256="{UV_EXECUTABLE_SHA256}"
 test -f "$uv_executable"
 test "$(stat -c '%s' "$uv_executable")" = "$uv_executable_bytes"
 printf '%s  %s\\n' "$uv_executable_sha256" "$uv_executable" | sha256sum --check --strict
-test "$("$uv_executable" --version)" = "uv 0.12.5 (210d1f678 2026-08-14)"
+test "$("$uv_executable" --version)" = "uv 0.12.5 (x86_64-unknown-linux-gnu)"
 "$uv_executable" sync --locked --extra test --python "3.11.11" --no-python-downloads
 echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 test "$(node --version)" = "v22.23.2"
