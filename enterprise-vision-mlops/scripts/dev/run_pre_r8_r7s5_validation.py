@@ -129,8 +129,9 @@ def build_command_specs(
         "tests/test_pre_r8_r7s2_outer_launcher.py",
         "tests/test_pre_r8_r7s2_wsl_qualification.py",
     )
+    powershell_root = str(repository).replace("'", "''")
     ast_script = (
-        "$ErrorActionPreference='Stop'; $root=[IO.Path]::GetFullPath($args[0]); "
+        f"$ErrorActionPreference='Stop'; $root=[IO.Path]::GetFullPath('{powershell_root}'); "
         "$files=@(& git -C $root ls-files -- '*.ps1'); $count=0; "
         "foreach($relative in $files){$tokens=$null;$errors=$null;"
         "[void][System.Management.Automation.Language.Parser]::ParseFile("
@@ -171,7 +172,6 @@ def build_command_specs(
                 "-NonInteractive",
                 "-Command",
                 ast_script,
-                str(repository),
             ),
         ),
         CommandSpec("git-diff-check", ("git", "-C", str(repository), "diff", "--check", "HEAD")),

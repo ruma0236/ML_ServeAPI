@@ -296,15 +296,64 @@ def test_publisher_process_token_is_measured_from_win32() -> None:
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Win32 process ancestry read-back")
-def test_token_evidence_is_directly_bound_to_runtime_parent_and_codex_ancestor() -> None:
-    runtime = review.measure_process_identity(os.getpid())
-    parent = review.measure_process_identity(runtime["ppid"])
-    result = review.validate_token_evidence(
-        {"codex_pid": parent["ppid"], "publisher_parent_pid": runtime["ppid"]}
-    )
+def test_token_evidence_is_directly_bound_to_runtime_parent_and_codex_ancestor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token_paths = {
+        10: r"C:\trusted\codex.exe",
+        20: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        30: r"C:\trusted\python.exe",
+    }
+
+    def token(pid: int) -> dict[str, object]:
+        return {
+            "pid": pid,
+            "path": token_paths[pid],
+            "session_id": 1,
+            "administrator": True,
+            "administrator_group_member": True,
+            "integrity": "High",
+            "integrity_rid": 12288,
+            "token_elevation_type": "Full",
+            "token_elevation_value": 2,
+            "measurement": "win32-current-process-token",
+        }
+
+    identities = {
+        10: {
+            "pid": 10,
+            "ppid": 1,
+            "creation_time_utc": "2026-09-02T00:00:00Z",
+            "path": token_paths[10],
+            "danger_full_access_flag_present": True,
+            "approval_never_flag_present": True,
+        },
+        20: {
+            "pid": 20,
+            "ppid": 10,
+            "creation_time_utc": "2026-09-02T00:00:01Z",
+            "path": token_paths[20],
+            "danger_full_access_flag_present": False,
+            "approval_never_flag_present": False,
+        },
+        30: {
+            "pid": 30,
+            "ppid": 20,
+            "creation_time_utc": "2026-09-02T00:00:02Z",
+            "path": token_paths[30],
+            "danger_full_access_flag_present": False,
+            "approval_never_flag_present": False,
+        },
+    }
+    monkeypatch.setattr(review.os, "getpid", lambda: 30)
+    monkeypatch.setattr(review.os, "getppid", lambda: 20)
+    monkeypatch.setattr(review, "measure_current_token", lambda: token(30))
+    monkeypatch.setattr(review, "measure_process_token", token)
+    monkeypatch.setattr(review, "measure_process_identity", lambda pid: identities[pid])
+    result = review.validate_token_evidence({"codex_pid": 10, "publisher_parent_pid": 20})
     assert result["codex"]["process"]["danger_full_access_flag_present"] is True
     assert result["codex"]["process"]["approval_never_flag_present"] is True
-    assert result["publisher_runtime"]["process"]["ppid"] == runtime["ppid"]
+    assert result["publisher_runtime"]["process"]["ppid"] == 20
     assert result["launcher_settings_readback"] == {
         "sandbox_mode": "danger-full-access",
         "approval_policy": "never",
