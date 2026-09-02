@@ -1,0 +1,194 @@
+{
+  "baseline": {
+    "commit": "c70d11abf2e6e34d0fca8e51db38ebfea7fc0f5b",
+    "tree": "f8d691948ea908d9c12b11f8e35b87ba40dd5e62"
+  },
+  "current_external_state": {
+    "external_attested_private_artifact_runner_available": false,
+    "external_attested_windows_runner_available": false,
+    "hosted_linux_runner_provenance_verified": false
+  },
+  "decision": {
+    "credit": "zero_credit",
+    "go_evidence_eligible": false,
+    "reason": "portable_failures_and_external_runner_authority_unproven",
+    "reviewer_sign_off": "pending",
+    "status": "manual_intervention_required"
+  },
+  "file_inventory": {
+    "lanes": {
+      "portable": [
+        "tests/test_phase_b2_r7s5_ci.py",
+        "tests/test_scenario_workload_production.py",
+        "tests/test_task_queue_process_safety.py"
+      ],
+      "private": [
+        "tests/test_s3_capacity_evidence.py",
+        "tests/test_s4_gpu_batching_evidence.py",
+        "tests/test_s5_evidence.py",
+        "tests/test_scenario_model_serving.py",
+        "tests/test_x1_artifacts.py",
+        "tests/test_x1_calibration.py",
+        "tests/test_x1_contract.py",
+        "tests/test_x1_contract_validation.py",
+        "tests/test_x1_runtime.py",
+        "tests/test_x1_topology.py"
+      ],
+      "windows": [
+        "tests/test_phase_b2_r5_bundle_builder.py",
+        "tests/test_phase_b2_r5_process.py",
+        "tests/test_phase_b2_r7_bundle_builder.py",
+        "tests/test_phase_b2_r7_process.py",
+        "tests/test_phase_b2_r7_validator.py",
+        "tests/test_phase_b2_r7s1.py",
+        "tests/test_phase_b2_r7s1_bundle_builder.py",
+        "tests/test_phase_b2_r7s1_runner.py",
+        "tests/test_phase_b2_r7s1_validator.py",
+        "tests/test_pre_r8_r7s2_outer_launcher.py"
+      ]
+    },
+    "scope": "bounded_r7s5_known_failure_partition_and_contract_tests",
+    "scope_files": [
+      "tests/test_phase_b2_r5_bundle_builder.py",
+      "tests/test_phase_b2_r5_process.py",
+      "tests/test_phase_b2_r7_bundle_builder.py",
+      "tests/test_phase_b2_r7_process.py",
+      "tests/test_phase_b2_r7_validator.py",
+      "tests/test_phase_b2_r7s1.py",
+      "tests/test_phase_b2_r7s1_bundle_builder.py",
+      "tests/test_phase_b2_r7s1_runner.py",
+      "tests/test_phase_b2_r7s1_validator.py",
+      "tests/test_phase_b2_r7s5_ci.py",
+      "tests/test_pre_r8_r7s2_outer_launcher.py",
+      "tests/test_s3_capacity_evidence.py",
+      "tests/test_s4_gpu_batching_evidence.py",
+      "tests/test_s5_evidence.py",
+      "tests/test_scenario_model_serving.py",
+      "tests/test_scenario_workload_production.py",
+      "tests/test_task_queue_process_safety.py",
+      "tests/test_x1_artifacts.py",
+      "tests/test_x1_calibration.py",
+      "tests/test_x1_contract.py",
+      "tests/test_x1_contract_validation.py",
+      "tests/test_x1_runtime.py",
+      "tests/test_x1_topology.py"
+    ]
+  },
+  "hosted_failure_observation": {
+    "artifact_archive_bytes": 96190,
+    "artifact_archive_sha256": "0dbec4bea33d8890af17602423c024e62ea36689966b9df4ada8de4e257b87ee",
+    "artifact_id": 9830224962,
+    "artifact_name": "evm-python-test-diagnostics",
+    "errors": 0,
+    "failed": 172,
+    "full_nodeid_inventory_available": true,
+    "head_sha": "0f9a3b9ebb9d2248f9908852ec124eb6b9a5ba80",
+    "junit_xml_bytes": 1158862,
+    "junit_xml_sha256": "16aa6fa2bf4b9ddb8e6f2cbeef2739c8c0fd5ebbb7145a607fe832d04fabd209",
+    "known_failed_file_counts": {
+      "tests/test_phase_b2_r5_bundle_builder.py": 2,
+      "tests/test_phase_b2_r5_process.py": 2,
+      "tests/test_phase_b2_r7_bundle_builder.py": 1,
+      "tests/test_phase_b2_r7_process.py": 2,
+      "tests/test_phase_b2_r7_validator.py": 1,
+      "tests/test_phase_b2_r7s1.py": 61,
+      "tests/test_phase_b2_r7s1_bundle_builder.py": 8,
+      "tests/test_phase_b2_r7s1_runner.py": 1,
+      "tests/test_phase_b2_r7s1_validator.py": 1,
+      "tests/test_pre_r8_r7s2_outer_launcher.py": 20,
+      "tests/test_s3_capacity_evidence.py": 2,
+      "tests/test_s4_gpu_batching_evidence.py": 17,
+      "tests/test_s5_evidence.py": 2,
+      "tests/test_scenario_model_serving.py": 3,
+      "tests/test_scenario_workload_production.py": 1,
+      "tests/test_task_queue_process_safety.py": 1,
+      "tests/test_x1_artifacts.py": 13,
+      "tests/test_x1_calibration.py": 11,
+      "tests/test_x1_contract.py": 6,
+      "tests/test_x1_contract_validation.py": 2,
+      "tests/test_x1_runtime.py": 6,
+      "tests/test_x1_topology.py": 9
+    },
+    "lane_failed_node_counts": {
+      "portable": 2,
+      "private": 71,
+      "windows": 99
+    },
+    "nodeid_canonicalization": "utf-8_lf_terminal_newline_sorted_unique_reconstructed_pytest_nodeid_v1",
+    "nodeid_inventory_bytes": {
+      "collected": 227637,
+      "error": 1,
+      "failed": 19934,
+      "passed": 189598,
+      "skipped": 18105
+    },
+    "nodeid_inventory_counts": {
+      "collected": 2170,
+      "error": 0,
+      "failed": 172,
+      "passed": 1841,
+      "skipped": 157
+    },
+    "nodeid_inventory_readback_sha256": "328a7a888c145baef695a66a7ed4995e9d950b277bc36c6fe8e7d4fef6dbf32e",
+    "nodeid_sorted_hashes": {
+      "collected": "0dde9131ea86b7ceb00132a94fa4d4bb772a474231a01c058ffb79b04ff280ae",
+      "error": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "failed": "e1bc6accb087153f15019696f59e5dae51757fc21d97f551ce2359d95f7b9590",
+      "passed": "ec8748d22d1aea21fe2409e23ec956cce3a59f0e3330a5556424d5bbb2720cd1",
+      "skipped": "b3fec069bc3c009a4a2087345fc52ecd1fc2bf06d76aab0dbb9eef1689bdc4d7"
+    },
+    "other_files_failed_node_count": 0,
+    "passed": 1841,
+    "run_id": "33586339216",
+    "skipped": 157,
+    "tests": 2170
+  },
+  "remaining_blockers": [
+    "hosted_portable_lane_has_exact_failed_nodes_2",
+    "external_attested_windows_runner_absent",
+    "external_attested_private_artifact_runner_absent",
+    "hosted_linux_runner_external_provenance_unproven"
+  ],
+  "runner_contract": {
+    "closure_job": "required-lane-closure",
+    "closure_needs": [
+      "portable-linux",
+      "windows-platform-required",
+      "private-artifact-required"
+    ],
+    "lane_jobs": {
+      "portable": "portable-linux",
+      "private": "private-artifact-required",
+      "windows": "windows-platform-required"
+    },
+    "portable_runs_on": "ubuntu-24.04",
+    "trusted_windows_labels": [
+      "self-hosted",
+      "Windows",
+      "X64",
+      "s8-v4-r7s5-private"
+    ]
+  },
+  "schema": "evm.s8-v4.x1.phase-b2.pre-r8-r7s5-ci-contract.v1",
+  "workflow_contract": {
+    "allowed_action_refs": {
+      "actions/checkout@11d5960a326750d5838078e36cf38b85af677262": 4,
+      "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020": 1,
+      "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065": 1,
+      "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02": 4,
+      "azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede": 1
+    },
+    "closure_command": "python scripts/dev/validate_pre_r8_r7s5_ci.py manifest --manifest ci/pre-r8-r7s5-test-lanes.json --project-root .",
+    "lane_command_tokens": {
+      "portable": "--lane portable",
+      "private": "--lane private",
+      "windows": "--lane windows"
+    },
+    "required_job_ids": [
+      "portable-linux",
+      "windows-platform-required",
+      "private-artifact-required",
+      "required-lane-closure"
+    ]
+  }
+}

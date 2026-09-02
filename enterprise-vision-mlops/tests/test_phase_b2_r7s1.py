@@ -567,6 +567,19 @@ def _materialized_toolchain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert hashlib.sha256(attributes_payload).hexdigest() == r7s1.CANONICAL_GIT_ATTRIBUTES_SHA256
     attributes_path.write_bytes(attributes_payload)
     monkeypatch.setattr(r7s1, "CANONICAL_GIT_ATTRIBUTES_PATH", attributes_path)
+    # Isolate both required-absence checks from the ambient canonical checkout.
+    # Later hardening legitimately added a top-level .gitattributes there, which
+    # must not make this mutation test fail before it reaches its target field.
+    monkeypatch.setattr(
+        r7s1,
+        "CANONICAL_GIT_TOP_ATTRIBUTES_PATH",
+        (tmp_path / "absent-top-level.gitattributes").resolve(),
+    )
+    monkeypatch.setattr(
+        r7s1,
+        "CANONICAL_GIT_INFO_ATTRIBUTES_PATH",
+        (tmp_path / "absent-info-attributes").resolve(),
+    )
     toolchain = _toolchain(tmp_path)
     for role in r7s1.HOST_TOOLCHAIN_ROLES:
         pin = toolchain[role]

@@ -142,8 +142,7 @@ def install_completed_run(tmp_path: Path, monkeypatch) -> ScenarioWorkloadRun:
             "status": "pass",
             "source_commit": SOURCE_COMMIT,
             "commands": [
-                {"name": f"check-{index}", "status": "pass", "exit_code": 0}
-                for index in range(5)
+                {"name": f"check-{index}", "status": "pass", "exit_code": 0} for index in range(5)
             ],
         },
     )
@@ -253,10 +252,32 @@ def test_production_apply_and_rollback_state_machine(tmp_path: Path, monkeypatch
             reason="Restore the known-good B0 holder after validation",
         ),
     )
-    monkeypatch.setattr(runtime, "stop_exact_process", lambda *_args, **_kwargs: None)
+    process_match_calls: list[tuple[int, str]] = []
+    stop_calls: list[tuple[int, str]] = []
+
+    def exact_fake_process_matches(pid: int, candidate) -> bool:
+        assert pid == FakeProcess.pid
+        assert candidate.intent_id == requested.intent_id
+        process_match_calls.append((pid, candidate.intent_id))
+        return True
+
+    def stop_exact_fake_process(pid: int, candidate) -> None:
+        assert pid == FakeProcess.pid
+        assert candidate.intent_id == requested.intent_id
+        stop_calls.append((pid, candidate.intent_id))
+
+    monkeypatch.setattr(runtime, "process_matches", exact_fake_process_matches)
+    monkeypatch.setattr(runtime, "stop_exact_process", stop_exact_fake_process)
+    monkeypatch.setattr(
+        runtime,
+        "port_available",
+        lambda _port: pytest.fail("exact fake-process rollback must not inspect an ambient port"),
+    )
     monkeypatch.setattr(runtime, "restore_target_from_evidence_dir", lambda _root: None)
     rolled_back = runtime.rollback_production_intent(requested.intent_id)
     assert rolled_back.state == "rolled_back"
+    assert process_match_calls == [(FakeProcess.pid, requested.intent_id)]
+    assert stop_calls == [(FakeProcess.pid, requested.intent_id)]
     assert current_production_intent() is None
     assert scaled == [(0, False), (1, True)]
     assert get_production_intent(intent.intent_id).version >= 6
@@ -304,12 +325,8 @@ def test_production_server_binds_runtime_revision_and_otel_environment(
     assert environment["EVM_OTEL_ENABLED"] == "true"
     assert environment["EVM_OTEL_REQUIRED"] == "true"
     assert environment["EVM_OTEL_PROCESSOR"] == "simple"
-    assert environment["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] == (
-        "http://127.0.0.1:4318/v1/traces"
-    )
-    assert environment["OTEL_SERVICE_INSTANCE_ID"] == (
-        f"scenario-serving-{intent.intent_id}"
-    )
+    assert environment["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] == ("http://127.0.0.1:4318/v1/traces")
+    assert environment["OTEL_SERVICE_INSTANCE_ID"] == (f"scenario-serving-{intent.intent_id}")
 
 
 def test_ready_identity_requires_exact_runtime_revision_when_requested(
@@ -407,8 +424,7 @@ def test_production_apply_fails_closed_before_gpu_mutation_without_runtime_revis
 
     assert failed.state == "failed"
     assert failed.blockers == [
-        "scenario_production_admission_failed:"
-        "scenario_production_runtime_source_revision_missing"
+        "scenario_production_admission_failed:scenario_production_runtime_source_revision_missing"
     ]
     assert gpu_mutations == []
     assert current_production_intent() is None
