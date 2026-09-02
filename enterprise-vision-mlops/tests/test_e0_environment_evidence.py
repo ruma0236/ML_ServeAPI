@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-import torch
 
 from evm.scale_validation import e0_evidence
 from evm.scale_validation.e0_evidence import (
@@ -234,6 +233,8 @@ def test_e0_evidence_recomputes_private_attempts(
 def test_e0_generator_is_deterministic(tmp_path: Path) -> None:
     import subprocess
     import sys
+
+    torch = pytest.importorskip("torch", reason="requires the optional PyTorch toolchain")
 
     roots = [tmp_path / "a", tmp_path / "b"]
     manifests = []
