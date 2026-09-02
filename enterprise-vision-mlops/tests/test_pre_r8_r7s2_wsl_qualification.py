@@ -16,6 +16,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+if sys.platform != "win32":
+    pytest.skip("Windows-only r7s2 WSL qualification tests", allow_module_level=True)
+
 from scripts.dev import qualify_wsl_process_group_r7s2 as qualifier
 from scripts.dev import invoke_wsl_process_group_r7s2 as outer_launcher
 from scripts.dev import stage_wsl_process_group_r7s2 as contract_stager

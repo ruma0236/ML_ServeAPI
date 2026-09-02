@@ -10,6 +10,9 @@ from typing import Any
 
 import pytest
 
+if sys.platform != "win32":
+    pytest.skip("Windows-only r7s2 contract staging tests", allow_module_level=True)
+
 from scripts.dev import qualify_wsl_process_group_r7s2 as qualifier
 from scripts.dev import stage_wsl_process_group_r7s2 as stager
 
