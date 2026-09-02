@@ -52,8 +52,13 @@ def test_ruff_is_an_exact_lock_managed_test_dependency() -> None:
 def test_ci_installs_test_extra_and_mandates_scoped_ruff_checks() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
     assert 'python-version: "3.11.11"' in workflow
-    assert 'python -m pip install "uv==0.12.5"' in workflow
-    assert 'uv sync --locked --extra test --python "3.11.11" --no-python-downloads' in workflow
+    assert "python -m pip download --require-hashes --only-binary=:all: --no-deps" in workflow
+    assert "ci/pre-r8-r7s4-uv-bootstrap.txt" in workflow
+    assert "pip install --require-hashes --only-binary=:all: --no-deps --no-index" in workflow
+    assert 'pip install "uv==0.12.5"' not in workflow
+    assert (
+        '"$uv_executable" sync --locked --extra test --python "3.11.11" --no-python-downloads'
+    ) in workflow
     assert 'echo "$PWD/.venv/bin" >> "$GITHUB_PATH"' in workflow
     assert "pip install --upgrade pip" not in workflow
     assert "python -m ruff check --no-cache" in workflow
