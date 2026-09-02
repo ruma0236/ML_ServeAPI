@@ -145,9 +145,15 @@ EXPECTED_TOOL_ROLES = ("docker", "git", "nvidia_smi", "powershell", "python", "w
 PINNED_EXTERNAL_COLLECTION_CONTRACT: Mapping[str, Mapping[str, Any]] | None = None
 HEX40 = re.compile(r"[0-9a-f]{40}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
-ACTION_RE = re.compile(r"(?m)^\s*-\s+uses:\s*([^\s#]+)\s*(?:#.*)?$")
 FULL_ACTION_RE = re.compile(r"[^/@\s]+/[^/@\s]+@[0-9a-f]{40}")
 JOB_RE = re.compile(r"^  ([a-z0-9][a-z0-9-]*):\s*$")
+STEP_KEY_RE = re.compile(
+    r"^(?P<indent> *)(?P<list_item>-\s+)?(?P<key>uses|run)\s*:\s*(?P<value>.*?)\s*$"
+)
+USES_KEY_TOKEN_RE = re.compile(r'(?:^|[\s{,\-])(?:uses|"uses"|\'uses\')\s*:')
+YAML_ANCHOR_OR_ALIAS_RE = re.compile(r"(?:^|[\s:\[,\-])[&*][A-Za-z_][A-Za-z0-9_.-]*(?=$|[\s,\]}#])")
+INLINE_SEQUENCE_ITEM_RE = re.compile(r"^ *-\s*[\[{]")
+BLOCK_SCALAR_RE = re.compile(r":\s*[|>][+-]?(?:\s+#.*)?$")
 FORBIDDEN_WORKFLOW_PATTERNS = (
     ("continue_on_error", re.compile(r"(?i)\bcontinue-on-error\s*:")),
     ("shell_true_fallback", re.compile(r"\|\|\s*true\b")),
@@ -705,10 +711,18 @@ def _extract_job_blocks(workflow: str) -> dict[str, str]:
         match = JOB_RE.fullmatch(line.rstrip("\n"))
         if match:
             positions.append((match.group(1), index))
+    duplicate_jobs = sorted(
+        job for job, count in Counter(job for job, _ in positions).items() if count > 1
+    )
+    if duplicate_jobs:
+        raise R7S5CIContractError(f"workflow_job_id_not_unique:{duplicate_jobs[0]}")
     blocks: dict[str, str] = {}
     for ordinal, (job, index) in enumerate(positions):
         end = positions[ordinal + 1][1] if ordinal + 1 < len(positions) else len(lines)
         blocks[job] = "".join(lines[index:end])
+    for job, block in blocks.items():
+        if len(re.findall(r"(?m)^    steps:\s*$", block)) != 1:
+            raise R7S5CIContractError(f"workflow_job_steps_not_unique:{job}")
     return blocks
 
 
@@ -734,6 +748,113 @@ def _count_active_lines(block: str, token: str) -> int:
     )
 
 
+def _active_workflow_yaml_lines(workflow: str) -> list[tuple[int, str]]:
+    """Return YAML lines while excluding comments and block-scalar payloads."""
+
+    active: list[tuple[int, str]] = []
+    block_scalar_indent: int | None = None
+    for line_number, line in enumerate(workflow.splitlines(), start=1):
+        stripped = line.lstrip(" ")
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(stripped)
+        if block_scalar_indent is not None:
+            if indent > block_scalar_indent:
+                continue
+            block_scalar_indent = None
+        active.append((line_number, line))
+        if BLOCK_SCALAR_RE.search(line):
+            block_scalar_indent = indent
+    return active
+
+
+def _extract_action_refs(workflow: str) -> list[str]:
+    """Extract every action ref from an unambiguous, job-scoped workflow step."""
+
+    action_refs: list[str] = []
+    jobs_scope = False
+    current_job = False
+    in_steps = False
+    current_step = False
+    step_uses = 0
+    step_runs = 0
+
+    def register_step_key(key: str, value: str) -> None:
+        nonlocal step_uses, step_runs
+        if key == "uses":
+            step_uses += 1
+            if step_uses > 1:
+                raise R7S5CIContractError("workflow_step_uses_not_unique")
+            if step_runs:
+                raise R7S5CIContractError("workflow_step_uses_and_run_conflict")
+            match = re.fullmatch(r"([^\s#]+)\s*(?:#.*)?", value)
+            if match is None:
+                raise R7S5CIContractError("workflow_action_ref_scalar_ambiguous")
+            action_refs.append(match.group(1))
+            return
+        step_runs += 1
+        if step_runs > 1:
+            raise R7S5CIContractError("workflow_step_run_not_unique")
+        if step_uses:
+            raise R7S5CIContractError("workflow_step_uses_and_run_conflict")
+
+    for line_number, line in _active_workflow_yaml_lines(workflow):
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        syntax = re.split(r"\s+#", line, maxsplit=1)[0]
+
+        if YAML_ANCHOR_OR_ALIAS_RE.search(syntax):
+            raise R7S5CIContractError(f"workflow_yaml_anchor_or_alias_forbidden:line={line_number}")
+        if USES_KEY_TOKEN_RE.search(stripped) and STEP_KEY_RE.fullmatch(line) is None:
+            raise R7S5CIContractError(f"workflow_action_ref_inline_or_ambiguous:line={line_number}")
+        if INLINE_SEQUENCE_ITEM_RE.match(syntax):
+            raise R7S5CIContractError(f"workflow_yaml_inline_step_forbidden:line={line_number}")
+
+        if indent == 0:
+            jobs_scope = stripped == "jobs:"
+            current_job = False
+            in_steps = False
+            current_step = False
+            step_uses = 0
+            step_runs = 0
+        elif jobs_scope and indent == 2 and JOB_RE.fullmatch(line):
+            current_job = True
+            in_steps = False
+            current_step = False
+            step_uses = 0
+            step_runs = 0
+        elif current_job and indent == 4:
+            in_steps = stripped == "steps:"
+            current_step = False
+            step_uses = 0
+            step_runs = 0
+        elif in_steps and indent == 6 and stripped.startswith("- "):
+            current_step = True
+            step_uses = 0
+            step_runs = 0
+        elif in_steps and indent <= 6:
+            current_step = False
+            step_uses = 0
+            step_runs = 0
+
+        key_match = STEP_KEY_RE.fullmatch(line)
+        if key_match is None:
+            continue
+        key = key_match.group("key")
+        is_direct_step_key = (
+            in_steps and current_step and indent == 6 and key_match.group("list_item") is not None
+        )
+        is_step_child_key = (
+            in_steps and current_step and indent == 8 and key_match.group("list_item") is None
+        )
+        if key == "uses" and not (is_direct_step_key or is_step_child_key):
+            raise R7S5CIContractError(f"workflow_action_ref_unscoped:line={line_number}")
+        if is_direct_step_key or is_step_child_key:
+            register_step_key(key, key_match.group("value"))
+
+    return action_refs
+
+
 def validate_workflow_contract(raw: bytes, manifest: Mapping[str, Any]) -> dict[str, Any]:
     validate_manifest(manifest)
     if b"\r" in raw or not raw.endswith(b"\n"):
@@ -746,7 +867,7 @@ def validate_workflow_contract(raw: bytes, manifest: Mapping[str, Any]) -> dict[
         if pattern.search(workflow):
             raise R7S5CIContractError(f"workflow_forbidden_bypass:{label}")
 
-    action_refs = ACTION_RE.findall(workflow)
+    action_refs = _extract_action_refs(workflow)
     if any(FULL_ACTION_RE.fullmatch(ref) is None for ref in action_refs):
         raise R7S5CIContractError("workflow_action_ref_not_full_sha")
     if Counter(action_refs) != EXPECTED_ACTION_REFS:

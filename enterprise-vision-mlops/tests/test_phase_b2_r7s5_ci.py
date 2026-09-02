@@ -18,6 +18,7 @@ from scripts.dev import validate_pre_r8_r7s5_ci as cli
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "ci/pre-r8-r7s5-test-lanes.json"
+ACTIVE_WORKFLOW = ROOT.parent / ".github/workflows/enterprise-vision-mlops-ci.yml"
 NOW = datetime(2026, 9, 2, 5, 0, tzinfo=UTC)
 CHECKOUT = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
 SETUP_PYTHON = "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065"
@@ -557,6 +558,92 @@ def test_manifest_no_go_facts_cannot_be_reclassified(mutation: Any, error: str) 
 def test_manifest_only_workflow_closure_is_rejected() -> None:
     with pytest.raises(ci.R7S5CIContractError, match="workflow_required_closure_not_authenticated"):
         ci.validate_workflow_contract(_workflow(), _manifest())
+
+
+def test_named_step_child_uses_are_all_accounted_for() -> None:
+    raw = _workflow().replace(
+        f"      - uses: {CHECKOUT}\n".encode(),
+        f"      - name: Checkout pinned source\n        uses: {CHECKOUT}\n".encode(),
+    )
+    with pytest.raises(ci.R7S5CIContractError, match="workflow_required_closure_not_authenticated"):
+        ci.validate_workflow_contract(raw, _manifest())
+
+
+def test_unscoped_uses_is_rejected_instead_of_escaping_inventory() -> None:
+    raw = _workflow().replace(b"jobs:\n", f"uses: {CHECKOUT}\njobs:\n".encode(), 1)
+    with pytest.raises(ci.R7S5CIContractError, match="workflow_action_ref_unscoped"):
+        ci.validate_workflow_contract(raw, _manifest())
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "error"),
+    [
+        (
+            f"      - uses: {CHECKOUT}\n",
+            f"      - uses: {CHECKOUT}\n        uses: {CHECKOUT}\n",
+            "workflow_step_uses_not_unique",
+        ),
+        (
+            f"      - uses: {CHECKOUT}\n",
+            f"      - uses: {CHECKOUT}\n        run: echo forbidden\n",
+            "workflow_step_uses_and_run_conflict",
+        ),
+        (
+            "        run: |\n",
+            "        run: echo first\n        run: echo duplicate\n",
+            "workflow_step_run_not_unique",
+        ),
+    ],
+)
+def test_workflow_step_cannot_mix_or_duplicate_uses_and_run(old: str, new: str, error: str) -> None:
+    raw = _workflow().replace(old.encode(), new.encode(), 1)
+    with pytest.raises(ci.R7S5CIContractError, match=error):
+        ci.validate_workflow_contract(raw, _manifest())
+
+
+@pytest.mark.parametrize(
+    ("replacement", "error"),
+    [
+        (f"      - {{ uses: {CHECKOUT} }}\n", "workflow_action_ref_inline_or_ambiguous"),
+        ("      - { run: echo forbidden }\n", "workflow_yaml_inline_step_forbidden"),
+        (
+            f"      - &checkout-step\n        uses: {CHECKOUT}\n",
+            "workflow_yaml_anchor_or_alias_forbidden",
+        ),
+        ("      - *checkout-step\n", "workflow_yaml_anchor_or_alias_forbidden"),
+    ],
+)
+def test_workflow_inline_anchor_and_alias_steps_fail_closed(replacement: str, error: str) -> None:
+    raw = _workflow().replace(f"      - uses: {CHECKOUT}\n".encode(), replacement.encode(), 1)
+    with pytest.raises(ci.R7S5CIContractError, match=error):
+        ci.validate_workflow_contract(raw, _manifest())
+
+
+def test_active_workflow_remains_truthful_inventory_mismatch() -> None:
+    with pytest.raises(ci.R7S5CIContractError, match="workflow_action_ref_inventory_mismatch"):
+        ci.validate_workflow_contract(ACTIVE_WORKFLOW.read_bytes(), _manifest())
+
+
+def test_duplicate_job_id_cannot_shadow_an_action_inventory() -> None:
+    raw = _workflow().replace(
+        b"jobs:\n",
+        b"jobs:\n  portable-linux:\n    steps:\n",
+        1,
+    )
+    with pytest.raises(ci.R7S5CIContractError, match="workflow_job_id_not_unique:portable-linux"):
+        ci.validate_workflow_contract(raw, _manifest())
+
+
+def test_duplicate_steps_mapping_cannot_split_an_action_inventory() -> None:
+    raw = _workflow().replace(
+        b"    steps:\n",
+        b"    steps:\n    steps:\n",
+        1,
+    )
+    with pytest.raises(
+        ci.R7S5CIContractError, match="workflow_job_steps_not_unique:portable-linux"
+    ):
+        ci.validate_workflow_contract(raw, _manifest())
 
 
 @pytest.mark.parametrize(

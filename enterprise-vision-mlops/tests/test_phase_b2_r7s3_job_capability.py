@@ -143,6 +143,85 @@ def test_missing_handle_clears_nonce_and_commitment_fail_closed() -> None:
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows HANDLE semantics")
+@pytest.mark.parametrize("invalid_field", ["run_uuid", "nonce", "commitment"])
+def test_parsed_capability_handle_is_closed_on_prequery_validation_failure(
+    invalid_field: str,
+) -> None:
+    nonce = b"v" * process.JOB_CAPABILITY_NONCE_BYTES
+    run_uuid = str(uuid.uuid4())
+    environment = _capability_environment(nonce, run_uuid)
+    if invalid_field == "run_uuid":
+        environment[process.RUN_UUID_ENV] = "invalid-run-uuid"
+    elif invalid_field == "nonce":
+        environment[process.JOB_CAPABILITY_NONCE_ENV] = "not-a-nonce"
+    else:
+        environment[process.JOB_CAPABILITY_COMMITMENT_ENV] = "0" * 64
+    api = _SnapshotApi()
+
+    with pytest.raises((ValueError, process.ProcessContainmentError)):
+        process.consume_inherited_job_capability(environment=environment, api=api)
+
+    assert api.closed == [444]
+    assert process.JOB_CAPABILITY_HANDLE_ENV not in environment
+    assert process.JOB_CAPABILITY_NONCE_ENV not in environment
+    assert process.JOB_CAPABILITY_COMMITMENT_ENV not in environment
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows HANDLE semantics")
+@pytest.mark.parametrize(
+    "missing_field",
+    [process.JOB_CAPABILITY_NONCE_ENV, process.JOB_CAPABILITY_COMMITMENT_ENV],
+)
+def test_parsed_capability_handle_is_closed_when_later_field_is_missing(
+    missing_field: str,
+) -> None:
+    nonce = b"x" * process.JOB_CAPABILITY_NONCE_BYTES
+    run_uuid = str(uuid.uuid4())
+    environment = _capability_environment(nonce, run_uuid)
+    del environment[missing_field]
+    api = _SnapshotApi()
+
+    with pytest.raises(process.ProcessContainmentError, match="environment field invalid"):
+        process.consume_inherited_job_capability(environment=environment, api=api)
+
+    assert api.closed == [444]
+    assert process.JOB_CAPABILITY_HANDLE_ENV not in environment
+    assert process.JOB_CAPABILITY_NONCE_ENV not in environment
+    assert process.JOB_CAPABILITY_COMMITMENT_ENV not in environment
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows HANDLE semantics")
+def test_api_initialization_interrupt_uses_native_fallback_handle_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    nonce = b"f" * process.JOB_CAPABILITY_NONCE_BYTES
+    run_uuid = str(uuid.uuid4())
+    environment = _capability_environment(nonce, run_uuid)
+    closed: list[int] = []
+
+    class _CloseHandle:
+        argtypes: Any = None
+        restype: Any = None
+
+        def __call__(self, handle: Any) -> int:
+            closed.append(int(handle.value))
+            return 1
+
+    kernel = SimpleNamespace(CloseHandle=_CloseHandle())
+    monkeypatch.setattr(
+        process,
+        "_WindowsJobApi",
+        lambda: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+    monkeypatch.setattr(process.ctypes, "WinDLL", lambda *_args, **_kwargs: kernel)
+
+    with pytest.raises(KeyboardInterrupt):
+        process.consume_inherited_job_capability(environment=environment)
+
+    assert closed == [444]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows HANDLE semantics")
 @pytest.mark.parametrize("failure", ["swapped_explicit", "implicit_mismatch"])
 def test_swapped_or_null_job_mismatch_is_rejected_and_handle_closed(failure: str) -> None:
     nonce = b"s" * process.JOB_CAPABILITY_NONCE_BYTES
@@ -224,6 +303,20 @@ class _CreateKernel(_DuplicateKernel):
         self.environment_block = ""
         self.closed: list[int] = []
         self.deleted_attribute_lists = 0
+        self.executable_lock: tuple[str, int, int, int] | None = None
+
+    def CreateFileW(
+        self,
+        path: str,
+        access: int,
+        share_mode: int,
+        _security: Any,
+        _creation: int,
+        flags: int,
+        _template: Any,
+    ) -> int:
+        self.executable_lock = (path, access, share_mode, flags)
+        return 445
 
     def CreateProcessW(
         self,
@@ -303,6 +396,14 @@ def test_create_process_uses_explicit_absolute_app_and_exact_handle_roles(
     assert captured_handles == [(11, 12, 13, 444)]
     assert kernel.calls == [(-1, 100, -1, process.JOB_CAPABILITY_QUERY_ACCESS, True, 0)]
     assert 444 in kernel.closed
+    assert 445 in kernel.closed
+    assert kernel.executable_lock == (
+        kernel.application_name,
+        process._WindowsJobApi._GENERIC_READ,
+        process._WindowsJobApi._FILE_SHARE_READ,
+        process._WindowsJobApi._FILE_ATTRIBUTE_NORMAL
+        | process._WindowsJobApi._FILE_FLAG_OPEN_REPARSE_POINT,
+    )
     assert kernel.deleted_attribute_lists == 1
     fields = {
         item.split("=", 1)[0]: item.split("=", 1)[1]
@@ -349,6 +450,28 @@ def test_application_path_must_be_absolute_and_reparse_free(
         process._validated_executable_identity(executable)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows file sharing semantics")
+def test_executable_lock_denies_write_and_replacement_until_closed(tmp_path: Path) -> None:
+    executable = tmp_path / "runtime.exe"
+    replacement = tmp_path / "replacement.exe"
+    executable.write_bytes(b"MZ-original")
+    replacement.write_bytes(b"MZ-replacement")
+    api = process._WindowsJobApi()
+
+    handle = api.open_executable_lock(str(executable.resolve()))
+    try:
+        with pytest.raises(OSError):
+            executable.write_bytes(b"MZ-mutated")
+        with pytest.raises(OSError):
+            os.replace(replacement, executable)
+        assert executable.read_bytes() == b"MZ-original"
+    finally:
+        api.close(handle)
+
+    os.replace(replacement, executable)
+    assert executable.read_bytes() == b"MZ-replacement"
+
+
 def test_primitive_contract_records_unwired_child_and_remaining_trust_boundaries() -> None:
     contract = process.R7S3_JOB_CAPABILITY_PRIMITIVE_CONTRACT
     assert contract["parent_provisions_private_inherited_job_capability"] is True
@@ -358,7 +481,28 @@ def test_primitive_contract_records_unwired_child_and_remaining_trust_boundaries
     assert contract["explicit_current_job_snapshot_equivalence_helper"] is True
     assert contract["explicit_current_job_snapshot_equivalence_enforced"] is False
     assert contract["explicit_application_name"] is True
-    assert contract["executable_handle_held_through_create"] is False
+    assert contract["completion_port_blocking_wait"] is True
+    assert contract["completion_event_batch_limit"] == (
+        process.DEFAULT_MAX_COMPLETION_EVENTS_PER_DRAIN
+    )
+    assert contract["completion_drain_deadline_and_cancel_checks"] is True
+    assert contract["final_safe_gate_after_bounded_stream_decode"] is True
+    assert contract["reader_start_exception_native_state_cleanup"] is True
+    assert contract["completion_poll_interval_seconds"] == 0.001
+    assert contract["missed_descendant_identity_fails_closed"] is True
+    assert contract["executable_handle_held_through_create"] is True
+    assert contract["restore_deadline_bounds_runner_stages"] is False
+    assert contract["pre_kernel_filesystem_setup_hard_deadline_bounded"] is False
+    assert contract["base_exception_converted_to_containment_failure"] is False
+    assert contract["base_exception_conversion_scope"] == (
+        "post_windows_api_initialization_runner_body"
+    )
+    assert contract["job_capability_consumed_before_workload"] is False
+    assert contract["ambient_ancestor_job_effective_limits_audited"] is False
+    assert contract["residual_job_observer_lease_until_active_zero"] is False
+    assert contract["wsl_kernel_lineage_containment"] is False
+    assert contract["wsl_interpreter_sha256_pinned"] is False
+    assert contract["wsl_scan_nonce_unique_per_poll"] is True
     assert contract["same_token_hostile_admin_protected"] is False
     assert contract["go_evidence_eligible"] is False
     assert contract["external_review_required"] is True
@@ -437,6 +581,7 @@ class _RedactionRunnerApi:
 
     def create_suspended_process(self, **kwargs: Any) -> SimpleNamespace:
         self.nonce_hex = bytes(kwargs["job_capability_nonce"]).hex()
+        kwargs["pre_kernel_create_gate"]()
         return SimpleNamespace(hProcess=400, hThread=401, dwProcessId=402)
 
     @staticmethod
