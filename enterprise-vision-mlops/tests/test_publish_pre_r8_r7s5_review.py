@@ -263,8 +263,18 @@ def _tool_identity(
     tool_raw = tool.read_bytes() if tool.is_file() else b"x"
     tool_sha256 = hashlib.sha256(tool_raw).hexdigest()
     tool_bytes = len(tool_raw)
-    version_argv = [tool_path, "--version"]
-    runtime_version_argv = [tool_path, "--version"]
+    is_kubectl = spec.name == runner.KUBECTL_CLIENT_VERSION_COMMAND_NAME
+    version_argv = (
+        [tool_path, "version", "--client=true", "--output=json"]
+        if is_kubectl
+        else [tool_path, "--version"]
+    )
+    runtime_version_argv = list(version_argv)
+    version_text = (
+        '{"clientVersion":{"gitVersion":"v1.34.1"},"kustomizeVersion":"v5.7.1"}'
+        if is_kubectl
+        else "trusted tool 1"
+    )
     offset = 50_000 if live else 10_000
     assert spec.work_order_tool_role is not None
     work_order_binding = runner.work_order_tool_binding(
@@ -280,14 +290,14 @@ def _tool_identity(
         "bytes": tool_bytes,
         "sha256": tool_sha256,
         "version_argv": version_argv,
-        "version": "trusted tool 1",
+        "version": version_text,
         "runtime_version_argv": runtime_version_argv,
-        "runtime_version": "trusted runtime 1",
+        "runtime_version": version_text,
         "version_process_containment": _clean_process_outcome(
             name=f"r7s6-validation-metadata-tool-version-{spec.name}",
             command=version_argv,
             pid=offset + index * 2,
-            stdout="trusted tool 1\n",
+            stdout=f"{version_text}\n",
             executable_sha256=tool_sha256,
             executable_bytes=tool_bytes,
         ),
@@ -295,7 +305,7 @@ def _tool_identity(
             name=f"r7s6-validation-metadata-runtime-version-{spec.name}",
             command=runtime_version_argv,
             pid=offset + index * 2 + 1,
-            stdout="trusted runtime 1\n",
+            stdout=f"{version_text}\n",
             executable_sha256=tool_sha256,
             executable_bytes=tool_bytes,
         ),
@@ -325,6 +335,8 @@ def _code_summary(
     tree = "2" * 40
     trusted_tool = tmp_path / "trusted-tool.exe"
     trusted_tool.write_bytes(b"trusted-test-tool")
+    kubectl_tool = tmp_path / "kubectl.exe"
+    kubectl_tool.write_bytes(trusted_tool.read_bytes())
     (tmp_path / "Lib" / "site-packages").mkdir(parents=True)
     trusted_tool_sha256 = hashlib.sha256(trusted_tool.read_bytes()).hexdigest()
     monkeypatch.setattr(
@@ -343,12 +355,23 @@ def _code_summary(
     specs = tuple(
         runner.CommandSpec(
             name,
-            (str(trusted_tool), name),
+            (
+                (str(kubectl_tool), "version", "--client=true", "--output=json")
+                if name == runner.KUBECTL_CLIENT_VERSION_COMMAND_NAME
+                else (str(trusted_tool), name)
+            ),
             expected_exit_code=2 if name == "ci-active-workflow-required-rejection" else 0,
             required_output_tokens=(
-                ("required-output-token",)
-                if name == "ci-active-workflow-required-rejection"
-                else ()
+                (
+                    '"gitVersion":"v1.34.1"',
+                    '"kustomizeVersion":"v5.7.1"',
+                )
+                if name == runner.KUBECTL_CLIENT_VERSION_COMMAND_NAME
+                else (
+                    ("required-output-token",)
+                    if name == "ci-active-workflow-required-rejection"
+                    else ()
+                )
             ),
             python_tool_distribution=runner.WORK_ORDER_TOOL_CONTRACT_BY_COMMAND[name][1],
             work_order_tool_role=runner.WORK_ORDER_TOOL_CONTRACT_BY_COMMAND[name][0],
@@ -481,7 +504,11 @@ def _code_summary(
     commands: list[dict[str, object]] = []
     for index, spec in enumerate(specs, start=1):
         path = evidence_root / f"{index:02d}-{spec.name}.json"
-        stdout_text = "required-output-token\n" if spec.required_output_tokens else ""
+        stdout_text = (
+            '{"clientVersion":{"gitVersion":"v1.34.1"},"kustomizeVersion":"v5.7.1"}\n'
+            if spec.name == runner.KUBECTL_CLIENT_VERSION_COMMAND_NAME
+            else ("required-output-token\n" if spec.required_output_tokens else "")
+        )
         stdout_raw = stdout_text.encode("utf-8")
         tool_path = str(tools[spec.name]["path"])
         process_evidence = _clean_process_outcome(
@@ -567,8 +594,19 @@ def _code_summary(
         "expected_head": head,
         "expected_tree": tree,
         "tool_file_bindings": {
-            name: runner.work_order_tool_binding(name, trusted_tool, trusted_tool_sha256)
-            for name in ("git", "powershell", "python_general", "python_host", "python_ruff")
+            name: runner.work_order_tool_binding(
+                name,
+                kubectl_tool if name == "kubectl" else trusted_tool,
+                trusted_tool_sha256,
+            )
+            for name in (
+                "git",
+                "kubectl",
+                "powershell",
+                "python_general",
+                "python_host",
+                "python_ruff",
+            )
         },
         "code_file_bindings": runner.work_order_code_file_bindings(
             trusted_outer, trusted_outer_sha256
@@ -638,8 +676,18 @@ def _code_summary(
         "environment_commitment": environment_commitment,
         "output_parent_commitment": output_parent_commitment,
         "independent_executable_pins": {
-            name: {"path": str(trusted_tool.resolve()), "sha256": trusted_tool_sha256}
-            for name in ("git", "powershell", "python_general", "python_host", "python_ruff")
+            name: {
+                "path": str((kubectl_tool if name == "kubectl" else trusted_tool).resolve()),
+                "sha256": trusted_tool_sha256,
+            }
+            for name in (
+                "git",
+                "kubectl",
+                "powershell",
+                "python_general",
+                "python_host",
+                "python_ruff",
+            )
         },
         "expected_untracked_inventory": untracked_inventory["expected"],
         "metadata_children": metadata_children,
@@ -673,6 +721,8 @@ def _code_summary(
         "python_host_sha256": trusted_tool_sha256,
         "python_ruff": trusted_tool,
         "python_ruff_sha256": trusted_tool_sha256,
+        "kubectl_executable": kubectl_tool,
+        "kubectl_executable_sha256": trusted_tool_sha256,
         "git_executable": trusted_tool,
         "git_executable_sha256": trusted_tool_sha256,
         "powershell_executable": trusted_tool,
@@ -1291,6 +1341,44 @@ def test_code_summary_requires_raw_unobserved_live_call_telemetry_and_no_go(
             review.validate_code_summary(tampered, **tampered_kwargs)
 
 
+def test_code_summary_rejects_kubectl_pin_and_child_path_shadow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    value, kwargs = _code_summary(monkeypatch, tmp_path / "digest")
+    kwargs["kubectl_executable_sha256"] = "0" * 64
+    with pytest.raises(review.ReviewPublisherError, match="kubectl_executable_sha256_mismatch"):
+        review.validate_code_summary(value, **kwargs)
+
+    value, kwargs = _code_summary(monkeypatch, tmp_path / "shadow")
+    monkeypatch.setattr(
+        runner.shutil,
+        "which",
+        lambda *_args, **_kwargs: str(Path(kwargs["python_general"])),
+    )
+    with pytest.raises(review.ReviewPublisherError, match="child_path_tool_binding_invalid"):
+        review.validate_code_summary(value, **kwargs)
+
+
+def test_trusted_outer_exactly_locks_kubectl_binding_through_dispatch() -> None:
+    outer = Path(review.__file__).with_name("invoke_pre_r8_r7s7_review.ps1")
+    source = outer.read_text(encoding="utf-8")
+    exact_set_gate = "external_work_order_tool_file_binding_set_not_exact"
+    lock = "$KubectlLock = Resolve-RegularPinnedFile"
+    retained = "$ToolExecutableLocks += $KubectlLock"
+    prelaunch = "foreach ($PinnedFile in @($ToolContentLocks) + @($ToolExecutableLocks)"
+    dispatch = "$Bootstrap | & $Python"
+    assert exact_set_gate in source
+    assert "'kubectl'" in source
+    assert "Sort-Object -CaseSensitive" in source
+    assert "Compare-Object -CaseSensitive" in source
+    assert lock in source
+    assert retained in source
+    assert prelaunch in source
+    assert source.index(exact_set_gate) < source.index(lock) < source.index(prelaunch)
+    assert source.index(prelaunch) < source.index(dispatch)
+
+
 def test_validation_handoff_replay_and_self_consistent_local_repin_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1630,6 +1718,30 @@ def test_trusted_outer_rejects_self_consistent_arbitrary_site_packages_path(
     runner_path = Path(runner.__file__).resolve()
     python_path = Path(sys.executable).resolve()
     powershell = runner._resolved_executable("powershell.exe")
+    python_sha256 = review.sha256_file(python_path)
+    tool_bindings = {
+        name: {
+            "path": str(python_path),
+            "sha256": python_sha256,
+            "bytes": python_path.stat().st_size,
+            **(
+                {
+                    "site_packages": {"path": str(tmp_path.resolve())},
+                    "python_tool_module": {"site_packages_path": str(tmp_path.resolve())},
+                }
+                if name.startswith("python_")
+                else {}
+            ),
+        }
+        for name in (
+            "git",
+            "kubectl",
+            "powershell",
+            "python_general",
+            "python_host",
+            "python_ruff",
+        )
+    }
     work_order = {
         "authority_scope": "internal_non_authoritative",
         "authority_verified": False,
@@ -1639,18 +1751,7 @@ def test_trusted_outer_rejects_self_consistent_arbitrary_site_packages_path(
         "pycache_prefix": str(
             tmp_path.parent / ".pre-r8-r7s7-pycache-10000000-0000-4000-8000-000000000001"
         ),
-        "tool_file_bindings": {
-            "python_general": {
-                "path": str(python_path),
-                "site_packages": {
-                    "path": str(tmp_path.resolve()),
-                    "device": 0,
-                    "file_id": 0,
-                    "creation_time_ns": 0,
-                    "pth_processing": "disabled_by_python_no_site",
-                },
-            }
-        },
+        "tool_file_bindings": tool_bindings,
     }
     work_order_path = tmp_path / "self-consistent-arbitrary-site.json"
     work_order_raw = review.canonical_json_bytes(work_order)
@@ -1714,6 +1815,7 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
         "python_general": python_path,
         "python_host": python_path,
         "python_ruff": python_path,
+        "kubectl": git,
         "git": git,
         "powershell": powershell,
     }
@@ -1782,6 +1884,27 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
         "preimport_untracked_import_shadow_forbidden" in combined
         or "the following arguments are required" in combined
         or "review_os_bound_outer_capability_unprovisioned" in combined
+    )
+
+    case_mutated = json.loads(json.dumps(work_order))
+    case_mutated["tool_file_bindings"]["Kubectl"] = case_mutated["tool_file_bindings"].pop(
+        "kubectl"
+    )
+    case_mutated_raw = review.canonical_json_bytes(case_mutated)
+    work_order_path.write_bytes(case_mutated_raw)
+    case_mutated_invocation = (
+        *invocation[:-1],
+        hashlib.sha256(case_mutated_raw).hexdigest(),
+    )
+    case_mutated_result = subprocess.run(
+        case_mutated_invocation,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert case_mutated_result.returncode != 0
+    assert "external_work_order_tool_file_binding_set_not_exact" in (
+        case_mutated_result.stdout + case_mutated_result.stderr
     )
 
     shrunken = json.loads(json.dumps(work_order))
@@ -1871,6 +1994,7 @@ def test_live_command_plan_interruption_retains_immediate_unclean_attempt(
         python_general=Path(kwargs["python_general"]),
         python_host=Path(kwargs["python_host"]),
         python_ruff=Path(kwargs["python_ruff"]),
+        kubectl_executable=Path(kwargs["kubectl_executable"]),
         git_executable=Path(kwargs["git_executable"]),
         git_executable_sha256=str(kwargs["git_executable_sha256"]),
         powershell_executable=Path(kwargs["powershell_executable"]),
@@ -1916,6 +2040,7 @@ def test_live_metadata_terminal_failure_is_mirrored_before_command_plan_unwind(
         python_general=Path(kwargs["python_general"]),
         python_host=Path(kwargs["python_host"]),
         python_ruff=Path(kwargs["python_ruff"]),
+        kubectl_executable=Path(kwargs["kubectl_executable"]),
         git_executable=Path(kwargs["git_executable"]),
         git_executable_sha256=str(kwargs["git_executable_sha256"]),
         powershell_executable=Path(kwargs["powershell_executable"]),
@@ -1991,12 +2116,12 @@ def test_expected_primary_and_terminal_publisher_purpose_plans_are_exact() -> No
         validation=validation,
     )
 
-    assert len(primary) == review.EXPECTED_PRIMARY_PUBLISHER_CHILD_COUNT == 231
-    assert len(terminal) == review.EXPECTED_TERMINAL_PUBLISHER_CHILD_COUNT == 243
+    assert len(primary) == review.EXPECTED_PRIMARY_PUBLISHER_CHILD_COUNT == 240
+    assert len(terminal) == review.EXPECTED_TERMINAL_PUBLISHER_CHILD_COUNT == 252
     assert terminal[: len(primary)] == primary
 
 
-def test_run_publisher_simulates_exact_primary_231_and_terminal_243_ledgers(
+def test_run_publisher_simulates_exact_primary_240_and_terminal_252_ledgers(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2266,6 +2391,8 @@ def test_run_publisher_simulates_exact_primary_231_and_terminal_243_ledgers(
         python_host_sha256=executable_sha256,
         python_ruff=executable,
         python_ruff_sha256=executable_sha256,
+        kubectl_executable=executable,
+        kubectl_executable_sha256=executable_sha256,
         git_executable=executable,
         git_executable_sha256=executable_sha256,
         powershell_executable=executable,
@@ -2285,9 +2412,9 @@ def test_run_publisher_simulates_exact_primary_231_and_terminal_243_ledgers(
     reviewer_report = published[0]["documents"][review.REVIEWER_PENDING_REPORT_LEAF]
     no_go_seal = published[0]["documents"][review.NO_GO_SEAL_LEAF]
     terminal_summary = published[1]["documents"]["publisher-child-terminal-containment.json"]
-    assert primary_summary["child_count"] == 231
+    assert primary_summary["child_count"] == 240
     assert primary_summary["purpose_plan_exact"] is True
-    assert terminal_summary["child_count"] == 243
+    assert terminal_summary["child_count"] == 252
     assert terminal_summary["purpose_plan_exact"] is True
     assert offline["whole_system_live_call_telemetry"]["observation_state"] == "unknown"
     assert all(
@@ -3671,6 +3798,7 @@ def test_selected_source_contract_includes_every_task_modified_path() -> None:
     required = review.REQUIRED_SELECTED_SOURCE_PATHS
     assert ".gitattributes" in required
     assert "enterprise-vision-mlops/tests/test_phase_b2_r7s1.py" in required
+    assert "enterprise-vision-mlops/tests/test_phase_b2_r7s1_validator.py" in required
     assert "enterprise-vision-mlops/ci/pre-r8-r7s5-test-lanes.json" in required
     assert "enterprise-vision-mlops/tests/test_scenario_workload_production.py" in required
     assert "enterprise-vision-mlops/tests/test_task_queue_process_safety.py" in required
@@ -3707,7 +3835,7 @@ def test_selected_source_contract_includes_every_task_modified_path() -> None:
     assert "enterprise-vision-mlops/tests/test_qualify_pre_r8_r7s7_windows.py" in required
     assert "enterprise-vision-mlops/scripts/dev/validate_pre_r8_r7s4_ci_bootstrap.py" in required
     assert "enterprise-vision-mlops/tests/test_pre_r8_r7s4_ci_bootstrap.py" in required
-    assert len(required) == 47
+    assert len(required) == 48
 
 
 def test_selected_source_inventory_requires_git_filtered_worktree_commit_identity(

@@ -281,6 +281,21 @@ if ($PycachePrefix -cne $ExpectedPycachePrefix) {
 if (Test-Path -LiteralPath $PycachePrefix) {
     throw 'external_work_order_pycache_prefix_must_not_exist'
 }
+$ExpectedToolBindingNames = @(
+    'git',
+    'kubectl',
+    'powershell',
+    'python_general',
+    'python_host',
+    'python_ruff'
+)
+$ObservedToolBindingNames = @($WorkOrderPayload.tool_file_bindings.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+if (
+    $ObservedToolBindingNames.Count -ne $ExpectedToolBindingNames.Count -or
+    (Compare-Object -CaseSensitive -ReferenceObject $ExpectedToolBindingNames -DifferenceObject $ObservedToolBindingNames)
+) {
+    throw 'external_work_order_tool_file_binding_set_not_exact'
+}
 $MatchingPythonBindings = @(
     $WorkOrderPayload.tool_file_bindings.PSObject.Properties |
         Where-Object {
@@ -617,6 +632,21 @@ foreach ($ToolProperty in @($WorkOrderPayload.tool_file_bindings.PSObject.Proper
         $ToolContentLocks += $LauncherLock
     }
 }
+$PowerShellBinding = $WorkOrderPayload.tool_file_bindings.powershell
+if (
+    $null -eq $PowerShellBinding -or
+    [IO.Path]::GetFullPath([string]$PowerShellBinding.path) -cne $PowerShell -or
+    ([string]$PowerShellBinding.sha256).ToLowerInvariant() -cne $PowerShellLock.Sha256
+) {
+    throw 'external_work_order_powershell_binding_mismatch'
+}
+$KubectlBinding = $WorkOrderPayload.tool_file_bindings.kubectl
+if ($null -eq $KubectlBinding) {
+    throw 'external_work_order_kubectl_binding_missing'
+}
+$KubectlLock = Resolve-RegularPinnedFile -Path ([string]$KubectlBinding.path) -ExpectedSha256 ([string]$KubectlBinding.sha256) -Label 'kubectl'
+$ToolExecutableLocks += $KubectlLock
+Add-RetainedDirectoryChain -LeafPath $KubectlLock.Path -BoundaryPath ([IO.Path]::GetDirectoryName($KubectlLock.Path)) -Seen $DirectoryLockPaths -Locks $DirectoryLocks -Label 'kubectl_tool'
 $GitBinding = $WorkOrderPayload.tool_file_bindings.git
 if ($null -eq $GitBinding) {
     throw 'external_work_order_git_binding_missing'

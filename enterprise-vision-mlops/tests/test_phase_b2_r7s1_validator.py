@@ -1044,6 +1044,10 @@ def validator_fixture(tmp_path_factory: pytest.TempPathFactory) -> ValidatorFixt
             "git",
             "-c",
             "core.fsmonitor=false",
+            # Match the fixture's explicit Git-for-Windows checkout policy even
+            # when the validation harness suppresses system Git configuration.
+            "-c",
+            "core.autocrlf=true",
             "-C",
             str(git_root),
             "-c",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import dis
 import inspect
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -262,7 +263,12 @@ class _FakeOutput:
 def _args(tmp_path: Path) -> runner.argparse.Namespace:
     inventory = _current_untracked_inventory()
     python_sha256 = runner.sha256_file(Path(sys.executable))
+    kubectl_directory = tmp_path.parent / f"{tmp_path.name}-pinned-tools"
+    kubectl_directory.mkdir()
+    kubectl = kubectl_directory / ("kubectl.exe" if os.name == "nt" else "kubectl")
+    shutil.copyfile(GIT, kubectl)
     pins = {
+        "kubectl": (kubectl, runner.sha256_file(kubectl)),
         "python_general": (Path(sys.executable), python_sha256),
         "python_host": (Path(sys.executable), python_sha256),
         "python_ruff": (Path(sys.executable), python_sha256),
@@ -277,6 +283,7 @@ def _args(tmp_path: Path) -> runner.argparse.Namespace:
         python_general=pins["python_general"][0],
         python_host=pins["python_host"][0],
         python_ruff=pins["python_ruff"][0],
+        kubectl_executable=pins["kubectl"][0],
         git_executable=pins["git"][0],
         git_executable_sha256=pins["git"][1],
         powershell_executable=pins["powershell"][0],
@@ -339,6 +346,8 @@ def _args(tmp_path: Path) -> runner.argparse.Namespace:
         python_host_sha256=python_sha256,
         python_ruff=Path(sys.executable),
         python_ruff_sha256=python_sha256,
+        kubectl=kubectl,
+        kubectl_sha256=runner.sha256_file(kubectl),
         git=GIT,
         git_sha256=runner.sha256_file(GIT),
         powershell=POWERSHELL,
@@ -874,6 +883,61 @@ def test_command_tool_independent_pin_mismatch_runs_no_metadata_child(
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        (
+            '{"clientVersion":{"gitVersion":"v1.34.0"},"kustomizeVersion":"v5.7.1"}',
+            "kubectl_client_version_not_exact",
+        ),
+        ("[]", "kubectl_client_version_not_exact"),
+        ("not-json", "kubectl_client_version_json_invalid"),
+    ],
+)
+def test_kubectl_metadata_version_is_client_only_and_exact(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: str,
+    error: str,
+) -> None:
+    spec = runner.CommandSpec(
+        runner.KUBECTL_CLIENT_VERSION_COMMAND_NAME,
+        (sys.executable, "version", "--client=true", "--output=json"),
+        work_order_tool_role="kubectl",
+    )
+    observed: list[tuple[str, ...]] = []
+
+    def metadata_child(argv: tuple[str, ...], **_kwargs: object) -> runner.ProcessOutcome:
+        observed.append(argv)
+        return _contained_outcome(return_code=0, stdout=f"{payload}\n")
+
+    monkeypatch.setattr(runner, "_run_metadata_child_recorded", metadata_child)
+    with pytest.raises(runner.ValidationRunnerError, match=error):
+        runner.command_tool_identity(spec)
+    assert observed == [spec.argv, spec.argv]
+
+
+def test_kubectl_metadata_version_accepts_exact_client_only_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = '{"clientVersion":{"gitVersion":"v1.34.1"},"kustomizeVersion":"v5.7.1"}'
+    spec = runner.CommandSpec(
+        runner.KUBECTL_CLIENT_VERSION_COMMAND_NAME,
+        (sys.executable, "version", "--client=true", "--output=json"),
+        work_order_tool_role="kubectl",
+    )
+    observed: list[tuple[str, ...]] = []
+
+    def metadata_child(argv: tuple[str, ...], **_kwargs: object) -> runner.ProcessOutcome:
+        observed.append(argv)
+        return _contained_outcome(return_code=0, stdout=f"{payload}\n")
+
+    monkeypatch.setattr(runner, "_run_metadata_child_recorded", metadata_child)
+    identity = runner.command_tool_identity(spec)
+    assert identity["version"] == payload
+    assert identity["runtime_version"] == payload
+    assert observed == [spec.argv, spec.argv]
+
+
 def test_command_tool_metadata_ledger_retains_every_success_and_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1090,12 +1154,23 @@ def test_validation_plan_is_exact_offline_and_has_no_retry_or_live_command() -> 
         python_general=Path(sys.executable),
         python_host=Path(sys.executable),
         python_ruff=Path(sys.executable),
+        kubectl_executable=GIT,
         git_executable=GIT,
         git_executable_sha256=runner.sha256_file(GIT),
         powershell_executable=POWERSHELL,
     )
     assert {item.name for item in specs} == publisher.REQUIRED_VALIDATION_COMMANDS
     assert len(specs) == len(publisher.REQUIRED_VALIDATION_COMMANDS)
+    kubectl_spec = next(
+        item for item in specs if item.name == runner.KUBECTL_CLIENT_VERSION_COMMAND_NAME
+    )
+    assert kubectl_spec.argv == (str(GIT), "version", "--client=true", "--output=json")
+    assert kubectl_spec.work_order_tool_role == "kubectl"
+    assert kubectl_spec.python_tool_distribution is None
+    assert kubectl_spec.required_output_tokens == (
+        '"gitVersion": "v1.34.1"',
+        '"kustomizeVersion": "v5.7.1"',
+    )
     manifest_spec = next(item for item in specs if item.name == "ci-manifest-validator")
     assert manifest_spec.argv[-2:] == ("--lane", "portable")
     assert '"status":"manual_intervention_required"' in manifest_spec.required_output_tokens
@@ -1183,6 +1258,7 @@ def test_git_diff_check_covers_committed_changes_since_pinned_baseline(
         python_general=Path(sys.executable),
         python_host=Path(sys.executable),
         python_ruff=Path(sys.executable),
+        kubectl_executable=GIT,
         git_executable=GIT,
         git_executable_sha256=runner.sha256_file(GIT),
         powershell_executable=POWERSHELL,
@@ -1288,6 +1364,7 @@ def test_focused_plan_explicitly_covers_r7s3_through_r7s7_adversarial_files() ->
         python_general=Path(sys.executable),
         python_host=Path(sys.executable),
         python_ruff=Path(sys.executable),
+        kubectl_executable=GIT,
         git_executable=GIT,
         git_executable_sha256=runner.sha256_file(GIT),
         powershell_executable=POWERSHELL,
@@ -1833,6 +1910,38 @@ def test_child_environment_rejects_case_colliding_input_keys() -> None:
             (sys.executable,),
             source={"SystemRoot": os.environ["SystemRoot"], "SYSTEMROOT": "hostile"},
         )
+
+
+def test_pinned_child_path_resolution_rejects_missing_shadow_and_digest_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pinned = tmp_path / ("kubectl.exe" if os.name == "nt" else "kubectl")
+    shadow = tmp_path / ("shadow-kubectl.exe" if os.name == "nt" else "shadow-kubectl")
+    pinned.write_bytes(b"pinned-kubectl")
+    shadow.write_bytes(b"shadow-kubectl")
+    pin = runner.ExecutablePin("kubectl", pinned, runner.sha256_file(pinned))
+    environment = runner.ChildEnvironment(
+        values={"PATH": str(tmp_path)},
+        commitment={},
+        secret_values=(),
+    )
+
+    monkeypatch.setattr(runner.shutil, "which", lambda *_args, **_kwargs: str(pinned))
+    runner.validate_pinned_child_path_resolution(environment, command_name="kubectl", pin=pin)
+
+    monkeypatch.setattr(runner.shutil, "which", lambda *_args, **_kwargs: None)
+    with pytest.raises(runner.ValidationRunnerError, match="child_path_tool_missing:kubectl"):
+        runner.validate_pinned_child_path_resolution(environment, command_name="kubectl", pin=pin)
+
+    monkeypatch.setattr(runner.shutil, "which", lambda *_args, **_kwargs: str(shadow))
+    with pytest.raises(runner.ValidationRunnerError, match="child_path_tool_shadowed:kubectl"):
+        runner.validate_pinned_child_path_resolution(environment, command_name="kubectl", pin=pin)
+
+    monkeypatch.setattr(runner.shutil, "which", lambda *_args, **_kwargs: str(pinned))
+    pinned.write_bytes(b"changed-kubectl")
+    with pytest.raises(runner.ValidationRunnerError, match="child_path_tool_sha256_mismatch"):
+        runner.validate_pinned_child_path_resolution(environment, command_name="kubectl", pin=pin)
 
 
 def test_secret_scanner_redacts_nested_process_evidence_without_persisting_raw_value() -> None:

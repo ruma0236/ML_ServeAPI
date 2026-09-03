@@ -53,7 +53,7 @@ from evm.scale_validation.phase_b2_r7s3_process import (  # noqa: E402
 )
 
 
-SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s7.validation-runner.v2"
+SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s7.validation-runner.v3"
 WORK_ORDER_SCHEMA = f"{SCHEMA}.external-work-order.v1"
 LIVE_TELEMETRY_SCHEMA = f"{SCHEMA}.live-call-telemetry.v1"
 VALIDATION_OBSERVATION_SCOPE = "planned_and_metadata_children_windows_job_accounted_no_kill"
@@ -65,7 +65,11 @@ VALIDATION_WRAPPER_TIMEOUT_SECONDS = 1_800.0
 VALIDATION_RESIDUAL_REPOLL_SECONDS = 120.0
 VALIDATION_STREAM_DRAIN_SECONDS = 30.0
 METADATA_WRAPPER_TIMEOUT_SECONDS = 30.0
+PINNED_KUBECTL_CLIENT_VERSION = "v1.34.1"
+PINNED_KUSTOMIZE_VERSION = "v5.7.1"
+KUBECTL_CLIENT_VERSION_COMMAND_NAME = "kubectl-client-version-1.34.1"
 WORK_ORDER_TOOL_CONTRACT_BY_COMMAND = {
+    KUBECTL_CLIENT_VERSION_COMMAND_NAME: ("kubectl", None),
     "r7s5-focused-pytest-py311": ("python_general", "pytest"),
     "full-general-pytest-py311": ("python_general", "pytest"),
     "pinned-host-pytest-py313": ("python_host", "pytest"),
@@ -763,6 +767,10 @@ def validate_independent_executable_pin(
 
 def _executable_pins_from_args(args: argparse.Namespace) -> dict[str, ExecutablePin]:
     required = {
+        # Keep the only bare executable used by the test corpus first in the
+        # sanitized PATH.  All validation-plan commands themselves remain
+        # absolute-path invocations.
+        "kubectl": ("kubectl", "kubectl_sha256"),
         "python_general": ("python_general", "python_general_sha256"),
         "python_host": ("python_host", "python_host_sha256"),
         "python_ruff": ("python_ruff", "python_ruff_sha256"),
@@ -930,6 +938,10 @@ def build_child_environment(
             "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
         }
     )
+    if os.name == "nt":
+        # The test corpus invokes the pinned kubectl by basename.  Restrict
+        # basename expansion to the independently pinned executable form.
+        values["PATHEXT"] = ".EXE"
     if any(_SECRET_ENV_NAME_RE.search(key) for key in values):
         raise ValidationRunnerError("validation_child_secret_like_environment_key_present")
     normalized_values = {key: values[key] for key in sorted(values)}
@@ -954,6 +966,24 @@ def build_child_environment(
         commitment=commitment,
         secret_values=_secret_environment_values(source_environment),
     )
+
+
+def validate_pinned_child_path_resolution(
+    environment: ChildEnvironment,
+    *,
+    command_name: str,
+    pin: ExecutablePin,
+) -> None:
+    if not command_name or Path(command_name).name != command_name:
+        raise ValidationRunnerError("validation_child_path_command_name_invalid")
+    lookup_name = f"{command_name}.exe" if os.name == "nt" else command_name
+    located = shutil.which(lookup_name, path=environment.values.get("PATH", ""))
+    if located is None:
+        raise ValidationRunnerError(f"validation_child_path_tool_missing:{command_name}")
+    if _normalized_path_text(Path(located)) != _normalized_path_text(pin.path):
+        raise ValidationRunnerError(f"validation_child_path_tool_shadowed:{command_name}")
+    if sha256_file(Path(located)) != pin.sha256:
+        raise ValidationRunnerError(f"validation_child_path_tool_sha256_mismatch:{command_name}")
 
 
 def _redact_secret_text(value: str, secret_values: Sequence[str]) -> tuple[str, bool]:
@@ -1733,6 +1763,7 @@ def build_command_specs(
     python_general: Path,
     python_host: Path,
     python_ruff: Path,
+    kubectl_executable: Path,
     git_executable: Path,
     git_executable_sha256: str,
     powershell_executable: Path,
@@ -1796,6 +1827,20 @@ def build_command_specs(
     )
     common_pytest = ("-q", "-rs", "-p", "no:cacheprovider")
     specs = (
+        CommandSpec(
+            KUBECTL_CLIENT_VERSION_COMMAND_NAME,
+            (
+                str(kubectl_executable),
+                "version",
+                "--client=true",
+                "--output=json",
+            ),
+            required_output_tokens=(
+                f'"gitVersion": "{PINNED_KUBECTL_CLIENT_VERSION}"',
+                f'"kustomizeVersion": "{PINNED_KUSTOMIZE_VERSION}"',
+            ),
+            work_order_tool_role="kubectl",
+        ),
         CommandSpec(
             "r7s5-focused-pytest-py311",
             _isolated_python_module_argv(
@@ -2015,6 +2060,8 @@ def _tool_version_argv(spec: CommandSpec, executable: Path) -> tuple[str, ...]:
     pycache_prefix = (
         Path(pycache_option.removeprefix("pycache_prefix=")) if pycache_option is not None else None
     )
+    if spec.name == KUBECTL_CLIENT_VERSION_COMMAND_NAME:
+        return (str(executable), "version", "--client=true", "--output=json")
     if spec.name.startswith("ruff-"):
         return _isolated_python_module_argv(
             executable,
@@ -2119,7 +2166,8 @@ def expected_success_metadata_child_sequence(
         tool_version = _tool_version_argv(spec, executable)
         runtime_version = (
             tool_version
-            if spec.name in {"powershell-ast", "git-diff-check"}
+            if spec.name
+            in {"powershell-ast", "git-diff-check", KUBECTL_CLIENT_VERSION_COMMAND_NAME}
             else (str(executable), "--version")
         )
         for child_name, child_phase, child_argv in (
@@ -2202,7 +2250,7 @@ def command_tool_identity(
     pycache_option = next((item for item in spec.argv if item.startswith("pycache_prefix=")), None)
     runtime_version_argv = (
         version_argv
-        if spec.name in {"powershell-ast", "git-diff-check"}
+        if spec.name in {"powershell-ast", "git-diff-check", KUBECTL_CLIENT_VERSION_COMMAND_NAME}
         else (
             (str(executable), "-I", "-B", "-S", "-X", pycache_option, "--version")
             if pycache_option is not None
@@ -2224,6 +2272,21 @@ def command_tool_identity(
         raise ValidationRunnerError(f"command_runtime_version_failed:{spec.name}")
     if spec.name.startswith("ruff-") and version != "ruff 0.12.2":
         raise ValidationRunnerError("ruff_version_not_exact_0.12.2")
+    if spec.name == KUBECTL_CLIENT_VERSION_COMMAND_NAME:
+        try:
+            kubectl_version = json.loads(version)
+            runtime_kubectl_version = json.loads(runtime_version)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValidationRunnerError("kubectl_client_version_json_invalid") from exc
+        if (
+            not isinstance(kubectl_version, dict)
+            or not isinstance(runtime_kubectl_version, dict)
+            or kubectl_version != runtime_kubectl_version
+            or kubectl_version.get("clientVersion", {}).get("gitVersion")
+            != PINNED_KUBECTL_CLIENT_VERSION
+            or kubectl_version.get("kustomizeVersion") != PINNED_KUSTOMIZE_VERSION
+        ):
+            raise ValidationRunnerError("kubectl_client_version_not_exact")
     if "py311" in spec.name and not runtime_version.startswith("Python 3.11."):
         raise ValidationRunnerError(f"py311_runtime_version_mismatch:{spec.name}")
     if "py313" in spec.name and not runtime_version.startswith("Python 3.13."):
@@ -3599,6 +3662,7 @@ def run_validation(args: argparse.Namespace) -> dict[str, Any]:
         python_general=executable_pins["python_general"].path,
         python_host=executable_pins["python_host"].path,
         python_ruff=executable_pins["python_ruff"].path,
+        kubectl_executable=executable_pins["kubectl"].path,
         git_executable=executable_pins["git"].path,
         git_executable_sha256=executable_pins["git"].sha256,
         powershell_executable=executable_pins["powershell"].path,
@@ -3610,6 +3674,11 @@ def run_validation(args: argparse.Namespace) -> dict[str, Any]:
     child_environment = build_child_environment(
         project_root,
         tuple(str(pin.path) for pin in executable_pins.values()),
+    )
+    validate_pinned_child_path_resolution(
+        child_environment,
+        command_name="kubectl",
+        pin=executable_pins["kubectl"],
     )
     output_writer: _BoundValidationOutput | None = None
     failure_cause: BaseException | None = None
@@ -4214,6 +4283,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--python-host-sha256", required=True)
     parser.add_argument("--python-ruff", type=Path, required=True)
     parser.add_argument("--python-ruff-sha256", required=True)
+    parser.add_argument("--kubectl", type=Path, required=True)
+    parser.add_argument("--kubectl-sha256", required=True)
     parser.add_argument("--git", type=Path, required=True)
     parser.add_argument("--git-sha256", required=True)
     parser.add_argument("--powershell", type=Path, required=True)
@@ -4282,6 +4353,8 @@ def _parse_prepare_internal_inputs(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--python-host-sha256", required=True)
     parser.add_argument("--python-ruff", type=Path, required=True)
     parser.add_argument("--python-ruff-sha256", required=True)
+    parser.add_argument("--kubectl", type=Path, required=True)
+    parser.add_argument("--kubectl-sha256", required=True)
     parser.add_argument("--git", type=Path, required=True)
     parser.add_argument("--git-sha256", required=True)
     parser.add_argument("--powershell", type=Path, required=True)
@@ -4319,6 +4392,7 @@ def _build_internal_input_documents(args: argparse.Namespace) -> dict[str, Any]:
         python_general=executable_pins["python_general"].path,
         python_host=executable_pins["python_host"].path,
         python_ruff=executable_pins["python_ruff"].path,
+        kubectl_executable=executable_pins["kubectl"].path,
         git_executable=executable_pins["git"].path,
         git_executable_sha256=executable_pins["git"].sha256,
         powershell_executable=executable_pins["powershell"].path,

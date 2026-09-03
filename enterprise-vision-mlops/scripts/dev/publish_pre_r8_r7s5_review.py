@@ -52,8 +52,8 @@ from evm.scale_validation.phase_b2_r7s4_handle_io import (  # noqa: E402
 )
 
 
-SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s7.review-publisher.v2"
-VALIDATION_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s7.code-validation.v2"
+SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s7.review-publisher.v3"
+VALIDATION_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s7.code-validation.v3"
 COMMAND_EVIDENCE_SCHEMA = f"{VALIDATION_SCHEMA}.command-evidence"
 VALIDATION_PUBLICATION_INDEX_LEAF = "code-validation-publication-index.json"
 VALIDATION_SUMMARY_LEAF = "code-validation-summary.json"
@@ -68,8 +68,8 @@ PUBLISHER_CHILD_OBSERVATION_SCOPE = (
 )
 _PUBLISHER_CHILD_EXECUTIONS: list[dict[str, Any]] = []
 _PUBLISHER_FAILURE_CONTEXT: dict[str, Any] = {}
-EXPECTED_PRIMARY_PUBLISHER_CHILD_COUNT = 231
-EXPECTED_TERMINAL_PUBLISHER_CHILD_COUNT = 243
+EXPECTED_PRIMARY_PUBLISHER_CHILD_COUNT = 240
+EXPECTED_TERMINAL_PUBLISHER_CHILD_COUNT = 252
 _IMPORT_ACTIVE_UNTRACKED_SUFFIXES = frozenset({".py", ".pyc", ".pyo", ".pyd", ".pth", ".so"})
 _IMPORT_ACTIVE_TOOL_CONFIG_BASENAMES = frozenset(
     {
@@ -87,6 +87,7 @@ _IGNORED_IMPORT_ACTIVE_PATHSPECS = tuple(
 ) + tuple(f":(icase,glob)**/{name}" for name in sorted(_IMPORT_ACTIVE_TOOL_CONFIG_BASENAMES))
 REQUIRED_VALIDATION_COMMANDS = frozenset(
     {
+        "kubectl-client-version-1.34.1",
         "r7s5-focused-pytest-py311",
         "full-general-pytest-py311",
         "pinned-host-pytest-py313",
@@ -207,6 +208,7 @@ REQUIRED_SELECTED_SOURCE_PATHS = frozenset(
         "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s7_admission.py",
         "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s7_qualification_work_order.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s1.py",
+        "enterprise-vision-mlops/tests/test_phase_b2_r7s1_validator.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s3_job_capability.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s3_process.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s4_authority.py",
@@ -2937,6 +2939,8 @@ def validate_code_summary(
     python_host_sha256: str,
     python_ruff: Path,
     python_ruff_sha256: str,
+    kubectl_executable: Path,
+    kubectl_executable_sha256: str,
     git_executable: Path,
     git_executable_sha256: str,
     powershell_executable: Path,
@@ -3035,6 +3039,11 @@ def validate_code_summary(
     except (OSError, validation_runner.ValidationRunnerError) as exc:
         raise ReviewPublisherError("code_validation_external_work_order_invalid") from exc
     executable_pins = {
+        "kubectl": validate_independent_executable_pin(
+            kubectl_executable,
+            kubectl_executable_sha256,
+            label="kubectl_executable",
+        ),
         "python_general": validate_independent_executable_pin(
             python_general,
             python_general_sha256,
@@ -3212,6 +3221,7 @@ def validate_code_summary(
             python_general=Path(executable_pins["python_general"]["path"]),
             python_host=Path(executable_pins["python_host"]["path"]),
             python_ruff=Path(executable_pins["python_ruff"]["path"]),
+            kubectl_executable=Path(executable_pins["kubectl"]["path"]),
             git_executable=Path(executable_pins["git"]["path"]),
             git_executable_sha256=str(executable_pins["git"]["sha256"]),
             powershell_executable=Path(executable_pins["powershell"]["path"]),
@@ -3582,6 +3592,18 @@ def validate_code_summary(
         project_root,
         tuple(str(pin["path"]) for pin in executable_pins.values()),
     )
+    try:
+        validation_runner.validate_pinned_child_path_resolution(
+            live_child_environment,
+            command_name="kubectl",
+            pin=validation_runner.ExecutablePin(
+                label="kubectl",
+                path=Path(executable_pins["kubectl"]["path"]),
+                sha256=str(executable_pins["kubectl"]["sha256"]),
+            ),
+        )
+    except validation_runner.ValidationRunnerError as exc:
+        raise ReviewPublisherError("code_validation_child_path_tool_binding_invalid") from exc
     metadata_expected_sha256 = {
         child_name: expected_pin_sha256_by_command[spec.name]
         for spec in specs
@@ -4514,6 +4536,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--python-host-sha256", required=True)
     parser.add_argument("--python-ruff", type=Path, required=True)
     parser.add_argument("--python-ruff-sha256", required=True)
+    parser.add_argument("--kubectl-executable", type=Path, required=True)
+    parser.add_argument("--kubectl-executable-sha256", required=True)
     parser.add_argument("--git-executable", type=Path, required=True)
     parser.add_argument("--git-executable-sha256", required=True)
     parser.add_argument("--powershell-executable", type=Path, required=True)
@@ -4730,6 +4754,8 @@ def _run_publisher(args: argparse.Namespace) -> int:
         python_host_sha256=args.python_host_sha256,
         python_ruff=args.python_ruff,
         python_ruff_sha256=args.python_ruff_sha256,
+        kubectl_executable=args.kubectl_executable,
+        kubectl_executable_sha256=args.kubectl_executable_sha256,
         git_executable=Path(git_pin["path"]),
         git_executable_sha256=str(git_pin["sha256"]),
         powershell_executable=Path(powershell_pin["path"]),
