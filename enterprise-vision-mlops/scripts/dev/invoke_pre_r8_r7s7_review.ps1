@@ -468,7 +468,81 @@ $ToolContentLocks = @()
 $ToolExecutableLocks = @()
 foreach ($ToolProperty in @($WorkOrderPayload.tool_file_bindings.PSObject.Properties | Where-Object { $_.Name -like 'python_*' })) {
     $ToolBinding = $ToolProperty.Value
+    $ToolBindingKeys = @($ToolBinding.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+    if (
+        $ToolBindingKeys.Count -ne 8 -or
+        (Compare-Object -CaseSensitive -ReferenceObject @('bytes', 'creation_time_ns', 'device', 'file_id', 'path', 'python_tool_module', 'sha256', 'site_packages') -DifferenceObject $ToolBindingKeys)
+    ) {
+        throw 'python_tool_binding_keys_not_exact'
+    }
+    if (
+        $ToolBinding.bytes -isnot [Int32] -or
+        $ToolBinding.creation_time_ns -isnot [Int64] -or
+        $ToolBinding.device -isnot [Int32] -or
+        $ToolBinding.file_id -isnot [Int64] -or
+        $ToolBinding.path -isnot [string] -or
+        $ToolBinding.sha256 -isnot [string] -or
+        $ToolBinding.python_tool_module -isnot [pscustomobject] -or
+        $ToolBinding.site_packages -isnot [pscustomobject]
+    ) {
+        throw 'python_tool_binding_types_not_exact'
+    }
+    $Module = $ToolBinding.python_tool_module
+    $ModuleKeys = @($Module.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+    if (
+        $ModuleKeys.Count -ne 13 -or
+        (Compare-Object -CaseSensitive -ReferenceObject @('ambient_import_disabled', 'content_file_count', 'content_files', 'content_inventory_sha256', 'content_total_bytes', 'dependency_distributions', 'dist_info_path', 'distribution', 'launcher_binding', 'module_origins', 'pth_processing_disabled', 'site_packages_path', 'version') -DifferenceObject $ModuleKeys)
+    ) {
+        throw 'python_tool_module_keys_not_exact'
+    }
+    if (
+        $Module.ambient_import_disabled -isnot [bool] -or
+        $Module.ambient_import_disabled -ne $true -or
+        $Module.content_file_count -isnot [Int32] -or
+        $Module.content_files -isnot [array] -or
+        $Module.content_inventory_sha256 -isnot [string] -or
+        $Module.content_total_bytes -isnot [Int32] -or
+        $Module.dependency_distributions -isnot [array] -or
+        $Module.dist_info_path -isnot [string] -or
+        $Module.distribution -isnot [string] -or
+        $Module.module_origins -isnot [pscustomobject] -or
+        $Module.pth_processing_disabled -isnot [bool] -or
+        $Module.pth_processing_disabled -ne $true -or
+        $Module.site_packages_path -isnot [string] -or
+        $Module.version -isnot [string]
+    ) {
+        throw 'python_tool_module_types_or_flags_not_exact'
+    }
+    $SiteBindingKeys = @($ToolBinding.site_packages.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+    if (
+        $SiteBindingKeys.Count -ne 5 -or
+        (Compare-Object -CaseSensitive -ReferenceObject @('creation_time_ns', 'device', 'file_id', 'path', 'pth_processing') -DifferenceObject $SiteBindingKeys)
+    ) {
+        throw 'python_tool_site_packages_binding_keys_not_exact'
+    }
+    if (
+        $ToolBinding.site_packages.creation_time_ns -isnot [Int64] -or
+        $ToolBinding.site_packages.device -isnot [Int32] -or
+        $ToolBinding.site_packages.file_id -isnot [Int64] -or
+        $ToolBinding.site_packages.path -isnot [string] -or
+        $ToolBinding.site_packages.pth_processing -isnot [string] -or
+        [string]$ToolBinding.site_packages.pth_processing -cne 'disabled_by_python_no_site'
+    ) {
+        throw 'python_tool_site_packages_binding_types_not_exact'
+    }
     $ToolExecutableLock = Resolve-RegularPinnedFile -Path ([string]$ToolBinding.path) -ExpectedSha256 ([string]$ToolBinding.sha256) -Label ("tool_executable_" + $ToolProperty.Name)
+    $ToolExecutableItem = Get-Item -LiteralPath $ToolExecutableLock.Path -Force
+    [Int64]$ToolExecutableCreationTimeNs = ([Int64]$ToolExecutableLock.Identity.CreationTime - 116444736000000000L) * 100L
+    if (
+        [IO.Path]::GetFullPath([string]$ToolBinding.path) -cne $ToolExecutableLock.Path -or
+        [Int64]$ToolBinding.bytes -ne [Int64]$ToolExecutableItem.Length -or
+        [Int64]$ToolBinding.creation_time_ns -ne $ToolExecutableCreationTimeNs -or
+        [Int64]$ToolBinding.device -ne [Int64]$ToolExecutableLock.Identity.VolumeSerialNumber -or
+        [UInt64]$ToolBinding.file_id -ne [UInt64]$ToolExecutableLock.Identity.FileId
+    ) {
+        $ToolExecutableLock.Stream.Dispose()
+        throw 'python_tool_executable_identity_mismatch'
+    }
     $ToolExecutableLocks += $ToolExecutableLock
     $ToolPythonDirectory = [IO.Path]::GetDirectoryName($ToolExecutableLock.Path)
     if ([IO.Path]::GetFileName($ToolPythonDirectory.TrimEnd('\')) -ieq 'Scripts') {
@@ -480,7 +554,7 @@ foreach ($ToolProperty in @($WorkOrderPayload.tool_file_bindings.PSObject.Proper
     $ToolSitePackages = [IO.Path]::GetFullPath([IO.Path]::Combine($ToolEnvironmentRoot, 'Lib', 'site-packages'))
     if (
         [IO.Path]::GetFullPath([string]$ToolBinding.site_packages.path) -cne $ToolSitePackages -or
-        [IO.Path]::GetFullPath([string]$ToolBinding.python_tool_module.site_packages_path) -cne $ToolSitePackages
+        [IO.Path]::GetFullPath([string]$Module.site_packages_path) -cne $ToolSitePackages
     ) {
         throw 'python_tool_content_site_packages_mismatch'
     }
@@ -488,23 +562,183 @@ foreach ($ToolProperty in @($WorkOrderPayload.tool_file_bindings.PSObject.Proper
     if ((-not $ToolSiteItem.PSIsContainer) -or (($ToolSiteItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
         throw 'python_tool_content_site_packages_reparse_forbidden'
     }
-    $Records = @($ToolBinding.python_tool_module.content_files)
-    if ($Records.Count -ne [Int64]$ToolBinding.python_tool_module.content_file_count -or $Records.Count -lt 1) {
+    $ToolSiteKey = $ToolSiteItem.FullName.ToLowerInvariant()
+    if (-not $DirectoryLockPaths.ContainsKey($ToolSiteKey)) {
+        $ToolSiteHandle = [Evm.PreR8R7S7Native]::CreateFile(
+            $ToolSiteItem.FullName,
+            0x80,
+            1,
+            [IntPtr]::Zero,
+            3,
+            0x02000000,
+            [IntPtr]::Zero
+        )
+        if ($ToolSiteHandle.IsInvalid) {
+            throw ('python_tool_site_packages_handle_failed_win32_' + [Runtime.InteropServices.Marshal]::GetLastWin32Error())
+        }
+        $ToolSiteDirectoryLock = [pscustomobject]@{
+            Path = $ToolSiteItem.FullName
+            SafeHandle = $ToolSiteHandle
+            Identity = (Get-RetainedHandleIdentity -SafeHandle $ToolSiteHandle)
+            ShareMode = 'read_only_no_write_no_delete_share'
+        }
+        [void]$DirectoryLocks.Add($ToolSiteDirectoryLock)
+        $DirectoryLockPaths[$ToolSiteKey] = $true
+    } else {
+        $MatchingToolSiteLocks = @($DirectoryLocks | Where-Object { $_.Path -ceq $ToolSiteItem.FullName })
+        if ($MatchingToolSiteLocks.Count -ne 1) {
+            throw 'python_tool_site_packages_retained_lock_ambiguous'
+        }
+        $ToolSiteDirectoryLock = $MatchingToolSiteLocks[0]
+    }
+    [Int64]$ToolSiteCreationTimeNs = ([Int64]$ToolSiteDirectoryLock.Identity.CreationTime - 116444736000000000L) * 100L
+    if (
+        [IO.Path]::GetFullPath([string]$ToolBinding.site_packages.path) -cne $ToolSiteDirectoryLock.Path -or
+        [Int64]$ToolBinding.site_packages.creation_time_ns -ne $ToolSiteCreationTimeNs -or
+        [Int64]$ToolBinding.site_packages.device -ne [Int64]$ToolSiteDirectoryLock.Identity.VolumeSerialNumber -or
+        [UInt64]$ToolBinding.site_packages.file_id -ne [UInt64]$ToolSiteDirectoryLock.Identity.FileId
+    ) {
+        throw 'python_tool_site_packages_identity_mismatch'
+    }
+    $Records = @($Module.content_files)
+    if ($Records.Count -ne [Int64]$Module.content_file_count -or $Records.Count -lt 1) {
         throw 'python_tool_content_file_count_mismatch'
     }
-    $Distribution = [string]$ToolBinding.python_tool_module.distribution
-    if ($Distribution -ceq 'pytest') {
-        $ExpectedDependencies = @('colorama', 'iniconfig', 'packaging', 'pluggy', 'pytest')
-    } elseif ($Distribution -ceq 'ruff') {
-        $ExpectedDependencies = @('ruff')
-    } else {
-        throw 'python_tool_distribution_not_allowed'
+    $Distribution = [string]$Module.distribution
+    $DistributionVersion = [string]$Module.version
+    switch -CaseSensitive ($ToolProperty.Name) {
+        'python_general' {
+            $ExpectedDistribution = 'pytest'
+            $ExpectedDistributionVersion = '8.3.4'
+            $ExpectedDependencies = @(
+                'colorama=0.4.6',
+                'iniconfig=2.3.0',
+                'packaging=26.3',
+                'pluggy=1.6.0',
+                'pytest=8.3.4'
+            )
+            $ExpectedContentFileCount = 154
+            [Int64]$ExpectedContentTotalBytes = 1863947
+            $ExpectedContentInventorySha256 = 'b3523dd8ca93f480a4b7924ce62e16b98b37036aa03e4d689814a6478078bfe9'
+            $ExpectedLauncherBinding = $null
+            $ExpectedModuleOrigins = @('_pytest', 'pytest', 'pytest.__main__')
+        }
+        'python_host' {
+            $ExpectedDistribution = 'pytest'
+            $ExpectedDistributionVersion = '9.1.1'
+            $ExpectedDependencies = @(
+                'colorama=0.4.6',
+                'iniconfig=2.3.0',
+                'packaging=25.0',
+                'pluggy=1.5.0',
+                'pygments=2.19.2',
+                'pytest=9.1.1',
+                'tomli=2.2.1'
+            )
+            $ExpectedContentFileCount = 524
+            [Int64]$ExpectedContentTotalBytes = 6329572
+            $ExpectedContentInventorySha256 = 'a7852eb62012a65a82d702f5152158cb28079ca39b3bae0ac3bc3e6e3fa8556e'
+            $ExpectedLauncherBinding = $null
+            $ExpectedModuleOrigins = @('_pytest', 'pytest', 'pytest.__main__')
+        }
+        'python_ruff' {
+            $ExpectedDistribution = 'ruff'
+            $ExpectedDistributionVersion = '0.12.2'
+            $ExpectedDependencies = @('ruff=0.12.2')
+            $ExpectedContentFileCount = 8
+            [Int64]$ExpectedContentTotalBytes = 99900
+            $ExpectedContentInventorySha256 = 'a6e694951b4a9f01afe59ab1c222591ac3c78af11faf1abf7b825cd198935e40'
+            $ExpectedLauncherBinding = [ordered]@{
+                bytes = 34039296
+                sha256 = '131bd27634fa99310ada2244e9146496b15871d028a8edaa0a2bc715c46fa086'
+            }
+            $ExpectedModuleOrigins = @('ruff', 'ruff.__main__')
+        }
+        default {
+            throw 'python_tool_role_not_allowed'
+        }
     }
-    $Dependencies = @($ToolBinding.python_tool_module.dependency_distributions)
-    $ObservedDependencyNames = @($Dependencies | ForEach-Object { [string]$_.name } | Sort-Object)
+    if ($Distribution -cne $ExpectedDistribution -or $DistributionVersion -cne $ExpectedDistributionVersion) {
+        throw 'python_tool_role_distribution_version_mismatch'
+    }
     if (
-        $ObservedDependencyNames.Count -ne $ExpectedDependencies.Count -or
-        (Compare-Object -ReferenceObject $ExpectedDependencies -DifferenceObject $ObservedDependencyNames)
+        [Int64]$Module.content_file_count -ne $ExpectedContentFileCount -or
+        [Int64]$Module.content_total_bytes -ne $ExpectedContentTotalBytes -or
+        [string]$Module.content_inventory_sha256 -cne $ExpectedContentInventorySha256
+    ) {
+        throw 'python_tool_role_content_inventory_mismatch'
+    }
+    $ObservedModuleOrigins = @($Module.module_origins.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+    if (
+        $ObservedModuleOrigins.Count -ne $ExpectedModuleOrigins.Count -or
+        (Compare-Object -CaseSensitive -ReferenceObject $ExpectedModuleOrigins -DifferenceObject $ObservedModuleOrigins)
+    ) {
+        throw 'python_tool_role_module_origins_not_exact'
+    }
+    $LauncherBinding = $Module.launcher_binding
+    if ($null -eq $ExpectedLauncherBinding) {
+        if ($null -ne $LauncherBinding) {
+            throw 'python_tool_role_launcher_binding_mismatch'
+        }
+    } else {
+        if ($null -eq $LauncherBinding) {
+            throw 'python_tool_role_launcher_binding_mismatch'
+        }
+        $LauncherKeys = @($LauncherBinding.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+        if (
+            $LauncherKeys.Count -ne 6 -or
+            (Compare-Object -CaseSensitive -ReferenceObject @('bytes', 'creation_time_ns', 'device', 'file_id', 'path', 'sha256') -DifferenceObject $LauncherKeys)
+        ) {
+            throw 'python_tool_launcher_record_keys_not_exact'
+        }
+        if (
+            $LauncherBinding.bytes -isnot [Int32] -or
+            $LauncherBinding.creation_time_ns -isnot [Int64] -or
+            $LauncherBinding.device -isnot [Int32] -or
+            $LauncherBinding.file_id -isnot [Int64] -or
+            $LauncherBinding.path -isnot [string] -or
+            $LauncherBinding.sha256 -isnot [string]
+        ) {
+            throw 'python_tool_launcher_record_types_not_exact'
+        }
+        if (
+            [Int64]$LauncherBinding.bytes -ne [Int64]$ExpectedLauncherBinding.bytes -or
+            [string]$LauncherBinding.sha256 -cne [string]$ExpectedLauncherBinding.sha256
+        ) {
+            throw 'python_tool_role_launcher_binding_mismatch'
+        }
+    }
+    $Dependencies = @($Module.dependency_distributions)
+    foreach ($Dependency in $Dependencies) {
+        $DependencyKeys = @($Dependency.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+        if (
+            $DependencyKeys.Count -ne 3 -or
+            (Compare-Object -CaseSensitive -ReferenceObject @('dist_info_path', 'name', 'version') -DifferenceObject $DependencyKeys)
+        ) {
+            throw 'python_tool_dependency_record_keys_not_exact'
+        }
+        if (
+            $Dependency.dist_info_path -isnot [string] -or
+            $Dependency.name -isnot [string] -or
+            $Dependency.version -isnot [string]
+        ) {
+            throw 'python_tool_dependency_record_types_not_exact'
+        }
+    }
+    $PrimaryDependency = @($Dependencies | Where-Object { [string]$_.name -ceq $Distribution })
+    if ($PrimaryDependency.Count -ne 1 -or [string]$PrimaryDependency[0].version -cne $DistributionVersion) {
+        throw 'python_tool_distribution_version_binding_mismatch'
+    }
+    if (
+        [IO.Path]::GetFullPath([string]$Module.dist_info_path) -cne
+        [IO.Path]::GetFullPath([string]$PrimaryDependency[0].dist_info_path)
+    ) {
+        throw 'python_tool_primary_dist_info_binding_mismatch'
+    }
+    $ObservedDependencies = @($Dependencies | ForEach-Object { ([string]$_.name) + '=' + ([string]$_.version) })
+    if (
+        $ObservedDependencies.Count -ne $ExpectedDependencies.Count -or
+        [string]::Join("`n", $ObservedDependencies) -cne [string]::Join("`n", $ExpectedDependencies)
     ) {
         throw 'python_tool_dependency_closure_not_exact'
     }
@@ -514,9 +748,16 @@ foreach ($ToolProperty in @($WorkOrderPayload.tool_file_bindings.PSObject.Proper
     [Int64]$ObservedTotalBytes = 0
     $PreviousRelativePath = $null
     foreach ($Record in $Records) {
-        $RecordKeys = @($Record.PSObject.Properties.Name | Sort-Object)
-        if ($RecordKeys.Count -ne 3 -or (Compare-Object -ReferenceObject @('bytes', 'path', 'sha256') -DifferenceObject $RecordKeys)) {
+        $RecordKeys = @($Record.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+        if ($RecordKeys.Count -ne 3 -or (Compare-Object -CaseSensitive -ReferenceObject @('bytes', 'path', 'sha256') -DifferenceObject $RecordKeys)) {
             throw 'python_tool_content_record_keys_not_exact'
+        }
+        if (
+            $Record.bytes -isnot [Int32] -or
+            $Record.path -isnot [string] -or
+            $Record.sha256 -isnot [string]
+        ) {
+            throw 'python_tool_content_record_types_not_exact'
         }
         $RelativePath = [string]$Record.path
         if (
@@ -557,10 +798,6 @@ foreach ($ToolProperty in @($WorkOrderPayload.tool_file_bindings.PSObject.Proper
         }
     }
     foreach ($Dependency in $Dependencies) {
-        $DependencyKeys = @($Dependency.PSObject.Properties.Name | Sort-Object)
-        if ($DependencyKeys.Count -ne 3 -or (Compare-Object -ReferenceObject @('dist_info_path', 'name', 'version') -DifferenceObject $DependencyKeys)) {
-            throw 'python_tool_dependency_record_keys_not_exact'
-        }
         $DependencyName = [string]$Dependency.name
         $DependencyPath = [IO.Path]::GetFullPath([string]$Dependency.dist_info_path)
         if (-not $DependencyPath.StartsWith($ToolSitePackages.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
@@ -600,13 +837,28 @@ foreach ($ToolProperty in @($WorkOrderPayload.tool_file_bindings.PSObject.Proper
     }
     $ObservedInventorySha256 = [BitConverter]::ToString($InventoryHashBytes).Replace('-', '').ToLowerInvariant()
     if (
-        $ObservedTotalBytes -ne [Int64]$ToolBinding.python_tool_module.content_total_bytes -or
-        $ObservedInventorySha256 -cne [string]$ToolBinding.python_tool_module.content_inventory_sha256
+        $ObservedTotalBytes -ne [Int64]$Module.content_total_bytes -or
+        $ObservedInventorySha256 -cne [string]$Module.content_inventory_sha256
     ) {
         throw 'python_tool_content_aggregate_mismatch'
     }
-    foreach ($OriginProperty in $ToolBinding.python_tool_module.module_origins.PSObject.Properties) {
+    foreach ($OriginProperty in $Module.module_origins.PSObject.Properties) {
         $Origin = $OriginProperty.Value
+        $OriginKeys = @($Origin.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+        if (
+            $OriginKeys.Count -ne 4 -or
+            (Compare-Object -CaseSensitive -ReferenceObject @('bytes', 'path', 'relative_path', 'sha256') -DifferenceObject $OriginKeys)
+        ) {
+            throw 'python_tool_module_origin_record_keys_not_exact'
+        }
+        if (
+            $Origin.bytes -isnot [Int32] -or
+            $Origin.path -isnot [string] -or
+            $Origin.relative_path -isnot [string] -or
+            $Origin.sha256 -isnot [string]
+        ) {
+            throw 'python_tool_module_origin_record_types_not_exact'
+        }
         $OriginRelativePath = [string]$Origin.relative_path
         $OriginMatch = @($Records | Where-Object { ([string]$_.path -ceq $OriginRelativePath) })
         if (
@@ -618,15 +870,22 @@ foreach ($ToolProperty in @($WorkOrderPayload.tool_file_bindings.PSObject.Proper
             throw 'python_tool_module_origin_content_binding_mismatch'
         }
     }
-    if ($null -ne $ToolBinding.python_tool_module.launcher_binding) {
+    if ($null -ne $LauncherBinding) {
         $ExpectedLauncher = [IO.Path]::GetFullPath([IO.Path]::Combine($ToolEnvironmentRoot, 'Scripts', 'ruff.exe'))
-        if ([IO.Path]::GetFullPath([string]$ToolBinding.python_tool_module.launcher_binding.path) -cne $ExpectedLauncher) {
+        if ([IO.Path]::GetFullPath([string]$LauncherBinding.path) -cne $ExpectedLauncher) {
             throw 'python_tool_launcher_path_mismatch'
         }
-        $LauncherLock = Resolve-RegularPinnedFile -Path $ExpectedLauncher -ExpectedSha256 ([string]$ToolBinding.python_tool_module.launcher_binding.sha256) -Label 'python_tool_launcher'
-        if ([Int64](Get-Item -LiteralPath $LauncherLock.Path -Force).Length -ne [Int64]$ToolBinding.python_tool_module.launcher_binding.bytes) {
+        $LauncherLock = Resolve-RegularPinnedFile -Path $ExpectedLauncher -ExpectedSha256 ([string]$LauncherBinding.sha256) -Label 'python_tool_launcher'
+        $LauncherItem = Get-Item -LiteralPath $LauncherLock.Path -Force
+        [Int64]$LauncherCreationTimeNs = ([Int64]$LauncherLock.Identity.CreationTime - 116444736000000000L) * 100L
+        if (
+            [Int64]$LauncherItem.Length -ne [Int64]$LauncherBinding.bytes -or
+            [Int64]$LauncherBinding.creation_time_ns -ne $LauncherCreationTimeNs -or
+            [Int64]$LauncherBinding.device -ne [Int64]$LauncherLock.Identity.VolumeSerialNumber -or
+            [UInt64]$LauncherBinding.file_id -ne [UInt64]$LauncherLock.Identity.FileId
+        ) {
             $LauncherLock.Stream.Dispose()
-            throw 'python_tool_launcher_size_mismatch'
+            throw 'python_tool_launcher_identity_mismatch'
         }
         Add-RetainedDirectoryChain -LeafPath $LauncherLock.Path -BoundaryPath $ToolEnvironmentRoot -Seen $DirectoryLockPaths -Locks $DirectoryLocks -Label 'python_tool_launcher'
         $ToolContentLocks += $LauncherLock

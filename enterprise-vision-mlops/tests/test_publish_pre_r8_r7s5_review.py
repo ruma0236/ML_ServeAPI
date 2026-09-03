@@ -6,6 +6,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -1379,6 +1380,38 @@ def test_trusted_outer_exactly_locks_kubectl_binding_through_dispatch() -> None:
     assert source.index(prelaunch) < source.index(dispatch)
 
 
+def test_trusted_outer_pins_python_dependency_closure_by_distribution_version() -> None:
+    outer = Path(review.__file__).with_name("invoke_pre_r8_r7s7_review.ps1")
+    source = re.sub(r"\s+", " ", outer.read_text(encoding="utf-8"))
+    assert "switch -CaseSensitive ($ToolProperty.Name)" in source
+    assert "'python_general'" in source
+    assert "$ExpectedDistributionVersion = '8.3.4'" in source
+    assert (
+        "'colorama=0.4.6', 'iniconfig=2.3.0', 'packaging=26.3', 'pluggy=1.6.0', 'pytest=8.3.4'"
+    ) in source
+    assert "'python_host'" in source
+    assert "$ExpectedDistributionVersion = '9.1.1'" in source
+    assert (
+        "'colorama=0.4.6', 'iniconfig=2.3.0', 'packaging=25.0', "
+        "'pluggy=1.5.0', 'pygments=2.19.2', 'pytest=9.1.1', 'tomli=2.2.1'"
+    ) in source
+    assert "'python_ruff'" in source
+    assert "$ExpectedDistributionVersion = '0.12.2'" in source
+    assert "$ExpectedDependencies = @('ruff=0.12.2')" in source
+    assert "python_tool_role_distribution_version_mismatch" in source
+    assert "python_tool_role_content_inventory_mismatch" in source
+    assert "python_tool_role_launcher_binding_mismatch" in source
+    assert "python_tool_launcher_record_keys_not_exact" in source
+    assert "python_tool_module_keys_not_exact" in source
+    assert "python_tool_module_types_or_flags_not_exact" in source
+    assert "python_tool_role_module_origins_not_exact" in source
+    assert "python_tool_module_origin_record_keys_not_exact" in source
+    assert "131bd27634fa99310ada2244e9146496b15871d028a8edaa0a2bc715c46fa086" in source
+    assert "python_tool_primary_dist_info_binding_mismatch" in source
+    assert "Compare-Object -CaseSensitive -ReferenceObject" in source
+    assert "python_tool_distribution_version_binding_mismatch" in source
+
+
 def test_validation_handoff_replay_and_self_consistent_local_repin_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1805,16 +1838,18 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     publisher_path = Path(review.__file__).resolve()
     runner_path = Path(runner.__file__).resolve()
     python_path = Path(sys.executable).resolve()
+    pinned_host_python = Path(r"C:\Users\opop0\miniconda3\python.exe")
+    if not pinned_host_python.is_file():
+        pytest.skip("private X1 pinned host/Ruff interpreter is not provisioned")
     powershell = runner._resolved_executable("powershell.exe")
     git = runner._resolved_executable("git.exe")
     batch = tmp_path / "internal-inputs"
     batch.mkdir()
     run_uuid = "50000000-0000-4000-8000-000000000005"
-    python_sha = review.sha256_file(python_path)
     tool_paths = {
         "python_general": python_path,
-        "python_host": python_path,
-        "python_ruff": python_path,
+        "python_host": pinned_host_python,
+        "python_ruff": pinned_host_python,
         "kubectl": git,
         "git": git,
         "powershell": powershell,
@@ -1828,9 +1863,7 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
         "validation_run_uuid": run_uuid,
         "pycache_prefix": str(tmp_path / f".pre-r8-r7s7-pycache-{run_uuid}"),
         "tool_file_bindings": {
-            name: runner.work_order_tool_binding(
-                name, path, python_sha if name.startswith("python_") else review.sha256_file(path)
-            )
+            name: runner.work_order_tool_binding(name, path, review.sha256_file(path))
             for name, path in tool_paths.items()
         },
         "code_file_bindings": runner.work_order_code_file_bindings(
@@ -1851,7 +1884,7 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
         "-PythonPath",
         str(python_path),
         "-PythonSha256",
-        python_sha,
+        review.sha256_file(python_path),
         "-PowerShellSha256",
         review.sha256_file(powershell),
         "-PublisherPath",
@@ -1886,6 +1919,50 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
         or "review_os_bound_outer_capability_unprovisioned" in combined
     )
 
+    def assert_outer_rejects(mutated: dict[str, Any], expected_error: str) -> None:
+        mutated_raw = review.canonical_json_bytes(mutated)
+        work_order_path.write_bytes(mutated_raw)
+        result = subprocess.run(
+            (*invocation[:-1], hashlib.sha256(mutated_raw).hexdigest()),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode != 0
+        assert expected_error in (result.stdout + result.stderr)
+
+    tool_key_case = json.loads(json.dumps(work_order))
+    tool_binding = tool_key_case["tool_file_bindings"]["python_general"]
+    tool_binding["File_Id"] = tool_binding.pop("file_id")
+    assert_outer_rejects(tool_key_case, "python_tool_binding_keys_not_exact")
+
+    tool_type_mutated = json.loads(json.dumps(work_order))
+    tool_type_binding = tool_type_mutated["tool_file_bindings"]["python_general"]
+    tool_type_binding["bytes"] = str(tool_type_binding["bytes"])
+    assert_outer_rejects(tool_type_mutated, "python_tool_binding_types_not_exact")
+
+    executable_identity_mutated = json.loads(json.dumps(work_order))
+    executable_identity_mutated["tool_file_bindings"]["python_general"]["file_id"] += 1
+    assert_outer_rejects(
+        executable_identity_mutated,
+        "python_tool_executable_identity_mismatch",
+    )
+
+    site_key_case = json.loads(json.dumps(work_order))
+    site_binding = site_key_case["tool_file_bindings"]["python_general"]["site_packages"]
+    site_binding["Pth_Processing"] = site_binding.pop("pth_processing")
+    assert_outer_rejects(site_key_case, "python_tool_site_packages_binding_keys_not_exact")
+
+    site_type_mutated = json.loads(json.dumps(work_order))
+    site_type_mutated["tool_file_bindings"]["python_general"]["site_packages"][
+        "creation_time_ns"
+    ] = "1787558837145657600"
+    assert_outer_rejects(site_type_mutated, "python_tool_site_packages_binding_types_not_exact")
+
+    site_identity_mutated = json.loads(json.dumps(work_order))
+    site_identity_mutated["tool_file_bindings"]["python_host"]["site_packages"]["file_id"] += 1
+    assert_outer_rejects(site_identity_mutated, "python_tool_site_packages_identity_mismatch")
+
     case_mutated = json.loads(json.dumps(work_order))
     case_mutated["tool_file_bindings"]["Kubectl"] = case_mutated["tool_file_bindings"].pop(
         "kubectl"
@@ -1910,7 +1987,7 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     shrunken = json.loads(json.dumps(work_order))
     shrunken["tool_file_bindings"]["python_general"]["python_tool_module"][
         "dependency_distributions"
-    ].pop()
+    ].pop(0)
     shrunken_raw = review.canonical_json_bytes(shrunken)
     work_order_path.write_bytes(shrunken_raw)
     shrunken_invocation = (*invocation[:-1], hashlib.sha256(shrunken_raw).hexdigest())
@@ -1923,6 +2000,326 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     assert shrunken_result.returncode != 0
     assert "python_tool_dependency_closure_not_exact" in (
         shrunken_result.stdout + shrunken_result.stderr
+    )
+
+    role_swapped = json.loads(json.dumps(work_order))
+    (
+        role_swapped["tool_file_bindings"]["python_general"],
+        role_swapped["tool_file_bindings"]["python_host"],
+    ) = (
+        role_swapped["tool_file_bindings"]["python_host"],
+        role_swapped["tool_file_bindings"]["python_general"],
+    )
+    role_swapped_raw = review.canonical_json_bytes(role_swapped)
+    work_order_path.write_bytes(role_swapped_raw)
+    role_swapped_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(role_swapped_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert role_swapped_result.returncode != 0
+    assert "python_tool_role_distribution_version_mismatch" in (
+        role_swapped_result.stdout + role_swapped_result.stderr
+    )
+
+    unknown_version = json.loads(json.dumps(work_order))
+    unknown_version["tool_file_bindings"]["python_host"]["python_tool_module"]["version"] = "9.1.2"
+    unknown_version_raw = review.canonical_json_bytes(unknown_version)
+    work_order_path.write_bytes(unknown_version_raw)
+    unknown_version_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(unknown_version_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert unknown_version_result.returncode != 0
+    assert "python_tool_role_distribution_version_mismatch" in (
+        unknown_version_result.stdout + unknown_version_result.stderr
+    )
+
+    transitive_mismatch = json.loads(json.dumps(work_order))
+    transitive_dependencies = transitive_mismatch["tool_file_bindings"]["python_host"][
+        "python_tool_module"
+    ]["dependency_distributions"]
+    next(item for item in transitive_dependencies if item["name"] == "packaging")["version"] = (
+        "25.1"
+    )
+    transitive_mismatch_raw = review.canonical_json_bytes(transitive_mismatch)
+    work_order_path.write_bytes(transitive_mismatch_raw)
+    transitive_mismatch_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(transitive_mismatch_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert transitive_mismatch_result.returncode != 0
+    assert "python_tool_dependency_closure_not_exact" in (
+        transitive_mismatch_result.stdout + transitive_mismatch_result.stderr
+    )
+
+    primary_mismatch = json.loads(json.dumps(work_order))
+    primary_dependencies = primary_mismatch["tool_file_bindings"]["python_host"][
+        "python_tool_module"
+    ]["dependency_distributions"]
+    next(item for item in primary_dependencies if item["name"] == "pytest")["version"] = "9.1.0"
+    primary_mismatch_raw = review.canonical_json_bytes(primary_mismatch)
+    work_order_path.write_bytes(primary_mismatch_raw)
+    primary_mismatch_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(primary_mismatch_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert primary_mismatch_result.returncode != 0
+    assert "python_tool_distribution_version_binding_mismatch" in (
+        primary_mismatch_result.stdout + primary_mismatch_result.stderr
+    )
+
+    dist_info_mismatch = json.loads(json.dumps(work_order))
+    dist_info_module = dist_info_mismatch["tool_file_bindings"]["python_host"]["python_tool_module"]
+    packaging_dependency = next(
+        item for item in dist_info_module["dependency_distributions"] if item["name"] == "packaging"
+    )
+    dist_info_module["dist_info_path"] = packaging_dependency["dist_info_path"]
+    dist_info_mismatch_raw = review.canonical_json_bytes(dist_info_mismatch)
+    work_order_path.write_bytes(dist_info_mismatch_raw)
+    dist_info_mismatch_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(dist_info_mismatch_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert dist_info_mismatch_result.returncode != 0
+    assert "python_tool_primary_dist_info_binding_mismatch" in (
+        dist_info_mismatch_result.stdout + dist_info_mismatch_result.stderr
+    )
+
+    dependency_key_case = json.loads(json.dumps(work_order))
+    dependency_record = dependency_key_case["tool_file_bindings"]["python_general"][
+        "python_tool_module"
+    ]["dependency_distributions"][0]
+    dependency_record["Name"] = dependency_record.pop("name")
+    dependency_key_case_raw = review.canonical_json_bytes(dependency_key_case)
+    work_order_path.write_bytes(dependency_key_case_raw)
+    dependency_key_case_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(dependency_key_case_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert dependency_key_case_result.returncode != 0
+    assert "python_tool_dependency_record_keys_not_exact" in (
+        dependency_key_case_result.stdout + dependency_key_case_result.stderr
+    )
+
+    dependency_type_mutated = json.loads(json.dumps(work_order))
+    dependency_type_mutated["tool_file_bindings"]["python_general"]["python_tool_module"][
+        "dependency_distributions"
+    ][0]["version"] = 406
+    assert_outer_rejects(
+        dependency_type_mutated,
+        "python_tool_dependency_record_types_not_exact",
+    )
+
+    content_key_case = json.loads(json.dumps(work_order))
+    content_record = content_key_case["tool_file_bindings"]["python_general"]["python_tool_module"][
+        "content_files"
+    ][0]
+    content_record["Sha256"] = content_record.pop("sha256")
+    content_key_case_raw = review.canonical_json_bytes(content_key_case)
+    work_order_path.write_bytes(content_key_case_raw)
+    content_key_case_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(content_key_case_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert content_key_case_result.returncode != 0
+    assert "python_tool_content_record_keys_not_exact" in (
+        content_key_case_result.stdout + content_key_case_result.stderr
+    )
+
+    content_type_mutated = json.loads(json.dumps(work_order))
+    content_type_record = content_type_mutated["tool_file_bindings"]["python_general"][
+        "python_tool_module"
+    ]["content_files"][0]
+    content_type_record["bytes"] = str(content_type_record["bytes"])
+    assert_outer_rejects(content_type_mutated, "python_tool_content_record_types_not_exact")
+
+    module_key_case = json.loads(json.dumps(work_order))
+    key_case_module = module_key_case["tool_file_bindings"]["python_general"]["python_tool_module"]
+    key_case_module["Content_Inventory_SHA256"] = key_case_module.pop("content_inventory_sha256")
+    module_key_case_raw = review.canonical_json_bytes(module_key_case)
+    work_order_path.write_bytes(module_key_case_raw)
+    module_key_case_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(module_key_case_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert module_key_case_result.returncode != 0
+    assert "python_tool_module_keys_not_exact" in (
+        module_key_case_result.stdout + module_key_case_result.stderr
+    )
+
+    numeric_string = json.loads(json.dumps(work_order))
+    numeric_string_module = numeric_string["tool_file_bindings"]["python_general"][
+        "python_tool_module"
+    ]
+    numeric_string_module["content_file_count"] = str(numeric_string_module["content_file_count"])
+    numeric_string_raw = review.canonical_json_bytes(numeric_string)
+    work_order_path.write_bytes(numeric_string_raw)
+    numeric_string_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(numeric_string_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert numeric_string_result.returncode != 0
+    assert "python_tool_module_types_or_flags_not_exact" in (
+        numeric_string_result.stdout + numeric_string_result.stderr
+    )
+
+    flag_omitted = json.loads(json.dumps(work_order))
+    flag_omitted["tool_file_bindings"]["python_general"]["python_tool_module"].pop(
+        "ambient_import_disabled"
+    )
+    flag_omitted_raw = review.canonical_json_bytes(flag_omitted)
+    work_order_path.write_bytes(flag_omitted_raw)
+    flag_omitted_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(flag_omitted_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert flag_omitted_result.returncode != 0
+    assert "python_tool_module_keys_not_exact" in (
+        flag_omitted_result.stdout + flag_omitted_result.stderr
+    )
+
+    origin_shrunken = json.loads(json.dumps(work_order))
+    origin_shrunken["tool_file_bindings"]["python_general"]["python_tool_module"][
+        "module_origins"
+    ].pop("_pytest")
+    origin_shrunken_raw = review.canonical_json_bytes(origin_shrunken)
+    work_order_path.write_bytes(origin_shrunken_raw)
+    origin_shrunken_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(origin_shrunken_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert origin_shrunken_result.returncode != 0
+    assert "python_tool_role_module_origins_not_exact" in (
+        origin_shrunken_result.stdout + origin_shrunken_result.stderr
+    )
+
+    origin_type_mutated = json.loads(json.dumps(work_order))
+    origin_type_record = origin_type_mutated["tool_file_bindings"]["python_general"][
+        "python_tool_module"
+    ]["module_origins"]["pytest"]
+    origin_type_record["bytes"] = str(origin_type_record["bytes"])
+    assert_outer_rejects(
+        origin_type_mutated,
+        "python_tool_module_origin_record_types_not_exact",
+    )
+
+    origin_key_case = json.loads(json.dumps(work_order))
+    origin_key_record = origin_key_case["tool_file_bindings"]["python_general"][
+        "python_tool_module"
+    ]["module_origins"]["pytest"]
+    origin_key_record["Relative_Path"] = origin_key_record.pop("relative_path")
+    assert_outer_rejects(
+        origin_key_case,
+        "python_tool_module_origin_record_keys_not_exact",
+    )
+
+    self_consistent_inventory = json.loads(json.dumps(work_order))
+    inventory_module = self_consistent_inventory["tool_file_bindings"]["python_general"][
+        "python_tool_module"
+    ]
+    inventory_module["content_files"][0]["sha256"] = "0" * 64
+    inventory_module["content_inventory_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(inventory_module["content_files"])
+    ).hexdigest()
+    self_consistent_inventory_raw = review.canonical_json_bytes(self_consistent_inventory)
+    work_order_path.write_bytes(self_consistent_inventory_raw)
+    self_consistent_inventory_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(self_consistent_inventory_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert self_consistent_inventory_result.returncode != 0
+    assert "python_tool_role_content_inventory_mismatch" in (
+        self_consistent_inventory_result.stdout + self_consistent_inventory_result.stderr
+    )
+
+    self_consistent_launcher = json.loads(json.dumps(work_order))
+    launcher_binding = self_consistent_launcher["tool_file_bindings"]["python_ruff"][
+        "python_tool_module"
+    ]["launcher_binding"]
+    launcher_binding["path"] = str(git)
+    launcher_binding["bytes"] = git.stat().st_size
+    launcher_binding["sha256"] = review.sha256_file(git)
+    self_consistent_launcher_raw = review.canonical_json_bytes(self_consistent_launcher)
+    work_order_path.write_bytes(self_consistent_launcher_raw)
+    self_consistent_launcher_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(self_consistent_launcher_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert self_consistent_launcher_result.returncode != 0
+    assert "python_tool_role_launcher_binding_mismatch" in (
+        self_consistent_launcher_result.stdout + self_consistent_launcher_result.stderr
+    )
+
+    launcher_type_mutated = json.loads(json.dumps(work_order))
+    launcher_type_binding = launcher_type_mutated["tool_file_bindings"]["python_ruff"][
+        "python_tool_module"
+    ]["launcher_binding"]
+    launcher_type_binding["bytes"] = str(launcher_type_binding["bytes"])
+    assert_outer_rejects(
+        launcher_type_mutated,
+        "python_tool_launcher_record_types_not_exact",
+    )
+
+    launcher_key_case = json.loads(json.dumps(work_order))
+    launcher_key_binding = launcher_key_case["tool_file_bindings"]["python_ruff"][
+        "python_tool_module"
+    ]["launcher_binding"]
+    launcher_key_binding["File_Id"] = launcher_key_binding.pop("file_id")
+    assert_outer_rejects(
+        launcher_key_case,
+        "python_tool_launcher_record_keys_not_exact",
+    )
+
+    launcher_identity_mutated = json.loads(json.dumps(work_order))
+    launcher_identity_mutated["tool_file_bindings"]["python_ruff"]["python_tool_module"][
+        "launcher_binding"
+    ]["creation_time_ns"] += 100
+    assert_outer_rejects(
+        launcher_identity_mutated,
+        "python_tool_launcher_identity_mismatch",
+    )
+
+    launcher_omitted = json.loads(json.dumps(work_order))
+    launcher_omitted["tool_file_bindings"]["python_ruff"]["python_tool_module"][
+        "launcher_binding"
+    ] = None
+    launcher_omitted_raw = review.canonical_json_bytes(launcher_omitted)
+    work_order_path.write_bytes(launcher_omitted_raw)
+    launcher_omitted_result = subprocess.run(
+        (*invocation[:-1], hashlib.sha256(launcher_omitted_raw).hexdigest()),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert launcher_omitted_result.returncode != 0
+    assert "python_tool_role_launcher_binding_mismatch" in (
+        launcher_omitted_result.stdout + launcher_omitted_result.stderr
     )
 
     work_order["code_file_bindings"]["evm_init"] = dict(
