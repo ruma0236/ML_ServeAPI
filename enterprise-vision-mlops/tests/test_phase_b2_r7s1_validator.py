@@ -1452,6 +1452,20 @@ def _write_outer_reservation(manifest_path: Path, outer_path: Path) -> None:
     )
 
 
+def test_validator_status_normalization_is_explicit_under_sanitized_git_config() -> None:
+    source = re.sub(r"\s+", " ", VALIDATOR_SOURCE.read_text(encoding="utf-8"))
+    assert (
+        "$trackedStatus = Invoke-GitRead @( "
+        "'-c', 'core.autocrlf=true', 'status', '--porcelain=v1', "
+        "'--untracked-files=no' )"
+    ) in source
+    assert (
+        "$untrackedStatus = Invoke-GitRead @( "
+        "'-c', 'core.autocrlf=true', '-c', 'core.quotepath=false', "
+        "'status', '--porcelain=v1', '-z', '--untracked-files=all' )"
+    ) in source
+
+
 def test_validator_accepts_exact_r7s1_bundle(
     validator_fixture: ValidatorFixture, tmp_path: Path
 ) -> None:

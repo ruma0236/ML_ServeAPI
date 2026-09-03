@@ -1517,9 +1517,12 @@ try {
   $originRevision = (Invoke-GitRead @('rev-parse', "origin/$expectedBranch")).ToLowerInvariant()
   $remoteText = Invoke-GitRemoteRead $expectedBranch
   $remoteRevision = @($remoteText -split '\s+')[0].ToLowerInvariant()
-  $trackedStatus = Invoke-GitRead @('status', '--porcelain=v1', '--untracked-files=no')
+  $trackedStatus = Invoke-GitRead @(
+    '-c', 'core.autocrlf=true', 'status', '--porcelain=v1', '--untracked-files=no'
+  )
   $untrackedStatus = Invoke-GitRead @(
-    '-c', 'core.quotepath=false', 'status', '--porcelain=v1', '-z', '--untracked-files=all'
+    '-c', 'core.autocrlf=true', '-c', 'core.quotepath=false',
+    'status', '--porcelain=v1', '-z', '--untracked-files=all'
   )
   $untrackedPaths = [Collections.Generic.List[string]]::new()
   foreach ($record in @($untrackedStatus -split "`0" | Where-Object { $_.Length -gt 0 })) {
