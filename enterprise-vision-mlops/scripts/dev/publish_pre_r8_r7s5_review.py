@@ -2543,6 +2543,7 @@ def _validate_tool_metadata_process_evidence(
     value: object,
     *,
     spec: object,
+    expected_work_order_tool_bindings: Mapping[str, Any],
 ) -> None:
     """Validate both nondeterministic Job outcomes embedded in one tool identity."""
 
@@ -2561,6 +2562,10 @@ def _validate_tool_metadata_process_evidence(
         "version_process_containment",
         "runtime_version_process_containment",
         "environment_commitment",
+        "python_tool_module",
+        "work_order_binding_role",
+        "work_order_binding_sha256",
+        "work_order_module_binding_sha256",
     }
     if set(value) != expected_keys:
         raise ReviewPublisherError("validation_tool_identity_keys_not_exact")
@@ -2573,6 +2578,44 @@ def _validate_tool_metadata_process_evidence(
     ):
         raise ReviewPublisherError("validation_tool_identity_scalar_invalid")
     tool_sha256 = _hex64(value.get("sha256"), "validation_tool_identity")
+    expected_contract = validation_runner.WORK_ORDER_TOOL_CONTRACT_BY_COMMAND.get(spec.name)
+    role = spec.work_order_tool_role
+    if (
+        expected_contract != (role, spec.python_tool_distribution)
+        or not isinstance(role, str)
+        or not role
+        or value.get("work_order_binding_role") != role
+    ):
+        raise ReviewPublisherError("validation_tool_work_order_role_mismatch")
+    submitted_binding = expected_work_order_tool_bindings.get(role)
+    if not isinstance(submitted_binding, Mapping):
+        raise ReviewPublisherError("validation_tool_work_order_binding_missing")
+    try:
+        observed_binding = validation_runner.work_order_tool_binding(
+            role,
+            Path(path),
+            tool_sha256,
+        )
+    except (OSError, validation_runner.ValidationRunnerError) as exc:
+        raise ReviewPublisherError("validation_tool_work_order_binding_invalid") from exc
+    expected_module_binding = (
+        observed_binding.get("python_tool_module")
+        if spec.python_tool_distribution is not None
+        else None
+    )
+    expected_module_sha256 = (
+        hashlib.sha256(canonical_json_bytes(expected_module_binding)).hexdigest()
+        if expected_module_binding is not None
+        else None
+    )
+    if (
+        dict(submitted_binding) != observed_binding
+        or value.get("python_tool_module") != expected_module_binding
+        or value.get("work_order_binding_sha256")
+        != hashlib.sha256(canonical_json_bytes(observed_binding)).hexdigest()
+        or value.get("work_order_module_binding_sha256") != expected_module_sha256
+    ):
+        raise ReviewPublisherError("validation_tool_work_order_binding_mismatch")
     _validate_child_environment_commitment(
         value.get("environment_commitment"),
         validation_runner=validation_runner,
@@ -3182,18 +3225,14 @@ def validate_code_summary(
         raise ReviewPublisherError("code_validation_work_order_command_invocation_mismatch")
 
     command_pin_names = {
-        "r7s5-focused-pytest-py311": "python_general",
-        "full-general-pytest-py311": "python_general",
-        "pinned-host-pytest-py313": "python_host",
-        "ruff-check-0.12.2": "python_ruff",
-        "ruff-format-check-0.12.2": "python_ruff",
-        "py-compile-py311": "python_general",
-        "ci-manifest-validator": "python_general",
-        "ci-active-workflow-required-rejection": "python_general",
-        "ci-mutation-pytest": "python_general",
-        "git-diff-check": "git",
-        "powershell-ast": "powershell",
+        name: role
+        for name, (
+            role,
+            _distribution,
+        ) in validation_runner.WORK_ORDER_TOOL_CONTRACT_BY_COMMAND.items()
     }
+    if command_pin_names != {spec.name: spec.work_order_tool_role for spec in specs}:
+        raise ReviewPublisherError("code_validation_command_tool_contract_mismatch")
     expected_pin_sha256_by_command = {
         name: executable_pins[pin_name]["sha256"] for name, pin_name in command_pin_names.items()
     }
@@ -3223,7 +3262,11 @@ def validate_code_summary(
         }
         if any(submitted.get(key) != expected for key, expected in expected_static.items()):
             raise ReviewPublisherError("code_validation_static_plan_mismatch")
-        _validate_tool_metadata_process_evidence(submitted.get("tool"), spec=spec)
+        _validate_tool_metadata_process_evidence(
+            submitted.get("tool"),
+            spec=spec,
+            expected_work_order_tool_bindings=expected_tool_file_bindings,
+        )
         if spec.name in command_pin_names:
             pin = executable_pins[command_pin_names[spec.name]]
             tool = submitted["tool"]
@@ -3673,6 +3716,7 @@ def validate_code_summary(
             expected_executable_sha256_by_command=expected_pin_sha256_by_command,
             metadata_evidence=live_metadata_evidence,
             before_metadata_child=verify_inventory_before_live_metadata_child,
+            expected_work_order_tool_bindings=expected_tool_file_bindings,
         )
     except BaseException as exc:
         raise ReviewPublisherError("code_validation_live_plan_reconstruction_failed") from exc
@@ -3689,7 +3733,11 @@ def validate_code_summary(
     for observed, spec in zip(live_commands, specs, strict=True):
         if not isinstance(observed, dict):
             raise ReviewPublisherError("code_validation_live_plan_commands_invalid")
-        _validate_tool_metadata_process_evidence(observed.get("tool"), spec=spec)
+        _validate_tool_metadata_process_evidence(
+            observed.get("tool"),
+            spec=spec,
+            expected_work_order_tool_bindings=expected_tool_file_bindings,
+        )
     if _deterministic_command_plan_projection(plan) != _deterministic_command_plan_projection(
         live_plan
     ):

@@ -65,6 +65,19 @@ VALIDATION_WRAPPER_TIMEOUT_SECONDS = 1_800.0
 VALIDATION_RESIDUAL_REPOLL_SECONDS = 120.0
 VALIDATION_STREAM_DRAIN_SECONDS = 30.0
 METADATA_WRAPPER_TIMEOUT_SECONDS = 30.0
+WORK_ORDER_TOOL_CONTRACT_BY_COMMAND = {
+    "r7s5-focused-pytest-py311": ("python_general", "pytest"),
+    "full-general-pytest-py311": ("python_general", "pytest"),
+    "pinned-host-pytest-py313": ("python_host", "pytest"),
+    "ruff-check-0.12.2": ("python_ruff", "ruff"),
+    "ruff-format-check-0.12.2": ("python_ruff", "ruff"),
+    "py-compile-py311": ("python_general", None),
+    "powershell-ast": ("powershell", None),
+    "git-diff-check": ("git", None),
+    "ci-manifest-validator": ("python_general", None),
+    "ci-active-workflow-required-rejection": ("python_general", None),
+    "ci-mutation-pytest": ("python_general", "pytest"),
+}
 METADATA_STREAM_DRAIN_SECONDS = 10.0
 _SECRET_ENV_NAME_RE = re.compile(
     r"(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|"
@@ -583,6 +596,7 @@ def command_invocation_commitment(specs: Sequence["CommandSpec"]) -> str:
             "residual_repoll_seconds": VALIDATION_RESIDUAL_REPOLL_SECONDS,
             "stream_drain_seconds": VALIDATION_STREAM_DRAIN_SECONDS,
             "python_tool_distribution": spec.python_tool_distribution,
+            "work_order_tool_role": spec.work_order_tool_role,
         }
         for spec in specs
     ]
@@ -681,6 +695,7 @@ class CommandSpec:
     required_output_tokens: tuple[str, ...] = ()
     wrapper_timeout_seconds: float = VALIDATION_WRAPPER_TIMEOUT_SECONDS
     python_tool_distribution: str | None = None
+    work_order_tool_role: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1792,6 +1807,7 @@ def build_command_specs(
                 pycache_prefix=pycache_prefix,
             ),
             python_tool_distribution="pytest",
+            work_order_tool_role="python_general",
         ),
         CommandSpec(
             "full-general-pytest-py311",
@@ -1805,6 +1821,7 @@ def build_command_specs(
                 pycache_prefix=pycache_prefix,
             ),
             python_tool_distribution="pytest",
+            work_order_tool_role="python_general",
         ),
         CommandSpec(
             "pinned-host-pytest-py313",
@@ -1817,6 +1834,7 @@ def build_command_specs(
                 pycache_prefix=pycache_prefix,
             ),
             python_tool_distribution="pytest",
+            work_order_tool_role="python_host",
         ),
         CommandSpec(
             "ruff-check-0.12.2",
@@ -1829,6 +1847,7 @@ def build_command_specs(
                 pycache_prefix=pycache_prefix,
             ),
             python_tool_distribution="ruff",
+            work_order_tool_role="python_ruff",
         ),
         CommandSpec(
             "ruff-format-check-0.12.2",
@@ -1842,6 +1861,7 @@ def build_command_specs(
                 pycache_prefix=pycache_prefix,
             ),
             python_tool_distribution="ruff",
+            work_order_tool_role="python_ruff",
         ),
         CommandSpec(
             "py-compile-py311",
@@ -1857,6 +1877,7 @@ def build_command_specs(
                 *files,
             ),
             required_output_tokens=("py_compile_mode=in_memory_no_bytecode",),
+            work_order_tool_role="python_general",
         ),
         CommandSpec(
             "powershell-ast",
@@ -1867,6 +1888,7 @@ def build_command_specs(
                 "-Command",
                 ast_script,
             ),
+            work_order_tool_role="powershell",
         ),
         CommandSpec(
             "git-diff-check",
@@ -1879,6 +1901,7 @@ def build_command_specs(
                 f"{ci.EXPECTED_BASELINE_COMMIT}..HEAD",
                 "--",
             ),
+            work_order_tool_role="git",
         ),
         CommandSpec(
             "ci-manifest-validator",
@@ -1899,6 +1922,7 @@ def build_command_specs(
                 '"status":"manual_intervention_required"',
                 '"go_evidence_eligible":false',
             ),
+            work_order_tool_role="python_general",
         ),
         CommandSpec(
             "ci-active-workflow-required-rejection",
@@ -1920,6 +1944,7 @@ def build_command_specs(
                 "workflow_action_ref_inventory_mismatch",
                 '"status":"rejected"',
             ),
+            work_order_tool_role="python_general",
         ),
         CommandSpec(
             "ci-mutation-pytest",
@@ -1932,10 +1957,16 @@ def build_command_specs(
                 pycache_prefix=pycache_prefix,
             ),
             python_tool_distribution="pytest",
+            work_order_tool_role="python_general",
         ),
     )
     if {item.name for item in specs} != publisher.REQUIRED_VALIDATION_COMMANDS:
         raise ValidationRunnerError("required_validation_command_set_mismatch")
+    observed_contract = {
+        item.name: (item.work_order_tool_role, item.python_tool_distribution) for item in specs
+    }
+    if observed_contract != WORK_ORDER_TOOL_CONTRACT_BY_COMMAND:
+        raise ValidationRunnerError("required_validation_command_tool_contract_mismatch")
     return specs
 
 
@@ -2245,6 +2276,17 @@ def command_plan(
         re.fullmatch(r"[0-9a-f]{64}", value) is None for value in expected_pins.values()
     ):
         raise ValidationRunnerError("command_plan_independent_pin_mapping_invalid")
+    expected_roles = {spec.work_order_tool_role for spec in specs}
+    if expected_work_order_tool_bindings is not None and (
+        None in expected_roles
+        or set(expected_work_order_tool_bindings) != expected_roles
+        or any(
+            WORK_ORDER_TOOL_CONTRACT_BY_COMMAND.get(spec.name)
+            != (spec.work_order_tool_role, spec.python_tool_distribution)
+            for spec in specs
+        )
+    ):
+        raise ValidationRunnerError("command_plan_work_order_tool_contract_invalid")
     environment = child_environment or build_child_environment(
         project_root,
         ("git", *(spec.argv[0] for spec in specs)),
@@ -2270,21 +2312,35 @@ def command_plan(
             "tool": command_tool_identity(spec, **identity_kwargs),
         }
         module_binding = command["tool"].get("python_tool_module")
-        if expected_work_order_tool_bindings is not None and module_binding is not None:
-            matches = [
-                binding
-                for binding in expected_work_order_tool_bindings.values()
-                if isinstance(binding, Mapping)
-                and os.path.normcase(os.path.normpath(str(binding.get("path", ""))))
-                == os.path.normcase(os.path.normpath(command["tool"]["path"]))
-            ]
-            if len(matches) != 1 or matches[0].get("python_tool_module") != module_binding:
-                raise ValidationRunnerError(
-                    f"command_plan_python_tool_work_order_binding_mismatch:{spec.name}"
+        if expected_work_order_tool_bindings is not None:
+            work_order_role = spec.work_order_tool_role
+            assert work_order_role is not None
+            submitted_binding = expected_work_order_tool_bindings.get(work_order_role)
+            observed_binding = work_order_tool_binding(
+                work_order_role,
+                Path(command["tool"]["path"]),
+                command["tool"]["sha256"],
+            )
+            if (
+                not isinstance(submitted_binding, Mapping)
+                or submitted_binding != observed_binding
+                or (
+                    spec.python_tool_distribution is not None
+                    and module_binding != observed_binding.get("python_tool_module")
                 )
-            command["tool"]["work_order_module_binding_sha256"] = hashlib.sha256(
-                canonical_json_bytes(module_binding)
+            ):
+                raise ValidationRunnerError(
+                    f"command_plan_tool_work_order_binding_mismatch:{spec.name}"
+                )
+            command["tool"]["work_order_binding_role"] = work_order_role
+            command["tool"]["work_order_binding_sha256"] = hashlib.sha256(
+                canonical_json_bytes(observed_binding)
             ).hexdigest()
+            command["tool"]["work_order_module_binding_sha256"] = (
+                hashlib.sha256(canonical_json_bytes(module_binding)).hexdigest()
+                if module_binding is not None
+                else None
+            )
         elif module_binding is not None:
             command["tool"]["work_order_module_binding_sha256"] = None
         commands.append(command)

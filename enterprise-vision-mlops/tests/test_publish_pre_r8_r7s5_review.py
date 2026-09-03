@@ -265,6 +265,15 @@ def _tool_identity(
     version_argv = [tool_path, "--version"]
     runtime_version_argv = [tool_path, "--version"]
     offset = 50_000 if live else 10_000
+    assert spec.work_order_tool_role is not None
+    work_order_binding = runner.work_order_tool_binding(
+        spec.work_order_tool_role, tool, tool_sha256
+    )
+    module_binding = (
+        work_order_binding.get("python_tool_module")
+        if spec.python_tool_distribution is not None
+        else None
+    )
     return {
         "path": tool_path,
         "bytes": tool_bytes,
@@ -290,6 +299,16 @@ def _tool_identity(
             executable_bytes=tool_bytes,
         ),
         "environment_commitment": _environment_commitment(),
+        "python_tool_module": module_binding,
+        "work_order_binding_role": spec.work_order_tool_role,
+        "work_order_binding_sha256": hashlib.sha256(
+            review.canonical_json_bytes(work_order_binding)
+        ).hexdigest(),
+        "work_order_module_binding_sha256": (
+            hashlib.sha256(review.canonical_json_bytes(module_binding)).hexdigest()
+            if module_binding is not None
+            else None
+        ),
     }
 
 
@@ -330,6 +349,8 @@ def _code_summary(
                 if name == "ci-active-workflow-required-rejection"
                 else ()
             ),
+            python_tool_distribution=runner.WORK_ORDER_TOOL_CONTRACT_BY_COMMAND[name][1],
+            work_order_tool_role=runner.WORK_ORDER_TOOL_CONTRACT_BY_COMMAND[name][0],
         )
         for name in sorted(review.REQUIRED_VALIDATION_COMMANDS)
     )
@@ -403,6 +424,9 @@ def _code_summary(
         before_metadata_child = call_kwargs.get("before_metadata_child")
         assert isinstance(metadata_evidence, list)
         assert callable(before_metadata_child)
+        assert (
+            call_kwargs.get("expected_work_order_tool_bindings") == work_order["tool_file_bindings"]
+        )
         for command, spec in zip(expected_live_plan["commands"], specs, strict=True):
             tool = command["tool"]
             for record in (
@@ -1235,6 +1259,35 @@ def test_code_summary_requires_raw_unobserved_live_call_telemetry_and_no_go(
     value["live_call_telemetry"]["payload"]["counts"]["r8"] = 0
     with pytest.raises(review.ReviewPublisherError, match="telemetry_unobserved"):
         review.validate_code_summary(value, **kwargs)
+
+    for leaf, field, replacement, error in (
+        (
+            "role",
+            "work_order_binding_role",
+            "python_host",
+            "validation_tool_work_order_role_mismatch",
+        ),
+        (
+            "binding-sha",
+            "work_order_binding_sha256",
+            "f" * 64,
+            "validation_tool_work_order_binding_mismatch",
+        ),
+        (
+            "module-sha",
+            "work_order_module_binding_sha256",
+            "e" * 64,
+            "validation_tool_work_order_binding_mismatch",
+        ),
+    ):
+        tampered, tampered_kwargs = _code_summary(monkeypatch, tmp_path / leaf)
+        tampered["command_plan"]["commands"][0]["tool"][field] = replacement
+        _repin_command_plan(tampered)
+        tampered_kwargs["expected_summary_sha256"] = hashlib.sha256(
+            review.canonical_json_bytes(tampered)
+        ).hexdigest()
+        with pytest.raises(review.ReviewPublisherError, match=error):
+            review.validate_code_summary(tampered, **tampered_kwargs)
 
 
 def test_validation_handoff_replay_and_self_consistent_local_repin_fail_closed(

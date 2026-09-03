@@ -660,6 +660,171 @@ def test_command_plan_reconstructs_exact_run_environment_including_git(
         for command in plan["commands"]
     )
 
+    shared_executable = Path(sys.executable)
+    shared_sha256 = runner.sha256_file(shared_executable)
+    role_specs = (
+        runner.CommandSpec(
+            "r7s5-focused-pytest-py311",
+            (str(shared_executable), "--version"),
+            python_tool_distribution="pytest",
+            work_order_tool_role="python_general",
+        ),
+        runner.CommandSpec(
+            "pinned-host-pytest-py313",
+            (str(shared_executable), "--version"),
+            python_tool_distribution="pytest",
+            work_order_tool_role="python_host",
+        ),
+        runner.CommandSpec(
+            "ruff-check-0.12.2",
+            (str(shared_executable), "--version"),
+            python_tool_distribution="ruff",
+            work_order_tool_role="python_ruff",
+        ),
+    )
+    original_commitment = runner.command_invocation_commitment(role_specs)
+    assert original_commitment != runner.command_invocation_commitment(
+        (
+            replace(role_specs[0], work_order_tool_role="python_host"),
+            *role_specs[1:],
+        )
+    )
+    module_bindings = {
+        distribution: runner.python_tool_module_binding(shared_executable, distribution)
+        for distribution in ("pytest", "ruff")
+    }
+
+    def shared_tool_identity(
+        spec: runner.CommandSpec,
+        *,
+        child_environment: runner.ChildEnvironment | None = None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        assert child_environment is not None
+        return {
+            "path": str(shared_executable.resolve()),
+            "sha256": shared_sha256,
+            "environment_commitment": child_environment.commitment,
+            "python_tool_module": module_bindings[spec.python_tool_distribution],
+        }
+
+    monkeypatch.setattr(runner, "command_tool_identity", shared_tool_identity)
+    work_order_bindings = {
+        role: runner.work_order_tool_binding(role, shared_executable, shared_sha256)
+        for role in ("python_general", "python_host", "python_ruff")
+    }
+    shared_plan = runner.command_plan(
+        repository=REPOSITORY,
+        project_root=PROJECT_ROOT,
+        head="a" * 40,
+        tree="b" * 40,
+        specs=role_specs,
+        expected_executable_sha256_by_command={spec.name: shared_sha256 for spec in role_specs},
+        expected_work_order_tool_bindings=work_order_bindings,
+    )
+    assert [command["tool"]["work_order_binding_role"] for command in shared_plan["commands"]] == [
+        "python_general",
+        "python_host",
+        "python_ruff",
+    ]
+
+    tampered_bindings = dict(work_order_bindings)
+    tampered_bindings["python_ruff"] = work_order_bindings["python_general"]
+    with pytest.raises(
+        runner.ValidationRunnerError,
+        match="command_plan_tool_work_order_binding_mismatch:ruff-check",
+    ):
+        runner.command_plan(
+            repository=REPOSITORY,
+            project_root=PROJECT_ROOT,
+            head="a" * 40,
+            tree="b" * 40,
+            specs=role_specs,
+            expected_executable_sha256_by_command={spec.name: shared_sha256 for spec in role_specs},
+            expected_work_order_tool_bindings=tampered_bindings,
+        )
+
+    def stale_tool_identity(
+        spec: runner.CommandSpec,
+        *,
+        child_environment: runner.ChildEnvironment | None = None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        value = shared_tool_identity(
+            spec,
+            child_environment=child_environment,
+            **kwargs,
+        )
+        value["python_tool_module"] = {"distribution": "stale"}
+        return value
+
+    monkeypatch.setattr(runner, "command_tool_identity", stale_tool_identity)
+    with pytest.raises(
+        runner.ValidationRunnerError,
+        match="command_plan_tool_work_order_binding_mismatch:r7s5-focused",
+    ):
+        runner.command_plan(
+            repository=REPOSITORY,
+            project_root=PROJECT_ROOT,
+            head="a" * 40,
+            tree="b" * 40,
+            specs=role_specs,
+            expected_executable_sha256_by_command={spec.name: shared_sha256 for spec in role_specs},
+            expected_work_order_tool_bindings=work_order_bindings,
+        )
+
+    metadata_calls: list[str] = []
+    monkeypatch.setattr(
+        runner,
+        "command_tool_identity",
+        lambda spec, **kwargs: metadata_calls.append(spec.name),
+    )
+    unsupported = runner.CommandSpec(
+        "unmapped-pytest-command",
+        (str(shared_executable), "--version"),
+        python_tool_distribution="pytest",
+        work_order_tool_role="python_general",
+    )
+    with pytest.raises(
+        runner.ValidationRunnerError,
+        match="command_plan_work_order_tool_contract_invalid",
+    ):
+        runner.command_plan(
+            repository=REPOSITORY,
+            project_root=PROJECT_ROOT,
+            head="a" * 40,
+            tree="b" * 40,
+            specs=(unsupported,),
+            expected_executable_sha256_by_command={unsupported.name: shared_sha256},
+            expected_work_order_tool_bindings=work_order_bindings,
+        )
+    assert metadata_calls == []
+
+    downgraded = replace(role_specs[0], python_tool_distribution=None)
+    missing_role = replace(role_specs[0], work_order_tool_role=None)
+    stale_role_bindings = {**work_order_bindings, "stale_role": work_order_bindings["python_host"]}
+    for rejected_specs, rejected_bindings in (
+        ((downgraded, *role_specs[1:]), work_order_bindings),
+        ((missing_role, *role_specs[1:]), work_order_bindings),
+        (role_specs, stale_role_bindings),
+    ):
+        with pytest.raises(
+            runner.ValidationRunnerError,
+            match="command_plan_work_order_tool_contract_invalid",
+        ):
+            runner.command_plan(
+                repository=REPOSITORY,
+                project_root=PROJECT_ROOT,
+                head="a" * 40,
+                tree="b" * 40,
+                specs=rejected_specs,
+                expected_executable_sha256_by_command={
+                    spec.name: shared_sha256 for spec in rejected_specs
+                },
+                expected_work_order_tool_bindings=rejected_bindings,
+            )
+    assert metadata_calls == []
+
 
 def test_command_plan_passes_independent_executable_pin_before_tool_metadata_execution(
     monkeypatch: pytest.MonkeyPatch,
