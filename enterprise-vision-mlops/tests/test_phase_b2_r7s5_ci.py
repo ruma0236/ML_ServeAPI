@@ -30,13 +30,17 @@ COLLECTION_RECEIPT_IDS = {
     "windows": "99999999-9999-4999-8999-999999999999",
     "private": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 }
+CURRENT_COMMIT = "7" * 40
+CURRENT_TREE = "8" * 40
+RUN_UUID = "77777777-7777-4777-8777-777777777777"
+PORTABLE_TOOLCHAIN_SHA256 = "1" * 64
 
 
 def _manifest() -> dict[str, Any]:
     return json.loads(MANIFEST.read_text(encoding="utf-8"))
 
 
-def _lane_step(lane: str, marker_expression: str) -> str:
+def _lane_step(lane: str) -> str:
     files = ci.EXPECTED_LANE_FILES[lane]
     file_lines = "\n".join(f"            {relative} \\" for relative in files)
     return (
@@ -45,8 +49,7 @@ def _lane_step(lane: str, marker_expression: str) -> str:
         "          python scripts/dev/validate_pre_r8_r7s5_ci.py manifest "
         "--manifest ci/pre-r8-r7s5-test-lanes.json --project-root . "
         f"--lane {lane}\n"
-        "          python -m pytest -q -ra --strict-config --strict-markers "
-        f'-m "{marker_expression}" \\\n'
+        "          python -m pytest -q -ra --strict-config --strict-markers \\\n"
         f"{file_lines}\n"
         "            --junitxml lane.xml\n"
     )
@@ -63,21 +66,15 @@ def _workflow() -> bytes:
         f"      - uses: {CHECKOUT}\n"
         f"      - uses: {SETUP_PYTHON}\n"
         f"      - uses: {SETUP_NODE}\n"
-        f"      - uses: {SETUP_KUBECTL}\n"
-        + _lane_step("portable", "not ci_windows_platform and not ci_private_artifact")
-        + f"      - uses: {UPLOAD}\n"
+        f"      - uses: {SETUP_KUBECTL}\n" + _lane_step("portable") + f"      - uses: {UPLOAD}\n"
         "  windows-platform-required:\n"
         "    runs-on: [self-hosted, Windows, X64, s8-v4-r7s5-private]\n"
         "    steps:\n"
-        f"      - uses: {CHECKOUT}\n"
-        + _lane_step("windows", "ci_windows_platform and not ci_private_artifact")
-        + f"      - uses: {UPLOAD}\n"
+        f"      - uses: {CHECKOUT}\n" + _lane_step("windows") + f"      - uses: {UPLOAD}\n"
         "  private-artifact-required:\n"
         "    runs-on: [self-hosted, Windows, X64, s8-v4-r7s5-private]\n"
         "    steps:\n"
-        f"      - uses: {CHECKOUT}\n"
-        + _lane_step("private", "ci_private_artifact")
-        + f"      - uses: {UPLOAD}\n"
+        f"      - uses: {CHECKOUT}\n" + _lane_step("private") + f"      - uses: {UPLOAD}\n"
         "  required-lane-closure:\n"
         "    needs: [portable-linux, windows-platform-required, private-artifact-required]\n"
         "    if: always()\n"
@@ -93,16 +90,40 @@ def _workflow() -> bytes:
 
 
 def _binding(domain: str) -> ci.ReceiptBinding:
+    toolchain_sha256 = (
+        PORTABLE_TOOLCHAIN_SHA256
+        if domain == "portable"
+        else hashlib.sha256(
+            json.dumps(_windows_toolchain(), sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+    )
     return ci.ReceiptBinding(
         repository="ruma0236/ML_ServeAPI",
         workflow="enterprise-vision-mlops-ci.yml",
-        commit=ci.EXPECTED_BASELINE_COMMIT,
-        tree=ci.EXPECTED_BASELINE_TREE,
+        commit=CURRENT_COMMIT,
+        tree=CURRENT_TREE,
         run_id="33590000000",
+        run_uuid=RUN_UUID,
         run_attempt=1,
         job=ci.EXPECTED_LANE_JOBS[domain],
         domain=domain,
+        toolchain_sha256=toolchain_sha256,
     )
+
+
+def _windows_toolchain() -> dict[str, dict[str, str]]:
+    paths = {
+        "docker": r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
+        "git": r"C:\Program Files\Git\cmd\git.exe",
+        "nvidia_smi": r"C:\Windows\System32\nvidia-smi.exe",
+        "powershell": r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        "python": r"C:\Python311\python.exe",
+        "wsl": r"C:\Windows\System32\wsl.exe",
+    }
+    return {
+        role: {"path": paths[role], "sha256": "e" * 64, "version": "pinned"}
+        for role in ci.EXPECTED_TOOL_ROLES
+    }
 
 
 def _runner_receipt(domain: str) -> dict[str, Any]:
@@ -112,14 +133,7 @@ def _runner_receipt(domain: str) -> dict[str, Any]:
         "private": "22222222-2222-4222-8222-222222222222",
     }[domain]
     nonce = {"windows": "a" * 64, "private": "b" * 64}[domain]
-    paths = {
-        "docker": r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
-        "git": r"C:\Program Files\Git\cmd\git.exe",
-        "nvidia_smi": r"C:\Windows\System32\nvidia-smi.exe",
-        "powershell": r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
-        "python": r"C:\Python311\python.exe",
-        "wsl": r"C:\Windows\System32\wsl.exe",
-    }
+    toolchain = _windows_toolchain()
     return {
         "schema": ci.RUNNER_RECEIPT_SCHEMA,
         "receipt_id": identifier,
@@ -130,6 +144,7 @@ def _runner_receipt(domain: str) -> dict[str, Any]:
         "commit": binding.commit,
         "tree": binding.tree,
         "run_id": binding.run_id,
+        "run_uuid": binding.run_uuid,
         "run_attempt": binding.run_attempt,
         "job": binding.job,
         "issued_at": "2026-09-02T04:58:00Z",
@@ -145,10 +160,8 @@ def _runner_receipt(domain: str) -> dict[str, Any]:
             "machine_identity_sha256": "d" * 64,
         },
         "token": {"administrator": True, "integrity": "High", "elevation_type": "Full"},
-        "toolchain": {
-            role: {"path": paths[role], "sha256": "e" * 64, "version": "pinned"}
-            for role in ci.EXPECTED_TOOL_ROLES
-        },
+        "toolchain": toolchain,
+        "toolchain_sha256": binding.toolchain_sha256,
         "signature": "external-signature",
     }
 
@@ -165,6 +178,7 @@ def _private_receipt() -> dict[str, Any]:
         "commit": binding.commit,
         "tree": binding.tree,
         "run_id": binding.run_id,
+        "run_uuid": binding.run_uuid,
         "run_attempt": binding.run_attempt,
         "job": binding.job,
         "issued_at": "2026-09-02T04:58:00Z",
@@ -184,6 +198,7 @@ def _private_receipt() -> dict[str, Any]:
             "reparse_component_count": 0,
             "acl_write_denied": True,
         },
+        "toolchain_sha256": binding.toolchain_sha256,
         "signature": "external-signature",
     }
 
@@ -208,6 +223,31 @@ def _receipt_sha(receipt: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _collection_binding(
+    receipts: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "schema": ci.COLLECTION_BINDING_SCHEMA,
+        "repository": "ruma0236/ML_ServeAPI",
+        "workflow": "enterprise-vision-mlops-ci.yml",
+        "commit": CURRENT_COMMIT,
+        "tree": CURRENT_TREE,
+        "run_id": "33590000000",
+        "run_uuid": RUN_UUID,
+        "run_attempt": 1,
+        "lanes": {
+            lane: {
+                "job": ci.EXPECTED_LANE_JOBS[lane],
+                "node_count": receipt["inventory"]["node_count"],
+                "nodeids_sha256": receipt["inventory"]["nodeids_sha256"],
+                "collection_receipt_sha256": _receipt_sha(receipt),
+                "toolchain_sha256": _binding(lane).toolchain_sha256,
+            }
+            for lane, receipt in receipts.items()
+        },
+    }
 
 
 def _verified_receipts() -> tuple[dict[str, ci.VerifiedReceipt], ci.VerifiedReceipt]:
@@ -237,7 +277,10 @@ def _verified_receipts() -> tuple[dict[str, ci.VerifiedReceipt], ci.VerifiedRece
 
 
 def _lane_results() -> dict[str, dict[str, Any]]:
-    sizes = {"portable": 1000, "windows": 600, "private": 570}
+    # Deliberately not the historical hosted 2,170-node total.  Current
+    # inventory is accepted only from the independently digested per-run
+    # binding and its signed receipts.
+    sizes = {"portable": 101, "windows": 61, "private": 57}
     receipts, artifact = _verified_receipts()
     results: dict[str, dict[str, Any]] = {}
     for lane in ci.LANES:
@@ -251,10 +294,12 @@ def _lane_results() -> dict[str, dict[str, Any]]:
             "job": ci.EXPECTED_LANE_JOBS[lane],
             "job_result": "success",
             "status": "passed",
-            "commit": ci.EXPECTED_BASELINE_COMMIT,
-            "tree": ci.EXPECTED_BASELINE_TREE,
+            "commit": CURRENT_COMMIT,
+            "tree": CURRENT_TREE,
             "run_id": "33590000000",
+            "run_uuid": RUN_UUID,
             "run_attempt": 1,
+            "toolchain_sha256": _binding(lane).toolchain_sha256,
             "nodeids": nodes,
             "nodeids_sha256": _node_sha(nodes),
             "collected": count,
@@ -297,6 +342,7 @@ def _lane_result_receipts() -> dict[str, dict[str, Any]]:
             "commit": binding.commit,
             "tree": binding.tree,
             "run_id": binding.run_id,
+            "run_uuid": binding.run_uuid,
             "run_attempt": binding.run_attempt,
             "job": binding.job,
             "issued_at": "2026-09-02T04:58:00Z",
@@ -306,6 +352,7 @@ def _lane_result_receipts() -> dict[str, dict[str, Any]]:
                 "key_fingerprint": "f" * 64,
             },
             "result": results[lane],
+            "toolchain_sha256": binding.toolchain_sha256,
             "signature": "external-signature",
         }
     return receipts
@@ -329,6 +376,7 @@ def _collection_inventory_receipts() -> dict[str, dict[str, Any]]:
             "commit": binding.commit,
             "tree": binding.tree,
             "run_id": binding.run_id,
+            "run_uuid": binding.run_uuid,
             "run_attempt": binding.run_attempt,
             "job": binding.job,
             "issued_at": "2026-09-02T04:56:00Z",
@@ -345,6 +393,7 @@ def _collection_inventory_receipts() -> dict[str, dict[str, Any]]:
                 "scope_files": scope_files,
                 "scope_files_sha256": _node_sha(scope_files),
             },
+            "toolchain_sha256": binding.toolchain_sha256,
             "signature": "external-signature",
         }
     return receipts
@@ -356,21 +405,19 @@ def _closure(*, engine: bool = False, **overrides: Any) -> dict[str, Any]:
     )
     lane_result_receipts = overrides.pop("lane_result_receipts", _lane_result_receipts())
     frozen_collection_contract = overrides.pop(
-        "frozen_collection_contract",
-        {
-            lane: {
-                "node_count": receipt["inventory"]["node_count"],
-                "nodeids_sha256": receipt["inventory"]["nodeids_sha256"],
-                "receipt_sha256": _receipt_sha(receipt),
-            }
-            for lane, receipt in collection_inventory_receipts.items()
-        },
+        "frozen_collection_contract", _collection_binding(collection_inventory_receipts)
+    )
+    frozen_collection_contract_sha256 = overrides.pop(
+        "frozen_collection_contract_sha256",
+        hashlib.sha256(
+            json.dumps(frozen_collection_contract, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
     )
     arguments: dict[str, Any] = {
         "repository": "ruma0236/ML_ServeAPI",
         "workflow": "enterprise-vision-mlops-ci.yml",
-        "commit": ci.EXPECTED_BASELINE_COMMIT,
-        "tree": ci.EXPECTED_BASELINE_TREE,
+        "commit": CURRENT_COMMIT,
+        "tree": CURRENT_TREE,
         "run_id": "33590000000",
         "run_attempt": 1,
         "runner_receipts": {
@@ -389,6 +436,7 @@ def _closure(*, engine: bool = False, **overrides: Any) -> dict[str, Any]:
         collection_inventory_receipts,
         lane_result_receipts,
         frozen_collection_contract=frozen_collection_contract,
+        frozen_collection_contract_sha256=frozen_collection_contract_sha256,
         **arguments,
     )
 
@@ -447,10 +495,16 @@ def test_frozen_manifest_is_valid_but_explicitly_zero_credit_no_go() -> None:
     assert result["known_failed_nodes"] == 172
     assert result["unclassified_failed_nodes"] == 0
     assert result["remaining_blockers"] == list(ci.EXPECTED_BLOCKERS)
+    assert result["configuration_contract_valid"] is True
+    assert result["historical_node_inventory_eligible_for_current_closure"] is False
+    assert result["active_workflow_lane_contract_connected"] is False
+    assert result["actual_workflow_execution"] == "unproven"
 
 
 def test_downloaded_junit_inventory_is_exactly_bound_but_does_not_promote_go() -> None:
     observed = _manifest()["hosted_failure_observation"]
+    assert observed["historical_only"] is True
+    assert observed["eligible_for_current_closure"] is False
     assert observed["artifact_archive_sha256"] == (
         "0dbec4bea33d8890af17602423c024e62ea36689966b9df4ada8de4e257b87ee"
     )
@@ -467,6 +521,69 @@ def test_downloaded_junit_inventory_is_exactly_bound_but_does_not_promote_go() -
     assert observed["lane_failed_node_counts"] == ci.EXPECTED_LANE_FAILED_NODE_COUNTS
     assert observed["full_nodeid_inventory_available"] is True
     assert observed["other_files_failed_node_count"] == 0
+
+
+def test_historical_2170_inventory_is_explicitly_ineligible_for_current_closure() -> None:
+    payload = _manifest()
+    assert payload["hosted_failure_observation"]["tests"] == 2170
+    assert payload["current_collection_contract"] == {
+        "binding_source": "externally_attested_oob_per_run",
+        "historical_node_inventory_reuse_allowed": False,
+        "required_binding_fields": [
+            "commit",
+            "lanes",
+            "repository",
+            "run_attempt",
+            "run_id",
+            "run_uuid",
+            "schema",
+            "tree",
+            "workflow",
+        ],
+        "required_lane_binding_fields": [
+            "collection_receipt_sha256",
+            "job",
+            "node_count",
+            "nodeids_sha256",
+            "toolchain_sha256",
+        ],
+        "tracked_current_head_pin_allowed": False,
+    }
+    assert "commit" not in payload["current_collection_contract"]
+    assert "tree" not in payload["current_collection_contract"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda value: value["current_collection_contract"].update(
+            historical_node_inventory_reuse_allowed=True
+        ),
+        lambda value: value["current_collection_contract"].update(
+            tracked_current_head_pin_allowed=True
+        ),
+        lambda value: value["hosted_failure_observation"].update(eligible_for_current_closure=True),
+    ],
+)
+def test_manifest_rejects_historical_inventory_promotion(mutation: Any) -> None:
+    payload = _manifest()
+    mutation(payload)
+    with pytest.raises(ci.R7S5CIContractError, match="current_collection|hosted_failure"):
+        ci.validate_manifest(payload)
+
+
+def test_manifest_rejects_lane_semantics_swap_and_workflow_claim_promotion() -> None:
+    payload = _manifest()
+    payload["lane_contract"]["windows"], payload["lane_contract"]["private"] = (
+        payload["lane_contract"]["private"],
+        payload["lane_contract"]["windows"],
+    )
+    with pytest.raises(ci.R7S5CIContractError, match="lane_semantics_contract_mismatch"):
+        ci.validate_manifest(payload)
+    payload = _manifest()
+    payload["workflow_contract"]["actual_workflow_execution"] = "passed"
+    with pytest.raises(ci.R7S5CIContractError, match="actual_workflow_execution"):
+        ci.validate_manifest(payload)
 
 
 def test_manifest_lane_overlap_is_rejected() -> None:
@@ -663,6 +780,11 @@ def test_duplicate_steps_mapping_cannot_split_an_action_inventory() -> None:
         ),
         ("--strict-config", "--strict-config -k safe_subset", "pytest_k_selection"),
         (
+            "--strict-markers",
+            '--strict-markers -m "ci_windows_platform"',
+            "pytest_marker_selection_forbidden:portable",
+        ),
+        (
             "python -m pytest",
             "python -c \"import pytest; pytest.skip('bypass')\"\n          python -m pytest",
             "test_skip_or_xfail",
@@ -832,7 +954,11 @@ def test_required_lane_closure_can_close_tests_but_never_promotes_go() -> None:
     assert result["test_contract_logic_exercised"] is True
     assert result["production_closure_eligible"] is False
     assert "required_lane_test_closure_passed" not in result
-    assert result["node_count"] == 2170
+    assert result["node_count"] == 219
+    assert result["commit"] == CURRENT_COMMIT
+    assert result["tree"] == CURRENT_TREE
+    assert result["run_uuid"] == RUN_UUID
+    assert result["lane_node_counts"] == {"portable": 101, "windows": 61, "private": 57}
     assert result["lane_result_sha256"] == {
         lane: _lane_result_receipts()[lane]["result"]["result_sha256"] for lane in ci.LANES
     }
@@ -855,8 +981,8 @@ def test_public_required_closure_fails_without_external_authorities(
     arguments = {
         "repository": "ruma0236/ML_ServeAPI",
         "workflow": "enterprise-vision-mlops-ci.yml",
-        "commit": ci.EXPECTED_BASELINE_COMMIT,
-        "tree": ci.EXPECTED_BASELINE_TREE,
+        "commit": CURRENT_COMMIT,
+        "tree": CURRENT_TREE,
         "run_id": "33590000000",
         "run_attempt": 1,
         "runner_receipts": {
@@ -888,9 +1014,149 @@ def test_public_required_closure_fails_without_external_authorities(
         )
 
 
-def test_required_closure_rejects_nonbaseline_commit_tree() -> None:
-    with pytest.raises(ci.R7S5CIContractError, match="frozen_baseline_identity_mismatch"):
+def test_required_closure_rejects_commit_not_bound_by_external_current_inventory() -> None:
+    with pytest.raises(ci.R7S5CIContractError, match="frozen_collection_binding_mismatch:commit"):
         _closure(commit="0" * 40)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("commit", "0" * 40),
+        ("tree", "0" * 40),
+        ("run_id", "different-run"),
+        ("run_uuid", "88888888-8888-4888-8888-888888888888"),
+        ("run_attempt", 2),
+    ],
+)
+def test_current_collection_binding_identity_mutation_is_rejected(field: str, value: Any) -> None:
+    receipts = _collection_inventory_receipts()
+    binding = _collection_binding(receipts)
+    binding[field] = value
+    digest = _receipt_sha(binding)
+    expected_error = (
+        "receipt_binding_mismatch:run_uuid"
+        if field == "run_uuid"
+        else f"frozen_collection_binding_mismatch:{field}"
+    )
+    with pytest.raises(ci.R7S5CIContractError, match=expected_error):
+        _closure(
+            collection_inventory_receipts=receipts,
+            frozen_collection_contract=binding,
+            frozen_collection_contract_sha256=digest,
+        )
+
+
+def test_current_collection_binding_digest_is_independent_and_immutable() -> None:
+    receipts = _collection_inventory_receipts()
+    binding = _collection_binding(receipts)
+    expected_digest = _receipt_sha(binding)
+    binding["lanes"]["portable"]["node_count"] += 1
+    with pytest.raises(ci.R7S5CIContractError, match="contract_digest_mismatch"):
+        _closure(
+            collection_inventory_receipts=receipts,
+            frozen_collection_contract=binding,
+            frozen_collection_contract_sha256=expected_digest,
+        )
+
+
+def test_collection_and_result_co_reduction_cannot_cross_oob_binding() -> None:
+    collections = _collection_inventory_receipts()
+    results = _lane_result_receipts()
+    binding = _collection_binding(collections)
+    expected_digest = _receipt_sha(binding)
+    for lane in ci.LANES:
+        one_per_file = sorted(
+            f"{relative}::test_reduced" for relative in ci.EXPECTED_LANE_FILES[lane]
+        )
+        inventory = collections[lane]["inventory"]
+        inventory["nodeids"] = one_per_file
+        inventory["nodeids_sha256"] = _node_sha(one_per_file)
+        inventory["node_count"] = len(one_per_file)
+        result = results[lane]["result"]
+        result["nodeids"] = one_per_file
+        result["nodeids_sha256"] = _node_sha(one_per_file)
+        for field in ("collected", "selected", "executed", "passed"):
+            result[field] = len(one_per_file)
+        result["result_sha256"] = _result_sha(result)
+        binding["lanes"][lane].update(
+            node_count=len(one_per_file),
+            nodeids_sha256=_node_sha(one_per_file),
+            collection_receipt_sha256=_receipt_sha(collections[lane]),
+        )
+    assert sum(len(value["result"]["nodeids"]) for value in results.values()) == 23
+    with pytest.raises(ci.R7S5CIContractError, match="contract_digest_mismatch"):
+        _closure(
+            collection_inventory_receipts=collections,
+            lane_result_receipts=results,
+            frozen_collection_contract=binding,
+            frozen_collection_contract_sha256=expected_digest,
+        )
+
+
+def test_missing_required_lane_is_incomplete_no_go() -> None:
+    collections = _collection_inventory_receipts()
+    del collections["private"]
+    with pytest.raises(ci.R7S5CIContractError, match="collection_receipt_set_or_order"):
+        _closure(collection_inventory_receipts=collections)
+
+
+def test_toolchain_and_run_uuid_are_bound_in_every_receipt() -> None:
+    receipt_factories = [
+        (lambda: _runner_receipt("windows"), "runner_receipt"),
+        (_private_receipt, "private_receipt"),
+        (lambda: _collection_inventory_receipts()["portable"], "collection_inventory_receipt"),
+        (lambda: _lane_result_receipts()["portable"], "lane_result_receipt"),
+    ]
+    validators = [
+        ci._validate_runner_receipt_for_test,
+        ci._validate_private_artifact_receipt_for_test,
+        ci._validate_collection_inventory_receipt_for_test,
+        ci._validate_lane_result_receipt_for_test,
+    ]
+    domains = ["windows", "private", "portable", "portable"]
+    for field in ("toolchain_sha256", "run_uuid"):
+        for (factory, label), validator, domain in zip(
+            receipt_factories, validators, domains, strict=True
+        ):
+            receipt = factory()
+            del receipt[field]
+            with pytest.raises(ci.R7S5CIContractError, match=f"{label}_keys_not_exact"):
+                validator(
+                    receipt,
+                    expected=_binding(domain),
+                    now=NOW,
+                    replay_guard=ci.ReceiptReplayGuard(),
+                    verifier=_accept_signature,
+                )
+
+
+def test_current_collection_toolchain_mutation_with_recomputed_digest_is_rejected() -> None:
+    receipts = _collection_inventory_receipts()
+    binding = _collection_binding(receipts)
+    binding["lanes"]["portable"]["toolchain_sha256"] = "0" * 64
+    with pytest.raises(ci.R7S5CIContractError, match="receipt_binding_mismatch:toolchain_sha256"):
+        _closure(
+            collection_inventory_receipts=receipts,
+            frozen_collection_contract=binding,
+            frozen_collection_contract_sha256=_receipt_sha(binding),
+        )
+
+
+def test_runner_toolchain_self_consistent_outer_digest_mutation_is_rejected() -> None:
+    receipt = _runner_receipt("windows")
+    receipt["toolchain"]["python"]["version"] = "mutated"
+    receipt["toolchain_sha256"] = hashlib.sha256(
+        json.dumps(receipt["toolchain"], sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    with pytest.raises(ci.R7S5CIContractError, match="receipt_binding_mismatch:toolchain_sha256"):
+        ci._validate_runner_receipt_for_test(
+            receipt,
+            expected=_binding("windows"),
+            now=NOW,
+            replay_guard=ci.ReceiptReplayGuard(),
+            verifier=_accept_signature,
+        )
 
 
 @pytest.mark.parametrize(
@@ -940,14 +1206,7 @@ def test_required_closure_rejects_node_gap_and_receipt_domain_swap() -> None:
 
 def test_required_closure_rejects_signed_twenty_three_node_reduction() -> None:
     collection_receipts = _collection_inventory_receipts()
-    frozen_contract = {
-        lane: {
-            "node_count": receipt["inventory"]["node_count"],
-            "nodeids_sha256": receipt["inventory"]["nodeids_sha256"],
-            "receipt_sha256": _receipt_sha(receipt),
-        }
-        for lane, receipt in collection_receipts.items()
-    }
+    frozen_contract = _collection_binding(collection_receipts)
     lane_receipts = _lane_result_receipts()
     for lane in ci.LANES:
         result = lane_receipts[lane]["result"]
@@ -978,12 +1237,14 @@ def test_required_closure_rejects_fabricated_public_verified_receipt() -> None:
         nonce="7" * 64,
         issuer="external-r7s5-authority",
         domain="windows",
-        commit=ci.EXPECTED_BASELINE_COMMIT,
-        tree=ci.EXPECTED_BASELINE_TREE,
+        commit=CURRENT_COMMIT,
+        tree=CURRENT_TREE,
         run_id="33590000000",
+        run_uuid=RUN_UUID,
         run_attempt=1,
         job=ci.EXPECTED_LANE_JOBS["windows"],
         kind="runner",
+        toolchain_sha256=_binding("windows").toolchain_sha256,
     )
     with pytest.raises(ci.R7S5CIContractError, match="runner_receipt:windows_mapping_required"):
         _closure(
@@ -1145,7 +1406,7 @@ def test_cli_closure_remains_no_go_without_external_collection_contract(
     monkeypatch.setattr(
         cli,
         "_git_identity",
-        lambda _root: (ci.EXPECTED_BASELINE_COMMIT, ci.EXPECTED_BASELINE_TREE, True),
+        lambda _root: (CURRENT_COMMIT, CURRENT_TREE, True),
     )
     monkeypatch.setattr(cli, "_utc_now", lambda: NOW)
     monkeypatch.setattr(cli, "PINNED_EXTERNAL_AUTHORITY_KEY_FINGERPRINT", _key_fingerprint(key))
@@ -1161,9 +1422,9 @@ def test_cli_closure_remains_no_go_without_external_collection_contract(
         "--workflow-name",
         "enterprise-vision-mlops-ci.yml",
         "--commit",
-        ci.EXPECTED_BASELINE_COMMIT,
+        CURRENT_COMMIT,
         "--tree",
-        ci.EXPECTED_BASELINE_TREE,
+        CURRENT_TREE,
         "--run-id",
         "33590000000",
         "--run-attempt",
@@ -1191,7 +1452,7 @@ def test_cli_closure_remains_no_go_without_external_collection_contract(
     monkeypatch.setattr(
         cli,
         "_git_identity",
-        lambda _root: ("0" * 40, ci.EXPECTED_BASELINE_TREE, True),
+        lambda _root: ("0" * 40, CURRENT_TREE, True),
     )
     assert cli.main(arguments) == 2
     rejection = json.loads(capsys.readouterr().err)
@@ -1200,7 +1461,7 @@ def test_cli_closure_remains_no_go_without_external_collection_contract(
     monkeypatch.setattr(
         cli,
         "_git_identity",
-        lambda _root: (ci.EXPECTED_BASELINE_COMMIT, ci.EXPECTED_BASELINE_TREE, True),
+        lambda _root: (CURRENT_COMMIT, CURRENT_TREE, True),
     )
     monkeypatch.setattr(cli, "PINNED_EXTERNAL_AUTHORITY_KEY_FINGERPRINT", None)
     assert cli.main(arguments) == 2
@@ -1225,6 +1486,8 @@ def test_cli_readback_reports_no_go_without_live_calls(capsys: pytest.CaptureFix
     assert captured.err == ""
     result = json.loads(captured.out)
     assert result["selected_lane"] == "portable"
+    assert result["configuration_validation_only"] is True
+    assert result["required_lane_closure_eligible"] is False
     assert result["go_evidence_eligible"] is False
     assert result["status"] == "manual_intervention_required"
 

@@ -195,6 +195,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 payload = load_manifest(args.manifest, project_root=args.project_root)
                 result = {
                     **result,
+                    "configuration_validation_only": True,
+                    "required_lane_closure_eligible": False,
                     "selected_lane": args.lane,
                     "selected_lane_files": payload["file_inventory"]["lanes"][args.lane],
                 }

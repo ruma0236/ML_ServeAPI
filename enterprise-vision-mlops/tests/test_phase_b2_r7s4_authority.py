@@ -315,6 +315,36 @@ def test_caller_sha_mapping_and_mutated_typed_result_are_not_authority() -> None
         authority.require_verified_external_receipt(forged)
 
 
+def test_public_entry_rejects_caller_supplied_verifier_before_calling_it() -> None:
+    receipt_raw, request_raw = _documents()
+    verifier = FakeExternalVerifier()
+    with pytest.raises(
+        authority.R7S4AuthorityError,
+        match="production_external_authority_adapter_unprovisioned",
+    ):
+        authority.verify_external_receipt(
+            receipt_raw,
+            request_raw,
+            expected=EXPECTED,
+            verifier=verifier,
+        )
+    assert verifier.calls == 0
+
+
+def test_public_consumption_revalidation_is_unavailable_without_pinned_adapter() -> None:
+    receipt_raw, request_raw, verified = _verified()
+    with pytest.raises(
+        authority.R7S4AuthorityError,
+        match="production_external_authority_adapter_unprovisioned",
+    ):
+        authority.revalidate_external_receipt_for_consumption(
+            verified,
+            receipt_raw,
+            request_raw,
+            expected=EXPECTED,
+        )
+
+
 @pytest.mark.parametrize("mechanism", ["reviewer_text", "jira", "notion", "local_self_sign"])
 def test_local_text_or_self_sign_never_reaches_external_verifier(
     mechanism: str,

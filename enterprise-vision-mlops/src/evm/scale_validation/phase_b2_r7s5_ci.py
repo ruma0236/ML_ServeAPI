@@ -26,14 +26,18 @@ LANE_RESULT_RECEIPT_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s5-lane-result-rece
 COLLECTION_INVENTORY_RECEIPT_SCHEMA = (
     "evm.s8-v4.x1.phase-b2.pre-r8-r7s5-collection-inventory-receipt.v1"
 )
+COLLECTION_BINDING_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s7-current-collection-binding.v1"
 LANES = ("portable", "windows", "private")
 EXPECTED_BASELINE_COMMIT = "c70d11abf2e6e34d0fca8e51db38ebfea7fc0f5b"
 EXPECTED_BASELINE_TREE = "f8d691948ea908d9c12b11f8e35b87ba40dd5e62"
 EXPECTED_BLOCKERS = (
-    "hosted_portable_lane_has_exact_failed_nodes_2",
+    "current_commit_portable_lane_execution_unproven",
     "external_attested_windows_runner_absent",
     "external_attested_private_artifact_runner_absent",
     "hosted_linux_runner_external_provenance_unproven",
+    "active_required_lane_workflow_not_connected",
+    "external_oob_receipt_authority_unprovisioned",
+    "external_worm_replay_authority_unprovisioned",
 )
 EXPECTED_LANE_FILES = {
     "portable": (
@@ -138,11 +142,31 @@ EXPECTED_LANE_JOBS = {
 EXPECTED_WINDOWS_LABELS = ("self-hosted", "Windows", "X64", "s8-v4-r7s5-private")
 EXPECTED_WINDOWS_RUNNER_GROUP = "s8-v4-r7s5-private"
 EXPECTED_TOOL_ROLES = ("docker", "git", "nvidia_smi", "powershell", "python", "wsl")
+EXPECTED_LANE_CONTRACT = {
+    "portable": {
+        "actual_execution_required": True,
+        "domain": "portable_common_linux",
+        "external_result_receipt_required": True,
+        "runner_class": "github_hosted_ubuntu_24_04",
+    },
+    "windows": {
+        "actual_execution_required": True,
+        "domain": "real_windows_semantics",
+        "external_result_receipt_required": True,
+        "runner_class": "attested_self_hosted_windows",
+    },
+    "private": {
+        "actual_execution_required": True,
+        "domain": "private_x1_s4_artifact_runtime",
+        "external_result_receipt_required": True,
+        "runner_class": "attested_self_hosted_windows_x1_s4",
+    },
+}
 # No genuine externally approved lane collection inventory is available yet.
 # A future reviewed commit may populate this with exact, independently derived
 # receipt SHA, node count, and nodeid SHA pins.  Until then the public closure
 # is intentionally incapable of returning closure PASS.
-PINNED_EXTERNAL_COLLECTION_CONTRACT: Mapping[str, Mapping[str, Any]] | None = None
+PINNED_EXTERNAL_COLLECTION_CONTRACT: Mapping[str, Any] | None = None
 HEX40 = re.compile(r"[0-9a-f]{40}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 FULL_ACTION_RE = re.compile(r"[^/@\s]+/[^/@\s]+@[0-9a-f]{40}")
@@ -184,9 +208,11 @@ class ReceiptBinding:
     commit: str
     tree: str
     run_id: str
+    run_uuid: str
     run_attempt: int
     job: str
     domain: str
+    toolchain_sha256: str
 
 
 @dataclass(frozen=True)
@@ -198,9 +224,11 @@ class VerifiedReceipt:
     commit: str
     tree: str
     run_id: str
+    run_uuid: str
     run_attempt: int
     job: str
     kind: str
+    toolchain_sha256: str
 
 
 @dataclass(frozen=True)
@@ -212,6 +240,8 @@ class AttestedLaneResult:
     issuer: str
     issued_at: datetime
     lane: str
+    run_uuid: str
+    toolchain_sha256: str
     result_sha256: str
     nodeids_sha256: str
     result: Mapping[str, Any]
@@ -226,6 +256,8 @@ class AttestedCollectionInventory:
     issuer: str
     issued_at: datetime
     lane: str
+    run_uuid: str
+    toolchain_sha256: str
     nodeids_sha256: str
     nodeids: tuple[str, ...]
 
@@ -351,6 +383,17 @@ def _canonical_json(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def _uuid4(value: Any, label: str) -> str:
+    text = _string(value, label)
+    try:
+        parsed = uuid.UUID(text)
+    except ValueError as exc:
+        raise R7S5CIContractError(f"{label}_uuid4_canonical_required") from exc
+    if parsed.version != 4 or str(parsed) != text:
+        raise R7S5CIContractError(f"{label}_uuid4_canonical_required")
+    return text
+
+
 def _parse_json(raw: bytes, label: str) -> Mapping[str, Any]:
     if b"\r" in raw or not raw.endswith(b"\n"):
         raise R7S5CIContractError(f"{label}_lf_terminal_newline_required")
@@ -393,10 +436,12 @@ def validate_manifest(
         payload,
         {
             "baseline",
+            "current_collection_contract",
             "current_external_state",
             "decision",
             "file_inventory",
             "hosted_failure_observation",
+            "lane_contract",
             "remaining_blockers",
             "runner_contract",
             "schema",
@@ -406,6 +451,50 @@ def validate_manifest(
     )
     if payload["schema"] != MANIFEST_SCHEMA:
         raise R7S5CIContractError("manifest_schema_mismatch")
+
+    current_collection = _mapping(
+        payload["current_collection_contract"], "current_collection_contract"
+    )
+    _exact_keys(
+        current_collection,
+        {
+            "binding_source",
+            "historical_node_inventory_reuse_allowed",
+            "required_binding_fields",
+            "required_lane_binding_fields",
+            "tracked_current_head_pin_allowed",
+        },
+        "current_collection_contract",
+    )
+    expected_current_collection = {
+        "binding_source": "externally_attested_oob_per_run",
+        "historical_node_inventory_reuse_allowed": False,
+        "required_binding_fields": [
+            "commit",
+            "lanes",
+            "repository",
+            "run_attempt",
+            "run_id",
+            "run_uuid",
+            "schema",
+            "tree",
+            "workflow",
+        ],
+        "required_lane_binding_fields": [
+            "collection_receipt_sha256",
+            "job",
+            "node_count",
+            "nodeids_sha256",
+            "toolchain_sha256",
+        ],
+        "tracked_current_head_pin_allowed": False,
+    }
+    if current_collection != expected_current_collection:
+        raise R7S5CIContractError("current_collection_contract_mismatch")
+
+    lane_contract = _mapping(payload["lane_contract"], "lane_contract")
+    if lane_contract != EXPECTED_LANE_CONTRACT:
+        raise R7S5CIContractError("lane_semantics_contract_mismatch")
 
     baseline = _mapping(payload["baseline"], "baseline")
     _exact_keys(baseline, {"commit", "tree"}, "baseline")
@@ -465,6 +554,8 @@ def validate_manifest(
             "failed",
             "full_nodeid_inventory_available",
             "head_sha",
+            "historical_only",
+            "eligible_for_current_closure",
             "junit_xml_bytes",
             "junit_xml_sha256",
             "known_failed_file_counts",
@@ -528,6 +619,8 @@ def validate_manifest(
         "failed": 172,
         "full_nodeid_inventory_available": True,
         "head_sha": "0f9a3b9ebb9d2248f9908852ec124eb6b9a5ba80",
+        "historical_only": True,
+        "eligible_for_current_closure": False,
         "junit_xml_bytes": 1158862,
         "junit_xml_sha256": "16aa6fa2bf4b9ddb8e6f2cbeef2739c8c0fd5ebbb7145a607fe832d04fabd209",
         "nodeid_canonicalization": EXPECTED_NODEID_CANONICALIZATION,
@@ -603,7 +696,7 @@ def validate_manifest(
     if decision != {
         "credit": "zero_credit",
         "go_evidence_eligible": False,
-        "reason": "portable_failures_and_external_runner_authority_unproven",
+        "reason": "current_commit_required_lane_execution_and_external_authority_unproven",
         "reviewer_sign_off": "pending",
         "status": "manual_intervention_required",
     }:
@@ -642,9 +735,13 @@ def validate_manifest(
     _exact_keys(
         workflow,
         {
+            "active_workflow_lane_contract_connected",
+            "actual_workflow_execution",
             "allowed_action_refs",
             "closure_command",
             "lane_command_tokens",
+            "manifest_only_is_configuration_validation",
+            "missing_required_lane_decision",
             "required_job_ids",
         },
         "workflow_contract",
@@ -667,12 +764,24 @@ def validate_manifest(
         "--manifest ci/pre-r8-r7s5-test-lanes.json --project-root ."
     ):
         raise R7S5CIContractError("closure_command_mismatch")
+    if workflow["active_workflow_lane_contract_connected"] is not False:
+        raise R7S5CIContractError("active_workflow_connection_unproven")
+    if workflow["actual_workflow_execution"] != "unproven":
+        raise R7S5CIContractError("actual_workflow_execution_must_remain_unproven")
+    if workflow["manifest_only_is_configuration_validation"] is not True:
+        raise R7S5CIContractError("manifest_only_scope_mismatch")
+    if workflow["missing_required_lane_decision"] != "incomplete_no_go":
+        raise R7S5CIContractError("missing_lane_decision_mismatch")
 
     return {
         "schema": "evm.s8-v4.x1.phase-b2.pre-r8-r7s5-ci-validation.v1",
         "status": "manual_intervention_required",
         "credit": "zero_credit",
         "go_evidence_eligible": False,
+        "configuration_contract_valid": True,
+        "historical_node_inventory_eligible_for_current_closure": False,
+        "active_workflow_lane_contract_connected": False,
+        "actual_workflow_execution": "unproven",
         "lane_file_counts": {lane: len(EXPECTED_LANE_FILES[lane]) for lane in LANES},
         "known_failed_nodes": known,
         "unclassified_failed_nodes": observed["other_files_failed_node_count"],
@@ -894,13 +1003,14 @@ def validate_workflow_contract(raw: bytes, manifest: Mapping[str, Any]) -> dict[
         for required in ("--strict-config", "--strict-markers"):
             if _count_active_lines(block, required) != 1:
                 raise R7S5CIContractError(f"pytest_strict_flag_not_exact:{lane}:{required}")
-        marker_expression = {
-            "portable": '-m "not ci_windows_platform and not ci_private_artifact"',
-            "windows": '-m "ci_windows_platform and not ci_private_artifact"',
-            "private": '-m "ci_private_artifact"',
-        }[lane]
-        if _count_active_lines(block, marker_expression) != 1:
-            raise R7S5CIContractError(f"pytest_marker_expression_not_exact:{lane}")
+        # The lane files are already an exact, disjoint inventory.  A second
+        # marker selector can silently reduce a required lane to zero tests
+        # when a marker is missing or renamed, so selectors are forbidden.
+        if re.search(
+            r"(?s)\bpython\s+-m\s+pytest\b.*?(?:^|\s)-m(?:=|\s)",
+            block,
+        ):
+            raise R7S5CIContractError(f"pytest_marker_selection_forbidden:{lane}")
         for relative in EXPECTED_LANE_FILES[lane]:
             if _count_active_lines(block, relative) != 1:
                 raise R7S5CIContractError(f"lane_file_invocation_not_exact:{lane}:{relative}")
@@ -966,15 +1076,21 @@ def _validate_receipt_envelope(
     if parsed_id.version != 4 or str(parsed_id) != receipt_id:
         raise R7S5CIContractError("receipt_id_uuid4_canonical_required")
     nonce = _hex(receipt["nonce"], HEX64, "receipt_nonce")
-    for field in ("repository", "workflow", "run_id", "domain", "job"):
+    for field in ("repository", "workflow", "run_id", "run_uuid", "domain", "job"):
         if receipt[field] != getattr(expected, field):
             raise R7S5CIContractError(f"receipt_binding_mismatch:{field}")
+    _uuid4(receipt["run_uuid"], "receipt_run_uuid")
     if _integer(receipt["run_attempt"], "receipt_run_attempt", minimum=1) != expected.run_attempt:
         raise R7S5CIContractError("receipt_binding_mismatch:run_attempt")
     if receipt["commit"] != expected.commit or HEX40.fullmatch(str(receipt["commit"])) is None:
         raise R7S5CIContractError("receipt_binding_mismatch:commit")
     if receipt["tree"] != expected.tree or HEX40.fullmatch(str(receipt["tree"])) is None:
         raise R7S5CIContractError("receipt_binding_mismatch:tree")
+    if (
+        _hex(receipt["toolchain_sha256"], HEX64, "receipt_toolchain_sha256")
+        != expected.toolchain_sha256
+    ):
+        raise R7S5CIContractError("receipt_binding_mismatch:toolchain_sha256")
     issued = _parse_timestamp(receipt["issued_at"], "receipt_issued_at")
     expires = _parse_timestamp(receipt["expires_at"], "receipt_expires_at")
     if now.tzinfo is None or now.utcoffset() is None:
@@ -1021,11 +1137,13 @@ def _validate_runner_receipt_for_test(
             "repository",
             "run_attempt",
             "run_id",
+            "run_uuid",
             "runner",
             "schema",
             "signature",
             "token",
             "toolchain",
+            "toolchain_sha256",
             "tree",
             "workflow",
         },
@@ -1079,6 +1197,8 @@ def _validate_runner_receipt_for_test(
             raise R7S5CIContractError(f"runner_toolchain_path_not_absolute:{role}")
         _hex(pin["sha256"], HEX64, f"runner_toolchain_sha256:{role}")
         _string(pin["version"], f"runner_toolchain_version:{role}")
+    if hashlib.sha256(_canonical_json(toolchain)).hexdigest() != expected.toolchain_sha256:
+        raise R7S5CIContractError("runner_toolchain_digest_mismatch")
     replay_guard.consume(("receipt", issuer, receipt_id, nonce))
     return VerifiedReceipt(
         receipt_id=receipt_id,
@@ -1088,9 +1208,11 @@ def _validate_runner_receipt_for_test(
         commit=expected.commit,
         tree=expected.tree,
         run_id=expected.run_id,
+        run_uuid=expected.run_uuid,
         run_attempt=expected.run_attempt,
         job=expected.job,
         kind="runner",
+        toolchain_sha256=expected.toolchain_sha256,
     )
 
 
@@ -1117,9 +1239,11 @@ def _validate_private_artifact_receipt_for_test(
             "repository",
             "run_attempt",
             "run_id",
+            "run_uuid",
             "schema",
             "signature",
             "tree",
+            "toolchain_sha256",
             "workflow",
         },
         "private_receipt",
@@ -1181,9 +1305,11 @@ def _validate_private_artifact_receipt_for_test(
         commit=expected.commit,
         tree=expected.tree,
         run_id=expected.run_id,
+        run_uuid=expected.run_uuid,
         run_attempt=expected.run_attempt,
         job=expected.job,
         kind="private_artifact",
+        toolchain_sha256=expected.toolchain_sha256,
     )
 
 
@@ -1242,9 +1368,11 @@ def _validate_collection_inventory_receipt_for_test(
             "repository",
             "run_attempt",
             "run_id",
+            "run_uuid",
             "schema",
             "signature",
             "tree",
+            "toolchain_sha256",
             "workflow",
         },
         "collection_inventory_receipt",
@@ -1305,6 +1433,8 @@ def _validate_collection_inventory_receipt_for_test(
         issuer=issuer,
         issued_at=_parse_timestamp(receipt["issued_at"], "collection_issued_at"),
         lane=expected.domain,
+        run_uuid=expected.run_uuid,
+        toolchain_sha256=expected.toolchain_sha256,
         nodeids_sha256=nodeids_sha256,
         nodeids=nodes,
     )
@@ -1339,9 +1469,11 @@ def _validate_lane_result_receipt_for_test(
             "result",
             "run_attempt",
             "run_id",
+            "run_uuid",
             "schema",
             "signature",
             "tree",
+            "toolchain_sha256",
             "workflow",
         },
         "lane_result_receipt",
@@ -1376,11 +1508,13 @@ def _validate_lane_result_receipt_for_test(
             "result_sha256",
             "run_attempt",
             "run_id",
+            "run_uuid",
             "runner_receipt_id",
             "selected",
             "skipped",
             "status",
             "tree",
+            "toolchain_sha256",
             "xfailed",
             "xpassed",
         },
@@ -1391,7 +1525,14 @@ def _validate_lane_result_receipt_for_test(
     if result["job_result"] != "success" or result["status"] != "passed":
         raise R7S5CIContractError(f"closure_lane_not_success:{expected.domain}")
     _integer(result["run_attempt"], "closure_lane_run_attempt", minimum=1)
-    for field in ("commit", "tree", "run_id", "run_attempt"):
+    for field in (
+        "commit",
+        "tree",
+        "run_id",
+        "run_uuid",
+        "run_attempt",
+        "toolchain_sha256",
+    ):
         if result[field] != getattr(expected, field):
             raise R7S5CIContractError(f"closure_lane_binding_mismatch:{expected.domain}:{field}")
 
@@ -1426,6 +1567,8 @@ def _validate_lane_result_receipt_for_test(
         issuer=issuer,
         issued_at=_parse_timestamp(receipt["issued_at"], "lane_result_issued_at"),
         lane=expected.domain,
+        run_uuid=expected.run_uuid,
+        toolchain_sha256=expected.toolchain_sha256,
         result_sha256=result_sha256,
         nodeids_sha256=nodeids_sha256,
         result=immutable_copy,
@@ -1448,7 +1591,8 @@ def _validate_required_closure(
     now: datetime,
     replay_guard: ReceiptReplayGuard,
     verifier: SignatureVerifier | None,
-    frozen_collection_contract: Mapping[str, Mapping[str, Any]] | None,
+    frozen_collection_contract: Mapping[str, Any] | None,
+    frozen_collection_contract_sha256: str | None,
 ) -> dict[str, Any]:
     """Validate closure exclusively from signed raw receipts.
 
@@ -1468,23 +1612,68 @@ def _validate_required_closure(
     workflow = _string(workflow, "closure_workflow")
     _hex(commit, HEX40, "closure_commit")
     _hex(tree, HEX40, "closure_tree")
-    baseline = _mapping(manifest["baseline"], "closure_manifest_baseline")
-    if commit != baseline["commit"] or tree != baseline["tree"]:
-        raise R7S5CIContractError("closure_frozen_baseline_identity_mismatch")
     _string(run_id, "closure_run_id")
     _integer(run_attempt, "closure_run_attempt", minimum=1)
     if frozen_collection_contract is None:
         raise R7S5CIContractError("external_collection_authority_unprovisioned")
-    if tuple(frozen_collection_contract) != LANES:
+    expected_contract_sha256 = _hex(
+        frozen_collection_contract_sha256,
+        HEX64,
+        "frozen_collection_contract_sha256",
+    )
+    observed_contract_sha256 = hashlib.sha256(
+        _canonical_json(frozen_collection_contract)
+    ).hexdigest()
+    if observed_contract_sha256 != expected_contract_sha256:
+        raise R7S5CIContractError("frozen_collection_contract_digest_mismatch")
+    contract = _mapping(frozen_collection_contract, "frozen_collection_contract")
+    _exact_keys(
+        contract,
+        {
+            "commit",
+            "lanes",
+            "repository",
+            "run_attempt",
+            "run_id",
+            "run_uuid",
+            "schema",
+            "tree",
+            "workflow",
+        },
+        "frozen_collection_contract",
+    )
+    if contract["schema"] != COLLECTION_BINDING_SCHEMA:
+        raise R7S5CIContractError("frozen_collection_contract_schema_mismatch")
+    run_uuid = _uuid4(contract["run_uuid"], "frozen_collection_run_uuid")
+    for field, expected_value in {
+        "repository": repository,
+        "workflow": workflow,
+        "commit": commit,
+        "tree": tree,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+    }.items():
+        if contract[field] != expected_value:
+            raise R7S5CIContractError(f"frozen_collection_binding_mismatch:{field}")
+    contract_lanes = _mapping(contract["lanes"], "frozen_collection_lanes")
+    if tuple(contract_lanes) != LANES:
         raise R7S5CIContractError("frozen_collection_contract_lane_set_or_order_mismatch")
     normalized_collection_contract: dict[str, dict[str, Any]] = {}
     for lane in LANES:
-        pin = _mapping(frozen_collection_contract[lane], f"frozen_collection:{lane}")
+        pin = _mapping(contract_lanes[lane], f"frozen_collection:{lane}")
         _exact_keys(
             pin,
-            {"node_count", "nodeids_sha256", "receipt_sha256"},
+            {
+                "collection_receipt_sha256",
+                "job",
+                "node_count",
+                "nodeids_sha256",
+                "toolchain_sha256",
+            },
             f"frozen_collection:{lane}",
         )
+        if pin["job"] != EXPECTED_LANE_JOBS[lane]:
+            raise R7S5CIContractError(f"frozen_collection_job_mismatch:{lane}")
         normalized_collection_contract[lane] = {
             "node_count": _integer(
                 pin["node_count"], f"frozen_collection_node_count:{lane}", minimum=1
@@ -1493,7 +1682,12 @@ def _validate_required_closure(
                 pin["nodeids_sha256"], HEX64, f"frozen_collection_nodeids_sha:{lane}"
             ),
             "receipt_sha256": _hex(
-                pin["receipt_sha256"], HEX64, f"frozen_collection_receipt_sha:{lane}"
+                pin["collection_receipt_sha256"],
+                HEX64,
+                f"frozen_collection_receipt_sha:{lane}",
+            ),
+            "toolchain_sha256": _hex(
+                pin["toolchain_sha256"], HEX64, f"frozen_collection_toolchain_sha:{lane}"
             ),
         }
 
@@ -1504,9 +1698,11 @@ def _validate_required_closure(
             commit=commit,
             tree=tree,
             run_id=run_id,
+            run_uuid=run_uuid,
             run_attempt=run_attempt,
             job=EXPECTED_LANE_JOBS[lane],
             domain=lane,
+            toolchain_sha256=normalized_collection_contract[lane]["toolchain_sha256"],
         )
         for lane in LANES
     }
@@ -1570,6 +1766,7 @@ def _validate_required_closure(
             frozen["node_count"] != len(collection.nodeids)
             or frozen["nodeids_sha256"] != collection.nodeids_sha256
             or frozen["receipt_sha256"] != collection.receipt_sha256
+            or frozen["toolchain_sha256"] != collection.toolchain_sha256
         ):
             raise R7S5CIContractError(f"closure_frozen_collection_mismatch:{lane}")
         if (
@@ -1578,6 +1775,8 @@ def _validate_required_closure(
             or result["collection_inventory_receipt_id"] != collection.receipt_id
             or tuple(nodes) != collection.nodeids
             or attested.nodeids_sha256 != collection.nodeids_sha256
+            or attested.run_uuid != collection.run_uuid
+            or attested.toolchain_sha256 != collection.toolchain_sha256
         ):
             raise R7S5CIContractError(f"closure_collection_inventory_mismatch:{lane}")
         for node in nodes:
@@ -1626,6 +1825,12 @@ def _validate_required_closure(
         "production_closure_eligible": False,
         "go_evidence_eligible": False,
         "node_count": len(all_nodes),
+        "commit": commit,
+        "tree": tree,
+        "run_id": run_id,
+        "run_uuid": run_uuid,
+        "run_attempt": run_attempt,
+        "frozen_collection_contract_sha256": expected_contract_sha256,
         "nodeids_sha256": _nodeid_sha256(sorted(all_nodes)),
         "collection_inventory_receipt_ids": collection_receipt_ids,
         "collection_inventory_receipt_sha256": collection_receipt_digests,
@@ -1633,6 +1838,12 @@ def _validate_required_closure(
         "lane_result_receipt_sha256": lane_result_receipt_digests,
         "lane_result_sha256": lane_result_digests,
         "lane_nodeids_sha256": lane_nodeid_digests,
+        "lane_node_counts": {
+            lane: normalized_collection_contract[lane]["node_count"] for lane in LANES
+        },
+        "lane_toolchain_sha256": {
+            lane: normalized_collection_contract[lane]["toolchain_sha256"] for lane in LANES
+        },
         "runner_receipt_ids": receipt_ids,
         "private_artifact_receipt_id": verified_artifact.receipt_id,
         "remaining_blockers": list(EXPECTED_BLOCKERS),
@@ -1694,7 +1905,8 @@ def _validate_required_closure_for_test(
     collection_inventory_receipts: Mapping[str, Mapping[str, Any]],
     lane_result_receipts: Mapping[str, Mapping[str, Any]],
     *,
-    frozen_collection_contract: Mapping[str, Mapping[str, Any]],
+    frozen_collection_contract: Mapping[str, Any],
+    frozen_collection_contract_sha256: str,
     repository: str,
     workflow: str,
     commit: str,
@@ -1725,6 +1937,7 @@ def _validate_required_closure_for_test(
         replay_guard=replay_guard,
         verifier=verifier,
         frozen_collection_contract=frozen_collection_contract,
+        frozen_collection_contract_sha256=frozen_collection_contract_sha256,
     )
     result.pop("required_lane_test_closure_passed", None)
     result.update(
@@ -1740,6 +1953,7 @@ def _validate_required_closure_for_test(
 
 
 __all__ = [
+    "COLLECTION_BINDING_SCHEMA",
     "COLLECTION_INVENTORY_RECEIPT_SCHEMA",
     "DurableReceiptReplayGuard",
     "LANES",

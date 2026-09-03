@@ -561,15 +561,17 @@ def verify_external_receipt(
     expected: ReceiptExpectation,
     verifier: ExternalReceiptVerifier,
 ) -> VerifiedExternalReceipt:
-    """Production-facing validation uses only the process system clock."""
+    """Fail closed until a repository-pinned external adapter is provisioned.
 
-    return _verify_external_receipt_at_time(
-        receipt_raw,
-        approval_request_raw,
-        expected=expected,
-        verifier=verifier,
-        observed_time=datetime.now(UTC),
-    )
+    A caller-provided object that implements ``ExternalReceiptVerifier`` is not
+    an independent trust root.  Keeping that object injectable on this public
+    entry point would let the same caller mint both the receipt and its alleged
+    verification.  The deterministic private seam below remains available for
+    contract tests, but it never enables production admission.
+    """
+
+    del receipt_raw, approval_request_raw, expected, verifier
+    raise R7S4AuthorityError("production_external_authority_adapter_unprovisioned")
 
 
 def _verify_external_receipt_for_test(
@@ -641,15 +643,10 @@ def revalidate_external_receipt_for_consumption(
     *,
     expected: ReceiptExpectation,
 ) -> VerifiedExternalReceipt:
-    """Production-facing consumption revalidation uses only the system clock."""
+    """Fail closed while the production external authority is unprovisioned."""
 
-    return _revalidate_external_receipt_at_time(
-        verified,
-        receipt_raw,
-        approval_request_raw,
-        expected=expected,
-        observed_time=datetime.now(UTC),
-    )
+    del verified, receipt_raw, approval_request_raw, expected
+    raise R7S4AuthorityError("production_external_authority_adapter_unprovisioned")
 
 
 def _revalidate_external_receipt_for_consumption_for_test(
@@ -687,6 +684,8 @@ def authority_contract() -> dict[str, Any]:
         "production_authority_blockers": list(PRODUCTION_AUTHORITY_BLOCKERS),
         "production_clock_source": "system_wall_clock",
         "caller_validation_time_allowed": False,
+        "caller_supplied_verifier_allowed_on_public_entry": False,
+        "public_entry_without_pinned_external_adapter": "fail_closed",
         "same_token_hostile_admin_protected": SAME_TOKEN_HOSTILE_ADMIN_PROTECTED,
         "multi_host_global_one_shot_provided": MULTI_HOST_GLOBAL_ONE_SHOT_PROVIDED,
     }

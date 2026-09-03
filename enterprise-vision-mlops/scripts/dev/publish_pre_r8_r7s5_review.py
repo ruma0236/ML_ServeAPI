@@ -14,11 +14,23 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence
+
+# A production-shaped direct entry must prove isolation before any project
+# package can be imported.  The trusted outer sets this flag and launches
+# Python with -I -B -S; offline internal review remains explicitly non-authoritative.
+_ENTRY_BOOTSTRAP_SCOPE = os.environ.get("EVM_PRE_R8_REVIEW_ENTRY_AUTHORITY_SCOPE", "")
+if __name__ == "__main__":
+    if sys.flags.isolated != 1 or sys.flags.dont_write_bytecode != 1 or sys.flags.no_site != 1:
+        raise SystemExit("review_requires_python_I_B_S_before_project_import")
+    if _ENTRY_BOOTSTRAP_SCOPE != "trusted_outer_internal_non_authoritative":
+        raise SystemExit("review_requires_trusted_internal_non_authoritative_outer")
+    raise SystemExit("review_os_bound_outer_capability_unprovisioned")
 
 SCRIPT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(SCRIPT_PROJECT_ROOT))
-sys.path.insert(0, str(SCRIPT_PROJECT_ROOT / "src"))
+for _project_path in (SCRIPT_PROJECT_ROOT, SCRIPT_PROJECT_ROOT / "src"):
+    if str(_project_path) not in sys.path:
+        sys.path.append(str(_project_path))
 
 from evm.scale_validation import phase_b2_r7s5_admission as admission  # noqa: E402
 from evm.scale_validation import phase_b2_r7s5_ci as ci  # noqa: E402
@@ -40,11 +52,13 @@ from evm.scale_validation.phase_b2_r7s4_handle_io import (  # noqa: E402
 )
 
 
-SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s6.review-publisher.v1"
-VALIDATION_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s6.code-validation.v1"
+SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s7.review-publisher.v2"
+VALIDATION_SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s7.code-validation.v2"
 COMMAND_EVIDENCE_SCHEMA = f"{VALIDATION_SCHEMA}.command-evidence"
 VALIDATION_PUBLICATION_INDEX_LEAF = "code-validation-publication-index.json"
 VALIDATION_SUMMARY_LEAF = "code-validation-summary.json"
+REVIEWER_PENDING_REPORT_LEAF = "reviewer-pending-report.json"
+NO_GO_SEAL_LEAF = "no-go-seal.json"
 REVIEW_PARENT_SCHEMA = f"{SCHEMA}.evidence-parent.v1"
 PUBLISHER_CHILD_WRAPPER_TIMEOUT_SECONDS = 120.0
 PUBLISHER_CHILD_RESIDUAL_REPOLL_SECONDS = 120.0
@@ -54,8 +68,8 @@ PUBLISHER_CHILD_OBSERVATION_SCOPE = (
 )
 _PUBLISHER_CHILD_EXECUTIONS: list[dict[str, Any]] = []
 _PUBLISHER_FAILURE_CONTEXT: dict[str, Any] = {}
-EXPECTED_PRIMARY_PUBLISHER_CHILD_COUNT = 183
-EXPECTED_TERMINAL_PUBLISHER_CHILD_COUNT = 195
+EXPECTED_PRIMARY_PUBLISHER_CHILD_COUNT = 231
+EXPECTED_TERMINAL_PUBLISHER_CHILD_COUNT = 243
 _IMPORT_ACTIVE_UNTRACKED_SUFFIXES = frozenset({".py", ".pyc", ".pyo", ".pyd", ".pth", ".so"})
 _IMPORT_ACTIVE_TOOL_CONFIG_BASENAMES = frozenset(
     {
@@ -167,12 +181,20 @@ SEALED_ETW_AMENDMENT = {
 }
 REQUIRED_SELECTED_SOURCE_PATHS = frozenset(
     {
+        ".gitattributes",
         "enterprise-vision-mlops/ci/pre-r8-r7s5-test-lanes.json",
         "enterprise-vision-mlops/docs/status/2026-08-24-s8-v4-progress-ledger.jsonl",
         "enterprise-vision-mlops/scripts/dev/publish_pre_r8_r7s5_review.py",
+        "enterprise-vision-mlops/scripts/dev/invoke_pre_r8_r7s7_review.ps1",
+        "enterprise-vision-mlops/scripts/dev/invoke_pre_r8_r7s7_windows_qualification.ps1",
+        "enterprise-vision-mlops/scripts/dev/pre_r8_r7s7_windows_fixture.py",
+        "enterprise-vision-mlops/scripts/dev/prepare_pre_r8_r7s7_windows_qualification.py",
+        "enterprise-vision-mlops/scripts/dev/qualify_pre_r8_r7s7_windows.py",
         "enterprise-vision-mlops/scripts/dev/run_pre_r8_r7s5_validation.py",
+        "enterprise-vision-mlops/scripts/dev/validate_pre_r8_r7s4_ci_bootstrap.py",
         "enterprise-vision-mlops/scripts/dev/validate_pre_r8_r7s5_ci.py",
         "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s3_process.py",
+        "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s4_authority.py",
         "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s5_admission.py",
         "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s5_ci.py",
         "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s5_dual_clock.py",
@@ -182,9 +204,12 @@ REQUIRED_SELECTED_SOURCE_PATHS = frozenset(
         "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s5_reservation.py",
         "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s5_windows_wsl.py",
         "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s6_evidence.py",
+        "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s7_admission.py",
+        "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s7_qualification_work_order.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s1.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s3_job_capability.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s3_process.py",
+        "enterprise-vision-mlops/tests/test_phase_b2_r7s4_authority.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s5_admission.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s5_ci.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s5_dual_clock.py",
@@ -194,8 +219,13 @@ REQUIRED_SELECTED_SOURCE_PATHS = frozenset(
         "enterprise-vision-mlops/tests/test_phase_b2_r7s5_reservation.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s5_windows_wsl.py",
         "enterprise-vision-mlops/tests/test_phase_b2_r7s6_evidence.py",
+        "enterprise-vision-mlops/tests/test_phase_b2_r7s7_admission.py",
+        "enterprise-vision-mlops/tests/test_phase_b2_r7s7_qualification_work_order.py",
+        "enterprise-vision-mlops/tests/test_prepare_pre_r8_r7s7_windows_qualification.py",
         "enterprise-vision-mlops/tests/test_publish_pre_r8_r7s5_review.py",
         "enterprise-vision-mlops/tests/test_run_pre_r8_r7s5_validation.py",
+        "enterprise-vision-mlops/tests/test_pre_r8_r7s4_ci_bootstrap.py",
+        "enterprise-vision-mlops/tests/test_qualify_pre_r8_r7s7_windows.py",
         "enterprise-vision-mlops/tests/test_scenario_workload_production.py",
         "enterprise-vision-mlops/tests/test_task_queue_process_safety.py",
     }
@@ -204,6 +234,98 @@ REQUIRED_SELECTED_SOURCE_PATHS = frozenset(
 
 class ReviewPublisherError(RuntimeError):
     pass
+
+
+class ReplayConsumeAdapter(Protocol):
+    """External atomic consume boundary. Implementations must be independent WORM."""
+
+    authority_scope: str
+    authority_verified: bool
+    worm_storage: bool
+
+    def consume_once(self, replay_key: str, summary_sha256: str) -> Mapping[str, Any]: ...
+
+
+def consume_replay_once(
+    adapter: ReplayConsumeAdapter | None,
+    *,
+    replay_key: str,
+    summary_sha256: str,
+) -> dict[str, Any]:
+    """Public production boundary: fail closed until a real WORM adapter is wired.
+
+    Caller-supplied Python objects cannot establish external authority.  Keep this
+    entry point closed even when such an object advertises production-shaped
+    attributes; the production adapter must be provisioned outside this module.
+    """
+
+    del adapter, replay_key, summary_sha256
+    raise ReviewPublisherError("production_external_worm_adapter_unprovisioned")
+
+
+def _consume_replay_once_for_test(
+    adapter: ReplayConsumeAdapter | None,
+    *,
+    replay_key: str,
+    summary_sha256: str,
+) -> dict[str, Any]:
+    """Exercise receipt validation without producing authority-bearing output."""
+
+    if (
+        adapter is None
+        or getattr(adapter, "authority_scope", None) != "production_external_worm"
+        or getattr(adapter, "authority_verified", None) is not True
+        or getattr(adapter, "worm_storage", None) is not True
+    ):
+        raise ReviewPublisherError("test_replay_worm_adapter_contract_required")
+    receipt = adapter.consume_once(
+        _hex64(replay_key, "replay_key"),
+        _hex64(summary_sha256, "summary_sha256"),
+    )
+    if (
+        not isinstance(receipt, Mapping)
+        or set(receipt)
+        != {
+            "status",
+            "replay_key",
+            "summary_sha256",
+            "authority_scope",
+            "worm_storage",
+        }
+        or receipt.get("status") != "consumed"
+        or receipt.get("replay_key") != replay_key
+        or receipt.get("summary_sha256") != summary_sha256
+        or receipt.get("authority_scope") != "production_external_worm"
+        or receipt.get("worm_storage") is not True
+    ):
+        raise ReviewPublisherError("test_replay_consume_receipt_invalid")
+    return {
+        "schema": f"{SCHEMA}.test-only-replay-consume-observation.v1",
+        "authority_scope": "test_only_internal_non_authoritative",
+        "authority_verified": False,
+        "production_go_enabled": False,
+        "go_evidence_eligible": False,
+        "adapter_receipt": dict(receipt),
+    }
+
+
+def validation_replay_key(
+    *,
+    validation_run_uuid: str,
+    validation_attempt_uuid: str,
+    handoff_challenge_sha256: str,
+    work_order_sha256: str,
+) -> str:
+    return hashlib.sha256(
+        canonical_json_bytes(
+            {
+                "validation_run_uuid": validation_run_uuid,
+                "validation_attempt_uuid": validation_attempt_uuid,
+                "handoff_challenge_sha256": _hex64(handoff_challenge_sha256, "handoff_challenge"),
+                "work_order_sha256": _hex64(work_order_sha256, "work_order"),
+            }
+        )
+    ).hexdigest()
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -1600,14 +1722,87 @@ def _token_requirements(token: Mapping[str, Any], label: str) -> None:
         raise ReviewPublisherError(f"{label}_token_requirements_not_met")
 
 
+def _process_file_binding(identity: Mapping[str, Any]) -> dict[str, Any]:
+    path = Path(str(identity.get("path", ""))).resolve(strict=True)
+    info = os.lstat(path)
+    if not stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+        raise ReviewPublisherError("lineage_executable_regular_file_required")
+    return {
+        "path": str(path),
+        "sha256": sha256_file(path),
+        "bytes": info.st_size,
+        "device": info.st_dev,
+        "file_id": info.st_ino,
+        "creation_time_ns": info.st_ctime_ns,
+    }
+
+
+def _validate_lineage_work_order(
+    path: Path,
+    expected_sha256: str,
+    *,
+    runtime_identity: Mapping[str, Any],
+    parent_identity: Mapping[str, Any],
+    codex_identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    resolved = path.resolve(strict=True)
+    raw = resolved.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != _hex64(expected_sha256, "lineage_work_order"):
+        raise ReviewPublisherError("lineage_work_order_sha256_mismatch")
+    value = read_json_mapping(resolved, "lineage_work_order")
+    if raw != canonical_json_bytes(dict(value)):
+        raise ReviewPublisherError("lineage_work_order_not_canonical")
+    # A work order can be issued before the publisher child exists, so it may
+    # bind executable files but must not pretend to know that future child's
+    # PID or creation timestamp.  Those values are measured live below and are
+    # explicitly retained as non-authoritative observations.
+    expected_executables: dict[str, Any] = {}
+    for label, identity in (
+        ("codex", codex_identity),
+        ("powershell_parent", parent_identity),
+        ("publisher_python", runtime_identity),
+    ):
+        expected_executables[label] = _process_file_binding(identity)
+    if (
+        set(value) != {"schema", "authority_scope", "authority_verified", "executable_bindings"}
+        or value.get("schema") != f"{SCHEMA}.lineage-work-order.v2"
+        or value.get("authority_scope") != "internal_non_authoritative"
+        or value.get("authority_verified") is not False
+        or value.get("executable_bindings") != expected_executables
+    ):
+        raise ReviewPublisherError("lineage_work_order_exact_binding_mismatch")
+    return {
+        "path": str(resolved),
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "executable_bindings": expected_executables,
+        "future_process_identity_preissued": False,
+        "live_process_identity_source": "publisher_direct_measurement_after_launch",
+    }
+
+
 def validate_token_evidence(
     value: Mapping[str, Any],
     *,
     powershell_executable: Path | None = None,
     powershell_sha256: str | None = None,
+    lineage_work_order: Path | None = None,
+    lineage_work_order_sha256: str | None = None,
 ) -> dict[str, Any]:
-    if set(value) != {"codex_pid", "publisher_parent_pid"}:
+    if set(value) != {
+        "authority_scope",
+        "authority_verified",
+        "codex_pid",
+        "publisher_parent_pid",
+    }:
         raise ReviewPublisherError("token_evidence_keys_not_exact")
+    if (
+        value.get("authority_scope") != "internal_non_authoritative"
+        or value.get("authority_verified") is not False
+    ):
+        raise ReviewPublisherError("token_evidence_authority_scope_invalid")
     codex_pid = value["codex_pid"]
     parent_pid = value["publisher_parent_pid"]
     if (
@@ -1662,6 +1857,15 @@ def validate_token_evidence(
     ]
     if created != sorted(created):
         raise ReviewPublisherError("publisher_process_creation_order_mismatch")
+    if lineage_work_order is None or lineage_work_order_sha256 is None:
+        raise ReviewPublisherError("lineage_work_order_required")
+    lineage_binding = _validate_lineage_work_order(
+        lineage_work_order,
+        lineage_work_order_sha256,
+        runtime_identity=runtime_identity,
+        parent_identity=parent_identity,
+        codex_identity=codex_identity,
+    )
     return {
         "codex": {"token": codex_token, "process": codex_identity},
         "publisher_parent": {"token": parent_token, "process": parent_identity},
@@ -1671,6 +1875,9 @@ def validate_token_evidence(
             "approval_policy": "never",
             "source": "codex_process_command_line_direct_readback",
         },
+        "lineage_work_order_binding": lineage_binding,
+        "lineage_authority_verified": False,
+        "lineage_observation_scope": "live_direct_internal_non_authoritative",
     }
 
 
@@ -2694,6 +2901,13 @@ def validate_code_summary(
     expected_untracked_count: int,
     expected_untracked_path_list_sha256: str,
     expected_untracked_content_inventory_sha256: str,
+    expected_summary_sha256: str,
+    external_work_order: Path,
+    external_work_order_sha256: str,
+    trusted_outer: Path,
+    trusted_outer_sha256: str,
+    replay_adapter: ReplayConsumeAdapter | None = None,
+    production_authority_verified: bool = False,
 ) -> dict[str, Any]:
     """Validate local, non-attested code checks against an exact live tool plan.
 
@@ -2707,6 +2921,21 @@ def validate_code_summary(
     expected_keys = {
         "schema",
         "status",
+        "decision",
+        "credit",
+        "evidence_scope",
+        "go_evidence_eligible",
+        "runtime_identity_stability",
+        "immutable_checkout_namespace_authority",
+        "runtime_stdlib_native_closure_verified",
+        "validation_run_uuid",
+        "validation_attempt_uuid",
+        "handoff_challenge_sha256",
+        "issued_at_utc",
+        "completed_at_utc",
+        "expires_at_utc",
+        "external_work_order_binding",
+        "replay_consumption",
         "repository",
         "project_root",
         "head",
@@ -2727,14 +2956,15 @@ def validate_code_summary(
         "terminal_containment_latch",
         "terminal_latch_reason",
         "followup_child_count_after_containment_latch",
-        "live_call_counts",
-        "live_call_observation_scope",
+        "live_call_telemetry",
         "completion_marker_created",
         "success_marker_created",
         "r8_authorized",
     }
     if set(value) != expected_keys:
         raise ReviewPublisherError("code_validation_summary_keys_not_exact")
+    summary_sha256 = hashlib.sha256(canonical_json_bytes(dict(value))).hexdigest()
+    expected_summary_sha256 = _hex64(expected_summary_sha256, "expected_validation_summary")
     repository = repository.resolve(strict=True)
     project_root = project_root.resolve(strict=True)
     expected_head = _hex40(expected_head, "code_validation_head")
@@ -2753,6 +2983,14 @@ def validate_code_summary(
         expected_untracked_content_inventory_sha256,
         "code_validation_expected_untracked_content_inventory",
     )
+    try:
+        work_order_value, work_order_raw = validation_runner._read_canonical_mapping(
+            external_work_order,
+            external_work_order_sha256,
+            "external_work_order",
+        )
+    except (OSError, validation_runner.ValidationRunnerError) as exc:
+        raise ReviewPublisherError("code_validation_external_work_order_invalid") from exc
     executable_pins = {
         "python_general": validate_independent_executable_pin(
             python_general,
@@ -2785,6 +3023,10 @@ def validate_code_summary(
         name: {"path": str(pin["path"]), "sha256": pin["sha256"]}
         for name, pin in sorted(executable_pins.items())
     }
+    expected_tool_file_bindings = {
+        name: validation_runner.work_order_tool_binding(name, Path(pin["path"]), str(pin["sha256"]))
+        for name, pin in sorted(executable_pins.items())
+    }
     expected_untracked_payload = {
         "count": expected_untracked_count,
         "path_list_sha256": expected_untracked_path_list_sha256,
@@ -2792,11 +3034,109 @@ def validate_code_summary(
     }
     if submitted_pin_payload != expected_pin_payload:
         raise ReviewPublisherError("code_validation_independent_executable_pins_mismatch")
+    work_order_keys = {
+        "schema",
+        "authority_scope",
+        "authority_verified",
+        "validation_run_uuid",
+        "validation_attempt_uuid",
+        "handoff_challenge_sha256",
+        "issued_at_utc",
+        "expires_at_utc",
+        "expected_head",
+        "expected_tree",
+        "tool_file_bindings",
+        "code_file_bindings",
+        "immutable_checkout_namespace_authority",
+        "runtime_stdlib_native_closure_verified",
+        "command_invocation_sha256",
+        "pycache_prefix",
+    }
+    work_order_binding = value.get("external_work_order_binding")
+    expected_code_file_bindings = validation_runner.work_order_code_file_bindings(
+        trusted_outer, trusted_outer_sha256
+    )
+    expected_work_order_binding = {
+        "path": str(Path(external_work_order).resolve(strict=True)),
+        "bytes": len(work_order_raw),
+        "sha256": hashlib.sha256(work_order_raw).hexdigest(),
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "payload": work_order_value,
+    }
+    if (
+        set(work_order_value) != work_order_keys
+        or work_order_value.get("schema") != validation_runner.WORK_ORDER_SCHEMA
+        or work_order_value.get("authority_scope") != "internal_non_authoritative"
+        or work_order_value.get("authority_verified") is not False
+        or work_order_value.get("immutable_checkout_namespace_authority") is not False
+        or work_order_value.get("runtime_stdlib_native_closure_verified") is not False
+        or work_order_value.get("expected_head") != expected_head
+        or work_order_value.get("expected_tree") != expected_tree
+        or work_order_value.get("tool_file_bindings") != expected_tool_file_bindings
+        or work_order_value.get("code_file_bindings") != expected_code_file_bindings
+        or not Path(str(work_order_value.get("pycache_prefix", ""))).is_absolute()
+        or Path(str(work_order_value.get("pycache_prefix", ""))).name
+        != f".pre-r8-r7s7-pycache-{work_order_value.get('validation_run_uuid')}"
+        or os.path.lexists(Path(str(work_order_value.get("pycache_prefix", ""))))
+        or work_order_binding != expected_work_order_binding
+    ):
+        raise ReviewPublisherError("code_validation_external_work_order_binding_mismatch")
+    try:
+        validation_run_uuid = validation_runner._strict_uuid(
+            value.get("validation_run_uuid"), "validation_run"
+        )
+        validation_attempt_uuid = validation_runner._strict_uuid(
+            value.get("validation_attempt_uuid"), "validation_attempt"
+        )
+        issued_at = validation_runner._strict_utc(value.get("issued_at_utc"), "issued_at")
+        completed_at = validation_runner._strict_utc(value.get("completed_at_utc"), "completed_at")
+        expires_at = validation_runner._strict_utc(value.get("expires_at_utc"), "expires_at")
+    except validation_runner.ValidationRunnerError as exc:
+        raise ReviewPublisherError("code_validation_handoff_window_invalid") from exc
+    if (
+        validation_run_uuid == validation_attempt_uuid
+        or work_order_value.get("validation_run_uuid") != validation_run_uuid
+        or work_order_value.get("validation_attempt_uuid") != validation_attempt_uuid
+        or value.get("handoff_challenge_sha256")
+        != _hex64(work_order_value.get("handoff_challenge_sha256"), "handoff_challenge")
+        or value.get("issued_at_utc") != work_order_value.get("issued_at_utc")
+        or value.get("expires_at_utc") != work_order_value.get("expires_at_utc")
+        or not (issued_at <= completed_at < expires_at)
+        or datetime.now().astimezone() >= expires_at
+    ):
+        raise ReviewPublisherError("code_validation_handoff_binding_or_expiry_mismatch")
+    replay_key = validation_replay_key(
+        validation_run_uuid=validation_run_uuid,
+        validation_attempt_uuid=validation_attempt_uuid,
+        handoff_challenge_sha256=str(value["handoff_challenge_sha256"]),
+        work_order_sha256=str(expected_work_order_binding["sha256"]),
+    )
+    if value.get("replay_consumption") != {
+        "status": "not_consumed",
+        "adapter_scope": "none",
+        "authority_verified": False,
+        "replay_key": replay_key,
+    }:
+        raise ReviewPublisherError("code_validation_replay_consumption_claim_invalid")
+    if production_authority_verified:
+        raise ReviewPublisherError(
+            "production_summary_requires_separate_external_authority_admission"
+        )
+    if replay_adapter is not None:
+        raise ReviewPublisherError("internal_validation_replay_adapter_forbidden")
     if value.get("expected_untracked_inventory") != expected_untracked_payload:
         raise ReviewPublisherError("code_validation_expected_untracked_inventory_mismatch")
     if (
         value.get("schema") != VALIDATION_SCHEMA
         or value.get("status") != "PASS"
+        or value.get("decision") != "NO-GO"
+        or value.get("credit") != "zero_credit"
+        or value.get("evidence_scope") != "internal_non_authoritative"
+        or value.get("go_evidence_eligible") is not False
+        or value.get("runtime_identity_stability") != "unproven"
+        or value.get("immutable_checkout_namespace_authority") is not False
+        or value.get("runtime_stdlib_native_closure_verified") is not False
         or os.path.normcase(str(value.get("repository"))) != os.path.normcase(str(repository))
         or os.path.normcase(str(value.get("project_root"))) != os.path.normcase(str(project_root))
         or value.get("head") != expected_head
@@ -2832,9 +3172,14 @@ def validate_code_summary(
             git_executable=Path(executable_pins["git"]["path"]),
             git_executable_sha256=str(executable_pins["git"]["sha256"]),
             powershell_executable=Path(executable_pins["powershell"]["path"]),
+            pycache_prefix=Path(str(work_order_value["pycache_prefix"])),
         )
     except (OSError, TypeError, validation_runner.ValidationRunnerError) as exc:
         raise ReviewPublisherError("code_validation_static_plan_reconstruction_failed") from exc
+    if work_order_value.get("command_invocation_sha256") != (
+        validation_runner.command_invocation_commitment(specs)
+    ):
+        raise ReviewPublisherError("code_validation_work_order_command_invocation_mismatch")
 
     command_pin_names = {
         "r7s5-focused-pytest-py311": "python_general",
@@ -3148,15 +3493,39 @@ def validate_code_summary(
     ):
         raise ReviewPublisherError("code_validation_containment_closure_not_exact")
 
-    zero_calls = value.get("live_call_counts")
+    telemetry = value.get("live_call_telemetry")
+    if not isinstance(telemetry, Mapping) or set(telemetry) != {
+        "path",
+        "bytes",
+        "sha256",
+        "payload",
+    }:
+        raise ReviewPublisherError("code_validation_live_call_telemetry_mapping_required")
+    try:
+        telemetry_value, telemetry_raw = validation_runner._read_canonical_mapping(
+            Path(str(telemetry.get("path"))),
+            str(telemetry.get("sha256")),
+            "live_call_telemetry",
+        )
+    except (OSError, validation_runner.ValidationRunnerError) as exc:
+        raise ReviewPublisherError("code_validation_live_call_telemetry_readback_failed") from exc
+    telemetry_counts = telemetry_value.get("counts")
     if (
-        not isinstance(zero_calls, dict)
-        or set(zero_calls) != REQUIRED_ZERO_LIVE_CALLS
-        or any(type(item) is not int or item != 0 for item in zero_calls.values())
+        telemetry.get("bytes") != len(telemetry_raw)
+        or telemetry.get("payload") != telemetry_value
+        or telemetry_value.get("schema") != validation_runner.LIVE_TELEMETRY_SCHEMA
+        or telemetry_value.get("authority_scope") != "internal_non_authoritative"
+        or telemetry_value.get("authority_verified") is not False
+        or telemetry_value.get("observation_state") != "unknown"
+        or telemetry_value.get("observation_scope") != "internal_non_authoritative"
+        or telemetry_value.get("collector_authority_verified") is not False
+        or not isinstance(telemetry_counts, Mapping)
+        or set(telemetry_counts) != REQUIRED_ZERO_LIVE_CALLS
+        or any(item is not None for item in telemetry_counts.values())
+        or telemetry_value.get("raw_events_sha256")
+        != hashlib.sha256(canonical_json_bytes([])).hexdigest()
     ):
-        raise ReviewPublisherError("code_validation_live_calls_nonzero_or_unknown")
-    if value.get("live_call_observation_scope") != validation_runner.VALIDATION_OBSERVATION_SCOPE:
-        raise ReviewPublisherError("code_validation_live_call_scope_mismatch")
+        raise ReviewPublisherError("code_validation_live_call_telemetry_unobserved_invalid")
     if value.get("completion_marker_created") is not False:
         raise ReviewPublisherError("code_validation_completion_marker_forbidden")
     if value.get("success_marker_created") is not False or value.get("r8_authorized") is not False:
@@ -3411,6 +3780,8 @@ def validate_code_summary(
         _PUBLISHER_FAILURE_CONTEXT.pop("active_segment_name", None)
         _PUBLISHER_FAILURE_CONTEXT.pop("active_segment_start_index", None)
         _PUBLISHER_FAILURE_CONTEXT.pop("active_segment_expected_purposes", None)
+    if summary_sha256 != expected_summary_sha256:
+        raise ReviewPublisherError("code_validation_expected_summary_sha256_mismatch")
     return {**dict(value), "commands": normalized_commands}
 
 
@@ -3571,6 +3942,155 @@ def etw_not_run_decision() -> dict[str, Any]:
         "call_counts": dict(etw.ZERO_ETW_CALLS),
     }
     return etw.validate_etw_qualification(record).to_dict()
+
+
+def _canonical_document_reference(value: Mapping[str, Any]) -> dict[str, Any]:
+    raw = canonical_json_bytes(dict(value))
+    return {
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+
+
+def reviewer_pending_no_go_documents(
+    *,
+    run_uuid: str,
+    attempt_uuid: str,
+    commit: str,
+    tree: str,
+    blockers: Sequence[str],
+    base_documents: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Bind the explicit reviewer report and NO-GO seal into one atomic batch.
+
+    These records are internal, non-authoritative review evidence.  They can
+    never stand in for an external approval receipt or a success/completion
+    marker.  The aggregate manifest and index are added later by the atomic
+    no-replace evidence writer.
+    """
+
+    canonical_run_uuid = str(uuid.UUID(run_uuid))
+    canonical_attempt_uuid = str(uuid.UUID(attempt_uuid))
+    if canonical_run_uuid == canonical_attempt_uuid:
+        raise ReviewPublisherError("review_report_run_attempt_uuid_must_differ")
+    canonical_commit = _hex40(commit, "review_report_commit")
+    canonical_tree = _hex40(tree, "review_report_tree")
+    normalized_blockers = sorted(set(blockers))
+    if (
+        not normalized_blockers
+        or any(not isinstance(item, str) or not item for item in normalized_blockers)
+        or set(base_documents) & {REVIEWER_PENDING_REPORT_LEAF, NO_GO_SEAL_LEAF}
+        or not all(isinstance(value, Mapping) for value in base_documents.values())
+    ):
+        raise ReviewPublisherError("review_report_inputs_invalid")
+    validation = base_documents.get(VALIDATION_SUMMARY_LEAF)
+    offline = base_documents.get("offline-admission-decision.json")
+    if (
+        not isinstance(validation, Mapping)
+        or validation.get("status") != "PASS"
+        or validation.get("decision") != "NO-GO"
+        or validation.get("credit") != "zero_credit"
+        or validation.get("evidence_scope") != "internal_non_authoritative"
+        or validation.get("go_evidence_eligible") is not False
+        or validation.get("completion_marker_created") is not False
+        or validation.get("success_marker_created") is not False
+        or validation.get("r8_authorized") is not False
+        or not isinstance(offline, Mapping)
+        or offline.get("status") != "manual_intervention_required"
+        or offline.get("decision") != "NO-GO"
+        or offline.get("credit") != "zero_credit"
+        or offline.get("go_evidence_eligible") is not False
+        or offline.get("completion_marker_created") is not False
+        or offline.get("success_marker_created") is not False
+    ):
+        raise ReviewPublisherError("review_report_fail_closed_source_state_required")
+    whole_system_telemetry = offline.get("whole_system_live_call_telemetry")
+    if (
+        not isinstance(whole_system_telemetry, Mapping)
+        or whole_system_telemetry.get("observation_state") != "unknown"
+        or not isinstance(whole_system_telemetry.get("counts"), Mapping)
+        or set(whole_system_telemetry["counts"]) != REQUIRED_ZERO_LIVE_CALLS
+        or any(value is not None for value in whole_system_telemetry["counts"].values())
+    ):
+        raise ReviewPublisherError("review_report_whole_system_telemetry_must_remain_unknown")
+
+    base_references = {
+        leaf: _canonical_document_reference(value) for leaf, value in sorted(base_documents.items())
+    }
+    qualification_states = {
+        "windows_non_credit_qualification": "not_run",
+        "wsl_detached_residual_qualification": "not_run",
+        "runtime_restore_etw_gate": "not_run",
+        "dual_collector_non_credit_qualification": "not_run",
+        "r8": "not_run",
+        "fresh_phase_b2": "not_run",
+    }
+    report = {
+        "schema": f"{SCHEMA}.reviewer-pending-report.v1",
+        "status": "manual_intervention_required",
+        "review_state": "reviewer_pending",
+        "decision": "NO-GO",
+        "credit": "zero_credit",
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "reviewer_sign_off": "pending",
+        "run_uuid": canonical_run_uuid,
+        "attempt_uuid": canonical_attempt_uuid,
+        "commit": canonical_commit,
+        "tree": canonical_tree,
+        "code_validation_status": "PASS",
+        "code_validation_decision": "NO-GO",
+        "bound_documents": base_references,
+        "remaining_blockers": normalized_blockers,
+        "qualification_states": qualification_states,
+        "whole_system_live_call_telemetry": dict(whole_system_telemetry),
+        "external_approval_receipt_created": False,
+        "external_worm_receipt_created": False,
+        "production_go_enabled": False,
+        "go_evidence_eligible": False,
+        "r8_authorized": False,
+        "completion_marker_created": False,
+        "success_marker_created": False,
+        "success_index_created": False,
+    }
+    sealed_references = {
+        **base_references,
+        REVIEWER_PENDING_REPORT_LEAF: _canonical_document_reference(report),
+    }
+    no_go_seal = {
+        "schema": f"{SCHEMA}.append-only-no-go-seal.v1",
+        "status": "manual_intervention_required",
+        "review_state": "reviewer_pending",
+        "decision": "NO-GO",
+        "credit": "zero_credit",
+        "seal_semantics": "append_only_reviewer_pending_no_go_not_success_evidence",
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "reviewer_sign_off": "pending",
+        "run_uuid": canonical_run_uuid,
+        "attempt_uuid": canonical_attempt_uuid,
+        "commit": canonical_commit,
+        "tree": canonical_tree,
+        "sealed_documents": sealed_references,
+        "remaining_blockers": normalized_blockers,
+        "qualification_states": qualification_states,
+        "whole_system_live_call_telemetry": dict(whole_system_telemetry),
+        "aggregate_manifest_and_index_emitted_by_atomic_writer": True,
+        "automatic_retry_count": 0,
+        "forced_termination_attempts": 0,
+        "external_approval_receipt_created": False,
+        "external_worm_receipt_created": False,
+        "production_go_enabled": False,
+        "go_evidence_eligible": False,
+        "r8_authorized": False,
+        "completion_marker_created": False,
+        "success_marker_created": False,
+        "success_index_created": False,
+    }
+    return {
+        REVIEWER_PENDING_REPORT_LEAF: report,
+        NO_GO_SEAL_LEAF: no_go_seal,
+    }
 
 
 def _best_effort_emit_result(result: Mapping[str, Any]) -> None:
@@ -3835,12 +4355,17 @@ def _publish_publisher_failure_batch(
             "postpublication_publication_checkpoint": postpublication_checkpoint,
             "original_atomic_publication_failure": original_atomic_failure,
             "publisher_child_terminal_containment": child_observation,
-            "automatic_retry_count": 0,
-            "force_kill_calls": 0,
-            "r8_calls": 0,
-            "restore_only_calls": 0,
-            "dual_collector_calls": 0,
-            "service_lifecycle_calls": 0,
+            "publisher_local_dispatch_telemetry": {
+                "observation_scope": "this_publisher_process_only",
+                "automatic_retry_count": 0,
+                "forced_termination_attempts": 0,
+            },
+            "whole_system_live_call_telemetry": {
+                "observation_state": "unknown",
+                "observation_scope": "not_observed_by_failure_publisher",
+                "counts": {name: None for name in sorted(REQUIRED_ZERO_LIVE_CALLS)},
+                "raw_telemetry_sha256": None,
+            },
             "completion_marker_created": False,
             "success_marker_created": False,
             "go_evidence_eligible": False,
@@ -3860,7 +4385,7 @@ def _publish_publisher_failure_batch(
         "failure_batch": batch.to_dict(),
         "completion_marker_created": False,
         "success_marker_created": False,
-        "r8_calls": 0,
+        "whole_system_r8_calls": None,
     }
 
 
@@ -3901,7 +4426,7 @@ def _publisher_failure_publication_error(
         "failure_dispatch_retry_count": 0,
         "completion_marker_created": False,
         "success_marker_created": False,
-        "r8_calls": 0,
+        "whole_system_r8_calls": None,
     }
     if isinstance(seal_error, evidence.R7S6EvidencePublicationError):
         fallback["atomic_failure_or_emergency_seal"] = seal_error.to_dict()
@@ -3927,7 +4452,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ci-readback", type=Path, required=True)
     parser.add_argument("--ci-manifest", type=Path, required=True)
     parser.add_argument("--token-evidence", type=Path, required=True)
+    parser.add_argument("--lineage-work-order", type=Path, required=True)
+    parser.add_argument("--lineage-work-order-sha256", required=True)
     parser.add_argument("--validation-summary", type=Path, required=True)
+    parser.add_argument("--expected-validation-summary-sha256", required=True)
+    parser.add_argument("--external-work-order", type=Path, required=True)
+    parser.add_argument("--external-work-order-sha256", required=True)
+    parser.add_argument("--trusted-outer", type=Path, required=True)
+    parser.add_argument("--trusted-outer-sha256", required=True)
     parser.add_argument("--python-general", type=Path, required=True)
     parser.add_argument("--python-general-sha256", required=True)
     parser.add_argument("--python-host", type=Path, required=True)
@@ -4121,9 +4653,16 @@ def _run_publisher(args: argparse.Namespace) -> int:
         read_json_mapping(args.token_evidence, "token_evidence"),
         powershell_executable=Path(powershell_pin["path"]),
         powershell_sha256=str(powershell_pin["sha256"]),
+        lineage_work_order=args.lineage_work_order,
+        lineage_work_order_sha256=args.lineage_work_order_sha256,
     )
     if require_isolated_untracked_inventory() != isolated_untracked:
         raise ReviewPublisherError("isolated_untracked_changed_before_validation_review")
+    if sha256_file(validation_summary_path) != _hex64(
+        args.expected_validation_summary_sha256,
+        "expected_validation_summary",
+    ):
+        raise ReviewPublisherError("validation_summary_external_sha256_mismatch")
     submitted_validation = read_json_mapping(validation_summary_path, "validation_summary")
     validation_publication_index = validate_code_validation_publication_index(
         validation_summary_path.parent / VALIDATION_PUBLICATION_INDEX_LEAF,
@@ -4150,6 +4689,11 @@ def _run_publisher(args: argparse.Namespace) -> int:
         expected_untracked_count=args.expected_isolated_untracked_count,
         expected_untracked_path_list_sha256=expected_isolated_path_list_sha256,
         expected_untracked_content_inventory_sha256=(expected_isolated_content_inventory_sha256),
+        expected_summary_sha256=args.expected_validation_summary_sha256,
+        external_work_order=args.external_work_order,
+        external_work_order_sha256=args.external_work_order_sha256,
+        trusted_outer=args.trusted_outer,
+        trusted_outer_sha256=args.trusted_outer_sha256,
     )
     primary_purpose_plan = _expected_primary_publisher_purpose_plan(
         token=token,
@@ -4209,6 +4753,8 @@ def _run_publisher(args: argparse.Namespace) -> int:
             "r6_restore_only_pass_and_independent_approval_absent",
             "production_runtime_admission_not_authorized",
             "validation_subprocess_descendant_live_call_telemetry_unproven",
+            "outer_invocation_authority_unproven",
+            "os_bound_outer_capability_unprovisioned",
         }
     )
     documents = {
@@ -4260,12 +4806,18 @@ def _run_publisher(args: argparse.Namespace) -> int:
             "gate": gate_decision,
             "etw_optional_diagnostic": etw_not_run_decision(),
             "blockers": blockers,
-            "r8_calls": 0,
-            "restore_only_calls": 0,
-            "dual_collector_calls": 0,
-            "service_lifecycle_calls": 0,
-            "automatic_retry_count": 0,
-            "force_kill_calls": 0,
+            "outer_invocation_authority": "unproven_internal_non_authoritative",
+            "publisher_local_dispatch_telemetry": {
+                "observation_scope": "this_publisher_process_only",
+                "automatic_retry_count": 0,
+                "forced_termination_attempts": 0,
+            },
+            "whole_system_live_call_telemetry": {
+                "observation_state": "unknown",
+                "observation_scope": "external_collector_not_provisioned",
+                "counts": dict(validation["live_call_telemetry"]["payload"]["counts"]),
+                "raw_telemetry_sha256": validation["live_call_telemetry"]["sha256"],
+            },
             "completion_marker_created": False,
             "success_marker_created": False,
             "go_evidence_eligible": False,
@@ -4294,6 +4846,16 @@ def _run_publisher(args: argparse.Namespace) -> int:
     )
     documents["publisher-child-containment-summary.json"] = publisher_child_containment_summary(
         expected_purposes=primary_purpose_plan
+    )
+    documents.update(
+        reviewer_pending_no_go_documents(
+            run_uuid=args.run_uuid,
+            attempt_uuid=args.attempt_uuid,
+            commit=isolated_head,
+            tree=isolated_tree,
+            blockers=blockers,
+            base_documents=dict(documents),
+        )
     )
     _set_publisher_stage("primary_atomic_publication")
     _PUBLISHER_FAILURE_CONTEXT["publication_state"]["primary"] = "attempting"
@@ -4446,7 +5008,13 @@ def _run_publisher(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def _main_internal_non_authoritative(
+    argv: Sequence[str] | None = None,
+    *,
+    outer_invocation_authority_unproven: bool,
+) -> int:
+    if outer_invocation_authority_unproven is not True:
+        raise ReviewPublisherError("internal_outer_unproven_latch_required")
     _PUBLISHER_CHILD_EXECUTIONS.clear()
     _PUBLISHER_FAILURE_CONTEXT.clear()
     args = parse_args(argv)
@@ -4491,6 +5059,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         _best_effort_emit_result(sealed)
         assert failure_cause is not None
         raise failure_cause
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Public publication entry stays closed without an OS-bound outer capability."""
+
+    del argv
+    raise ReviewPublisherError("review_os_bound_outer_capability_unprovisioned")
 
 
 if __name__ == "__main__":

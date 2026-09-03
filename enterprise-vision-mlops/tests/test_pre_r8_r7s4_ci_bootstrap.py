@@ -188,6 +188,8 @@ def test_exact_bootstrap_script_rejects_comments_bypass_and_unbound_uv(
 def test_gitattributes_pins_workflow_and_bootstrap_requirements_to_lf() -> None:
     workflow, requirements, attributes = _inputs()
     validator.validate_ci_bootstrap(workflow, requirements, attributes)
+    assert attributes == validator.CANONICAL_ATTRIBUTES
+    assert len(validator.ATTRIBUTES_RULES) == 26
     assert workflow.count(b"      - .gitattributes\n") == 2
     for rule in validator.ATTRIBUTES_RULES:
         assert attributes.decode("utf-8").splitlines().count(rule) == 1

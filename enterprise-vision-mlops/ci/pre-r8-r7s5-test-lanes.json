@@ -8,10 +8,33 @@
     "external_attested_windows_runner_available": false,
     "hosted_linux_runner_provenance_verified": false
   },
+  "current_collection_contract": {
+    "binding_source": "externally_attested_oob_per_run",
+    "historical_node_inventory_reuse_allowed": false,
+    "required_binding_fields": [
+      "commit",
+      "lanes",
+      "repository",
+      "run_attempt",
+      "run_id",
+      "run_uuid",
+      "schema",
+      "tree",
+      "workflow"
+    ],
+    "required_lane_binding_fields": [
+      "collection_receipt_sha256",
+      "job",
+      "node_count",
+      "nodeids_sha256",
+      "toolchain_sha256"
+    ],
+    "tracked_current_head_pin_allowed": false
+  },
   "decision": {
     "credit": "zero_credit",
     "go_evidence_eligible": false,
-    "reason": "portable_failures_and_external_runner_authority_unproven",
+    "reason": "current_commit_required_lane_execution_and_external_authority_unproven",
     "reviewer_sign_off": "pending",
     "status": "manual_intervention_required"
   },
@@ -83,6 +106,8 @@
     "failed": 172,
     "full_nodeid_inventory_available": true,
     "head_sha": "0f9a3b9ebb9d2248f9908852ec124eb6b9a5ba80",
+    "historical_only": true,
+    "eligible_for_current_closure": false,
     "junit_xml_bytes": 1158862,
     "junit_xml_sha256": "16aa6fa2bf4b9ddb8e6f2cbeef2739c8c0fd5ebbb7145a607fe832d04fabd209",
     "known_failed_file_counts": {
@@ -143,11 +168,34 @@
     "skipped": 157,
     "tests": 2170
   },
+  "lane_contract": {
+    "portable": {
+      "actual_execution_required": true,
+      "domain": "portable_common_linux",
+      "external_result_receipt_required": true,
+      "runner_class": "github_hosted_ubuntu_24_04"
+    },
+    "private": {
+      "actual_execution_required": true,
+      "domain": "private_x1_s4_artifact_runtime",
+      "external_result_receipt_required": true,
+      "runner_class": "attested_self_hosted_windows_x1_s4"
+    },
+    "windows": {
+      "actual_execution_required": true,
+      "domain": "real_windows_semantics",
+      "external_result_receipt_required": true,
+      "runner_class": "attested_self_hosted_windows"
+    }
+  },
   "remaining_blockers": [
-    "hosted_portable_lane_has_exact_failed_nodes_2",
+    "current_commit_portable_lane_execution_unproven",
     "external_attested_windows_runner_absent",
     "external_attested_private_artifact_runner_absent",
-    "hosted_linux_runner_external_provenance_unproven"
+    "hosted_linux_runner_external_provenance_unproven",
+    "active_required_lane_workflow_not_connected",
+    "external_oob_receipt_authority_unprovisioned",
+    "external_worm_replay_authority_unprovisioned"
   ],
   "runner_contract": {
     "closure_job": "required-lane-closure",
@@ -189,6 +237,10 @@
       "windows-platform-required",
       "private-artifact-required",
       "required-lane-closure"
-    ]
+    ],
+    "actual_workflow_execution": "unproven",
+    "active_workflow_lane_contract_connected": false,
+    "manifest_only_is_configuration_validation": true,
+    "missing_required_lane_decision": "incomplete_no_go"
   }
 }

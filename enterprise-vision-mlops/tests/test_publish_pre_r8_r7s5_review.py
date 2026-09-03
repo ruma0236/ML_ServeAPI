@@ -5,7 +5,9 @@ import hashlib
 import inspect
 import json
 import os
+import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -303,7 +305,21 @@ def _code_summary(
     tree = "2" * 40
     trusted_tool = tmp_path / "trusted-tool.exe"
     trusted_tool.write_bytes(b"trusted-test-tool")
+    (tmp_path / "Lib" / "site-packages").mkdir(parents=True)
     trusted_tool_sha256 = hashlib.sha256(trusted_tool.read_bytes()).hexdigest()
+    monkeypatch.setattr(
+        runner,
+        "python_tool_module_binding",
+        lambda _executable, distribution: {
+            "distribution": distribution,
+            "version": "test-only",
+            "module_origins": {},
+            "content_inventory_sha256": "0" * 64,
+            "authority_scope": "test_only_internal_non_authoritative",
+        },
+    )
+    trusted_outer = Path(review.__file__).with_name("invoke_pre_r8_r7s7_review.ps1")
+    trusted_outer_sha256 = review.sha256_file(trusted_outer)
     specs = tuple(
         runner.CommandSpec(
             name,
@@ -511,9 +527,83 @@ def _code_summary(
                 "publication": _publication_receipt(path, raw),
             }
         )
+    now = datetime.now(UTC)
+    work_order = {
+        "schema": runner.WORK_ORDER_SCHEMA,
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "immutable_checkout_namespace_authority": False,
+        "runtime_stdlib_native_closure_verified": False,
+        "validation_run_uuid": "10000000-0000-4000-8000-000000000001",
+        "validation_attempt_uuid": "20000000-0000-4000-8000-000000000002",
+        "handoff_challenge_sha256": "c" * 64,
+        "issued_at_utc": (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        "expires_at_utc": (now + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        "expected_head": head,
+        "expected_tree": tree,
+        "tool_file_bindings": {
+            name: runner.work_order_tool_binding(name, trusted_tool, trusted_tool_sha256)
+            for name in ("git", "powershell", "python_general", "python_host", "python_ruff")
+        },
+        "code_file_bindings": runner.work_order_code_file_bindings(
+            trusted_outer, trusted_outer_sha256
+        ),
+        "command_invocation_sha256": runner.command_invocation_commitment(specs),
+        "pycache_prefix": str(
+            runner.validation_pycache_prefix(tmp_path, "10000000-0000-4000-8000-000000000001")
+        ),
+    }
+    work_order_path = tmp_path / "external-work-order.json"
+    work_order_raw = review.canonical_json_bytes(work_order)
+    work_order_path.write_bytes(work_order_raw)
+    telemetry_payload = {
+        "schema": runner.LIVE_TELEMETRY_SCHEMA,
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "observation_state": "unknown",
+        "observation_scope": "internal_non_authoritative",
+        "collector_authority_verified": False,
+        "counts": {name: None for name in review.REQUIRED_ZERO_LIVE_CALLS},
+        "raw_events_sha256": hashlib.sha256(review.canonical_json_bytes([])).hexdigest(),
+    }
+    telemetry_path = tmp_path / "live-call-telemetry.json"
+    telemetry_raw = review.canonical_json_bytes(telemetry_payload)
+    telemetry_path.write_bytes(telemetry_raw)
     value = {
         "schema": review.VALIDATION_SCHEMA,
         "status": "PASS",
+        "decision": "NO-GO",
+        "credit": "zero_credit",
+        "evidence_scope": "internal_non_authoritative",
+        "go_evidence_eligible": False,
+        "runtime_identity_stability": "unproven",
+        "immutable_checkout_namespace_authority": False,
+        "runtime_stdlib_native_closure_verified": False,
+        "validation_run_uuid": work_order["validation_run_uuid"],
+        "validation_attempt_uuid": work_order["validation_attempt_uuid"],
+        "handoff_challenge_sha256": work_order["handoff_challenge_sha256"],
+        "issued_at_utc": work_order["issued_at_utc"],
+        "completed_at_utc": now.isoformat().replace("+00:00", "Z"),
+        "expires_at_utc": work_order["expires_at_utc"],
+        "external_work_order_binding": {
+            "path": str(work_order_path.resolve()),
+            "bytes": len(work_order_raw),
+            "sha256": hashlib.sha256(work_order_raw).hexdigest(),
+            "authority_scope": "internal_non_authoritative",
+            "authority_verified": False,
+            "payload": work_order,
+        },
+        "replay_consumption": {
+            "status": "not_consumed",
+            "adapter_scope": "none",
+            "authority_verified": False,
+            "replay_key": review.validation_replay_key(
+                validation_run_uuid=str(work_order["validation_run_uuid"]),
+                validation_attempt_uuid=str(work_order["validation_attempt_uuid"]),
+                handoff_challenge_sha256=str(work_order["handoff_challenge_sha256"]),
+                work_order_sha256=hashlib.sha256(work_order_raw).hexdigest(),
+            ),
+        },
         "repository": str(repository),
         "project_root": str(project_root),
         "head": head,
@@ -537,8 +627,12 @@ def _code_summary(
         "terminal_containment_latch": False,
         "terminal_latch_reason": None,
         "followup_child_count_after_containment_latch": 0,
-        "live_call_counts": {name: 0 for name in review.REQUIRED_ZERO_LIVE_CALLS},
-        "live_call_observation_scope": runner.VALIDATION_OBSERVATION_SCOPE,
+        "live_call_telemetry": {
+            "path": str(telemetry_path.resolve()),
+            "bytes": len(telemetry_raw),
+            "sha256": hashlib.sha256(telemetry_raw).hexdigest(),
+            "payload": telemetry_payload,
+        },
         "completion_marker_created": False,
         "success_marker_created": False,
         "r8_authorized": False,
@@ -563,6 +657,11 @@ def _code_summary(
         "expected_untracked_content_inventory_sha256": str(
             untracked_inventory["content_inventory_sha256"]
         ),
+        "expected_summary_sha256": hashlib.sha256(review.canonical_json_bytes(value)).hexdigest(),
+        "external_work_order": work_order_path,
+        "external_work_order_sha256": hashlib.sha256(work_order_raw).hexdigest(),
+        "trusted_outer": trusted_outer,
+        "trusted_outer_sha256": trusted_outer_sha256,
     }
     return value, kwargs
 
@@ -1128,14 +1227,400 @@ def test_publisher_child_resolves_relative_root_in_real_windows_job(
     assert summary["all_children_cleanly_contained"] is True
 
 
-def test_code_summary_requires_exact_pass_zero_live_calls(
+def test_code_summary_requires_raw_unobserved_live_call_telemetry_and_no_go(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     value, kwargs = _code_summary(monkeypatch, tmp_path)
     assert review.validate_code_summary(value, **kwargs) == value
-    value["live_call_counts"]["r8"] = 1
-    with pytest.raises(review.ReviewPublisherError, match="live_calls_nonzero"):
+    value["live_call_telemetry"]["payload"]["counts"]["r8"] = 0
+    with pytest.raises(review.ReviewPublisherError, match="telemetry_unobserved"):
         review.validate_code_summary(value, **kwargs)
+
+
+def test_validation_handoff_replay_and_self_consistent_local_repin_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    value, kwargs = _code_summary(monkeypatch, tmp_path)
+    work_order_path = Path(kwargs["external_work_order"])
+    work_order = review.read_json_mapping(work_order_path, "external_work_order")
+    work_order["handoff_challenge_sha256"] = "d" * 64
+    tampered_raw = review.canonical_json_bytes(work_order)
+    work_order_path.write_bytes(tampered_raw)
+    value["handoff_challenge_sha256"] = "d" * 64
+    value["external_work_order_binding"]["payload"] = work_order
+    value["external_work_order_binding"]["bytes"] = len(tampered_raw)
+    value["external_work_order_binding"]["sha256"] = hashlib.sha256(tampered_raw).hexdigest()
+    kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(value)
+    ).hexdigest()
+    with pytest.raises(review.ReviewPublisherError, match="external_work_order_invalid"):
+        review.validate_code_summary(value, **kwargs)
+
+    fresh, fresh_kwargs = _code_summary(monkeypatch, tmp_path / "production")
+    with pytest.raises(review.ReviewPublisherError, match="separate_external_authority"):
+        review.validate_code_summary(
+            fresh,
+            **fresh_kwargs,
+            production_authority_verified=True,
+        )
+
+
+def test_external_worm_replay_consume_boundary_is_exact_and_fail_closed() -> None:
+    class Adapter:
+        authority_scope = "production_external_worm"
+        authority_verified = True
+        worm_storage = True
+        calls = 0
+
+        def consume_once(self, replay_key: str, summary_sha256: str) -> dict[str, object]:
+            self.calls += 1
+            return {
+                "status": "consumed",
+                "replay_key": replay_key,
+                "summary_sha256": summary_sha256,
+                "authority_scope": self.authority_scope,
+                "worm_storage": self.worm_storage,
+            }
+
+    replay_key = "a" * 64
+    summary_sha256 = "b" * 64
+    with pytest.raises(review.ReviewPublisherError, match="adapter_unprovisioned"):
+        review.consume_replay_once(
+            None,
+            replay_key=replay_key,
+            summary_sha256=summary_sha256,
+        )
+    adapter = Adapter()
+    with pytest.raises(review.ReviewPublisherError, match="adapter_unprovisioned"):
+        review.consume_replay_once(
+            adapter,
+            replay_key=replay_key,
+            summary_sha256=summary_sha256,
+        )
+    assert adapter.calls == 0
+    receipt = review._consume_replay_once_for_test(
+        adapter,
+        replay_key=replay_key,
+        summary_sha256=summary_sha256,
+    )
+    assert receipt["authority_scope"] == "test_only_internal_non_authoritative"
+    assert receipt["authority_verified"] is False
+    assert receipt["production_go_enabled"] is False
+    assert receipt["adapter_receipt"]["status"] == "consumed"
+    assert adapter.calls == 1
+
+
+def test_production_entry_guard_precedes_project_import_and_requires_no_site() -> None:
+    source = Path(review.__file__).read_text(encoding="utf-8")
+    guard = source.index("review_requires_python_I_B_S_before_project_import")
+    first_project_import = source.index("from evm.scale_validation")
+    assert guard < first_project_import
+    assert "sys.flags.no_site != 1" in source[:first_project_import]
+    outer = (
+        Path(review.__file__).with_name("invoke_pre_r8_r7s7_review.ps1").read_text(encoding="utf-8")
+    )
+    assert "-I -B -S -X" in outer
+    assert "[IO.FileShare]::Read" in outer
+    assert "ComputeHash($Stream)" in outer
+    assert "trusted_outer_module_origin_mismatch" in outer
+    assert "publisher.parents[2] != root" in outer
+    assert "python_site_packages_work_order_binding_ambiguous" in outer
+    assert "*stdlib_paths, str(root / 'src'), str(root), str(site_packages)" in outer
+    assert "external_work_order_code_file_binding_set_not_exact" in outer
+    assert "$CodeLocks += $Lock" in outer
+    assert "python_tool_content_relative_path_invalid" in outer
+    assert "python_tool_content_duplicate_path" in outer
+    assert "python_tool_content_path_escape" in outer
+    assert "python_tool_content_aggregate_mismatch" in outer
+    assert "$ToolContentLocks += $ContentLock" in outer
+    assert "GetFinalPathNameByHandle" in outer
+    assert "GetFileInformationByHandle" in outer
+    assert "Add-RetainedDirectoryChain" in outer
+    assert "Assert-RetainedPinnedFileUnchanged" in outer
+    assert "external_work_order_code_file_role_path_mismatch" in outer
+    assert "ls-files --others --exclude-standard -z" in outer
+    assert "ls-files --others --ignored --exclude-standard -z" in outer
+    assert outer.count("ls-files --others --ignored --exclude-standard -z") == 2
+    assert "prelaunch_import_shadow_forbidden" in outer
+    assert "internal_unproven_runtime_closure_contract_invalid" in outer
+    assert "__evm_internal_non_authoritative_outer__" in outer
+    assert "outer_invocation_authority_unproven=True" in outer
+    assert "pyproject.toml" in outer
+    for required_binding in (
+        "evm_init",
+        "scale_validation_init",
+        "phase_b2_r7s3_handle_io",
+        "phase_b2_r7s4_authority",
+        "phase_b2_r7s4_evidence",
+        "phase_b2_r7s5_evidence",
+    ):
+        assert f"'{required_binding}'" in outer
+    assert "ConvertFrom-Json" in outer
+
+
+def test_env_spoof_cannot_reach_publication_or_child_dispatch(tmp_path: Path) -> None:
+    publisher_path = Path(review.__file__).resolve()
+    pycache_prefix = tmp_path / "must-remain-absent"
+    output = tmp_path / "must-not-be-created"
+    environment = dict(os.environ)
+    environment["EVM_PRE_R8_REVIEW_ENTRY_AUTHORITY_SCOPE"] = (
+        "trusted_outer_internal_non_authoritative"
+    )
+    completed = subprocess.run(
+        (
+            sys.executable,
+            "-I",
+            "-B",
+            "-S",
+            "-X",
+            f"pycache_prefix={pycache_prefix}",
+            str(publisher_path),
+            "--output-leaf",
+            str(output),
+        ),
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert "review_os_bound_outer_capability_unprovisioned" in (completed.stdout + completed.stderr)
+    assert not output.exists()
+    assert not pycache_prefix.exists()
+    with pytest.raises(review.ReviewPublisherError, match="capability_unprovisioned"):
+        review.main([])
+    with pytest.raises(review.ReviewPublisherError, match="unproven_latch_required"):
+        review._main_internal_non_authoritative([], outer_invocation_authority_unproven=False)
+
+
+def test_git_ignored_nul_inventory_detects_root_scripts_shadow(tmp_path: Path) -> None:
+    git = runner._resolved_executable("git.exe")
+    subprocess.run((str(git), "init", "-q"), cwd=tmp_path, check=True)
+    (tmp_path / ".git" / "info" / "exclude").write_text("scripts.py\n", encoding="utf-8")
+    (tmp_path / "scripts.py").write_text("raise RuntimeError('shadow')\n", encoding="utf-8")
+    ordinary = subprocess.run(
+        (str(git), "ls-files", "--others", "--exclude-standard", "-z", "--", ".", "src"),
+        cwd=tmp_path,
+        capture_output=True,
+        check=True,
+    ).stdout
+    ignored = subprocess.run(
+        (
+            str(git),
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "-z",
+            "--",
+            ".",
+            "src",
+        ),
+        cwd=tmp_path,
+        capture_output=True,
+        check=True,
+    ).stdout
+    assert b"scripts.py\0" not in ordinary
+    assert b"scripts.py\0" in ignored
+
+
+@pytest.mark.skipif(os.name != "nt", reason="trusted outer is Windows PowerShell")
+def test_trusted_outer_rejects_self_consistent_arbitrary_site_packages_path(
+    tmp_path: Path,
+) -> None:
+    outer = Path(review.__file__).with_name("invoke_pre_r8_r7s7_review.ps1").resolve()
+    publisher_path = Path(review.__file__).resolve()
+    runner_path = Path(runner.__file__).resolve()
+    python_path = Path(sys.executable).resolve()
+    powershell = runner._resolved_executable("powershell.exe")
+    work_order = {
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "immutable_checkout_namespace_authority": False,
+        "runtime_stdlib_native_closure_verified": False,
+        "validation_run_uuid": "10000000-0000-4000-8000-000000000001",
+        "pycache_prefix": str(
+            tmp_path.parent / ".pre-r8-r7s7-pycache-10000000-0000-4000-8000-000000000001"
+        ),
+        "tool_file_bindings": {
+            "python_general": {
+                "path": str(python_path),
+                "site_packages": {
+                    "path": str(tmp_path.resolve()),
+                    "device": 0,
+                    "file_id": 0,
+                    "creation_time_ns": 0,
+                    "pth_processing": "disabled_by_python_no_site",
+                },
+            }
+        },
+    }
+    work_order_path = tmp_path / "self-consistent-arbitrary-site.json"
+    work_order_raw = review.canonical_json_bytes(work_order)
+    work_order_path.write_bytes(work_order_raw)
+    invocation = (
+        str(powershell),
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        str(outer),
+        "-ExpectedOuterSha256",
+        review.sha256_file(outer),
+        "-PythonPath",
+        str(python_path),
+        "-PythonSha256",
+        review.sha256_file(python_path),
+        "-PowerShellSha256",
+        review.sha256_file(powershell),
+        "-PublisherPath",
+        str(publisher_path),
+        "-PublisherSha256",
+        review.sha256_file(publisher_path),
+        "-RunnerPath",
+        str(runner_path),
+        "-RunnerSha256",
+        review.sha256_file(runner_path),
+        "-ProjectRoot",
+        str(review.SCRIPT_PROJECT_ROOT),
+        "-ExternalWorkOrder",
+        str(work_order_path),
+        "-ExternalWorkOrderSha256",
+        hashlib.sha256(work_order_raw).hexdigest(),
+    )
+    completed = subprocess.run(
+        invocation,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert "python_site_packages_not_derived_from_pinned_python" in (
+        completed.stdout + completed.stderr
+    )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="trusted outer is Windows PowerShell")
+def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dispatch(
+    tmp_path: Path,
+) -> None:
+    outer = Path(review.__file__).with_name("invoke_pre_r8_r7s7_review.ps1").resolve()
+    publisher_path = Path(review.__file__).resolve()
+    runner_path = Path(runner.__file__).resolve()
+    python_path = Path(sys.executable).resolve()
+    powershell = runner._resolved_executable("powershell.exe")
+    git = runner._resolved_executable("git.exe")
+    batch = tmp_path / "internal-inputs"
+    batch.mkdir()
+    run_uuid = "50000000-0000-4000-8000-000000000005"
+    python_sha = review.sha256_file(python_path)
+    tool_paths = {
+        "python_general": python_path,
+        "python_host": python_path,
+        "python_ruff": python_path,
+        "git": git,
+        "powershell": powershell,
+    }
+    work_order = {
+        "schema": runner.WORK_ORDER_SCHEMA,
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "immutable_checkout_namespace_authority": False,
+        "runtime_stdlib_native_closure_verified": False,
+        "validation_run_uuid": run_uuid,
+        "pycache_prefix": str(tmp_path / f".pre-r8-r7s7-pycache-{run_uuid}"),
+        "tool_file_bindings": {
+            name: runner.work_order_tool_binding(
+                name, path, python_sha if name.startswith("python_") else review.sha256_file(path)
+            )
+            for name, path in tool_paths.items()
+        },
+        "code_file_bindings": runner.work_order_code_file_bindings(
+            outer, review.sha256_file(outer)
+        ),
+    }
+    work_order_path = batch / "external-work-order.json"
+    raw = review.canonical_json_bytes(work_order)
+    work_order_path.write_bytes(raw)
+    invocation = (
+        str(powershell),
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        str(outer),
+        "-ExpectedOuterSha256",
+        review.sha256_file(outer),
+        "-PythonPath",
+        str(python_path),
+        "-PythonSha256",
+        python_sha,
+        "-PowerShellSha256",
+        review.sha256_file(powershell),
+        "-PublisherPath",
+        str(publisher_path),
+        "-PublisherSha256",
+        review.sha256_file(publisher_path),
+        "-RunnerPath",
+        str(runner_path),
+        "-RunnerSha256",
+        review.sha256_file(runner_path),
+        "-ProjectRoot",
+        str(review.SCRIPT_PROJECT_ROOT),
+        "-ExternalWorkOrder",
+        str(work_order_path),
+        "-ExternalWorkOrderSha256",
+        hashlib.sha256(raw).hexdigest(),
+    )
+    completed = subprocess.run(
+        invocation,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    combined = completed.stdout + completed.stderr
+    assert completed.returncode != 0
+    assert "python_tool_content_aggregate_mismatch" not in combined
+    assert "python_tool_content_file_count_mismatch" not in combined
+    assert "external_work_order_code_file_binding_set_not_exact" not in combined
+    assert (
+        "preimport_untracked_import_shadow_forbidden" in combined
+        or "the following arguments are required" in combined
+        or "review_os_bound_outer_capability_unprovisioned" in combined
+    )
+
+    shrunken = json.loads(json.dumps(work_order))
+    shrunken["tool_file_bindings"]["python_general"]["python_tool_module"][
+        "dependency_distributions"
+    ].pop()
+    shrunken_raw = review.canonical_json_bytes(shrunken)
+    work_order_path.write_bytes(shrunken_raw)
+    shrunken_invocation = (*invocation[:-1], hashlib.sha256(shrunken_raw).hexdigest())
+    shrunken_result = subprocess.run(
+        shrunken_invocation,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert shrunken_result.returncode != 0
+    assert "python_tool_dependency_closure_not_exact" in (
+        shrunken_result.stdout + shrunken_result.stderr
+    )
+
+    work_order["code_file_bindings"]["evm_init"] = dict(
+        work_order["code_file_bindings"]["publisher"]
+    )
+    tampered_raw = review.canonical_json_bytes(work_order)
+    work_order_path.write_bytes(tampered_raw)
+    tampered_invocation = (*invocation[:-1], hashlib.sha256(tampered_raw).hexdigest())
+    tampered = subprocess.run(
+        tampered_invocation,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert tampered.returncode != 0
+    assert "external_work_order_code_file_role_path_mismatch" in (tampered.stdout + tampered.stderr)
 
 
 def test_live_command_plan_metadata_children_are_in_terminal_publisher_ledger(
@@ -1158,6 +1643,25 @@ def test_live_command_plan_metadata_children_are_in_terminal_publisher_ledger(
     assert len(metadata_purposes) == 2 * int(value["planned_command_count"])
     assert len(inventory_purposes) == 4 * int(value["planned_command_count"])
     assert all(item["process"]["stdout_persisted"] is False for item in observation["children"])
+
+
+def test_code_summary_plan_reconstruction_uses_work_order_run_specific_pycache_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    value, kwargs = _code_summary(monkeypatch, tmp_path)
+    work_order_prefix = Path(value["external_work_order_binding"]["payload"]["pycache_prefix"])
+    assert work_order_prefix.name.endswith(str(value["validation_run_uuid"]))
+    delegated = runner.build_command_specs
+    observed: dict[str, object] = {}
+
+    def capture_specs(**call_kwargs: object) -> tuple[runner.CommandSpec, ...]:
+        observed.update(call_kwargs)
+        return delegated(**call_kwargs)
+
+    monkeypatch.setattr(runner, "build_command_specs", capture_specs)
+    assert review.validate_code_summary(value, **kwargs) == value
+    assert observed["pycache_prefix"] == work_order_prefix
 
 
 def test_live_command_plan_interruption_retains_immediate_unclean_attempt(
@@ -1292,12 +1796,12 @@ def test_expected_primary_and_terminal_publisher_purpose_plans_are_exact() -> No
         validation=validation,
     )
 
-    assert len(primary) == review.EXPECTED_PRIMARY_PUBLISHER_CHILD_COUNT == 183
-    assert len(terminal) == review.EXPECTED_TERMINAL_PUBLISHER_CHILD_COUNT == 195
+    assert len(primary) == review.EXPECTED_PRIMARY_PUBLISHER_CHILD_COUNT == 231
+    assert len(terminal) == review.EXPECTED_TERMINAL_PUBLISHER_CHILD_COUNT == 243
     assert terminal[: len(primary)] == primary
 
 
-def test_run_publisher_simulates_exact_primary_183_and_terminal_195_ledgers(
+def test_run_publisher_simulates_exact_primary_231_and_terminal_243_ledgers(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1349,7 +1853,24 @@ def test_run_publisher_simulates_exact_primary_183_and_terminal_195_ledgers(
         "codex": {"process": {"pid": 103}},
     }
     command_names = sorted(review.REQUIRED_VALIDATION_COMMANDS)
-    validation = {"command_plan": {"commands": [{"name": name} for name in command_names]}}
+    validation = {
+        "status": "PASS",
+        "decision": "NO-GO",
+        "credit": "zero_credit",
+        "evidence_scope": "internal_non_authoritative",
+        "go_evidence_eligible": False,
+        "completion_marker_created": False,
+        "success_marker_created": False,
+        "r8_authorized": False,
+        "command_plan": {"commands": [{"name": name} for name in command_names]},
+        "live_call_telemetry": {
+            "sha256": "f" * 64,
+            "payload": {
+                "observation_state": "unknown",
+                "counts": {name: None for name in review.REQUIRED_ZERO_LIVE_CALLS},
+            },
+        },
+    }
     monkeypatch.setattr(review, "_PUBLISHER_CHILD_EXECUTIONS", [])
     monkeypatch.setattr(review, "_PUBLISHER_FAILURE_CONTEXT", {})
 
@@ -1461,7 +1982,7 @@ def test_run_publisher_simulates_exact_primary_183_and_terminal_195_ledgers(
     def selected_source_stub(*_args: object, **_kwargs: object) -> dict[str, object]:
         for purpose in review._selected_source_purpose_plan():
             append_purpose(purpose)
-        return {"inventory_sha256": "b" * 64, "file_count": 31, "files": []}
+        return {"inventory_sha256": "b" * 64, "file_count": 47, "files": []}
 
     monkeypatch.setattr(review, "selected_source_inventory", selected_source_stub)
     monkeypatch.setattr(
@@ -1534,7 +2055,16 @@ def test_run_publisher_simulates_exact_primary_183_and_terminal_195_ledgers(
         ci_readback=reference_paths[3],
         ci_manifest=ci_manifest_path,
         token_evidence=token_evidence,
+        lineage_work_order=token_evidence,
+        lineage_work_order_sha256=hashlib.sha256(token_evidence.read_bytes()).hexdigest(),
         validation_summary=validation_summary,
+        expected_validation_summary_sha256=hashlib.sha256(
+            validation_summary.read_bytes()
+        ).hexdigest(),
+        external_work_order=validation_summary,
+        external_work_order_sha256=hashlib.sha256(validation_summary.read_bytes()).hexdigest(),
+        trusted_outer=validation_summary,
+        trusted_outer_sha256=hashlib.sha256(validation_summary.read_bytes()).hexdigest(),
         python_general=executable,
         python_general_sha256=executable_sha256,
         python_host=executable,
@@ -1556,11 +2086,132 @@ def test_run_publisher_simulates_exact_primary_183_and_terminal_195_ledgers(
     assert review._run_publisher(args) == 0
     assert len(published) == 2
     primary_summary = published[0]["documents"]["publisher-child-containment-summary.json"]
+    offline = published[0]["documents"]["offline-admission-decision.json"]
+    reviewer_report = published[0]["documents"][review.REVIEWER_PENDING_REPORT_LEAF]
+    no_go_seal = published[0]["documents"][review.NO_GO_SEAL_LEAF]
     terminal_summary = published[1]["documents"]["publisher-child-terminal-containment.json"]
-    assert primary_summary["child_count"] == 183
+    assert primary_summary["child_count"] == 231
     assert primary_summary["purpose_plan_exact"] is True
-    assert terminal_summary["child_count"] == 195
+    assert terminal_summary["child_count"] == 243
     assert terminal_summary["purpose_plan_exact"] is True
+    assert offline["whole_system_live_call_telemetry"]["observation_state"] == "unknown"
+    assert all(
+        value is None for value in offline["whole_system_live_call_telemetry"]["counts"].values()
+    )
+    assert offline["whole_system_live_call_telemetry"]["raw_telemetry_sha256"]
+    assert offline["publisher_local_dispatch_telemetry"] == {
+        "observation_scope": "this_publisher_process_only",
+        "automatic_retry_count": 0,
+        "forced_termination_attempts": 0,
+    }
+    assert reviewer_report["status"] == "manual_intervention_required"
+    assert reviewer_report["review_state"] == "reviewer_pending"
+    assert reviewer_report["decision"] == "NO-GO"
+    assert reviewer_report["credit"] == "zero_credit"
+    assert reviewer_report["authority_scope"] == "internal_non_authoritative"
+    assert reviewer_report["authority_verified"] is False
+    assert reviewer_report["external_approval_receipt_created"] is False
+    assert reviewer_report["external_worm_receipt_created"] is False
+    assert reviewer_report["completion_marker_created"] is False
+    assert reviewer_report["success_marker_created"] is False
+    assert reviewer_report["success_index_created"] is False
+    assert reviewer_report["r8_authorized"] is False
+    assert all(value == "not_run" for value in reviewer_report["qualification_states"].values())
+    assert reviewer_report["whole_system_live_call_telemetry"]["observation_state"] == ("unknown")
+    base_documents = {
+        leaf: value
+        for leaf, value in published[0]["documents"].items()
+        if leaf not in {review.REVIEWER_PENDING_REPORT_LEAF, review.NO_GO_SEAL_LEAF}
+    }
+    assert reviewer_report["bound_documents"] == {
+        leaf: review._canonical_document_reference(value)
+        for leaf, value in sorted(base_documents.items())
+    }
+    assert no_go_seal["status"] == "manual_intervention_required"
+    assert no_go_seal["review_state"] == "reviewer_pending"
+    assert no_go_seal["decision"] == "NO-GO"
+    assert no_go_seal["credit"] == "zero_credit"
+    assert no_go_seal["seal_semantics"] == (
+        "append_only_reviewer_pending_no_go_not_success_evidence"
+    )
+    assert no_go_seal["authority_verified"] is False
+    assert no_go_seal["automatic_retry_count"] == 0
+    assert no_go_seal["forced_termination_attempts"] == 0
+    assert no_go_seal["completion_marker_created"] is False
+    assert no_go_seal["success_marker_created"] is False
+    assert no_go_seal["success_index_created"] is False
+    assert no_go_seal["r8_authorized"] is False
+    assert no_go_seal["sealed_documents"] == {
+        **reviewer_report["bound_documents"],
+        review.REVIEWER_PENDING_REPORT_LEAF: review._canonical_document_reference(reviewer_report),
+    }
+    assert not {
+        "r8_calls",
+        "restore_only_calls",
+        "dual_collector_calls",
+        "service_lifecycle_calls",
+        "force_kill_calls",
+    } & set(offline)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["validation_go", "validation_external_authority", "telemetry_claimed_zero"],
+)
+def test_explicit_reviewer_no_go_documents_reject_promotion_or_unobserved_zero_claim(
+    mutation: str,
+) -> None:
+    validation = {
+        "status": "PASS",
+        "decision": "NO-GO",
+        "credit": "zero_credit",
+        "evidence_scope": "internal_non_authoritative",
+        "go_evidence_eligible": False,
+        "completion_marker_created": False,
+        "success_marker_created": False,
+        "r8_authorized": False,
+    }
+    telemetry = {
+        "observation_state": "unknown",
+        "observation_scope": "external_collector_not_provisioned",
+        "counts": {name: None for name in review.REQUIRED_ZERO_LIVE_CALLS},
+        "raw_telemetry_sha256": "f" * 64,
+    }
+    offline = {
+        "status": "manual_intervention_required",
+        "decision": "NO-GO",
+        "credit": "zero_credit",
+        "go_evidence_eligible": False,
+        "completion_marker_created": False,
+        "success_marker_created": False,
+        "whole_system_live_call_telemetry": telemetry,
+    }
+    if mutation == "validation_go":
+        validation["decision"] = "GO"
+    elif mutation == "validation_external_authority":
+        validation["evidence_scope"] = "external_authoritative"
+    else:
+        telemetry["counts"] = {name: 0 for name in review.REQUIRED_ZERO_LIVE_CALLS}
+
+    with pytest.raises(
+        review.ReviewPublisherError,
+        match=(
+            "review_report_whole_system_telemetry_must_remain_unknown"
+            if mutation == "telemetry_claimed_zero"
+            else "review_report_fail_closed_source_state_required"
+        ),
+    ):
+        review.reviewer_pending_no_go_documents(
+            run_uuid="10000000-0000-4000-8000-000000000001",
+            attempt_uuid="20000000-0000-4000-8000-000000000002",
+            commit="1" * 40,
+            tree="2" * 40,
+            blockers=["external_authority_unproven"],
+            base_documents={
+                review.VALIDATION_SUMMARY_LEAF: validation,
+                "offline-admission-decision.json": offline,
+            },
+        )
 
 
 def test_publisher_failure_batch_redacts_exception_and_seals_terminal_ledger(
@@ -1871,7 +2522,7 @@ def test_main_routes_post_admission_base_exception_to_failure_batch(
     monkeypatch.setattr(review, "_publish_publisher_failure_batch", seal)
 
     with pytest.raises(KeyboardInterrupt):
-        review.main([])
+        review._main_internal_non_authoritative([], outer_invocation_authority_unproven=True)
 
     assert captured == {"cause_type": "KeyboardInterrupt"}
 
@@ -1928,7 +2579,7 @@ def test_publisher_dispatch_trace_interrupt_is_sealed_once(
     monkeypatch.setattr(review, "_run_publisher", failed_run)
     monkeypatch.setattr(review, "_publish_publisher_failure_batch", seal_once)
     monkeypatch.setattr(review, "_best_effort_emit_result", lambda _value: None)
-    target_line = _marked_source_line(review.main, marker)
+    target_line = _marked_source_line(review._main_internal_non_authoritative, marker)
 
     def trace(frame: object, event: str, _arg: object) -> object:
         if (
@@ -1943,7 +2594,7 @@ def test_publisher_dispatch_trace_interrupt_is_sealed_once(
     sys.settrace(trace)
     try:
         with pytest.raises(BaseException):
-            review.main([])
+            review._main_internal_non_authoritative([], outer_invocation_authority_unproven=True)
     finally:
         sys.settrace(None)
 
@@ -1958,7 +2609,7 @@ def test_publisher_dispatch_trace_interrupt_is_sealed_once(
 
 
 def test_publisher_dispatch_call_and_handler_are_outer_exception_protected() -> None:
-    function = review.main
+    function = review._main_internal_non_authoritative
     entries = dis.Bytecode(function).exception_entries
     dispatch_line = _marked_source_line(function, "publisher-failure-dispatch-call")
     handler_line = _marked_source_line(function, "publisher-failure-handler-continuation")
@@ -2010,7 +2661,7 @@ def test_publisher_atomic_failure_is_not_retried_after_dispatch_entry(
     )
 
     with pytest.raises(RuntimeError, match="original failure"):
-        review.main([])
+        review._main_internal_non_authoritative([], outer_invocation_authority_unproven=True)
 
     assert seal_calls == 1
     assert len(emitted) == 1
@@ -2196,8 +2847,8 @@ def test_code_summary_rejects_invented_command_bad_sha_and_partial_zero_calls(
         review.validate_code_summary(bad_sha, **bad_sha_kwargs)
 
     partial, partial_kwargs = _code_summary(monkeypatch, tmp_path / "partial")
-    partial["live_call_counts"] = {"r8": 0}
-    with pytest.raises(review.ReviewPublisherError, match="live_calls_nonzero_or_unknown"):
+    del partial["live_call_telemetry"]["payload"]["counts"]["r8"]
+    with pytest.raises(review.ReviewPublisherError, match="telemetry_unobserved"):
         review.validate_code_summary(partial, **partial_kwargs)
 
 
@@ -2692,6 +3343,7 @@ def test_publisher_process_token_is_measured_from_win32() -> None:
 @pytest.mark.skipif(os.name != "nt", reason="Win32 process ancestry read-back")
 def test_token_evidence_is_directly_bound_to_runtime_parent_and_codex_ancestor(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     token_paths = {
         10: r"C:\trusted\codex.exe",
@@ -2744,7 +3396,45 @@ def test_token_evidence_is_directly_bound_to_runtime_parent_and_codex_ancestor(
     monkeypatch.setattr(review, "measure_current_token", lambda: token(30))
     monkeypatch.setattr(review, "measure_process_token", token)
     monkeypatch.setattr(review, "measure_process_identity", lambda pid, **_kwargs: identities[pid])
-    result = review.validate_token_evidence({"codex_pid": 10, "publisher_parent_pid": 20})
+    file_bindings = {
+        path: {
+            "path": path,
+            "sha256": hashlib.sha256(path.encode()).hexdigest(),
+            "bytes": len(path),
+            "device": 1,
+            "file_id": index,
+            "creation_time_ns": index,
+        }
+        for index, path in enumerate(token_paths.values(), start=1)
+    }
+    monkeypatch.setattr(
+        review,
+        "_process_file_binding",
+        lambda identity: file_bindings[str(identity["path"])],
+    )
+    lineage = {
+        "schema": f"{review.SCHEMA}.lineage-work-order.v2",
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "executable_bindings": {
+            "codex": file_bindings[token_paths[10]],
+            "powershell_parent": file_bindings[token_paths[20]],
+            "publisher_python": file_bindings[token_paths[30]],
+        },
+    }
+    lineage_path = tmp_path / "lineage.json"
+    lineage_raw = review.canonical_json_bytes(lineage)
+    lineage_path.write_bytes(lineage_raw)
+    result = review.validate_token_evidence(
+        {
+            "authority_scope": "internal_non_authoritative",
+            "authority_verified": False,
+            "codex_pid": 10,
+            "publisher_parent_pid": 20,
+        },
+        lineage_work_order=lineage_path,
+        lineage_work_order_sha256=hashlib.sha256(lineage_raw).hexdigest(),
+    )
     assert result["codex"]["process"]["danger_full_access_flag_present"] is True
     assert result["codex"]["process"]["approval_never_flag_present"] is True
     assert result["publisher_runtime"]["process"]["ppid"] == 20
@@ -2753,6 +3443,9 @@ def test_token_evidence_is_directly_bound_to_runtime_parent_and_codex_ancestor(
         "approval_policy": "never",
         "source": "codex_process_command_line_direct_readback",
     }
+    assert result["lineage_authority_verified"] is False
+    assert result["lineage_work_order_binding"]["future_process_identity_preissued"] is False
+    assert result["lineage_observation_scope"] == "live_direct_internal_non_authoritative"
 
 
 def test_canonical_json_is_stable_lf_and_rejects_nan() -> None:
@@ -2781,6 +3474,7 @@ def test_historical_r6_projection_remains_no_go_zero_execution() -> None:
 
 def test_selected_source_contract_includes_every_task_modified_path() -> None:
     required = review.REQUIRED_SELECTED_SOURCE_PATHS
+    assert ".gitattributes" in required
     assert "enterprise-vision-mlops/tests/test_phase_b2_r7s1.py" in required
     assert "enterprise-vision-mlops/ci/pre-r8-r7s5-test-lanes.json" in required
     assert "enterprise-vision-mlops/tests/test_scenario_workload_production.py" in required
@@ -2791,7 +3485,34 @@ def test_selected_source_contract_includes_every_task_modified_path() -> None:
     assert "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s3_process.py" in required
     assert "enterprise-vision-mlops/tests/test_phase_b2_r7s3_job_capability.py" in required
     assert "enterprise-vision-mlops/tests/test_phase_b2_r7s3_process.py" in required
-    assert len(required) == 31
+    assert "enterprise-vision-mlops/scripts/dev/invoke_pre_r8_r7s7_review.ps1" in required
+    assert (
+        "enterprise-vision-mlops/scripts/dev/invoke_pre_r8_r7s7_windows_qualification.ps1"
+        in required
+    )
+    assert (
+        "enterprise-vision-mlops/scripts/dev/prepare_pre_r8_r7s7_windows_qualification.py"
+        in required
+    )
+    assert "enterprise-vision-mlops/scripts/dev/qualify_pre_r8_r7s7_windows.py" in required
+    assert "enterprise-vision-mlops/src/evm/scale_validation/phase_b2_r7s7_admission.py" in required
+    assert (
+        "enterprise-vision-mlops/src/evm/scale_validation/"
+        "phase_b2_r7s7_qualification_work_order.py" in required
+    )
+    assert "enterprise-vision-mlops/tests/test_phase_b2_r7s4_authority.py" in required
+    assert "enterprise-vision-mlops/tests/test_phase_b2_r7s7_admission.py" in required
+    assert (
+        "enterprise-vision-mlops/tests/test_phase_b2_r7s7_qualification_work_order.py" in required
+    )
+    assert (
+        "enterprise-vision-mlops/tests/test_prepare_pre_r8_r7s7_windows_qualification.py"
+        in required
+    )
+    assert "enterprise-vision-mlops/tests/test_qualify_pre_r8_r7s7_windows.py" in required
+    assert "enterprise-vision-mlops/scripts/dev/validate_pre_r8_r7s4_ci_bootstrap.py" in required
+    assert "enterprise-vision-mlops/tests/test_pre_r8_r7s4_ci_bootstrap.py" in required
+    assert len(required) == 47
 
 
 def test_selected_source_inventory_requires_git_filtered_worktree_commit_identity(
@@ -2896,8 +3617,11 @@ def test_publisher_main_wires_parent_gate_and_postpublication_readback() -> None
     namespace_gate = source.index("\n    require_disjoint_review_batch_namespaces(", run_offset)
     primary_publish = source.index("batch = evidence.publish_pre_serialized_batch(", run_offset)
     assert namespace_gate < primary_publish
-    assert "except BaseException as exc:" in source[source.index("def main(") :]
-    assert "_dispatch_publisher_failure(" in source[source.index("def main(") :]
+    internal_entry_offset = source.index("def _main_internal_non_authoritative(")
+    public_entry_offset = source.index("def main(")
+    assert "except BaseException as exc:" in source[internal_entry_offset:public_entry_offset]
+    assert "review_os_bound_outer_capability_unprovisioned" in source[public_entry_offset:]
+    assert "_dispatch_publisher_failure(" in source[internal_entry_offset:public_entry_offset]
     assert "canonical_post = git_snapshot(" in source
     assert "untracked_post = untracked_summary(" in source
     assert "primary_inventory_verification = verify_primary_inventory_readback(" in source

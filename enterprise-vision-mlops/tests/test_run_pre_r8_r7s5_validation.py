@@ -7,6 +7,7 @@ import stat
 import subprocess
 import sys
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Mapping
 
@@ -261,6 +262,70 @@ class _FakeOutput:
 def _args(tmp_path: Path) -> runner.argparse.Namespace:
     inventory = _current_untracked_inventory()
     python_sha256 = runner.sha256_file(Path(sys.executable))
+    pins = {
+        "python_general": (Path(sys.executable), python_sha256),
+        "python_host": (Path(sys.executable), python_sha256),
+        "python_ruff": (Path(sys.executable), python_sha256),
+        "git": (GIT, runner.sha256_file(GIT)),
+        "powershell": (POWERSHELL, runner.sha256_file(POWERSHELL)),
+    }
+    validation_run_uuid = "10000000-0000-4000-8000-000000000001"
+    pycache_prefix = runner.validation_pycache_prefix(tmp_path, validation_run_uuid)
+    specs = runner.build_command_specs(
+        repository=REPOSITORY,
+        project_root=PROJECT_ROOT,
+        python_general=pins["python_general"][0],
+        python_host=pins["python_host"][0],
+        python_ruff=pins["python_ruff"][0],
+        git_executable=pins["git"][0],
+        git_executable_sha256=pins["git"][1],
+        powershell_executable=pins["powershell"][0],
+        pycache_prefix=pycache_prefix,
+    )
+    now = datetime.now(UTC)
+    trusted_outer = PROJECT_ROOT / "scripts" / "dev" / "invoke_pre_r8_r7s7_review.ps1"
+    trusted_outer_sha256 = runner.sha256_file(trusted_outer)
+    work_order = {
+        "schema": runner.WORK_ORDER_SCHEMA,
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "validation_run_uuid": validation_run_uuid,
+        "validation_attempt_uuid": "20000000-0000-4000-8000-000000000002",
+        "handoff_challenge_sha256": "c" * 64,
+        "issued_at_utc": (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        "expires_at_utc": (now + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        "expected_head": "a" * 40,
+        "expected_tree": "b" * 40,
+        "tool_file_bindings": {
+            name: runner.work_order_tool_binding(name, path, sha256)
+            for name, (path, sha256) in sorted(pins.items())
+        },
+        "code_file_bindings": runner.work_order_code_file_bindings(
+            trusted_outer, trusted_outer_sha256
+        ),
+        "immutable_checkout_namespace_authority": False,
+        "runtime_stdlib_native_closure_verified": False,
+        "command_invocation_sha256": runner.command_invocation_commitment(specs),
+        "pycache_prefix": str(pycache_prefix),
+    }
+    authority_root = tmp_path.parent / f"{tmp_path.name}-authority-inputs"
+    authority_root.mkdir()
+    work_order_path = authority_root / "external-work-order.json"
+    work_order_raw = runner.canonical_json_bytes(work_order)
+    work_order_path.write_bytes(work_order_raw)
+    telemetry = {
+        "schema": runner.LIVE_TELEMETRY_SCHEMA,
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "observation_state": "unknown",
+        "observation_scope": "internal_non_authoritative",
+        "collector_authority_verified": False,
+        "counts": {name: None for name in publisher.REQUIRED_ZERO_LIVE_CALLS},
+        "raw_events_sha256": runner.sha256_bytes(runner.canonical_json_bytes([])),
+    }
+    telemetry_path = authority_root / "live-call-telemetry.json"
+    telemetry_raw = runner.canonical_json_bytes(telemetry)
+    telemetry_path.write_bytes(telemetry_raw)
     return runner.argparse.Namespace(
         repository=REPOSITORY,
         project_root=PROJECT_ROOT,
@@ -283,7 +348,25 @@ def _args(tmp_path: Path) -> runner.argparse.Namespace:
         expected_untracked_content_inventory_sha256=inventory["content_inventory_sha256"],
         expected_head="a" * 40,
         expected_tree="b" * 40,
+        external_work_order=work_order_path,
+        external_work_order_sha256=runner.sha256_bytes(work_order_raw),
+        live_call_telemetry=telemetry_path,
+        live_call_telemetry_sha256=runner.sha256_bytes(telemetry_raw),
+        _work_order_specs=specs,
+        trusted_outer=trusted_outer,
+        trusted_outer_sha256=trusted_outer_sha256,
+        _validation_pycache_prefix=pycache_prefix,
     )
+
+
+def _repin_work_order_specs(
+    args: runner.argparse.Namespace, specs: tuple[runner.CommandSpec, ...]
+) -> None:
+    work_order = runner.publisher.read_json_mapping(args.external_work_order, "external_work_order")
+    work_order["command_invocation_sha256"] = runner.command_invocation_commitment(specs)
+    raw = runner.canonical_json_bytes(work_order)
+    args.external_work_order.write_bytes(raw)
+    args.external_work_order_sha256 = runner.sha256_bytes(raw)
 
 
 def _single_command_plan(spec: runner.CommandSpec) -> dict[str, object]:
@@ -313,6 +396,231 @@ def _repository_observation(
         "tracked_clean": tracked_clean,
         "untracked_inventory": {"matches_expected": True},
     }
+
+
+def test_external_work_order_and_raw_telemetry_are_external_digest_bound(
+    tmp_path: Path,
+) -> None:
+    args = _args(tmp_path)
+    pins = runner._executable_pins_from_args(args)
+    validated = runner._validate_external_work_order(args, pins, args._work_order_specs)
+    assert validated["authority_scope"] == "internal_non_authoritative"
+    assert validated["authority_verified"] is False
+    telemetry = runner._validate_live_call_telemetry(args)
+    assert telemetry["payload"]["observation_state"] == "unknown"
+    assert all(value is None for value in telemetry["payload"]["counts"].values())
+
+    work_order = runner.publisher.read_json_mapping(args.external_work_order, "external_work_order")
+    work_order["handoff_challenge_sha256"] = "d" * 64
+    args.external_work_order.write_bytes(runner.canonical_json_bytes(work_order))
+    with pytest.raises(runner.ValidationRunnerError, match="sha256_mismatch"):
+        runner._validate_external_work_order(args, pins, args._work_order_specs)
+
+
+def test_external_work_order_binds_python_tool_origin_version_and_content(
+    tmp_path: Path,
+) -> None:
+    args = _args(tmp_path)
+    pins = runner._executable_pins_from_args(args)
+    validated = runner._validate_external_work_order(args, pins, args._work_order_specs)
+    pytest_binding = validated["payload"]["tool_file_bindings"]["python_general"][
+        "python_tool_module"
+    ]
+    assert pytest_binding["distribution"] == "pytest"
+    assert pytest_binding["version"]
+    assert pytest_binding["module_origins"]["pytest.__main__"]["sha256"]
+    assert pytest_binding["content_file_count"] > 1
+    assert pytest_binding["pth_processing_disabled"] is True
+    dependencies = {item["name"] for item in pytest_binding["dependency_distributions"]}
+    assert {"pytest", "pluggy", "iniconfig", "packaging"} <= dependencies
+    assert any(item["path"].startswith("pluggy/") for item in pytest_binding["content_files"])
+
+    work_order = runner.publisher.read_json_mapping(args.external_work_order, "external_work_order")
+    work_order["tool_file_bindings"]["python_general"]["python_tool_module"][
+        "content_inventory_sha256"
+    ] = "0" * 64
+    raw = runner.canonical_json_bytes(work_order)
+    args.external_work_order.write_bytes(raw)
+    args.external_work_order_sha256 = runner.sha256_bytes(raw)
+    with pytest.raises(runner.ValidationRunnerError, match="binding_mismatch"):
+        runner._validate_external_work_order(args, pins, args._work_order_specs)
+
+
+def test_external_work_order_rejects_transitive_python_tool_dependency_mutation(
+    tmp_path: Path,
+) -> None:
+    args = _args(tmp_path)
+    pins = runner._executable_pins_from_args(args)
+    work_order = runner.publisher.read_json_mapping(args.external_work_order, "external_work_order")
+    records = work_order["tool_file_bindings"]["python_general"]["python_tool_module"][
+        "content_files"
+    ]
+    dependency = next(item for item in records if item["path"].startswith("pluggy/"))
+    dependency["sha256"] = "0" * 64
+    raw = runner.canonical_json_bytes(work_order)
+    args.external_work_order.write_bytes(raw)
+    args.external_work_order_sha256 = runner.sha256_bytes(raw)
+    with pytest.raises(runner.ValidationRunnerError, match="binding_mismatch"):
+        runner._validate_external_work_order(args, pins, args._work_order_specs)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["immutable_checkout_namespace_authority", "runtime_stdlib_native_closure_verified"],
+)
+def test_internal_work_order_cannot_promote_unproven_runtime_closure(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    args = _args(tmp_path)
+    pins = runner._executable_pins_from_args(args)
+    work_order = runner.publisher.read_json_mapping(args.external_work_order, "external_work_order")
+    work_order[field] = True
+    raw = runner.canonical_json_bytes(work_order)
+    args.external_work_order.write_bytes(raw)
+    args.external_work_order_sha256 = runner.sha256_bytes(raw)
+    with pytest.raises(runner.ValidationRunnerError, match="binding_mismatch"):
+        runner._validate_external_work_order(args, pins, args._work_order_specs)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "digest", "duplicate", "path_escape"])
+def test_external_work_order_rejects_python_tool_content_file_mutations(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    args = _args(tmp_path)
+    pins = runner._executable_pins_from_args(args)
+    work_order = runner.publisher.read_json_mapping(args.external_work_order, "external_work_order")
+    module = work_order["tool_file_bindings"]["python_general"]["python_tool_module"]
+    records = module["content_files"]
+    if mutation == "missing":
+        records.pop()
+    elif mutation == "digest":
+        records[0]["sha256"] = "0" * 64
+    elif mutation == "duplicate":
+        records.insert(1, dict(records[0]))
+    else:
+        records[0]["path"] = "../outside.py"
+    raw = runner.canonical_json_bytes(work_order)
+    args.external_work_order.write_bytes(raw)
+    args.external_work_order_sha256 = runner.sha256_bytes(raw)
+    with pytest.raises(runner.ValidationRunnerError, match="binding_mismatch"):
+        runner._validate_external_work_order(args, pins, args._work_order_specs)
+
+
+def test_project_preimport_code_closure_is_exactly_nineteen_files() -> None:
+    outer = PROJECT_ROOT / "scripts" / "dev" / "invoke_pre_r8_r7s7_review.ps1"
+    bindings = runner.work_order_code_file_bindings(outer, runner.sha256_file(outer))
+    assert len(bindings) == 19
+    assert {
+        "evm_init",
+        "scale_validation_init",
+        "phase_b2_r7s3_handle_io",
+        "phase_b2_r7s4_authority",
+        "phase_b2_r7s4_evidence",
+        "phase_b2_r7s5_evidence",
+    } < set(bindings)
+    assert len({value["path"].casefold() for value in bindings.values()}) == 19
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows retained-share semantics")
+def test_retained_read_share_blocks_write_and_rename(tmp_path: Path) -> None:
+    target = tmp_path / "pinned-tool.py"
+    target.write_text("pass\n", encoding="utf-8")
+    moved = tmp_path / "replaced-tool.py"
+    command = (
+        "$ErrorActionPreference='Stop';"
+        f"$p='{str(target).replace(chr(39), chr(39) * 2)}';"
+        f"$m='{str(moved).replace(chr(39), chr(39) * 2)}';"
+        "$s=[IO.FileStream]::new($p,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read);"
+        "$w=$false;$r=$false;try{"
+        "try{[IO.File]::WriteAllText($p,'tamper')}catch{$w=$true};"
+        "try{Move-Item -LiteralPath $p -Destination $m -ErrorAction Stop}catch{$r=$true}"
+        "}finally{$s.Dispose()};"
+        "Write-Output ('write_blocked='+$w);Write-Output ('rename_blocked='+$r)"
+    )
+    completed = subprocess.run(
+        (str(POWERSHELL), "-NoProfile", "-NonInteractive", "-Command", command),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "write_blocked=True" in completed.stdout
+    assert "rename_blocked=True" in completed.stdout
+    assert target.read_text(encoding="utf-8") == "pass\n"
+    assert not moved.exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows retained directory-share semantics")
+def test_directory_handle_does_not_claim_immutable_namespace_authority(tmp_path: Path) -> None:
+    target = tmp_path / "pinned-directory"
+    target.mkdir()
+    moved = tmp_path / "replaced-directory"
+    quoted_target = str(target).replace("'", "''")
+    quoted_moved = str(moved).replace("'", "''")
+    member = (
+        '[System.Runtime.InteropServices.DllImport("kernel32.dll",CharSet='
+        "System.Runtime.InteropServices.CharSet.Unicode,SetLastError=true)] "
+        "public static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFile("
+        "string n,uint a,uint s,System.IntPtr x,uint d,uint f,System.IntPtr t);"
+    )
+    command = (
+        "$ErrorActionPreference='Stop';"
+        f"$n=Add-Type -PassThru -Namespace T -Name D -MemberDefinition '{member}';"
+        f"$h=$n::CreateFile('{quoted_target}',0x80,1,[IntPtr]::Zero,3,0x02000000,[IntPtr]::Zero);"
+        "if($h.IsInvalid){throw 'directory_handle_failed'};"
+        "$blocked=$false;try{"
+        f"try{{Move-Item -LiteralPath '{quoted_target}' -Destination '{quoted_moved}' -ErrorAction Stop}}catch{{$blocked=$true}}"
+        "}finally{$h.Dispose()};Write-Output ('rename_blocked='+$blocked)"
+    )
+    completed = subprocess.run(
+        (str(POWERSHELL), "-NoProfile", "-NonInteractive", "-Command", command),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    # A directory handle plus a launch-edge identity recheck narrows ordinary
+    # substitution, but Windows permits this parent namespace rename.  The
+    # internal work order must therefore preserve an explicit hard NO-GO.
+    assert "rename_blocked=False" in completed.stdout
+    assert not target.exists()
+    assert moved.is_dir()
+    validation_dir = tmp_path / "work-order"
+    validation_dir.mkdir()
+    args = _args(validation_dir)
+    work_order = runner.publisher.read_json_mapping(args.external_work_order, "external_work_order")
+    assert work_order["immutable_checkout_namespace_authority"] is False
+    assert work_order["runtime_stdlib_native_closure_verified"] is False
+
+
+def test_external_work_order_expiry_and_observed_telemetry_self_claim_fail_closed(
+    tmp_path: Path,
+) -> None:
+    args = _args(tmp_path)
+    pins = runner._executable_pins_from_args(args)
+    work_order = runner.publisher.read_json_mapping(args.external_work_order, "external_work_order")
+    now = datetime.now(UTC)
+    work_order["issued_at_utc"] = (now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+    work_order["expires_at_utc"] = (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    raw = runner.canonical_json_bytes(work_order)
+    args.external_work_order.write_bytes(raw)
+    args.external_work_order_sha256 = runner.sha256_bytes(raw)
+    with pytest.raises(runner.ValidationRunnerError, match="expired"):
+        runner._validate_external_work_order(args, pins, args._work_order_specs)
+
+    telemetry = runner.publisher.read_json_mapping(args.live_call_telemetry, "live_call_telemetry")
+    telemetry["observation_state"] = "observed"
+    telemetry["collector_authority_verified"] = True
+    telemetry["counts"] = {name: 0 for name in publisher.REQUIRED_ZERO_LIVE_CALLS}
+    raw = runner.canonical_json_bytes(telemetry)
+    args.live_call_telemetry.write_bytes(raw)
+    args.live_call_telemetry_sha256 = runner.sha256_bytes(raw)
+    with pytest.raises(runner.ValidationRunnerError, match="unobserved_contract_invalid"):
+        runner._validate_live_call_telemetry(args)
 
 
 def test_command_plan_reconstructs_exact_run_environment_including_git(
@@ -632,16 +940,19 @@ def test_validation_plan_is_exact_offline_and_has_no_retry_or_live_command() -> 
     assert workflow_spec.expected_exit_code == 2
     assert "workflow_action_ref_inventory_mismatch" in workflow_spec.required_output_tokens
     compile_spec = next(item for item in specs if item.name == "py-compile-py311")
-    assert compile_spec.argv[1:4] == ("-I", "-B", "-c")
+    assert compile_spec.argv[1:4] == ("-I", "-B", "-S")
+    assert compile_spec.argv[4] == "-X"
+    assert compile_spec.argv[5].startswith("pycache_prefix=")
+    assert compile_spec.argv[6] == "-c"
     assert "py_compile" not in compile_spec.argv
-    assert "in_memory_no_bytecode" in compile_spec.argv[4]
+    assert "in_memory_no_bytecode" in compile_spec.argv[7]
     assert compile_spec.required_output_tokens == ("py_compile_mode=in_memory_no_bytecode",)
     assert all(Path(item.argv[0]).is_absolute() for item in specs)
     for spec in specs:
         if Path(spec.argv[0]).resolve(strict=True) in {
             Path(sys.executable).resolve(strict=True),
         }:
-            assert spec.argv[1:3] == ("-I", "-B")
+            assert spec.argv[1:4] == ("-I", "-B", "-S")
     ast_spec = next(item for item in specs if item.name == "powershell-ast")
     assert str(GIT) in ast_spec.argv[-1]
     assert runner.sha256_file(GIT) in ast_spec.argv[-1]
@@ -745,9 +1056,174 @@ def test_isolated_python_bootstrap_loads_pytest_with_only_explicit_project_roots
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.startswith("pytest ")
-    assert argv[1:4] == ("-I", "-B", "-c")
-    assert repr(str(PROJECT_ROOT.resolve(strict=True))) in argv[4]
-    assert repr(str((PROJECT_ROOT / "src").resolve(strict=True))) in argv[4]
+    assert argv[1:4] == ("-I", "-B", "-S")
+    assert argv[4] == "-X"
+    assert argv[5].startswith("pycache_prefix=")
+    asserted_prefix = Path(argv[5].removeprefix("pycache_prefix="))
+    assert argv[6] == "-c"
+    assert repr(str(PROJECT_ROOT.resolve(strict=True))) in argv[7]
+    assert repr(str((PROJECT_ROOT / "src").resolve(strict=True))) in argv[7]
+    assert "sys.flags.no_site==1" in argv[7]
+    startup_source = inspect.getsource(runner._require_isolated_no_bytecode_startup)
+    assert "sys.flags.no_site != 1" in startup_source
+    assert "requires_python_I_B_S_startup" in startup_source
+    assert not asserted_prefix.exists()
+    bootstrap = argv[7]
+    site_packages = runner.verified_site_packages_binding(Path(sys.executable))["path"]
+    assert (
+        f"[*sys.path,{str((PROJECT_ROOT / 'src').resolve())!r},"
+        f"{str(PROJECT_ROOT.resolve())!r},{site_packages!r}]"
+    ) in bootstrap
+    module_source = Path(runner.__file__).read_text(encoding="utf-8")
+    assert module_source.index('if __name__ == "__main__":') < module_source.index(
+        "from scripts.dev import publish_pre_r8_r7s5_review"
+    )
+    occupied = tmp_path / "occupied-pycache-prefix"
+    occupied.mkdir()
+    with pytest.raises(runner.ValidationRunnerError, match="pycache_prefix_must_not_exist"):
+        runner._isolated_python_module_argv(
+            Path(sys.executable), PROJECT_ROOT, "pytest", pycache_prefix=occupied
+        )
+
+
+def test_isolated_python_script_bootstrap_is_runnable_and_path_ordered(
+    tmp_path: Path,
+) -> None:
+    pycache_prefix = tmp_path / "script-pycache-prefix-must-remain-absent"
+    argv = runner._isolated_python_script_argv(
+        Path(sys.executable),
+        PROJECT_ROOT,
+        "scripts/dev/validate_pre_r8_r7s5_ci.py",
+        "--help",
+        pycache_prefix=pycache_prefix,
+    )
+    completed = subprocess.run(
+        argv,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "usage:" in completed.stdout
+    assert not pycache_prefix.exists()
+    bootstrap = argv[7]
+    site_packages = runner.verified_site_packages_binding(Path(sys.executable))["path"]
+    assert "import pathlib,runpy,sys" in bootstrap
+    assert (
+        f"[*sys.path,{str((PROJECT_ROOT / 'src').resolve())!r},"
+        f"{str(PROJECT_ROOT.resolve())!r},{site_packages!r}]"
+    ) in bootstrap
+
+
+def test_focused_plan_explicitly_covers_r7s3_through_r7s7_adversarial_files() -> None:
+    specs = runner.build_command_specs(
+        repository=REPOSITORY,
+        project_root=PROJECT_ROOT,
+        python_general=Path(sys.executable),
+        python_host=Path(sys.executable),
+        python_ruff=Path(sys.executable),
+        git_executable=GIT,
+        git_executable_sha256=runner.sha256_file(GIT),
+        powershell_executable=POWERSHELL,
+    )
+    focused = next(item for item in specs if item.name == "r7s5-focused-pytest-py311")
+    required = {
+        "tests/test_phase_b2_r7s3_handle_io.py",
+        "tests/test_phase_b2_r7s4_evidence.py",
+        "tests/test_phase_b2_r7s4_handle_io.py",
+        "tests/test_phase_b2_r7s4_process.py",
+        "tests/test_pre_r8_r7s3_oob_candidate.py",
+        "tests/test_pre_r8_r7s3_python_tcb_inventory.py",
+        "tests/test_pre_r8_r7s3_toolchain_pin.py",
+        "tests/test_pre_r8_r7s4_ci_bootstrap.py",
+        "tests/test_phase_b2_r7s7_admission.py",
+        "tests/test_phase_b2_r7s7_qualification_work_order.py",
+        "tests/test_qualify_pre_r8_r7s7_windows.py",
+    }
+    assert required <= set(focused.argv)
+
+
+def test_validation_runner_has_terminal_pycache_absence_gate() -> None:
+    source = inspect.getsource(runner._run_validation_with_bound_output)
+    postcondition = 'failure_stage = "pycache_prefix_postcondition"'
+    summary = 'failure_stage = "summary_serialization"'
+    assert postcondition in source
+    assert "validation_pycache_prefix_created_during_execution" in source
+    assert source.index(postcondition) < source.index(summary)
+
+
+def test_prepare_internal_inputs_is_runnable_without_future_pid_and_remains_no_go(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    validation_parent = tmp_path / "validation"
+    validation_parent.mkdir()
+    args = _args(validation_parent)
+    prepare_parent = tmp_path / "prepared"
+    prepare_parent.mkdir()
+    args.parent = prepare_parent
+    args.expected_parent = prepare_parent
+    args.expected_parent_sha256 = runner.output_parent_commitment(prepare_parent)["sha256"]
+    args.output_leaf = "internal-inputs-r7s7"
+    args.validation_run_uuid = "30000000-0000-4000-8000-000000000003"
+    args.validation_attempt_uuid = "40000000-0000-4000-8000-000000000004"
+    args.handoff_challenge_sha256 = "c" * 64
+    now = datetime.now(UTC)
+    args.issued_at_utc = (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
+    args.expires_at_utc = (now + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    args.codex_pid = 123
+    args.publisher_python = Path(sys.executable)
+    args.publisher_python_sha256 = runner.sha256_file(Path(sys.executable))
+    runtime_pid = os.getpid()
+    parent_pid = os.getppid()
+    codex_executable = tmp_path / "codex.exe"
+    codex_executable.write_bytes(b"test-only-codex")
+    identities = {
+        runtime_pid: {"pid": runtime_pid, "ppid": parent_pid, "path": str(Path(sys.executable))},
+        parent_pid: {"pid": parent_pid, "ppid": 123, "path": str(POWERSHELL)},
+        123: {"pid": 123, "ppid": 1, "path": str(codex_executable)},
+    }
+    monkeypatch.setattr(
+        publisher, "measure_process_identity", lambda pid, **_kwargs: identities[pid]
+    )
+    monkeypatch.setattr(publisher, "measure_current_token", lambda: {})
+    monkeypatch.setattr(publisher, "measure_process_token", lambda _pid: {})
+    monkeypatch.setattr(publisher, "_token_requirements", lambda _token, _label: None)
+    observed: dict[str, object] = {}
+
+    class Batch:
+        def to_dict(self) -> dict[str, object]:
+            return {"output_directory": str(prepare_parent / args.output_leaf)}
+
+    def publish(
+        parent: Path, leaf: str, documents: Mapping[str, object], *, run_uuid: str
+    ) -> Batch:
+        observed.update(parent=parent, leaf=leaf, documents=documents, run_uuid=run_uuid)
+        return Batch()
+
+    monkeypatch.setattr(publisher.evidence, "publish_pre_serialized_batch", publish)
+    result = runner.prepare_internal_inputs(args)
+    documents = observed["documents"]
+    assert isinstance(documents, Mapping)
+    assert set(documents) == {
+        "external-work-order.json",
+        "live-call-telemetry.json",
+        "publisher-token-evidence.json",
+        "lineage-work-order.json",
+        "internal-input-index.json",
+    }
+    lineage = documents["lineage-work-order.json"]
+    assert isinstance(lineage, Mapping)
+    assert "pid" not in str(lineage["executable_bindings"])
+    index = documents["internal-input-index.json"]
+    assert index["blocking_unproven_invariants"] == [
+        "immutable_checkout_namespace_authority",
+        "runtime_stdlib_native_closure_verified",
+    ]
+    assert result["decision"] == "NO-GO"
+    assert result["authority_verified"] is False
+    assert result["external_worm_receipt_created"] is False
 
 
 def test_selected_validation_files_include_runner_publisher_and_all_r7s5_modules() -> None:
@@ -760,8 +1236,14 @@ def test_selected_validation_files_include_runner_publisher_and_all_r7s5_modules
     assert "tests/test_phase_b2_r7_process.py" in files
     assert "tests/test_phase_b2_r7s3_job_capability.py" in files
     assert "tests/test_phase_b2_r7s3_process.py" in files
+    assert "tests/test_phase_b2_r7s4_authority.py" in files
     assert "tests/test_phase_b2_r7s5_evidence.py" in files
     assert "tests/test_phase_b2_r7s6_evidence.py" in files
+    assert "src/evm/scale_validation/phase_b2_r7s7_admission.py" in files
+    assert "tests/test_phase_b2_r7s7_admission.py" in files
+    assert "scripts/dev/pre_r8_r7s7_windows_fixture.py" in files
+    assert "scripts/dev/qualify_pre_r8_r7s7_windows.py" in files
+    assert "tests/test_qualify_pre_r8_r7s7_windows.py" in files
     assert len(files) == len(set(files))
 
 
@@ -1256,6 +1738,7 @@ def test_run_validation_rejects_pinned_output_parent_inside_repository_before_cr
         raise AssertionError("output creation must remain unreachable")
 
     monkeypatch.setattr(runner, "build_command_specs", lambda **kwargs: (spec,))
+    _repin_work_order_specs(args, (spec,))
     monkeypatch.setattr(runner._BoundValidationOutput, "create", unexpected_create)
     with pytest.raises(runner.ValidationRunnerError, match="inside_forbidden_root"):
         runner.run_validation(args)
@@ -1646,13 +2129,17 @@ def test_run_validation_is_not_coupled_to_raising_stdout(
 def test_main_console_emission_is_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runner, "_require_isolated_no_bytecode_startup", lambda: None)
     monkeypatch.setattr(runner, "parse_args", lambda argv: object())
-    monkeypatch.setattr(runner, "run_validation", lambda args: {"status": "PASS"})
+    monkeypatch.setattr(
+        runner,
+        "run_validation",
+        lambda args: {"status": "PASS", "decision": "NO-GO"},
+    )
 
     def unavailable_stdout(*args: object, **kwargs: object) -> None:
         raise ValueError("closed stdout")
 
     monkeypatch.setattr("builtins.print", unavailable_stdout)
-    assert runner.main([]) == 0
+    assert runner.main([]) == 1
 
 
 def test_output_initialization_failure_is_published_as_atomic_sibling(
@@ -1858,6 +2345,7 @@ def test_post_writer_setup_interrupt_is_independently_emergency_sealed(
 
     monkeypatch.setattr(runner._BoundValidationOutput, "create", lambda *args: output)
     monkeypatch.setattr(runner, "build_command_specs", lambda **kwargs: (spec,))
+    _repin_work_order_specs(args, (spec,))
     monkeypatch.setattr(runner, "publish_bound_no_replace_durable", atomic_publish)
 
     result = runner.run_validation(args)
@@ -1936,6 +2424,7 @@ def test_validation_dispatch_trace_interrupt_is_sealed_once(
 
     monkeypatch.setattr(runner._BoundValidationOutput, "create", failed_create)
     monkeypatch.setattr(runner, "build_command_specs", lambda **_kwargs: (spec,))
+    _repin_work_order_specs(args, (spec,))
     monkeypatch.setattr(runner, "_publish_initialization_failure", publish_failure_once)
     monkeypatch.setattr(runner, "publish_bound_no_replace_durable", atomic_publish)
 
@@ -2018,6 +2507,7 @@ def test_validation_dispatch_failure_uses_distinct_emergency_without_retry(
 
     monkeypatch.setattr(runner._BoundValidationOutput, "create", failed_create)
     monkeypatch.setattr(runner, "build_command_specs", lambda **_kwargs: (spec,))
+    _repin_work_order_specs(args, (spec,))
     monkeypatch.setattr(runner, "_publish_initialization_failure", failed_ordinary_dispatch)
     monkeypatch.setattr(runner, "publish_bound_no_replace_durable", atomic_publish)
 

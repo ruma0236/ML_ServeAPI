@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import math
@@ -17,9 +18,22 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping, Sequence
 
+
+def _require_isolated_no_bytecode_startup() -> None:
+    if sys.flags.isolated != 1 or sys.flags.dont_write_bytecode != 1 or sys.flags.no_site != 1:
+        raise RuntimeError("validation_runner_requires_python_I_B_S_startup")
+
+
+# The executable entry must establish interpreter isolation before any project
+# path is injected or any project module is imported.  Importable test seams stay
+# available because tests import this module rather than executing it as __main__.
+if __name__ == "__main__":
+    _require_isolated_no_bytecode_startup()
+
 SCRIPT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(SCRIPT_PROJECT_ROOT))
-sys.path.insert(0, str(SCRIPT_PROJECT_ROOT / "src"))
+for _project_path in (SCRIPT_PROJECT_ROOT, SCRIPT_PROJECT_ROOT / "src"):
+    if str(_project_path) not in sys.path:
+        sys.path.append(str(_project_path))
 
 from scripts.dev import publish_pre_r8_r7s5_review as publisher  # noqa: E402
 from evm.scale_validation import phase_b2_r7s3_handle_io as handle_io  # noqa: E402
@@ -39,7 +53,9 @@ from evm.scale_validation.phase_b2_r7s3_process import (  # noqa: E402
 )
 
 
-SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s6.validation-runner.v1"
+SCHEMA = "evm.s8-v4.x1.phase-b2.pre-r8-r7s7.validation-runner.v2"
+WORK_ORDER_SCHEMA = f"{SCHEMA}.external-work-order.v1"
+LIVE_TELEMETRY_SCHEMA = f"{SCHEMA}.live-call-telemetry.v1"
 VALIDATION_OBSERVATION_SCOPE = "planned_and_metadata_children_windows_job_accounted_no_kill"
 ENVIRONMENT_SCHEMA = f"{SCHEMA}.child-environment.v1"
 TERMINAL_FAILURE_SCHEMA = f"{SCHEMA}.terminal-failure.v1"
@@ -127,6 +143,491 @@ class ValidationRunnerError(RuntimeError):
     pass
 
 
+def _reject_duplicate_json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate_json_key")
+        value[key] = item
+    return value
+
+
+def _strict_uuid(value: object, label: str) -> str:
+    if not isinstance(value, str):
+        raise ValidationRunnerError(f"{label}_uuid_required")
+    try:
+        normalized = str(uuid.UUID(value))
+    except ValueError as exc:
+        raise ValidationRunnerError(f"{label}_uuid_invalid") from exc
+    if normalized != value.lower():
+        raise ValidationRunnerError(f"{label}_uuid_not_canonical")
+    return normalized
+
+
+def _strict_utc(value: object, label: str) -> datetime:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        raise ValidationRunnerError(f"{label}_utc_required")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValidationRunnerError(f"{label}_utc_invalid") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != UTC.utcoffset(parsed):
+        raise ValidationRunnerError(f"{label}_utc_invalid")
+    return parsed
+
+
+def executable_file_binding(path: Path, expected_sha256: str) -> dict[str, Any]:
+    """Return an exact local file identity; this is not an authority attestation."""
+
+    resolved = path.resolve(strict=True)
+    info = os.lstat(resolved)
+    if not stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+        raise ValidationRunnerError("work_order_tool_regular_file_required")
+    expected = publisher._hex64(expected_sha256, "work_order_tool_sha256")
+    if sha256_file(resolved) != expected:
+        raise ValidationRunnerError("work_order_tool_sha256_mismatch")
+    return {
+        "path": str(resolved),
+        "sha256": expected,
+        "bytes": info.st_size,
+        "device": info.st_dev,
+        "file_id": info.st_ino,
+        "creation_time_ns": info.st_ctime_ns,
+    }
+
+
+def verified_site_packages_binding(executable: Path) -> dict[str, Any]:
+    resolved = executable.resolve(strict=True)
+    environment_root = (
+        resolved.parent.parent if resolved.parent.name.casefold() == "scripts" else resolved.parent
+    )
+    site_packages = (environment_root / "Lib" / "site-packages").resolve(strict=True)
+    info = os.lstat(site_packages)
+    if not stat.S_ISDIR(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+        raise ValidationRunnerError("python_site_packages_regular_directory_required")
+    return {
+        "path": str(site_packages),
+        "device": info.st_dev,
+        "file_id": info.st_ino,
+        "creation_time_ns": info.st_ctime_ns,
+        "pth_processing": "disabled_by_python_no_site",
+    }
+
+
+def _normalized_distribution_name(value: str) -> str:
+    return re.sub(r"[-_.]+", "-", value).casefold()
+
+
+def _installed_distribution(
+    site_packages: Path, distribution: str
+) -> tuple[Path, str, tuple[str, ...]]:
+    expected = _normalized_distribution_name(distribution)
+    matches: list[tuple[Path, str, tuple[str, ...]]] = []
+    for candidate in sorted(site_packages.glob("*.dist-info")):
+        info = os.lstat(candidate)
+        if not stat.S_ISDIR(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise ValidationRunnerError("python_tool_dist_info_regular_directory_required")
+        metadata = candidate / "METADATA"
+        if not metadata.is_file():
+            continue
+        lines = metadata.read_text(encoding="utf-8").splitlines()
+        names = [line[6:].strip() for line in lines if line.startswith("Name: ")]
+        versions = [line[9:].strip() for line in lines if line.startswith("Version: ")]
+        if len(names) == 1 and _normalized_distribution_name(names[0]) == expected:
+            if len(versions) != 1:
+                raise ValidationRunnerError("python_tool_distribution_metadata_invalid")
+            requirements = tuple(
+                line[15:].strip() for line in lines if line.startswith("Requires-Dist: ")
+            )
+            matches.append((candidate, versions[0], requirements))
+    if len(matches) != 1:
+        raise ValidationRunnerError(f"python_tool_dist_info_not_exact:{distribution}")
+    return matches[0]
+
+
+def _python_tool_distribution_closure(
+    site_packages: Path, distribution: str
+) -> list[tuple[str, Path, str]]:
+    pending = [distribution]
+    result: dict[str, tuple[str, Path, str]] = {}
+    while pending:
+        requested = pending.pop(0)
+        normalized = _normalized_distribution_name(requested)
+        if normalized in result:
+            continue
+        dist_info, version, requirements = _installed_distribution(site_packages, requested)
+        result[normalized] = (normalized, dist_info, version)
+        for requirement in requirements:
+            requirement_text, separator, marker = requirement.partition(";")
+            if separator and "extra" in marker.casefold():
+                continue
+            match = re.match(r"^\s*([A-Za-z0-9_.-]+)", requirement_text)
+            if match is None:
+                raise ValidationRunnerError("python_tool_requires_dist_invalid")
+            dependency = match.group(1)
+            try:
+                _installed_distribution(site_packages, dependency)
+            except ValidationRunnerError:
+                if not separator:
+                    raise
+                continue
+            pending.append(dependency)
+    return [result[name] for name in sorted(result)]
+
+
+def _distribution_import_roots(site_packages: Path, dist_info: Path) -> tuple[Path, ...]:
+    record_path = dist_info / "RECORD"
+    if not record_path.is_file():
+        raise ValidationRunnerError("python_tool_distribution_record_required")
+    top_level_names: set[str] = set()
+    with record_path.open("r", encoding="utf-8", newline="") as stream:
+        for row in csv.reader(stream):
+            if not row:
+                continue
+            relative = PurePosixPath(row[0])
+            if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+                continue
+            first = relative.parts[0]
+            if first.casefold().endswith(".dist-info") or first.casefold().endswith(".data"):
+                continue
+            suffix = PurePosixPath(row[0]).suffix.casefold()
+            if suffix in {".py", ".pyi", ".pyd", ".so", ".dll"}:
+                top_level_names.add(first)
+    if not top_level_names:
+        raise ValidationRunnerError("python_tool_distribution_import_roots_missing")
+    roots = tuple((site_packages / name).resolve(strict=True) for name in sorted(top_level_names))
+    if any(site_packages not in root.parents for root in roots):
+        raise ValidationRunnerError("python_tool_distribution_import_root_escape")
+    return roots
+
+
+def python_tool_module_binding(executable: Path, distribution: str) -> dict[str, Any]:
+    """Bind executable Python tool code without importing it or processing .pth files."""
+
+    if distribution not in {"pytest", "ruff"}:
+        raise ValidationRunnerError("python_tool_distribution_not_allowed")
+    executable = executable.resolve(strict=True)
+    site_packages = Path(verified_site_packages_binding(executable)["path"])
+    closure = _python_tool_distribution_closure(site_packages, distribution)
+    dist_info = next(item[1] for item in closure if item[0] == distribution)
+    roots = sorted(
+        {
+            *[item[1] for item in closure],
+            *[
+                root
+                for _, closure_dist_info, _ in closure
+                for root in _distribution_import_roots(site_packages, closure_dist_info)
+            ],
+        },
+        key=lambda item: str(item).casefold(),
+    )
+    records: list[dict[str, Any]] = []
+    origin_records: dict[str, dict[str, Any]] = {}
+    for root in roots:
+        root_info = os.lstat(root)
+        if getattr(root_info, "st_file_attributes", 0) & 0x400:
+            raise ValidationRunnerError(
+                f"python_tool_root_regular_nonreparse_required:{distribution}"
+            )
+        if stat.S_ISREG(root_info.st_mode):
+            relative = root.relative_to(site_packages).as_posix()
+            records.append(
+                {"path": relative, "bytes": root_info.st_size, "sha256": sha256_file(root)}
+            )
+            continue
+        if not stat.S_ISDIR(root_info.st_mode):
+            raise ValidationRunnerError(f"python_tool_root_type_invalid:{distribution}")
+        for directory, directory_names, file_names in os.walk(root, followlinks=False):
+            directory_path = Path(directory)
+            directory_info = os.lstat(directory_path)
+            if (
+                not stat.S_ISDIR(directory_info.st_mode)
+                or getattr(directory_info, "st_file_attributes", 0) & 0x400
+            ):
+                raise ValidationRunnerError(
+                    f"python_tool_directory_reparse_forbidden:{distribution}"
+                )
+            kept_directories = []
+            for name in sorted(directory_names):
+                child = directory_path / name
+                child_info = os.lstat(child)
+                if name == "__pycache__":
+                    continue
+                if (
+                    not stat.S_ISDIR(child_info.st_mode)
+                    or getattr(child_info, "st_file_attributes", 0) & 0x400
+                ):
+                    raise ValidationRunnerError(
+                        f"python_tool_directory_reparse_forbidden:{distribution}"
+                    )
+                kept_directories.append(name)
+            directory_names[:] = kept_directories
+            for name in sorted(file_names):
+                if name.casefold().endswith((".pyc", ".pyo")):
+                    continue
+                path = directory_path / name
+                info = os.lstat(path)
+                if not stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                    raise ValidationRunnerError(
+                        f"python_tool_content_regular_file_required:{distribution}"
+                    )
+                relative = path.relative_to(site_packages).as_posix()
+                records.append(
+                    {"path": relative, "bytes": info.st_size, "sha256": sha256_file(path)}
+                )
+    module_origins = (
+        (
+            ("pytest", site_packages / "pytest" / "__init__.py"),
+            ("pytest.__main__", site_packages / "pytest" / "__main__.py"),
+            ("_pytest", site_packages / "_pytest" / "__init__.py"),
+        )
+        if distribution == "pytest"
+        else (
+            ("ruff", site_packages / "ruff" / "__init__.py"),
+            ("ruff.__main__", site_packages / "ruff" / "__main__.py"),
+        )
+    )
+    by_path = {record["path"]: record for record in records}
+    for module_name, origin in module_origins:
+        relative = origin.relative_to(site_packages).as_posix()
+        if relative not in by_path:
+            raise ValidationRunnerError(f"python_tool_module_origin_missing:{module_name}")
+        origin_records[module_name] = {
+            "path": str(origin.resolve(strict=True)),
+            "relative_path": relative,
+            "bytes": by_path[relative]["bytes"],
+            "sha256": by_path[relative]["sha256"],
+        }
+    metadata = dist_info / "METADATA"
+    metadata_text = metadata.read_text(encoding="utf-8")
+    names = [line[6:].strip() for line in metadata_text.splitlines() if line.startswith("Name: ")]
+    versions = [
+        line[9:].strip() for line in metadata_text.splitlines() if line.startswith("Version: ")
+    ]
+    if len(names) != 1 or names[0].casefold() != distribution or len(versions) != 1:
+        raise ValidationRunnerError(f"python_tool_metadata_invalid:{distribution}")
+    environment_root = (
+        executable.parent.parent
+        if executable.parent.name.casefold() == "scripts"
+        else executable.parent
+    )
+    launcher_binding: dict[str, Any] | None = None
+    if distribution == "ruff":
+        launcher = (environment_root / "Scripts" / "ruff.exe").resolve(strict=True)
+        launcher_binding = executable_file_binding(launcher, sha256_file(launcher))
+    records.sort(key=lambda item: item["path"])
+    return {
+        "distribution": distribution,
+        "version": versions[0],
+        "site_packages_path": str(site_packages),
+        "module_origins": origin_records,
+        "content_files": records,
+        "content_file_count": len(records),
+        "content_total_bytes": sum(int(item["bytes"]) for item in records),
+        "content_inventory_sha256": hashlib.sha256(canonical_json_bytes(records)).hexdigest(),
+        "dist_info_path": str(dist_info.resolve(strict=True)),
+        "dependency_distributions": [
+            {"name": name, "version": version, "dist_info_path": str(path.resolve(strict=True))}
+            for name, path, version in closure
+        ],
+        "launcher_binding": launcher_binding,
+        "ambient_import_disabled": True,
+        "pth_processing_disabled": True,
+    }
+
+
+def work_order_tool_binding(name: str, path: Path, expected_sha256: str) -> dict[str, Any]:
+    binding = executable_file_binding(path, expected_sha256)
+    if name.startswith("python_"):
+        distribution = "ruff" if name == "python_ruff" else "pytest"
+        binding = {
+            **binding,
+            "site_packages": verified_site_packages_binding(path),
+            "python_tool_module": python_tool_module_binding(path, distribution),
+        }
+    return binding
+
+
+def work_order_code_file_bindings(trusted_outer: Path, trusted_outer_sha256: str) -> dict[str, Any]:
+    """Enumerate every project module imported by the publisher before validation."""
+
+    modules = {
+        "evm_init": sys.modules["evm"],
+        "scale_validation_init": sys.modules["evm.scale_validation"],
+        "phase_b2_r7s3_handle_io": sys.modules["evm.scale_validation.phase_b2_r7s3_handle_io"],
+        "phase_b2_r7s5_admission": publisher.admission,
+        "phase_b2_r7s5_ci": publisher.ci,
+        "phase_b2_r7s5_dual_clock": publisher.dual_clock,
+        "phase_b2_r7s5_etw": publisher.etw,
+        "phase_b2_r7s6_evidence": publisher.evidence,
+        "phase_b2_r7s5_gate": publisher.gate,
+        "phase_b2_r7s5_reservation": publisher.reservation,
+        "phase_b2_r7s5_windows_wsl": publisher.windows_wsl,
+        "phase_b2_r7s3_process": sys.modules[publisher.WindowsJobProcessRunner.__module__],
+        "phase_b2_r7s4_authority": sys.modules["evm.scale_validation.phase_b2_r7s4_authority"],
+        "phase_b2_r7s4_evidence": sys.modules["evm.scale_validation.phase_b2_r7s4_evidence"],
+        "phase_b2_r7s4_handle_io": sys.modules[publisher.validate_strict_windows_leaf.__module__],
+        "phase_b2_r7s5_evidence": sys.modules["evm.scale_validation.phase_b2_r7s5_evidence"],
+    }
+    result = {
+        "publisher": executable_file_binding(
+            Path(publisher.__file__), sha256_file(Path(publisher.__file__))
+        ),
+        "validation_runner": executable_file_binding(Path(__file__), sha256_file(Path(__file__))),
+        "trusted_outer": executable_file_binding(trusted_outer, trusted_outer_sha256),
+    }
+    for name, module in modules.items():
+        path = Path(module.__file__)
+        result[name] = executable_file_binding(path, sha256_file(path))
+    if len(result) != 19:
+        raise ValidationRunnerError("work_order_project_import_closure_not_exact_19")
+    return dict(sorted(result.items()))
+
+
+def _read_canonical_mapping(
+    path: Path, expected_sha256: str, label: str
+) -> tuple[dict[str, Any], bytes]:
+    resolved = path.resolve(strict=True)
+    raw = resolved.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != publisher._hex64(expected_sha256, label):
+        raise ValidationRunnerError(f"{label}_sha256_mismatch")
+    try:
+        value = json.loads(raw, object_pairs_hook=_reject_duplicate_json_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValidationRunnerError(f"{label}_json_invalid") from exc
+    if not isinstance(value, dict) or raw != canonical_json_bytes(value):
+        raise ValidationRunnerError(f"{label}_canonical_mapping_required")
+    return value, raw
+
+
+def _validate_external_work_order(
+    args: argparse.Namespace,
+    executable_pins: Mapping[str, "ExecutablePin"],
+    specs: Sequence["CommandSpec"],
+) -> dict[str, Any]:
+    value, raw = _read_canonical_mapping(
+        args.external_work_order,
+        args.external_work_order_sha256,
+        "external_work_order",
+    )
+    expected_keys = {
+        "schema",
+        "authority_scope",
+        "authority_verified",
+        "validation_run_uuid",
+        "validation_attempt_uuid",
+        "handoff_challenge_sha256",
+        "issued_at_utc",
+        "expires_at_utc",
+        "expected_head",
+        "expected_tree",
+        "tool_file_bindings",
+        "code_file_bindings",
+        "immutable_checkout_namespace_authority",
+        "runtime_stdlib_native_closure_verified",
+        "command_invocation_sha256",
+        "pycache_prefix",
+    }
+    if set(value) != expected_keys:
+        raise ValidationRunnerError("external_work_order_keys_not_exact")
+    run_uuid = _strict_uuid(value.get("validation_run_uuid"), "validation_run")
+    attempt_uuid = _strict_uuid(value.get("validation_attempt_uuid"), "validation_attempt")
+    if run_uuid == attempt_uuid:
+        raise ValidationRunnerError("validation_run_attempt_uuid_must_differ")
+    issued = _strict_utc(value.get("issued_at_utc"), "work_order_issued_at")
+    expires = _strict_utc(value.get("expires_at_utc"), "work_order_expires_at")
+    if expires <= issued or datetime.now(UTC) >= expires:
+        raise ValidationRunnerError("external_work_order_expired_or_invalid")
+    expected_bindings = {
+        name: work_order_tool_binding(name, pin.path, pin.sha256)
+        for name, pin in sorted(executable_pins.items())
+    }
+    expected_code_bindings = work_order_code_file_bindings(
+        args.trusted_outer, args.trusted_outer_sha256
+    )
+    if (
+        value.get("schema") != WORK_ORDER_SCHEMA
+        or value.get("authority_scope") != "internal_non_authoritative"
+        or value.get("authority_verified") is not False
+        or value.get("immutable_checkout_namespace_authority") is not False
+        or value.get("runtime_stdlib_native_closure_verified") is not False
+        or value.get("handoff_challenge_sha256")
+        != publisher._hex64(value.get("handoff_challenge_sha256"), "handoff_challenge")
+        or value.get("expected_head") != publisher._hex40(args.expected_head, "expected_head")
+        or value.get("expected_tree") != publisher._hex40(args.expected_tree, "expected_tree")
+        or value.get("tool_file_bindings") != expected_bindings
+        or value.get("code_file_bindings") != expected_code_bindings
+        or value.get("command_invocation_sha256") != command_invocation_commitment(specs)
+        or os.path.normcase(os.path.normpath(str(value.get("pycache_prefix", ""))))
+        != os.path.normcase(os.path.normpath(str(args._validation_pycache_prefix)))
+    ):
+        raise ValidationRunnerError("external_work_order_binding_mismatch")
+    return {
+        "path": str(Path(args.external_work_order).resolve(strict=True)),
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "payload": value,
+    }
+
+
+def command_invocation_commitment(specs: Sequence["CommandSpec"]) -> str:
+    payload = [
+        {
+            "name": spec.name,
+            "argv": list(spec.argv),
+            "expected_exit_code": spec.expected_exit_code,
+            "required_output_tokens": list(spec.required_output_tokens),
+            "wrapper_timeout_seconds": spec.wrapper_timeout_seconds,
+            "residual_repoll_seconds": VALIDATION_RESIDUAL_REPOLL_SECONDS,
+            "stream_drain_seconds": VALIDATION_STREAM_DRAIN_SECONDS,
+            "python_tool_distribution": spec.python_tool_distribution,
+        }
+        for spec in specs
+    ]
+    return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+
+
+def _validate_live_call_telemetry(args: argparse.Namespace) -> dict[str, Any]:
+    value, raw = _read_canonical_mapping(
+        args.live_call_telemetry,
+        args.live_call_telemetry_sha256,
+        "live_call_telemetry",
+    )
+    if set(value) != {
+        "schema",
+        "authority_scope",
+        "authority_verified",
+        "observation_state",
+        "observation_scope",
+        "collector_authority_verified",
+        "counts",
+        "raw_events_sha256",
+    }:
+        raise ValidationRunnerError("live_call_telemetry_keys_not_exact")
+    counts = value.get("counts")
+    if (
+        value.get("schema") != LIVE_TELEMETRY_SCHEMA
+        or value.get("authority_scope") != "internal_non_authoritative"
+        or value.get("authority_verified") is not False
+        or value.get("observation_state") != "unknown"
+        or value.get("observation_scope") != "internal_non_authoritative"
+        or value.get("collector_authority_verified") is not False
+        or not isinstance(counts, dict)
+        or set(counts) != publisher.REQUIRED_ZERO_LIVE_CALLS
+        or any(item is not None for item in counts.values())
+        or value.get("raw_events_sha256") != hashlib.sha256(canonical_json_bytes([])).hexdigest()
+    ):
+        raise ValidationRunnerError("live_call_telemetry_unobserved_contract_invalid")
+    return {
+        "path": str(Path(args.live_call_telemetry).resolve(strict=True)),
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "payload": value,
+    }
+
+
 class ValidationOutputInitializationFailure(ValidationRunnerError):
     """Describe an output binding failure without removing any partial directory."""
 
@@ -179,6 +680,7 @@ class CommandSpec:
     expected_exit_code: int = 0
     required_output_tokens: tuple[str, ...] = ()
     wrapper_timeout_seconds: float = VALIDATION_WRAPPER_TIMEOUT_SECONDS
+    python_tool_distribution: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +806,15 @@ def output_parent_commitment(path: Path) -> dict[str, Any]:
         **payload,
         "sha256": sha256_bytes(canonical_json_bytes(payload)),
     }
+
+
+def validation_pycache_prefix(parent: Path, run_uuid: str) -> Path:
+    resolved_parent = parent.resolve(strict=True)
+    canonical_run = _strict_uuid(run_uuid, "validation_run")
+    prefix = resolved_parent / f".pre-r8-r7s7-pycache-{canonical_run}"
+    if os.path.lexists(prefix):
+        raise ValidationRunnerError("validation_pycache_prefix_must_not_exist")
+    return prefix
 
 
 def _validate_output_parent_gate(
@@ -1081,16 +1592,21 @@ def _selected_validation_files(project_root: Path) -> list[str]:
         "tests/test_phase_b2_r7_process.py",
         "tests/test_phase_b2_r7s3_job_capability.py",
         "tests/test_phase_b2_r7s3_process.py",
+        "tests/test_phase_b2_r7s4_authority.py",
         "tests/test_publish_pre_r8_r7s5_review.py",
         "tests/test_scenario_workload_production.py",
         "tests/test_task_queue_process_safety.py",
     ]
-    for pattern in ("phase_b2_r7s5_*.py", "phase_b2_r7s6_*.py"):
+    files.extend(
+        item.relative_to(project_root).as_posix()
+        for item in sorted((project_root / "scripts" / "dev").glob("*r7s7*.py"))
+    )
+    for pattern in ("phase_b2_r7s5_*.py", "phase_b2_r7s6_*.py", "phase_b2_r7s7_*.py"):
         files.extend(
             item.relative_to(project_root).as_posix()
             for item in sorted((project_root / "src" / "evm" / "scale_validation").glob(pattern))
         )
-    for pattern in ("*r7s5*.py", "*r7s6*.py"):
+    for pattern in ("*r7s5*.py", "*r7s6*.py", "*r7s7*.py"):
         files.extend(
             item.relative_to(project_root).as_posix()
             for item in sorted((project_root / "tests").glob(pattern))
@@ -1106,18 +1622,93 @@ def _isolated_python_module_argv(
     project_root: Path,
     module: str,
     *module_args: str,
+    bind_tool_module: bool = True,
+    pycache_prefix: Path | None = None,
 ) -> tuple[str, ...]:
     resolved_root = project_root.resolve(strict=True)
     resolved_src = (resolved_root / "src").resolve(strict=True)
+    site_packages = Path(verified_site_packages_binding(executable)["path"])
     if not module or not re.fullmatch(r"[A-Za-z0-9_.]+", module):
         raise ValidationRunnerError("validation_isolated_python_module_invalid")
+    prefix = (pycache_prefix or (resolved_root.parent / ".pre-r8-test-pycache-disabled")).resolve()
+    if os.path.lexists(prefix):
+        raise ValidationRunnerError("validation_pycache_prefix_must_not_exist")
+    expected_origins = (
+        {
+            name: (value["path"], value["sha256"])
+            for name, value in python_tool_module_binding(executable, module)[
+                "module_origins"
+            ].items()
+        }
+        if bind_tool_module
+        else {}
+    )
     bootstrap = (
-        "import runpy,sys;"
-        f"sys.path[:0]=[{str(resolved_root)!r},{str(resolved_src)!r}];"
+        "import hashlib,importlib.util,pathlib,runpy,sys;"
+        "assert sys.flags.isolated==1 and sys.flags.dont_write_bytecode==1 "
+        "and sys.flags.no_site==1;"
+        f"expected_pycache={str(prefix)!r};"
+        "assert sys.pycache_prefix==expected_pycache and not pathlib.Path(expected_pycache).exists();"
+        f"sys.path[:]=[p for p in sys.path if p not in ({str(resolved_root)!r},{str(resolved_src)!r},{str(site_packages)!r})];"
+        f"sys.path[:]=[*sys.path,{str(resolved_src)!r},{str(resolved_root)!r},{str(site_packages)!r}];"
+        f"expected_origins={expected_origins!r};"
+        f"entry=importlib.util.find_spec({module!r});"
+        f"assert not expected_origins or (entry is not None and pathlib.Path(entry.origin).resolve()==pathlib.Path(expected_origins[{module!r}][0]).resolve());"
+        "assert all(pathlib.Path(path).is_file() and hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()==digest for path,digest in expected_origins.values());"
         f"sys.argv[0]={module!r};"
         f"runpy.run_module({module!r},run_name='__main__',alter_sys=False)"
     )
-    return (str(executable), "-I", "-B", "-c", bootstrap, *module_args)
+    return (
+        str(executable),
+        "-I",
+        "-B",
+        "-S",
+        "-X",
+        f"pycache_prefix={prefix}",
+        "-c",
+        bootstrap,
+        *module_args,
+    )
+
+
+def _isolated_python_script_argv(
+    executable: Path,
+    project_root: Path,
+    script: str,
+    *script_args: str,
+    pycache_prefix: Path | None = None,
+) -> tuple[str, ...]:
+    resolved_root = project_root.resolve(strict=True)
+    resolved_src = (resolved_root / "src").resolve(strict=True)
+    resolved_script = (resolved_root / script).resolve(strict=True)
+    if resolved_root not in resolved_script.parents or resolved_script.suffix.casefold() != ".py":
+        raise ValidationRunnerError("validation_isolated_python_script_invalid")
+    site_packages = Path(verified_site_packages_binding(executable)["path"])
+    prefix = (pycache_prefix or (resolved_root.parent / ".pre-r8-test-pycache-disabled")).resolve()
+    if os.path.lexists(prefix):
+        raise ValidationRunnerError("validation_pycache_prefix_must_not_exist")
+    bootstrap = (
+        "import pathlib,runpy,sys;"
+        "assert sys.flags.isolated==1 and sys.flags.dont_write_bytecode==1 "
+        "and sys.flags.no_site==1;"
+        f"expected_pycache={str(prefix)!r};"
+        "assert sys.pycache_prefix==expected_pycache and not pathlib.Path(expected_pycache).exists();"
+        f"sys.path[:]=[p for p in sys.path if p not in ({str(resolved_root)!r},{str(resolved_src)!r},{str(site_packages)!r})];"
+        f"sys.path[:]=[*sys.path,{str(resolved_src)!r},{str(resolved_root)!r},{str(site_packages)!r}];"
+        f"sys.argv[0]={str(resolved_script)!r};"
+        f"runpy.run_path({str(resolved_script)!r},run_name='__main__')"
+    )
+    return (
+        str(executable),
+        "-I",
+        "-B",
+        "-S",
+        "-X",
+        f"pycache_prefix={prefix}",
+        "-c",
+        bootstrap,
+        *script_args,
+    )
 
 
 def build_command_specs(
@@ -1130,23 +1721,31 @@ def build_command_specs(
     git_executable: Path,
     git_executable_sha256: str,
     powershell_executable: Path,
+    pycache_prefix: Path | None = None,
 ) -> tuple[CommandSpec, ...]:
     files = _selected_validation_files(project_root)
-    r7s5_tests = sorted(
+    hardening_tests = sorted(
         {
             item.relative_to(project_root).as_posix()
-            for pattern in ("*r7s5*.py", "*r7s6*.py")
+            for pattern in (
+                "*r7s3*.py",
+                "*r7s4*.py",
+                "*r7s5*.py",
+                "*r7s6*.py",
+                "*r7s7*.py",
+            )
             for item in (project_root / "tests").glob(pattern)
         }
     )
     focused = sorted(
         set(
-            r7s5_tests
+            hardening_tests
             + [
                 "tests/test_publish_pre_r8_r7s5_review.py",
                 "tests/test_phase_b2_r7_process.py",
                 "tests/test_phase_b2_r7s3_job_capability.py",
                 "tests/test_phase_b2_r7s3_process.py",
+                "tests/test_phase_b2_r7s4_authority.py",
                 "tests/test_scenario_workload_production.py",
                 "tests/test_task_queue_process_safety.py",
             ]
@@ -1180,7 +1779,7 @@ def build_command_specs(
         "print('py_compile_mode=in_memory_no_bytecode');"
         "print('py_compile_files='+str(len(paths)))"
     )
-    common_pytest = ("-q", "-p", "no:cacheprovider")
+    common_pytest = ("-q", "-rs", "-p", "no:cacheprovider")
     specs = (
         CommandSpec(
             "r7s5-focused-pytest-py311",
@@ -1190,7 +1789,9 @@ def build_command_specs(
                 "pytest",
                 *common_pytest,
                 *focused,
+                pycache_prefix=pycache_prefix,
             ),
+            python_tool_distribution="pytest",
         ),
         CommandSpec(
             "full-general-pytest-py311",
@@ -1201,7 +1802,9 @@ def build_command_specs(
                 *common_pytest,
                 "tests",
                 *(f"--ignore={item}" for item in host_tests),
+                pycache_prefix=pycache_prefix,
             ),
+            python_tool_distribution="pytest",
         ),
         CommandSpec(
             "pinned-host-pytest-py313",
@@ -1211,7 +1814,9 @@ def build_command_specs(
                 "pytest",
                 *common_pytest,
                 *host_tests,
+                pycache_prefix=pycache_prefix,
             ),
+            python_tool_distribution="pytest",
         ),
         CommandSpec(
             "ruff-check-0.12.2",
@@ -1221,7 +1826,9 @@ def build_command_specs(
                 "ruff",
                 "check",
                 *files,
+                pycache_prefix=pycache_prefix,
             ),
+            python_tool_distribution="ruff",
         ),
         CommandSpec(
             "ruff-format-check-0.12.2",
@@ -1232,11 +1839,23 @@ def build_command_specs(
                 "format",
                 "--check",
                 *files,
+                pycache_prefix=pycache_prefix,
             ),
+            python_tool_distribution="ruff",
         ),
         CommandSpec(
             "py-compile-py311",
-            (str(python_general), "-I", "-B", "-c", in_memory_compile_script, *files),
+            (
+                str(python_general),
+                "-I",
+                "-B",
+                "-S",
+                "-X",
+                f"pycache_prefix={(pycache_prefix or (project_root.resolve().parent / '.pre-r8-test-pycache-disabled')).resolve()}",
+                "-c",
+                in_memory_compile_script,
+                *files,
+            ),
             required_output_tokens=("py_compile_mode=in_memory_no_bytecode",),
         ),
         CommandSpec(
@@ -1263,10 +1882,9 @@ def build_command_specs(
         ),
         CommandSpec(
             "ci-manifest-validator",
-            (
-                str(python_general),
-                "-I",
-                "-B",
+            _isolated_python_script_argv(
+                python_general,
+                project_root,
                 "scripts/dev/validate_pre_r8_r7s5_ci.py",
                 "manifest",
                 "--manifest",
@@ -1275,6 +1893,7 @@ def build_command_specs(
                 ".",
                 "--lane",
                 "portable",
+                pycache_prefix=pycache_prefix,
             ),
             required_output_tokens=(
                 '"status":"manual_intervention_required"',
@@ -1283,10 +1902,9 @@ def build_command_specs(
         ),
         CommandSpec(
             "ci-active-workflow-required-rejection",
-            (
-                str(python_general),
-                "-I",
-                "-B",
+            _isolated_python_script_argv(
+                python_general,
+                project_root,
                 "scripts/dev/validate_pre_r8_r7s5_ci.py",
                 "workflow",
                 "--manifest",
@@ -1295,6 +1913,7 @@ def build_command_specs(
                 ".",
                 "--workflow",
                 "../.github/workflows/enterprise-vision-mlops-ci.yml",
+                pycache_prefix=pycache_prefix,
             ),
             expected_exit_code=2,
             required_output_tokens=(
@@ -1310,7 +1929,9 @@ def build_command_specs(
                 "pytest",
                 *common_pytest,
                 "tests/test_phase_b2_r7s5_ci.py",
+                pycache_prefix=pycache_prefix,
             ),
+            python_tool_distribution="pytest",
         ),
     )
     if {item.name for item in specs} != publisher.REQUIRED_VALIDATION_COMMANDS:
@@ -1359,12 +1980,18 @@ def _absolute_command(argv: Sequence[str]) -> tuple[str, ...]:
 
 
 def _tool_version_argv(spec: CommandSpec, executable: Path) -> tuple[str, ...]:
+    pycache_option = next((item for item in spec.argv if item.startswith("pycache_prefix=")), None)
+    pycache_prefix = (
+        Path(pycache_option.removeprefix("pycache_prefix=")) if pycache_option is not None else None
+    )
     if spec.name.startswith("ruff-"):
         return _isolated_python_module_argv(
             executable,
             SCRIPT_PROJECT_ROOT,
             "ruff",
             "--version",
+            bind_tool_module=spec.python_tool_distribution == "ruff",
+            pycache_prefix=pycache_prefix,
         )
     if "pytest" in spec.name:
         return _isolated_python_module_argv(
@@ -1372,6 +1999,8 @@ def _tool_version_argv(spec: CommandSpec, executable: Path) -> tuple[str, ...]:
             SCRIPT_PROJECT_ROOT,
             "pytest",
             "--version",
+            bind_tool_module=spec.python_tool_distribution == "pytest",
+            pycache_prefix=pycache_prefix,
         )
     if spec.name == "powershell-ast":
         return (
@@ -1383,6 +2012,8 @@ def _tool_version_argv(spec: CommandSpec, executable: Path) -> tuple[str, ...]:
         )
     if spec.name == "git-diff-check":
         return (str(executable), "--version")
+    if pycache_option is not None:
+        return (str(executable), "-I", "-B", "-S", "-X", pycache_option, "--version")
     return (str(executable), "--version")
 
 
@@ -1537,10 +2168,15 @@ def command_tool_identity(
     version = (result.stdout + result.stderr).strip()
     if not version:
         raise ValidationRunnerError(f"command_tool_version_empty:{spec.name}")
+    pycache_option = next((item for item in spec.argv if item.startswith("pycache_prefix=")), None)
     runtime_version_argv = (
         version_argv
         if spec.name in {"powershell-ast", "git-diff-check"}
-        else (str(executable), "--version")
+        else (
+            (str(executable), "-I", "-B", "-S", "-X", pycache_option, "--version")
+            if pycache_option is not None
+            else (str(executable), "--version")
+        )
     )
     runtime_result = _run_metadata_child_recorded(
         runtime_version_argv,
@@ -1572,6 +2208,9 @@ def command_tool_identity(
             process_evidence=runtime_result.to_dict(),
             evidence_recorded=True,
         )
+    python_tool_module: dict[str, Any] | None = None
+    if spec.python_tool_distribution is not None:
+        python_tool_module = python_tool_module_binding(executable, spec.python_tool_distribution)
     return {
         "path": str(executable),
         "bytes": executable_bytes,
@@ -1583,6 +2222,7 @@ def command_tool_identity(
         "version_process_containment": result.to_dict(),
         "runtime_version_process_containment": runtime_result.to_dict(),
         "environment_commitment": environment.commitment,
+        "python_tool_module": python_tool_module,
     }
 
 
@@ -1597,6 +2237,7 @@ def command_plan(
     expected_executable_sha256_by_command: Mapping[str, str] | None = None,
     metadata_evidence: list[dict[str, Any]] | None = None,
     before_metadata_child: Callable[[str], None] | None = None,
+    expected_work_order_tool_bindings: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     expected_pins = dict(expected_executable_sha256_by_command or {})
     spec_names = {spec.name for spec in specs}
@@ -1617,19 +2258,36 @@ def command_plan(
             "phase": "command_plan",
             "before_metadata_child": before_metadata_child,
         }
-        commands.append(
-            {
-                "name": spec.name,
-                "argv": list(spec.argv),
-                "cwd": str(project_root),
-                "expected_exit_code": spec.expected_exit_code,
-                "required_output_tokens": list(spec.required_output_tokens),
-                "wrapper_timeout_seconds": spec.wrapper_timeout_seconds,
-                "residual_repoll_seconds": VALIDATION_RESIDUAL_REPOLL_SECONDS,
-                "stream_drain_seconds": VALIDATION_STREAM_DRAIN_SECONDS,
-                "tool": command_tool_identity(spec, **identity_kwargs),
-            }
-        )
+        command = {
+            "name": spec.name,
+            "argv": list(spec.argv),
+            "cwd": str(project_root),
+            "expected_exit_code": spec.expected_exit_code,
+            "required_output_tokens": list(spec.required_output_tokens),
+            "wrapper_timeout_seconds": spec.wrapper_timeout_seconds,
+            "residual_repoll_seconds": VALIDATION_RESIDUAL_REPOLL_SECONDS,
+            "stream_drain_seconds": VALIDATION_STREAM_DRAIN_SECONDS,
+            "tool": command_tool_identity(spec, **identity_kwargs),
+        }
+        module_binding = command["tool"].get("python_tool_module")
+        if expected_work_order_tool_bindings is not None and module_binding is not None:
+            matches = [
+                binding
+                for binding in expected_work_order_tool_bindings.values()
+                if isinstance(binding, Mapping)
+                and os.path.normcase(os.path.normpath(str(binding.get("path", ""))))
+                == os.path.normcase(os.path.normpath(command["tool"]["path"]))
+            ]
+            if len(matches) != 1 or matches[0].get("python_tool_module") != module_binding:
+                raise ValidationRunnerError(
+                    f"command_plan_python_tool_work_order_binding_mismatch:{spec.name}"
+                )
+            command["tool"]["work_order_module_binding_sha256"] = hashlib.sha256(
+                canonical_json_bytes(module_binding)
+            ).hexdigest()
+        elif module_binding is not None:
+            command["tool"]["work_order_module_binding_sha256"] = None
+        commands.append(command)
     payload = {
         "repository": str(repository),
         "project_root": str(project_root),
@@ -2850,6 +3508,31 @@ def run_validation(args: argparse.Namespace) -> dict[str, Any]:
         raise ValidationRunnerError("project_root_not_inside_repository")
     executable_pins = _executable_pins_from_args(args)
     untracked_pin = _untracked_inventory_pin_from_args(args)
+    if not hasattr(args, "expected_output_parent") or not hasattr(
+        args, "expected_output_parent_sha256"
+    ):
+        raise ValidationRunnerError("validation_output_parent_gate_required")
+    parent, parent_commitment = _validate_output_parent_gate(
+        args.output_parent,
+        expected_path=args.expected_output_parent,
+        expected_sha256=args.expected_output_parent_sha256,
+        forbidden_roots=(repository, project_root),
+    )
+    preliminary_work_order, _ = _read_canonical_mapping(
+        args.external_work_order,
+        args.external_work_order_sha256,
+        "external_work_order",
+    )
+    preliminary_run_uuid = _strict_uuid(
+        preliminary_work_order.get("validation_run_uuid"), "validation_run"
+    )
+    args._validation_pycache_prefix = validation_pycache_prefix(
+        args.expected_output_parent, preliminary_run_uuid
+    )
+    if os.path.normcase(
+        os.path.normpath(str(preliminary_work_order.get("pycache_prefix", "")))
+    ) != os.path.normcase(os.path.normpath(str(args._validation_pycache_prefix))):
+        raise ValidationRunnerError("external_work_order_pycache_prefix_mismatch")
     try:
         output_leaf = validate_strict_windows_leaf(args.output_leaf)
     except Exception as exc:
@@ -2863,21 +3546,14 @@ def run_validation(args: argparse.Namespace) -> dict[str, Any]:
         git_executable=executable_pins["git"].path,
         git_executable_sha256=executable_pins["git"].sha256,
         powershell_executable=executable_pins["powershell"].path,
+        pycache_prefix=args._validation_pycache_prefix,
     )
+    external_work_order = _validate_external_work_order(args, executable_pins, specs)
+    live_call_telemetry = _validate_live_call_telemetry(args)
     command_sha256_pins = command_executable_sha256_pins(specs, executable_pins)
     child_environment = build_child_environment(
         project_root,
         tuple(str(pin.path) for pin in executable_pins.values()),
-    )
-    if not hasattr(args, "expected_output_parent") or not hasattr(
-        args, "expected_output_parent_sha256"
-    ):
-        raise ValidationRunnerError("validation_output_parent_gate_required")
-    parent, parent_commitment = _validate_output_parent_gate(
-        args.output_parent,
-        expected_path=args.expected_output_parent,
-        expected_sha256=args.expected_output_parent_sha256,
-        forbidden_roots=(repository, project_root),
     )
     output_writer: _BoundValidationOutput | None = None
     failure_cause: BaseException | None = None
@@ -2895,6 +3571,8 @@ def run_validation(args: argparse.Namespace) -> dict[str, Any]:
                 command_sha256_pins=command_sha256_pins,
                 child_environment=child_environment,
                 parent_commitment=parent_commitment,
+                external_work_order=external_work_order,
+                live_call_telemetry=live_call_telemetry,
                 output_writer=output_writer,
             )
         except BaseException as exc:
@@ -2955,6 +3633,8 @@ def _run_validation_with_bound_output(
     command_sha256_pins: Mapping[str, str],
     child_environment: ChildEnvironment,
     parent_commitment: Mapping[str, Any],
+    external_work_order: Mapping[str, Any],
+    live_call_telemetry: Mapping[str, Any],
     output_writer: _BoundValidationOutput,
 ) -> dict[str, Any]:
     output = output_writer.path
@@ -3058,6 +3738,9 @@ def _run_validation_with_bound_output(
                 expected_executable_sha256_by_command=command_sha256_pins,
                 metadata_evidence=metadata_evidence,
                 before_metadata_child=verify_untracked_before_metadata_child,
+                expected_work_order_tool_bindings=external_work_order["payload"][
+                    "tool_file_bindings"
+                ],
             )
         except MetadataChildError as exc:
             return metadata_terminal(exc, stage="command_plan_metadata")
@@ -3120,6 +3803,14 @@ def _run_validation_with_bound_output(
                     raise ValidationRunnerError(
                         f"validation_planned_independent_sha256_mismatch:{spec.name}"
                     )
+                planned_module = planned["tool"].get("python_tool_module")
+                if planned_module is not None:
+                    distribution = str(planned_module.get("distribution", ""))
+                    current_module = python_tool_module_binding(executable.path, distribution)
+                    if current_module != planned_module:
+                        raise ValidationRunnerError(
+                            f"validation_python_tool_changed_before_execution:{spec.name}"
+                        )
                 validation_child_call_count += 1
                 outcome = _run_validation_child(
                     spec,
@@ -3276,10 +3967,45 @@ def _run_validation_with_bound_output(
                 all_passed = False
                 break
 
+        failure_stage = "pycache_prefix_postcondition"
+        if os.path.lexists(args._validation_pycache_prefix):
+            raise ValidationRunnerError("validation_pycache_prefix_created_during_execution")
+
         failure_stage = "summary_serialization"
+        work_order_payload = external_work_order["payload"]
+        completed_at = datetime.now(UTC)
+        issued_at = _strict_utc(work_order_payload["issued_at_utc"], "work_order_issued_at")
+        expires_at = _strict_utc(work_order_payload["expires_at_utc"], "work_order_expires_at")
+        if completed_at < issued_at or completed_at >= expires_at:
+            raise ValidationRunnerError("validation_completion_outside_work_order_window")
         summary = {
             "schema": publisher.VALIDATION_SCHEMA,
             "status": "PASS" if all_passed else "FAIL",
+            "decision": "NO-GO",
+            "credit": "zero_credit",
+            "evidence_scope": "internal_non_authoritative",
+            "go_evidence_eligible": False,
+            "runtime_identity_stability": "unproven",
+            "immutable_checkout_namespace_authority": False,
+            "runtime_stdlib_native_closure_verified": False,
+            "validation_run_uuid": work_order_payload["validation_run_uuid"],
+            "validation_attempt_uuid": work_order_payload["validation_attempt_uuid"],
+            "handoff_challenge_sha256": work_order_payload["handoff_challenge_sha256"],
+            "issued_at_utc": work_order_payload["issued_at_utc"],
+            "completed_at_utc": completed_at.isoformat().replace("+00:00", "Z"),
+            "expires_at_utc": work_order_payload["expires_at_utc"],
+            "external_work_order_binding": dict(external_work_order),
+            "replay_consumption": {
+                "status": "not_consumed",
+                "adapter_scope": "none",
+                "authority_verified": False,
+                "replay_key": publisher.validation_replay_key(
+                    validation_run_uuid=str(work_order_payload["validation_run_uuid"]),
+                    validation_attempt_uuid=str(work_order_payload["validation_attempt_uuid"]),
+                    handoff_challenge_sha256=str(work_order_payload["handoff_challenge_sha256"]),
+                    work_order_sha256=str(external_work_order["sha256"]),
+                ),
+            },
             "repository": str(repository),
             "project_root": str(project_root),
             "head": args.expected_head,
@@ -3307,8 +4033,7 @@ def _run_validation_with_bound_output(
             "terminal_containment_latch": terminal_latched,
             "terminal_latch_reason": terminal_latch_reason,
             "followup_child_count_after_containment_latch": 0,
-            "live_call_counts": {name: 0 for name in publisher.REQUIRED_ZERO_LIVE_CALLS},
-            "live_call_observation_scope": VALIDATION_OBSERVATION_SCOPE,
+            "live_call_telemetry": dict(live_call_telemetry),
             "completion_marker_created": False,
             "success_marker_created": False,
             "r8_authorized": False,
@@ -3349,6 +4074,10 @@ def _run_validation_with_bound_output(
         result_record = {
             "schema": SCHEMA,
             "status": summary["status"],
+            "decision": "NO-GO",
+            "credit": "zero_credit",
+            "evidence_scope": "internal_non_authoritative",
+            "go_evidence_eligible": False,
             "output_directory": str(output),
             "summary_path": str(summary_path),
             "summary_bytes": len(raw_summary),
@@ -3438,12 +4167,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--expected-untracked-content-inventory-sha256", required=True)
     parser.add_argument("--expected-head", required=True)
     parser.add_argument("--expected-tree", required=True)
+    parser.add_argument("--external-work-order", type=Path, required=True)
+    parser.add_argument("--external-work-order-sha256", required=True)
+    parser.add_argument("--live-call-telemetry", type=Path, required=True)
+    parser.add_argument("--live-call-telemetry-sha256", required=True)
+    parser.add_argument("--trusted-outer", type=Path, required=True)
+    parser.add_argument("--trusted-outer-sha256", required=True)
     return parser.parse_args(argv)
-
-
-def _require_isolated_no_bytecode_startup() -> None:
-    if sys.flags.isolated != 1 or sys.flags.dont_write_bytecode != 1:
-        raise ValidationRunnerError("validation_runner_requires_python_I_B_startup")
 
 
 def _best_effort_emit_result(result: Mapping[str, Any]) -> None:
@@ -3470,11 +4200,228 @@ def validation_failure_seal_contract() -> dict[str, Any]:
     }
 
 
+def _parse_prepare_internal_inputs(argv: Sequence[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Prepare append-only internal, non-authoritative pre-r8 inputs"
+    )
+    parser.add_argument("--repository", type=Path, required=True)
+    parser.add_argument("--project-root", type=Path, required=True)
+    parser.add_argument("--parent", type=Path, required=True)
+    parser.add_argument("--expected-parent", type=Path, required=True)
+    parser.add_argument("--expected-parent-sha256", required=True)
+    parser.add_argument("--output-leaf", required=True)
+    parser.add_argument("--validation-run-uuid", required=True)
+    parser.add_argument("--validation-attempt-uuid", required=True)
+    parser.add_argument("--handoff-challenge-sha256", required=True)
+    parser.add_argument("--issued-at-utc", required=True)
+    parser.add_argument("--expires-at-utc", required=True)
+    parser.add_argument("--expected-head", required=True)
+    parser.add_argument("--expected-tree", required=True)
+    parser.add_argument("--codex-pid", type=int, required=True)
+    parser.add_argument("--publisher-python", type=Path, required=True)
+    parser.add_argument("--publisher-python-sha256", required=True)
+    parser.add_argument("--python-general", type=Path, required=True)
+    parser.add_argument("--python-general-sha256", required=True)
+    parser.add_argument("--python-host", type=Path, required=True)
+    parser.add_argument("--python-host-sha256", required=True)
+    parser.add_argument("--python-ruff", type=Path, required=True)
+    parser.add_argument("--python-ruff-sha256", required=True)
+    parser.add_argument("--git", type=Path, required=True)
+    parser.add_argument("--git-sha256", required=True)
+    parser.add_argument("--powershell", type=Path, required=True)
+    parser.add_argument("--powershell-sha256", required=True)
+    parser.add_argument("--trusted-outer", type=Path, required=True)
+    parser.add_argument("--trusted-outer-sha256", required=True)
+    return parser.parse_args(list(argv))
+
+
+def _build_internal_input_documents(args: argparse.Namespace) -> dict[str, Any]:
+    repository = args.repository.resolve(strict=True)
+    project_root = args.project_root.resolve(strict=True)
+    if project_root != SCRIPT_PROJECT_ROOT or repository not in project_root.parents:
+        raise ValidationRunnerError("internal_input_project_origin_mismatch")
+    run_uuid = _strict_uuid(args.validation_run_uuid, "validation_run")
+    attempt_uuid = _strict_uuid(args.validation_attempt_uuid, "validation_attempt")
+    if run_uuid == attempt_uuid:
+        raise ValidationRunnerError("validation_run_attempt_uuid_must_differ")
+    issued = _strict_utc(args.issued_at_utc, "work_order_issued_at")
+    expires = _strict_utc(args.expires_at_utc, "work_order_expires_at")
+    if expires <= issued or datetime.now(UTC) >= expires:
+        raise ValidationRunnerError("external_work_order_expired_or_invalid")
+    publisher_python = validate_independent_executable_pin(
+        args.publisher_python,
+        args.publisher_python_sha256,
+        label="publisher_python",
+    )
+    if _normalized_path_text(Path(sys.executable)) != _normalized_path_text(publisher_python.path):
+        raise ValidationRunnerError("prepare_runtime_python_not_publisher_python")
+    executable_pins = _executable_pins_from_args(args)
+    pycache_prefix = validation_pycache_prefix(args.parent, run_uuid)
+    specs = build_command_specs(
+        repository=repository,
+        project_root=project_root,
+        python_general=executable_pins["python_general"].path,
+        python_host=executable_pins["python_host"].path,
+        python_ruff=executable_pins["python_ruff"].path,
+        git_executable=executable_pins["git"].path,
+        git_executable_sha256=executable_pins["git"].sha256,
+        powershell_executable=executable_pins["powershell"].path,
+        pycache_prefix=pycache_prefix,
+    )
+    powershell_path = executable_pins["powershell"].path
+    powershell_sha256 = executable_pins["powershell"].sha256
+    identity_kwargs = {
+        "powershell_executable": powershell_path,
+        "powershell_sha256": powershell_sha256,
+    }
+    runtime_identity = publisher.measure_process_identity(os.getpid(), **identity_kwargs)
+    parent_pid = os.getppid()
+    parent_identity = publisher.measure_process_identity(parent_pid, **identity_kwargs)
+    codex_identity = publisher.measure_process_identity(args.codex_pid, **identity_kwargs)
+    if (
+        runtime_identity.get("ppid") != parent_pid
+        or parent_identity.get("ppid") != args.codex_pid
+        or Path(str(parent_identity.get("path"))).resolve(strict=True) != powershell_path
+        or Path(str(runtime_identity.get("path"))).resolve(strict=True) != publisher_python.path
+        or Path(str(codex_identity.get("path"))).name.casefold() != "codex.exe"
+    ):
+        raise ValidationRunnerError("prepare_live_process_lineage_mismatch")
+    for label, pid in (
+        ("prepare_runtime", os.getpid()),
+        ("publisher_parent", parent_pid),
+        ("codex", args.codex_pid),
+    ):
+        token = (
+            publisher.measure_current_token()
+            if pid == os.getpid()
+            else publisher.measure_process_token(pid)
+        )
+        publisher._token_requirements(token, label)
+    work_order = {
+        "schema": WORK_ORDER_SCHEMA,
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "validation_run_uuid": run_uuid,
+        "validation_attempt_uuid": attempt_uuid,
+        "handoff_challenge_sha256": publisher._hex64(
+            args.handoff_challenge_sha256, "handoff_challenge"
+        ),
+        "issued_at_utc": args.issued_at_utc,
+        "expires_at_utc": args.expires_at_utc,
+        "expected_head": publisher._hex40(args.expected_head, "expected_head"),
+        "expected_tree": publisher._hex40(args.expected_tree, "expected_tree"),
+        "tool_file_bindings": {
+            name: work_order_tool_binding(name, pin.path, pin.sha256)
+            for name, pin in sorted(executable_pins.items())
+        },
+        "code_file_bindings": work_order_code_file_bindings(
+            args.trusted_outer, args.trusted_outer_sha256
+        ),
+        # Retained leaf handles and pre-launch namespace scans narrow ordinary
+        # replacement races, but they are not an externally attested immutable
+        # checkout and do not bind CPython's complete stdlib/native loader graph.
+        "immutable_checkout_namespace_authority": False,
+        "runtime_stdlib_native_closure_verified": False,
+        "command_invocation_sha256": command_invocation_commitment(specs),
+        "pycache_prefix": str(pycache_prefix),
+    }
+    telemetry = {
+        "schema": LIVE_TELEMETRY_SCHEMA,
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "observation_state": "unknown",
+        "observation_scope": "internal_non_authoritative",
+        "collector_authority_verified": False,
+        "counts": {name: None for name in publisher.REQUIRED_ZERO_LIVE_CALLS},
+        "raw_events_sha256": hashlib.sha256(canonical_json_bytes([])).hexdigest(),
+    }
+    token_evidence = {
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "codex_pid": args.codex_pid,
+        "publisher_parent_pid": parent_pid,
+    }
+    lineage = {
+        "schema": f"{publisher.SCHEMA}.lineage-work-order.v2",
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "executable_bindings": {
+            "codex": publisher._process_file_binding(codex_identity),
+            "powershell_parent": publisher._process_file_binding(parent_identity),
+            "publisher_python": publisher._process_file_binding(runtime_identity),
+        },
+    }
+    documents: dict[str, Any] = {
+        "external-work-order.json": work_order,
+        "live-call-telemetry.json": telemetry,
+        "publisher-token-evidence.json": token_evidence,
+        "lineage-work-order.json": lineage,
+    }
+    document_refs = {
+        leaf: {
+            "bytes": len(canonical_json_bytes(value)),
+            "sha256": hashlib.sha256(canonical_json_bytes(value)).hexdigest(),
+        }
+        for leaf, value in sorted(documents.items())
+    }
+    documents["internal-input-index.json"] = {
+        "schema": f"{SCHEMA}.internal-input-index.v1",
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "external_approval_receipt_created": False,
+        "external_worm_receipt_created": False,
+        "production_go_enabled": False,
+        "go_evidence_eligible": False,
+        "blocking_unproven_invariants": [
+            "immutable_checkout_namespace_authority",
+            "runtime_stdlib_native_closure_verified",
+        ],
+        "validation_run_uuid": run_uuid,
+        "validation_attempt_uuid": attempt_uuid,
+        "documents": document_refs,
+    }
+    return documents
+
+
+def prepare_internal_inputs(args: argparse.Namespace) -> dict[str, Any]:
+    parent, parent_binding = _validate_output_parent_gate(
+        args.parent,
+        expected_path=args.expected_parent,
+        expected_sha256=args.expected_parent_sha256,
+        forbidden_roots=(args.repository, args.project_root),
+    )
+    documents = _build_internal_input_documents(args)
+    batch = publisher.evidence.publish_pre_serialized_batch(
+        parent,
+        args.output_leaf,
+        documents,
+        run_uuid=args.validation_run_uuid,
+    )
+    return {
+        "schema": f"{SCHEMA}.internal-input-preparation-result.v1",
+        "status": "PREPARED_INTERNAL_NON_AUTHORITATIVE",
+        "decision": "NO-GO",
+        "authority_scope": "internal_non_authoritative",
+        "authority_verified": False,
+        "external_approval_receipt_created": False,
+        "external_worm_receipt_created": False,
+        "production_go_enabled": False,
+        "go_evidence_eligible": False,
+        "output_parent_commitment": parent_binding,
+        "batch": batch.to_dict(),
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     _require_isolated_no_bytecode_startup()
-    result = run_validation(parse_args(argv))
+    actual_argv = list(sys.argv[1:] if argv is None else argv)
+    if actual_argv and actual_argv[0] == "prepare-internal-inputs":
+        result = prepare_internal_inputs(_parse_prepare_internal_inputs(actual_argv[1:]))
+        _best_effort_emit_result(result)
+        return 0
+    result = run_validation(parse_args(actual_argv))
     _best_effort_emit_result(result)
-    return 0 if result["status"] == "PASS" else 1
+    return 0 if result.get("status") == "PASS" and result.get("decision") == "GO" else 1
 
 
 if __name__ == "__main__":
