@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import dis
 import hashlib
 import inspect
@@ -1410,6 +1411,144 @@ def test_production_entry_guard_precedes_project_import_and_requires_no_site() -
     ):
         assert f"'{required_binding}'" in outer
     assert "ConvertFrom-Json" in outer
+
+
+def test_trusted_outer_streams_python_source_over_stdin() -> None:
+    outer = (
+        Path(review.__file__).with_name("invoke_pre_r8_r7s7_review.ps1").read_text(encoding="utf-8")
+    )
+    assert "-c $SiteIdentityScript" not in outer
+    assert "-c $Bootstrap" not in outer
+    assert (
+        '$SiteIdentityScript | & $Python -I -B -S -X "pycache_prefix=$PycachePrefix" - '
+        "$SitePackages 2>&1"
+    ) in outer
+    assert (
+        '$Bootstrap | & $Python -I -B -S -X "pycache_prefix=$PycachePrefix" - '
+        "$Root $Publisher $Runner $SitePackages $PycachePrefix @BoundPublisherArguments"
+    ) in outer
+    assert "$SiteIdentityExitCode = $LASTEXITCODE" in outer
+    assert "$PublisherExitCode = $LASTEXITCODE" in outer
+    assert outer.count("$LASTEXITCODE = $null") == 2
+    assert "python_site_packages_identity_process_not_started" in outer
+    assert "trusted_outer_publisher_process_not_started" in outer
+    assert outer.count("$ErrorActionPreference = 'Continue'") == 2
+    assert outer.count("$ErrorActionPreference = $SavedErrorActionPreference") == 2
+    assert outer.count("$OutputEncoding = [Text.UTF8Encoding]::new($false)") == 2
+    assert outer.count("$OutputEncoding = $SavedOutputEncoding") == 2
+    assert "python_site_packages_identity_source_must_be_ascii" in outer
+    assert "trusted_outer_bootstrap_source_must_be_ascii" in outer
+    site_invoke = outer.index("$SiteIdentityRaw = @(")
+    site_reset = outer.rindex("$LASTEXITCODE = $null", 0, site_invoke)
+    site_capture = outer.index("$SiteIdentityExitCode = $LASTEXITCODE", site_invoke)
+    site_null_gate = outer.index("$null -eq $SiteIdentityExitCode", site_capture)
+    assert site_reset < site_invoke < site_capture < site_null_gate
+    publisher_invoke = outer.index("$Bootstrap | & $Python")
+    publisher_reset = outer.rindex("$LASTEXITCODE = $null", 0, publisher_invoke)
+    publisher_capture = outer.index("$PublisherExitCode = $LASTEXITCODE", publisher_invoke)
+    publisher_null_gate = outer.index("$null -eq $PublisherExitCode", publisher_capture)
+    assert publisher_reset < publisher_invoke < publisher_capture < publisher_null_gate
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell native-pipeline semantics")
+def test_windows_powershell_preserves_multiline_python_source_over_stdin() -> None:
+    powershell = (
+        Path(os.environ["SystemRoot"])
+        / "System32"
+        / "WindowsPowerShell"
+        / "v1.0"
+        / "powershell.exe"
+    )
+    script = r"""$ErrorActionPreference = 'Stop'
+$Python = $env:EVM_TEST_PINNED_PYTHON
+$OutputEncoding = [Text.UnicodeEncoding]::new($false, $false)
+$Source = @'
+import json
+value = {"quoted": "value with spaces", "items": [1, 2]}
+print(json.dumps(value, sort_keys=True, separators=(",", ":")))
+'@
+$SavedErrorActionPreference = $ErrorActionPreference
+$SavedOutputEncoding = $OutputEncoding
+$ErrorActionPreference = 'Continue'
+$OutputEncoding = [Text.UTF8Encoding]::new($false)
+try {
+    $LASTEXITCODE = $null
+    $Output = @($Source | & $Python -I -B -S - 2>&1)
+    $ExitCode = $LASTEXITCODE
+}
+finally {
+    $OutputEncoding = $SavedOutputEncoding
+    $ErrorActionPreference = $SavedErrorActionPreference
+}
+if ($null -eq $ExitCode -or $ExitCode -ne 0 -or $Output.Count -ne 1) {
+    exit 91
+}
+$FailureSource = @'
+import sys
+sys.stderr.write("expected-stderr\n")
+raise SystemExit(37)
+'@
+$SavedErrorActionPreference = $ErrorActionPreference
+$SavedOutputEncoding = $OutputEncoding
+$ErrorActionPreference = 'Continue'
+$OutputEncoding = [Text.UTF8Encoding]::new($false)
+try {
+    $LASTEXITCODE = $null
+    $FailureOutput = @($FailureSource | & $Python -I -B -S - 2>&1)
+    $FailureExitCode = $LASTEXITCODE
+}
+finally {
+    $OutputEncoding = $SavedOutputEncoding
+    $ErrorActionPreference = $SavedErrorActionPreference
+}
+$FailureText = [string]::Join("`n", @($FailureOutput | ForEach-Object { [string]$_ }))
+if ($FailureExitCode -ne 37 -or $FailureText -notmatch 'expected-stderr') {
+    exit 92
+}
+$MissingExecutable = Join-Path $env:TEMP ('evm-missing-' + [Guid]::NewGuid().ToString('N') + '.exe')
+$LASTEXITCODE = 0
+$MissingFailedClosed = $false
+try {
+    $SavedErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $LASTEXITCODE = $null
+        $MissingOutput = @(& $MissingExecutable 2>&1)
+        $MissingExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $SavedErrorActionPreference
+    }
+    if ($null -eq $MissingExitCode) {
+        $MissingFailedClosed = $true
+    }
+}
+catch {
+    $MissingFailedClosed = $true
+}
+if (-not $MissingFailedClosed) {
+    exit 93
+}
+if ($ErrorActionPreference -cne 'Stop') {
+    exit 94
+}
+if ($OutputEncoding.CodePage -ne 1200) {
+    exit 95
+}
+[Console]::Out.WriteLine([string]$Output[0])
+"""
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    environment = dict(os.environ)
+    environment["EVM_TEST_PINNED_PYTHON"] = str(Path(sys.executable).resolve())
+    completed = subprocess.run(
+        (str(powershell), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded),
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert json.loads(completed.stdout) == {"items": [1, 2], "quoted": "value with spaces"}
 
 
 def test_env_spoof_cannot_reach_publication_or_child_dispatch(tmp_path: Path) -> None:

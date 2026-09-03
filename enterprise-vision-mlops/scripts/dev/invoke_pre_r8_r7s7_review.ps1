@@ -320,11 +320,29 @@ if not stat.S_ISDIR(value.st_mode) or getattr(value, 'st_file_attributes', 0) & 
     raise SystemExit('site_packages_regular_non_reparse_directory_required')
 print(json.dumps({'path': str(path), 'device': value.st_dev, 'file_id': value.st_ino, 'creation_time_ns': value.st_ctime_ns}, separators=(',', ':'), sort_keys=True))
 '@
-$SiteIdentityRaw = & $Python -I -B -S -X "pycache_prefix=$PycachePrefix" -c $SiteIdentityScript $SitePackages
-if ($LASTEXITCODE -ne 0) {
+if ($SiteIdentityScript -match '[^\x00-\x7f]') {
+    throw 'python_site_packages_identity_source_must_be_ascii'
+}
+$SavedErrorActionPreference = $ErrorActionPreference
+$SavedOutputEncoding = $OutputEncoding
+$ErrorActionPreference = 'Continue'
+$OutputEncoding = [Text.UTF8Encoding]::new($false)
+try {
+    $LASTEXITCODE = $null
+    $SiteIdentityRaw = @($SiteIdentityScript | & $Python -I -B -S -X "pycache_prefix=$PycachePrefix" - $SitePackages 2>&1)
+    $SiteIdentityExitCode = $LASTEXITCODE
+}
+finally {
+    $OutputEncoding = $SavedOutputEncoding
+    $ErrorActionPreference = $SavedErrorActionPreference
+}
+if ($null -eq $SiteIdentityExitCode) {
+    throw 'python_site_packages_identity_process_not_started'
+}
+if ($SiteIdentityExitCode -ne 0 -or $SiteIdentityRaw.Count -ne 1) {
     throw 'python_site_packages_identity_probe_failed'
 }
-$SiteIdentity = $SiteIdentityRaw | ConvertFrom-Json
+$SiteIdentity = $SiteIdentityRaw[0] | ConvertFrom-Json
 foreach ($Binding in $MatchingPythonBindings) {
     $ExpectedSite = $Binding.Value.site_packages
     if (
@@ -661,6 +679,9 @@ finally:
     if pycache_prefix.exists():
         raise SystemExit('trusted_outer_pycache_prefix_created')
 '@
+if ($Bootstrap -match '[^\x00-\x7f]') {
+    throw 'trusted_outer_bootstrap_source_must_be_ascii'
+}
 
 $PreviousScope = $env:EVM_PRE_R8_REVIEW_ENTRY_AUTHORITY_SCOPE
 try {
@@ -698,8 +719,22 @@ try {
     foreach ($PinnedFile in @($ToolContentLocks) + @($ToolExecutableLocks) + @($CodeLocks) + @($GitLock, $PowerShellLock, $WorkOrderLock, $RunnerLock, $PublisherLock, $PythonLock, $OuterLock)) {
         Assert-RetainedPinnedFileUnchanged -Pinned $PinnedFile -Label 'prelaunch_file'
     }
-    & $Python -I -B -S -X "pycache_prefix=$PycachePrefix" -c $Bootstrap $Root $Publisher $Runner $SitePackages $PycachePrefix @BoundPublisherArguments
-    $PublisherExitCode = $LASTEXITCODE
+    $SavedErrorActionPreference = $ErrorActionPreference
+    $SavedOutputEncoding = $OutputEncoding
+    $ErrorActionPreference = 'Continue'
+    $OutputEncoding = [Text.UTF8Encoding]::new($false)
+    try {
+        $LASTEXITCODE = $null
+        $Bootstrap | & $Python -I -B -S -X "pycache_prefix=$PycachePrefix" - $Root $Publisher $Runner $SitePackages $PycachePrefix @BoundPublisherArguments
+        $PublisherExitCode = $LASTEXITCODE
+    }
+    finally {
+        $OutputEncoding = $SavedOutputEncoding
+        $ErrorActionPreference = $SavedErrorActionPreference
+    }
+    if ($null -eq $PublisherExitCode) {
+        throw 'trusted_outer_publisher_process_not_started'
+    }
     if (Test-Path -LiteralPath $PycachePrefix) {
         throw 'trusted_outer_pycache_prefix_created'
     }
