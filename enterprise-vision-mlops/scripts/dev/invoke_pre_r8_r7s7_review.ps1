@@ -328,9 +328,9 @@ $SavedOutputEncoding = $OutputEncoding
 $ErrorActionPreference = 'Continue'
 $OutputEncoding = [Text.UTF8Encoding]::new($false)
 try {
-    $LASTEXITCODE = $null
+    $global:LASTEXITCODE = $null
     $SiteIdentityRaw = @($SiteIdentityScript | & $Python -I -B -S -X "pycache_prefix=$PycachePrefix" - $SitePackages 2>&1)
-    $SiteIdentityExitCode = $LASTEXITCODE
+    $SiteIdentityExitCode = $global:LASTEXITCODE
 }
 finally {
     $OutputEncoding = $SavedOutputEncoding
@@ -724,9 +724,9 @@ try {
     $ErrorActionPreference = 'Continue'
     $OutputEncoding = [Text.UTF8Encoding]::new($false)
     try {
-        $LASTEXITCODE = $null
+        $global:LASTEXITCODE = $null
         $Bootstrap | & $Python -I -B -S -X "pycache_prefix=$PycachePrefix" - $Root $Publisher $Runner $SitePackages $PycachePrefix @BoundPublisherArguments
-        $PublisherExitCode = $LASTEXITCODE
+        $PublisherExitCode = $global:LASTEXITCODE
     }
     finally {
         $OutputEncoding = $SavedOutputEncoding

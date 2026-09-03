@@ -1427,9 +1427,10 @@ def test_trusted_outer_streams_python_source_over_stdin() -> None:
         '$Bootstrap | & $Python -I -B -S -X "pycache_prefix=$PycachePrefix" - '
         "$Root $Publisher $Runner $SitePackages $PycachePrefix @BoundPublisherArguments"
     ) in outer
-    assert "$SiteIdentityExitCode = $LASTEXITCODE" in outer
-    assert "$PublisherExitCode = $LASTEXITCODE" in outer
-    assert outer.count("$LASTEXITCODE = $null") == 2
+    assert "$SiteIdentityExitCode = $global:LASTEXITCODE" in outer
+    assert "$PublisherExitCode = $global:LASTEXITCODE" in outer
+    assert outer.count("$global:LASTEXITCODE = $null") == 2
+    assert "$LASTEXITCODE = $null" not in outer.replace("$global:LASTEXITCODE = $null", "")
     assert "python_site_packages_identity_process_not_started" in outer
     assert "trusted_outer_publisher_process_not_started" in outer
     assert outer.count("$ErrorActionPreference = 'Continue'") == 2
@@ -1439,13 +1440,13 @@ def test_trusted_outer_streams_python_source_over_stdin() -> None:
     assert "python_site_packages_identity_source_must_be_ascii" in outer
     assert "trusted_outer_bootstrap_source_must_be_ascii" in outer
     site_invoke = outer.index("$SiteIdentityRaw = @(")
-    site_reset = outer.rindex("$LASTEXITCODE = $null", 0, site_invoke)
-    site_capture = outer.index("$SiteIdentityExitCode = $LASTEXITCODE", site_invoke)
+    site_reset = outer.rindex("$global:LASTEXITCODE = $null", 0, site_invoke)
+    site_capture = outer.index("$SiteIdentityExitCode = $global:LASTEXITCODE", site_invoke)
     site_null_gate = outer.index("$null -eq $SiteIdentityExitCode", site_capture)
     assert site_reset < site_invoke < site_capture < site_null_gate
     publisher_invoke = outer.index("$Bootstrap | & $Python")
-    publisher_reset = outer.rindex("$LASTEXITCODE = $null", 0, publisher_invoke)
-    publisher_capture = outer.index("$PublisherExitCode = $LASTEXITCODE", publisher_invoke)
+    publisher_reset = outer.rindex("$global:LASTEXITCODE = $null", 0, publisher_invoke)
+    publisher_capture = outer.index("$PublisherExitCode = $global:LASTEXITCODE", publisher_invoke)
     publisher_null_gate = outer.index("$null -eq $PublisherExitCode", publisher_capture)
     assert publisher_reset < publisher_invoke < publisher_capture < publisher_null_gate
 
@@ -1459,7 +1460,8 @@ def test_windows_powershell_preserves_multiline_python_source_over_stdin() -> No
         / "v1.0"
         / "powershell.exe"
     )
-    script = r"""$ErrorActionPreference = 'Stop'
+    script = r"""& {
+$ErrorActionPreference = 'Stop'
 $Python = $env:EVM_TEST_PINNED_PYTHON
 $OutputEncoding = [Text.UnicodeEncoding]::new($false, $false)
 $Source = @'
@@ -1472,9 +1474,9 @@ $SavedOutputEncoding = $OutputEncoding
 $ErrorActionPreference = 'Continue'
 $OutputEncoding = [Text.UTF8Encoding]::new($false)
 try {
-    $LASTEXITCODE = $null
+    $global:LASTEXITCODE = $null
     $Output = @($Source | & $Python -I -B -S - 2>&1)
-    $ExitCode = $LASTEXITCODE
+    $ExitCode = $global:LASTEXITCODE
 }
 finally {
     $OutputEncoding = $SavedOutputEncoding
@@ -1493,9 +1495,9 @@ $SavedOutputEncoding = $OutputEncoding
 $ErrorActionPreference = 'Continue'
 $OutputEncoding = [Text.UTF8Encoding]::new($false)
 try {
-    $LASTEXITCODE = $null
+    $global:LASTEXITCODE = $null
     $FailureOutput = @($FailureSource | & $Python -I -B -S - 2>&1)
-    $FailureExitCode = $LASTEXITCODE
+    $FailureExitCode = $global:LASTEXITCODE
 }
 finally {
     $OutputEncoding = $SavedOutputEncoding
@@ -1506,15 +1508,15 @@ if ($FailureExitCode -ne 37 -or $FailureText -notmatch 'expected-stderr') {
     exit 92
 }
 $MissingExecutable = Join-Path $env:TEMP ('evm-missing-' + [Guid]::NewGuid().ToString('N') + '.exe')
-$LASTEXITCODE = 0
+$global:LASTEXITCODE = 0
 $MissingFailedClosed = $false
 try {
     $SavedErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $LASTEXITCODE = $null
+        $global:LASTEXITCODE = $null
         $MissingOutput = @(& $MissingExecutable 2>&1)
-        $MissingExitCode = $LASTEXITCODE
+        $MissingExitCode = $global:LASTEXITCODE
     }
     finally {
         $ErrorActionPreference = $SavedErrorActionPreference
@@ -1536,6 +1538,7 @@ if ($OutputEncoding.CodePage -ne 1200) {
     exit 95
 }
 [Console]::Out.WriteLine([string]$Output[0])
+}
 """
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     environment = dict(os.environ)
