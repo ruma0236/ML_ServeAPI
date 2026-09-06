@@ -2449,6 +2449,16 @@ def _validate_validation_process_evidence(
         sequence_points.append((item["sequence"], item["monotonic_ns"], accounting_time))
     if accounting_sequences != sorted(set(accounting_sequences)):
         raise ReviewPublisherError("validation_process_accounting_sequence_invalid")
+    journal_events = [
+        event for event in events if event["event"] == validation_runner.ACCOUNTING_JOURNAL_EVENT
+    ]
+    if len(journal_events) > 1:
+        raise ReviewPublisherError("validation_process_accounting_journal_not_unique")
+    if journal_events and not validation_runner.accounting_snapshot_journal_valid(
+        journal_events[0]["details"],
+        accounting,
+    ):
+        raise ReviewPublisherError("validation_process_accounting_journal_invalid")
     combined_sequences = sorted(event_sequences + accounting_sequences)
     if combined_sequences != list(range(1, len(combined_sequences) + 1)):
         raise ReviewPublisherError("validation_process_global_sequence_invalid")

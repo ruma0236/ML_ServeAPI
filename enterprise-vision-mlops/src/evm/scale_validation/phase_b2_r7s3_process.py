@@ -42,6 +42,7 @@ DEFAULT_MAX_ACCOUNTING_COHERENCE_ATTEMPTS = 8
 DEFAULT_MAX_JOB_EVENTS = 16_384
 DEFAULT_MAX_PROCESS_IDENTITIES = 4_096
 DEFAULT_MAX_ACCOUNTING_SNAPSHOTS = 4_096
+DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE = 256
 DEFAULT_MAX_ERROR_RECORDS = 1_024
 DEFAULT_MAX_WSL_SCAN_PAYLOAD_BYTES = 4 * 1024 * 1024
 DEFAULT_MAX_WSL_SCAN_RECORDS = 4_096
@@ -54,6 +55,8 @@ DEFAULT_PROCESS_POLL_INTERVAL_SECONDS = 0.001
 JOB_CAPABILITY_QUERY_ACCESS = 0x00020004  # READ_CONTROL | JOB_OBJECT_QUERY
 _JOB_CAPABILITY_DOMAIN = b"evm.phase-b2.windows-job-capability.v1\0"
 _JOB_CAPABILITY_REDACTION = "<redacted-job-capability-nonce>"
+ACCOUNTING_JOURNAL_EVENT = "accounting_snapshot_journal_finalized"
+ACCOUNTING_JOURNAL_SCHEMA = "evm.phase-b2.accounting-snapshot-journal.v1"
 
 
 class ProcessContainmentError(RuntimeError):
@@ -284,6 +287,123 @@ class JobAccountingSnapshot:
     active_processes: int
     total_terminated_processes: int
     active_pids: tuple[int, ...]
+
+
+def _canonical_json_bytes(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _sha256_canonical(value: object) -> str:
+    return hashlib.sha256(_canonical_json_bytes(value)).hexdigest()
+
+
+def _accounting_snapshot_payload(
+    snapshot: JobAccountingSnapshot | Mapping[str, Any],
+) -> dict[str, Any]:
+    if isinstance(snapshot, JobAccountingSnapshot):
+        raw = asdict(snapshot)
+    elif isinstance(snapshot, Mapping):
+        raw = dict(snapshot)
+    else:
+        raise TypeError("accounting_snapshot_mapping_required")
+    active_pids = raw.get("active_pids")
+    if isinstance(active_pids, tuple):
+        active_pids = list(active_pids)
+    return {
+        "sequence": raw.get("sequence"),
+        "monotonic_ns": raw.get("monotonic_ns"),
+        "timestamp_utc": raw.get("timestamp_utc"),
+        "total_processes": raw.get("total_processes"),
+        "active_processes": raw.get("active_processes"),
+        "total_terminated_processes": raw.get("total_terminated_processes"),
+        "active_pids": active_pids,
+    }
+
+
+def accounting_snapshot_journal_details(
+    snapshots: Sequence[JobAccountingSnapshot | Mapping[str, Any]],
+    *,
+    retained_snapshot_limit: int,
+    suppressed_duplicate_final_snapshots: int,
+    chunk_size: int = DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE,
+) -> dict[str, Any]:
+    """Return a bounded hash/index for retained accounting snapshots."""
+
+    if (
+        type(retained_snapshot_limit) is not int
+        or retained_snapshot_limit <= 0
+        or type(suppressed_duplicate_final_snapshots) is not int
+        or suppressed_duplicate_final_snapshots < 0
+        or type(chunk_size) is not int
+        or chunk_size <= 0
+    ):
+        raise ValueError("accounting_journal_integer_contract_invalid")
+    payloads = [_accounting_snapshot_payload(snapshot) for snapshot in snapshots]
+    record_hashes = [_sha256_canonical(payload) for payload in payloads]
+    chunks: list[dict[str, Any]] = []
+    previous_chain = "0" * 64
+    for index, start in enumerate(range(0, len(payloads), chunk_size), start=1):
+        end = min(start + chunk_size, len(payloads))
+        records = payloads[start:end]
+        chunk_payload = {
+            "schema": f"{ACCOUNTING_JOURNAL_SCHEMA}.chunk.v1",
+            "chunk_index": index,
+            "first_retained_offset": start,
+            "last_retained_offset": end - 1,
+            "snapshot_count": len(records),
+            "first_sequence": records[0]["sequence"],
+            "last_sequence": records[-1]["sequence"],
+            "record_hashes": record_hashes[start:end],
+            "previous_chunk_chain_sha256": previous_chain,
+        }
+        chunk_sha256 = _sha256_canonical(chunk_payload)
+        previous_chain = _sha256_canonical(
+            {
+                "previous_chunk_chain_sha256": previous_chain,
+                "chunk_sha256": chunk_sha256,
+            }
+        )
+        chunks.append(
+            {
+                **chunk_payload,
+                "chunk_sha256": chunk_sha256,
+                "chunk_chain_sha256": previous_chain,
+            }
+        )
+    return {
+        "schema": ACCOUNTING_JOURNAL_SCHEMA,
+        "retention_mode": "bounded_retained_snapshot_chunk_index",
+        "retained_snapshot_limit": retained_snapshot_limit,
+        "retained_snapshot_count": len(payloads),
+        "suppressed_duplicate_final_snapshots": suppressed_duplicate_final_snapshots,
+        "chunk_size": chunk_size,
+        "chunk_count": len(chunks),
+        "retained_snapshot_sha256": _sha256_canonical(payloads),
+        "final_snapshot_sha256": record_hashes[-1] if record_hashes else None,
+        "chunks": chunks,
+        "aggregate_sha256": previous_chain,
+    }
+
+
+def accounting_snapshot_journal_valid(
+    details: object,
+    snapshots: Sequence[JobAccountingSnapshot | Mapping[str, Any]],
+) -> bool:
+    if not isinstance(details, Mapping):
+        return False
+    retained_snapshot_limit = details.get("retained_snapshot_limit")
+    suppressed_duplicate_final_snapshots = details.get("suppressed_duplicate_final_snapshots")
+    chunk_size = details.get("chunk_size")
+    try:
+        expected = accounting_snapshot_journal_details(
+            snapshots,
+            retained_snapshot_limit=retained_snapshot_limit,  # type: ignore[arg-type]
+            suppressed_duplicate_final_snapshots=suppressed_duplicate_final_snapshots,  # type: ignore[arg-type]
+            chunk_size=chunk_size,  # type: ignore[arg-type]
+        )
+    except (TypeError, ValueError):
+        return False
+    return dict(details) == expected
 
 
 @dataclass(frozen=True)
@@ -2224,6 +2344,7 @@ class WindowsJobProcessRunner:
         terminal_aux_errors: list[str] = []
         sequence = 0
         evidence_limit_error: str | None = None
+        suppressed_duplicate_final_snapshots = 0
 
         def timestamp() -> tuple[int, str]:
             return (time.monotonic_ns(), self._utc_clock().isoformat())
@@ -2424,7 +2545,7 @@ class WindowsJobProcessRunner:
                     api.close(process_handle)
 
         def sample_accounting(force: bool = False) -> _JOB_BASIC_ACCOUNTING:
-            nonlocal manual
+            nonlocal manual, suppressed_duplicate_final_snapshots
             accounting: _JOB_BASIC_ACCOUNTING | None = None
             active_pids: tuple[int, ...] = ()
             for attempt in range(1, DEFAULT_MAX_ACCOUNTING_COHERENCE_ATTEMPTS + 1):
@@ -2464,6 +2585,9 @@ class WindowsJobProcessRunner:
                     previous.active_pids,
                 )
             if force or state != prior:
+                if force and state == prior and len(snapshots) >= max_accounting_snapshots:
+                    suppressed_duplicate_final_snapshots += 1
+                    return accounting
                 if len(snapshots) >= max_accounting_snapshots:
                     raise _EvidenceLimitExceeded(
                         f"accounting_snapshot_limit_exceeded:{max_accounting_snapshots}"
@@ -2977,6 +3101,15 @@ class WindowsJobProcessRunner:
             if final_pids:
                 manual = True
                 add_event("residual_processes_observed", details={"pids": list(final_pids)})
+            if suppressed_duplicate_final_snapshots:
+                add_event(
+                    ACCOUNTING_JOURNAL_EVENT,
+                    details=accounting_snapshot_journal_details(
+                        snapshots,
+                        retained_snapshot_limit=max_accounting_snapshots,
+                        suppressed_duplicate_final_snapshots=(suppressed_duplicate_final_snapshots),
+                    ),
+                )
 
             stage = "stream_drain_gate"
             drain_deadline = min(
@@ -3380,6 +3513,10 @@ R7S3_JOB_CAPABILITY_PRIMITIVE_CONTRACT: dict[str, Any] = {
     "run_event_limit": DEFAULT_MAX_JOB_EVENTS,
     "run_identity_limit": DEFAULT_MAX_PROCESS_IDENTITIES,
     "run_accounting_snapshot_limit": DEFAULT_MAX_ACCOUNTING_SNAPSHOTS,
+    "accounting_journal_event": ACCOUNTING_JOURNAL_EVENT,
+    "accounting_journal_schema": ACCOUNTING_JOURNAL_SCHEMA,
+    "accounting_journal_chunk_size": DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE,
+    "duplicate_final_accounting_snapshot_suppressed_with_journal": True,
     "completion_drain_deadline_and_cancel_checks": True,
     "final_safe_gate_after_bounded_stream_decode": True,
     "reader_start_exception_native_state_cleanup": True,
@@ -3423,6 +3560,7 @@ def validate_process_containment_contract(value: Any) -> dict[str, Any]:
 __all__ = [
     "DEFAULT_MAX_ACCOUNTING_COHERENCE_ATTEMPTS",
     "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS",
+    "DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE",
     "DEFAULT_MAX_COMPLETION_EVENTS_PER_DRAIN",
     "DEFAULT_MAX_JOB_EVENTS",
     "DEFAULT_MAX_PROCESS_IDENTITIES",
@@ -3436,6 +3574,8 @@ __all__ = [
     "JOB_CAPABILITY_NONCE_BYTES",
     "JOB_CAPABILITY_NONCE_ENV",
     "JOB_CAPABILITY_QUERY_ACCESS",
+    "ACCOUNTING_JOURNAL_EVENT",
+    "ACCOUNTING_JOURNAL_SCHEMA",
     "JobAccountingSnapshot",
     "JobEvent",
     "LinuxProcStat",
@@ -3452,6 +3592,8 @@ __all__ = [
     "WindowsJobProcessRunner",
     "WslProcessIdentity",
     "WslResidualProtocol",
+    "accounting_snapshot_journal_details",
+    "accounting_snapshot_journal_valid",
     "consume_inherited_job_capability",
     "identity_coverage_complete",
     "job_capability_commitment",

@@ -786,6 +786,26 @@ class _RunnerApi:
         return None
 
 
+class _DuplicateFinalAccountingApi(_RunnerApi):
+    def query_active_pids(self, _job: int) -> tuple[int, ...]:
+        return (402,) if self.accounting_calls == 1 else ()
+
+
+class _DistinctFinalAccountingOverflowApi(_RunnerApi):
+    def query_accounting(self, _job: int) -> SimpleNamespace:
+        self.accounting_calls += 1
+        active = 1 if self.accounting_calls == 1 else 0
+        total = 1 if self.accounting_calls <= 2 else 2
+        return SimpleNamespace(
+            TotalProcesses=total,
+            ActiveProcesses=active,
+            TotalTerminatedProcesses=total - active,
+        )
+
+    def query_active_pids(self, _job: int) -> tuple[int, ...]:
+        return (402,) if self.accounting_calls == 1 else ()
+
+
 class _ZeroAtBoundaryAccountingApi(_RunnerApi):
     def __init__(
         self,
@@ -2226,7 +2246,7 @@ def test_run_global_accounting_evidence_limit_fails_closed_and_stays_bounded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(process.sys, "platform", "win32")
-    monkeypatch.setattr(process, "_WindowsJobApi", _RunnerApi)
+    monkeypatch.setattr(process, "_WindowsJobApi", _DistinctFinalAccountingOverflowApi)
 
     with pytest.raises(process.ProcessContainmentFailure) as caught:
         process.WindowsJobProcessRunner().run([r"C:\runtime.exe"], max_accounting_snapshots=1)
@@ -2236,3 +2256,26 @@ def test_run_global_accounting_evidence_limit_fails_closed_and_stays_bounded(
     assert len(failure.accounting) == 1
     assert any("accounting_snapshot_limit_exceeded:1" in error for error in failure.errors)
     assert failure.safe_for_followup is False
+
+
+def test_run_final_duplicate_accounting_at_limit_is_journaled_not_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(process.sys, "platform", "win32")
+    monkeypatch.setattr(process, "_WindowsJobApi", _DuplicateFinalAccountingApi)
+
+    outcome = process.WindowsJobProcessRunner().run(
+        [r"C:\runtime.exe"],
+        max_accounting_snapshots=1,
+    )
+
+    journal_events = [
+        event for event in outcome.events if event.event == process.ACCOUNTING_JOURNAL_EVENT
+    ]
+    assert outcome.safe_for_followup is True
+    assert len(outcome.accounting) == 1
+    assert journal_events
+    assert journal_events[0].details["suppressed_duplicate_final_snapshots"] == 1
+    assert journal_events[0].details["retained_snapshot_count"] == len(outcome.accounting)
+    assert process.accounting_snapshot_journal_valid(journal_events[0].details, outcome.accounting)
+    assert not any("accounting_snapshot_limit_exceeded" in error for error in outcome.errors)

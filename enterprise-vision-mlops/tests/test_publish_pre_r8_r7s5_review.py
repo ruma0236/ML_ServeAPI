@@ -18,6 +18,7 @@ import pytest
 
 from scripts.dev import publish_pre_r8_r7s5_review as review
 from scripts.dev import run_pre_r8_r7s5_validation as runner
+from evm.scale_validation.phase_b2_r7s3_process import accounting_snapshot_journal_details
 
 
 def _clean_process_outcome(
@@ -802,6 +803,23 @@ def _rewrite_all_command_evidence(
         command["evidence_bytes"] = len(raw)
         command["evidence_sha256"] = hashlib.sha256(raw).hexdigest()
         command["publication"] = _publication_receipt(path, raw)
+
+
+def _add_accounting_journal(process_containment: dict[str, Any]) -> None:
+    process_containment["events"].append(
+        {
+            "sequence": 10,
+            "event": runner.ACCOUNTING_JOURNAL_EVENT,
+            "monotonic_ns": 10,
+            "timestamp_utc": "2026-09-02T00:00:01+00:00",
+            "pid": None,
+            "details": accounting_snapshot_journal_details(
+                process_containment["accounting"],
+                retained_snapshot_limit=4096,
+                suppressed_duplicate_final_snapshots=1,
+            ),
+        }
+    )
 
 
 def _repin_command_plan(value: dict[str, object]) -> None:
@@ -3867,6 +3885,34 @@ def test_code_summary_rejects_process_accounting_and_time_relationship_tamper(
     _rewrite_first_command_evidence(summary, mutation)
     with pytest.raises(review.ReviewPublisherError, match=error):
         review.validate_code_summary(summary, **kwargs)
+
+
+def test_code_summary_recomputes_accounting_journal_from_retained_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    summary, kwargs = _code_summary(monkeypatch, tmp_path)
+    _rewrite_first_command_evidence(
+        summary,
+        lambda record: _add_accounting_journal(record["process_containment"]),
+    )
+    kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(summary)
+    ).hexdigest()
+
+    assert review.validate_code_summary(summary, **kwargs) == summary
+
+    tampered, tampered_kwargs = _code_summary(monkeypatch, tmp_path / "tampered")
+
+    def mutate_journal(record: dict[str, Any]) -> None:
+        _add_accounting_journal(record["process_containment"])
+        record["process_containment"]["events"][-1]["details"]["retained_snapshot_sha256"] = (
+            "0" * 64
+        )
+
+    _rewrite_first_command_evidence(tampered, mutate_journal)
+    with pytest.raises(review.ReviewPublisherError, match="accounting_journal_invalid"):
+        review.validate_code_summary(tampered, **tampered_kwargs)
 
 
 def test_code_summary_cross_binds_process_stream_hash_bytes_and_tail(

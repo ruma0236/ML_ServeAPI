@@ -20,6 +20,7 @@ from evm.scale_validation.phase_b2_r7s3_process import (
     JobAccountingSnapshot,
     JobEvent,
     ProcessIdentity,
+    accounting_snapshot_journal_details,
 )
 
 
@@ -2974,4 +2975,30 @@ def test_containment_rejects_extra_identity_event_zero_ppid_and_membership_extra
     )
     assert "membership_evidence" in runner._containment_evidence_errors(
         replace(base, events=membership_events)
+    )
+
+
+def test_containment_recomputes_accounting_journal_hashes() -> None:
+    base = _contained_outcome(return_code=0)
+    journal_details = accounting_snapshot_journal_details(
+        base.accounting,
+        retained_snapshot_limit=4096,
+        suppressed_duplicate_final_snapshots=1,
+    )
+    journal_event = JobEvent(
+        sequence=9,
+        event=runner.ACCOUNTING_JOURNAL_EVENT,
+        monotonic_ns=9,
+        timestamp_utc="2026-09-02T00:00:00+00:00",
+        details=journal_details,
+    )
+    with_journal = replace(base, events=(*base.events, journal_event))
+
+    assert "accounting_journal" not in runner._containment_evidence_errors(with_journal)
+    tampered = dict(journal_details)
+    tampered["retained_snapshot_sha256"] = "0" * 64
+    tampered_event = replace(journal_event, details=tampered)
+
+    assert "accounting_journal" in runner._containment_evidence_errors(
+        replace(base, events=(*base.events, tampered_event))
     )

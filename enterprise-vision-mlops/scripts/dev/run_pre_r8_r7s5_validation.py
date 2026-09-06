@@ -46,10 +46,12 @@ from evm.scale_validation.phase_b2_r7s4_handle_io import (  # noqa: E402
     validate_strict_windows_leaf,
 )
 from evm.scale_validation.phase_b2_r7s3_process import (  # noqa: E402
+    ACCOUNTING_JOURNAL_EVENT,
     ProcessContainmentFailure,
     ProcessOutcome,
     TimeoutContract,
     WindowsJobProcessRunner,
+    accounting_snapshot_journal_valid,
 )
 
 
@@ -2736,6 +2738,14 @@ def _containment_evidence_errors(outcome: ProcessOutcome) -> tuple[str, ...]:
     named_events: dict[str, Any] = {}
     for event in events:
         named_events.setdefault(event.event, event)
+    journal_events = [event for event in events if event.event == ACCOUNTING_JOURNAL_EVENT]
+    if len(journal_events) > 1:
+        errors.append("accounting_journal")
+    elif journal_events and not accounting_snapshot_journal_valid(
+        journal_events[0].details,
+        accounting,
+    ):
+        errors.append("accounting_journal")
     required_events = (
         "job_created",
         "root_created_suspended",
