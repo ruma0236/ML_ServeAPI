@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -787,8 +788,33 @@ class _RunnerApi:
 
 
 class _DuplicateFinalAccountingApi(_RunnerApi):
+    def __init__(self) -> None:
+        super().__init__()
+        self.query_trace: list[tuple[str, int]] = []
+
+    def query_accounting(self, job: int) -> SimpleNamespace:
+        value = super().query_accounting(job)
+        self.query_trace.append(("accounting", self.accounting_calls))
+        return value
+
     def query_active_pids(self, _job: int) -> tuple[int, ...]:
+        self.query_trace.append(("active_pids", self.accounting_calls))
         return (402,) if self.accounting_calls == 1 else ()
+
+
+class _DuplicateFinalAccountingOneRaceApi(_DuplicateFinalAccountingApi):
+    def __init__(self) -> None:
+        super().__init__()
+        self.final_race_injected = False
+
+    def query_active_pids(self, _job: int) -> tuple[int, ...]:
+        self.query_trace.append(("active_pids", self.accounting_calls))
+        if self.accounting_calls == 1:
+            return (402,)
+        if self.accounting_calls == 3 and not self.final_race_injected:
+            self.final_race_injected = True
+            return (402,)
+        return ()
 
 
 class _DistinctFinalAccountingOverflowApi(_RunnerApi):
@@ -2261,8 +2287,9 @@ def test_run_global_accounting_evidence_limit_fails_closed_and_stays_bounded(
 def test_run_final_duplicate_accounting_at_limit_is_journaled_not_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    fake = _DuplicateFinalAccountingApi()
     monkeypatch.setattr(process.sys, "platform", "win32")
-    monkeypatch.setattr(process, "_WindowsJobApi", _DuplicateFinalAccountingApi)
+    monkeypatch.setattr(process, "_WindowsJobApi", lambda: fake)
 
     outcome = process.WindowsJobProcessRunner().run(
         [r"C:\runtime.exe"],
@@ -2272,10 +2299,391 @@ def test_run_final_duplicate_accounting_at_limit_is_journaled_not_rejected(
     journal_events = [
         event for event in outcome.events if event.event == process.ACCOUNTING_JOURNAL_EVENT
     ]
+    observation_events = [
+        event
+        for event in outcome.events
+        if event.event == process.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+    ]
+    active_zero = next(
+        event for event in outcome.events if event.event == "active_process_count_zero"
+    )
+    streams_drained = next(event for event in outcome.events if event.event == "streams_drained")
     assert outcome.safe_for_followup is True
     assert len(outcome.accounting) == 1
-    assert journal_events
+    assert len(observation_events) == 1
+    assert len(journal_events) == 1
+    observation = observation_events[0]
+    journal = journal_events[0]
+    coherence_attempt_count = process.accounting_forced_final_coherence_attempt_count(
+        outcome.events,
+        active_process_count_zero_sequence=active_zero.sequence,
+        observation_sequence=observation.sequence,
+    )
+    preceding_records = [
+        item
+        for item in [*outcome.events, *outcome.accounting]
+        if item.sequence == observation.sequence - 1
+    ]
+    assert coherence_attempt_count == 1
+    assert len(preceding_records) == 1
+    assert fake.accounting_calls == 3
+    assert fake.query_trace[-3:] == [
+        ("accounting", 3),
+        ("active_pids", 3),
+        ("active_pids", 3),
+    ]
+    expected_state = {
+        "schema": process.ACCOUNTING_DUPLICATE_COMPARISON_STATE_SCHEMA,
+        "total_processes": outcome.accounting[-1].total_processes,
+        "active_processes": outcome.accounting[-1].active_processes,
+        "total_terminated_processes": outcome.accounting[-1].total_terminated_processes,
+        "active_pids": list(outcome.accounting[-1].active_pids),
+    }
+    assert set(observation.details) == {
+        "schema",
+        "observation_scope",
+        "run_uuid",
+        "query_api",
+        "query_information_classes",
+        "query_completed_monotonic_ns",
+        "query_completed_at_utc",
+        "coherence_attempt_count",
+        "observed_state",
+        "observed_state_sha256",
+        "matched_retained_snapshot_sequence",
+        "matched_retained_snapshot_sha256",
+        "duplicate_state_match",
+        "observation_sha256",
+    }
+    assert observation.details["query_api"] == "QueryInformationJobObject"
+    assert observation.details["query_information_classes"] == {
+        "accounting": 1,
+        "active_process_ids": 3,
+    }
+    assert observation.details["observed_state"] == expected_state
+    assert observation.details["observed_state_sha256"] == process._sha256_canonical(expected_state)
+    observation_details_payload = dict(observation.details)
+    observation_sha256 = observation_details_payload.pop("observation_sha256")
+    assert observation_sha256 == process._sha256_canonical(observation_details_payload)
+    assert journal.details["forced_final_observation_event_sequence"] == observation.sequence
+    assert journal.details["forced_final_observation_event_sha256"] == (
+        process.accounting_forced_final_observation_event_sha256(observation)
+    )
+    assert process.accounting_forced_final_observation_valid(
+        observation,
+        outcome.accounting[-1],
+        expected_run_uuid=outcome.run_uuid,
+        expected_coherence_attempt_count=coherence_attempt_count,
+    )
+    assert process.accounting_forced_final_observation_lifecycle_valid(
+        observation,
+        preceding_record=preceding_records[0],
+        active_process_count_zero_event=active_zero,
+        journal_event=journal,
+    )
+    assert not process.accounting_forced_final_observation_lifecycle_valid(
+        observation,
+        preceding_record=preceding_records[0],
+        active_process_count_zero_event=replace(active_zero, pid=402),
+        journal_event=journal,
+    )
+    assert not process.accounting_forced_final_observation_lifecycle_valid(
+        observation,
+        preceding_record=preceding_records[0],
+        active_process_count_zero_event=active_zero,
+        journal_event=replace(journal, pid=402),
+    )
     assert journal_events[0].details["suppressed_duplicate_final_snapshots"] == 1
+    assert journal_events[0].details["retained_snapshot_limit"] == 1
     assert journal_events[0].details["retained_snapshot_count"] == len(outcome.accounting)
-    assert process.accounting_snapshot_journal_valid(journal_events[0].details, outcome.accounting)
+    assert process.accounting_snapshot_journal_order_valid(
+        active_process_count_zero_sequence=active_zero.sequence,
+        journal_sequence=journal_events[0].sequence,
+        streams_drained_sequence=streams_drained.sequence,
+    )
+    assert [event.sequence for event in outcome.events] == sorted(
+        event.sequence for event in outcome.events
+    )
+    assert journal_events[0].details["chunk_size"] == (
+        process.DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE
+    )
+    assert process.accounting_snapshot_journal_valid(
+        journal_events[0].details,
+        outcome.accounting,
+        forced_final_observation_event=observation,
+        expected_run_uuid=outcome.run_uuid,
+        expected_coherence_attempt_count=coherence_attempt_count,
+        expected_retained_snapshot_limit=1,
+    )
+    aggregate_payload = dict(journal_events[0].details)
+    aggregate_sha256 = aggregate_payload.pop("aggregate_sha256")
+    assert (
+        aggregate_sha256
+        == hashlib.sha256(process._canonical_json_bytes(aggregate_payload)).hexdigest()
+    )
+    for field, forged_value in (
+        ("retained_snapshot_limit", 2),
+        ("suppressed_duplicate_final_snapshots", 2),
+        ("chunk_size", 1),
+    ):
+        forged = dict(journal_events[0].details)
+        forged[field] = forged_value
+        forged_payload = dict(forged)
+        forged_payload.pop("aggregate_sha256")
+        forged["aggregate_sha256"] = hashlib.sha256(
+            process._canonical_json_bytes(forged_payload)
+        ).hexdigest()
+        assert not process.accounting_snapshot_journal_valid(
+            forged,
+            outcome.accounting,
+            forced_final_observation_event=observation,
+            expected_run_uuid=outcome.run_uuid,
+            expected_coherence_attempt_count=coherence_attempt_count,
+            expected_retained_snapshot_limit=1,
+        )
+    with pytest.raises(ValueError, match="retained_limit_mismatch"):
+        process.accounting_snapshot_journal_details(
+            outcome.accounting,
+            retained_snapshot_limit=2,
+            suppressed_duplicate_final_snapshots=1,
+            forced_final_observation_event=observation,
+            expected_run_uuid=outcome.run_uuid,
+            expected_coherence_attempt_count=coherence_attempt_count,
+        )
+    for suppressed_count, chunk_size in (
+        (0, process.DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE),
+        (2, process.DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE),
+        (1, process.DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE - 1),
+    ):
+        with pytest.raises(ValueError, match="policy_invalid"):
+            process.accounting_snapshot_journal_details(
+                outcome.accounting,
+                retained_snapshot_limit=1,
+                suppressed_duplicate_final_snapshots=suppressed_count,
+                forced_final_observation_event=observation,
+                expected_run_uuid=outcome.run_uuid,
+                expected_coherence_attempt_count=coherence_attempt_count,
+                chunk_size=chunk_size,
+            )
     assert not any("accounting_snapshot_limit_exceeded" in error for error in outcome.errors)
+
+
+def test_accounting_forced_final_observation_rejects_self_consistent_state_tamper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(process.sys, "platform", "win32")
+    monkeypatch.setattr(process, "_WindowsJobApi", _DuplicateFinalAccountingApi)
+
+    outcome = process.WindowsJobProcessRunner().run(
+        [r"C:\runtime.exe"],
+        max_accounting_snapshots=1,
+    )
+    observation = next(
+        event
+        for event in outcome.events
+        if event.event == process.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+    )
+    journal = next(
+        event for event in outcome.events if event.event == process.ACCOUNTING_JOURNAL_EVENT
+    )
+    active_zero = next(
+        event for event in outcome.events if event.event == "active_process_count_zero"
+    )
+    coherence_attempt_count = process.accounting_forced_final_coherence_attempt_count(
+        outcome.events,
+        active_process_count_zero_sequence=active_zero.sequence,
+        observation_sequence=observation.sequence,
+    )
+    forged_observation = {
+        "sequence": observation.sequence,
+        "event": observation.event,
+        "monotonic_ns": observation.monotonic_ns,
+        "timestamp_utc": observation.timestamp_utc,
+        "pid": observation.pid,
+        "details": json.loads(json.dumps(observation.details)),
+    }
+    forged_details = forged_observation["details"]
+    forged_details["observed_state"]["total_processes"] += 1
+    forged_details["observed_state_sha256"] = process._sha256_canonical(
+        forged_details["observed_state"]
+    )
+    observation_payload = dict(forged_details)
+    observation_payload.pop("observation_sha256")
+    forged_details["observation_sha256"] = process._sha256_canonical(observation_payload)
+
+    forged_journal = dict(journal.details)
+    forged_journal["forced_final_observation_event_sha256"] = (
+        process.accounting_forced_final_observation_event_sha256(forged_observation)
+    )
+    journal_payload = dict(forged_journal)
+    journal_payload.pop("aggregate_sha256")
+    forged_journal["aggregate_sha256"] = process._sha256_canonical(journal_payload)
+
+    assert not process.accounting_forced_final_observation_valid(
+        forged_observation,
+        outcome.accounting[-1],
+        expected_run_uuid=outcome.run_uuid,
+        expected_coherence_attempt_count=coherence_attempt_count,
+    )
+    assert not process.accounting_snapshot_journal_valid(
+        forged_journal,
+        outcome.accounting,
+        forced_final_observation_event=forged_observation,
+        expected_run_uuid=outcome.run_uuid,
+        expected_coherence_attempt_count=coherence_attempt_count,
+        expected_retained_snapshot_limit=1,
+    )
+
+    tuple_tamper = {
+        **forged_observation,
+        "details": json.loads(json.dumps(observation.details)),
+    }
+    tuple_tamper["details"]["observed_state"]["active_pids"] = tuple(
+        tuple_tamper["details"]["observed_state"]["active_pids"]
+    )
+    assert process._canonical_json_bytes(tuple_tamper["details"]) == (
+        process._canonical_json_bytes(observation.details)
+    )
+    assert not process.accounting_forced_final_observation_valid(
+        tuple_tamper,
+        outcome.accounting[-1],
+        expected_run_uuid=outcome.run_uuid,
+        expected_coherence_attempt_count=coherence_attempt_count,
+    )
+    assert not process.accounting_snapshot_journal_valid(
+        journal.details,
+        outcome.accounting,
+        forced_final_observation_event=tuple_tamper,
+        expected_run_uuid=outcome.run_uuid,
+        expected_coherence_attempt_count=coherence_attempt_count,
+        expected_retained_snapshot_limit=1,
+    )
+    tuple_journal = dict(journal.details)
+    tuple_journal["chunks"] = tuple(tuple_journal["chunks"])
+    assert process._canonical_json_bytes(tuple_journal) == process._canonical_json_bytes(
+        journal.details
+    )
+    assert not process.accounting_snapshot_journal_valid(
+        tuple_journal,
+        outcome.accounting,
+        forced_final_observation_event=observation,
+        expected_run_uuid=outcome.run_uuid,
+        expected_coherence_attempt_count=coherence_attempt_count,
+        expected_retained_snapshot_limit=1,
+    )
+
+
+def test_run_forced_final_observation_commits_retry_suffix_from_fresh_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _DuplicateFinalAccountingOneRaceApi()
+    monkeypatch.setattr(process.sys, "platform", "win32")
+    monkeypatch.setattr(process, "_WindowsJobApi", lambda: fake)
+
+    outcome = process.WindowsJobProcessRunner().run(
+        [r"C:\runtime.exe"],
+        max_accounting_snapshots=1,
+    )
+    active_zero = next(
+        event for event in outcome.events if event.event == "active_process_count_zero"
+    )
+    observation = next(
+        event
+        for event in outcome.events
+        if event.event == process.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+    )
+    incoherent = [
+        event
+        for event in outcome.events
+        if event.event == "accounting_observation_incoherent"
+        and active_zero.sequence < event.sequence < observation.sequence
+    ]
+
+    assert fake.final_race_injected is True
+    assert fake.accounting_calls == 4
+    assert len(incoherent) == 1
+    assert incoherent[0].sequence + 1 == observation.sequence
+    assert incoherent[0].details == {
+        "attempt": 1,
+        "active_processes": 0,
+        "active_pid_count": 1,
+    }
+    assert observation.details["coherence_attempt_count"] == 2
+    assert (
+        process.accounting_forced_final_coherence_attempt_count(
+            outcome.events,
+            active_process_count_zero_sequence=active_zero.sequence,
+            observation_sequence=observation.sequence,
+        )
+        == 2
+    )
+    raw_interposed = list(outcome.events)
+    observation_index = raw_interposed.index(observation)
+    raw_interposed.insert(
+        observation_index,
+        process.JobEvent(
+            sequence=observation.sequence + 100,
+            event="forced_final_observation_intervening_event",
+            monotonic_ns=observation.monotonic_ns,
+            timestamp_utc=observation.timestamp_utc,
+        ),
+    )
+    with pytest.raises(ValueError, match="attempt_suffix_invalid"):
+        process.accounting_forced_final_coherence_attempt_count(
+            raw_interposed,
+            active_process_count_zero_sequence=active_zero.sequence,
+            observation_sequence=observation.sequence,
+        )
+    assert outcome.safe_for_followup is True
+
+
+def test_accounting_journal_order_requires_canonical_lifecycle_window() -> None:
+    assert process.accounting_snapshot_journal_order_valid(
+        active_process_count_zero_sequence=7,
+        journal_sequence=8,
+        streams_drained_sequence=9,
+    )
+    assert process.accounting_snapshot_journal_order_valid(
+        active_process_count_zero_sequence=7,
+        journal_sequence=9,
+        streams_drained_sequence=11,
+    )
+    for active_zero, journal, streams in (
+        (7, 6, 9),
+        (7, 10, 9),
+        (7, 7, 9),
+        (7, 9, 9),
+        (True, 8, 9),
+        (7, True, 9),
+        (7, 8, True),
+    ):
+        assert not process.accounting_snapshot_journal_order_valid(
+            active_process_count_zero_sequence=active_zero,
+            journal_sequence=journal,
+            streams_drained_sequence=streams,
+        )
+
+
+def test_accounting_journal_requirement_distinguishes_suppressed_and_retained_final() -> None:
+    assert process.accounting_snapshot_journal_required(
+        (6,),
+        active_process_count_zero_sequence=7,
+        expected_retained_snapshot_limit=1,
+    )
+    assert not process.accounting_snapshot_journal_required(
+        (6, 8),
+        active_process_count_zero_sequence=7,
+        expected_retained_snapshot_limit=2,
+    )
+    assert not process.accounting_snapshot_journal_required(
+        (6,),
+        active_process_count_zero_sequence=7,
+        expected_retained_snapshot_limit=2,
+    )
+    for sequences, limit in (((6, 8, 9), 3), ((6, 8, 9), 2), ((6, 7), 2)):
+        with pytest.raises(ValueError):
+            process.accounting_snapshot_journal_required(
+                sequences,
+                active_process_count_zero_sequence=7,
+                expected_retained_snapshot_limit=limit,
+            )

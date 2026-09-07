@@ -18,7 +18,11 @@ import pytest
 
 from scripts.dev import publish_pre_r8_r7s5_review as review
 from scripts.dev import run_pre_r8_r7s5_validation as runner
-from evm.scale_validation.phase_b2_r7s3_process import accounting_snapshot_journal_details
+from evm.scale_validation.phase_b2_r7s3_process import (
+    accounting_forced_final_observation_details,
+    accounting_forced_final_observation_event_sha256,
+    accounting_snapshot_journal_details,
+)
 
 
 def _clean_process_outcome(
@@ -805,21 +809,89 @@ def _rewrite_all_command_evidence(
         command["publication"] = _publication_receipt(path, raw)
 
 
-def _add_accounting_journal(process_containment: dict[str, Any]) -> None:
-    process_containment["events"].append(
-        {
-            "sequence": 10,
-            "event": runner.ACCOUNTING_JOURNAL_EVENT,
-            "monotonic_ns": 10,
-            "timestamp_utc": "2026-09-02T00:00:01+00:00",
-            "pid": None,
-            "details": accounting_snapshot_journal_details(
-                process_containment["accounting"],
-                retained_snapshot_limit=4096,
-                suppressed_duplicate_final_snapshots=1,
-            ),
-        }
+def _mark_accounting_suppressed_at_limit(process_containment: dict[str, Any]) -> None:
+    final_accounting = process_containment["accounting"][-1]
+    active_zero = next(
+        event
+        for event in process_containment["events"]
+        if event["event"] == "active_process_count_zero"
     )
+    for field in ("sequence", "monotonic_ns", "timestamp_utc"):
+        final_accounting[field], active_zero[field] = active_zero[field], final_accounting[field]
+
+
+def _add_accounting_journal(process_containment: dict[str, Any]) -> None:
+    _mark_accounting_suppressed_at_limit(process_containment)
+    events = process_containment["events"]
+    stream_index = next(
+        index for index, event in enumerate(events) if event["event"] == "streams_drained"
+    )
+    streams_drained = events[stream_index]
+    final_accounting = process_containment["accounting"][-1]
+    active_zero = next(event for event in events if event["event"] == "active_process_count_zero")
+    observation = {
+        "sequence": streams_drained["sequence"],
+        "event": runner.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT,
+        "monotonic_ns": streams_drained["monotonic_ns"],
+        "timestamp_utc": streams_drained["timestamp_utc"],
+        "pid": None,
+        "details": accounting_forced_final_observation_details(
+            final_accounting,
+            matched_retained_snapshot=final_accounting,
+            run_uuid=process_containment["run_uuid"],
+            query_completed_monotonic_ns=active_zero["monotonic_ns"],
+            query_completed_at_utc=active_zero["timestamp_utc"],
+            coherence_attempt_count=1,
+        ),
+    }
+    journal = {
+        "sequence": streams_drained["sequence"] + 1,
+        "event": runner.ACCOUNTING_JOURNAL_EVENT,
+        "monotonic_ns": streams_drained["monotonic_ns"] + 1,
+        "timestamp_utc": streams_drained["timestamp_utc"],
+        "pid": None,
+        "details": accounting_snapshot_journal_details(
+            process_containment["accounting"],
+            retained_snapshot_limit=len(process_containment["accounting"]),
+            suppressed_duplicate_final_snapshots=1,
+            forced_final_observation_event=observation,
+            expected_run_uuid=process_containment["run_uuid"],
+            expected_coherence_attempt_count=1,
+        ),
+    }
+    streams_drained["sequence"] += 2
+    streams_drained["monotonic_ns"] += 2
+    events[stream_index:stream_index] = [observation, journal]
+
+
+def _repin_forced_final_observation(process_containment: dict[str, Any]) -> None:
+    observation = next(
+        event
+        for event in process_containment["events"]
+        if event["event"] == runner.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+    )
+    details = observation["details"]
+    details["observed_state_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(details["observed_state"])
+    ).hexdigest()
+    observation_payload = dict(details)
+    observation_payload.pop("observation_sha256")
+    details["observation_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(observation_payload)
+    ).hexdigest()
+    journal = next(
+        event
+        for event in process_containment["events"]
+        if event["event"] == runner.ACCOUNTING_JOURNAL_EVENT
+    )
+    journal["details"]["forced_final_observation_event_sha256"] = (
+        accounting_forced_final_observation_event_sha256(observation)
+    )
+    journal_payload = dict(journal["details"])
+    journal_payload.pop("aggregate_sha256")
+    journal["details"]["aggregate_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(journal_payload)
+    ).hexdigest()
 
 
 def _repin_command_plan(value: dict[str, object]) -> None:
@@ -3891,6 +3963,7 @@ def test_code_summary_recomputes_accounting_journal_from_retained_snapshots(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(review, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 2)
     summary, kwargs = _code_summary(monkeypatch, tmp_path)
     _rewrite_first_command_evidence(
         summary,
@@ -3906,13 +3979,404 @@ def test_code_summary_recomputes_accounting_journal_from_retained_snapshots(
 
     def mutate_journal(record: dict[str, Any]) -> None:
         _add_accounting_journal(record["process_containment"])
-        record["process_containment"]["events"][-1]["details"]["retained_snapshot_sha256"] = (
-            "0" * 64
+        journal = next(
+            event
+            for event in record["process_containment"]["events"]
+            if event["event"] == runner.ACCOUNTING_JOURNAL_EVENT
         )
+        journal["details"]["retained_snapshot_sha256"] = "0" * 64
 
     _rewrite_first_command_evidence(tampered, mutate_journal)
     with pytest.raises(review.ReviewPublisherError, match="accounting_journal_invalid"):
         review.validate_code_summary(tampered, **tampered_kwargs)
+
+    forged, forged_kwargs = _code_summary(monkeypatch, tmp_path / "forged")
+
+    def mutate_journal_policy(record: dict[str, Any]) -> None:
+        _add_accounting_journal(record["process_containment"])
+        journal = next(
+            event
+            for event in record["process_containment"]["events"]
+            if event["event"] == runner.ACCOUNTING_JOURNAL_EVENT
+        )
+        journal["details"]["suppressed_duplicate_final_snapshots"] = 2
+
+    _rewrite_first_command_evidence(forged, mutate_journal_policy)
+    with pytest.raises(review.ReviewPublisherError, match="accounting_journal_invalid"):
+        review.validate_code_summary(forged, **forged_kwargs)
+
+
+def test_code_summary_requires_independently_bound_forced_final_observation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(review, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 2)
+
+    canonical, canonical_kwargs = _code_summary(monkeypatch, tmp_path / "canonical")
+    _rewrite_first_command_evidence(
+        canonical,
+        lambda record: _add_accounting_journal(record["process_containment"]),
+    )
+    canonical_kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(canonical)
+    ).hexdigest()
+    assert review.validate_code_summary(canonical, **canonical_kwargs) == canonical
+
+    nonadjacent, nonadjacent_kwargs = _code_summary(monkeypatch, tmp_path / "nonadjacent")
+
+    def separate_observation_and_journal(record: dict[str, Any]) -> None:
+        containment = record["process_containment"]
+        _add_accounting_journal(containment)
+        events = containment["events"]
+        journal_index = next(
+            index
+            for index, event in enumerate(events)
+            if event["event"] == runner.ACCOUNTING_JOURNAL_EVENT
+        )
+        journal = events[journal_index]
+        streams_drained = next(event for event in events if event["event"] == "streams_drained")
+        gap = {
+            "sequence": journal["sequence"],
+            "event": "forced_final_observation_intervening_event",
+            "monotonic_ns": journal["monotonic_ns"],
+            "timestamp_utc": journal["timestamp_utc"],
+            "pid": None,
+            "details": {},
+        }
+        journal["sequence"] += 1
+        journal["monotonic_ns"] += 1
+        streams_drained["sequence"] += 1
+        streams_drained["monotonic_ns"] += 1
+        events.insert(journal_index, gap)
+
+    _rewrite_first_command_evidence(nonadjacent, separate_observation_and_journal)
+    nonadjacent_kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(nonadjacent)
+    ).hexdigest()
+    with pytest.raises(
+        review.ReviewPublisherError,
+        match="accounting_forced_final_observation_order_invalid",
+    ):
+        review.validate_code_summary(nonadjacent, **nonadjacent_kwargs)
+
+    rebound, rebound_kwargs = _code_summary(monkeypatch, tmp_path / "rebound")
+
+    def replace_journal_observation_reference(record: dict[str, Any]) -> None:
+        containment = record["process_containment"]
+        _add_accounting_journal(containment)
+        journal = next(
+            event
+            for event in containment["events"]
+            if event["event"] == runner.ACCOUNTING_JOURNAL_EVENT
+        )
+        journal["details"]["forced_final_observation_event_sha256"] = "f" * 64
+        journal_payload = dict(journal["details"])
+        journal_payload.pop("aggregate_sha256")
+        journal["details"]["aggregate_sha256"] = hashlib.sha256(
+            review.canonical_json_bytes(journal_payload)
+        ).hexdigest()
+
+    _rewrite_first_command_evidence(rebound, replace_journal_observation_reference)
+    rebound_kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(rebound)
+    ).hexdigest()
+    with pytest.raises(review.ReviewPublisherError, match="accounting_journal_invalid"):
+        review.validate_code_summary(rebound, **rebound_kwargs)
+
+    missing, missing_kwargs = _code_summary(monkeypatch, tmp_path / "missing")
+
+    def delete_observation(record: dict[str, Any]) -> None:
+        containment = record["process_containment"]
+        _add_accounting_journal(containment)
+        events = containment["events"]
+        events[:] = [
+            event
+            for event in events
+            if event["event"] != runner.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+        ]
+        for event in events:
+            if event["event"] in {runner.ACCOUNTING_JOURNAL_EVENT, "streams_drained"}:
+                event["sequence"] -= 1
+                event["monotonic_ns"] -= 1
+
+    _rewrite_first_command_evidence(missing, delete_observation)
+    missing_kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(missing)
+    ).hexdigest()
+    with pytest.raises(
+        review.ReviewPublisherError,
+        match="accounting_forced_final_observation_required",
+    ):
+        review.validate_code_summary(missing, **missing_kwargs)
+
+    duplicated, duplicated_kwargs = _code_summary(monkeypatch, tmp_path / "duplicated")
+
+    def duplicate_observation(record: dict[str, Any]) -> None:
+        containment = record["process_containment"]
+        _add_accounting_journal(containment)
+        observation = next(
+            event
+            for event in containment["events"]
+            if event["event"] == runner.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+        )
+        duplicate = json.loads(json.dumps(observation))
+        duplicate["sequence"] = 12
+        duplicate["monotonic_ns"] = 12
+        containment["events"].append(duplicate)
+
+    _rewrite_first_command_evidence(duplicated, duplicate_observation)
+    duplicated_kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(duplicated)
+    ).hexdigest()
+    with pytest.raises(
+        review.ReviewPublisherError,
+        match="accounting_forced_final_observation_not_unique",
+    ):
+        review.validate_code_summary(duplicated, **duplicated_kwargs)
+
+    orphan, orphan_kwargs = _code_summary(monkeypatch, tmp_path / "orphan")
+
+    def add_orphan_observation(record: dict[str, Any]) -> None:
+        containment = record["process_containment"]
+        final_accounting = containment["accounting"][-1]
+        containment["events"].append(
+            {
+                "sequence": 10,
+                "event": runner.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT,
+                "monotonic_ns": 10,
+                "timestamp_utc": "2026-09-02T00:00:01+00:00",
+                "pid": None,
+                "details": accounting_forced_final_observation_details(
+                    final_accounting,
+                    matched_retained_snapshot=final_accounting,
+                    run_uuid=containment["run_uuid"],
+                    query_completed_monotonic_ns=final_accounting["monotonic_ns"],
+                    query_completed_at_utc=final_accounting["timestamp_utc"],
+                    coherence_attempt_count=1,
+                ),
+            }
+        )
+
+    _rewrite_first_command_evidence(orphan, add_orphan_observation)
+    orphan_kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(orphan)
+    ).hexdigest()
+    with pytest.raises(
+        review.ReviewPublisherError,
+        match="accounting_forced_final_observation_unexpected",
+    ):
+        review.validate_code_summary(orphan, **orphan_kwargs)
+
+
+def test_code_summary_rejects_self_consistent_forced_final_observation_tamper(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(review, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 2)
+
+    def mutate_state(observation: dict[str, Any]) -> None:
+        observation["details"]["observed_state"]["total_processes"] += 1
+
+    def mutate_run_uuid(observation: dict[str, Any]) -> None:
+        observation["details"]["run_uuid"] = "20000000-0000-4000-8000-000000000001"
+
+    def mutate_query_completion(observation: dict[str, Any]) -> None:
+        observation["details"]["query_completed_monotonic_ns"] = observation["monotonic_ns"] + 1
+        observation["details"]["query_completed_at_utc"] = "2026-09-02T00:00:01.000001+00:00"
+
+    for name, mutation in (
+        ("state", mutate_state),
+        ("run-uuid", mutate_run_uuid),
+        ("query-completion", mutate_query_completion),
+    ):
+        summary, kwargs = _code_summary(monkeypatch, tmp_path / name)
+
+        def forge(record: dict[str, Any]) -> None:
+            containment = record["process_containment"]
+            _add_accounting_journal(containment)
+            observation = next(
+                event
+                for event in containment["events"]
+                if event["event"] == runner.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+            )
+            mutation(observation)
+            _repin_forced_final_observation(containment)
+
+        _rewrite_first_command_evidence(summary, forge)
+        kwargs["expected_summary_sha256"] = hashlib.sha256(
+            review.canonical_json_bytes(summary)
+        ).hexdigest()
+        with pytest.raises(
+            review.ReviewPublisherError,
+            match="accounting_forced_final_observation_invalid",
+        ):
+            review.validate_code_summary(summary, **kwargs)
+
+
+def test_code_summary_requires_exactly_one_accounting_journal_for_suppressed_at_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(review, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 2)
+    retained, retained_kwargs = _code_summary(monkeypatch, tmp_path / "retained")
+    assert review.validate_code_summary(retained, **retained_kwargs) == retained
+
+    deleted, deleted_kwargs = _code_summary(monkeypatch, tmp_path / "deleted")
+
+    def delete_journal(record: dict[str, Any]) -> None:
+        _add_accounting_journal(record["process_containment"])
+        events = record["process_containment"]["events"]
+        events[:] = [event for event in events if event["event"] != runner.ACCOUNTING_JOURNAL_EVENT]
+        streams_drained = next(event for event in events if event["event"] == "streams_drained")
+        streams_drained["sequence"] -= 1
+        streams_drained["monotonic_ns"] -= 1
+
+    _rewrite_first_command_evidence(deleted, delete_journal)
+    with pytest.raises(review.ReviewPublisherError, match="accounting_journal_required"):
+        review.validate_code_summary(deleted, **deleted_kwargs)
+
+    renamed, renamed_kwargs = _code_summary(monkeypatch, tmp_path / "renamed")
+
+    def rename_journal(record: dict[str, Any]) -> None:
+        _add_accounting_journal(record["process_containment"])
+        journal = next(
+            event
+            for event in record["process_containment"]["events"]
+            if event["event"] == runner.ACCOUNTING_JOURNAL_EVENT
+        )
+        journal["event"] = "accounting_snapshot_journal_renamed"
+
+    _rewrite_first_command_evidence(renamed, rename_journal)
+    with pytest.raises(review.ReviewPublisherError, match="accounting_journal_required"):
+        review.validate_code_summary(renamed, **renamed_kwargs)
+
+    duplicated, duplicated_kwargs = _code_summary(monkeypatch, tmp_path / "duplicated")
+
+    def duplicate_journal(record: dict[str, Any]) -> None:
+        _add_accounting_journal(record["process_containment"])
+        journal = next(
+            event
+            for event in record["process_containment"]["events"]
+            if event["event"] == runner.ACCOUNTING_JOURNAL_EVENT
+        )
+        duplicate = json.loads(json.dumps(journal))
+        duplicate["sequence"] = 12
+        duplicate["monotonic_ns"] = 12
+        record["process_containment"]["events"].append(duplicate)
+
+    _rewrite_first_command_evidence(duplicated, duplicate_journal)
+    with pytest.raises(review.ReviewPublisherError, match="accounting_journal_not_unique"):
+        review.validate_code_summary(duplicated, **duplicated_kwargs)
+
+
+def test_code_summary_enforces_accounting_journal_lifecycle_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(review, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 2)
+
+    def swap_event_coordinates_and_positions(
+        process_containment: dict[str, Any], first_name: str, second_name: str
+    ) -> None:
+        events = process_containment["events"]
+        first_index = next(
+            index for index, event in enumerate(events) if event["event"] == first_name
+        )
+        second_index = next(
+            index for index, event in enumerate(events) if event["event"] == second_name
+        )
+        first = events[first_index]
+        second = events[second_index]
+        for field in ("sequence", "monotonic_ns", "timestamp_utc"):
+            first[field], second[field] = second[field], first[field]
+        events[first_index], events[second_index] = second, first
+
+    before_zero, before_zero_kwargs = _code_summary(monkeypatch, tmp_path / "before-zero")
+
+    def move_journal_before_zero(record: dict[str, Any]) -> None:
+        containment = record["process_containment"]
+        _add_accounting_journal(containment)
+        swap_event_coordinates_and_positions(
+            containment,
+            "active_process_count_zero",
+            runner.ACCOUNTING_JOURNAL_EVENT,
+        )
+
+    _rewrite_first_command_evidence(before_zero, move_journal_before_zero)
+    before_zero_kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(before_zero)
+    ).hexdigest()
+    with pytest.raises(review.ReviewPublisherError, match="accounting_journal_order_invalid"):
+        review.validate_code_summary(before_zero, **before_zero_kwargs)
+
+    after_streams, after_streams_kwargs = _code_summary(monkeypatch, tmp_path / "after-streams")
+
+    def move_journal_after_streams(record: dict[str, Any]) -> None:
+        containment = record["process_containment"]
+        _add_accounting_journal(containment)
+        swap_event_coordinates_and_positions(
+            containment,
+            runner.ACCOUNTING_JOURNAL_EVENT,
+            "streams_drained",
+        )
+
+    _rewrite_first_command_evidence(after_streams, move_journal_after_streams)
+    after_streams_kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(after_streams)
+    ).hexdigest()
+    with pytest.raises(review.ReviewPublisherError, match="accounting_journal_order_invalid"):
+        review.validate_code_summary(after_streams, **after_streams_kwargs)
+
+    serialized, serialized_kwargs = _code_summary(monkeypatch, tmp_path / "serialized")
+
+    def swap_serialized_order(record: dict[str, Any]) -> None:
+        containment = record["process_containment"]
+        _add_accounting_journal(containment)
+        events = containment["events"]
+        journal_index = next(
+            index
+            for index, event in enumerate(events)
+            if event["event"] == runner.ACCOUNTING_JOURNAL_EVENT
+        )
+        stream_index = next(
+            index for index, event in enumerate(events) if event["event"] == "streams_drained"
+        )
+        events[journal_index], events[stream_index] = events[stream_index], events[journal_index]
+
+    _rewrite_first_command_evidence(serialized, swap_serialized_order)
+    serialized_kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(serialized)
+    ).hexdigest()
+    with pytest.raises(review.ReviewPublisherError, match="event_sequence_invalid"):
+        review.validate_code_summary(serialized, **serialized_kwargs)
+
+    with_gap, with_gap_kwargs = _code_summary(monkeypatch, tmp_path / "with-gap")
+
+    def insert_cleanup_between_journal_and_streams(record: dict[str, Any]) -> None:
+        containment = record["process_containment"]
+        _add_accounting_journal(containment)
+        events = containment["events"]
+        stream_index = next(
+            index for index, event in enumerate(events) if event["event"] == "streams_drained"
+        )
+        streams_drained = events[stream_index]
+        cleanup = {
+            "sequence": streams_drained["sequence"],
+            "event": "stream_reader_cleanup_completed",
+            "monotonic_ns": streams_drained["monotonic_ns"],
+            "timestamp_utc": streams_drained["timestamp_utc"],
+            "pid": None,
+            "details": {},
+        }
+        streams_drained["sequence"] += 1
+        streams_drained["monotonic_ns"] += 1
+        events.insert(stream_index, cleanup)
+
+    _rewrite_first_command_evidence(with_gap, insert_cleanup_between_journal_and_streams)
+    with_gap_kwargs["expected_summary_sha256"] = hashlib.sha256(
+        review.canonical_json_bytes(with_gap)
+    ).hexdigest()
+    assert review.validate_code_summary(with_gap, **with_gap_kwargs) == with_gap
 
 
 def test_code_summary_cross_binds_process_stream_hash_bytes_and_tail(

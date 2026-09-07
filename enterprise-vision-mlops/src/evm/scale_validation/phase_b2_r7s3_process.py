@@ -56,7 +56,12 @@ JOB_CAPABILITY_QUERY_ACCESS = 0x00020004  # READ_CONTROL | JOB_OBJECT_QUERY
 _JOB_CAPABILITY_DOMAIN = b"evm.phase-b2.windows-job-capability.v1\0"
 _JOB_CAPABILITY_REDACTION = "<redacted-job-capability-nonce>"
 ACCOUNTING_JOURNAL_EVENT = "accounting_snapshot_journal_finalized"
-ACCOUNTING_JOURNAL_SCHEMA = "evm.phase-b2.accounting-snapshot-journal.v1"
+ACCOUNTING_JOURNAL_SCHEMA = "evm.phase-b2.accounting-snapshot-journal.v3"
+ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT = "accounting_forced_final_observation"
+ACCOUNTING_FORCED_FINAL_OBSERVATION_SCHEMA = "evm.phase-b2.accounting-forced-final-observation.v1"
+ACCOUNTING_DUPLICATE_COMPARISON_STATE_SCHEMA = (
+    "evm.phase-b2.accounting-duplicate-comparison-state.v1"
+)
 
 
 class ProcessContainmentError(RuntimeError):
@@ -320,11 +325,318 @@ def _accounting_snapshot_payload(
     }
 
 
+def _canonical_utc_datetime(value: object) -> datetime:
+    if not isinstance(value, str) or not value:
+        raise ValueError("accounting_observation_utc_timestamp_required")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("accounting_observation_utc_timestamp_invalid") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != UTC.utcoffset(parsed):
+        raise ValueError("accounting_observation_utc_timestamp_invalid")
+    return parsed
+
+
+def _accounting_comparison_state(
+    value: JobAccountingSnapshot | Mapping[str, Any],
+) -> dict[str, Any]:
+    raw = _accounting_snapshot_payload(value)
+    active_pids = raw["active_pids"]
+    if (
+        type(raw["total_processes"]) is not int
+        or raw["total_processes"] < 1
+        or type(raw["active_processes"]) is not int
+        or raw["active_processes"] < 0
+        or type(raw["total_terminated_processes"]) is not int
+        or raw["total_terminated_processes"] < 0
+        or not isinstance(active_pids, list)
+        or any(type(pid) is not int or pid <= 0 for pid in active_pids)
+        or len(active_pids) != len(set(active_pids))
+        or raw["active_processes"] != len(active_pids)
+        or raw["active_processes"] > raw["total_processes"]
+        or raw["total_terminated_processes"] > raw["total_processes"]
+        or raw["active_processes"] + raw["total_terminated_processes"] > raw["total_processes"]
+    ):
+        raise ValueError("accounting_observation_state_invalid")
+    return {
+        "schema": ACCOUNTING_DUPLICATE_COMPARISON_STATE_SCHEMA,
+        "total_processes": raw["total_processes"],
+        "active_processes": raw["active_processes"],
+        "total_terminated_processes": raw["total_terminated_processes"],
+        "active_pids": active_pids,
+    }
+
+
+def accounting_forced_final_observation_details(
+    observed_state: JobAccountingSnapshot | Mapping[str, Any],
+    *,
+    matched_retained_snapshot: JobAccountingSnapshot | Mapping[str, Any],
+    run_uuid: str,
+    query_completed_monotonic_ns: int,
+    query_completed_at_utc: str,
+    coherence_attempt_count: int,
+) -> dict[str, Any]:
+    """Bind a coherent forced-final query to the retained duplicate it matched."""
+
+    try:
+        normalized_run_uuid = str(uuid.UUID(run_uuid))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("accounting_observation_run_uuid_invalid") from exc
+    if normalized_run_uuid != run_uuid:
+        raise ValueError("accounting_observation_run_uuid_not_canonical")
+    if (
+        type(query_completed_monotonic_ns) is not int
+        or query_completed_monotonic_ns <= 0
+        or type(coherence_attempt_count) is not int
+        or not 1 <= coherence_attempt_count <= DEFAULT_MAX_ACCOUNTING_COHERENCE_ATTEMPTS
+    ):
+        raise ValueError("accounting_observation_query_metadata_invalid")
+    query_completed_at = _canonical_utc_datetime(query_completed_at_utc)
+    observed = _accounting_comparison_state(observed_state)
+    matched_state = _accounting_comparison_state(matched_retained_snapshot)
+    if _canonical_json_bytes(observed) != _canonical_json_bytes(matched_state):
+        raise ValueError("accounting_observation_state_not_duplicate")
+    matched = _accounting_snapshot_payload(matched_retained_snapshot)
+    if (
+        type(matched["sequence"]) is not int
+        or matched["sequence"] <= 0
+        or type(matched["monotonic_ns"]) is not int
+        or matched["monotonic_ns"] <= 0
+        or query_completed_monotonic_ns < matched["monotonic_ns"]
+        or query_completed_at < _canonical_utc_datetime(matched["timestamp_utc"])
+    ):
+        raise ValueError("accounting_observation_matched_snapshot_invalid")
+    state_sha256 = _sha256_canonical(observed)
+    payload = {
+        "schema": ACCOUNTING_FORCED_FINAL_OBSERVATION_SCHEMA,
+        "observation_scope": "forced_final_duplicate_at_retained_snapshot_limit",
+        "run_uuid": normalized_run_uuid,
+        "query_api": "QueryInformationJobObject",
+        "query_information_classes": {
+            "accounting": 1,
+            "active_process_ids": 3,
+        },
+        "query_completed_monotonic_ns": query_completed_monotonic_ns,
+        "query_completed_at_utc": query_completed_at_utc,
+        "coherence_attempt_count": coherence_attempt_count,
+        "observed_state": observed,
+        "observed_state_sha256": state_sha256,
+        "matched_retained_snapshot_sequence": matched["sequence"],
+        "matched_retained_snapshot_sha256": _sha256_canonical(matched),
+        "duplicate_state_match": True,
+    }
+    payload["observation_sha256"] = _sha256_canonical(payload)
+    return payload
+
+
+def _job_event_payload(event: JobEvent | Mapping[str, Any]) -> dict[str, Any]:
+    if isinstance(event, JobEvent):
+        raw = asdict(event)
+    elif isinstance(event, Mapping):
+        raw = dict(event)
+        if set(raw) != {
+            "sequence",
+            "event",
+            "monotonic_ns",
+            "timestamp_utc",
+            "pid",
+            "details",
+        }:
+            raise ValueError("accounting_observation_event_keys_invalid")
+    else:
+        raise TypeError("accounting_observation_event_mapping_required")
+    if not isinstance(raw.get("details"), Mapping):
+        raise ValueError("accounting_observation_event_details_invalid")
+    return {
+        "sequence": raw.get("sequence"),
+        "event": raw.get("event"),
+        "monotonic_ns": raw.get("monotonic_ns"),
+        "timestamp_utc": raw.get("timestamp_utc"),
+        "pid": raw.get("pid"),
+        "details": dict(raw["details"]),
+    }
+
+
+def accounting_forced_final_observation_event_sha256(
+    event: JobEvent | Mapping[str, Any],
+) -> str:
+    return _sha256_canonical(
+        {
+            "schema": f"{ACCOUNTING_FORCED_FINAL_OBSERVATION_SCHEMA}.event-commitment.v1",
+            "event": _job_event_payload(event),
+        }
+    )
+
+
+def accounting_forced_final_observation_valid(
+    event: JobEvent | Mapping[str, Any],
+    matched_retained_snapshot: JobAccountingSnapshot | Mapping[str, Any],
+    *,
+    expected_run_uuid: str,
+    expected_coherence_attempt_count: int,
+) -> bool:
+    try:
+        payload = _job_event_payload(event)
+        matched = _accounting_snapshot_payload(matched_retained_snapshot)
+        details = payload["details"]
+        expected = accounting_forced_final_observation_details(
+            matched_retained_snapshot,
+            matched_retained_snapshot=matched_retained_snapshot,
+            run_uuid=expected_run_uuid,
+            query_completed_monotonic_ns=details.get("query_completed_monotonic_ns"),
+            query_completed_at_utc=details.get("query_completed_at_utc"),
+            coherence_attempt_count=expected_coherence_attempt_count,
+        )
+        if (
+            payload["event"] != ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+            or payload["pid"] is not None
+            or type(payload["sequence"]) is not int
+            or payload["sequence"] <= matched["sequence"]
+            or type(payload["monotonic_ns"]) is not int
+            or payload["monotonic_ns"] <= 0
+            or details.get("query_completed_monotonic_ns") > payload["monotonic_ns"]
+            or _canonical_utc_datetime(details.get("query_completed_at_utc"))
+            > _canonical_utc_datetime(payload["timestamp_utc"])
+        ):
+            return False
+        return details == expected and _canonical_json_bytes(details) == _canonical_json_bytes(
+            expected
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def accounting_forced_final_coherence_attempt_count(
+    events: Sequence[JobEvent | Mapping[str, Any]],
+    *,
+    active_process_count_zero_sequence: int,
+    observation_sequence: int,
+) -> int:
+    if (
+        type(active_process_count_zero_sequence) is not int
+        or type(observation_sequence) is not int
+        or active_process_count_zero_sequence >= observation_sequence
+    ):
+        raise ValueError("accounting_observation_attempt_window_invalid")
+    payloads: list[tuple[int, dict[str, Any]]] = []
+    for index, event in enumerate(events):
+        payload = _job_event_payload(event)
+        if type(payload["sequence"]) is not int or payload["sequence"] <= 0:
+            raise ValueError("accounting_observation_event_sequence_invalid")
+        payloads.append((index, payload))
+    observation_indexes = [
+        index
+        for index, payload in payloads
+        if payload["event"] == ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+        and payload["sequence"] == observation_sequence
+    ]
+    if len(observation_indexes) != 1:
+        raise ValueError("accounting_observation_event_not_unique")
+    observation_index = observation_indexes[0]
+    relevant: list[tuple[int, dict[str, Any]]] = []
+    for index, payload in payloads:
+        if (
+            payload["event"] == "accounting_observation_incoherent"
+            and active_process_count_zero_sequence < payload["sequence"] < observation_sequence
+        ):
+            relevant.append((index, payload))
+    relevant_sequences = [payload["sequence"] for _, payload in relevant]
+    relevant_indexes = [index for index, _ in relevant]
+    if (
+        any(index >= observation_index for index, _ in relevant)
+        or relevant_indexes != list(range(observation_index - len(relevant), observation_index))
+        or relevant_sequences
+        != list(range(observation_sequence - len(relevant), observation_sequence))
+    ):
+        raise ValueError("accounting_observation_attempt_suffix_invalid")
+    attempts: list[int] = []
+    for _, payload in relevant:
+        details = payload["details"]
+        if (
+            set(details) != {"attempt", "active_processes", "active_pid_count"}
+            or type(details.get("attempt")) is not int
+            or type(details.get("active_processes")) is not int
+            or details["active_processes"] < 0
+            or type(details.get("active_pid_count")) is not int
+            or details["active_pid_count"] < 0
+            or details["active_processes"] == details["active_pid_count"]
+        ):
+            raise ValueError("accounting_observation_incoherent_event_invalid")
+        attempts.append(details["attempt"])
+    if attempts != list(range(1, len(attempts) + 1)):
+        raise ValueError("accounting_observation_attempt_sequence_invalid")
+    attempt_count = len(attempts) + 1
+    if attempt_count > DEFAULT_MAX_ACCOUNTING_COHERENCE_ATTEMPTS:
+        raise ValueError("accounting_observation_attempt_limit_exceeded")
+    return attempt_count
+
+
+def accounting_forced_final_observation_lifecycle_valid(
+    observation_event: JobEvent | Mapping[str, Any],
+    *,
+    preceding_record: JobEvent | JobAccountingSnapshot | Mapping[str, Any],
+    active_process_count_zero_event: JobEvent | Mapping[str, Any],
+    journal_event: JobEvent | Mapping[str, Any],
+) -> bool:
+    try:
+        observation = _job_event_payload(observation_event)
+        active_zero = _job_event_payload(active_process_count_zero_event)
+        journal = _job_event_payload(journal_event)
+        if isinstance(preceding_record, (JobEvent, JobAccountingSnapshot)):
+            preceding = asdict(preceding_record)
+        elif isinstance(preceding_record, Mapping):
+            preceding = dict(preceding_record)
+        else:
+            return False
+        query_monotonic_ns = observation["details"].get("query_completed_monotonic_ns")
+        monotonic_values = (
+            preceding.get("monotonic_ns"),
+            active_zero["monotonic_ns"],
+            query_monotonic_ns,
+            observation["monotonic_ns"],
+            journal["monotonic_ns"],
+        )
+        if (
+            observation["event"] != ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+            or active_zero["event"] != "active_process_count_zero"
+            or journal["event"] != ACCOUNTING_JOURNAL_EVENT
+            or active_zero["pid"] is not None
+            or journal["pid"] is not None
+            or type(preceding.get("sequence")) is not int
+            or preceding["sequence"] + 1 != observation["sequence"]
+            or not active_zero["sequence"] < observation["sequence"]
+            or observation["sequence"] + 1 != journal["sequence"]
+            or any(type(value) is not int or value <= 0 for value in monotonic_values)
+            or not (
+                preceding["monotonic_ns"]
+                <= query_monotonic_ns
+                <= observation["monotonic_ns"]
+                <= journal["monotonic_ns"]
+            )
+            or active_zero["monotonic_ns"] > query_monotonic_ns
+        ):
+            return False
+        preceding_time = _canonical_utc_datetime(preceding.get("timestamp_utc"))
+        active_zero_time = _canonical_utc_datetime(active_zero["timestamp_utc"])
+        query_time = _canonical_utc_datetime(observation["details"].get("query_completed_at_utc"))
+        observation_time = _canonical_utc_datetime(observation["timestamp_utc"])
+        journal_time = _canonical_utc_datetime(journal["timestamp_utc"])
+        return (
+            preceding_time <= query_time <= observation_time <= journal_time
+            and active_zero_time <= query_time
+        )
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
+
+
 def accounting_snapshot_journal_details(
     snapshots: Sequence[JobAccountingSnapshot | Mapping[str, Any]],
     *,
     retained_snapshot_limit: int,
     suppressed_duplicate_final_snapshots: int,
+    forced_final_observation_event: JobEvent | Mapping[str, Any],
+    expected_run_uuid: str,
+    expected_coherence_attempt_count: int,
     chunk_size: int = DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE,
 ) -> dict[str, Any]:
     """Return a bounded hash/index for retained accounting snapshots."""
@@ -333,11 +645,21 @@ def accounting_snapshot_journal_details(
         type(retained_snapshot_limit) is not int
         or retained_snapshot_limit <= 0
         or type(suppressed_duplicate_final_snapshots) is not int
-        or suppressed_duplicate_final_snapshots < 0
+        or suppressed_duplicate_final_snapshots != 1
         or type(chunk_size) is not int
-        or chunk_size <= 0
+        or chunk_size != DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE
     ):
-        raise ValueError("accounting_journal_integer_contract_invalid")
+        raise ValueError("accounting_journal_policy_invalid")
+    if len(snapshots) != retained_snapshot_limit:
+        raise ValueError("accounting_journal_retained_limit_mismatch")
+    if not snapshots or not accounting_forced_final_observation_valid(
+        forced_final_observation_event,
+        snapshots[-1],
+        expected_run_uuid=expected_run_uuid,
+        expected_coherence_attempt_count=expected_coherence_attempt_count,
+    ):
+        raise ValueError("accounting_journal_forced_final_observation_invalid")
+    observation_payload = _job_event_payload(forced_final_observation_event)
     payloads = [_accounting_snapshot_payload(snapshot) for snapshot in snapshots]
     record_hashes = [_sha256_canonical(payload) for payload in payloads]
     chunks: list[dict[str, Any]] = []
@@ -370,40 +692,100 @@ def accounting_snapshot_journal_details(
                 "chunk_chain_sha256": previous_chain,
             }
         )
-    return {
+    details = {
         "schema": ACCOUNTING_JOURNAL_SCHEMA,
         "retention_mode": "bounded_retained_snapshot_chunk_index",
         "retained_snapshot_limit": retained_snapshot_limit,
         "retained_snapshot_count": len(payloads),
         "suppressed_duplicate_final_snapshots": suppressed_duplicate_final_snapshots,
+        "forced_final_observation_event_sequence": observation_payload["sequence"],
+        "forced_final_observation_event_sha256": (
+            accounting_forced_final_observation_event_sha256(observation_payload)
+        ),
         "chunk_size": chunk_size,
         "chunk_count": len(chunks),
         "retained_snapshot_sha256": _sha256_canonical(payloads),
         "final_snapshot_sha256": record_hashes[-1] if record_hashes else None,
         "chunks": chunks,
-        "aggregate_sha256": previous_chain,
     }
+    details["aggregate_sha256"] = _sha256_canonical(details)
+    return details
 
 
 def accounting_snapshot_journal_valid(
     details: object,
     snapshots: Sequence[JobAccountingSnapshot | Mapping[str, Any]],
+    *,
+    forced_final_observation_event: JobEvent | Mapping[str, Any],
+    expected_run_uuid: str,
+    expected_coherence_attempt_count: int,
+    expected_retained_snapshot_limit: int,
 ) -> bool:
     if not isinstance(details, Mapping):
         return False
-    retained_snapshot_limit = details.get("retained_snapshot_limit")
-    suppressed_duplicate_final_snapshots = details.get("suppressed_duplicate_final_snapshots")
-    chunk_size = details.get("chunk_size")
     try:
         expected = accounting_snapshot_journal_details(
             snapshots,
-            retained_snapshot_limit=retained_snapshot_limit,  # type: ignore[arg-type]
-            suppressed_duplicate_final_snapshots=suppressed_duplicate_final_snapshots,  # type: ignore[arg-type]
-            chunk_size=chunk_size,  # type: ignore[arg-type]
+            retained_snapshot_limit=expected_retained_snapshot_limit,
+            suppressed_duplicate_final_snapshots=1,
+            forced_final_observation_event=forced_final_observation_event,
+            expected_run_uuid=expected_run_uuid,
+            expected_coherence_attempt_count=expected_coherence_attempt_count,
+            chunk_size=DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE,
         )
+        normalized = dict(details)
+        return normalized == expected and _canonical_json_bytes(
+            normalized
+        ) == _canonical_json_bytes(expected)
     except (TypeError, ValueError):
         return False
-    return dict(details) == expected
+
+
+def accounting_snapshot_journal_required(
+    snapshot_sequences: Sequence[int],
+    *,
+    active_process_count_zero_sequence: int,
+    expected_retained_snapshot_limit: int,
+) -> bool:
+    """Return whether a cap-suppressed forced-final snapshot requires a journal."""
+
+    sequences = tuple(snapshot_sequences)
+    if (
+        type(active_process_count_zero_sequence) is not int
+        or active_process_count_zero_sequence <= 0
+        or type(expected_retained_snapshot_limit) is not int
+        or expected_retained_snapshot_limit <= 0
+        or not sequences
+        or len(sequences) > expected_retained_snapshot_limit
+        or any(type(sequence) is not int or sequence <= 0 for sequence in sequences)
+        or len(set(sequences)) != len(sequences)
+        or active_process_count_zero_sequence in sequences
+    ):
+        raise ValueError("accounting_journal_requirement_contract_invalid")
+    post_zero_count = sum(sequence > active_process_count_zero_sequence for sequence in sequences)
+    if post_zero_count == 1:
+        return False
+    if post_zero_count == 0:
+        return len(sequences) == expected_retained_snapshot_limit
+    raise ValueError("accounting_journal_terminal_observation_shape_invalid")
+
+
+def accounting_snapshot_journal_order_valid(
+    *,
+    active_process_count_zero_sequence: int,
+    journal_sequence: int,
+    streams_drained_sequence: int,
+) -> bool:
+    """Return whether a required journal occupies its canonical lifecycle window."""
+
+    values = (
+        active_process_count_zero_sequence,
+        journal_sequence,
+        streams_drained_sequence,
+    )
+    return all(type(value) is int and value > 0 for value in values) and (
+        active_process_count_zero_sequence < journal_sequence < streams_drained_sequence
+    )
 
 
 @dataclass(frozen=True)
@@ -2345,6 +2727,8 @@ class WindowsJobProcessRunner:
         sequence = 0
         evidence_limit_error: str | None = None
         suppressed_duplicate_final_snapshots = 0
+        suppressed_final_observation_event: JobEvent | None = None
+        suppressed_final_coherence_attempt_count = 0
 
         def timestamp() -> tuple[int, str]:
             return (time.monotonic_ns(), self._utc_clock().isoformat())
@@ -2546,13 +2930,19 @@ class WindowsJobProcessRunner:
 
         def sample_accounting(force: bool = False) -> _JOB_BASIC_ACCOUNTING:
             nonlocal manual, suppressed_duplicate_final_snapshots
+            nonlocal suppressed_final_coherence_attempt_count
+            nonlocal suppressed_final_observation_event
             accounting: _JOB_BASIC_ACCOUNTING | None = None
             active_pids: tuple[int, ...] = ()
+            query_completed_monotonic_ns = 0
+            query_completed_at_utc = ""
             for attempt in range(1, DEFAULT_MAX_ACCOUNTING_COHERENCE_ATTEMPTS + 1):
                 require_overall_budget()
                 accounting = api.query_accounting(int(job))
                 active_pids = api.query_active_pids(int(job))
                 if int(accounting.ActiveProcesses) == len(active_pids):
+                    if force:
+                        query_completed_monotonic_ns, query_completed_at_utc = timestamp()
                     break
                 add_event(
                     "accounting_observation_incoherent",
@@ -2586,6 +2976,29 @@ class WindowsJobProcessRunner:
                 )
             if force or state != prior:
                 if force and state == prior and len(snapshots) >= max_accounting_snapshots:
+                    if suppressed_final_observation_event is not None:
+                        raise ProcessContainmentError(
+                            "forced final accounting observation already recorded"
+                        )
+                    observation_details = accounting_forced_final_observation_details(
+                        {
+                            "total_processes": state[0],
+                            "active_processes": state[1],
+                            "total_terminated_processes": state[2],
+                            "active_pids": state[3],
+                        },
+                        matched_retained_snapshot=previous,
+                        run_uuid=execution_uuid,
+                        query_completed_monotonic_ns=query_completed_monotonic_ns,
+                        query_completed_at_utc=query_completed_at_utc,
+                        coherence_attempt_count=attempt,
+                    )
+                    add_event(
+                        ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT,
+                        details=observation_details,
+                    )
+                    suppressed_final_observation_event = events[-1]
+                    suppressed_final_coherence_attempt_count = attempt
                     suppressed_duplicate_final_snapshots += 1
                     return accounting
                 if len(snapshots) >= max_accounting_snapshots:
@@ -3102,12 +3515,22 @@ class WindowsJobProcessRunner:
                 manual = True
                 add_event("residual_processes_observed", details={"pids": list(final_pids)})
             if suppressed_duplicate_final_snapshots:
+                if (
+                    suppressed_final_observation_event is None
+                    or suppressed_final_coherence_attempt_count <= 0
+                ):
+                    raise ProcessContainmentError(
+                        "forced final accounting observation evidence missing"
+                    )
                 add_event(
                     ACCOUNTING_JOURNAL_EVENT,
                     details=accounting_snapshot_journal_details(
                         snapshots,
                         retained_snapshot_limit=max_accounting_snapshots,
                         suppressed_duplicate_final_snapshots=(suppressed_duplicate_final_snapshots),
+                        forced_final_observation_event=(suppressed_final_observation_event),
+                        expected_run_uuid=execution_uuid,
+                        expected_coherence_attempt_count=(suppressed_final_coherence_attempt_count),
                     ),
                 )
 
@@ -3516,7 +3939,7 @@ R7S3_JOB_CAPABILITY_PRIMITIVE_CONTRACT: dict[str, Any] = {
     "accounting_journal_event": ACCOUNTING_JOURNAL_EVENT,
     "accounting_journal_schema": ACCOUNTING_JOURNAL_SCHEMA,
     "accounting_journal_chunk_size": DEFAULT_ACCOUNTING_JOURNAL_CHUNK_SIZE,
-    "duplicate_final_accounting_snapshot_suppressed_with_journal": True,
+    "duplicate_final_accounting_snapshot_suppressed_at_retained_limit_with_journal": True,
     "completion_drain_deadline_and_cancel_checks": True,
     "final_safe_gate_after_bounded_stream_decode": True,
     "reader_start_exception_native_state_cleanup": True,
@@ -3574,6 +3997,9 @@ __all__ = [
     "JOB_CAPABILITY_NONCE_BYTES",
     "JOB_CAPABILITY_NONCE_ENV",
     "JOB_CAPABILITY_QUERY_ACCESS",
+    "ACCOUNTING_DUPLICATE_COMPARISON_STATE_SCHEMA",
+    "ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT",
+    "ACCOUNTING_FORCED_FINAL_OBSERVATION_SCHEMA",
     "ACCOUNTING_JOURNAL_EVENT",
     "ACCOUNTING_JOURNAL_SCHEMA",
     "JobAccountingSnapshot",
@@ -3592,7 +4018,14 @@ __all__ = [
     "WindowsJobProcessRunner",
     "WslProcessIdentity",
     "WslResidualProtocol",
+    "accounting_forced_final_coherence_attempt_count",
+    "accounting_forced_final_observation_details",
+    "accounting_forced_final_observation_event_sha256",
+    "accounting_forced_final_observation_lifecycle_valid",
+    "accounting_forced_final_observation_valid",
     "accounting_snapshot_journal_details",
+    "accounting_snapshot_journal_order_valid",
+    "accounting_snapshot_journal_required",
     "accounting_snapshot_journal_valid",
     "consume_inherited_job_capability",
     "identity_coverage_complete",

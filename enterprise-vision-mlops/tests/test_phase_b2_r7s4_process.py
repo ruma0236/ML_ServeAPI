@@ -938,6 +938,84 @@ def test_late_fast_descendant_is_drained_and_reconciled_after_first_zero_query()
     assert {item["pid"] for item in outcome.process_identities} == {5001, 5002, 6000}
 
 
+def test_completion_wait_captures_short_lived_descendant_before_pid_becomes_stale() -> None:
+    class CompletionWaitApi(ParentApi):
+        def __init__(self) -> None:
+            super().__init__()
+            self.root_events_delivered = False
+            self.postapproval_empty_delivered = False
+            self.fast_event_pending = True
+            self.fast_handle_open = True
+            self.exit_events_delivered = False
+            self.wait_calls = 0
+            self.fast_identity_captured = False
+
+        def completion_events(self, _completion: int) -> list[tuple[int, int | None]]:
+            if not self.root_events_delivered:
+                self.root_events_delivered = True
+                return [(6, self.root_pid), (6, self.payload_pid)]
+            if self.approvals and not self.postapproval_empty_delivered:
+                self.postapproval_empty_delivered = True
+                return []
+            events: list[tuple[int, int | None]] = []
+            if self.fast_event_pending:
+                events.append((6, 6000))
+                self.fast_event_pending = False
+            if self.exit_events_delivered:
+                return events
+            self.fast_handle_open = False
+            self.exit_events_delivered = True
+            events.extend(
+                [
+                    (7, 6000),
+                    (7, self.payload_pid),
+                    (7, self.root_pid),
+                    (4, None),
+                ]
+            )
+            return events
+
+        def wait_completion_events(
+            self, _completion: int, wait_milliseconds: int
+        ) -> list[tuple[int, int | None]]:
+            assert wait_milliseconds == 1
+            self.wait_calls += 1
+            if self.fast_event_pending:
+                self.fast_event_pending = False
+                return [(6, 6000)]
+            return []
+
+        def query_active_pids(self, _job: int) -> tuple[int, ...]:
+            self.active_queries += 1
+            return (self.payload_pid,) if self.active_queries == 1 else ()
+
+        def job_accounting_snapshot(self, _job: int) -> dict[str, object]:
+            value = super().job_accounting_snapshot(_job)
+            value["total_processes"] = 3
+            return value
+
+        def open_process(self, pid: int) -> int | None:
+            if pid == 6000:
+                return 22 if self.fast_handle_open else None
+            return super().open_process(pid)
+
+        def process_identity(self, _process: int, **kwargs: object) -> object:
+            if int(kwargs["pid"]) == 6000:
+                self.fast_identity_captured = self.fast_handle_open
+            return super().process_identity(_process, **kwargs)
+
+    api = CompletionWaitApi()
+    outcome = _mock_runner(api).run(_payload(), poll_interval_seconds=0.001)
+
+    assert api.wait_calls >= 1
+    assert api.fast_identity_captured is True
+    assert {item["pid"] for item in outcome.process_identities} == {5001, 5002, 6000}
+    assert "process_identity_open_failed:pid=6000" not in outcome.errors
+    assert outcome.completion_accounting_reconciled is True
+    assert outcome.completion_event_sequence_complete is True
+    assert outcome.safe_for_followup is True
+
+
 def test_missing_fast_descendant_event_cannot_be_safe_despite_zero_pid_list() -> None:
     class MissingDescendantEventApi(ParentApi):
         def job_accounting_snapshot(self, _job: int) -> dict[str, object]:
@@ -955,12 +1033,23 @@ def test_missing_fast_descendant_event_cannot_be_safe_despite_zero_pid_list() ->
 
 
 def test_first_zero_observed_after_wrapper_deadline_is_timeout() -> None:
+    clock_state = {"now": 0.0}
+
+    def clock() -> float:
+        return clock_state["now"]
+
+    def sleep(seconds: float) -> None:
+        clock_state["now"] += max(0.001, seconds)
+
     class LateZeroApi(ParentApi):
         def query_active_pids(self, _job: int) -> tuple[int, ...]:
             self.active_queries += 1
-            return (self.payload_pid,) if self.active_queries == 1 else ()
+            if self.active_queries == 1:
+                return (self.payload_pid,)
+            clock_state["now"] = max(clock_state["now"], 0.021)
+            return ()
 
-    outcome = _mock_runner(LateZeroApi()).run(_payload())
+    outcome = _mock_runner_with_clock(LateZeroApi(), clock, sleep).run(_payload())
     assert outcome.timed_out is True
     assert "job_zero_first_observed_after_wrapper_deadline" in outcome.errors
     assert outcome.safe_for_followup is False
@@ -978,7 +1067,13 @@ def test_zero_observed_after_residual_deadline_remains_zero_credit() -> None:
     class ResidualDeadlineApi(ParentApi):
         def query_active_pids(self, _job: int) -> tuple[int, ...]:
             self.active_queries += 1
-            return (self.payload_pid,) if self.active_queries <= 2 else ()
+            if self.active_queries == 1:
+                return (self.payload_pid,)
+            if self.active_queries == 2:
+                clock_state["now"] = max(clock_state["now"], 0.021)
+                return (self.payload_pid,)
+            clock_state["now"] = max(clock_state["now"], 0.042)
+            return ()
 
     outcome = _mock_runner_with_clock(ResidualDeadlineApi(), clock, sleep).run(_payload())
     assert outcome.residual_state == "zero"
@@ -1041,17 +1136,24 @@ def test_stream_drain_after_deadline_is_observed_but_not_accepted() -> None:
     clock_state = {"now": 0.0}
     release_stdout = threading.Event()
     stdout_complete = threading.Event()
+    stream_drain_phase = threading.Event()
 
     def clock() -> float:
         return clock_state["now"]
 
     def sleep(seconds: float) -> None:
         clock_state["now"] += max(0.001, seconds)
-        if clock_state["now"] >= 0.075:
+        if stream_drain_phase.is_set() and not release_stdout.is_set():
+            # Exceed the tiny contract's 0.010-second stream-drain budget.
+            clock_state["now"] += 0.011
             release_stdout.set()
             assert stdout_complete.wait(timeout=1)
 
     class LateStdoutApi(ParentApi):
+        def exit_code(self, _process: int) -> int:
+            stream_drain_phase.set()
+            return super().exit_code(_process)
+
         def read_bounded_discarding_pipe(
             self,
             handle: int,

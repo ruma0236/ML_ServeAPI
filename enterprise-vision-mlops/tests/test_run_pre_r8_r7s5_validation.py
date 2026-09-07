@@ -20,6 +20,7 @@ from evm.scale_validation.phase_b2_r7s3_process import (
     JobAccountingSnapshot,
     JobEvent,
     ProcessIdentity,
+    accounting_forced_final_observation_details,
     accounting_snapshot_journal_details,
 )
 
@@ -2978,12 +2979,97 @@ def test_containment_rejects_extra_identity_event_zero_ppid_and_membership_extra
     )
 
 
-def test_containment_recomputes_accounting_journal_hashes() -> None:
+def _events_before_streams(
+    events: tuple[JobEvent, ...],
+    *inserted_events: JobEvent,
+) -> tuple[JobEvent, ...]:
+    result: list[JobEvent] = []
+    for event in events:
+        if event.event == "streams_drained":
+            result.extend(inserted_events)
+            result.append(
+                replace(
+                    event,
+                    sequence=event.sequence + len(inserted_events),
+                    monotonic_ns=event.monotonic_ns + len(inserted_events),
+                )
+            )
+        else:
+            result.append(event)
+    return tuple(result)
+
+
+def _forced_final_observation(
+    outcome: runner.ProcessOutcome,
+    *,
+    sequence: int = 8,
+    monotonic_ns: int = 8,
+    query_completed_monotonic_ns: int | None = None,
+    coherence_attempt_count: int = 1,
+) -> JobEvent:
+    active_zero = next(
+        event for event in outcome.events if event.event == "active_process_count_zero"
+    )
+    return JobEvent(
+        sequence=sequence,
+        event=runner.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT,
+        monotonic_ns=monotonic_ns,
+        timestamp_utc=active_zero.timestamp_utc,
+        details=accounting_forced_final_observation_details(
+            outcome.accounting[-1],
+            matched_retained_snapshot=outcome.accounting[-1],
+            run_uuid=outcome.run_uuid,
+            query_completed_monotonic_ns=(
+                query_completed_monotonic_ns
+                if query_completed_monotonic_ns is not None
+                else max(
+                    active_zero.monotonic_ns,
+                    outcome.accounting[-1].monotonic_ns,
+                )
+            ),
+            query_completed_at_utc=active_zero.timestamp_utc,
+            coherence_attempt_count=coherence_attempt_count,
+        ),
+    )
+
+
+def _accounting_journal_event(
+    outcome: runner.ProcessOutcome,
+    observation: JobEvent,
+    *,
+    sequence: int = 9,
+    monotonic_ns: int = 9,
+    expected_coherence_attempt_count: int = 1,
+) -> JobEvent:
+    return JobEvent(
+        sequence=sequence,
+        event=runner.ACCOUNTING_JOURNAL_EVENT,
+        monotonic_ns=monotonic_ns,
+        timestamp_utc=observation.timestamp_utc,
+        details=accounting_snapshot_journal_details(
+            outcome.accounting,
+            retained_snapshot_limit=len(outcome.accounting),
+            suppressed_duplicate_final_snapshots=1,
+            forced_final_observation_event=observation,
+            expected_run_uuid=outcome.run_uuid,
+            expected_coherence_attempt_count=expected_coherence_attempt_count,
+        ),
+    )
+
+
+def test_containment_recomputes_accounting_journal_hashes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     base = _contained_outcome(return_code=0)
+    monkeypatch.setattr(runner, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", len(base.accounting))
+    observation = _forced_final_observation(base)
     journal_details = accounting_snapshot_journal_details(
         base.accounting,
-        retained_snapshot_limit=4096,
+        retained_snapshot_limit=len(base.accounting),
         suppressed_duplicate_final_snapshots=1,
+        forced_final_observation_event=observation,
+        expected_run_uuid=base.run_uuid,
+        expected_coherence_attempt_count=1,
     )
     journal_event = JobEvent(
         sequence=9,
@@ -2992,7 +3078,10 @@ def test_containment_recomputes_accounting_journal_hashes() -> None:
         timestamp_utc="2026-09-02T00:00:00+00:00",
         details=journal_details,
     )
-    with_journal = replace(base, events=(*base.events, journal_event))
+    with_journal = replace(
+        base,
+        events=_events_before_streams(base.events, observation, journal_event),
+    )
 
     assert "accounting_journal" not in runner._containment_evidence_errors(with_journal)
     tampered = dict(journal_details)
@@ -3000,5 +3089,327 @@ def test_containment_recomputes_accounting_journal_hashes() -> None:
     tampered_event = replace(journal_event, details=tampered)
 
     assert "accounting_journal" in runner._containment_evidence_errors(
-        replace(base, events=(*base.events, tampered_event))
+        replace(
+            base,
+            events=_events_before_streams(base.events, observation, tampered_event),
+        )
+    )
+    forged_policy = dict(journal_details)
+    forged_policy["retained_snapshot_limit"] = len(base.accounting) + 1
+    forged_policy_event = replace(journal_event, details=forged_policy)
+    assert "accounting_journal" in runner._containment_evidence_errors(
+        replace(
+            base,
+            events=_events_before_streams(base.events, observation, forged_policy_event),
+        )
+    )
+
+
+def test_containment_requires_exactly_one_accounting_journal_for_suppressed_at_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _contained_outcome(return_code=0)
+    monkeypatch.setattr(runner, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 1)
+    observation = _forced_final_observation(base)
+    journal_event = _accounting_journal_event(base, observation)
+
+    assert "accounting_journal" in runner._containment_evidence_errors(base)
+    assert "accounting_journal" not in runner._containment_evidence_errors(
+        replace(
+            base,
+            events=_events_before_streams(base.events, observation, journal_event),
+        )
+    )
+    renamed = replace(journal_event, event="accounting_snapshot_journal_renamed")
+    assert "accounting_journal" in runner._containment_evidence_errors(
+        replace(
+            base,
+            events=_events_before_streams(base.events, observation, renamed),
+        )
+    )
+    duplicate = replace(journal_event, sequence=10, monotonic_ns=10)
+    assert "accounting_journal" in runner._containment_evidence_errors(
+        replace(
+            base,
+            events=_events_before_streams(base.events, observation, journal_event, duplicate),
+        )
+    )
+
+    monkeypatch.setattr(runner, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 2)
+    final_retained = replace(base.accounting[-1], sequence=8, monotonic_ns=8)
+    retained_events = tuple(
+        replace(event, sequence=9, monotonic_ns=9) if event.event == "streams_drained" else event
+        for event in base.events
+    )
+    retained_outcome = replace(
+        base,
+        events=retained_events,
+        accounting=(*base.accounting, final_retained),
+    )
+    assert "accounting_journal" not in runner._containment_evidence_errors(retained_outcome)
+    unexpected_observation = _forced_final_observation(
+        retained_outcome,
+        sequence=10,
+        monotonic_ns=10,
+    )
+    unexpected_journal = replace(
+        journal_event,
+        sequence=10,
+        monotonic_ns=10,
+        details=accounting_snapshot_journal_details(
+            retained_outcome.accounting,
+            retained_snapshot_limit=2,
+            suppressed_duplicate_final_snapshots=1,
+            forced_final_observation_event=unexpected_observation,
+            expected_run_uuid=retained_outcome.run_uuid,
+            expected_coherence_attempt_count=1,
+        ),
+    )
+    assert "accounting_journal" in runner._containment_evidence_errors(
+        replace(retained_outcome, events=(*retained_events, unexpected_journal))
+    )
+
+
+def test_containment_enforces_accounting_journal_lifecycle_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _contained_outcome(return_code=0)
+    monkeypatch.setattr(runner, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 1)
+    observation = _forced_final_observation(base)
+    journal = _accounting_journal_event(base, observation)
+    canonical_events = _events_before_streams(base.events, observation, journal)
+    assert runner._containment_evidence_errors(replace(base, events=canonical_events)) == ()
+
+    before_zero_events: list[JobEvent] = []
+    before_zero_observation = replace(observation, sequence=7, monotonic_ns=7)
+    before_zero_journal = _accounting_journal_event(
+        base,
+        before_zero_observation,
+        sequence=8,
+        monotonic_ns=8,
+    )
+    for event in base.events:
+        if event.event == "active_process_count_zero":
+            before_zero_events.extend(
+                (
+                    before_zero_observation,
+                    before_zero_journal,
+                    replace(event, sequence=9, monotonic_ns=9),
+                )
+            )
+        elif event.event == "streams_drained":
+            before_zero_events.append(replace(event, sequence=10, monotonic_ns=10))
+        else:
+            before_zero_events.append(event)
+    assert runner._containment_evidence_errors(replace(base, events=tuple(before_zero_events))) == (
+        "accounting_forced_final_observation",
+        "accounting_journal",
+    )
+
+    after_streams = (
+        *base.events[:-1],
+        observation,
+        replace(base.events[-1], sequence=9, monotonic_ns=9),
+        _accounting_journal_event(base, observation, sequence=10, monotonic_ns=10),
+    )
+    assert runner._containment_evidence_errors(replace(base, events=after_streams)) == (
+        "accounting_forced_final_observation",
+        "accounting_journal",
+    )
+
+    serialized_swap = (
+        *canonical_events[:-2],
+        canonical_events[-1],
+        canonical_events[-2],
+    )
+    assert runner._containment_evidence_errors(replace(base, events=serialized_swap)) == (
+        "accounting_journal",
+    )
+
+    cleanup = JobEvent(
+        sequence=10,
+        event="stream_reader_cleanup_completed",
+        monotonic_ns=10,
+        timestamp_utc="2026-09-02T00:00:00+00:00",
+    )
+    with_gap = (
+        *canonical_events[:-1],
+        cleanup,
+        replace(canonical_events[-1], sequence=11, monotonic_ns=11),
+    )
+    assert runner._containment_evidence_errors(replace(base, events=with_gap)) == ()
+
+
+def test_containment_requires_independently_bound_forced_final_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _contained_outcome(return_code=0)
+    monkeypatch.setattr(runner, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 1)
+    observation = _forced_final_observation(base)
+    journal = _accounting_journal_event(base, observation)
+    canonical = _events_before_streams(base.events, observation, journal)
+    assert runner._containment_evidence_errors(replace(base, events=canonical)) == ()
+
+    missing = tuple(
+        replace(
+            event,
+            sequence=event.sequence - 1,
+            monotonic_ns=event.monotonic_ns - 1,
+        )
+        if event.sequence > observation.sequence
+        else event
+        for event in canonical
+        if event.event != runner.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+    )
+    assert runner._containment_evidence_errors(replace(base, events=missing)) == (
+        "accounting_forced_final_observation",
+    )
+
+    renamed = tuple(
+        replace(event, event="accounting_forced_final_observation_renamed")
+        if event.event == runner.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+        else event
+        for event in canonical
+    )
+    assert runner._containment_evidence_errors(replace(base, events=renamed)) == (
+        "accounting_forced_final_observation",
+    )
+
+    duplicate = replace(observation, sequence=9, monotonic_ns=9)
+    duplicated = (
+        *canonical[:-2],
+        duplicate,
+        replace(canonical[-2], sequence=10, monotonic_ns=10),
+        replace(canonical[-1], sequence=11, monotonic_ns=11),
+    )
+    assert runner._containment_evidence_errors(replace(base, events=duplicated)) == (
+        "accounting_forced_final_observation",
+    )
+
+    intervening = JobEvent(
+        sequence=9,
+        event="forced_final_observation_intervening_event",
+        monotonic_ns=9,
+        timestamp_utc=observation.timestamp_utc,
+    )
+    nonadjacent = (
+        *canonical[:-2],
+        intervening,
+        replace(canonical[-2], sequence=10, monotonic_ns=10),
+        replace(canonical[-1], sequence=11, monotonic_ns=11),
+    )
+    assert runner._containment_evidence_errors(replace(base, events=nonadjacent)) == (
+        "accounting_forced_final_observation",
+    )
+
+    monkeypatch.setattr(runner, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 2)
+    final_retained = replace(base.accounting[-1], sequence=8, monotonic_ns=8)
+    retained_events = tuple(
+        replace(event, sequence=9, monotonic_ns=9) if event.event == "streams_drained" else event
+        for event in base.events
+    )
+    retained = replace(
+        base,
+        events=retained_events,
+        accounting=(*base.accounting, final_retained),
+    )
+    orphan = _forced_final_observation(retained, sequence=10, monotonic_ns=10)
+    assert runner._containment_evidence_errors(
+        replace(retained, events=(*retained_events, orphan))
+    ) == ("accounting_forced_final_observation",)
+
+    monkeypatch.setattr(runner, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 1)
+    alternate_observation = replace(
+        observation,
+        monotonic_ns=observation.monotonic_ns + 1,
+    )
+    journal_bound_to_alternate = _accounting_journal_event(base, alternate_observation)
+    assert runner._containment_evidence_errors(
+        replace(
+            base,
+            events=_events_before_streams(
+                base.events,
+                observation,
+                journal_bound_to_alternate,
+            ),
+        )
+    ) == ("accounting_journal",)
+
+
+def test_containment_derives_forced_final_coherence_attempt_suffix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _contained_outcome(return_code=0)
+    monkeypatch.setattr(runner, "DEFAULT_MAX_ACCOUNTING_SNAPSHOTS", 1)
+    active_zero = next(event for event in base.events if event.event == "active_process_count_zero")
+    drain_event = JobEvent(
+        sequence=8,
+        event="job_exit_process",
+        monotonic_ns=8,
+        timestamp_utc=active_zero.timestamp_utc,
+        pid=base.identities[0].pid,
+    )
+    incoherent = JobEvent(
+        sequence=9,
+        event="accounting_observation_incoherent",
+        monotonic_ns=9,
+        timestamp_utc=active_zero.timestamp_utc,
+        details={
+            "attempt": 1,
+            "active_processes": 1,
+            "active_pid_count": 0,
+        },
+    )
+    observation = _forced_final_observation(
+        base,
+        sequence=10,
+        monotonic_ns=10,
+        query_completed_monotonic_ns=9,
+        coherence_attempt_count=2,
+    )
+    journal = _accounting_journal_event(
+        base,
+        observation,
+        sequence=11,
+        monotonic_ns=11,
+        expected_coherence_attempt_count=2,
+    )
+    canonical = _events_before_streams(
+        base.events,
+        drain_event,
+        incoherent,
+        observation,
+        journal,
+    )
+    assert runner._containment_evidence_errors(replace(base, events=canonical)) == ()
+
+    interleaved = JobEvent(
+        sequence=9,
+        event="forced_final_observation_intervening_event",
+        monotonic_ns=9,
+        timestamp_utc=active_zero.timestamp_utc,
+    )
+    early_incoherent = replace(incoherent, sequence=8, monotonic_ns=8)
+    interleaved_events = _events_before_streams(
+        base.events,
+        early_incoherent,
+        interleaved,
+        observation,
+        journal,
+    )
+    assert runner._containment_evidence_errors(replace(base, events=interleaved_events)) == (
+        "accounting_forced_final_observation",
+        "accounting_journal",
+    )
+
+    raw_reordered = list(canonical)
+    observation_index = raw_reordered.index(observation)
+    incoherent_index = raw_reordered.index(incoherent)
+    raw_reordered[observation_index], raw_reordered[incoherent_index] = (
+        raw_reordered[incoherent_index],
+        raw_reordered[observation_index],
+    )
+    assert runner._containment_evidence_errors(replace(base, events=tuple(raw_reordered))) == (
+        "accounting_forced_final_observation",
+        "accounting_journal",
     )

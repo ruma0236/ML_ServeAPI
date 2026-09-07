@@ -203,6 +203,10 @@ class ParentApi(Protocol):
 
     def completion_events(self, completion: int) -> list[tuple[int, int | None]]: ...
 
+    def wait_completion_events(
+        self, completion: int, wait_milliseconds: int
+    ) -> list[tuple[int, int | None]]: ...
+
     def close(self, handle: int | None) -> None: ...
 
     def open_executable_lease(self, path: str) -> ExecutableLease: ...
@@ -1763,7 +1767,7 @@ class WindowsBootstrapProcessRunner:
         env: Mapping[str, str] | None = None,
         run_uuid: str | uuid.UUID | None = None,
         create_no_window: bool = True,
-        poll_interval_seconds: float = 0.025,
+        poll_interval_seconds: float = r7s3.DEFAULT_PROCESS_POLL_INTERVAL_SECONDS,
     ) -> BootstrapOutcome:
         if self._api_factory is _ParentWindowsApi and sys.platform != "win32":
             raise R7S4ProcessError("WindowsBootstrapProcessRunner_requires_windows")
@@ -1902,14 +1906,7 @@ class WindowsBootstrapProcessRunner:
                 if owns:
                     api.close(handle)
 
-        def drain_job_events() -> tuple[int, bool]:
-            if completion is None:
-                return 0, False
-            try:
-                observed = api.completion_events(completion)
-            except Exception as exc:
-                errors.append(f"completion_event_query_failed:{type(exc).__name__}")
-                return 0, False
+        def process_job_events(observed: Sequence[tuple[int, int | None]]) -> int:
             for message, pid in observed:
                 event_name = {
                     getattr(api, "_JOB_MESSAGE_ACTIVE_ZERO", 4): "job_active_zero",
@@ -1927,7 +1924,36 @@ class WindowsBootstrapProcessRunner:
                     known_instance_count = sum(1 for known_pid, _ in identities if known_pid == pid)
                     if known_instance_count < new_instance_count:
                         capture_identity(pid, fallback_ppid=None)
-            return len(observed), True
+            return len(observed)
+
+        def drain_job_events() -> tuple[int, bool]:
+            if completion is None:
+                return 0, False
+            try:
+                observed = api.completion_events(completion)
+            except Exception as exc:
+                errors.append(f"completion_event_query_failed:{type(exc).__name__}")
+                return 0, False
+            return process_job_events(observed), True
+
+        def wait_for_job_event_or_budget(sleep_budget: float) -> bool:
+            if sleep_budget <= 0:
+                return True
+            wait_method = getattr(api, "wait_completion_events", None)
+            if completion is None or not callable(wait_method) or sleep_budget < 0.001:
+                self._sleep(sleep_budget)
+                return completion is not None
+            wait_milliseconds = max(1, int(sleep_budget * 1_000))
+            wait_started = self._clock()
+            try:
+                observed = process_job_events(wait_method(completion, wait_milliseconds))
+            except Exception as exc:
+                errors.append(f"completion_event_wait_failed:{type(exc).__name__}")
+                return False
+            elapsed = max(0.0, self._clock() - wait_started)
+            if observed == 0 and elapsed < sleep_budget:
+                self._sleep(sleep_budget - elapsed)
+            return True
 
         try:
             job, completion = api.create_job_and_completion_port()
@@ -2054,7 +2080,13 @@ class WindowsBootstrapProcessRunner:
                 and not ack_state.overflowed
                 and self._clock() < wrapper_deadline
             ):
-                self._sleep(poll_interval_seconds)
+                wait_budget = min(
+                    poll_interval_seconds,
+                    max(0.0, wrapper_deadline - self._clock()),
+                )
+                if not wait_for_job_event_or_budget(wait_budget):
+                    manual = True
+                    break
             ack_completed_on_time = (
                 ack_drained.is_set()
                 and ack_state.completed_monotonic is not None
@@ -2116,6 +2148,9 @@ class WindowsBootstrapProcessRunner:
                     )
                     if parent_snapshot != ack["explicit_job"]:
                         raise R7S4ProcessError("parent_and_bootstrap_job_snapshots_differ")
+                    _, preapproval_query_ok = drain_job_events()
+                    if not preapproval_query_ok or errors:
+                        raise R7S4ProcessError("preapproval_process_observation_failed")
                     api.write_approval(control_write)
                     bootstrap_source_lease.close()
                     bootstrap_source_lease = None
@@ -2171,7 +2206,10 @@ class WindowsBootstrapProcessRunner:
                     elif now >= residual_deadline:
                         last_reconciliation_reason = "residual_deadline_elapsed"
                         break
-                    self._sleep(poll_interval_seconds)
+                    if not wait_for_job_event_or_budget(poll_interval_seconds):
+                        manual = True
+                        last_reconciliation_reason = "completion_wait_failed"
+                        break
                     continue
 
                 zero_observed_now = self._clock()
@@ -2247,7 +2285,10 @@ class WindowsBootstrapProcessRunner:
                     stable_zero_observations = 0
                     final_job_accounting = None
                     reconciliation_deadline = None
-                    self._sleep(poll_interval_seconds)
+                    if not wait_for_job_event_or_budget(poll_interval_seconds):
+                        manual = True
+                        last_reconciliation_reason = "completion_wait_failed"
+                        break
                     continue
 
                 final_job_accounting = accounting_after_final_drain
@@ -2315,7 +2356,10 @@ class WindowsBootstrapProcessRunner:
                         reason=last_reconciliation_reason,
                     )
                     break
-                self._sleep(poll_interval_seconds)
+                if not wait_for_job_event_or_budget(poll_interval_seconds):
+                    manual = True
+                    last_reconciliation_reason = "completion_wait_failed"
+                    break
             if residual_pids:
                 manual = True
                 errors.append("residual_job_processes_after_bounded_repoll")

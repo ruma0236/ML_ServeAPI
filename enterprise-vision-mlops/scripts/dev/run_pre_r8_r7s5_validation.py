@@ -46,11 +46,18 @@ from evm.scale_validation.phase_b2_r7s4_handle_io import (  # noqa: E402
     validate_strict_windows_leaf,
 )
 from evm.scale_validation.phase_b2_r7s3_process import (  # noqa: E402
+    ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT,
     ACCOUNTING_JOURNAL_EVENT,
+    DEFAULT_MAX_ACCOUNTING_SNAPSHOTS,
     ProcessContainmentFailure,
     ProcessOutcome,
     TimeoutContract,
     WindowsJobProcessRunner,
+    accounting_forced_final_coherence_attempt_count,
+    accounting_forced_final_observation_lifecycle_valid,
+    accounting_forced_final_observation_valid,
+    accounting_snapshot_journal_order_valid,
+    accounting_snapshot_journal_required,
     accounting_snapshot_journal_valid,
 )
 
@@ -2738,14 +2745,96 @@ def _containment_evidence_errors(outcome: ProcessOutcome) -> tuple[str, ...]:
     named_events: dict[str, Any] = {}
     for event in events:
         named_events.setdefault(event.event, event)
+    active_zero_events = [event for event in events if event.event == "active_process_count_zero"]
+    streams_drained_events = [event for event in events if event.event == "streams_drained"]
+    observation_events = [
+        event for event in events if event.event == ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+    ]
     journal_events = [event for event in events if event.event == ACCOUNTING_JOURNAL_EVENT]
+    if len(observation_events) > 1:
+        errors.append("accounting_forced_final_observation")
     if len(journal_events) > 1:
         errors.append("accounting_journal")
-    elif journal_events and not accounting_snapshot_journal_valid(
-        journal_events[0].details,
-        accounting,
-    ):
-        errors.append("accounting_journal")
+    elif len(active_zero_events) == 1 and accounting:
+        try:
+            journal_required = accounting_snapshot_journal_required(
+                [snapshot.sequence for snapshot in accounting],
+                active_process_count_zero_sequence=active_zero_events[0].sequence,
+                expected_retained_snapshot_limit=DEFAULT_MAX_ACCOUNTING_SNAPSHOTS,
+            )
+        except ValueError:
+            errors.append("accounting_journal")
+        else:
+            if len(journal_events) != int(journal_required):
+                errors.append("accounting_journal")
+            if len(observation_events) != int(journal_required):
+                errors.append("accounting_forced_final_observation")
+            if journal_required and len(journal_events) == len(observation_events) == 1:
+                journal = journal_events[0]
+                observation = observation_events[0]
+                journal_order_invalid = (
+                    len(streams_drained_events) != 1
+                    or not accounting_snapshot_journal_order_valid(
+                        active_process_count_zero_sequence=active_zero_events[0].sequence,
+                        journal_sequence=journal.sequence,
+                        streams_drained_sequence=streams_drained_events[0].sequence,
+                    )
+                    or not (
+                        events.index(active_zero_events[0])
+                        < events.index(journal)
+                        < events.index(streams_drained_events[0])
+                    )
+                )
+                if journal_order_invalid:
+                    errors.append("accounting_journal")
+                try:
+                    coherence_attempt_count = accounting_forced_final_coherence_attempt_count(
+                        events,
+                        active_process_count_zero_sequence=(active_zero_events[0].sequence),
+                        observation_sequence=observation.sequence,
+                    )
+                    preceding_records = [
+                        item
+                        for item in combined
+                        if type(item.sequence) is int
+                        and type(observation.sequence) is int
+                        and item.sequence == observation.sequence - 1
+                    ]
+                    if len(preceding_records) != 1:
+                        raise ValueError("accounting_observation_preceding_record_invalid")
+                except (TypeError, ValueError):
+                    errors.append("accounting_forced_final_observation")
+                    coherence_attempt_count = 0
+                    preceding_records = []
+                if preceding_records and (
+                    not accounting_forced_final_observation_valid(
+                        observation,
+                        accounting[-1],
+                        expected_run_uuid=outcome.run_uuid,
+                        expected_coherence_attempt_count=coherence_attempt_count,
+                    )
+                    or not accounting_forced_final_observation_lifecycle_valid(
+                        observation,
+                        preceding_record=preceding_records[0],
+                        active_process_count_zero_event=active_zero_events[0],
+                        journal_event=journal,
+                    )
+                    or not (
+                        events.index(active_zero_events[0])
+                        < events.index(observation)
+                        < events.index(journal)
+                    )
+                ):
+                    errors.append("accounting_forced_final_observation")
+                if not accounting_snapshot_journal_valid(
+                    journal.details,
+                    accounting,
+                    forced_final_observation_event=observation,
+                    expected_run_uuid=outcome.run_uuid,
+                    expected_coherence_attempt_count=coherence_attempt_count,
+                    expected_retained_snapshot_limit=DEFAULT_MAX_ACCOUNTING_SNAPSHOTS,
+                ):
+                    errors.append("accounting_journal")
     required_events = (
         "job_created",
         "root_created_suspended",

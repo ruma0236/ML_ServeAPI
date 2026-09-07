@@ -41,6 +41,7 @@ from evm.scale_validation import phase_b2_r7s5_gate as gate  # noqa: E402
 from evm.scale_validation import phase_b2_r7s5_reservation as reservation  # noqa: E402
 from evm.scale_validation import phase_b2_r7s5_windows_wsl as windows_wsl  # noqa: E402
 from evm.scale_validation.phase_b2_r7s3_process import (  # noqa: E402
+    DEFAULT_MAX_ACCOUNTING_SNAPSHOTS,
     DEFAULT_MAX_STREAM_BYTES,
     ProcessContainmentFailure,
     TimeoutContract,
@@ -2449,14 +2450,100 @@ def _validate_validation_process_evidence(
         sequence_points.append((item["sequence"], item["monotonic_ns"], accounting_time))
     if accounting_sequences != sorted(set(accounting_sequences)):
         raise ReviewPublisherError("validation_process_accounting_sequence_invalid")
+    observation_events = [
+        event
+        for event in events
+        if event["event"] == validation_runner.ACCOUNTING_FORCED_FINAL_OBSERVATION_EVENT
+    ]
     journal_events = [
         event for event in events if event["event"] == validation_runner.ACCOUNTING_JOURNAL_EVENT
     ]
+    if len(observation_events) > 1:
+        raise ReviewPublisherError(
+            "validation_process_accounting_forced_final_observation_not_unique"
+        )
     if len(journal_events) > 1:
         raise ReviewPublisherError("validation_process_accounting_journal_not_unique")
-    if journal_events and not validation_runner.accounting_snapshot_journal_valid(
+    try:
+        journal_required = validation_runner.accounting_snapshot_journal_required(
+            accounting_sequences,
+            active_process_count_zero_sequence=events_by_name["active_process_count_zero"][
+                "sequence"
+            ],
+            expected_retained_snapshot_limit=DEFAULT_MAX_ACCOUNTING_SNAPSHOTS,
+        )
+    except ValueError as exc:
+        raise ReviewPublisherError("validation_process_accounting_journal_state_invalid") from exc
+    if journal_required and not journal_events:
+        raise ReviewPublisherError("validation_process_accounting_journal_required")
+    if not journal_required and journal_events:
+        raise ReviewPublisherError("validation_process_accounting_journal_unexpected")
+    if journal_required and not observation_events:
+        raise ReviewPublisherError(
+            "validation_process_accounting_forced_final_observation_required"
+        )
+    if not journal_required and observation_events:
+        raise ReviewPublisherError(
+            "validation_process_accounting_forced_final_observation_unexpected"
+        )
+    if journal_required and not validation_runner.accounting_snapshot_journal_order_valid(
+        active_process_count_zero_sequence=events_by_name["active_process_count_zero"]["sequence"],
+        journal_sequence=journal_events[0]["sequence"],
+        streams_drained_sequence=events_by_name["streams_drained"]["sequence"],
+    ):
+        raise ReviewPublisherError("validation_process_accounting_journal_order_invalid")
+    coherence_attempt_count = 0
+    if journal_required:
+        observation = observation_events[0]
+        journal = journal_events[0]
+        try:
+            coherence_attempt_count = (
+                validation_runner.accounting_forced_final_coherence_attempt_count(
+                    events,
+                    active_process_count_zero_sequence=events_by_name["active_process_count_zero"][
+                        "sequence"
+                    ],
+                    observation_sequence=observation["sequence"],
+                )
+            )
+            preceding_records = [
+                item
+                for item in [*events, *accounting]
+                if type(item.get("sequence")) is int
+                and type(observation["sequence"]) is int
+                and item["sequence"] == observation["sequence"] - 1
+            ]
+            if len(preceding_records) != 1:
+                raise ValueError("accounting observation preceding record invalid")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ReviewPublisherError(
+                "validation_process_accounting_forced_final_observation_invalid"
+            ) from exc
+        if not validation_runner.accounting_forced_final_observation_valid(
+            observation,
+            accounting[-1],
+            expected_run_uuid=value["run_uuid"],
+            expected_coherence_attempt_count=coherence_attempt_count,
+        ):
+            raise ReviewPublisherError(
+                "validation_process_accounting_forced_final_observation_invalid"
+            )
+        if not validation_runner.accounting_forced_final_observation_lifecycle_valid(
+            observation,
+            preceding_record=preceding_records[0],
+            active_process_count_zero_event=events_by_name["active_process_count_zero"],
+            journal_event=journal,
+        ):
+            raise ReviewPublisherError(
+                "validation_process_accounting_forced_final_observation_order_invalid"
+            )
+    if journal_required and not validation_runner.accounting_snapshot_journal_valid(
         journal_events[0]["details"],
         accounting,
+        forced_final_observation_event=observation_events[0],
+        expected_run_uuid=value["run_uuid"],
+        expected_coherence_attempt_count=coherence_attempt_count,
+        expected_retained_snapshot_limit=DEFAULT_MAX_ACCOUNTING_SNAPSHOTS,
     ):
         raise ReviewPublisherError("validation_process_accounting_journal_invalid")
     combined_sequences = sorted(event_sequences + accounting_sequences)

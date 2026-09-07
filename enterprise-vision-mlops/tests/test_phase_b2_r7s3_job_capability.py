@@ -485,6 +485,14 @@ def test_primitive_contract_records_unwired_child_and_remaining_trust_boundaries
     assert contract["completion_event_batch_limit"] == (
         process.DEFAULT_MAX_COMPLETION_EVENTS_PER_DRAIN
     )
+    assert contract["accounting_journal_event"] == "accounting_snapshot_journal_finalized"
+    assert contract["accounting_journal_schema"] == ("evm.phase-b2.accounting-snapshot-journal.v3")
+    assert contract["accounting_journal_chunk_size"] == 256
+    assert (
+        contract["duplicate_final_accounting_snapshot_suppressed_at_retained_limit_with_journal"]
+        is True
+    )
+    assert "duplicate_final_accounting_snapshot_suppressed_with_journal" not in contract
     assert contract["completion_drain_deadline_and_cancel_checks"] is True
     assert contract["final_safe_gate_after_bounded_stream_decode"] is True
     assert contract["reader_start_exception_native_state_cleanup"] is True
