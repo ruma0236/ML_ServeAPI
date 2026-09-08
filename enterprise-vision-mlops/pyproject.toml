@@ -29,6 +29,30 @@ test = [
     "pytest==8.3.4",
     "ruff==0.12.2",
 ]
+windows-cuda = [
+    "torch==2.7.1",
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu128", extra = "windows-cuda" },
+]
+
+[dependency-groups]
+# Explicit opt-in tooling group; uv.lock is the only dependency authority.
+# Shared package versions remain constrained by project/test dependencies above.
+container-test = [
+    "locust==2.46.5; sys_platform == 'linux'",
+    "httpx",
+    "jsonschema",
+    "numpy",
+    "pydantic",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

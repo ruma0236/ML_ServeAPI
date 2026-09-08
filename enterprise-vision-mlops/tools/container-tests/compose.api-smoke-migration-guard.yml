@@ -1,0 +1,5 @@
+# API-only startup: verify the existing schema; never run automatic migration.
+services:
+  api:
+    environment:
+      EVM_CONTROL_PLANE_AUTO_MIGRATE: "false"

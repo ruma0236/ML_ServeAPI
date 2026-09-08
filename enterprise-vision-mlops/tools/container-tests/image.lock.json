@@ -1,0 +1,27 @@
+{
+  "schema": "evm.container-test-image.lock.v1",
+  "tool_version": "0.1.0",
+  "platform": "linux/amd64",
+  "base_reference": "docker.io/locustio/locust:2.46.5@sha256:d1dd30fdb0940e4623606331bfdc5a37953c1820b49b3e2965badfec1de18338",
+  "base_index_digest": "sha256:02109fe359906ebea8a1a1f4c1567771e815990739b9400c33d6c2692ac00af5",
+  "dependency_authority": "../../uv.lock",
+  "dependency_group": "container-test",
+  "dependency_export": "requirements.txt",
+  "dependency_export_command": "uv export --frozen --only-group container-test --no-emit-project --format requirements-txt --output-file tools/container-tests/requirements.txt --no-progress",
+  "exporter": {
+    "version": "0.12.5",
+    "windows_binary_sha256": "8da6cedef60c27ac997ebf400fbfc6d373c5b0a7ae6a299b9d52be7fe63723fb"
+  },
+  "bindings": {
+    "pyproject.toml": "f522de6d899dc2098bca80bd86c26af4e03c1d37baac979530ecb6db1589514d",
+    "uv.lock": "44ef78987472ffe58959f9993206f21496fd90f37974c9fb4b986ad133246c42",
+    "requirements.txt": "6e2ed104c8dd564ac40dd53550f26bd5498981721362323308b3ee8f28b09a4f"
+  },
+  "registry_publish": "NOT_CONFIGURED; tool local image ID and exported artifact are recorded after build; base upstream digest is not tool image registry digest",
+  "runtime_installation": false,
+  "test_code_delivery": "versioned source mounted read-only; exact manifest each run",
+  "sources": [
+    "https://docs.locust.io/en/stable/running-in-docker.html",
+    "https://docs.docker.com/build/building/best-practices/#pin-base-image-versions"
+  ]
+}

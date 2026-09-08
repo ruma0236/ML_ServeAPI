@@ -222,7 +222,7 @@ def test_api_initialization_interrupt_uses_native_fallback_handle_close(
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows HANDLE semantics")
-@pytest.mark.parametrize("failure", ["swapped_explicit", "implicit_mismatch"])
+@pytest.mark.parametrize("failure", ["swapped_explicit", "implicit_mismatch", "implicit_limited"])
 def test_swapped_or_null_job_mismatch_is_rejected_and_handle_closed(failure: str) -> None:
     nonce = b"s" * process.JOB_CAPABILITY_NONCE_BYTES
     run_uuid = str(uuid.uuid4())
@@ -231,6 +231,10 @@ def test_swapped_or_null_job_mismatch_is_rejected_and_handle_closed(failure: str
     implicit = _exclusive_snapshot(os.getpid())
     if failure == "swapped_explicit":
         explicit["is_process_in_job"] = False
+    elif failure == "implicit_limited":
+        # A Windows venv redirector can insert its own immediate Job.  Membership
+        # alone must not make that limited Job equivalent to the runner's Job.
+        implicit["limit_flags"] = 0x3000
     else:
         implicit["process_ids"] = [os.getpid() + 1]
     api = _SnapshotApi(explicit=explicit, implicit=implicit)
@@ -535,6 +539,11 @@ def test_stable_r7_manifest_contract_is_not_silently_strengthened() -> None:
 
 @pytest.mark.skipif(sys.platform != "win32", reason="requires real Windows Job inheritance")
 def test_real_child_consumes_inherited_query_capability_and_matches_null_job() -> None:
+    # sys.executable can be the Windows venv redirector, which adds a separate
+    # immediate Job around the interpreter.  This fixture exercises direct
+    # interpreter inheritance, not redirector-owned Job capability equivalence.
+    native_python = Path(sys._base_executable).resolve(strict=True)
+    assert native_python.is_absolute() and native_python.is_file()
     module_path = str(Path(process.__file__).resolve())
     child = (
         "import importlib.util,json,sys;"
@@ -545,7 +554,7 @@ def test_real_child_consumes_inherited_query_capability_and_matches_null_job() -
         "print(json.dumps(m.consume_inherited_job_capability(),sort_keys=True),flush=True)"
     )
     outcome = process.WindowsJobProcessRunner().run(
-        [sys.executable, "-I", "-S", "-B", "-c", child],
+        [str(native_python), "-I", "-S", "-B", "-c", child],
         name="r7s3-real-job-capability-smoke",
         poll_interval_seconds=0.005,
     )
@@ -561,7 +570,10 @@ def test_real_child_consumes_inherited_query_capability_and_matches_null_job() -
     assert evidence["environment_consumed"] is True
     assert evidence["raw_nonce_recorded"] is False
     assert evidence["pid"] in {item.pid for item in outcome.identities}
+    assert evidence["pid"] == outcome.identities[0].pid
+    assert os.path.samefile(outcome.identities[0].image, native_python)
     assert evidence["explicit_job"] == evidence["implicit_job"]
+    assert evidence["implicit_job"]["limit_flags"] == 0
 
 
 class _RedactionRunnerApi:

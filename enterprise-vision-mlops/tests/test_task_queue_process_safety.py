@@ -111,25 +111,35 @@ def test_heartbeat_replace_retries_transient_windows_reader_lock(
 def test_executor_exits_when_exact_parent_process_is_killed(tmp_path: Path):
     ready_path = tmp_path / "executor-ready.json"
     source_root = Path(__file__).resolve().parents[1] / "src"
+    native_python = Path(sys._base_executable).resolve(strict=True)
+    assert native_python.is_file()
+    assert psutil.__file__ is not None
+    psutil_module = Path(psutil.__file__).resolve(strict=True)
+    pinned_site_packages = psutil_module.parent.parent
+    assert pinned_site_packages.is_dir()
     child_code = (
-        "import json,os,sys,time,psutil; "
+        "import json,os,sys,time; "
         "from pathlib import Path; "
-        f"sys.path.insert(0, {str(source_root)!r}); "
+        f"sys.path[:0]=[{str(source_root)!r},{str(pinned_site_packages)!r}]; "
+        "import psutil; "
         "from evm.control_panel.task_queue_executor import bind_parent_lifetime; "
         "parent=os.getppid(); "
-        "bind_parent_lifetime(parent, psutil.Process(parent).create_time()); "
+        "parent_create_time=psutil.Process(parent).create_time(); "
+        "bind_parent_lifetime(parent, parent_create_time); "
         "process=psutil.Process(os.getpid()); "
         "payload={'status':'ready','pid':os.getpid(),'ppid':parent,"
-        "'create_time':process.create_time()}; "
+        "'create_time':process.create_time(),'image':process.exe(),"
+        "'parent_create_time':parent_create_time}; "
         f"path=Path({str(ready_path)!r}); temporary=path.with_suffix('.tmp'); "
         "temporary.write_text(json.dumps(payload, sort_keys=True), encoding='ascii'); "
         "temporary.replace(path); "
         "time.sleep(60)"
     )
     parent_code = (
-        "import json,subprocess,sys,time; "
+        "import json,os,subprocess,sys,time; "
         "from pathlib import Path; "
-        f"child=subprocess.Popen([sys.executable, '-c', {child_code!r}], "
+        f"child=subprocess.Popen([{str(native_python)!r}, "
+        f"'-I', '-S', '-B', '-c', {child_code!r}], "
         "stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True); "
         f"path=Path({str(ready_path)!r}); "
         "deadline=time.monotonic()+20; payload=None; "
@@ -147,7 +157,8 @@ def test_executor_exits_when_exact_parent_process_is_killed(tmp_path: Path):
         "\nif payload is None:\n"
         " payload={'status':('child_exited' if returncode is not None else 'readiness_timeout'),"
         "'pid':child.pid,'returncode':returncode,'stderr':stderr}\n"
-        "elif payload.get('status') != 'ready' or payload.get('pid') != child.pid:\n"
+        "elif (payload.get('status') != 'ready' or payload.get('pid') != child.pid "
+        "or payload.get('ppid') != os.getpid()):\n"
         " payload={'status':'invalid_readiness','pid':child.pid,'returncode':returncode,"
         "'stderr':stderr,'received':payload}\n"
         "else:\n"
@@ -158,7 +169,7 @@ def test_executor_exits_when_exact_parent_process_is_killed(tmp_path: Path):
         "time.sleep(60)"
     )
     parent = subprocess.Popen(
-        [sys.executable, "-c", parent_code],
+        [str(native_python), "-I", "-S", "-B", "-c", parent_code],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -197,8 +208,14 @@ def test_executor_exits_when_exact_parent_process_is_killed(tmp_path: Path):
             )
         child_pid = int(handshake["pid"])
         assert int(handshake["ppid"]) == parent.pid, f"handshake={handshake!r}"
+        parent_process = psutil.Process(parent.pid)
+        assert abs(parent_process.create_time() - float(handshake["parent_create_time"])) < 0.01
+        assert os.path.samefile(parent_process.exe(), native_python)
         child_process = psutil.Process(child_pid)
         assert abs(child_process.create_time() - float(handshake["create_time"])) < 0.01
+        assert child_process.ppid() == parent.pid
+        assert os.path.samefile(child_process.exe(), native_python)
+        assert os.path.samefile(str(handshake["image"]), native_python)
         assert child_process.is_running(), f"handshake={handshake!r}"
         parent.kill()
         parent.wait(timeout=5)

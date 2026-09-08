@@ -1,0 +1,158 @@
+{
+  "schema": "evm.container-test.plan-map.v1",
+  "original_mapping_receipt_sha256": "3aee91c1b9668af0757f3f5e9812ec8b553fef9efff2ffe37edf43d15ed3ab22",
+  "transition_status": "CT-M05 TOOL_ONLY PASS; CT-M06 BLOCKED catalog503; actual model smoke NOT_RUN",
+  "global_decision": "NO-GO",
+  "mapping": [
+    {
+      "item": "S0",
+      "classification": "A",
+      "purpose": "Healthy attributable low-load control and trace/metrics identity",
+      "status": "historical V3 verified; CT lane NOT_RUN",
+      "replacement": "Reuse readiness, W3C tracing and prediction/evidence checks in container; do not invoke S0 execute_suite because it launches lifecycle/training",
+      "acceptance": "Exact service/model/data identity; non-placeholder actual prediction; p50/p95/p99 and correlated telemetry; missing trace/unknown outcome not success",
+      "reuse_limit": "Historical raw results stay separate; new generator comparison before benchmark",
+      "residual_validation": "Historical raw results stay separate; new generator comparison before benchmark"
+    },
+    {
+      "item": "S1",
+      "classification": "A+B",
+      "purpose": "Idempotent mutations, leases, legal terminal state and exact effects",
+      "status": "historical V3 verified; CT lane NOT_RUN",
+      "replacement": "Container HTTP/reconciliation; separately authorized controller for owner loss",
+      "acceptance": "One terminal state/effect per accepted identity; zero illegal transitions/duplicates; bounded pool wait",
+      "reuse_limit": "No create/approve/cancel lifecycle exercise in short smoke if it trains/deploys",
+      "residual_validation": "No create/approve/cancel lifecycle exercise in short smoke if it trains/deploys"
+    },
+    {
+      "item": "S2",
+      "classification": "A+B",
+      "purpose": "Bounded admission, retry, DLQ, queue and accepted-work closure",
+      "status": "historical V3 verified; CT lane NOT_RUN",
+      "replacement": "Container API producer and outcome validator; separate worker/fault controller",
+      "acceptance": "Distinct offered/accepted/rejected/failed/cancelled/unknown; bounded queue/RSS; zero lost/duplicate effect",
+      "reuse_limit": "No overload/poison/fault workload this transition",
+      "residual_validation": "No overload/poison/fault workload this transition"
+    },
+    {
+      "item": "S3",
+      "classification": "A",
+      "purpose": "CPU model capacity and open/closed load distinction",
+      "status": "historical V3 verified; CT lane NOT_RUN",
+      "replacement": "Reuse s3_runtime and governed capacity probe contracts; Locust reviewed for closed concurrency",
+      "acceptance": "Exact corpus/model/seed; sustainable throughput and latency; generator saturation measured",
+      "reuse_limit": "No old throughput merged with new generator; no new generic scheduler",
+      "residual_validation": "No old throughput merged with new generator; no new generic scheduler"
+    },
+    {
+      "item": "S4",
+      "classification": "A+B",
+      "purpose": "GPU batching and serving queue/VRAM performance",
+      "status": "historical V3 verified; CT lane NOT_RUN",
+      "replacement": "Container calls service, no GPU device; separate controller sets approved model/batch config",
+      "acceptance": "No OOM/fallback; exact instance/batch identity and guardrails",
+      "reuse_limit": "No model training/rollout/reconfiguration now",
+      "residual_validation": "No model training/rollout/reconfiguration now"
+    },
+    {
+      "item": "S5",
+      "classification": "A+B",
+      "purpose": "Data-scale row/digest and idempotent distributed output",
+      "status": "historical V3 verified; CT lane NOT_RUN",
+      "replacement": "Container validates results; separate Spark/executor control",
+      "acceptance": "Exact row/schema/digest; bounded memory and duplicate commits zero",
+      "reuse_limit": "Large data and executor termination excluded now",
+      "residual_validation": "Large data and executor termination excluded now"
+    },
+    {
+      "item": "S6/S6B-M",
+      "classification": "A+B",
+      "purpose": "Rollout, rollback and Blue/Green route/model continuity",
+      "status": "V3 historical verified; V4 history retained; CT lane NOT_RUN",
+      "replacement": "Read identity/results in container; approved deployment control outside generator",
+      "acceptance": "Exact source/target/route/model/rollback identities and durable outcomes",
+      "reuse_limit": "No deployment change now; cannot replace a product admission/ownership failure",
+      "residual_validation": "No deployment change now; cannot replace a product admission/ownership failure"
+    },
+    {
+      "item": "S7",
+      "classification": "A+B+C",
+      "purpose": "Lifecycle supervision and exact host/worker recovery",
+      "status": "historical V3 verified; CT lane NOT_RUN",
+      "replacement": "Container HTTP/state/artifact checks; separate host/process control",
+      "acceptance": "Legal lease handoff, terminal state and zero residue/lost/duplicate effects",
+      "reuse_limit": "Windows Job/PID/host-exit contract remains Windows",
+      "residual_validation": "Windows Job/PID/host-exit contract remains Windows"
+    },
+    {
+      "item": "S8 / Integrated V4",
+      "classification": "A+B+C",
+      "purpose": "Fault, recovery, soak closure across all layers",
+      "status": "current plan NOT_RUN / not eligible",
+      "replacement": "Container traffic and evidence; external fault/host observer; retain original final gates",
+      "acceptance": "V4-AC-01..06 unchanged; current-revision lanes and exact baseline restoration",
+      "reuse_limit": "6 fault classes x3 and 3x30-minute soak NOT_STARTED",
+      "residual_validation": "6 fault classes x3 and 3x30-minute soak NOT_STARTED"
+    },
+    {
+      "item": "R7 M03-M09 portable checks",
+      "classification": "A+D",
+      "purpose": "Reproducible tool/code environment and tests",
+      "status": "M03 historical PASS; M04 focused original FAIL; current full/fresh NOT_RUN",
+      "replacement": "Linux-eligible tools can run immutable test image; clean image/code provenance replaces new host venv setup only for this lane",
+      "acceptance": "Same source snapshot, pinned dependencies, no unexpected skip/deselect; real execution and fresh reproduction",
+      "reuse_limit": "Windows tests stay C; no historical current-tree credit",
+      "residual_validation": "Windows tests stay C; no historical current-tree credit"
+    },
+    {
+      "item": "R7 M10-M15 + production admission/publisher",
+      "classification": "C (portable subcomponents A)",
+      "purpose": "Elevated execution and independent evidence closure",
+      "status": "FAIL/unresolved and NOT_RUN preserved; GLOBAL NO-GO",
+      "replacement": "Keep Windows token/capsule/independent receipt requirements for Windows tests; container smoke is separately scoped",
+      "acceptance": "No caller-forged closure; admission/publisher fail-closed; independent authority and code/evidence binding",
+      "reuse_limit": "No forced substitution or deletion of old gates",
+      "residual_validation": "No forced substitution or deletion of old gates"
+    },
+    {
+      "item": "R8 OOB/WORM/admission",
+      "classification": "A+B+C",
+      "purpose": "Independent authority, replay protection and production wiring",
+      "status": "NOT_RUN; external WORM UNPROVISIONED/ZERO-CREDIT",
+      "replacement": "Container may test supported clients/components; authority/control remains outside generator",
+      "acceptance": "Independent issuer/verifier; append-only/replay/delete/swap defense; real production wiring",
+      "reuse_limit": "Local container image/run is not production authority",
+      "residual_validation": "Local container image/run is not production authority"
+    },
+    {
+      "item": "R8 WSL/ETW/dual collector/runtime fencing",
+      "classification": "B+C",
+      "purpose": "Detached residual, host event collection and successor ownership",
+      "status": "NOT_RUN",
+      "replacement": "Windows/WSL observer and separate controller; container observes API only",
+      "acceptance": "Real ETW; 1800 samples per lane/100ms/180s as prior contract; exact fencing and residue",
+      "reuse_limit": "No Docker/WSL fault injection/restart now",
+      "residual_validation": "No Docker/WSL fault injection/restart now"
+    },
+    {
+      "item": "V4 X1/Q0/calibration/matrix",
+      "classification": "A+B",
+      "purpose": "Exact heterogeneous model/terminal-effect measurement and load selection",
+      "status": "NOT_RUN for current plan candidate",
+      "replacement": "Container producer/validator with original ready/lease/fencing/model/data gates; separate topology controller",
+      "acceptance": "X1-AC-01..06; 54 calibration and 78 matrix repetitions from current config; no acceptance by numeric target alone",
+      "reuse_limit": "54=12 solo+18 topology+24 batch;78=18 serial+18 balanced+18 hot+24 batch; not started",
+      "residual_validation": "54=12 solo+18 topology+24 batch;78=18 serial+18 balanced+18 hot+24 batch; not started"
+    },
+    {
+      "item": "Tool-only Windows venv/launcher/supervisor preparation",
+      "classification": "D for container lane only",
+      "purpose": "Manage producer executable/environment and process cleanup",
+      "status": "Replaced for new container lane; original failures preserved",
+      "replacement": "Immutable Linux image + disposable constrained containers and recorded exit/resource cleanup",
+      "acceptance": "Image ID/digest, source/profile hashes, exact run resources, timeout/normal exit",
+      "reuse_limit": "No further Windows-only harness strengthening; replacement is not PASS of its tests",
+      "residual_validation": "No further Windows-only harness strengthening; replacement is not PASS of its tests"
+    }
+  ]
+}

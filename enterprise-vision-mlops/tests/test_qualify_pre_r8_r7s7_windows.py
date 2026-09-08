@@ -1838,7 +1838,8 @@ def test_outer_native_failure_seal_publication_smoke_uses_same_handle_no_replace
         ],
         check=False,
         capture_output=True,
-        text=True,
+        # PowerShell host stderr is not necessarily UTF-8; retain exact bytes.
+        text=False,
         timeout=30,
     )
     assert completed.returncode == 0, completed.stderr

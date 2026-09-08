@@ -1757,7 +1757,8 @@ if ($OutputEncoding.CodePage -ne 1200) {
     completed = subprocess.run(
         (str(powershell), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded),
         capture_output=True,
-        text=True,
+        # PowerShell host stderr is not necessarily UTF-8; retain exact bytes.
+        text=False,
         env=environment,
         check=False,
     )
@@ -1911,11 +1912,12 @@ def test_trusted_outer_rejects_self_consistent_arbitrary_site_packages_path(
     completed = subprocess.run(
         invocation,
         capture_output=True,
-        text=True,
+        # PowerShell host stderr is not necessarily UTF-8; retain exact bytes.
+        text=False,
         check=False,
     )
     assert completed.returncode != 0
-    assert "python_site_packages_not_derived_from_pinned_python" in (
+    assert b"python_site_packages_not_derived_from_pinned_python" in (
         completed.stdout + completed.stderr
     )
 
@@ -1927,7 +1929,10 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     outer = Path(review.__file__).with_name("invoke_pre_r8_r7s7_review.ps1").resolve()
     publisher_path = Path(review.__file__).resolve()
     runner_path = Path(runner.__file__).resolve()
-    python_path = Path(sys.executable).resolve()
+    # This work-order role is pinned separately from the interpreter running pytest.
+    python_path = Path(
+        r"C:\Users\opop0\.codex-runtime\enterprise-vision-mlops-py311\python.exe"
+    ).resolve(strict=True)
     pinned_host_python = Path(r"C:\Users\opop0\miniconda3\python.exe")
     if not pinned_host_python.is_file():
         pytest.skip("private X1 pinned host/Ruff interpreter is not provisioned")
@@ -1995,18 +2000,19 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     completed = subprocess.run(
         invocation,
         capture_output=True,
-        text=True,
+        # PowerShell host stderr is not necessarily UTF-8; retain exact bytes.
+        text=False,
         check=False,
     )
     combined = completed.stdout + completed.stderr
     assert completed.returncode != 0
-    assert "python_tool_content_aggregate_mismatch" not in combined
-    assert "python_tool_content_file_count_mismatch" not in combined
-    assert "external_work_order_code_file_binding_set_not_exact" not in combined
+    assert b"python_tool_content_aggregate_mismatch" not in combined
+    assert b"python_tool_content_file_count_mismatch" not in combined
+    assert b"external_work_order_code_file_binding_set_not_exact" not in combined
     assert (
-        "preimport_untracked_import_shadow_forbidden" in combined
-        or "the following arguments are required" in combined
-        or "review_os_bound_outer_capability_unprovisioned" in combined
+        b"preimport_untracked_import_shadow_forbidden" in combined
+        or b"the following arguments are required" in combined
+        or b"review_os_bound_outer_capability_unprovisioned" in combined
     )
 
     def assert_outer_rejects(mutated: dict[str, Any], expected_error: str) -> None:
@@ -2015,11 +2021,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
         result = subprocess.run(
             (*invocation[:-1], hashlib.sha256(mutated_raw).hexdigest()),
             capture_output=True,
-            text=True,
+            text=False,
             check=False,
         )
         assert result.returncode != 0
-        assert expected_error in (result.stdout + result.stderr)
+        assert expected_error.encode("ascii") in (result.stdout + result.stderr)
 
     tool_key_case = json.loads(json.dumps(work_order))
     tool_binding = tool_key_case["tool_file_bindings"]["python_general"]
@@ -2066,11 +2072,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     case_mutated_result = subprocess.run(
         case_mutated_invocation,
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert case_mutated_result.returncode != 0
-    assert "external_work_order_tool_file_binding_set_not_exact" in (
+    assert b"external_work_order_tool_file_binding_set_not_exact" in (
         case_mutated_result.stdout + case_mutated_result.stderr
     )
 
@@ -2084,11 +2090,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     shrunken_result = subprocess.run(
         shrunken_invocation,
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert shrunken_result.returncode != 0
-    assert "python_tool_dependency_closure_not_exact" in (
+    assert b"python_tool_dependency_closure_not_exact" in (
         shrunken_result.stdout + shrunken_result.stderr
     )
 
@@ -2105,11 +2111,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     role_swapped_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(role_swapped_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert role_swapped_result.returncode != 0
-    assert "python_tool_role_distribution_version_mismatch" in (
+    assert b"python_tool_role_distribution_version_mismatch" in (
         role_swapped_result.stdout + role_swapped_result.stderr
     )
 
@@ -2120,11 +2126,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     unknown_version_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(unknown_version_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert unknown_version_result.returncode != 0
-    assert "python_tool_role_distribution_version_mismatch" in (
+    assert b"python_tool_role_distribution_version_mismatch" in (
         unknown_version_result.stdout + unknown_version_result.stderr
     )
 
@@ -2140,11 +2146,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     transitive_mismatch_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(transitive_mismatch_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert transitive_mismatch_result.returncode != 0
-    assert "python_tool_dependency_closure_not_exact" in (
+    assert b"python_tool_dependency_closure_not_exact" in (
         transitive_mismatch_result.stdout + transitive_mismatch_result.stderr
     )
 
@@ -2158,11 +2164,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     primary_mismatch_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(primary_mismatch_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert primary_mismatch_result.returncode != 0
-    assert "python_tool_distribution_version_binding_mismatch" in (
+    assert b"python_tool_distribution_version_binding_mismatch" in (
         primary_mismatch_result.stdout + primary_mismatch_result.stderr
     )
 
@@ -2177,11 +2183,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     dist_info_mismatch_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(dist_info_mismatch_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert dist_info_mismatch_result.returncode != 0
-    assert "python_tool_primary_dist_info_binding_mismatch" in (
+    assert b"python_tool_primary_dist_info_binding_mismatch" in (
         dist_info_mismatch_result.stdout + dist_info_mismatch_result.stderr
     )
 
@@ -2195,11 +2201,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     dependency_key_case_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(dependency_key_case_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert dependency_key_case_result.returncode != 0
-    assert "python_tool_dependency_record_keys_not_exact" in (
+    assert b"python_tool_dependency_record_keys_not_exact" in (
         dependency_key_case_result.stdout + dependency_key_case_result.stderr
     )
 
@@ -2222,11 +2228,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     content_key_case_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(content_key_case_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert content_key_case_result.returncode != 0
-    assert "python_tool_content_record_keys_not_exact" in (
+    assert b"python_tool_content_record_keys_not_exact" in (
         content_key_case_result.stdout + content_key_case_result.stderr
     )
 
@@ -2245,11 +2251,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     module_key_case_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(module_key_case_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert module_key_case_result.returncode != 0
-    assert "python_tool_module_keys_not_exact" in (
+    assert b"python_tool_module_keys_not_exact" in (
         module_key_case_result.stdout + module_key_case_result.stderr
     )
 
@@ -2263,11 +2269,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     numeric_string_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(numeric_string_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert numeric_string_result.returncode != 0
-    assert "python_tool_module_types_or_flags_not_exact" in (
+    assert b"python_tool_module_types_or_flags_not_exact" in (
         numeric_string_result.stdout + numeric_string_result.stderr
     )
 
@@ -2280,11 +2286,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     flag_omitted_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(flag_omitted_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert flag_omitted_result.returncode != 0
-    assert "python_tool_module_keys_not_exact" in (
+    assert b"python_tool_module_keys_not_exact" in (
         flag_omitted_result.stdout + flag_omitted_result.stderr
     )
 
@@ -2297,11 +2303,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     origin_shrunken_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(origin_shrunken_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert origin_shrunken_result.returncode != 0
-    assert "python_tool_role_module_origins_not_exact" in (
+    assert b"python_tool_role_module_origins_not_exact" in (
         origin_shrunken_result.stdout + origin_shrunken_result.stderr
     )
 
@@ -2338,11 +2344,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     self_consistent_inventory_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(self_consistent_inventory_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert self_consistent_inventory_result.returncode != 0
-    assert "python_tool_role_content_inventory_mismatch" in (
+    assert b"python_tool_role_content_inventory_mismatch" in (
         self_consistent_inventory_result.stdout + self_consistent_inventory_result.stderr
     )
 
@@ -2358,11 +2364,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     self_consistent_launcher_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(self_consistent_launcher_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert self_consistent_launcher_result.returncode != 0
-    assert "python_tool_role_launcher_binding_mismatch" in (
+    assert b"python_tool_role_launcher_binding_mismatch" in (
         self_consistent_launcher_result.stdout + self_consistent_launcher_result.stderr
     )
 
@@ -2404,11 +2410,11 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     launcher_omitted_result = subprocess.run(
         (*invocation[:-1], hashlib.sha256(launcher_omitted_raw).hexdigest()),
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert launcher_omitted_result.returncode != 0
-    assert "python_tool_role_launcher_binding_mismatch" in (
+    assert b"python_tool_role_launcher_binding_mismatch" in (
         launcher_omitted_result.stdout + launcher_omitted_result.stderr
     )
 
@@ -2421,11 +2427,13 @@ def test_trusted_outer_accepts_exact_tool_content_inventory_before_publisher_dis
     tampered = subprocess.run(
         tampered_invocation,
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
     assert tampered.returncode != 0
-    assert "external_work_order_code_file_role_path_mismatch" in (tampered.stdout + tampered.stderr)
+    assert b"external_work_order_code_file_role_path_mismatch" in (
+        tampered.stdout + tampered.stderr
+    )
 
 
 def test_live_command_plan_metadata_children_are_in_terminal_publisher_ledger(

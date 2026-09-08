@@ -1,0 +1,101 @@
+{
+  "schema_version": "evm.container_test.profile.v1",
+  "profile_id": "capacity-probe-low-load-smoke-ready-template",
+  "status": "NOT_RUN",
+  "acceptance_credit": false,
+  "blockers": [
+    "replace_every_UNPROVISIONED_value_from_fresh_readback",
+    "set_status_READY_only_after_all_file_and_identity_hashes_are_frozen",
+    "set_acceptance_credit_true_only_for_the_evm-local_actual_API_lane"
+  ],
+  "target": {
+    "network": "evm-local",
+    "base_url": "http://evm-api:8000",
+    "health_path": "/health",
+    "catalog_path": "/control-panel/v1/scenario-workloads/capacity-probes",
+    "predict_path": "/control-panel/v1/scenario-workloads/capacity-probes/predict",
+    "authentication": {
+      "mode": "none",
+      "credentials_embedded": false
+    }
+  },
+  "request_contract": {
+    "schema_version": "evm.s3_capacity_probe_request.v1",
+    "probe_family": "logistic",
+    "feature_count": 28,
+    "terminal_semantics": "synchronous_http_response",
+    "job_status_polling": "not_applicable",
+    "idempotency": "not_applicable",
+    "effects": "not_applicable",
+    "asynchronous_workflow": "NOT_RUN"
+  },
+  "frozen_inputs": {
+    "openapi_path": "openapi.json",
+    "openapi_sha256": "UNPROVISIONED_OPENAPI_SHA256",
+    "catalog_path": "catalog.json",
+    "catalog_sha256": "UNPROVISIONED_CATALOG_FILE_SHA256",
+    "catalog_canonical_sha256": "UNPROVISIONED_CATALOG_CANONICAL_SHA256",
+    "request_corpus_path": "request-corpus.json",
+    "request_corpus_sha256": "UNPROVISIONED_REQUEST_CORPUS_SHA256",
+    "dataset_identity_sha256": "UNPROVISIONED_DATASET_IDENTITY_SHA256",
+    "model_identity_sha256": "UNPROVISIONED_MODEL_IDENTITY_SHA256",
+    "artifact_sha256": "UNPROVISIONED_ARTIFACT_SHA256"
+  },
+  "expected_runtime": {
+    "api_replica_ids": [
+      "UNPROVISIONED_ACTUAL_API_REPLICA_ID"
+    ],
+    "cpu_worker_count": 0,
+    "worker_slots": []
+  },
+  "load": {
+    "arrival_model": "closed_concurrency",
+    "concurrency": 1,
+    "maximum_request_count": 3,
+    "maximum_duration_seconds": 60,
+    "drain_timeout_seconds": 30,
+    "request_timeout_seconds": 5,
+    "pacing_seconds": 20,
+    "fixed_arrival_rate_claim": false,
+    "claim_boundary": "One user issues one to three sequential requests with constant pacing; this is not fixed or open arrival rate."
+  },
+  "runtime_constraints": {
+    "cpus": 1,
+    "memory_mib": 512,
+    "pids_limit": 128,
+    "read_only_rootfs": true,
+    "cap_drop": "ALL",
+    "no_new_privileges": true,
+    "runtime_user": "1000:1000",
+    "code_mount": "read_only",
+    "input_mount": "read_only",
+    "output_mount": "write_only_by_contract"
+  },
+  "acceptance": {
+    "s3_p99_response_ms": 250,
+    "maximum_error_rate": 0.01,
+    "maximum_generator_lag_ms": 100,
+    "maximum_host_cpu_percent": 90,
+    "host_cpu_observer": "parent"
+  },
+  "provenance": {
+    "source_commit": "UNPROVISIONED_SOURCE_COMMIT",
+    "source_tree": "UNPROVISIONED_SOURCE_TREE",
+    "smoke_sha256": "UNPROVISIONED_SMOKE_SHA256",
+    "target_image_id": "UNPROVISIONED_IMMUTABLE_IMAGE_ID"
+  },
+  "deferred_windows_gates": [
+    {
+      "gate_id": "windows_etw_collector",
+      "status": "NOT_RUN"
+    },
+    {
+      "gate_id": "windows_wsl_dual_collector",
+      "status": "NOT_RUN"
+    },
+    {
+      "gate_id": "windows_high_integrity_token",
+      "status": "NOT_RUN"
+    }
+  ]
+}

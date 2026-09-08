@@ -1,0 +1,5 @@
+# The original registry and models already exist on this read-only data mount.
+services:
+  api:
+    environment:
+      EVM_S3_CAPACITY_REGISTRY_PATH: /mnt/evm-data/artifacts/scale_validation/s3/capacity-registry.json

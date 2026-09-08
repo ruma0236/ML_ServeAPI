@@ -1,0 +1,14 @@
+{
+  "schema": "evm.container-test-image.local.v1",
+  "version": "0.1.0",
+  "image_id": "sha256:2c7a0ee83cc1f33740a480f6ee8d123a125de2c14bdeb985394d9e5b272605be",
+  "platform": "linux/amd64",
+  "local_tag": "evm-container-tests:0.1.0",
+  "registry_published": false,
+  "local_repo_digest_is_not_registry_publication": true,
+  "export_artifact": "F:\\EnterpriseMLOps_Data\\enterprise-vision-mlops\\artifacts\\scale_validation\\private\\s8-v4\\container-tool-transition-20260908T163633Z-01\\evm-container-tests-0.1.0-linux-amd64.tar",
+  "export_sha256": "4b14ab4811113d8690aecfbde655fe6ed3c04714df343679ca2012bffcee7325",
+  "base_lock": "image.lock.json",
+  "python_role": "Linux container tool interpreter, separate from Windows M03 toolchain",
+  "test_code": "read-only mount bound by run manifest"
+}
