@@ -1,0 +1,16 @@
+FROM --platform=linux/amd64 python:3.11.11-slim-bookworm@sha256:a8e0a3090316aed0b11037aac613aef32fb1747dcc1dcb5c0f6c727a0113a07f
+
+# Generated from the repository uv.lock; this export is not a second lock authority.
+COPY requirements-regression.txt /tmp/requirements-regression.txt
+RUN python -m pip install --no-cache-dir --index-url https://pypi.org/simple \
+      --only-binary=:all: --require-hashes --no-deps \
+      --requirement /tmp/requirements-regression.txt \
+    && python -m pip check
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONNOUSERSITE=1 \
+    PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+USER 10001:10001
+WORKDIR /workspace/enterprise-vision-mlops
+ENTRYPOINT ["python"]
+CMD ["--version"]

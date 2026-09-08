@@ -1,0 +1,26 @@
+{
+  "schema": "evm.container-test.local-regression-image.v1",
+  "version": "0.1.0",
+  "human_tag": "evm-product-regression:0.1.0",
+  "image_id": "sha256:4edd5b2d202ceb355530c4cd598ae85ebacc2758325068af680b7a5ab6c74b9b",
+  "platform": "linux/amd64",
+  "python": "3.11.11",
+  "base_manifest": "python:3.11.11-slim-bookworm@sha256:a8e0a3090316aed0b11037aac613aef32fb1747dcc1dcb5c0f6c727a0113a07f",
+  "registry_pushed": false,
+  "registry_verified_digest": null,
+  "local_image_artifact": {
+    "path": "F:\\EnterpriseMLOps_Data\\enterprise-vision-mlops\\artifacts\\scale_validation\\private\\s8-v4\\pre-r8-continuation-20260908T194638Z\\evm-product-regression-0.1.0.docker.tar",
+    "sha256": "fab6fff00885e0dbaa88d4de4efa6f7f5b21bd1cc75c89ad2dc96a9926501d51",
+    "bytes": 249248256
+  },
+  "definition_hashes": {
+    "pyproject.toml": "f522de6d899dc2098bca80bd86c26af4e03c1d37baac979530ecb6db1589514d",
+    "uv.lock": "44ef78987472ffe58959f9993206f21496fd90f37974c9fb4b986ad133246c42",
+    "tools/container-tests/Dockerfile.regression": "09781ea69be29e034bd995a1c5d7a45ee81258fbd501cca388f0508a738a41b3",
+    "tools/container-tests/Dockerfile.regression.dockerignore": "c40bc2c2f92a0cdf6bcd83844036b059deb9488e862ced0b781f03e672621368",
+    "tools/container-tests/requirements-regression.txt": "af216909a6cef7692ee25b0055f70ed76d52d5afabfba62498bd551bce36f58a"
+  },
+  "dependency_authority": "uv.lock",
+  "source_code": "Not included in image; exact clean checkout mounted read-only per run.",
+  "scope": "Local Linux product contract tests only; no hosted-runner attestation or production authority."
+}

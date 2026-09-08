@@ -560,6 +560,44 @@ def _toolchain(tmp_path: Path) -> dict[str, object]:
 
 
 def _materialized_toolchain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    # Keep verify_files=True independent from the ambient canonical checkout while
+    # retaining the production-pinned byte/hash contract verbatim.
+    git_config_payload = (
+        "[core]\n"
+        "\trepositoryformatversion = 0\n"
+        "\tfilemode = false\n"
+        "\tbare = false\n"
+        "\tlogallrefupdates = true\n"
+        "\tsymlinks = false\n"
+        "\tignorecase = true\n"
+        '[remote "origin"]\n'
+        "\turl = https://github.com/ruma0236/ML_ServeAPI.git\n"
+        "\tfetch = +refs/heads/*:refs/remotes/origin/*\n"
+        '[branch "codex/local-infra-mvp"]\n'
+        "\tremote = origin\n"
+        "\tmerge = refs/heads/codex/local-infra-mvp\n"
+        "[user]\n"
+        "\tname = ruma0236\n"
+        "\temail = ruma0236@users.noreply.github.com\n"
+        "[extensions]\n"
+        "\tworktreeConfig = true\n"
+        '[branch "codex/mac-mini-worker"]\n'
+        "\tremote = origin\n"
+        "\tmerge = refs/heads/codex/mac-mini-worker\n"
+        '[branch "codex/distributed-scale-validation-plan"]\n'
+        "\tremote = origin\n"
+        "\tmerge = refs/heads/codex/distributed-scale-validation-plan\n"
+        '[branch "codex/x1-resume-results-20260825-215716"]\n'
+        "\tremote = origin\n"
+        "\tmerge = refs/heads/codex/x1-resume-results-20260825-215716\n"
+    ).encode("utf-8")
+    assert len(git_config_payload) == r7s1.CANONICAL_GIT_CONFIG_BYTES
+    assert hashlib.sha256(git_config_payload).hexdigest() == r7s1.CANONICAL_GIT_CONFIG_SHA256
+    git_config_path = (tmp_path / "project-git" / "config").resolve()
+    git_config_path.parent.mkdir(parents=True)
+    git_config_path.write_bytes(git_config_payload)
+    monkeypatch.setattr(r7s1, "CANONICAL_GIT_CONFIG_PATH", git_config_path)
+
     attributes_path = (tmp_path / "project" / ".gitattributes").resolve()
     attributes_path.parent.mkdir(parents=True)
     attributes_payload = (Path(__file__).parents[1] / ".gitattributes").read_bytes()
